@@ -3,7 +3,7 @@ Fred
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.org/aembke/fred.rs.svg?branch=master)](https://travis-ci.org/aembke/fred.rs)
+[![Build Status](https://travis-ci.com/aembke/fred.rs.svg?branch=main)](https://travis-ci.com/aembke/fred.rs)
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
@@ -132,6 +132,6 @@ export REDIS_VERSION=6.2.2
 
 **Beware: the tests will periodically run `flushall`.**
 
-## Contributing
+## Contributing 
 
 See the [contributing](CONTRIBUTING.md) documentation for info on adding new commands.

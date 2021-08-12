@@ -1,12 +1,26 @@
 use fred::prelude::*;
 use std::collections::HashSet;
 
+#[cfg(feature = "index-map")]
+use indexmap::set::IndexSet;
+
 fn vec_to_set(data: Vec<RedisValue>) -> HashSet<RedisValue> {
   let mut out = HashSet::with_capacity(data.len());
   for value in data.into_iter() {
     out.insert(value);
   }
   out
+}
+
+#[cfg(feature = "index-map")]
+fn sets_eq(lhs: &IndexSet<RedisValue>, rhs: &HashSet<RedisValue>) -> bool {
+  let lhs: HashSet<RedisValue> = lhs.iter().map(|v| v.clone()).collect();
+  &lhs == rhs
+}
+
+#[cfg(not(feature = "index-map"))]
+fn sets_eq(lhs: &HashSet<RedisValue>, rhs: &HashSet<RedisValue>) -> bool {
+  lhs == rhs
 }
 
 pub async fn should_sadd_elements(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -44,7 +58,10 @@ pub async fn should_sdiff_elements(client: RedisClient, _: RedisConfig) -> Resul
   let _ = client.sadd("bar{1}", vec![3, 4, 5, 6, 7, 8]).await?;
   let result = client.sdiff(vec!["foo{1}", "bar{1}"]).await?;
 
-  assert_eq!(result.into_set().unwrap(), vec_to_set(vec!["1".into(), "2".into()]));
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec!["1".into(), "2".into()])
+  ));
 
   Ok(())
 }
@@ -60,7 +77,10 @@ pub async fn should_sdiffstore_elements(client: RedisClient, _: RedisConfig) -> 
   assert_eq!(result.as_i64().unwrap(), 2);
   let result = client.smembers("baz{1}").await?;
 
-  assert_eq!(result.into_set().unwrap(), vec_to_set(vec!["1".into(), "2".into()]));
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec!["1".into(), "2".into()])
+  ));
 
   Ok(())
 }
@@ -74,10 +94,10 @@ pub async fn should_sinter_elements(client: RedisClient, _: RedisConfig) -> Resu
   let _ = client.sadd("bar{1}", vec![3, 4, 5, 6, 7, 8]).await?;
   let result = client.sinter(vec!["foo{1}", "bar{1}"]).await?;
 
-  assert_eq!(
-    result.into_set().unwrap(),
-    vec_to_set(vec!["3".into(), "4".into(), "5".into(), "6".into()])
-  );
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec!["3".into(), "4".into(), "5".into(), "6".into()])
+  ));
 
   Ok(())
 }
@@ -93,10 +113,10 @@ pub async fn should_sinterstore_elements(client: RedisClient, _: RedisConfig) ->
   assert_eq!(result.as_i64().unwrap(), 4);
   let result = client.smembers("baz{1}").await?;
 
-  assert_eq!(
-    result.into_set().unwrap(),
-    vec_to_set(vec!["3".into(), "4".into(), "5".into(), "6".into()])
-  );
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec!["3".into(), "4".into(), "5".into(), "6".into()])
+  ));
 
   Ok(())
 }
@@ -134,9 +154,9 @@ pub async fn should_read_smembers(client: RedisClient, _: RedisConfig) -> Result
 
   let _ = client.sadd("foo", vec![1, 2, 3, 4, 5, 6]).await?;
   let result = client.smembers("foo").await?;
-  assert_eq!(
-    result.into_set().unwrap(),
-    vec_to_set(vec![
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec![
       "1".into(),
       "2".into(),
       "3".into(),
@@ -144,7 +164,7 @@ pub async fn should_read_smembers(client: RedisClient, _: RedisConfig) -> Result
       "5".into(),
       "6".into()
     ])
-  );
+  ));
 
   Ok(())
 }
@@ -165,11 +185,14 @@ pub async fn should_smove_elements(client: RedisClient, _: RedisConfig) -> Resul
 
   let foo = client.smembers("foo{1}").await?;
   let bar = client.smembers("bar{1}").await?;
-  assert_eq!(
-    foo.into_set().unwrap(),
-    vec_to_set(vec!["2".into(), "3".into(), "4".into(), "6".into()])
-  );
-  assert_eq!(bar.into_set().unwrap(), vec_to_set(vec!["5".into(), "1".into()]));
+  assert!(sets_eq(
+    &foo.into_set().unwrap(),
+    &vec_to_set(vec!["2".into(), "3".into(), "4".into(), "6".into()])
+  ));
+  assert!(sets_eq(
+    &bar.into_set().unwrap(),
+    &vec_to_set(vec!["5".into(), "1".into()])
+  ));
 
   Ok(())
 }
@@ -220,7 +243,10 @@ pub async fn should_remove_elements(client: RedisClient, _: RedisConfig) -> Resu
   assert_eq!(result.as_i64().unwrap(), 3);
 
   let result = client.smembers("foo").await?;
-  assert_eq!(result.into_set().unwrap(), vec_to_set(vec!["5".into(), "6".into()]));
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec!["5".into(), "6".into()])
+  ));
 
   Ok(())
 }
@@ -233,9 +259,9 @@ pub async fn should_sunion_elements(client: RedisClient, _: RedisConfig) -> Resu
   let _ = client.sadd("bar{1}", vec![3, 4, 5, 6, 7, 8]).await?;
   let result = client.sunion(vec!["foo{1}", "bar{1}"]).await?;
 
-  assert_eq!(
-    result.into_set().unwrap(),
-    vec_to_set(vec![
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec![
       "1".into(),
       "2".into(),
       "3".into(),
@@ -245,7 +271,7 @@ pub async fn should_sunion_elements(client: RedisClient, _: RedisConfig) -> Resu
       "7".into(),
       "8".into()
     ])
-  );
+  ));
 
   Ok(())
 }
@@ -261,9 +287,9 @@ pub async fn should_sunionstore_elements(client: RedisClient, _: RedisConfig) ->
   assert_eq!(result.as_i64().unwrap(), 8);
   let result = client.smembers("baz{1}").await?;
 
-  assert_eq!(
-    result.into_set().unwrap(),
-    vec_to_set(vec![
+  assert!(sets_eq(
+    &result.into_set().unwrap(),
+    &vec_to_set(vec![
       "1".into(),
       "2".into(),
       "3".into(),
@@ -273,7 +299,7 @@ pub async fn should_sunionstore_elements(client: RedisClient, _: RedisConfig) ->
       "7".into(),
       "8".into()
     ])
-  );
+  ));
 
   Ok(())
 }
