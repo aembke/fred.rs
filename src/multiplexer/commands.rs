@@ -1,0 +1,748 @@
+use crate::client::{RedisClient, RedisClientInner};
+use crate::commands::ASYNC;
+use crate::error::{RedisError, RedisErrorKind};
+use crate::globals::globals;
+use crate::multiplexer::Multiplexer;
+use crate::multiplexer::{utils, SentCommand};
+use crate::protocol::connection::read_cluster_nodes;
+use crate::protocol::types::{RedisCommand, RedisCommandKind};
+use crate::protocol::utils::pretty_error;
+use crate::trace;
+use crate::types::{ClientState, ReconnectPolicy, RedisConfig};
+use crate::utils as client_utils;
+use futures::{StreamExt, TryStreamExt};
+use redis_protocol::redis_keyslot;
+use redis_protocol::types::Frame as ProtocolFrame;
+use std::collections::VecDeque;
+use std::ops::DerefMut;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::oneshot::channel as oneshot_channel;
+use tokio::sync::oneshot::Receiver as OneshotReceiver;
+use tokio::time::sleep;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+
+#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+use std::ops::Deref;
+#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+use tracing_futures::Instrument;
+
+async fn backpressure(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  mut duration: Duration,
+  mut command: RedisCommand,
+) -> Result<(), RedisError> {
+  loop {
+    _warn!(
+      inner,
+      "Sleeping for {} ms due to connection backpressure.",
+      duration.as_millis()
+    );
+    trace::backpressure_event(&command, duration.as_millis());
+
+    sleep(duration).await;
+
+    if let Some((_duration, _command)) = multiplexer.write(command).await? {
+      duration = _duration;
+      command = _command;
+    } else {
+      break;
+    }
+  }
+
+  Ok(())
+}
+
+fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, command: RedisCommand) {
+  let inner = inner.clone();
+  _debug!(inner, "Splitting clustered connection...");
+
+  let mut split = match command.kind {
+    RedisCommandKind::_Split(split) => split,
+    _ => {
+      _error!(inner, "Skip slitting cluster due to invalid redis command.");
+      utils::emit_error(
+        &inner,
+        &RedisError::new(
+          RedisErrorKind::Unknown,
+          "Invalid redis command provided to split cluster.",
+        ),
+      );
+      return;
+    }
+  };
+  let (tx, config) = (split.tx.write().take(), split.config.take());
+  if tx.is_none() || config.is_none() {
+    utils::emit_error(
+      &inner,
+      &RedisError::new(RedisErrorKind::Unknown, "Missing split response sender or config."),
+    );
+    return;
+  }
+  let (tx, config) = (tx.unwrap(), config.unwrap());
+
+  let _ = tokio::spawn(async move {
+    let cluster_state = match read_cluster_nodes(&inner).await {
+      Ok(state) => state,
+      Err(e) => {
+        let _ = tx.send(Err(e));
+        return;
+      }
+    };
+    let main_nodes = cluster_state.unique_main_nodes();
+    let mut clients = Vec::with_capacity(main_nodes.len());
+
+    for main_node in main_nodes.into_iter() {
+      let parts: Vec<&str> = main_node.split(":").collect();
+      if parts.len() != 2 {
+        let _ = tx.send(Err(RedisError::new(
+          RedisErrorKind::ProtocolError,
+          format!("Invalid host/port for {}", main_node),
+        )));
+        return;
+      }
+
+      let host = parts[0].to_owned();
+      let port = match parts[1].parse::<u16>() {
+        Ok(port) => port,
+        Err(e) => {
+          let _ = tx.send(Err(RedisError::from(e)));
+          return;
+        }
+      };
+
+      let config = RedisConfig::Centralized {
+        host,
+        port,
+        key: config.key(),
+        tls: config.tls().clone(),
+      };
+
+      clients.push(RedisClient::new(config));
+    }
+
+    let _ = tx.send(Ok(clients));
+  });
+}
+
+fn shutdown_client(inner: &Arc<RedisClientInner>, error: &RedisError) {
+  utils::emit_connect_error(&inner.connect_tx, &error);
+  utils::emit_error(&inner, &error);
+  client_utils::shutdown_listeners(&inner);
+  client_utils::set_locked(&inner.command_tx, None);
+  client_utils::set_locked(&inner.multi_block, None);
+  client_utils::set_client_state(&inner.state, ClientState::Disconnected);
+  inner.update_cluster_state(None);
+}
+
+fn respond_with_error(inner: &Arc<RedisClientInner>, command: RedisCommand, error: RedisError) {
+  if let Some(tx) = command.tx {
+    if let Err(_) = tx.send(Err(error)) {
+      _warn!(inner, "Error responding early to command.");
+    }
+  }
+}
+
+fn respond_with_canceled_error(inner: &Arc<RedisClientInner>, command: RedisCommand, error: &'static str) {
+  let error = RedisError::new(RedisErrorKind::Canceled, error);
+  respond_with_error(inner, command, error);
+}
+
+fn clear_multi_block_commands(inner: &Arc<RedisClientInner>, commands: &mut VecDeque<SentCommand>) {
+  let error = RedisError::new(
+    RedisErrorKind::Canceled,
+    "Transaction aborted due to connection closing.",
+  );
+
+  for command in commands.drain(..) {
+    if let Some(tx) = command.command.tx {
+      if let Err(_) = tx.send(Err(error.clone())) {
+        _warn!(inner, "Error responding to caller with transaction aborted error.");
+      }
+    }
+    if let Some(tx) = client_utils::take_locked(&command.command.resp_tx) {
+      if let Err(e) = tx.send(()) {
+        _warn!(inner, "Error sending message to multiplexer loop {:?}", e);
+      }
+    }
+  }
+}
+
+/// Handle connection closed events by trying to reconnect and then flushing all pending commands again.
+fn handle_connection_closed(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  policy: Option<ReconnectPolicy>,
+) {
+  let (inner, multiplexer) = (inner.clone(), multiplexer.clone());
+  let has_reconnect_policy = policy.is_some();
+  // the extra provided policy will kick in when we get a cluster redirection error but no policy is otherwise specified
+  let policy = policy.unwrap_or(ReconnectPolicy::Constant {
+    attempts: 0,
+    max_attempts: 0,
+    delay: globals().cluster_error_cache_delay() as u32,
+  });
+
+  let _ = tokio::spawn(async move {
+    let (tx, rx) = unbounded_channel();
+    client_utils::set_locked(&inner.connection_closed_tx, Some(tx));
+    let memo = (inner, multiplexer, policy);
+
+    let _ = UnboundedReceiverStream::new(rx)
+      .map(|cmd| Ok(cmd))
+      .try_fold(
+        memo,
+        |(inner, multiplexer, mut policy), (mut commands, error)| async move {
+          _debug!(inner, "Recv reconnect message with {} commands", commands.len());
+
+          if !has_reconnect_policy && !error.is_cluster_error() {
+            _debug!(
+              inner,
+              "Exit early in reconnect loop due to no reconnect policy and non-cluster error."
+            );
+            return Err(RedisError::new_canceled());
+          }
+
+          client_utils::set_client_state(&inner.state, ClientState::Connecting);
+
+          'outer: loop {
+            let next_delay = if error.is_cluster_error() {
+              let amt = globals().cluster_error_cache_delay();
+              _debug!(inner, "Waiting {} ms to reconnect due to cluster error", amt);
+              amt as u64
+            } else {
+              match policy.next_delay() {
+                Some(delay) => delay,
+                None => {
+                  _warn!(inner, "Max reconnect attempts reached. Stopping redis client.");
+                  let error = RedisError::new(RedisErrorKind::Unknown, "Max reconnection attempts reached.");
+                  write_final_error_to_callers(&inner, commands, &error);
+                  shutdown_client(&inner, &error);
+
+                  return Err(error);
+                }
+              }
+            };
+
+            _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
+            sleep(Duration::from_millis(next_delay)).await;
+
+            // detect if for some reason the caller manually resets the connection and reconnects by hand while we're sleeping.
+            // if this happens then the manual reconnect operation will have spawned another instance of this task, so we can
+            // just break out of this function entirely instead of continuing the loop. however, in this case we don't want to
+            // shut down the entire client since the caller manually reconnected and is probably using it again.
+            if client_utils::read_client_state(&inner.state) == ClientState::Connected {
+              _info!(
+                inner,
+                "Breaking out of reconnect attempt due to client already being connected."
+              );
+              return Err(RedisError::new_canceled());
+            }
+
+            if let Err(error) = multiplexer.connect_and_flush().await {
+              _warn!(inner, "Failed to reconnect with error {:?}", error);
+
+              if *error.kind() == RedisErrorKind::Auth {
+                // stop trying to connect if auth is failing
+                write_final_error_to_callers(&inner, commands, &error);
+                shutdown_client(&inner, &error);
+                return Err(error);
+              } else {
+                utils::emit_error(&inner, &error);
+              }
+
+              continue 'outer;
+            }
+
+            if client_utils::take_locked(&inner.multi_block).is_some() {
+              // don't retry commands from a transaction, just tell the caller they failed. it's
+              // problematic to pair automatic retry with transactions since the earlier futures
+              // could have already resolved. instead here we just emit an error to the callers of
+              // any commands inside a multi block. the final `EXEC` command always blocks the
+              // multiplexer loop so we can be sure any queued commands here are a part of a multi
+              // block if a policy is set on the inner client struct.
+              clear_multi_block_commands(&inner, &mut commands);
+            }
+
+            'inner: for _ in 0..commands.len() {
+              let command = match commands.pop_front() {
+                Some(cmd) => cmd,
+                None => break 'inner,
+              };
+
+              if let Err(e) = multiplexer.write(command.command).await {
+                _debug!(inner, "Failed to flush previously in-flight command: {:?}", e);
+                continue 'outer;
+              }
+            }
+
+            // break when connection is established
+            break;
+          }
+
+          policy.reset_attempts();
+          utils::emit_connect(&inner.connect_tx);
+          utils::emit_reconnect(&inner);
+
+          Ok((inner, multiplexer, policy))
+        },
+      )
+      .await;
+
+    Ok::<(), ()>(())
+  });
+}
+
+/// Whether or not the error represents a fatal CONFIG error. CONFIG errors are fatal errors that represent problems with the provided config such that no amount of reconnect or retry will help.
+fn is_config_error<T>(result: &Result<T, RedisError>) -> bool {
+  if let Err(ref e) = result {
+    *e.kind() == RedisErrorKind::Config
+  } else {
+    false
+  }
+}
+
+/// Whether or not the command is a flush command with an ASYNC argument.
+fn is_async_flush(cmd: &RedisCommand) -> bool {
+  if cmd.kind == RedisCommandKind::FlushAll || cmd.kind == RedisCommandKind::FlushDB {
+    cmd.args.len() == 1
+      && cmd
+        .args
+        .first()
+        .and_then(|arg| arg.as_str())
+        .map(|l| l == ASYNC)
+        .unwrap_or(false)
+  } else {
+    false
+  }
+}
+
+/// Send the final error to all pending callers waiting on a response before shutting down the client.
+fn write_final_error_to_callers(inner: &Arc<RedisClientInner>, commands: VecDeque<SentCommand>, error: &RedisError) {
+  for mut command in commands.into_iter() {
+    if let Some(tx) = command.command.tx.take() {
+      if let Err(e) = tx.send(Err(error.clone())) {
+        _warn!(inner, "Error sending final error to caller: {:?}", e);
+      }
+    }
+  }
+}
+
+/// Whether or not the caller tried to use EXEC or DISCARD outside of a transaction.
+fn is_exec_or_discard_without_multi_block(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
+  command.kind.ends_transaction() && !client_utils::is_locked_some(&inner.multi_block)
+}
+
+/// Whether or not to disable pipelining for a request. If this returns true the multiplexer will block subsequent commands until the current command receives a response.
+fn should_disable_pipeline(inner: &Arc<RedisClientInner>, command: &RedisCommand, disable_pipeline: bool) -> bool {
+  let is_blocking = command.kind.is_blocking();
+  let in_multi_block = command.kind != RedisCommandKind::Multi && client_utils::is_locked_some(&inner.multi_block);
+
+  // we disable pipelining at the start and end of a transaction to clear the socket's command buffer so that
+  // when the final response to EXEC or DISCARD arrives the command buffer will only contain commands that were
+  // a part of the transaction, and nothing that came before or after the transaction. if it were possible that
+  // the command buffer contained commands before the transaction then it'd be impossible to gracefully handle
+  // connection closed errors that occur during or at the end of a transaction.
+  let force_no_pipeline = is_async_flush(command)
+    || command.kind.ends_transaction()
+    // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
+    || command.kind.is_eval()
+    || command.kind == RedisCommandKind::Multi;
+
+  force_no_pipeline || (!in_multi_block && (is_blocking || (disable_pipeline && !command.is_quit())))
+}
+
+/// Check that all commands within a transaction against a clustered deployment only modify the same hash slot.
+fn check_transaction_hash_slot(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
+  if client_utils::is_clustered(&inner.config) && client_utils::is_locked_some(&inner.multi_block) {
+    if let Some(key) = command.extract_key() {
+      if let Some(policy) = inner.multi_block.write().deref_mut() {
+        let _ = policy.check_and_set_hash_slot(redis_keyslot(key))?;
+      }
+    }
+  }
+
+  Ok(())
+}
+
+/// Handle an error writing to the socket, returning whether the error should close the command stream.
+async fn handle_write_error(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  has_policy: bool,
+  error: &RedisError,
+) -> Result<bool, RedisError> {
+  _debug!(inner, "Reconnecting or stopping due to error: {:?}", error);
+  utils::emit_closed_message(&inner, &multiplexer.close_tx, error);
+
+  if has_policy {
+    _debug!(inner, "Waiting for client to reconnect...");
+    let _ = client_utils::wait_for_connect(&inner).await?;
+
+    Ok(false)
+  } else {
+    _debug!(inner, "Closing command stream from error without reconnect policy.");
+    let in_flight_commands = utils::take_sent_commands(&multiplexer.connections).await;
+    write_final_error_to_callers(&inner, in_flight_commands, &error);
+
+    Ok(true)
+  }
+}
+
+/// Handle the response to the MULTI command, forwarding any errors onto the caller of the next command and returning whether the multiplexers should skip the next command.
+async fn handle_deferred_multi_response(
+  inner: &Arc<RedisClientInner>,
+  rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
+  command: &mut RedisCommand,
+) -> bool {
+  match rx.await {
+    Ok(Ok(frame)) => {
+      if let ProtocolFrame::Error(s) = frame {
+        if let Some(tx) = command.tx.take() {
+          let _ = tx.send(Err(pretty_error(&s)));
+        }
+        true
+      } else {
+        false
+      }
+    }
+    Ok(Err(e)) => {
+      if let Some(tx) = command.tx.take() {
+        let _ = tx.send(Err(e));
+      }
+      true
+    }
+    Err(_e) => {
+      _warn!(inner, "Recv error on deferred MULTI command.");
+      false
+    }
+  }
+}
+
+async fn write_command(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  command: RedisCommand,
+) -> Result<(), RedisError> {
+  if command.kind.is_exec() {
+    if let Some(hash_slot) = client_utils::read_transaction_hash_slot(&inner) {
+      multiplexer.write_with_hash_slot(command, hash_slot).await
+    } else {
+      if client_utils::is_clustered(&inner.config) {
+        _warn!(
+          inner,
+          "Detected EXEC without a known hash slot. This will probably result in an error."
+        );
+      }
+      match multiplexer.write(command).await {
+        Ok(Some((duration, command))) => backpressure(&inner, &multiplexer, duration, command).await,
+        Ok(None) => Ok(()),
+        Err(err) => Err(err),
+      }
+    }
+  } else if command.kind.is_all_cluster_nodes() && client_utils::is_clustered(&inner.config) {
+    match multiplexer.write_all_cluster(command).await {
+      Ok(Some((duration, command))) => backpressure(&inner, &multiplexer, duration, command).await,
+      Ok(None) => Ok(()),
+      Err(err) => Err(err),
+    }
+  } else {
+    match multiplexer.write(command).await {
+      Ok(Some((duration, command))) => backpressure(&inner, &multiplexer, duration, command).await,
+      Ok(None) => Ok(()),
+      Err(err) => Err(err),
+    }
+  }
+}
+
+/// Check and send a deferred MULTI command if needed, returning whether or not the multiplexer loop should skip to the next command.
+async fn check_deferred_multi_command(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  command: &mut RedisCommand,
+  has_policy: bool,
+) -> Result<bool, RedisError> {
+  if let Some(hash_slot) = client_utils::should_send_multi_command(inner) {
+    _debug!(inner, "Sending deferred MULTI command against hash slot {}.", hash_slot);
+    let (tx, rx) = oneshot_channel();
+    let multi_cmd = RedisCommand::new(RedisCommandKind::Multi, vec![], Some(tx));
+    if let Err(error) = multiplexer.write_with_hash_slot(multi_cmd, hash_slot).await {
+      _error!(inner, "Error sending deferred multi command: {:?}", error);
+      if handle_write_error(inner, &multiplexer, has_policy, &error).await? {
+        return Err(error);
+      } else {
+        // at this point the client is reconnected, but the multi command was not sent because we
+        // dont send commands that are a part of a transaction when the connection dies. because
+        // of this we need to tell the caller their actual command failed by forwarding the error
+        // from the MULTI command onto the next command's response channel.
+
+        if let Some(tx) = command.tx.take() {
+          let _ = tx.send(Err(error));
+        }
+        return Ok(true);
+      }
+    } else {
+      if handle_deferred_multi_response(inner, rx, command).await {
+        _debug!(
+          inner,
+          "Skip first command in transaction after error with MULTI command."
+        );
+        return Ok(true);
+      }
+      client_utils::update_multi_sent_flag(inner, true);
+    }
+  }
+
+  Ok(false)
+}
+
+/// Check the command against the context of the connections to ensure it can be run, and if so return it, otherwise respond with an error and move on.
+async fn check_command_structure(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  has_policy: bool,
+  mut command: RedisCommand,
+) -> Result<Option<RedisCommand>, RedisError> {
+  if command.kind.is_split() {
+    split_connection(&inner, &multiplexer, command);
+    return Ok(None);
+  }
+  if command.kind == RedisCommandKind::Mget {
+    if let Err(error) = utils::check_mget_cluster_keys(&multiplexer, &command.args) {
+      respond_with_error(&inner, command, error);
+      return Ok(None);
+    }
+  }
+  if command.kind.is_mset() {
+    if let Err(error) = utils::check_mset_cluster_keys(&multiplexer, &command.args) {
+      respond_with_error(&inner, command, error);
+      return Ok(None);
+    }
+  }
+  if is_exec_or_discard_without_multi_block(&inner, &command) {
+    respond_with_canceled_error(&inner, command, "Cannot use EXEC or DISCARD outside MULTI block.");
+    return Ok(None);
+  }
+  if let Err(error) = check_transaction_hash_slot(&inner, &command) {
+    respond_with_error(&inner, command, error);
+    return Ok(None);
+  }
+  if check_deferred_multi_command(&inner, &multiplexer, &mut command, has_policy).await? {
+    _debug!(inner, "Skip command due to error with deferred MULTI request.");
+    return Ok(None);
+  }
+
+  Ok(Some(command))
+}
+
+#[cfg(feature = "full-tracing")]
+async fn check_command_structure_t(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  has_policy: bool,
+  mut command: RedisCommand,
+) -> Result<Option<RedisCommand>, RedisError> {
+  let span = fspan!(command, "check_command_structure");
+  check_command_structure(inner, multiplexer, has_policy, command)
+    .instrument(span)
+    .await
+}
+
+#[cfg(not(feature = "full-tracing"))]
+async fn check_command_structure_t(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  has_policy: bool,
+  command: RedisCommand,
+) -> Result<Option<RedisCommand>, RedisError> {
+  check_command_structure(inner, multiplexer, has_policy, command).await
+}
+
+#[cfg(feature = "full-tracing")]
+async fn write_command_t(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  command: RedisCommand,
+) -> Result<(), RedisError> {
+  let span = fspan!(
+    command,
+    "write_to_socket",
+    pipelined = &command.resp_tx.read().is_none()
+  );
+  write_command(inner, multiplexer, command).instrument(span).await
+}
+
+#[cfg(not(feature = "full-tracing"))]
+async fn write_command_t(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  command: RedisCommand,
+) -> Result<(), RedisError> {
+  write_command(inner, multiplexer, command).await
+}
+
+async fn handle_command(
+  inner: Arc<RedisClientInner>,
+  multiplexer: Multiplexer,
+  command: RedisCommand,
+  has_policy: bool,
+  disable_pipeline: bool,
+) -> Result<(Arc<RedisClientInner>, Multiplexer), RedisError> {
+  let cmd_buffer_len = client_utils::decr_atomic(&inner.cmd_buffer_len);
+  _trace!(
+    inner,
+    "Recv command on multiplexer {}. Buffer len: {}",
+    command.kind.to_str_debug(),
+    cmd_buffer_len
+  );
+
+  let command = match check_command_structure_t(&inner, &multiplexer, has_policy, command).await? {
+    Some(cmd) => cmd,
+    None => return Ok((inner, multiplexer)),
+  };
+
+  let is_quit = command.kind == RedisCommandKind::Quit;
+  let rx = if should_disable_pipeline(&inner, &command, disable_pipeline) {
+    _debug!(
+      inner,
+      "Will block multiplexer loop waiting on {} to finish.",
+      command.kind.to_str_debug()
+    );
+    let (tx, rx) = oneshot_channel();
+    command.add_resp_tx(tx);
+    Some(rx)
+  } else {
+    None
+  };
+
+  let mut command_wrapper = Some(command);
+  loop {
+    let command = match command_wrapper.take() {
+      Some(cmd) => cmd,
+      None => {
+        _warn!(inner, "Expected command, found none.");
+        return Err(RedisError::new(RedisErrorKind::Unknown, "Invalid empty command."));
+      }
+    };
+
+    let result = write_command_t(&inner, &multiplexer, command).await;
+    if is_quit {
+      _debug!(inner, "Closing command stream after Quit command.");
+      // the server will close the connection when it gets the message, so we can just wait a second and return an error to break the stream
+      sleep(Duration::from_millis(500)).await;
+      return Err(RedisError::new_canceled());
+    }
+    if is_config_error(&result) {
+      _debug!(inner, "Closing command stream after fatal configuration error.");
+      return result.map(|_| (inner, multiplexer));
+    }
+
+    if let Err(mut error) = result {
+      let command = error.take_context();
+
+      if handle_write_error(&inner, &multiplexer, has_policy, &error).await? {
+        return Err(error);
+      } else {
+        if let Some(command) = command {
+          _debug!(inner, "Retrying command after write error: {}", command);
+          command_wrapper = Some(command);
+          continue;
+        }
+
+        return Ok((inner, multiplexer));
+      }
+    } else {
+      if let Some(rx) = rx {
+        _debug!(inner, "Waiting on last request to finish without pipelining.");
+        // if pipelining is disabled then wait for the last request to finish
+        let _ = rx.await;
+        _debug!(inner, "Recv message to continue non-pipelined multiplexer loop.");
+      }
+
+      return Ok((inner, multiplexer));
+    }
+  }
+}
+
+#[cfg(feature = "full-tracing")]
+async fn handle_command_t(
+  inner: Arc<RedisClientInner>,
+  multiplexer: Multiplexer,
+  mut command: RedisCommand,
+  has_policy: bool,
+  disable_pipeline: bool,
+) -> Result<(Arc<RedisClientInner>, Multiplexer), RedisError> {
+  command.take_queued_span();
+  let span = fspan!(command, "handle_command");
+  handle_command(inner, multiplexer, command, has_policy, disable_pipeline)
+    .instrument(span)
+    .await
+}
+
+#[cfg(not(feature = "full-tracing"))]
+async fn handle_command_t(
+  inner: Arc<RedisClientInner>,
+  multiplexer: Multiplexer,
+  command: RedisCommand,
+  has_policy: bool,
+  disable_pipeline: bool,
+) -> Result<(Arc<RedisClientInner>, Multiplexer), RedisError> {
+  handle_command(inner, multiplexer, command, has_policy, disable_pipeline).await
+}
+
+/// Initialize the multiplexer and network interface to accept commands.
+///
+/// This function runs until the connection closes or all retry attempts have failed.
+/// If a retry policy with infinite attempts is provided then this runs forever.
+pub async fn init(
+  inner: &Arc<RedisClientInner>,
+  policy: Option<ReconnectPolicy>,
+  disable_pipeline: bool,
+) -> Result<(), RedisError> {
+  if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Connections are already initialized.",
+    ));
+  }
+  client_utils::set_pipelined_flag(&inner.pipelined, disable_pipeline);
+
+  let multiplexer = Multiplexer::new(inner);
+  let inner = inner.clone();
+
+  _debug!(inner, "Initializing connections...");
+  if let Err(err) = multiplexer.connect_and_flush().await {
+    utils::emit_connect_error(&inner.connect_tx, &err);
+    utils::emit_error(&inner, &err);
+    return Err(err);
+  }
+  let (tx, rx) = unbounded_channel();
+  client_utils::set_locked(&inner.command_tx, Some(tx));
+  client_utils::set_client_state(&inner.state, ClientState::Connected);
+  utils::emit_connect(&inner.connect_tx);
+  utils::emit_reconnect(&inner);
+
+  let has_policy = policy.is_some();
+  handle_connection_closed(&inner, &multiplexer, policy);
+
+  _debug!(inner, "Starting command stream...");
+  let result = UnboundedReceiverStream::new(rx)
+    .map(|cmd| Ok::<_, RedisError>(cmd))
+    .try_fold((inner, multiplexer), |(inner, multiplexer), command| async move {
+      handle_command_t(inner, multiplexer, command, has_policy, disable_pipeline).await
+    })
+    .await;
+
+  if let Err(e) = result {
+    if e.is_canceled() {
+      Ok(())
+    } else {
+      Err(e)
+    }
+  } else {
+    Ok(())
+  }
+}

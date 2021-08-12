@@ -1,0 +1,125 @@
+use fred::prelude::*;
+
+use futures::{StreamExt, TryStreamExt};
+
+const SCAN_KEYS: i64 = 100;
+
+pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0..SCAN_KEYS {
+    let _ = client
+      .set(format!("foo-{}-{}", idx, "{1}"), idx, None, None, false)
+      .await?;
+  }
+
+  let count = client
+    .scan("foo*{1}", Some(10), None)
+    .try_fold(0, |mut count, mut result| async move {
+      if let Some(results) = result.take_results() {
+        count += results.len() as i64;
+        // scanning wont return results in any particular order, so we just check the format of the key
+
+        for key in results.into_iter() {
+          let parts: Vec<&str> = key.as_str().split("-").collect();
+          assert!(parts[1].parse::<i64>().is_ok());
+        }
+      } else {
+        panic!("Empty results in scan.");
+      }
+
+      let _ = result.next()?;
+      Ok(count)
+    })
+    .await?;
+
+  assert_eq!(count, SCAN_KEYS);
+  Ok(())
+}
+
+pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0..SCAN_KEYS {
+    let value = (format!("bar-{}", idx), idx.into());
+    let _ = client.hset("foo", value).await?;
+  }
+
+  let count = client
+    .hscan("foo", "bar*", Some(10))
+    .try_fold(0_i64, |mut count, mut result| async move {
+      if let Some(results) = result.take_results() {
+        count += results.len() as i64;
+
+        // scanning wont return results in any particular order, so we just check the format of the key
+        for (key, _) in results.iter() {
+          let parts: Vec<&str> = key.as_str().split("-").collect();
+          assert!(parts[1].parse::<i64>().is_ok());
+        }
+      } else {
+        panic!("Empty results in hscan.");
+      }
+
+      let _ = result.next()?;
+      Ok(count)
+    })
+    .await?;
+
+  assert_eq!(count, SCAN_KEYS);
+  Ok(())
+}
+
+pub async fn should_sscan_set(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0..SCAN_KEYS {
+    let _ = client.sadd("foo", idx).await?;
+  }
+
+  let count = client
+    .sscan("foo", "*", Some(10))
+    .try_fold(0_i64, |mut count, mut result| async move {
+      if let Some(results) = result.take_results() {
+        count += results.len() as i64;
+
+        for value in results.into_iter() {
+          assert!(value.as_i64().is_some());
+        }
+      } else {
+        panic!("Empty sscan result");
+      }
+
+      let _ = result.next()?;
+      Ok(count)
+    })
+    .await?;
+
+  assert_eq!(count, SCAN_KEYS);
+  Ok(())
+}
+
+pub async fn should_zscan_sorted_set(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0..SCAN_KEYS {
+    let (score, value) = (idx as f64, format!("foo-{}", idx));
+    let _ = client.zadd("foo", None, None, false, false, (score, value)).await?;
+  }
+
+  let count = client
+    .zscan("foo", "*", Some(10))
+    .try_fold(0_i64, |mut count, mut result| async move {
+      if let Some(results) = result.take_results() {
+        count += results.len() as i64;
+
+        for (value, score) in results.into_iter() {
+          let value_str = value.as_str().unwrap();
+          let parts: Vec<&str> = value_str.split("-").collect();
+          let value_suffix = parts[1].parse::<f64>().unwrap();
+
+          assert_eq!(value_suffix, score);
+        }
+      } else {
+        panic!("Empty zscan result");
+      }
+
+      let _ = result.next()?;
+      Ok(count)
+    })
+    .await?;
+
+  assert_eq!(count, SCAN_KEYS);
+  Ok(())
+}

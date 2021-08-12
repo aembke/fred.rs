@@ -1,0 +1,50 @@
+name: pipeline_test
+version: "1.0"
+author: Alec Embke
+about: Run a test script to compare latency for pipelined and non-pipelined use cases.
+args:
+  - tracing:
+      short: t
+      long: tracing
+      help: Whether or not to enable tracing via a local Jeager instance. See tests/docker-compose.yml to start up a local Jaeger instance.
+      takes_value: false
+  - count:
+      short: c
+      long: count
+      value_name: "NUMBER"
+      help: The number of commands to run.
+      takes_value: true
+      default_value: "10000"
+  - concurrency:
+      short: C
+      long: concurrency
+      value_name: "NUMBER"
+      help: The number of concurrent tasks used to run commands.
+      takes_value: true
+      default_value: "10"
+  - host:
+      short: h
+      long: host
+      value_name: "STRING"
+      help: The hostname of the redis server. The script assumes a centralized deployment.
+      takes_value: true
+      default_value: "127.0.0.1"
+  - port:
+      short: p
+      long: port
+      value_name: "NUMBER"
+      help: The port for the redis server.
+      takes_value: true
+      default_value: "6379"
+  - pool:
+      short: P
+      long: pool
+      value_name: "NUMBER"
+      help: The number of clients in the redis connection pool.
+      takes_value: true
+      default_value: "1"
+subcommands:
+  - pipeline:
+      about: Run the test with pipelining.
+  - no-pipeline:
+      about: Run the test without pipelining.
