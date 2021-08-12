@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo test --release -- --test-threads=1
+cargo test --release --lib --tests -- --test-threads=1

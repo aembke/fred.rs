@@ -16,6 +16,7 @@ addons:
 cache:
   apt: true
   directories:
+    - tests/tmp
     - target/debug/deps
     - target/debug/build
     - target/release/deps
