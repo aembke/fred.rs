@@ -1,0 +1,40 @@
+language: rust
+rust:
+  - stable
+  - beta
+  - nightly
+addons:
+  apt:
+    packages:
+      - binutils-dev
+      - build-essential
+      - expect
+      - pkg-config
+      - zlib1g-dev
+      - libssh2-1-dev
+      - libssl-dev
+cache:
+  apt: true
+  directories:
+    - target/debug/deps
+    - target/debug/build
+    - target/release/deps
+notifications:
+  email:
+    on_success: never
+    on_failure: never
+branches:
+  only:
+    - main
+    - ci
+env:
+  - RUST_BACKTRACE=full
+  - REDIS_VERSION=6.2.2
+before_script:
+  - ./tests/scripts/install_redis_centralized.sh && ./tests/scripts/install_redis_clustered.sh
+jobs:
+  allow_failures:
+    - rust: nightly
+  fast_finish: true
+script:
+  - ./tests/run_all.sh
