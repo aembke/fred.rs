@@ -28,7 +28,6 @@ branches:
     - main
     - ci
 env:
-  - RUST_BACKTRACE=full
   - REDIS_VERSION=6.2.2
 before_script:
   - ./tests/scripts/install_redis_centralized.sh && ./tests/scripts/install_redis_clustered.sh
