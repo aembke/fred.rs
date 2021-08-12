@@ -132,6 +132,6 @@ export REDIS_VERSION=6.2.2
 
 **Beware: the tests will periodically run `flushall`.**
 
-## Contributing
+## Contributing g
 
 See the [contributing](CONTRIBUTING.md) documentation for info on adding new commands.
