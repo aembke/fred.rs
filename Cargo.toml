@@ -1,17 +1,21 @@
 [package]
 name = "fred-rs"
-version = "3.0.0"
+version = "3.0.0-beta.1"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
-description = "A Redis client for Rust built on Futures and Tokio."
+description = "An async Redis client for Rust built on Futures and Tokio."
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 homepage = "https://github.com/aembke/fred.rs"
 keywords = ["redis", "futures", "async", "cluster", "tokio"]
+categories = ["asynchronous", "database-interfaces"]
 license = "MIT"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
-tokio = { version = "1.8", features = ["full"] }
+tokio = { version = "1.10", features = ["full"] }
 bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
