@@ -9,7 +9,7 @@ const CHANNEL3: &'static str = "baz";
 const FAKE_MESSAGE: &'static str = "wibble";
 const NUM_MESSAGES: i64 = 20;
 
-pub async fn should_publish_and_recv_messages(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let subscriber_client = client.clone_new();
   let _ = subscriber_client.connect(None);
   let _ = subscriber_client.wait_for_connect().await?;
@@ -44,7 +44,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, config: Redis
   Ok(())
 }
 
-pub async fn should_psubscribe_and_recv_messages(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let channels = vec![CHANNEL1, CHANNEL2, CHANNEL3];
   let subscriber_channels = channels.clone();
 
