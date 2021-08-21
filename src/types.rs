@@ -759,46 +759,57 @@ impl fmt::Display for ClientState {
 /// A key in Redis.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RedisKey {
-  // TODO explore making this a Cow
-  key: String,
+  key: Vec<u8>,
 }
 
 impl RedisKey {
   pub fn new<S>(key: S) -> RedisKey
   where
-    S: Into<String>,
+    S: Into<Vec<u8>>,
   {
     RedisKey { key: key.into() }
   }
 
-  pub fn as_str(&self) -> &str {
+  pub fn as_str(&self) -> Option<&str> {
+    str::from_utf8(&self.key).ok()
+  }
+
+  pub fn as_bytes(&self) -> &[u8] {
     &self.key
   }
 
-  pub fn into_string(self) -> String {
-    self.key
+  pub fn as_str_lossy(&self) -> Cow<str> {
+    String::from_utf8_lossy(&self.key)
   }
 
-  pub fn take(&mut self) -> String {
-    mem::replace(&mut self.key, String::new())
+  pub fn into_string(self) -> Option<String> {
+    String::from_utf8(self.key).ok()
+  }
+
+  pub fn take(&mut self) -> Vec<u8> {
+    mem::replace(&mut self.key, Vec::new())
   }
 }
 
 impl From<String> for RedisKey {
   fn from(s: String) -> RedisKey {
-    RedisKey { key: s }
+    RedisKey { key: s.into_bytes() }
   }
 }
 
 impl<'a> From<&'a str> for RedisKey {
   fn from(s: &'a str) -> RedisKey {
-    RedisKey { key: s.to_owned() }
+    RedisKey {
+      key: s.as_bytes().to_vec(),
+    }
   }
 }
 
 impl<'a> From<&'a String> for RedisKey {
   fn from(s: &'a String) -> RedisKey {
-    RedisKey { key: s.to_owned() }
+    RedisKey {
+      key: s.as_bytes().to_vec(),
+    }
   }
 }
 
@@ -807,6 +818,22 @@ impl<'a> From<&'a RedisKey> for RedisKey {
     k.clone()
   }
 }
+
+impl<'a> From<&'a [u8]> for RedisKey {
+  fn from(k: &'a [u8]) -> Self {
+    RedisKey { key: k.to_vec() }
+  }
+}
+
+/*
+// conflicting impl with MultipleKeys when this is used
+// callers should use `RedisKey::new` here
+impl From<Vec<u8>> for RedisKey {
+  fn from(key: Vec<u8>) -> Self {
+    RedisKey { key }
+  }
+}
+*/
 
 /// Convenience struct for commands that take 1 or more keys.
 pub struct MultipleKeys {
@@ -1458,6 +1485,20 @@ impl<'a> RedisValue {
     Some(s)
   }
 
+  /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
+  pub fn as_str_lossy(&self) -> Option<Cow<str>> {
+    let s = match *self {
+      RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
+      RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
+      RedisValue::Null => Cow::Borrowed(NIL),
+      RedisValue::Queued => Cow::Borrowed(QUEUED),
+      RedisValue::Bytes(ref b) => String::from_utf8_lossy(b),
+      _ => return None,
+    };
+
+    Some(s)
+  }
+
   /// Read the inner value as an array of bytes, if possible.
   pub fn as_bytes(&self) -> Option<&[u8]> {
     match *self {
@@ -1766,7 +1807,7 @@ impl From<BTreeMap<String, RedisValue>> for RedisValue {
 
 impl From<RedisKey> for RedisValue {
   fn from(d: RedisKey) -> RedisValue {
-    RedisValue::String(d.into_string())
+    RedisValue::Bytes(d.key)
   }
 }
 

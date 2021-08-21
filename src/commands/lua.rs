@@ -20,7 +20,13 @@ pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Re
 
     let (mut cmd_server, mut cmd_slot) = (None, None);
     for key in keys.iter() {
-      let key_slot = redis_protocol::redis_keyslot(key.as_str());
+      let key_slot = match key.as_str() {
+        Some(k) => redis_protocol::redis_keyslot(k),
+        None => {
+          let key_str = String::from_utf8_lossy(key.as_bytes());
+          redis_protocol::redis_keyslot(&key_str)
+        }
+      };
 
       if let Some(slot) = cluster_state.get_server(key_slot) {
         if let Some(ref cmd_server) = cmd_server {

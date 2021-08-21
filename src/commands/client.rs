@@ -51,7 +51,7 @@ where
         args.push(ID.into());
 
         for id in ids.into_iter() {
-          args.push(id.as_str().into());
+          args.push(id.into());
         }
       }
     }

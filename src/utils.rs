@@ -170,11 +170,6 @@ pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
   *state_guard = new_state;
 }
 
-pub fn set_pipelined_flag(locked: &RwLock<bool>, val: bool) {
-  let mut guard = locked.write();
-  *guard = val;
-}
-
 pub fn read_client_state(state: &RwLock<ClientState>) -> ClientState {
   state.read().clone()
 }

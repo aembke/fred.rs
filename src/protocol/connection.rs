@@ -5,8 +5,8 @@ use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::trace;
-use crate::types::ClientState;
 use crate::types::Resolve;
+use crate::types::{ClientState, InfoKind};
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
@@ -21,6 +21,7 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-tls")]
 use crate::protocol::tls;
+use crate::protocol::utils::pretty_error;
 #[cfg(feature = "enable-tls")]
 use tokio_native_tls::TlsStream;
 
@@ -280,25 +281,115 @@ async fn read_cluster_state(
 pub async fn read_server_version<T>(
   inner: &Arc<RedisClientInner>,
   transport: Framed<T, RedisCodec>,
-) -> Result<Version, RedisError> {
-  unimplemented!()
+) -> Result<(Version, Framed<T, RedisCodec>), RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
+  let (result, transport) = request_response(transport, &command).await?;
+  let result = match result {
+    ProtocolFrame::BulkString(bytes) => String::from_utf8(bytes)?,
+    ProtocolFrame::Error(e) => return Err(pretty_error(&e)),
+    _ => {
+      return Err(RedisError::new(
+        RedisErrorKind::ProtocolError,
+        "Invalid server info response.",
+      ))
+    }
+  };
+
+  let version = result.lines().find_map(|line| {
+    let parts: Vec<&str> = line.split(":").collect();
+    if parts.len() < 2 {
+      return None;
+    }
+
+    if parts[0] == "redis_version" {
+      Version::parse(&parts[1]).ok()
+    } else {
+      None
+    }
+  });
+
+  if let Some(version) = version {
+    _debug!(inner, "Server version: {}", version);
+    Ok((version, transport))
+  } else {
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Failed to read redis server version.",
+    ))
+  }
 }
 
 pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version, RedisError> {
   let uses_tls = inner.config.read().tls.is_some();
 
   if client_utils::is_clustered(&inner.config) {
-    unimplemented!()
+    let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
+
+    for (host, port) in known_nodes.into_iter() {
+      let addr = match inner.resolver.resolve(host.clone(), port).await {
+        Ok(addr) => addr,
+        Err(e) => {
+          _debug!(inner, "Resolver error: {:?}", e);
+          continue;
+        }
+      };
+
+      if uses_tls {
+        let transport = match create_authenticated_connection_tls(&addr, &host, inner).await {
+          Ok(t) => t,
+          Err(e) => {
+            _warn!(inner, "Error creating connection to {}: {:?}", host, e);
+            continue;
+          }
+        };
+        let version = match read_server_version(inner, transport).await {
+          Ok((v, _)) => v,
+          Err(e) => {
+            _warn!(inner, "Error reading server version from {}: {:?}", host, e);
+            continue;
+          }
+        };
+
+        return Ok(version);
+      } else {
+        let transport = match create_authenticated_connection(&addr, inner).await {
+          Ok(t) => t,
+          Err(e) => {
+            _warn!(inner, "Error creating connection to {}: {:?}", host, e);
+            continue;
+          }
+        };
+        let version = match read_server_version(inner, transport).await {
+          Ok((v, _)) => v,
+          Err(e) => {
+            _warn!(inner, "Error reading server version from {}: {:?}", host, e);
+            continue;
+          }
+        };
+
+        return Ok(version);
+      }
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Failed to read server version from any cluster node.",
+    ))
   } else {
     let addr = protocol_utils::read_centralized_addr(&inner).await?;
 
     if uses_tls {
       let domain = protocol_utils::read_centralized_domain(&inner.config)?;
       let transport = create_authenticated_connection_tls(&addr, &domain, inner).await?;
-
-      unimplemented!()
+      let (version, _) = read_server_version(inner, transport).await?;
+      Ok(version)
     } else {
-      unimplemented!()
+      let transport = create_authenticated_connection(&addr, inner).await?;
+      let (version, _) = read_server_version(inner, transport).await?;
+      Ok(version)
     }
   }
 }

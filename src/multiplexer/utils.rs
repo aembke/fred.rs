@@ -373,7 +373,7 @@ pub async fn write_clustered_command(
   {
     let hash_slot = match hash_slot {
       Some(slot) => Some(slot),
-      None => command.extract_key().map(|key| redis_keyslot(key)),
+      None => command.extract_key().map(|key| redis_keyslot(&key)),
     };
     let server = match hash_slot {
       Some(hash_slot) => match cache.read().get_server(hash_slot) {

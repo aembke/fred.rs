@@ -14,6 +14,7 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use tokio::task::JoinError;
 use url::ParseError;
+use std::error::Error;
 
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -289,5 +290,11 @@ impl RedisError {
       RedisErrorKind::Canceled => true,
       _ => false,
     }
+  }
+}
+
+impl Error for RedisError {
+  fn source(&self) -> Option<&(dyn Error + 'static)> {
+    None
   }
 }

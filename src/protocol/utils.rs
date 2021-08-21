@@ -290,7 +290,6 @@ pub fn frame_to_results(frame: ProtocolFrame) -> Result<RedisValue, RedisError> 
       }
     }
     ProtocolFrame::Error(s) => return Err(pretty_error(&s)),
-    _ => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid frame.")),
   };
 
   Ok(value)

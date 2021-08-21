@@ -7,10 +7,6 @@ use parking_lot::RwLock;
 use redis_protocol::resp2::decode::decode as resp2_decode;
 use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::decode::complete::decode as resp3_decode;
-use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
-use redis_protocol::resp3::types::Frame as Resp3Frame;
-use redis_protocol::resp3::types::RespVersion;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 

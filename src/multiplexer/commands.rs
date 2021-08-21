@@ -357,7 +357,7 @@ fn check_transaction_hash_slot(inner: &Arc<RedisClientInner>, command: &RedisCom
   if client_utils::is_clustered(&inner.config) && client_utils::is_locked_some(&inner.multi_block) {
     if let Some(key) = command.extract_key() {
       if let Some(policy) = inner.multi_block.write().deref_mut() {
-        let _ = policy.check_and_set_hash_slot(redis_keyslot(key))?;
+        let _ = policy.check_and_set_hash_slot(redis_keyslot(&key))?;
       }
     }
   }

@@ -228,15 +228,6 @@ impl Multiplexer {
       utils::connect_centralized(&self.inner, &self.connections, &self.close_tx).await?
     };
 
-    match self.connections {
-      Connections::Centralized { ref connection_id, .. } => {
-        error!("{:?}", connection_id);
-      }
-      Connections::Clustered { ref connection_ids, .. } => {
-        error!("{:?}", connection_ids);
-      }
-    };
-
     for command in pending_messages.into_iter() {
       let _ = self.write(command.command).await?;
     }

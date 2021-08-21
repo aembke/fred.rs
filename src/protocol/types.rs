@@ -22,6 +22,7 @@ use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::Span;
 use rand::Rng;
+use std::borrow::Cow;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
@@ -1505,16 +1506,18 @@ impl RedisCommand {
   }
 
   /// Read the first key in the command, if any.
-  pub fn extract_key(&self) -> Option<&str> {
+  pub fn extract_key(&self) -> Option<Cow<str>> {
     if self.no_cluster() {
       return None;
     }
 
     match self.args.first() {
-      Some(RedisValue::String(ref s)) => Some(s),
+      Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
+      Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
       Some(_) => match self.args.get(1) {
         // some commands take a `num_keys` argument first, followed by keys
-        Some(RedisValue::String(ref s)) => Some(s),
+        Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
+        Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
         _ => None,
       },
       None => None,
