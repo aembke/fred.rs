@@ -10,7 +10,7 @@ static SCRIPTS: &'static [&'static str] = &[
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   let client = RedisClient::new(config);
 
   let jh = client.connect(None, false);
@@ -32,6 +32,5 @@ async fn main() -> Result<(), RedisError> {
   println!("First script result: {:?}", result);
 
   let _ = client.quit().await;
-  let _ = jh.await;
   Ok(())
 }

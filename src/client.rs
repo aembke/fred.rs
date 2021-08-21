@@ -84,6 +84,8 @@ pub struct RedisClientInner {
   pub error_tx: RwLock<VecDeque<UnboundedSender<RedisError>>>,
   /// An mpsc sender for commands to the multiplexer.
   pub command_tx: RwLock<Option<CommandSender>>,
+  /// An mpsc sender for backchannel commands to the multiplexer that skips the normal command queue.
+  pub backchannel_tx: RwLock<Option<CommandSender>>,
   /// An mpsc sender for pubsub messages to `on_message` streams.
   pub message_tx: RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>,
   /// An mpsc sender for pubsub messages to `on_keyspace_event` streams.
@@ -112,11 +114,13 @@ pub struct RedisClientInner {
   pub cluster_state: RwLock<Option<ClusterKeyCache>>,
   /// The DNS resolver to use when establishing new connections.
   pub resolver: DefaultResolver,
-  /// Whether or not the client has pipelining enabled.
-  pub pipelined: RwLock<bool>,
 }
 
 impl RedisClientInner {
+  pub fn is_pipelined(&self) -> bool {
+    self.config.read().pipeline
+  }
+
   pub fn log_client_name_fn<F>(&self, level: log::Level, func: F)
   where
     F: FnOnce(&str),
@@ -253,6 +257,7 @@ impl RedisClient {
       keyspace_tx: RwLock::new(VecDeque::new()),
       reconnect_tx: RwLock::new(VecDeque::new()),
       connect_tx: RwLock::new(VecDeque::new()),
+      backchannel_tx: RwLock::new(None),
       command_tx: RwLock::new(None),
       reconnect_sleep_jh: RwLock::new(None),
       latency_stats: RwLock::new(latency),
@@ -264,7 +269,6 @@ impl RedisClient {
       connection_closed_tx: RwLock::new(None),
       multi_block: RwLock::new(None),
       cluster_state: RwLock::new(None),
-      pipelined: RwLock::new(false),
       resolver,
       id,
     });
@@ -294,11 +298,11 @@ impl RedisClient {
   /// If the client cannot establish a connection on the first attempt here it will return the
   /// associated error. This is done so callers have a signal when the network config is invalid
   /// but they've provided a reconnect policy that will otherwise never resolve the returned future.
-  pub fn connect(&self, policy: Option<ReconnectPolicy>, disable_pipeline: bool) -> ConnectHandle {
+  pub fn connect(&self, policy: Option<ReconnectPolicy>) -> ConnectHandle {
     let inner = self.inner.clone();
 
     tokio::spawn(async move {
-      let result = multiplexer_commands::init(&inner, policy, disable_pipeline).await;
+      let result = multiplexer_commands::init(&inner, policy).await;
       if let Err(ref e) = result {
         multiplexer_utils::emit_connect_error(&inner.connect_tx, e);
       }
@@ -324,7 +328,7 @@ impl RedisClient {
 
   /// Whether or not the client will pipeline commands.
   pub fn is_pipelined(&self) -> bool {
-    self.inner.pipelined.read().clone()
+    self.inner.is_pipelined()
   }
 
   /// Return a future that will ping the server on an interval.
@@ -696,6 +700,24 @@ impl RedisClient {
   /// A warning log line will be emitted if the transaction client is dropped before calling EXEC or DISCARD.
   pub async fn force_discard_transaction(&self) -> Result<(), RedisError> {
     commands::server::discard(&self.inner).await
+  }
+
+  /// Marks the given keys to be watched for conditional execution of a transaction.
+  ///
+  /// <https://redis.io/commands/watch>
+  pub async fn watch<K>(&self, keys: K) -> Result<(), RedisError>
+  where
+    K: Into<MultipleKeys>,
+  {
+    utils::disallow_during_transaction(&self.inner)?;
+    commands::keys::watch(&self.inner, keys).await
+  }
+
+  /// Flushes all the previously watched keys for a transaction.
+  ///
+  /// <https://redis.io/commands/unwatch>
+  pub async fn unwatch(&self) -> Result<(), RedisError> {
+    commands::keys::unwatch(&self.inner).await
   }
 
   /// Delete the keys in all databases.

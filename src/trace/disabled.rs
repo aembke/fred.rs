@@ -1,6 +1,6 @@
 use crate::client::RedisClientInner;
 use crate::protocol::types::RedisCommand;
-use redis_protocol::types::Frame;
+use redis_protocol::resp2::types::Frame;
 use std::sync::Arc;
 
 /// Fake span for mocking tracing functions.

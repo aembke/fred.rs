@@ -10,7 +10,7 @@ use futures::pin_mut;
 use parking_lot::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{self, Rng};
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::hash::Hasher;
@@ -38,7 +38,7 @@ use futures::TryFutureExt;
 use tracing_futures::Instrument;
 
 pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
-  config.read().is_clustered()
+  config.read().server.is_clustered()
 }
 
 pub fn f64_eq(lhs: f64, rhs: f64) -> bool {

@@ -10,10 +10,8 @@ const FAKE_MESSAGE: &'static str = "wibble";
 const NUM_MESSAGES: i64 = 20;
 
 pub async fn should_publish_and_recv_messages(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
-  let publisher_client = client;
-
-  let subscriber_client = RedisClient::new(config);
-  let _ = subscriber_client.connect(None, !publisher_client.is_pipelined());
+  let subscriber_client = client.clone_new();
+  let _ = subscriber_client.connect(None);
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.subscribe(CHANNEL1).await?;
 
@@ -36,9 +34,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, config: Redis
 
   for idx in 0..NUM_MESSAGES {
     // https://redis.io/commands/publish#return-value
-    let _ = publisher_client
-      .publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx))
-      .await?;
+    let _ = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -49,12 +45,11 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, config: Redis
 }
 
 pub async fn should_psubscribe_and_recv_messages(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
-  let publisher_client = client;
   let channels = vec![CHANNEL1, CHANNEL2, CHANNEL3];
   let subscriber_channels = channels.clone();
 
-  let subscriber_client = RedisClient::new(config);
-  let _ = subscriber_client.connect(None, !publisher_client.is_pipelined());
+  let subscriber_client = client.clone_new();
+  let _ = subscriber_client.connect(None);
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.psubscribe(channels.clone()).await?;
 
@@ -79,9 +74,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, config: Re
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value
-    let _ = publisher_client
-      .publish(channel, format!("{}-{}", FAKE_MESSAGE, idx))
-      .await?;
+    let _ = client.publish(channel, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;

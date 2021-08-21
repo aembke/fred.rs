@@ -4,9 +4,13 @@ use crate::metrics::SizeStats;
 use crate::protocol::utils as protocol_utils;
 use bytes::BytesMut;
 use parking_lot::RwLock;
-use redis_protocol::decode::decode_bytes;
-use redis_protocol::encode::encode_bytes;
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::decode::decode as resp2_decode;
+use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
+use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::resp3::decode::complete::decode as resp3_decode;
+use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::types::RespVersion;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -19,7 +23,7 @@ use std::str;
 use crate::globals::globals;
 
 #[cfg(not(feature = "network-logs"))]
-fn log_frame(_: &str, _: &ProtocolFrame, _: bool) {}
+fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
 
 #[cfg(feature = "network-logs")]
 #[derive(Debug)]
@@ -31,33 +35,31 @@ enum DebugFrame {
 }
 
 #[cfg(feature = "network-logs")]
-impl<'a> From<&'a ProtocolFrame> for DebugFrame {
-  fn from(f: &'a ProtocolFrame) -> Self {
+impl<'a> From<&'a Resp2Frame> for DebugFrame {
+  fn from(f: &'a Resp2Frame) -> Self {
     match f {
-      ProtocolFrame::Moved(s) | ProtocolFrame::Ask(s) | ProtocolFrame::Error(s) | ProtocolFrame::SimpleString(s) => {
-        DebugFrame::String(s.to_owned())
-      }
-      ProtocolFrame::Integer(i) => DebugFrame::Integer(*i),
-      ProtocolFrame::BulkString(b) => match str::from_utf8(b) {
+      Resp2Frame::Error(s) | Resp2Frame::SimpleString(s) => DebugFrame::String(s.to_owned()),
+      Resp2Frame::Integer(i) => DebugFrame::Integer(*i),
+      Resp2Frame::BulkString(b) => match str::from_utf8(b) {
         Ok(s) => DebugFrame::String(s.to_owned()),
         Err(_) => DebugFrame::Bytes(b.to_vec()),
       },
-      ProtocolFrame::Null => DebugFrame::String("nil".into()),
-      ProtocolFrame::Array(frames) => DebugFrame::Array(frames.iter().map(|f| f.into()).collect()),
+      Resp2Frame::Null => DebugFrame::String("nil".into()),
+      Resp2Frame::Array(frames) => DebugFrame::Array(frames.iter().map(|f| f.into()).collect()),
     }
   }
 }
 
 #[cfg(feature = "network-logs")]
-fn log_frame(name: &str, frame: &ProtocolFrame, encode: bool) {
+fn log_resp2_frame(name: &str, frame: &Resp2Frame, encode: bool) {
   let prefix = if encode { "Encoded" } else { "Decoded" };
   trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))
 }
 
-fn encode_frame(codec: &RedisCodec, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), RedisError> {
+fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
   let offset = dst.len();
 
-  let res = encode_bytes(dst, &item)?;
+  let res = resp2_encode(dst, &item)?;
   let len = res.saturating_sub(offset);
 
   trace!(
@@ -67,23 +69,21 @@ fn encode_frame(codec: &RedisCodec, item: ProtocolFrame, dst: &mut BytesMut) -> 
     codec.server,
     res
   );
-  log_frame(&codec.name, &item, true);
+  log_resp2_frame(&codec.name, &item, true);
   codec.req_size_stats.write().sample(len as u64);
 
   Ok(())
 }
 
-fn decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<ProtocolFrame>, RedisError> {
+fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<Resp2Frame>, RedisError> {
   trace!("{}: Recv {} bytes from {}.", codec.name, src.len(), codec.server);
-
   if src.is_empty() {
     return Ok(None);
   }
-  let (frame, amt) = decode_bytes(src)?;
 
-  if let Some(frame) = frame {
+  if let Some((frame, amt)) = resp2_decode(src)? {
     trace!("{}: Parsed {} bytes from {}", codec.name, amt, codec.server);
-    log_frame(&codec.name, &frame, false);
+    log_resp2_frame(&codec.name, &frame, false);
     codec.res_size_stats.write().sample(amt as u64);
 
     let _ = src.split_to(amt);
@@ -111,43 +111,43 @@ impl RedisCodec {
   }
 }
 
-impl Encoder<ProtocolFrame> for RedisCodec {
+impl Encoder<Resp2Frame> for RedisCodec {
   type Error = RedisError;
 
   #[cfg(not(feature = "blocking-encoding"))]
-  fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
-    encode_frame(&self, item, dst)
+  fn encode(&mut self, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    resp2_encode_frame(&self, item, dst)
   }
 
   #[cfg(feature = "blocking-encoding")]
-  fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+  fn encode(&mut self, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
     let frame_size = protocol_utils::frame_size(&item);
 
     if frame_size >= globals().blocking_encode_threshold() {
       trace!("{}: Encoding in blocking task with size {}", self.name, frame_size);
-      tokio::task::block_in_place(|| encode_frame(&self, item, dst))
+      tokio::task::block_in_place(|| resp2_encode_frame(&self, item, dst))
     } else {
-      encode_frame(&self, item, dst)
+      resp2_encode_frame(&self, item, dst)
     }
   }
 }
 
 impl Decoder for RedisCodec {
-  type Item = ProtocolFrame;
+  type Item = Resp2Frame;
   type Error = RedisError;
 
   #[cfg(not(feature = "blocking-encoding"))]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-    decode_frame(&self, src)
+    resp2_decode_frame(&self, src)
   }
 
   #[cfg(feature = "blocking-encoding")]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
     if src.len() >= globals().blocking_encode_threshold() {
       trace!("{}: Decoding in blocking task with size {}", self.name, src.len());
-      tokio::task::block_in_place(|| decode_frame(&self, src))
+      tokio::task::block_in_place(|| resp2_decode_frame(&self, src))
     } else {
-      decode_frame(&self, src)
+      resp2_decode_frame(&self, src)
     }
   }
 }

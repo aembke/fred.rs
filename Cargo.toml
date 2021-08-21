@@ -11,16 +11,13 @@ keywords = ["redis", "futures", "async", "cluster", "tokio"]
 categories = ["asynchronous", "database-interfaces"]
 license = "MIT"
 
-[package.metadata.docs.rs]
-all-features = true
-
 [dependencies]
 tokio = { version = "1.10", features = ["full"] }
 bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
 lazy_static = "1.4"
-redis-protocol = "2.0"
+redis-protocol = "3.0"
 log = "0.4"
 pretty_env_logger = "0.4"
 float-cmp = "0.8"
@@ -35,6 +32,7 @@ sha-1 = "0.9"
 tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
 async-trait = "0.1"
+semver = "1.0"
 
 [dev-dependencies]
 prometheus = "0.12"

@@ -2,11 +2,11 @@ use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default_clustered();
+  let config = RedisConfig::default();
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
   let client = RedisClient::new(config);
 
-  let jh = client.connect(Some(policy), false);
+  let jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await?;
 
   // a special function to clear all data in a cluster
@@ -25,6 +25,5 @@ async fn main() -> Result<(), RedisError> {
   }
 
   let _ = client.quit().await?;
-  let _ = jh.await;
   Ok(())
 }

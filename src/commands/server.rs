@@ -51,7 +51,7 @@ pub async fn shutdown(inner: &Arc<RedisClientInner>, flags: Option<ShutdownFlags
 pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
   let (tx, rx) = oneshot_channel();
   let config = utils::read_locked(&inner.config);
-  if !config.is_clustered() {
+  if !config.server.is_clustered() {
     return Err(RedisError::new(
       RedisErrorKind::Unknown,
       "Expected clustered redis deployment.",

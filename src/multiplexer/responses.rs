@@ -11,7 +11,7 @@ use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
 use parking_lot::RwLock;
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 

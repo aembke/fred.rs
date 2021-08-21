@@ -10,9 +10,9 @@ use crate::types::Resolve;
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use semver::Version;
 use std::net::SocketAddr;
-
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -67,6 +67,33 @@ where
   Ok((response, transport))
 }
 
+pub async fn request_response_safe<T>(
+  mut transport: Framed<T, RedisCodec>,
+  request: &RedisCommand,
+) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let frame = match request.to_frame() {
+    Ok(frame) => frame,
+    Err(e) => return Err((e, transport)),
+  };
+  if let Err(e) = transport.send(frame).await {
+    return Err((e, transport));
+  };
+  let (response, transport) = transport.into_future().await;
+
+  let response = match response {
+    Some(result) => match result {
+      Ok(frame) => frame,
+      Err(e) => return Err((e, transport)),
+    },
+    None => ProtocolFrame::Null,
+  };
+
+  Ok((response, transport))
+}
+
 pub async fn authenticate<T>(
   transport: Framed<T, RedisCodec>,
   name: &str,
@@ -115,6 +142,23 @@ where
   }
 }
 
+pub async fn read_client_id<T>(
+  transport: Framed<T, RedisCodec>,
+) -> Result<(Option<i64>, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
+  let (result, transport) = request_response_safe(transport, &command).await?;
+  debug!("Read client ID: {:?}", result);
+  let id = match result {
+    ProtocolFrame::Integer(i) => Some(i),
+    _ => None,
+  };
+
+  Ok((id, transport))
+}
+
 #[cfg(feature = "enable-tls")]
 pub async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
@@ -124,7 +168,7 @@ pub async fn create_authenticated_connection_tls(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let auth_key = inner.config.read().key();
+  let auth_key = inner.config.read().key.clone();
 
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
@@ -151,7 +195,7 @@ pub async fn create_authenticated_connection(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let auth_key = inner.config.read().key();
+  let auth_key = inner.config.read().key.clone();
 
   let socket = TcpStream::connect(addr).await?;
   let framed = authenticate(Framed::new(socket, codec), &client_name, auth_key).await?;
@@ -233,9 +277,35 @@ async fn read_cluster_state(
   None
 }
 
+pub async fn read_server_version<T>(
+  inner: &Arc<RedisClientInner>,
+  transport: Framed<T, RedisCodec>,
+) -> Result<Version, RedisError> {
+  unimplemented!()
+}
+
+pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version, RedisError> {
+  let uses_tls = inner.config.read().tls.is_some();
+
+  if client_utils::is_clustered(&inner.config) {
+    unimplemented!()
+  } else {
+    let addr = protocol_utils::read_centralized_addr(&inner).await?;
+
+    if uses_tls {
+      let domain = protocol_utils::read_centralized_domain(&inner.config)?;
+      let transport = create_authenticated_connection_tls(&addr, &domain, inner).await?;
+
+      unimplemented!()
+    } else {
+      unimplemented!()
+    }
+  }
+}
+
 pub async fn read_cluster_nodes(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
   let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
-  let uses_tls = inner.config.read().tls().is_some();
+  let uses_tls = inner.config.read().tls.is_some();
 
   for (host, port) in known_nodes.into_iter() {
     _debug!(inner, "Attempting to read cluster state from {}:{}", host, port);

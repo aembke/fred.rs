@@ -1,7 +1,6 @@
 use fred::prelude::*;
-use futures::stream::{StreamExt};
+use futures::stream::StreamExt;
 use prometheus::{register_int_gauge_vec, IntGaugeVec};
-
 
 fn sample_metrics(
   client: &RedisClient,
@@ -31,7 +30,7 @@ async fn main() -> Result<(), RedisError> {
   let avg_latency = register_int_gauge_vec!("redis_avg_latency", "Average latency to redis.", &["id"]).unwrap();
   let bytes_sent = register_int_gauge_vec!("redis_bytes_sent", "Total bytes sent to redis.", &["id"]).unwrap();
 
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   let client = RedisClient::new(config);
 
   let jh = client.connect(None, false);

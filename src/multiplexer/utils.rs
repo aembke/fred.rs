@@ -181,6 +181,7 @@ pub async fn reset_connections(connections: &Connections) -> VecDeque<SentComman
       commands: _,
       ref writers,
       ref cache,
+      ..
     } => {
       cache.write().clear();
       client_utils::set_locked(counters, BTreeMap::new());
@@ -214,9 +215,9 @@ pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<
 }
 
 pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> Arc<String> {
-  match &*inner.config.read() {
-    RedisConfig::Centralized { ref host, ref port, .. } => Arc::new(format!("{}:{}", host, port)),
-    RedisConfig::Clustered { .. } => {
+  match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port, .. } => Arc::new(format!("{}:{}", host, port)),
+    ServerConfig::Clustered { .. } => {
       _error!(
         inner,
         "Falling back to default server name due to unexpected clustered config. This is a bug."
@@ -330,6 +331,7 @@ pub async fn write_centralized_command(
     ref commands,
     ref writer,
     ref server,
+    ..
   } = connections
   {
     if let Some(writer) = writer.write().await.deref_mut() {
@@ -366,6 +368,7 @@ pub async fn write_clustered_command(
     ref commands,
     ref counters,
     ref cache,
+    ..
   } = connections
   {
     let hash_slot = match hash_slot {
@@ -618,13 +621,15 @@ pub async fn connect_clustered(
     ref counters,
     ref writers,
     ref cache,
+    ref connection_ids,
   } = connections
   {
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
-    let uses_tls = inner.config.read().tls().is_some();
+    let uses_tls = inner.config.read().tls.is_some();
     let cluster_state = connection::read_cluster_nodes(inner).await?;
     let main_nodes = cluster_state.unique_main_nodes();
     client_utils::set_locked(cache, cluster_state);
+    connection_ids.write().clear();
 
     let (tx, _) = broadcast_channel(DEFAULT_BROADCAST_CAPACITY);
     for server in main_nodes.into_iter() {
@@ -633,11 +638,31 @@ pub async fn connect_clustered(
       let (sink, stream) = if uses_tls {
         _trace!(inner, "Connecting to {} with domain {}", addr, domain);
         let socket = connection::create_authenticated_connection_tls(&addr, &domain, inner).await?;
+        let socket = match connection::read_client_id(socket).await {
+          Ok((id, socket)) => {
+            if let Some(id) = id {
+              connection_ids.write().insert(server.clone(), id);
+            }
+            socket
+          }
+          Err((_, socket)) => socket,
+        };
+
         let (sink, stream) = socket.split();
         (RedisSink::Tls(sink), RedisStream::Tls(stream))
       } else {
         _trace!(inner, "Connecting to {}", addr);
         let socket = connection::create_authenticated_connection(&addr, inner).await?;
+        let socket = match connection::read_client_id(socket).await {
+          Ok((id, socket)) => {
+            if let Some(id) = id {
+              connection_ids.write().insert(server.clone(), id);
+            }
+            socket
+          }
+          Err((_, socket)) => socket,
+        };
+
         let (sink, stream) = socket.split();
         (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
       };
@@ -749,21 +774,42 @@ pub async fn connect_centralized(
     ref writer,
     ref counters,
     ref server,
+    ref connection_id,
   } = connections
   {
     let addr = protocol_utils::read_centralized_addr(&inner).await?;
-    let uses_tls = inner.config.read().tls().is_some();
+    let uses_tls = inner.config.read().tls.is_some();
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
     let (sink, stream) = if uses_tls {
       let domain = protocol_utils::read_centralized_domain(&inner.config)?;
       _trace!(inner, "Connecting to {} with domain {}", addr, domain);
       let socket = connection::create_authenticated_connection_tls(&addr, &domain, inner).await?;
+      let socket = match connection::read_client_id(socket).await {
+        Ok((id, socket)) => {
+          if let Some(id) = id {
+            connection_id.write().replace(id);
+          }
+          socket
+        }
+        Err((_, socket)) => socket,
+      };
+
       let (sink, stream) = socket.split();
       (RedisSink::Tls(sink), RedisStream::Tls(stream))
     } else {
       _trace!(inner, "Connecting to {}", addr);
       let socket = connection::create_authenticated_connection(&addr, inner).await?;
+      let socket = match connection::read_client_id(socket).await {
+        Ok((id, socket)) => {
+          if let Some(id) = id {
+            connection_id.write().replace(id);
+          }
+          socket
+        }
+        Err((_, socket)) => socket,
+      };
+
       let (sink, stream) = socket.split();
       (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
     };

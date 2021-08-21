@@ -6,11 +6,10 @@ use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
 use parking_lot::RwLock;
-pub use redis_protocol::{redis_keyslot, CRLF, NULL};
+pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
-
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;

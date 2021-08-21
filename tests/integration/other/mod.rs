@@ -1,6 +1,6 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
-use fred::types::RedisConfig;
+use fred::types::{RedisConfig, ServerConfig};
 use std::collections::BTreeSet;
 
 pub async fn should_split_clustered_connection(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
@@ -10,7 +10,7 @@ pub async fn should_split_clustered_connection(client: RedisClient, _config: Red
     .iter()
     .map(|client| client.client_config())
     .fold(BTreeSet::new(), |mut set, config| {
-      if let RedisConfig::Centralized { host, port, .. } = config {
+      if let ServerConfig::Centralized { host, port, .. } = config.server {
         set.insert(format!("{}:{}", host, port));
       } else {
         panic!("expected centralized config");

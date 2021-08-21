@@ -7,7 +7,6 @@ use crate::protocol::types::RedisCommand;
 use crate::utils as client_utils;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, VecDeque};
-
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -89,12 +88,15 @@ pub enum Connections {
     commands: Arc<AsyncRwLock<SentCommands>>,
     counters: Counters,
     server: Arc<String>,
+    connection_id: Arc<RwLock<Option<i64>>>,
   },
   Clustered {
     cache: Arc<RwLock<ClusterKeyCache>>,
     counters: Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
     writers: Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
     commands: Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+    /// Maps connection IDs to server names.
+    connection_ids: Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
   },
 }
 
@@ -105,6 +107,7 @@ impl Connections {
       counters: Counters::new(cmd_buffer_len),
       writer: Arc::new(AsyncRwLock::new(None)),
       commands: Arc::new(AsyncRwLock::new(VecDeque::new())),
+      connection_id: Arc::new(RwLock::new(None)),
     }
   }
 
@@ -116,6 +119,7 @@ impl Connections {
       writers: Arc::new(AsyncRwLock::new(BTreeMap::new())),
       commands: Arc::new(AsyncRwLock::new(BTreeMap::new())),
       counters: Arc::new(RwLock::new(BTreeMap::new())),
+      connection_ids: Arc::new(RwLock::new(BTreeMap::new())),
     }
   }
 }
@@ -130,7 +134,7 @@ pub struct Multiplexer {
 
 impl Multiplexer {
   pub fn new(inner: &Arc<RedisClientInner>) -> Self {
-    let clustered = inner.config.read().is_clustered();
+    let clustered = inner.config.read().server.is_clustered();
     let connections = if clustered {
       Connections::new_clustered()
     } else {
@@ -222,6 +226,15 @@ impl Multiplexer {
       messages
     } else {
       utils::connect_centralized(&self.inner, &self.connections, &self.close_tx).await?
+    };
+
+    match self.connections {
+      Connections::Centralized { ref connection_id, .. } => {
+        error!("{:?}", connection_id);
+      }
+      Connections::Clustered { ref connection_ids, .. } => {
+        error!("{:?}", connection_ids);
+      }
     };
 
     for command in pending_messages.into_iter() {

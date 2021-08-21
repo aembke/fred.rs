@@ -8,7 +8,6 @@ async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0..COUNT {
     let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
-
   Ok(())
 }
 
@@ -16,40 +15,39 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0..COUNT {
     let _ = client.del(format!("foo-{}", idx)).await?;
   }
-
   Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   let client = RedisClient::new(config);
 
-  let jh = client.connect(None, false);
+  let jh = client.connect(None);
   let _ = client.wait_for_connect().await?;
   let _ = delete_fake_data(&client).await?;
   let _ = create_fake_data(&client).await?;
 
   // build up a buffer of (key, value) pairs from pages with 10 keys per page
-  let buffer = client
-    .scan("foo-*", Some(10), None)
-    .try_fold(VecDeque::new(), |mut buf, mut page| async {
-      if let Some(keys) = page.take_results() {
-        // create a client from the scan result, reusing the existing connection(s)
-        let client = page.create_client();
+  let mut buffer = Vec::with_capacity(COUNT as usize);
+  let scan_stream = client.scan("foo*", Some(10), None);
 
-        for key in keys.into_iter() {
-          let value = client.get(&key).await?;
-          println!("Scanned {} -> {:?}", key.as_str(), value);
-          buf.push_back((key, value));
-        }
+  while let Ok(page) = scan_stream.next().await {
+    if let Some(keys) = page.take_results() {
+      // create a client from the scan result, reusing the existing connection(s)
+      let client = page.create_client();
+
+      for key in keys.into_iter() {
+        let value = client.get(&key).await?;
+        println!("Scanned {} -> {:?}", key.as_str(), value);
+        buf.push((key, value));
       }
+    }
 
-      // move on to the next page now that we're done reading the values
-      let _ = page.next();
-      Ok(buf)
-    })
-    .await?;
+    // move on to the next page now that we're done reading the values
+    let _ = page.next();
+    Ok(buf)
+  }
 
   assert_eq!(buffer.len(), COUNT as usize);
   let _ = delete_fake_data(&client).await?;

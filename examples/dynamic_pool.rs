@@ -4,9 +4,9 @@ use futures::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   // the max size isn't a hard limit - it just determines the size of the client array when the pool is initialized
-  let pool = DynamicRedisPool::new(config, None, false, 5, 10);
+  let pool = DynamicRedisPool::new(config, None, 5, 10);
 
   let _ = pool.connect();
   let _ = pool.wait_for_connect().await?;

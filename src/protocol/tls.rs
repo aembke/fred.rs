@@ -105,7 +105,7 @@ pub fn create_tls_connector(config: &RwLock<RedisConfig>) -> Result<TlsConnector
     builder.danger_accept_invalid_hostnames(true);
   }
 
-  if let Some(config) = config.read().tls() {
+  if let Some(ref config) = config.read().tls {
     if let Some(ref root_certs) = config.root_certs {
       for cert in root_certs.iter() {
         builder.add_root_certificate(cert.clone());

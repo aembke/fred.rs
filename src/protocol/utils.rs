@@ -4,13 +4,12 @@ use crate::protocol::connection::OK;
 use crate::protocol::types::*;
 use crate::types::Resolve;
 use crate::types::*;
-use crate::types::{RedisConfig, QUEUED};
+use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
 use parking_lot::RwLock;
-use redis_protocol::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
+use redis_protocol::resp2::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
 use std::str;
 use std::sync::Arc;
 
@@ -40,8 +39,8 @@ pub async fn parse_cluster_server(
 }
 
 pub fn read_clustered_hosts(config: &RwLock<RedisConfig>) -> Result<Vec<(String, u16)>, RedisError> {
-  match *config.read() {
-    RedisConfig::Clustered { ref hosts, .. } => Ok(hosts.clone()),
+  match config.read().server {
+    ServerConfig::Clustered { ref hosts, .. } => Ok(hosts.clone()),
     _ => Err(RedisError::new(
       RedisErrorKind::Unknown,
       "Invalid redis config. Clustered config expected.",
@@ -50,7 +49,7 @@ pub fn read_clustered_hosts(config: &RwLock<RedisConfig>) -> Result<Vec<(String,
 }
 
 pub fn read_centralized_domain(config: &RwLock<RedisConfig>) -> Result<String, RedisError> {
-  if let RedisConfig::Centralized { ref host, .. } = *config.read() {
+  if let ServerConfig::Centralized { ref host, .. } = config.read().server {
     Ok(host.to_owned())
   } else {
     Err(RedisError::new(
@@ -61,8 +60,8 @@ pub fn read_centralized_domain(config: &RwLock<RedisConfig>) -> Result<String, R
 }
 
 pub async fn read_centralized_addr(inner: &Arc<RedisClientInner>) -> Result<SocketAddr, RedisError> {
-  let (host, port) = match *inner.config.read() {
-    RedisConfig::Centralized { ref host, ref port, .. } => (host.clone(), *port),
+  let (host, port) = match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port, .. } => (host.clone(), *port),
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::Unknown,
@@ -339,7 +338,6 @@ pub fn frame_to_single_result(frame: ProtocolFrame) -> Result<RedisValue, RedisE
     }
     ProtocolFrame::Null => Ok(RedisValue::Null),
     ProtocolFrame::Error(s) => Err(pretty_error(&s)),
-    _ => Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid frame.")),
   }
 }
 
@@ -414,8 +412,6 @@ pub fn array_to_map(data: RedisValue) -> Result<RedisMap, RedisError> {
 pub fn frame_to_error(frame: &ProtocolFrame) -> Option<RedisError> {
   match frame {
     ProtocolFrame::Error(ref s) => Some(pretty_error(s)),
-    ProtocolFrame::Moved(ref s) => Some(RedisError::new(RedisErrorKind::Cluster, s.to_owned())),
-    ProtocolFrame::Ask(ref s) => Some(RedisError::new(RedisErrorKind::Cluster, s.to_owned())),
     _ => None,
   }
 }

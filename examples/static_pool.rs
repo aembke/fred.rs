@@ -3,10 +3,10 @@ use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   let pool = StaticRedisPool::new(config, 5)?;
 
-  let jhs = pool.connect(None, false);
+  let jhs = pool.connect(None);
   let _ = pool.wait_for_connect().await?;
 
   // use the pool like any other RedisClient with the Deref trait

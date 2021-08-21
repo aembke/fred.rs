@@ -4,9 +4,8 @@ use futures::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::Centralized {
-    host: "127.0.0.1".into(),
-    port: 6379,
+  let config = RedisConfig {
+    server: ServerConfig::default_centralized(),
     key: Some("your key".into()),
     tls: Some(TlsConfig {
       root_certs: None,
@@ -15,6 +14,7 @@ async fn main() -> Result<(), RedisError> {
       disable_built_in_roots: false,
       use_sni: true,
     }),
+    ..RedisConfig::default()
   };
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
   let client = RedisClient::new(config);

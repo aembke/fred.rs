@@ -8,11 +8,11 @@ use crate::protocol::connection::read_cluster_nodes;
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils::pretty_error;
 use crate::trace;
-use crate::types::{ClientState, ReconnectPolicy, RedisConfig};
+use crate::types::{ClientState, ReconnectPolicy, ServerConfig};
 use crate::utils as client_utils;
 use futures::{StreamExt, TryStreamExt};
 use redis_protocol::redis_keyslot;
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::collections::VecDeque;
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -26,6 +26,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use std::ops::Deref;
+use tokio::task::JoinHandle;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -114,14 +115,10 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
         }
       };
 
-      let config = RedisConfig::Centralized {
-        host,
-        port,
-        key: config.key(),
-        tls: config.tls().clone(),
-      };
+      let mut new_config = config.clone();
+      new_config.server = ServerConfig::Centralized { host, port };
 
-      clients.push(RedisClient::new(config));
+      clients.push(RedisClient::new(new_config));
     }
 
     let _ = tx.send(Ok(clients));
@@ -585,12 +582,12 @@ async fn write_command_t(
 }
 
 async fn handle_command(
-  inner: Arc<RedisClientInner>,
-  multiplexer: Multiplexer,
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
   command: RedisCommand,
   has_policy: bool,
   disable_pipeline: bool,
-) -> Result<(Arc<RedisClientInner>, Multiplexer), RedisError> {
+) -> Result<(), RedisError> {
   let cmd_buffer_len = client_utils::decr_atomic(&inner.cmd_buffer_len);
   _trace!(
     inner,
@@ -601,7 +598,7 @@ async fn handle_command(
 
   let command = match check_command_structure_t(&inner, &multiplexer, has_policy, command).await? {
     Some(cmd) => cmd,
-    None => return Ok((inner, multiplexer)),
+    None => return Ok(()),
   };
 
   let is_quit = command.kind == RedisCommandKind::Quit;
@@ -637,7 +634,7 @@ async fn handle_command(
     }
     if is_config_error(&result) {
       _debug!(inner, "Closing command stream after fatal configuration error.");
-      return result.map(|_| (inner, multiplexer));
+      return result;
     }
 
     if let Err(mut error) = result {
@@ -652,7 +649,7 @@ async fn handle_command(
           continue;
         }
 
-        return Ok((inner, multiplexer));
+        return Ok(());
       }
     } else {
       if let Some(rx) = rx {
@@ -662,19 +659,19 @@ async fn handle_command(
         _debug!(inner, "Recv message to continue non-pipelined multiplexer loop.");
       }
 
-      return Ok((inner, multiplexer));
+      return Ok(());
     }
   }
 }
 
 #[cfg(feature = "full-tracing")]
 async fn handle_command_t(
-  inner: Arc<RedisClientInner>,
-  multiplexer: Multiplexer,
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
   mut command: RedisCommand,
   has_policy: bool,
   disable_pipeline: bool,
-) -> Result<(Arc<RedisClientInner>, Multiplexer), RedisError> {
+) -> Result<(), RedisError> {
   command.take_queued_span();
   let span = fspan!(command, "handle_command");
   handle_command(inner, multiplexer, command, has_policy, disable_pipeline)
@@ -684,31 +681,47 @@ async fn handle_command_t(
 
 #[cfg(not(feature = "full-tracing"))]
 async fn handle_command_t(
-  inner: Arc<RedisClientInner>,
-  multiplexer: Multiplexer,
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
   command: RedisCommand,
   has_policy: bool,
   disable_pipeline: bool,
-) -> Result<(Arc<RedisClientInner>, Multiplexer), RedisError> {
+) -> Result<(), RedisError> {
   handle_command(inner, multiplexer, command, has_policy, disable_pipeline).await
+}
+
+/// Spawn a background task to process commands on the command backchannel.
+fn spawn_backchannel_task(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  has_policy: bool,
+) -> JoinHandle<Result<(), RedisError>> {
+  let (inner, multiplexer) = (inner.clone(), multiplexer.clone());
+  let (btx, mut brx) = unbounded_channel();
+  client_utils::set_locked(&inner.backchannel_tx, Some(btx));
+  let disable_pipeline = !inner.is_pipelined();
+
+  tokio::spawn(async move {
+    while let Some(command) = brx.recv().await {
+      let _ = handle_command_t(&inner, &multiplexer, command, has_policy, disable_pipeline).await?;
+    }
+
+    _debug!(inner, "Closing backchannel command task.");
+    Ok(())
+  })
 }
 
 /// Initialize the multiplexer and network interface to accept commands.
 ///
 /// This function runs until the connection closes or all retry attempts have failed.
 /// If a retry policy with infinite attempts is provided then this runs forever.
-pub async fn init(
-  inner: &Arc<RedisClientInner>,
-  policy: Option<ReconnectPolicy>,
-  disable_pipeline: bool,
-) -> Result<(), RedisError> {
+pub async fn init(inner: &Arc<RedisClientInner>, policy: Option<ReconnectPolicy>) -> Result<(), RedisError> {
   if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
     return Err(RedisError::new(
       RedisErrorKind::Unknown,
       "Connections are already initialized.",
     ));
   }
-  client_utils::set_pipelined_flag(&inner.pipelined, disable_pipeline);
 
   let multiplexer = Multiplexer::new(inner);
   let inner = inner.clone();
@@ -719,30 +732,28 @@ pub async fn init(
     utils::emit_error(&inner, &err);
     return Err(err);
   }
-  let (tx, rx) = unbounded_channel();
+  let (tx, mut rx) = unbounded_channel();
   client_utils::set_locked(&inner.command_tx, Some(tx));
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   utils::emit_connect(&inner.connect_tx);
   utils::emit_reconnect(&inner);
 
   let has_policy = policy.is_some();
+  let disable_pipeline = !inner.is_pipelined();
+  let backchannel_jh = spawn_backchannel_task(&inner, &multiplexer, has_policy);
   handle_connection_closed(&inner, &multiplexer, policy);
 
   _debug!(inner, "Starting command stream...");
-  let result = UnboundedReceiverStream::new(rx)
-    .map(|cmd| Ok::<_, RedisError>(cmd))
-    .try_fold((inner, multiplexer), |(inner, multiplexer), command| async move {
-      handle_command_t(inner, multiplexer, command, has_policy, disable_pipeline).await
-    })
-    .await;
-
-  if let Err(e) = result {
-    if e.is_canceled() {
-      Ok(())
-    } else {
-      Err(e)
+  while let Some(command) = rx.recv().await {
+    if let Err(e) = handle_command_t(&inner, &multiplexer, command, has_policy, disable_pipeline).await {
+      if e.is_canceled() {
+        return Ok(());
+      } else {
+        return Err(e);
+      }
     }
-  } else {
-    Ok(())
   }
+
+  backchannel_jh.abort();
+  Ok(())
 }

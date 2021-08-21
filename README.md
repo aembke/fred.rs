@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-An async Redis client for Rust built on Tokio and Futures.
+A high level async Redis client for Rust built on Tokio and Futures. 
 
 ## Example 
 
@@ -16,12 +16,12 @@ use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   let policy = ReconnectPolicy::default();
   let client = RedisClient::new(config);
   
   // connect to the server, returning a handle to the task that drives the connection
-  let _ = client.connect(Some(policy), false);
+  let _ = client.connect(Some(policy));
   // wait for the client to connect
   let _ = client.wait_for_connect().await?;
   
