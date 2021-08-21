@@ -1657,43 +1657,43 @@ impl Hash for RedisValue {
 }
 
 impl From<u8> for RedisValue {
-  fn from(d: u8) -> RedisValue {
+  fn from(d: u8) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<u16> for RedisValue {
-  fn from(d: u16) -> RedisValue {
+  fn from(d: u16) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<u32> for RedisValue {
-  fn from(d: u32) -> RedisValue {
+  fn from(d: u32) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i8> for RedisValue {
-  fn from(d: i8) -> RedisValue {
+  fn from(d: i8) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i16> for RedisValue {
-  fn from(d: i16) -> RedisValue {
+  fn from(d: i16) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i32> for RedisValue {
-  fn from(d: i32) -> RedisValue {
+  fn from(d: i32) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i64> for RedisValue {
-  fn from(d: i64) -> RedisValue {
+  fn from(d: i64) -> Self {
     RedisValue::Integer(d)
   }
 }
@@ -1739,20 +1739,26 @@ impl TryFrom<usize> for RedisValue {
 }
 
 impl From<String> for RedisValue {
-  fn from(d: String) -> RedisValue {
+  fn from(d: String) -> Self {
     RedisValue::String(d)
   }
 }
 
 impl<'a> From<&'a str> for RedisValue {
-  fn from(d: &'a str) -> RedisValue {
+  fn from(d: &'a str) -> Self {
     RedisValue::String(d.to_owned())
   }
 }
 
 impl<'a> From<&'a String> for RedisValue {
-  fn from(s: &'a String) -> RedisValue {
+  fn from(s: &'a String) -> Self {
     RedisValue::String(s.clone())
+  }
+}
+
+impl<'a> From<&'a [u8]> for RedisValue {
+  fn from(b: &'a [u8]) -> Self {
+    RedisValue::Bytes(b.to_vec())
   }
 }
 
@@ -1794,7 +1800,7 @@ impl From<IndexMap<String, RedisValue>> for RedisValue {
 }
 
 impl From<HashMap<String, RedisValue>> for RedisValue {
-  fn from(d: HashMap<String, RedisValue>) -> RedisValue {
+  fn from(d: HashMap<String, RedisValue>) -> Self {
     RedisValue::Map(d.into())
   }
 }
@@ -1806,7 +1812,7 @@ impl From<BTreeMap<String, RedisValue>> for RedisValue {
 }
 
 impl From<RedisKey> for RedisValue {
-  fn from(d: RedisKey) -> RedisValue {
+  fn from(d: RedisKey) -> Self {
     RedisValue::Bytes(d.key)
   }
 }

@@ -95,7 +95,6 @@ pub enum Connections {
     counters: Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
     writers: Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
     commands: Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
-    /// Maps connection IDs to server names.
     connection_ids: Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
   },
 }
