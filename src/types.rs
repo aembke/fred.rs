@@ -1,5 +1,6 @@
-use crate::client::{RedisClient, RedisClientInner};
+use crate::client::RedisClient;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::connection::OK;
 pub use crate::protocol::tls::TlsConfig;
 pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
@@ -548,7 +549,7 @@ pub enum Blocking {
   Block,
   /// Return an error to the caller.
   Error,
-  /// Interrupt the blocked command by sending `CLIENT UNBLOCK` on the blocked connection.
+  /// Interrupt the blocked command by automatically sending `CLIENT UNBLOCK` for the blocked connection.
   Interrupt,
 }
 
@@ -558,7 +559,7 @@ impl Default for Blocking {
   }
 }
 
-///
+/// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisConfig {
   /// Whether or not the client should automatically pipeline commands when possible.

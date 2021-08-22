@@ -1,14 +1,15 @@
 use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
+use crate::inner::{Backchannel, MultiPolicy, RedisClientInner};
 use crate::metrics::*;
+use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
-use crate::multiplexer::{commands as multiplexer_commands, SentCommand};
 use crate::protocol::types::{DefaultResolver, RedisCommand};
 use crate::types::*;
 use crate::utils;
 use futures::Stream;
 use parking_lot::RwLock;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::fmt;
 use std::ops::Deref;
@@ -16,8 +17,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio::sync::oneshot::Sender as OneshotSender;
-use tokio::task::JoinHandle;
+use tokio::sync::RwLock as AsyncRwLock;
 use tokio::time::interval as tokio_interval;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -37,110 +37,6 @@ pub mod util {
     let mut hasher = sha1::Sha1::new();
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
-  }
-}
-
-#[doc(hidden)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiPolicy {
-  /// The hash slot against which the transaction is running.
-  pub hash_slot: Option<u16>,
-  /// Whether or not to abort the transaction on an error.
-  pub abort_on_error: bool,
-  /// Whether or not the MULTI command has been sent. In clustered mode we defer sending the MULTI command until we know the hash slot.
-  pub sent_multi: bool,
-}
-
-impl MultiPolicy {
-  pub fn check_and_set_hash_slot(&mut self, slot: u16) -> Result<(), RedisError> {
-    if let Some(old_slot) = self.hash_slot {
-      if slot != old_slot {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid hash slot. All commands inside a transaction must use the same hash slot.",
-        ));
-      }
-    } else {
-      self.hash_slot = Some(slot);
-    }
-
-    Ok(())
-  }
-}
-
-#[doc(hidden)]
-pub struct RedisClientInner {
-  /// The client ID as seen by the server.
-  pub id: Arc<String>,
-  /// The response policy to apply when the client is in a MULTI block.
-  pub multi_block: RwLock<Option<MultiPolicy>>,
-  /// The state of the underlying connection.
-  pub state: RwLock<ClientState>,
-  /// The redis config used for initializing connections.
-  pub config: RwLock<RedisConfig>,
-  /// An optional reconnect policy.
-  pub policy: RwLock<Option<ReconnectPolicy>>,
-  /// An mpsc sender for errors to `on_error` streams.
-  pub error_tx: RwLock<VecDeque<UnboundedSender<RedisError>>>,
-  /// An mpsc sender for commands to the multiplexer.
-  pub command_tx: RwLock<Option<CommandSender>>,
-  /// An mpsc sender for backchannel commands to the multiplexer that skips the normal command queue.
-  pub backchannel_tx: RwLock<Option<CommandSender>>,
-  /// An mpsc sender for pubsub messages to `on_message` streams.
-  pub message_tx: RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>,
-  /// An mpsc sender for pubsub messages to `on_keyspace_event` streams.
-  pub keyspace_tx: RwLock<VecDeque<UnboundedSender<KeyspaceEvent>>>,
-  /// An mpsc sender for reconnection events to `on_reconnect` streams.
-  pub reconnect_tx: RwLock<VecDeque<UnboundedSender<RedisClient>>>,
-  /// MPSC senders for `on_connect` futures.
-  pub connect_tx: RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
-  /// A join handle for the task that sleeps waiting to reconnect.
-  pub reconnect_sleep_jh: RwLock<Option<JoinHandle<()>>>,
-  /// Command latency metrics.
-  pub latency_stats: RwLock<LatencyStats>,
-  /// Network latency metrics.
-  pub network_latency_stats: RwLock<LatencyStats>,
-  /// Payload size metrics tracking for requests.
-  pub req_size_stats: Arc<RwLock<SizeStats>>,
-  /// Payload size metrics tracking for responses.
-  pub res_size_stats: Arc<RwLock<SizeStats>>,
-  /// Command queue buffer size.
-  pub cmd_buffer_len: Arc<AtomicUsize>,
-  /// Number of message redeliveries.
-  pub redeliver_count: Arc<AtomicUsize>,
-  /// Channel listening to connection closed events.
-  pub connection_closed_tx: RwLock<Option<UnboundedSender<(VecDeque<SentCommand>, RedisError)>>>,
-  /// The cached view of the cluster state, if running against a clustered deployment.
-  pub cluster_state: RwLock<Option<ClusterKeyCache>>,
-  /// The DNS resolver to use when establishing new connections.
-  pub resolver: DefaultResolver,
-}
-
-impl RedisClientInner {
-  pub fn is_pipelined(&self) -> bool {
-    self.config.read().pipeline
-  }
-
-  pub fn log_client_name_fn<F>(&self, level: log::Level, func: F)
-  where
-    F: FnOnce(&str),
-  {
-    if log_enabled!(level) {
-      func(self.id.as_str())
-    }
-  }
-
-  pub fn client_name(&self) -> &str {
-    self.id.as_str()
-  }
-
-  pub fn client_name_ref(&self) -> &Arc<String> {
-    &self.id
-  }
-
-  pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {
-    let mut guard = self.cluster_state.write();
-    *guard = state;
   }
 }
 
@@ -241,6 +137,7 @@ impl RedisClient {
   /// Create a new client instance without connecting to the server.
   pub fn new(config: RedisConfig) -> RedisClient {
     let state = ClientState::Disconnected;
+    let backchannel = Backchannel::default();
     let latency = LatencyStats::default();
     let network_latency = LatencyStats::default();
     let req_size = SizeStats::default();
@@ -257,7 +154,6 @@ impl RedisClient {
       keyspace_tx: RwLock::new(VecDeque::new()),
       reconnect_tx: RwLock::new(VecDeque::new()),
       connect_tx: RwLock::new(VecDeque::new()),
-      backchannel_tx: RwLock::new(None),
       command_tx: RwLock::new(None),
       reconnect_sleep_jh: RwLock::new(None),
       latency_stats: RwLock::new(latency),
@@ -269,6 +165,7 @@ impl RedisClient {
       connection_closed_tx: RwLock::new(None),
       multi_block: RwLock::new(None),
       cluster_state: RwLock::new(None),
+      backchannel: Arc::new(AsyncRwLock::new(backchannel)),
       resolver,
       id,
     });
@@ -808,9 +705,21 @@ impl RedisClient {
 
   /// Return the ID of the current connection.
   ///
+  /// Note: Against a clustered deployment this will return the ID of a random connection. See [connection_id](Self::connection_id) for  more information.
+  ///
   /// <https://redis.io/commands/client-id>
   pub async fn client_id(&self) -> Result<RedisValue, RedisError> {
     commands::client::client_id(&self.inner).await
+  }
+
+  /// Read the connection IDs for the active connections to each server.
+  ///
+  /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
+  pub async fn connection_ids(&self) -> Result<HashMap<Arc<String>, i64>, RedisError> {
+    utils::read_connection_ids(&self.inner).await.ok_or(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Failed to read connection IDs",
+    ))
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable format.
@@ -888,10 +797,12 @@ impl RedisClient {
 
   /// This command can unblock, from a different connection, a client blocked in a blocking operation, such as for instance BRPOP or XREAD or WAIT.
   ///
+  /// Note: this command is sent on a backchannel connection and will work even when the main connection is blocked.
+  ///
   /// <https://redis.io/commands/client-unblock>
   pub async fn client_unblock<S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> Result<RedisValue, RedisError>
   where
-    S: Into<String>,
+    S: Into<RedisValue>,
   {
     commands::client::client_unblock(&self.inner, id, flag).await
   }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::client::RedisClientInner;
+use crate::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -117,12 +117,12 @@ pub async fn client_unblock<S>(
   flag: Option<ClientUnblockFlag>,
 ) -> Result<RedisValue, RedisError>
 where
-  S: Into<String>,
+  S: Into<RedisValue>,
 {
   let id = id.into();
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::backchannel_request_response(inner, move || {
     let mut args = Vec::with_capacity(2);
-    args.push(id.into());
+    args.push(id);
 
     if let Some(flag) = flag {
       args.push(flag.to_str().into());

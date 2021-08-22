@@ -1,7 +1,46 @@
 use fred::client::RedisClient;
-use fred::error::RedisError;
-use fred::types::{RedisConfig, ServerConfig};
+use fred::error::{RedisError, RedisErrorKind};
+use fred::prelude::Blocking;
+use fred::types::{ClientUnblockFlag, RedisConfig, ServerConfig};
 use std::collections::BTreeSet;
+use std::time::Duration;
+use tokio::time::sleep;
+
+pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  config.blocking = Blocking::Interrupt;
+  let client = RedisClient::new(config);
+  let _ = client.connect(None);
+  let _ = client.wait_for_connect().await?;
+
+  let unblock_client = client.clone();
+  let _ = tokio::spawn(async move {
+    sleep(Duration::from_secs(1)).await;
+    let _ = unblock_client.ping().await;
+  });
+
+  let result = client.blpop("foo", 60.0).await;
+  assert!(result.is_err());
+  assert_ne!(*result.unwrap_err().kind(), RedisErrorKind::Timeout);
+  Ok(())
+}
+
+pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let connections_ids = client.connection_ids().await?;
+  let unblock_client = client.clone();
+
+  let _ = tokio::spawn(async move {
+    sleep(Duration::from_secs(1)).await;
+
+    for (_, id) in connections_ids.into_iter() {
+      let _ = unblock_client.client_unblock(id, Some(ClientUnblockFlag::Error)).await;
+    }
+  });
+
+  let result = client.blpop("foo", 60.0).await;
+  assert!(result.is_err());
+  assert_ne!(*result.unwrap_err().kind(), RedisErrorKind::Timeout);
+  Ok(())
+}
 
 pub async fn should_split_clustered_connection(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   let clients = client.split_cluster().await?;

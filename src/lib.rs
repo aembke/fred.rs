@@ -64,6 +64,7 @@ extern crate tracing_futures;
 mod macros;
 
 mod commands;
+mod inner;
 mod multiplexer;
 mod protocol;
 mod trace;

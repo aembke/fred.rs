@@ -32,6 +32,8 @@ mod multi {
 mod other {
 
   centralized_test!(other, should_track_size_stats);
+  centralized_test!(other, should_automatically_unblock);
+  centralized_test!(other, should_manually_unblock);
 }
 
 mod hashes {

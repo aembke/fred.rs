@@ -1,6 +1,7 @@
-use crate::client::{CommandSender, RedisClient, RedisClientInner};
+use crate::client::{CommandSender, RedisClient};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
+use crate::inner::RedisClientInner;
 use crate::multiplexer::{responses, Multiplexer};
 use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
 use crate::protocol::connection::{self, RedisSink, RedisStream};
@@ -294,7 +295,7 @@ pub async fn write_all_nodes(
     }
   }
 
-  Ok(None)
+  Ok(Backpressure::Skipped)
 }
 
 pub async fn write_command(
@@ -322,7 +323,7 @@ pub async fn write_centralized_command(
   if !no_backpressure {
     if let Some(backpressure) = should_apply_backpressure(connections, None) {
       _warn!(inner, "Applying backpressure for {} ms", backpressure);
-      return Ok(Some((Duration::from_millis(backpressure), command)));
+      return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
     }
   }
 
@@ -339,7 +340,7 @@ pub async fn write_centralized_command(
 
       write_command(inner, server, counters, writer, &mut *commands_guard, command)
         .await
-        .map(|_| None)
+        .map(|_| Backpressure::Ok(server.clone()))
     } else {
       Err(RedisError::new_context(
         RedisErrorKind::Unknown,
@@ -401,7 +402,7 @@ pub async fn write_clustered_command(
     if !no_backpressure {
       if let Some(backpressure) = should_apply_backpressure(connections, Some(&server)) {
         _warn!(inner, "Applying backpressure for {} ms", backpressure);
-        return Ok(Some((Duration::from_millis(backpressure), command)));
+        return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
       }
     }
     if log_enabled!(Level::Trace) {
@@ -425,7 +426,7 @@ pub async fn write_clustered_command(
         if let Some(commands) = commands_guard.get_mut(&server) {
           write_command(inner, &server, &counters, writer, commands, command)
             .await
-            .map(|_| None)
+            .map(|_| Backpressure::Ok(server.clone()))
         } else {
           return Err(RedisError::new_context(
             RedisErrorKind::Unknown,
@@ -625,7 +626,7 @@ pub async fn connect_clustered(
   } = connections
   {
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
-    let uses_tls = inner.config.read().tls.is_some();
+    let uses_tls = protocol_utils::uses_tls(inner);
     let cluster_state = connection::read_cluster_nodes(inner).await?;
     let main_nodes = cluster_state.unique_main_nodes();
     client_utils::set_locked(cache, cluster_state);
@@ -778,7 +779,7 @@ pub async fn connect_centralized(
   } = connections
   {
     let addr = protocol_utils::read_centralized_addr(&inner).await?;
-    let uses_tls = inner.config.read().tls.is_some();
+    let uses_tls = protocol_utils::uses_tls(inner);
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
     let (sink, stream) = if uses_tls {

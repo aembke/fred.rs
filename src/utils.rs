@@ -1,7 +1,8 @@
-use crate::client::RedisClientInner;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
+use crate::inner::RedisClientInner;
 use crate::multiplexer::utils as multiplexer_utils;
+use crate::multiplexer::ConnectionIDs;
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
 use float_cmp::approx_eq;
@@ -186,6 +187,14 @@ pub fn check_and_set_client_state(
   } else {
     *state_guard = new_state;
     true
+  }
+}
+
+pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<String>> {
+  if let ServerConfig::Centralized { ref host, ref port } = inner.config.read().server {
+    Some(Arc::new(format!("{}:{}", host, port)))
+  } else {
+    None
   }
 }
 
@@ -411,6 +420,60 @@ async fn wait_for_response(
   }
 }
 
+fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
+  inner.config.read().blocking == Blocking::Error
+}
+
+fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
+  inner.config.read().blocking == Blocking::Interrupt
+}
+
+async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
+  !command.kind.closes_connection() && inner.backchannel.read().await.is_blocked()
+}
+
+async fn interrupt_blocked_connection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  let blocked_server = match inner.backchannel.read().await.blocked.clone() {
+    Some(server) => server,
+    None => return Err(RedisError::new(RedisErrorKind::Unknown, "No blocked connection found.")),
+  };
+  let connection_id = match inner.backchannel.read().await.connection_id(&blocked_server) {
+    Some(id) => id,
+    None => {
+      return Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Failed to find blocked connection ID.",
+      ))
+    }
+  };
+
+  backchannel_request_response(inner, move || {
+    Ok((
+      RedisCommandKind::ClientUnblock,
+      vec![connection_id.into(), ClientUnblockFlag::Error.to_str().into()],
+    ))
+  })
+  .await
+  .map(|_| ())
+}
+
+async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
+  if should_enforce_blocking_policy(inner, &command).await {
+    if has_blocking_error_policy(inner) {
+      return Err(RedisError::new(
+        RedisErrorKind::InvalidCommand,
+        "Error sending command while connection is blocked.",
+      ));
+    } else if has_blocking_interrupt_policy(inner) {
+      if let Err(e) = interrupt_blocked_connection(inner).await {
+        _error!(inner, "Failed to interrupt blocked connection: {:?}", e);
+      }
+    }
+  }
+
+  Ok(())
+}
+
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
 where
@@ -434,7 +497,7 @@ where
     (command, rx, req_size)
   };
   if let Some(key) = command.extract_key() {
-    cmd_span.record("key", &key);
+    cmd_span.record("key", &&*key);
   }
   cmd_span.record("cmd", &command.kind.to_str_debug());
   cmd_span.record("req_size", &req_size);
@@ -443,6 +506,7 @@ where
   command.traces.cmd_id = cmd_span.id();
   command.traces.queued = Some(queued_span);
 
+  let _ = check_blocking_policy(inner, &command).await?;
   let _ = send_command(&inner, command)?;
   wait_for_response(rx)
     .and_then(|frame| async move {
@@ -462,10 +526,136 @@ where
   let (tx, rx) = oneshot_channel();
   let command = RedisCommand::new(kind, args, Some(tx));
 
+  let _ = check_blocking_policy(inner, &command).await?;
   let _ = disallow_nested_values(&command)?;
   let _ = send_command(&inner, command)?;
 
   wait_for_response(rx).await
+}
+
+fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {
+  match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
+    ServerConfig::Clustered { .. } => {
+      if let Some(key) = command.extract_key() {
+        // hash the key and send the command to that node
+        let hash_slot = redis_protocol::redis_keyslot(&key);
+        let server = match &*inner.cluster_state.read() {
+          Some(ref state) => match state.get_server(hash_slot) {
+            Some(slot) => slot.server.clone(),
+            None => {
+              return Err(RedisError::new(
+                RedisErrorKind::Cluster,
+                "Failed to find cluster node at hash slot.",
+              ))
+            }
+          },
+          None => {
+            return Err(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Failed to find cluster state.",
+            ))
+          }
+        };
+
+        Ok(server)
+      } else {
+        // read a random node from the cluster
+        let server = match &*inner.cluster_state.read() {
+          Some(ref state) => match state.random_slot() {
+            Some(slot) => slot.server.clone(),
+            None => {
+              return Err(RedisError::new(
+                RedisErrorKind::Cluster,
+                "Failed to find read random cluster node.",
+              ))
+            }
+          },
+          None => {
+            return Err(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Failed to find cluster state.",
+            ))
+          }
+        };
+
+        Ok(server)
+      }
+    }
+  }
+}
+
+pub async fn backchannel_request_response<F>(
+  inner: &Arc<RedisClientInner>,
+  func: F,
+) -> Result<ProtocolFrame, RedisError>
+where
+  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
+{
+  let (kind, args) = func()?;
+  let command = RedisCommand::new(kind, args, None);
+  let _ = disallow_nested_values(&command)?;
+
+  let blocked_server = inner.backchannel.read().await.blocked.clone();
+
+  if let Some(ref blocked_server) = blocked_server {
+    _debug!(
+      inner,
+      "Backchannel: Using blocked server {} for {}",
+      blocked_server,
+      command
+    );
+
+    inner
+      .backchannel
+      .write()
+      .await
+      .request_response(inner, blocked_server, command)
+      .await
+  } else {
+    let server = find_backchannel_server(inner, &command)?;
+    _debug!(
+      inner,
+      "Backchannel: Sending to backchannel server {}: {}",
+      server,
+      command
+    );
+
+    inner
+      .backchannel
+      .write()
+      .await
+      .request_response(inner, &server, command)
+      .await
+  }
+}
+
+pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMap<Arc<String>, i64>> {
+  inner
+    .backchannel
+    .read()
+    .await
+    .connection_ids
+    .as_ref()
+    .and_then(|connection_ids| match connection_ids {
+      ConnectionIDs::Clustered(ref connection_ids) => {
+        Some(connection_ids.read().iter().map(|(k, v)| (k.clone(), *v)).collect())
+      }
+      ConnectionIDs::Centralized(connection_id) => {
+        if let Some(id) = connection_id.read().as_ref() {
+          let mut out = HashMap::with_capacity(1);
+          let server = match read_centralized_server(inner) {
+            Some(server) => server,
+            None => return None,
+          };
+
+          out.insert(server, *id);
+          Some(out)
+        } else {
+          None
+        }
+      }
+    })
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {

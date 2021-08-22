@@ -1,5 +1,5 @@
-use crate::client::RedisClientInner;
 use crate::error::{RedisError, RedisErrorKind};
+use crate::inner::RedisClientInner;
 use crate::multiplexer::{Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
@@ -48,6 +48,11 @@ pub enum RedisStream {
 pub enum RedisSink {
   Tls(TlsRedisWriter),
   Tcp(TcpRedisWriter),
+}
+
+pub enum RedisTransport {
+  Tls(FramedTls),
+  Tcp(FramedTcp),
 }
 
 pub async fn request_response<T>(
@@ -323,7 +328,7 @@ where
 }
 
 pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version, RedisError> {
-  let uses_tls = inner.config.read().tls.is_some();
+  let uses_tls = protocol_utils::uses_tls(inner);
 
   if client_utils::is_clustered(&inner.config) {
     let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
@@ -396,7 +401,7 @@ pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version
 
 pub async fn read_cluster_nodes(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
   let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
-  let uses_tls = inner.config.read().tls.is_some();
+  let uses_tls = protocol_utils::uses_tls(inner);
 
   for (host, port) in known_nodes.into_iter() {
     _debug!(inner, "Attempting to read cluster state from {}:{}", host, port);

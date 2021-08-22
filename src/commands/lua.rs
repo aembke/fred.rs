@@ -1,7 +1,7 @@
 use super::*;
 use crate::client::util::sha1_hash;
-use crate::client::RedisClientInner;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;

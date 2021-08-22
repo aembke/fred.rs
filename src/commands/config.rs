@@ -1,5 +1,5 @@
 use super::*;
-use crate::client::RedisClientInner;
+use crate::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::types::*;
 use std::sync::Arc;

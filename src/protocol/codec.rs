@@ -1,5 +1,5 @@
-use crate::client::RedisClientInner;
 use crate::error::RedisError;
+use crate::inner::RedisClientInner;
 use crate::metrics::SizeStats;
 use crate::protocol::utils as protocol_utils;
 use bytes::BytesMut;

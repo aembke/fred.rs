@@ -1,4 +1,4 @@
-use crate::client::RedisClientInner;
+use crate::inner::RedisClientInner;
 use crate::protocol::types::RedisCommand;
 use redis_protocol::resp2::types::Frame;
 use std::sync::Arc;

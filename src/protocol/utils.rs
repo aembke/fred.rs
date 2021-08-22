@@ -1,5 +1,5 @@
-use crate::client::RedisClientInner;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::connection::OK;
 use crate::protocol::types::*;
 use crate::types::Resolve;
@@ -18,6 +18,24 @@ macro_rules! parse_or_zero(
     $data.parse::<$t>().ok().unwrap_or(0)
   }
 );
+
+#[cfg(feature = "enable-tls")]
+pub fn uses_tls(inner: &Arc<RedisClientInner>) -> bool {
+  inner.config.read().tls.is_some()
+}
+
+#[cfg(not(feature = "enable-tls"))]
+pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
+  false
+}
+
+pub fn server_to_parts(server: &Arc<String>) -> Result<(&str, u16), RedisError> {
+  let parts: Vec<&str> = server.split(":").collect();
+  if parts.len() < 2 {
+    return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));
+  }
+  Ok((parts[0], parts[1].parse::<u16>()?))
+}
 
 /// Parse a cluster server string to read the (domain, IP address/port).
 pub async fn parse_cluster_server(
@@ -1042,8 +1060,6 @@ pub fn frame_size(frame: &Frame) -> usize {
     Frame::Integer(ref i) => i64_size(*i),
     Frame::Null => 3,
     Frame::Error(ref s) => s.as_bytes().len(),
-    Frame::Ask(ref s) => s.as_bytes().len(),
-    Frame::Moved(ref s) => s.as_bytes().len(),
     Frame::SimpleString(ref s) => s.as_bytes().len(),
     Frame::BulkString(ref b) => b.len(),
     Frame::Array(ref a) => a.iter().fold(0, |c, f| c + frame_size(f)),

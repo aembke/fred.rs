@@ -614,6 +614,13 @@ impl RedisCommandKind {
     }
   }
 
+  pub fn closes_connection(&self) -> bool {
+    match *self {
+      RedisCommandKind::Quit | RedisCommandKind::Shutdown => true,
+      _ => false,
+    }
+  }
+
   /// Read the command's protocol string without panicking.
   pub fn to_str_debug(&self) -> &'static str {
     match *self {
