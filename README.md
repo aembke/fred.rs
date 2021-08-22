@@ -118,6 +118,8 @@ If callers are using ACLs and Redis version >=6.x they can configure the client 
 
 **It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER NODES`.** Callers can still change users via the `auth` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
 
+If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `auth` command inside the `on_reconnect` block.
+
 ## Tests
 
 To run the unit and integration tests:
