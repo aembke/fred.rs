@@ -20,7 +20,7 @@ async fn main() -> Result<(), RedisError> {
     // optional TLS settings
     tls: None,
   };
-  // configure exponential backoff when reconnecting
+  // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
   let client = RedisClient::new(config);
 

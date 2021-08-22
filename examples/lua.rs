@@ -13,7 +13,7 @@ async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
   let client = RedisClient::new(config);
 
-  let jh = client.connect(None, false);
+  let jh = client.connect(None);
   let _ = client.wait_for_connect().await?;
 
   for script in SCRIPTS.iter() {

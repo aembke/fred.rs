@@ -161,11 +161,14 @@ fn main() {
 
   let output = sch.block_on(async move {
     let counter = Arc::new(AtomicUsize::new(0));
-    let config = RedisConfig::new_centralized(&argv.host, argv.port, None);
+    let config = RedisConfig {
+      server: ServerConfig::new_centralized(&argv.host, argv.port),
+      ..Default::default()
+    };
     let pool = StaticRedisPool::new(config, argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
-    let _ = pool.connect(None, !argv.pipeline);
+    let _ = pool.connect(None);
     let _ = pool.wait_for_connect().await?;
     info!("Connected to {}:{}.", argv.host, argv.port);
     let _ = pool.del(TEST_KEY).await?;

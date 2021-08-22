@@ -26,7 +26,7 @@ async fn main() -> Result<(), RedisError> {
     println!("Client {} reconnected.", client.id());
   }));
 
-  let jh = client.connect(Some(policy), false);
+  let jh = client.connect(Some(policy));
   if let Err(error) = client.wait_for_connect().await {
     println!("Client failed to connect with error: {:?}", error);
   }

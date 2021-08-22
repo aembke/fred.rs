@@ -46,6 +46,7 @@ cargo add fred
 
 ## Features
 
+* Flexible and generic client interfaces.
 * Supports clustered and centralized Redis deployments.
 * Optional built-in reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
@@ -61,6 +62,9 @@ cargo add fred
 * Built-in tracking for network latency and payload size metrics.
 * A client pooling interface to round-robin requests among a pool of clients.
 * Built in support for [tracing](https://crates.io/crates/tracing).
+* Good test coverage.
+
+The main goal of this library is to provide callers with a flexible and reliable interface that manages all the details related to connection management. When configured correctly callers can stop, start, scale up, scale down, rebalance, and modify Redis servers as needed without client errors.
 
 ## Tracing
 
@@ -100,7 +104,7 @@ These are environment variables because they're dangerous in production and call
 
 ## Pipelining
 
-The caller can toggle [pipelining](https://redis.io/topics/pipelining) by providing flags to the client's `connect` function. These settings can drastically affect performance on both the server and client, but further performance tuning may be necessary to avoid issues such as using too much memory on the client or server while buffering commands.
+The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags on the `RedisConfig` provided to a client. These settings can drastically affect performance on both the server and client, but further performance tuning may be necessary to avoid issues such as using too much memory on the client or server while buffering commands.
 
 See the global performance tuning functions for more information on how to tune backpressure or other relevant settings related to pipelining.
 

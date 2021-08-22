@@ -42,6 +42,28 @@ pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Res
   Ok(())
 }
 
+pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  config.blocking = Blocking::Error;
+  let client = RedisClient::new(config);
+  let _ = client.connect(None);
+  let _ = client.wait_for_connect().await?;
+  let error_client = client.clone();
+
+  let _ = tokio::spawn(async move {
+    sleep(Duration::from_secs(1)).await;
+
+    let result = error_client.ping().await;
+    assert!(result.is_err());
+    assert_eq!(*result.unwrap_err().kind(), RedisErrorKind::InvalidCommand);
+
+    let _ = error_client.unblock_self(None).await;
+  });
+
+  let result = client.blpop("foo", 60.0).await;
+  assert!(result.is_err());
+  Ok(())
+}
+
 pub async fn should_split_clustered_connection(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   let clients = client.split_cluster().await?;
 

@@ -16,7 +16,7 @@ async fn main() -> Result<(), RedisError> {
   let _ = subscriber_client.wait_for_connect().await?;
 
   let subscriber_jh = tokio::spawn(async move {
-    while let Ok(result) = subscriber_client.blpop("foo", 5.0).await? {
+    while let Ok(result) = subscriber_client.blpop("foo", 5.0).await {
       println!("Blocking pop result: {:?}", result);
     }
 

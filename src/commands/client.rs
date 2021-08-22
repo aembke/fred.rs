@@ -134,3 +134,8 @@ where
 
   protocol_utils::frame_to_single_result(frame)
 }
+
+pub async fn unblock_self(inner: &Arc<RedisClientInner>, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {
+  let flag = flag.unwrap_or(ClientUnblockFlag::Error);
+  utils::interrupt_blocked_connection(inner, flag).await
+}

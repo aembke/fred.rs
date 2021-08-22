@@ -39,7 +39,7 @@ async fn main() -> Result<(), RedisError> {
     while let Some((channel, message)) = message_stream.next().await {
       println!("Recv {:?} on channel {}", message, channel);
     }
-    Ok(())
+    Ok::<_, RedisError>(())
   });
 
   for idx in 0..COUNT {

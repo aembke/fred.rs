@@ -30,23 +30,23 @@ async fn main() -> Result<(), RedisError> {
 
   // build up a buffer of (key, value) pairs from pages with 10 keys per page
   let mut buffer = Vec::with_capacity(COUNT as usize);
-  let scan_stream = client.scan("foo*", Some(10), None);
+  let mut scan_stream = client.scan("foo*", Some(10), None);
 
-  while let Ok(page) = scan_stream.next().await {
+  while let Some(Ok(mut page)) = scan_stream.next().await {
     if let Some(keys) = page.take_results() {
       // create a client from the scan result, reusing the existing connection(s)
       let client = page.create_client();
 
       for key in keys.into_iter() {
         let value = client.get(&key).await?;
-        println!("Scanned {} -> {:?}", key.as_str(), value);
-        buf.push((key, value));
+        println!("Scanned {} -> {:?}", key.as_str_lossy(), value);
+        buffer.push((key, value));
       }
     }
 
     // move on to the next page now that we're done reading the values
+    // or move this before we call `get` on each key to scan results in the background as fast as possible
     let _ = page.next();
-    Ok(buf)
   }
 
   assert_eq!(buffer.len(), COUNT as usize);

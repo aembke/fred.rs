@@ -432,7 +432,10 @@ async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: 
   !command.kind.closes_connection() && inner.backchannel.read().await.is_blocked()
 }
 
-async fn interrupt_blocked_connection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn interrupt_blocked_connection(
+  inner: &Arc<RedisClientInner>,
+  flag: ClientUnblockFlag,
+) -> Result<(), RedisError> {
   let blocked_server = match inner.backchannel.read().await.blocked.clone() {
     Some(server) => server,
     None => return Err(RedisError::new(RedisErrorKind::Unknown, "No blocked connection found.")),
@@ -450,7 +453,7 @@ async fn interrupt_blocked_connection(inner: &Arc<RedisClientInner>) -> Result<(
   backchannel_request_response(inner, move || {
     Ok((
       RedisCommandKind::ClientUnblock,
-      vec![connection_id.into(), ClientUnblockFlag::Error.to_str().into()],
+      vec![connection_id.into(), flag.to_str().into()],
     ))
   })
   .await
@@ -459,13 +462,19 @@ async fn interrupt_blocked_connection(inner: &Arc<RedisClientInner>) -> Result<(
 
 async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
   if should_enforce_blocking_policy(inner, &command).await {
+    _debug!(
+      inner,
+      "Checking to enforce blocking policy for {}",
+      command.kind.to_str_debug()
+    );
+
     if has_blocking_error_policy(inner) {
       return Err(RedisError::new(
         RedisErrorKind::InvalidCommand,
         "Error sending command while connection is blocked.",
       ));
     } else if has_blocking_interrupt_policy(inner) {
-      if let Err(e) = interrupt_blocked_connection(inner).await {
+      if let Err(e) = interrupt_blocked_connection(inner, ClientUnblockFlag::Error).await {
         _error!(inner, "Failed to interrupt blocked connection: {:?}", e);
       }
     }
@@ -603,7 +612,7 @@ where
       inner,
       "Backchannel: Using blocked server {} for {}",
       blocked_server,
-      command
+      command.kind.to_str_debug()
     );
 
     inner
@@ -618,7 +627,7 @@ where
       inner,
       "Backchannel: Sending to backchannel server {}: {}",
       server,
-      command
+      command.kind.to_str_debug()
     );
 
     inner

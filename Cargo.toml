@@ -8,7 +8,7 @@ readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 homepage = "https://github.com/aembke/fred.rs"
 keywords = ["redis", "futures", "async", "cluster", "tokio"]
-categories = ["asynchronous", "database-interfaces"]
+categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
 
 [dependencies]
@@ -49,7 +49,7 @@ enable-tls = ["native-tls", "tokio-native-tls"]
 vendored-tls = ["enable-tls", "native-tls/vendored"]
 mocks = []
 reconnect-on-auth-error = []
-index-map = []
+index-map = ["indexmap"]
 pool-prefer-active = []
 full-tracing = ["tracing", "tracing-futures"]
 partial-tracing = ["tracing", "tracing-futures"]

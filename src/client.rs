@@ -807,6 +807,12 @@ impl RedisClient {
     commands::client::client_unblock(&self.inner, id, flag).await
   }
 
+  /// A convenience function to unblock any blocked connection on this client.
+  pub async fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {
+    utils::disallow_during_transaction(&self.inner)?;
+    commands::client::unblock_self(&self.inner, flag).await
+  }
+
   // ------------- CLUSTER -----------
 
   /// Advances the cluster config epoch.

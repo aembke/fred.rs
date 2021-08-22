@@ -18,6 +18,8 @@ async fn main() -> Result<(), RedisError> {
   globals::set_default_command_timeout(30_000);
   globals::set_max_command_attempts(5);
   globals::set_backpressure_count(100);
+
+  #[cfg(feature = "blocking-encoding")]
   globals::set_blocking_encode_threshold(10_000_000);
 
   // do stuff...

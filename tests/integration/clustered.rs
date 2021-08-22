@@ -37,6 +37,7 @@ mod other {
   cluster_test!(other, should_run_flushall_cluster);
   cluster_test!(other, should_automatically_unblock);
   cluster_test!(other, should_manually_unblock);
+  cluster_test!(other, should_error_when_blocked);
 }
 
 mod hashes {
