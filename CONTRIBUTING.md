@@ -166,7 +166,7 @@ This design has several benefits:
 * The library can get a signal when the socket closes without having to try to write to it first. If the socket were not split then callers would need to try to write to the socket to detect if it had closed. By splitting the socket we can get a signal immediately if the socket closes so reconnection logic can run right away.
 * Reading and writing operations can run concurrently. 
 
-However, there is one overarching drawback to this design:
+However, there is one drawback to this design:
 
 * Some shared state is necessary. Both the reader and writer tasks need to have access to the queue of in-flight commands for example. Since these are separate tasks Tokio requires this shared state to be `Send + Sync`, which means a `RwLock` is required.
 
@@ -185,15 +185,15 @@ Inside the `try_fold` loop the reader task does the following:
 3. Link the response to the command at the front of the in-flight command queue, popping the command off the queue in the process.
 4. Take the response oneshot channel sender from the command, and forward the response frame to this channel.
 
-If the `try_fold` stream closes unexpectedly then broadcast a message on the `Multiplexer` connection error broadcast channel. This will then trigger reconnection and replay logic in a separate task.
+If the `try_fold` stream closes unexpectedly the reader task will broadcast a message on the `Multiplexer` connection error broadcast channel. This will then trigger reconnection and replay logic in a separate task.
 
 The response handling logic is in the [responses.rs](src/multiplexer/responses.rs) file.
 
 ### Tracing
 
-Tracing is great and having tracing automatically instrumented in client libraries is even better. However, Redis is fast enough that emitting trace data for a Redis client can result in a ton of network traffic to the tracing collector. 
+Automatic tracing in client libraries can be very useful. However, Redis is fast enough that emitting trace data for a Redis client can result in a ton of network traffic to the tracing collector. 
 
-[This document](src/tracing/README.md) covers what is traced and how these relate to the two optional tracing features: `full-tracing` and `partial-tracing`. While writing and testing this library I often saw tracing exporter errors due to having filled up the buffer between the subscriber and exporter. As a result the tracing logic was separated into the two features mentioned earlier. Callers can see a lot of benefit just from the `partial-tracing` feature, but it may also be beneficial to enable `full-tracing` while debugging a difficult issue.
+[This document](src/tracing/README.md) covers what is traced and how these relate to the two optional tracing features: `full-tracing` and `partial-tracing`. While writing and testing this library I often saw tracing exporter errors due to having filled up the buffer between the subscriber and exporter. As a result the tracing logic was separated into the two features mentioned earlier. Callers can see a lot of benefit just from the `partial-tracing` feature, but it may also be beneficial to enable `full-tracing` while debugging a difficult issue. However, callers that use `full-tracing` should expect to spend some time tuning their subscriber and exporter settings to handle a lot of tracing output.
 
 For most use cases the caller is only concerned with tracing individual commands through the client. Features such as automatic reconnection can drastically impact performance, but these are not directly traced since they often occur outside the context of an individual command, and therefore most likely outside the context of an application-level span from the caller. 
 
@@ -225,7 +225,7 @@ Performed 300000 operations in: 2.495155038s. Throughput: 120240 req/sec
 
 Note that in the first example above the tracing data isn't even being emitted to the collector (the sampler is `AlwaysOff`). The act of including the tracing logic to add and track spans is enough to cut performance in half.
 
-Many applications are not bounded by Redis throughput and so enabling the tracing features likely won't have any noticeable effect. However, the tracing features are opt-in for callers because of this performance impact. Callers will have to weigh the significant benefits of tracing against the performance hit to their application's use cases.
+Many applications are not bounded by Redis throughput and so enabling the tracing features likely won't have any noticeable effect. However, the tracing features are opt-in for callers because of this performance impact. Callers will have to weigh the significant benefits of tracing against the performance loss to their application's use cases.
 
 #### Request-Response
 
