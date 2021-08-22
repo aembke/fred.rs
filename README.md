@@ -110,6 +110,14 @@ See the global performance tuning functions for more information on how to tune 
 
 This module also contains a [separate test application](bin/pipeline_test) that can be used to demonstrate the effects of pipelining. This test application also contains some helpful information on how to use the tracing features.
 
+## ACL & Authentication
+
+Prior to the introduction of ACL commands in Redis version 6 clients would authenticate with a single password. If callers are not using the ACL interface, or using Redis version <=5.x, they should configure the client to automatically authenticate by using the `password` field on the `RedisConfig` and leaving the `username` field as `None`. 
+
+If callers are using ACLs and Redis version >=6.x they can configure the client to automatically authenticate by using the `username` and `password` fields on the provided `RedisConfig`. 
+
+**It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER NODES`.** Callers can still change users via the `auth` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
+
 ## Tests
 
 To run the unit and integration tests:
@@ -135,6 +143,16 @@ export REDIS_VERSION=6.2.2
 ```
 
 **Beware: the tests will periodically run `flushall`.**
+
+### Chaos Monkey
+
+The tests also ship with an optional module that will randomly stop, start, restart, and rebalance the servers while the tests are running. This should make the tests take slightly longer but should not produce any errors.
+
+To run the tests with this feature use:
+
+```
+./tests/run_with_chaos_monkey.sh
+```
 
 ## Contributing 
 

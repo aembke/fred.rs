@@ -11,7 +11,8 @@ const NUM_MESSAGES: i64 = 20;
 
 pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let subscriber_client = client.clone_new();
-  let _ = subscriber_client.connect(None);
+  let policy = client.client_reconnect_policy();
+  let _ = subscriber_client.connect(policy);
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.subscribe(CHANNEL1).await?;
 
@@ -49,7 +50,8 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   let subscriber_channels = channels.clone();
 
   let subscriber_client = client.clone_new();
-  let _ = subscriber_client.connect(None);
+  let policy = client.client_reconnect_policy();
+  let _ = subscriber_client.connect(policy);
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.psubscribe(channels.clone()).await?;
 

@@ -39,7 +39,8 @@ async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, 
 
 pub async fn should_bzpopmin(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher_client = client.clone_new();
-  let _ = publisher_client.connect(None);
+  let policy = client.client_reconnect_policy();
+  let _ = publisher_client.connect(policy);
   let _ = publisher_client.wait_for_connect().await?;
 
   let jh = tokio::task::spawn(async move {
@@ -64,7 +65,8 @@ pub async fn should_bzpopmin(client: RedisClient, _: RedisConfig) -> Result<(), 
 
 pub async fn should_bzpopmax(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher_client = client.clone_new();
-  let _ = publisher_client.connect(None);
+  let policy = client.client_reconnect_policy();
+  let _ = publisher_client.connect(policy);
   let _ = publisher_client.wait_for_connect().await?;
 
   let jh = tokio::task::spawn(async move {

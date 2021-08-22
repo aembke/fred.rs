@@ -29,6 +29,12 @@ Note: When writing tests that operate on multiple keys be sure to use a [hash_ta
 
 Tests that use this pattern will run 4 times to check the functionality against a clustered and centralized redis servers using both pipelined and non-pipelined clients.
 
+## Chaos Monkey
+
+This module ships with a testing module that will randomly stop, start, restart, and rebalance the redis servers while tests are running. If this is enabled the tests should take longer but should not produce any errors.
+
+To run the tests with the chaos monkey process use [run_with_chaos_monkey.sh](./run_with_chaos_monkey.sh) from the application root.
+
 ## Notes
 
 * Since we're mutating shared state in external redis servers with these tests it's necessary to run the tests with `--test-threads=1`. The [run.sh](run.sh) script will do this automatically.

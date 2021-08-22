@@ -773,40 +773,84 @@ async fn handle_command_t(
   handle_command(inner, multiplexer, command, has_policy, disable_pipeline).await
 }
 
+async fn connect_with_policy(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  policy: &mut Option<ReconnectPolicy>,
+) -> Result<(), RedisError> {
+  if let Some(ref mut policy) = policy {
+    loop {
+      if let Err(err) = multiplexer.connect_and_flush().await {
+        _warn!(inner, "Failed to connect with error {:?}", err);
+
+        let delay = match policy.next_delay() {
+          Some(delay) => delay,
+          None => {
+            _warn!(
+              inner,
+              "Max reconnect attempts reached. Stopping initial connection logic."
+            );
+            let error = RedisError::new(RedisErrorKind::Unknown, "Max reconnection attempts reached.");
+            utils::emit_connect_error(&inner.connect_tx, &error);
+            utils::emit_error(inner, &error);
+            return Err(error);
+          }
+        };
+        _info!(inner, "Sleeping for {} ms before reconnecting", delay);
+        sleep(Duration::from_millis(delay)).await;
+      } else {
+        return Ok(());
+      }
+    }
+  } else {
+    if let Err(err) = multiplexer.connect_and_flush().await {
+      utils::emit_connect_error(&inner.connect_tx, &err);
+      utils::emit_error(inner, &err);
+      return Err(err);
+    }
+
+    Ok(())
+  }
+}
+
 /// Initialize the multiplexer and network interface to accept commands.
 ///
 /// This function runs until the connection closes or all retry attempts have failed.
 /// If a retry policy with infinite attempts is provided then this runs forever.
-pub async fn init(inner: &Arc<RedisClientInner>, policy: Option<ReconnectPolicy>) -> Result<(), RedisError> {
+pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPolicy>) -> Result<(), RedisError> {
   if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
     return Err(RedisError::new(
       RedisErrorKind::Unknown,
-      "Connections are already initialized.",
+      "Connections are already initialized or connecting.",
     ));
   }
-
+  client_utils::set_locked(&inner.policy, policy.clone());
   let multiplexer = Multiplexer::new(inner);
-  let inner = inner.clone();
 
   _debug!(inner, "Initializing connections...");
-  if let Err(err) = multiplexer.connect_and_flush().await {
-    utils::emit_connect_error(&inner.connect_tx, &err);
-    utils::emit_error(&inner, &err);
-    return Err(err);
+  if inner.config.read().fail_fast {
+    if let Err(err) = multiplexer.connect_and_flush().await {
+      utils::emit_connect_error(&inner.connect_tx, &err);
+      utils::emit_error(inner, &err);
+      return Err(err);
+    }
+  } else {
+    connect_with_policy(inner, &multiplexer, &mut policy).await?;
   }
+
   let (tx, mut rx) = unbounded_channel();
   client_utils::set_locked(&inner.command_tx, Some(tx));
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   utils::emit_connect(&inner.connect_tx);
-  utils::emit_reconnect(&inner);
+  utils::emit_reconnect(inner);
 
   let has_policy = policy.is_some();
   let disable_pipeline = !inner.is_pipelined();
-  handle_connection_closed(&inner, &multiplexer, policy);
+  handle_connection_closed(inner, &multiplexer, policy);
 
   _debug!(inner, "Starting command stream...");
   while let Some(command) = rx.recv().await {
-    if let Err(e) = handle_command_t(&inner, &multiplexer, command, has_policy, disable_pipeline).await {
+    if let Err(e) = handle_command_t(inner, &multiplexer, command, has_policy, disable_pipeline).await {
       if e.is_canceled() {
         return Ok(());
       } else {

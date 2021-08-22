@@ -103,13 +103,20 @@ where
 pub async fn authenticate<T>(
   transport: Framed<T, RedisCodec>,
   name: &str,
-  key: Option<String>,
+  username: Option<String>,
+  password: Option<String>,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  let transport = if let Some(key) = key {
-    let command = RedisCommand::new(RedisCommandKind::Auth, vec![key.into()], None);
+  let transport = if let Some(password) = password {
+    let args = if let Some(username) = username {
+      vec![username.into(), password.into()]
+    } else {
+      vec![password.into()]
+    };
+    let command = RedisCommand::new(RedisCommandKind::Auth, args, None);
+
     debug!("{}: Authenticating Redis client...", name);
     let (response, transport) = request_response(transport, &command).await?;
 
@@ -174,12 +181,13 @@ pub async fn create_authenticated_connection_tls(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let auth_key = inner.config.read().key.clone();
+  let password = inner.config.read().password.clone();
+  let username = inner.config.read().username.clone();
 
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
-  let framed = authenticate(Framed::new(socket, codec), &client_name, auth_key).await?;
+  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
@@ -201,10 +209,11 @@ pub async fn create_authenticated_connection(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let auth_key = inner.config.read().key.clone();
+  let password = inner.config.read().password.clone();
+  let username = inner.config.read().username.clone();
 
   let socket = TcpStream::connect(addr).await?;
-  let framed = authenticate(Framed::new(socket, codec), &client_name, auth_key).await?;
+  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)

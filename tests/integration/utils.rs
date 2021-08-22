@@ -1,14 +1,30 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
-use fred::types::{RedisConfig, ServerConfig};
+use fred::types::{ReconnectPolicy, RedisConfig, ServerConfig};
+use std::env;
 use std::future::Future;
+
+fn read_fail_fast_env() -> bool {
+  match env::var_os("FRED_FAIL_FAST") {
+    Some(s) => match s.into_string() {
+      Ok(s) => match s.as_ref() {
+        "f" | "false" | "FALSE" | "0" => false,
+        _ => true,
+      },
+      Err(_) => true,
+    },
+    None => true,
+  }
+}
 
 pub async fn run_cluster<F, Fut>(func: F, pipeline: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
+  let policy = ReconnectPolicy::new_constant(60, 1000);
   let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
     server: ServerConfig::default_clustered(),
     pipeline,
     ..Default::default()
@@ -16,7 +32,7 @@ where
   let client = RedisClient::new(config.clone());
   let _client = client.clone();
 
-  let _jh = client.connect(None);
+  let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _ = client.flushall_cluster().await;
@@ -29,7 +45,9 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
+  let policy = ReconnectPolicy::new_constant(60, 1000);
   let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
     server: ServerConfig::default_centralized(),
     pipeline,
     ..Default::default()
@@ -37,7 +55,7 @@ where
   let client = RedisClient::new(config.clone());
   let _client = client.clone();
 
-  let _jh = client.connect(None);
+  let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _ = client.flushall(false).await;

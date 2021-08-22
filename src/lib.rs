@@ -31,7 +31,7 @@
 //! }
 //! ```
 //!
-//! See the [github repository](https://github.com/aembke/fred-rs) for more examples.
+//! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 //!
 extern crate bytes;
 extern crate float_cmp;

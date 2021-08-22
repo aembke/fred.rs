@@ -185,16 +185,23 @@ impl RedisClient {
     utils::read_locked(&self.inner.config)
   }
 
+  /// Read the reconnect policy used to initialize the client.
+  pub fn client_reconnect_policy(&self) -> Option<ReconnectPolicy> {
+    self.inner.policy.read().clone()
+  }
+
+  /// Whether or not the client has a reconnection policy.
+  pub fn has_reconnect_policy(&self) -> bool {
+    self.inner.policy.read().is_some()
+  }
+
   /// Connect to the Redis server with an optional reconnection policy.
   ///
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve
   /// until the connection closes, and if a reconnection policy with unlimited attempts
   /// is provided then the `JoinHandle` will run forever.
   ///
-  /// **Note:** The provided reconnect policy does *not* apply to establishing the initial connection.
-  /// If the client cannot establish a connection on the first attempt here it will return the
-  /// associated error. This is done so callers have a signal when the network config is invalid
-  /// but they've provided a reconnect policy that will otherwise never resolve the returned future.
+  /// **Note:** See the [RedisConfig](crate::types::RedisConfig) documentation for more information on how the `policy` is applied to new connections.
   pub fn connect(&self, policy: Option<ReconnectPolicy>) -> ConnectHandle {
     let inner = self.inner.clone();
 
@@ -218,7 +225,7 @@ impl RedisClient {
 
   /// Create a new `RedisClient` from the config provided to this client.
   ///
-  /// The returned client will not be connected to the server.
+  /// The returned client will not be connected to the server, and it will use new connections after connecting.
   pub fn clone_new(&self) -> Self {
     RedisClient::new(utils::read_locked(&self.inner.config))
   }
@@ -425,15 +432,15 @@ impl RedisClient {
 
   /// Request for authentication in a password-protected Redis server. Returns ok if successful.
   ///
-  /// The client will automatically authenticate if a password is provided in the associated `RedisConfig` when calling [connect](Self::connect).
+  /// The client will automatically authenticate with the default user if a password is provided in the associated `RedisConfig` when calling [connect](Self::connect).
   ///
   /// <https://redis.io/commands/auth>
-  pub async fn auth<S>(&self, password: S) -> Result<(), RedisError>
+  pub async fn auth<S>(&self, username: Option<String>, password: S) -> Result<(), RedisError>
   where
     S: Into<String>,
   {
     utils::disallow_during_transaction(&self.inner)?;
-    commands::server::auth(&self.inner, password).await
+    commands::server::auth(&self.inner, username, password).await
   }
 
   /// Instruct Redis to start an Append Only File rewrite process.
@@ -627,7 +634,7 @@ impl RedisClient {
   /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis interface.
   ///
   /// Note: ASYNC flushing of the db behaves badly with the automatic pipelining features of this library. If async flushing of the entire cluster
-  /// is a requirement then callers should use [split_cluster] with [flushall] on each client instead.
+  /// is a requirement then callers should use [split_cluster](Self::split_cluster) with [flushall](Self::flushall) on each client instead.
   pub async fn flushall_cluster(&self) -> Result<(), RedisError> {
     utils::disallow_during_transaction(&self.inner)?;
     commands::server::flushall_cluster(&self.inner).await
@@ -705,7 +712,7 @@ impl RedisClient {
 
   /// Return the ID of the current connection.
   ///
-  /// Note: Against a clustered deployment this will return the ID of a random connection. See [connection_id](Self::connection_id) for  more information.
+  /// Note: Against a clustered deployment this will return the ID of a random connection. See [connection_ids](Self::connection_ids) for  more information.
   ///
   /// <https://redis.io/commands/client-id>
   pub async fn client_id(&self) -> Result<RedisValue, RedisError> {
@@ -715,6 +722,8 @@ impl RedisClient {
   /// Read the connection IDs for the active connections to each server.
   ///
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
+  ///
+  /// Note: despite being async this function will usually return cached information from the client if possible.
   pub async fn connection_ids(&self) -> Result<HashMap<Arc<String>, i64>, RedisError> {
     utils::read_connection_ids(&self.inner).await.ok_or(RedisError::new(
       RedisErrorKind::Unknown,

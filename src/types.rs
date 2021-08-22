@@ -562,15 +562,40 @@ impl Default for Blocking {
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisConfig {
+  /// Whether or not the client should return an error if it cannot connect to the server the first time when being initialized.
+  /// If `false` the client will run the reconnect logic if it cannot connect to the server the first time, but if `true` the client
+  /// will return initial connection errors to the caller immediately.
+  ///
+  /// Normally the reconnection logic only applies to connections that close unexpectedly, but this flag can apply the same logic to
+  /// the first connection as it is being created.
+  ///
+  /// Note: Callers should use caution setting this to `false` since it can make debugging configuration issues more difficult.
+  ///
+  /// Default: `true`
+  pub fail_fast: bool,
   /// Whether or not the client should automatically pipeline commands when possible.
+  ///
+  /// Default: `true`
   pub pipeline: bool,
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking command.
+  ///
+  /// Default: `Blocking::Block`
   pub blocking: Blocking,
-  /// An optional auth key for the client.
-  pub key: Option<String>,
+  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should be `None`.
+  ///
+  /// Default: `None`
+  pub username: Option<String>,
+  /// An optional password for the client to use when authenticating.
+  ///
+  /// Default: `None`
+  pub password: Option<String>,
   /// Connection configuration for the server(s).
+  ///
+  /// Default: `Centralized(localhost, 6379)`
   pub server: ServerConfig,
   /// TLS configuration fields. If `None` the connection will not use TLS.
+  ///
+  /// Default: `None`
   #[cfg(feature = "enable-tls")]
   pub tls: Option<TlsConfig>,
 }
@@ -579,9 +604,11 @@ impl Default for RedisConfig {
   #[cfg(feature = "enable-tls")]
   fn default() -> Self {
     RedisConfig {
+      fail_fast: true,
       pipeline: true,
       blocking: Blocking::default(),
-      key: None,
+      username: None,
+      password: None,
       server: ServerConfig::default(),
       tls: None,
     }
@@ -590,9 +617,11 @@ impl Default for RedisConfig {
   #[cfg(not(feature = "enable-tls"))]
   fn default() -> Self {
     RedisConfig {
+      fail_fast: true,
       pipeline: true,
       blocking: Blocking::default(),
-      key: None,
+      username: None,
+      password: None,
       server: ServerConfig::default(),
     }
   }
@@ -764,6 +793,7 @@ pub struct RedisKey {
 }
 
 impl RedisKey {
+  /// Create a new redis key from anything that can be read as bytes.
   pub fn new<S>(key: S) -> RedisKey
   where
     S: Into<Vec<u8>>,
@@ -771,22 +801,53 @@ impl RedisKey {
     RedisKey { key: key.into() }
   }
 
+  /// Read the key as a str slice if it can be parsed as a UTF8 string.
   pub fn as_str(&self) -> Option<&str> {
     str::from_utf8(&self.key).ok()
   }
 
+  /// Read the key as a byte slice.
   pub fn as_bytes(&self) -> &[u8] {
     &self.key
   }
 
+  /// Read the key as a lossy UTF8 string with `String::from_utf8_lossy`.
   pub fn as_str_lossy(&self) -> Cow<str> {
     String::from_utf8_lossy(&self.key)
   }
 
+  /// Convert the key to a UTF8 string, if possible.
   pub fn into_string(self) -> Option<String> {
     String::from_utf8(self.key).ok()
   }
 
+  /// Read the inner bytes making up the key.
+  pub fn into_bytes(self) -> Vec<u8> {
+    self.key
+  }
+
+  /// Hash the key to find the associated cluster [hash slot](https://redis.io/topics/cluster-spec#keys-distribution-model).
+  pub fn cluster_hash(&self) -> u16 {
+    let as_str = String::from_utf8_lossy(&self.key);
+    redis_protocol::redis_keyslot(&as_str)
+  }
+
+  /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is known.
+  pub fn cluster_owner(&self, client: &RedisClient) -> Option<Arc<String>> {
+    if utils::is_clustered(&client.inner.config) {
+      let hash_slot = self.cluster_hash();
+      client
+        .inner
+        .cluster_state
+        .read()
+        .as_ref()
+        .and_then(|state| state.get_server(hash_slot).map(|slot| slot.server.clone()))
+    } else {
+      None
+    }
+  }
+
+  /// Replace this key with an empty string, returning the bytes from the original key.
   pub fn take(&mut self) -> Vec<u8> {
     mem::replace(&mut self.key, Vec::new())
   }
