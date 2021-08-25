@@ -360,21 +360,20 @@ fn is_exec_or_discard_without_multi_block(inner: &Arc<RedisClientInner>, command
 
 /// Whether or not to disable pipelining for a request. If this returns true the multiplexer will block subsequent commands until the current command receives a response.
 fn should_disable_pipeline(inner: &Arc<RedisClientInner>, command: &RedisCommand, disable_pipeline: bool) -> bool {
-  let is_blocking = command.kind.is_blocking();
   let in_multi_block = command.kind != RedisCommandKind::Multi && client_utils::is_locked_some(&inner.multi_block);
 
-  // we disable pipelining at the start and end of a transaction to clear the socket's command buffer so that
-  // when the final response to EXEC or DISCARD arrives the command buffer will only contain commands that were
-  // a part of the transaction, and nothing that came before or after the transaction. if it were possible that
-  // the command buffer contained commands before the transaction then it'd be impossible to gracefully handle
-  // connection closed errors that occur during or at the end of a transaction.
-  let force_no_pipeline = is_async_flush(command)
-    || command.kind.ends_transaction()
-    // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
-    || command.kind.is_eval()
-    || command.kind == RedisCommandKind::Multi;
+  // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
+  let force_no_pipeline = command.kind.is_eval()
+    // we disable pipelining at the start and end of a transaction to clear the socket's command buffer so that
+    // when the final response to EXEC or DISCARD arrives the command buffer will only contain commands that were
+    // a part of the transaction. this makes reconnection logic much easier to reason about in the context of transactions
+    || command.kind == RedisCommandKind::Multi
+    || command.kind.ends_transaction();
 
-  force_no_pipeline || (!in_multi_block && (is_blocking || (disable_pipeline && !command.is_quit())))
+  // prefer pipelining for all commands not in a multi block (unless specified above), unless the command is blocking.
+  // but, in the context of a transaction blocking commands can be pipelined since the server responds immediately.
+  // otherwise defer to the `disable_pipeline` flag from the config.
+  force_no_pipeline || (!in_multi_block && (disable_pipeline || command.kind.is_blocking()))
 }
 
 /// Check that all commands within a transaction against a clustered deployment only modify the same hash slot.

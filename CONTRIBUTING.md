@@ -12,11 +12,11 @@ This document gives some background on how the library is structured and how to 
 ## TODO List
 
 * Streams
-* Mocking layer
-* RESP3 support (see [redis-protocol](https://crates.io/crates/redis-protocol)). This is currently a WIP.
+* [WIP] RESP3 support (see [redis-protocol](https://crates.io/crates/redis-protocol)). 
 * Redis version 7.x commands
+* Mocking layer
 * Gate commands unique to a particular Redis version behind build time features.
-* Support custom DNS resolvers on the client. This is currently a WIP.
+* [WIP] Support custom DNS resolvers on the client.
 
 If you'd like to contribute to any of the above features feel free to reach out
 
@@ -57,12 +57,8 @@ Some relevant requirements for this library ended up being along the lines of:
 At the time there weren't any existing Redis libraries for Rust that checked all these boxes and so this module was written. 
 
 There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers
-with a high level interface that abstracts away everything to do with safe and reliable connection management. 
-
-Callers should feel comfortable using this library in production, which means reliability is the most important goal. Practically
-speaking this boils down to good test coverage, robust logging, built-in metrics and monitoring, tracing, battle tested reconnection 
-logic with automatic retry, and other features that don't necessarily involve anything specific to Redis. This library may occasionally
-lag behind the latest Redis features, but it should always continue to work reliably for the use cases it does support.
+with a high level interface that abstracts away everything to do with safe and reliable connection management. This also includes
+some optional features to automatically handle common use cases around error handling, reconnection & backoff, retry, metrics, etc.
 
 ### Connection Management
 

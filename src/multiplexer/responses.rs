@@ -6,7 +6,7 @@ use crate::multiplexer::{Counters, SentCommand, SentCommands};
 use crate::protocol::types::RedisCommandKind;
 use crate::protocol::types::{ResponseKind, ValueScanInner, ValueScanResult};
 use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::{frame_to_error, frame_to_single_result};
+use crate::protocol::utils::{frame_to_error, frame_to_single_result, pretty_error};
 use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
@@ -15,6 +15,7 @@ use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use crate::globals::globals;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock as AsyncRwLock;
@@ -1048,19 +1049,27 @@ fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame)
   }
 }
 
-fn check_clusterdown_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
-  if let ProtocolFrame::Error(ref s) = frame {
-    if s.contains("CLUSTERDOWN") {
-      _debug!(inner, "Recv CLUSTERDOWN error.");
-      let error = frame_to_error(frame).unwrap_or(RedisError::new(RedisErrorKind::Cluster, "The cluster is down."));
-      utils::emit_error(&inner, &error);
-      Some(error)
-    } else {
-      None
+#[cfg(feature = "custom-reconnect-errors")]
+fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+  if let ProtocolFrame::Error(ref message) = frame {
+    for prefix in globals().reconnect_errors.read().iter() {
+      if message.starts_with(prefix.to_str()) {
+        _warn!(inner, "Found reconnection error: {}", message);
+        let error = pretty_error(message);
+        utils::emit_error(inner, &error);
+        return Some(error);
+      }
     }
+
+    None
   } else {
     None
   }
+}
+
+#[cfg(not(feature = "custom-reconnect-errors"))]
+fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &ProtocolFrame) -> Option<RedisError> {
+  None
 }
 
 fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
@@ -1072,12 +1081,8 @@ fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) ->
     // emit an error to close the stream and reload the cluster state
     return Some(redirection_error);
   }
-  if let Some(cluster_error) = check_clusterdown_error(inner, frame) {
-    // emit an error to try to reconnect if the cluster is down
-    return Some(cluster_error);
-  }
 
-  None
+  check_global_reconnect_errors(inner, frame)
 }
 
 /// Process a frame on a clustered client instance from the provided server.

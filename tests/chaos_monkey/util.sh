@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function check_env {
-  declare -a arr=("REDIS_CLI_PATH" "REDIS_SERVER_PATH" "ROOT" "CREATE_CLUSTER_PATH" "REDIS_ROOT_DIR")
+  declare -a arr=("REDIS_CLI_PATH" "REDIS_SERVER_PATH" "ROOT" "CREATE_CLUSTER_PATH" "REDIS_ROOT_DIR" "FRED_FAIL_FAST")
 
   for env in "${arr[@]}"
   do

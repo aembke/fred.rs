@@ -2,6 +2,7 @@ use crate::chaos_monkey::Operation::MoveFoo;
 use fred::client::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::globals;
+use fred::globals::ReconnectError;
 use fred::types::{RedisConfig, RedisKey, ServerConfig};
 use std::env;
 use std::ffi::OsString;
@@ -209,6 +210,11 @@ fn start() {
   pretty_env_logger::try_init();
   globals::set_max_command_attempts(50);
   globals::set_default_command_timeout(30_000);
+  globals::set_custom_reconnect_errors(vec![
+    ReconnectError::Loading,
+    ReconnectError::ClusterDown,
+    ReconnectError::ReadOnly,
+  ]);
 
   thread::spawn(move || {
     let root_path = read_path_from_env("ROOT");

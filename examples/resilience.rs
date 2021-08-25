@@ -1,4 +1,4 @@
-use fred::globals;
+use fred::globals::{self, ReconnectError};
 use fred::prelude::*;
 
 const DATABASE: u8 = 2;
@@ -9,13 +9,17 @@ async fn main() -> Result<(), RedisError> {
   // command is in-flight or whenever the client receives a MOVED error in response to the command. in the case of a MOVED
   // error the client will not try the command again until the hash slot is finished migrating to the destination node.
   globals::set_max_command_attempts(20);
-  // differentiate the cluster error (CLUSTERDOWN, etc) reconnect delay from network errors. this tells the client to wait
-  // 100ms upon a cluster error, whereas network errors use the policy provided to `connect`. this value also determines
-  // how frequently the client will check the migration status of a migrating hash slot.
+  // configure the amount of time to wait when checking the state of migrating hash slots
   globals::set_cluster_error_cache_delay_ms(100);
   // apply a global timeout on commands, if necessary. otherwise the client will attempt to write them until the max attempt
   // count is reached (however long that takes depends on the reconnect policy, etc).
   globals::set_default_command_timeout(60_000);
+  // automatically trigger reconnection and retry logic whenever errors are received with the provided prefixes
+  globals::set_custom_reconnect_errors(vec![
+    ReconnectError::Loading,
+    ReconnectError::ClusterDown,
+    ReconnectError::ReadOnly,
+  ]);
 
   let config = RedisConfig {
     // apply reconnection logic on the first connection attempt instead of returning initial connection errors to the caller.

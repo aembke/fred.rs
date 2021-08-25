@@ -86,12 +86,13 @@ When a client is initialized it will generate a unique client name with a prefix
 | vendored-tls                |         | Enable TLS support, using vendored OpenSSL (or equivalent) dependencies, if possible.                                                        |
 | ignore-auth-error           |    x    | Ignore auth errors that occur when a password is supplied but not required.                                                                  |
 | reconnect-on-auth-error     |         | A NOAUTH error is treated the same as a general connection failure and the client will reconnect based on the reconnection policy.           |
-| index-map                   |         | Use [IndexMap](https://docs.rs/indexmap/*/indexmap/) instead of [HashMap](https://doc.rust-lang.org/std/collections/struct.HashMap.html) as the backing store for Redis Map types.   |
+| index-map                   |         | Use [IndexMap](https://docs.rs/indexmap/*/indexmap/) instead of [HashMap](https://doc.rust-lang.org/std/collections/struct.HashMap.html) as the backing store for Redis Map types. This is useful for testing and may also be useful for callers.  |
 | pool-prefer-active          |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                          |
 | full-tracing                |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data so a partial tracing feature is also provided.           |
-| partial-tracing             |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency. Note: this has a non-trivial impact on [performance](./CONTRIBUTING.md#Performance).  |
+| partial-tracing             |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency. Note: this has a non-trivial impact on [performance](./bin/pipeline_test/README.md#Examples).  |
 | blocking-encoding           |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime.  |
 | network-logs                |         | Enable TRACE level logging statements that will print out all data sent to or received from the server.  |
+| custom-reconnect-errors     |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.    |
 
 ## Environment Variables
 
@@ -120,6 +121,15 @@ If callers are using ACLs and Redis version >=6.x they can configure the client 
 
 If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `auth` command inside the `on_reconnect` block.
 
+
+## Customizing Error Handling
+
+The `custom-reconnect-errors` feature enables an interface on the [globals](src/globals.rs) to customize the list of errors that should automatically trigger reconnection logic (if configured). 
+
+In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/unstable/src/server.c#L2506-L2538) in the error message, and this interface allows caller to specify which errors should be handled this way.
+
+Errors that trigger this can be seen with the [on_error](https://docs.rs/fred/*/fred/client/struct.RedisClient.html#method.on_error) function. 
+
 ## Tests
 
 To run the unit and integration tests:
@@ -145,16 +155,6 @@ export REDIS_VERSION=6.2.2
 ```
 
 **Beware: the tests will periodically run `flushall`.**
-
-### Chaos Monkey
-
-The tests also ship with an optional module that will randomly stop, start, restart, and rebalance the servers while the tests are running. This should make the tests take slightly longer but should not produce any errors.
-
-To run the tests with this feature use:
-
-```
-./tests/run_with_chaos_monkey.sh
-```
 
 ## Contributing 
 

@@ -8,6 +8,7 @@ use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::str;
@@ -191,22 +192,17 @@ pub fn parse_cluster_nodes(status: String) -> Result<HashMap<Arc<String>, Vec<Sl
   Ok(out)
 }
 
-fn first_two_words(s: &str) -> (&str, &str) {
-  let mut parts = s.split_whitespace();
-  (parts.next().unwrap_or(""), parts.next().unwrap_or(""))
-}
-
 pub fn pretty_error(resp: &str) -> RedisError {
   let kind = {
-    let (first, second) = first_two_words(resp);
+    let mut parts = resp.split_whitespace();
 
-    match first.as_ref() {
+    match parts.next().unwrap_or("").as_ref() {
       "" => RedisErrorKind::Unknown,
       "ERR" => RedisErrorKind::Unknown,
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" => RedisErrorKind::Auth,
       "MOVED" | "ASK" => RedisErrorKind::Cluster,
-      "Invalid" => match second.as_ref() {
+      "Invalid" => match parts.next().unwrap_or("").as_ref() {
         "argument(s)" | "Argument" => RedisErrorKind::InvalidArgument,
         "command" | "Command" => RedisErrorKind::InvalidCommand,
         _ => RedisErrorKind::Unknown,
@@ -214,12 +210,12 @@ pub fn pretty_error(resp: &str) -> RedisError {
       _ => RedisErrorKind::Unknown,
     }
   };
-  let details = if resp.is_empty() {
-    "No response!".into()
-  } else {
-    resp.to_owned()
-  };
 
+  let details = if resp.is_empty() {
+    Cow::Borrowed("No response!")
+  } else {
+    Cow::Owned(resp.to_owned())
+  };
   RedisError::new(kind, details)
 }
 

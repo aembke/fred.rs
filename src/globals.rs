@@ -1,7 +1,53 @@
+use crate::types::ReconnectPolicy;
 use crate::utils::{read_atomic, set_atomic};
 use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+
+/// Special errors that can trigger reconnection logic, which can also retry the failing command if possible.
+///
+/// `MOVED`, `ASK`, and `NOAUTH` errors are handled separately by the client.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "custom-reconnect-errors")]
+pub enum ReconnectError {
+  /// The CLUSTERDOWN prefix.
+  ClusterDown,
+  /// The LOADING prefix.
+  Loading,
+  /// The MASTERDOWN prefix.
+  MasterDown,
+  /// The READONLY prefix, which can happen if a primary node is switched to a replica without any connection interruption.
+  ReadOnly,
+  /// The MISCONF prefix.
+  Misconf,
+  /// The BUSY prefix.
+  Busy,
+  /// The NOREPLICAS prefix.
+  NoReplicas,
+  /// A case-sensitive prefix on an error message.
+  ///
+  /// See [the source](https://github.com/redis/redis/blob/unstable/src/server.c#L2506-L2538) for examples.
+  Custom(&'static str),
+}
+
+#[cfg(feature = "custom-reconnect-errors")]
+impl ReconnectError {
+  pub(crate) fn to_str(&self) -> &'static str {
+    use ReconnectError::*;
+
+    match self {
+      ClusterDown => "CLUSTERDOWN",
+      Loading => "LOADING",
+      MasterDown => "MASTERDOWN",
+      ReadOnly => "READONLY",
+      Misconf => "MISCONF",
+      Busy => "BUSY",
+      NoReplicas => "NOREPLICAS",
+      Custom(prefix) => prefix,
+    }
+  }
+}
 
 /// Mutable globals that can be configured by the caller.
 pub(crate) struct Globals {
@@ -20,6 +66,9 @@ pub(crate) struct Globals {
   #[cfg(feature = "blocking-encoding")]
   /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
   pub(crate) blocking_encode_threshold: Arc<AtomicUsize>,
+  /// Any special errors that should trigger reconnection logic.
+  #[cfg(feature = "custom-reconnect-errors")]
+  pub(crate) reconnect_errors: Arc<RwLock<Vec<ReconnectError>>>,
 }
 
 impl Default for Globals {
@@ -33,6 +82,12 @@ impl Default for Globals {
       default_command_timeout: Arc::new(AtomicUsize::new(0)),
       #[cfg(feature = "blocking-encoding")]
       blocking_encode_threshold: Arc::new(AtomicUsize::new(500_000)),
+      #[cfg(feature = "custom-reconnect-errors")]
+      reconnect_errors: Arc::new(RwLock::new(vec![
+        ReconnectError::ClusterDown,
+        ReconnectError::Loading,
+        ReconnectError::ReadOnly,
+      ])),
     }
   }
 }
@@ -74,6 +129,21 @@ lazy_static! {
 
 pub(crate) fn globals() -> &'static Globals {
   &GLOBALS
+}
+
+/// Read the case-sensitive list of error prefixes (without the leading `-`) that will trigger the client to reconnect and retry the last command.
+///
+/// Default: CLUSTERDOWN, READONLY, LOADING
+#[cfg(feature = "custom-reconnect-errors")]
+pub fn get_custom_reconnect_errors() -> Vec<ReconnectError> {
+  globals().reconnect_errors.read().clone()
+}
+
+/// See [get_custom_reconnect_errors] for more information.
+#[cfg(feature = "custom-reconnect-errors")]
+pub fn set_custom_reconnect_errors(prefixes: Vec<ReconnectError>) {
+  let mut guard = globals().reconnect_errors.write();
+  *guard = prefixes;
 }
 
 /// Read the default timeout applied to commands, in ms. A value of 0 means no timeout.

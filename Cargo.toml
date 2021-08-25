@@ -56,5 +56,6 @@ full-tracing = ["tracing", "tracing-futures"]
 partial-tracing = ["tracing", "tracing-futures"]
 blocking-encoding = ["tokio/rt-multi-thread"]
 network-logs = []
+custom-reconnect-errors = []
 # a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
-chaos-monkey = []
+chaos-monkey = ["custom-reconnect-errors"]

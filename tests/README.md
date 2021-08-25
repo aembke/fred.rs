@@ -17,7 +17,7 @@ The tests assume that redis servers are running on the above ports.
 
 ## Adding Tests
 
-Adding tests is relatively simple with the help of some macros and utility functions.
+Adding tests is straightforward with the help of some macros and utility functions.
 
 Note: When writing tests that operate on multiple keys be sure to use a [hash_tag](https://redis.io/topics/cluster-spec#keys-hash-tags) so that all keys used by a command exist on the same node in a cluster. 
 
@@ -33,7 +33,7 @@ Tests that use this pattern will run 4 times to check the functionality against 
 
 This module ships with a testing module that will randomly stop, start, restart, and rebalance the redis servers while tests are running. If this is enabled the tests should take longer but should not produce any errors.
 
-To run the tests with the chaos monkey process use [run_with_chaos_monkey.sh](./run_with_chaos_monkey.sh) from the application root.
+To run the tests with the chaos monkey process use [run_with_chaos_monkey.sh](./run_with_chaos_monkey.sh) from the application root. 
 
 ## Notes
 
