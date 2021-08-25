@@ -20,6 +20,15 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::JoinHandle;
 
+/// State sent to the task that performs reconnection logic.
+pub struct ClosedState {
+  pub tx: ConnectionClosedTx,
+  pub commands: VecDeque<SentCommand>,
+  pub error: RedisError,
+}
+
+pub type ConnectionClosedTx = UnboundedSender<ClosedState>;
+
 async fn create_transport(
   inner: &Arc<RedisClientInner>,
   host: &str,
@@ -250,7 +259,7 @@ pub struct RedisClientInner {
   /// Number of message redeliveries.
   pub redeliver_count: Arc<AtomicUsize>,
   /// Channel listening to connection closed events.
-  pub connection_closed_tx: RwLock<Option<UnboundedSender<(VecDeque<SentCommand>, RedisError)>>>,
+  pub connection_closed_tx: RwLock<Option<ConnectionClosedTx>>,
   /// The cached view of the cluster state, if running against a clustered deployment.
   pub cluster_state: RwLock<Option<ClusterKeyCache>>,
   /// The DNS resolver to use when establishing new connections.

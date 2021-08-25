@@ -1048,6 +1048,38 @@ fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame)
   }
 }
 
+fn check_clusterdown_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+  if let ProtocolFrame::Error(ref s) = frame {
+    if s.contains("CLUSTERDOWN") {
+      _debug!(inner, "Recv CLUSTERDOWN error.");
+      let error = frame_to_error(frame).unwrap_or(RedisError::new(RedisErrorKind::Cluster, "The cluster is down."));
+      utils::emit_error(&inner, &error);
+      Some(error)
+    } else {
+      None
+    }
+  } else {
+    None
+  }
+}
+
+fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+  if let Some(auth_error) = parse_redis_auth_error(frame) {
+    // this closes the stream and initiates a reconnect, if applicable
+    return Some(auth_error);
+  }
+  if let Some(redirection_error) = check_redirection_error(inner, frame) {
+    // emit an error to close the stream and reload the cluster state
+    return Some(redirection_error);
+  }
+  if let Some(cluster_error) = check_clusterdown_error(inner, frame) {
+    // emit an error to try to reconnect if the cluster is down
+    return Some(cluster_error);
+  }
+
+  None
+}
+
 /// Process a frame on a clustered client instance from the provided server.
 ///
 /// Errors in this context are considered fatal and will close the stream.
@@ -1058,13 +1090,9 @@ pub async fn process_clustered_frame(
   commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
-  if let Some(auth_error) = parse_redis_auth_error(&frame) {
-    // this closes the stream and initiates a reconnect, if applicable
-    return Err(auth_error);
-  }
-  if let Some(redirection_error) = check_redirection_error(inner, &frame) {
-    // emit an error to close the stream and reload the cluster state
-    return Err(redirection_error);
+  if let Some(error) = check_special_errors(&inner, &frame) {
+    // this closes the stream and initiates a reconnect, if configured
+    return Err(error);
   }
 
   if let Some(frame) = check_pubsub_message(inner, frame) {
@@ -1116,14 +1144,9 @@ pub async fn process_centralized_frame(
   commands: &Arc<AsyncRwLock<SentCommands>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
-  // errors in this context are considered fatal and will close the stream
-  if let Some(auth_error) = parse_redis_auth_error(&frame) {
-    // this closes the stream and initiates a reconnect, if applicable
-    return Err(auth_error);
-  }
-  if let Some(redirection_error) = check_redirection_error(inner, &frame) {
-    // emit an error to close the stream and reload the cluster state
-    return Err(redirection_error);
+  if let Some(error) = check_special_errors(inner, &frame) {
+    // this closes the stream and initiates a reconnect, if configured
+    return Err(error);
   }
 
   if let Some(frame) = check_pubsub_message(inner, frame) {

@@ -6,7 +6,7 @@ use futures::stream::StreamExt;
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig {
     server: ServerConfig::default_centralized(),
-    key: Some("your key".into()),
+    password: Some("your key".into()),
     tls: Some(TlsConfig {
       root_certs: None,
       min_protocol_version: None,

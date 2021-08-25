@@ -50,11 +50,19 @@ Some relevant requirements for this library ended up being along the lines of:
 * It should use async Rust features.
 * It should work with ElastiCache and vanilla Redis.
 * It should have support for TLS.
-* The cluster may frequently scale up or down, but MOVED or ASK errors should not be surfaced to the application.
+* The cluster may frequently scale up or down, but MOVED or ASK errors should not be surfaced to the application. The client should automatically handle changing cluster state without surfacing this complexity to the caller.
 * If a connection dies the library should automatically reconnect, replay any failed in-flight commands, and these settings should all be configurable to the caller.
 * Connection management features such as reconnection, backoff, backpressure, etc should be supported by the library.
 
 At the time there weren't any existing Redis libraries for Rust that checked all these boxes and so this module was written. 
+
+There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers
+with a high level interface that abstracts away everything to do with safe and reliable connection management. 
+
+Callers should feel comfortable using this library in production, which means reliability is the most important goal. Practically
+speaking this boils down to good test coverage, robust logging, built-in metrics and monitoring, tracing, battle tested reconnection 
+logic with automatic retry, and other features that don't necessarily involve anything specific to Redis. This library may occasionally
+lag behind the latest Redis features, but it should always continue to work reliably for the use cases it does support.
 
 ### Connection Management
 

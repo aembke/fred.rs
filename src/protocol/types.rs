@@ -1660,6 +1660,10 @@ impl ClusterKeyCache {
 
   /// Find the server that owns the provided hash slot.
   pub fn get_server(&self, slot: u16) -> Option<Arc<SlotRange>> {
+    if self.data.is_empty() {
+      return None;
+    }
+
     protocol_utils::binary_search(&self.data, slot)
   }
 

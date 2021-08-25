@@ -1,7 +1,7 @@
 use crate::client::{CommandSender, RedisClient};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::RedisClientInner;
+use crate::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::{responses, Multiplexer};
 use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
 use crate::protocol::connection::{self, RedisSink, RedisStream};
@@ -109,16 +109,37 @@ pub fn emit_reconnect(inner: &Arc<RedisClientInner>) {
 /// Emit a message to the task monitoring for connection closed events.
 ///
 /// If the caller has provided a reconnect policy it will kick in when this message is received.
-pub fn emit_connection_closed(inner: &Arc<RedisClientInner>, commands: VecDeque<SentCommand>, error: RedisError) {
-  if let Some(tx) = &*inner.connection_closed_tx.read() {
-    if let Err(_e) = tx.send((commands, error)) {
-      _warn!(
-        inner,
-        "Could not send connection closed event. Reconnection logic will not run."
-      );
+pub async fn emit_connection_closed(inner: &Arc<RedisClientInner>, connections: &Connections, error: RedisError) {
+  _debug!(inner, "Emit connection closed from error: {:?}", error);
+  if client_utils::read_client_state(&inner.state) == ClientState::Disconnected {
+    let closed_tx = { inner.connection_closed_tx.write().take() };
+
+    if let Some(tx) = closed_tx {
+      let commands = reset_connections(&connections).await;
+      _trace!(inner, "Emitting connection closed with {} messages", commands.len());
+      let state = ClosedState {
+        commands,
+        error,
+        // in a clustered environment multiple connections may simultaneously try to emit a message on this channel.
+        // this is a (probably roundabout) way of ensuring that only one message gets through by taking the sender
+        // half off the connection state, sending it in the channel, and setting it back on the connection state when
+        // the connection has been established again. any competing writes to this channel will have finished by then
+        // and new reader tasks for handling frames will have been spawned in that process. after finishing the reconnection
+        // process the reconnection task will put this sender back on the connection state.
+        tx: tx.clone(),
+      };
+
+      if let Err(_e) = tx.send(state) {
+        _warn!(
+          inner,
+          "Could not send connection closed event. Reconnection logic will not run."
+        );
+      }
+    } else {
+      _warn!(inner, "Redis client does not have connection closed sender.");
     }
   } else {
-    _warn!(inner, "Redis client does not have connection closed sender.");
+    _debug!(inner, "Skip sending connection closed message.")
   }
 }
 
@@ -598,13 +619,7 @@ pub fn spawn_clustered_listener(
 
     _debug!(inner, "Redis clustered frame stream closed with error {:?}", error);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    let sent_commands = reset_connections(&connections).await;
-    _trace!(
-      inner,
-      "Emitting connection closed with {} messages",
-      sent_commands.len()
-    );
-    emit_connection_closed(&inner, sent_commands, error);
+    emit_connection_closed(&inner, &connections, error).await;
 
     Ok::<(), RedisError>(())
   });
@@ -674,6 +689,7 @@ pub async fn connect_clustered(
       spawn_clustered_listener(inner, connections, commands, counters, tx.subscribe(), &server, stream);
     }
 
+    _debug!(inner, "Set clustered connection closed sender.");
     client_utils::set_locked(close_tx, Some(tx));
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     Ok(pending_commands)
@@ -751,13 +767,7 @@ fn spawn_centralized_listener(
 
     _debug!(inner, "Redis frame stream closed with error {:?}", error);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    let sent_commands = reset_connections(&connections).await;
-    _trace!(
-      inner,
-      "Emitting connection closed with {} messages",
-      sent_commands.len()
-    );
-    emit_connection_closed(&inner, sent_commands, error);
+    emit_connection_closed(&inner, &connections, error).await;
 
     Ok::<(), RedisError>(())
   });
@@ -818,6 +828,7 @@ pub async fn connect_centralized(
     counters.reset_feed_count();
 
     let (tx, rx) = broadcast_channel(DEFAULT_BROADCAST_CAPACITY);
+    _debug!(inner, "Set centralized connection closed sender.");
     let _ = client_utils::set_locked(close_tx, Some(tx));
     let _ = client_utils::set_locked_async(&writer, Some(sink)).await;
     spawn_centralized_listener(inner, server, connections, rx, commands, counters, stream);

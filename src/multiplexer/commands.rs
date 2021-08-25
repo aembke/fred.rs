@@ -11,7 +11,6 @@ use crate::protocol::utils::pretty_error;
 use crate::trace;
 use crate::types::{ClientState, ReconnectPolicy, ServerConfig};
 use crate::utils as client_utils;
-use futures::{StreamExt, TryStreamExt};
 use redis_protocol::redis_keyslot;
 use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::collections::VecDeque;
@@ -23,7 +22,6 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio::sync::oneshot::Receiver as OneshotReceiver;
 use tokio::time::sleep;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use std::ops::Deref;
@@ -204,118 +202,118 @@ fn handle_connection_closed(
   let (inner, multiplexer) = (inner.clone(), multiplexer.clone());
   let has_reconnect_policy = policy.is_some();
   // the extra provided policy will kick in when we get a cluster redirection error but no policy is otherwise specified
-  let policy = policy.unwrap_or(ReconnectPolicy::Constant {
+  let mut policy = policy.unwrap_or(ReconnectPolicy::Constant {
     attempts: 0,
     max_attempts: 0,
     delay: globals().cluster_error_cache_delay() as u32,
   });
 
   let _ = tokio::spawn(async move {
-    let (tx, rx) = unbounded_channel();
+    let (tx, mut rx) = unbounded_channel();
+    _debug!(inner, "Set inner connection closed sender.");
     client_utils::set_locked(&inner.connection_closed_tx, Some(tx));
-    let memo = (inner, multiplexer, policy);
 
-    let _ = UnboundedReceiverStream::new(rx)
-      .map(|cmd| Ok(cmd))
-      .try_fold(
-        memo,
-        |(inner, multiplexer, mut policy), (mut commands, error)| async move {
-          _debug!(inner, "Recv reconnect message with {} commands", commands.len());
+    'recv: while let Some(state) = rx.recv().await {
+      let (tx, mut commands, error) = (state.tx, state.commands, state.error);
 
-          if !has_reconnect_policy && !error.is_cluster_error() {
-            _debug!(
-              inner,
-              "Exit early in reconnect loop due to no reconnect policy and non-cluster error."
-            );
-            return Err(RedisError::new_canceled());
+      let client_state = client_utils::read_client_state(&inner.state);
+      _debug!(
+        inner,
+        "Recv reconnect message with {} commands. State: {:?}",
+        commands.len(),
+        client_state
+      );
+
+      if !has_reconnect_policy && !error.is_cluster_error() {
+        _debug!(
+          inner,
+          "Exit early in reconnect loop due to no reconnect policy and non-cluster error."
+        );
+        break;
+      }
+      client_utils::set_client_state(&inner.state, ClientState::Connecting);
+
+      'outer: loop {
+        let next_delay = if error.is_cluster_error() {
+          let amt = globals().cluster_error_cache_delay();
+          _debug!(inner, "Waiting {} ms to reconnect due to cluster error", amt);
+          amt as u64
+        } else {
+          match policy.next_delay() {
+            Some(delay) => delay,
+            None => {
+              _warn!(inner, "Max reconnect attempts reached. Stopping redis client.");
+              let error = RedisError::new(RedisErrorKind::Unknown, "Max reconnection attempts reached.");
+              write_final_error_to_callers(&inner, commands, &error);
+              shutdown_client(&inner, &error);
+              break 'recv;
+            }
+          }
+        };
+
+        _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
+        sleep(Duration::from_millis(next_delay)).await;
+
+        // detect if for some reason the caller manually resets the connection and reconnects by hand while we're sleeping.
+        // if this happens then the manual reconnect operation will have spawned another instance of this task, so we can
+        // just break out of this function entirely instead of continuing the loop. however, in this case we don't want to
+        // shut down the entire client since the caller manually reconnected and is probably using it again.
+        if client_utils::read_client_state(&inner.state) == ClientState::Connected {
+          _info!(
+            inner,
+            "Breaking out of reconnect attempt due to client already being connected."
+          );
+          break 'recv;
+        }
+
+        if let Err(error) = multiplexer.connect_and_flush().await {
+          _warn!(inner, "Failed to reconnect with error {:?}", error);
+
+          if *error.kind() == RedisErrorKind::Auth {
+            // stop trying to connect if auth is failing
+            write_final_error_to_callers(&inner, commands, &error);
+            shutdown_client(&inner, &error);
+            break 'recv;
+          } else {
+            utils::emit_error(&inner, &error);
           }
 
-          client_utils::set_client_state(&inner.state, ClientState::Connecting);
+          continue 'outer;
+        }
 
-          'outer: loop {
-            let next_delay = if error.is_cluster_error() {
-              let amt = globals().cluster_error_cache_delay();
-              _debug!(inner, "Waiting {} ms to reconnect due to cluster error", amt);
-              amt as u64
-            } else {
-              match policy.next_delay() {
-                Some(delay) => delay,
-                None => {
-                  _warn!(inner, "Max reconnect attempts reached. Stopping redis client.");
-                  let error = RedisError::new(RedisErrorKind::Unknown, "Max reconnection attempts reached.");
-                  write_final_error_to_callers(&inner, commands, &error);
-                  shutdown_client(&inner, &error);
+        if client_utils::take_locked(&inner.multi_block).is_some() {
+          // don't retry commands from a transaction, just tell the caller they failed. it's
+          // problematic to pair automatic retry with transactions since the earlier futures
+          // could have already resolved. instead here we just emit an error to the callers of
+          // any commands inside a multi block. the final `EXEC` command always blocks the
+          // multiplexer loop so we can be sure any queued commands here are a part of a multi
+          // block if a policy is set on the inner client struct.
+          clear_multi_block_commands(&inner, &mut commands);
+        }
 
-                  return Err(error);
-                }
-              }
-            };
+        'inner: for _ in 0..commands.len() {
+          let command = match commands.pop_front() {
+            Some(cmd) => cmd,
+            None => break 'inner,
+          };
 
-            _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
-            sleep(Duration::from_millis(next_delay)).await;
-
-            // detect if for some reason the caller manually resets the connection and reconnects by hand while we're sleeping.
-            // if this happens then the manual reconnect operation will have spawned another instance of this task, so we can
-            // just break out of this function entirely instead of continuing the loop. however, in this case we don't want to
-            // shut down the entire client since the caller manually reconnected and is probably using it again.
-            if client_utils::read_client_state(&inner.state) == ClientState::Connected {
-              _info!(
-                inner,
-                "Breaking out of reconnect attempt due to client already being connected."
-              );
-              return Err(RedisError::new_canceled());
-            }
-
-            if let Err(error) = multiplexer.connect_and_flush().await {
-              _warn!(inner, "Failed to reconnect with error {:?}", error);
-
-              if *error.kind() == RedisErrorKind::Auth {
-                // stop trying to connect if auth is failing
-                write_final_error_to_callers(&inner, commands, &error);
-                shutdown_client(&inner, &error);
-                return Err(error);
-              } else {
-                utils::emit_error(&inner, &error);
-              }
-
-              continue 'outer;
-            }
-
-            if client_utils::take_locked(&inner.multi_block).is_some() {
-              // don't retry commands from a transaction, just tell the caller they failed. it's
-              // problematic to pair automatic retry with transactions since the earlier futures
-              // could have already resolved. instead here we just emit an error to the callers of
-              // any commands inside a multi block. the final `EXEC` command always blocks the
-              // multiplexer loop so we can be sure any queued commands here are a part of a multi
-              // block if a policy is set on the inner client struct.
-              clear_multi_block_commands(&inner, &mut commands);
-            }
-
-            'inner: for _ in 0..commands.len() {
-              let command = match commands.pop_front() {
-                Some(cmd) => cmd,
-                None => break 'inner,
-              };
-
-              if let Err(e) = multiplexer.write(command.command).await {
-                _debug!(inner, "Failed to flush previously in-flight command: {:?}", e);
-                continue 'outer;
-              }
-            }
-
-            // break when connection is established
-            break;
+          if let Err(e) = multiplexer.write(command.command).await {
+            _debug!(inner, "Failed to flush previously in-flight command: {:?}", e);
+            continue 'outer;
           }
+        }
 
-          policy.reset_attempts();
-          utils::emit_connect(&inner.connect_tx);
-          utils::emit_reconnect(&inner);
+        // break when the connection is established
+        client_utils::set_locked(&inner.connection_closed_tx, Some(tx));
+        break 'outer;
+      }
 
-          Ok((inner, multiplexer, policy))
-        },
-      )
-      .await;
+      policy.reset_attempts();
+      utils::emit_connect(&inner.connect_tx);
+      utils::emit_reconnect(&inner);
+    }
 
+    _debug!(inner, "Exit reconnection task.");
     Ok::<(), ()>(())
   });
 }
@@ -730,12 +728,17 @@ async fn handle_command(
         return Ok(());
       }
       Err(mut error) => {
+        _warn!(inner, "Error writing command: {:?}", error);
         let command = error.take_context();
         if handle_write_error(&inner, &multiplexer, has_policy, &error).await? {
           return Err(error);
         } else {
           if let Some(command) = command {
-            _debug!(inner, "Retrying command after write error: {}", command);
+            _debug!(
+              inner,
+              "Retrying command after write error: {}",
+              command.kind.to_str_debug()
+            );
             command_wrapper = Some(command);
             continue;
           }

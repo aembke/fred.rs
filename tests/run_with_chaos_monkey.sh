@@ -18,10 +18,12 @@ function check_redis {
 }
 
 function set_env_flags {
+  export ROOT="$ROOT"
   export FRED_FAIL_FAST=false
-  export REDIS_CLI_PATH="$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli"
-  export REDIS_SERVER_PATH="$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-server"
-  export CREATE_CLUSTER_PATH="$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/utils/create-cluster/create-cluster"
+  export REDIS_ROOT_DIR="$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION"
+  export REDIS_CLI_PATH="$REDIS_ROOT_DIR/src/redis-cli"
+  export REDIS_SERVER_PATH="$REDIS_ROOT_DIR/src/redis-server"
+  export CREATE_CLUSTER_PATH="$REDIS_ROOT_DIR/utils/create-cluster/create-cluster"
 
   if [ ! -f "$REDIS_CLI_PATH" ]; then
     echo "Missing redis-cli at $REDIS_CLI_PATH"
@@ -49,6 +51,7 @@ set_env_flags
 cargo test --release --features chaos-monkey --lib --tests -- --test-threads=1 -- "$@"
 
 unset FRED_FAIL_FAST
+unset REDIS_ROOT_DIR
 unset REDIS_CLI_PATH
 unset REDIS_SERVER_PATH
 unset CREATE_CLUSTER_PATH

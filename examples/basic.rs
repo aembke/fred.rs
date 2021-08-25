@@ -9,14 +9,18 @@ const DATABASE: u8 = 2;
 async fn main() -> Result<(), RedisError> {
   // example showing full config options
   let config = RedisConfig {
+    // whether to skip reconnect logic when first connecting
+    fail_fast: true,
     // server configuration
     server: ServerConfig::new_centralized("127.0.0.1", 6379),
     // whether to automatically pipeline commands
     pipeline: true,
     // how to handle commands sent while a connection is blocked
     blocking: Blocking::Block,
+    // an optional username, if using ACL rules
+    username: None,
     // an optional authentication key
-    key: None,
+    password: None,
     // optional TLS settings
     tls: None,
   };
