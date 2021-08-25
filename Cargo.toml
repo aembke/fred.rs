@@ -43,6 +43,10 @@ doc = true
 name = "fred"
 test = true
 
+[[example]]
+name = "resilience"
+required-features = ["custom-reconnect-errors"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
 ignore-auth-error = []

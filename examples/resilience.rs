@@ -1,5 +1,6 @@
 use fred::globals::{self, ReconnectError};
 use fred::prelude::*;
+use futures::StreamExt;
 
 const DATABASE: u8 = 2;
 
