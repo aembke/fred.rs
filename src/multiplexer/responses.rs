@@ -6,7 +6,7 @@ use crate::multiplexer::{Counters, SentCommand, SentCommands};
 use crate::protocol::types::RedisCommandKind;
 use crate::protocol::types::{ResponseKind, ValueScanInner, ValueScanResult};
 use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::{frame_to_error, frame_to_single_result, pretty_error};
+use crate::protocol::utils::{frame_to_error, frame_to_single_result};
 use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
@@ -14,11 +14,12 @@ use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-
-use crate::globals::globals;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock as AsyncRwLock;
+
+#[cfg(feature = "custom-reconnect-errors")]
+use crate::globals::globals;
 
 const LAST_CURSOR: &'static str = "0";
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
@@ -1055,7 +1056,7 @@ fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Protocol
     for prefix in globals().reconnect_errors.read().iter() {
       if message.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", message);
-        let error = pretty_error(message);
+        let error = protocol_utils::pretty_error(message);
         utils::emit_error(inner, &error);
         return Some(error);
       }

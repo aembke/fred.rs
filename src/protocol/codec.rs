@@ -11,8 +11,6 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 
 #[cfg(feature = "network-logs")]
-use std::fmt;
-#[cfg(feature = "network-logs")]
 use std::str;
 
 #[cfg(feature = "blocking-encoding")]

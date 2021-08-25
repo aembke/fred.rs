@@ -11,7 +11,7 @@ pub use redis_protocol::resp2::types::Frame;
 use redis_protocol::resp2::types::NULL;
 use std::borrow::Cow;
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::Hash;
@@ -26,6 +26,8 @@ use tokio::task::JoinHandle;
 
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
+#[cfg(not(feature = "index-map"))]
+use std::collections::HashSet;
 
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";

@@ -1,9 +1,10 @@
-use crate::types::ReconnectPolicy;
 use crate::utils::{read_atomic, set_atomic};
 use lazy_static::lazy_static;
-use parking_lot::RwLock;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+
+#[cfg(feature = "custom-reconnect-errors")]
+use parking_lot::RwLock;
 
 /// Special errors that can trigger reconnection logic, which can also retry the failing command if possible.
 ///

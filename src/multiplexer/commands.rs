@@ -1,5 +1,4 @@
 use crate::client::RedisClient;
-use crate::commands::ASYNC;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::inner::RedisClientInner;
@@ -23,8 +22,6 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio::sync::oneshot::Receiver as OneshotReceiver;
 use tokio::time::sleep;
 
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use std::ops::Deref;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -327,21 +324,6 @@ fn is_config_error<T>(result: &Result<T, RedisError>) -> bool {
   }
 }
 
-/// Whether or not the command is a flush command with an ASYNC argument.
-fn is_async_flush(cmd: &RedisCommand) -> bool {
-  if cmd.kind == RedisCommandKind::FlushAll || cmd.kind == RedisCommandKind::FlushDB {
-    cmd.args.len() == 1
-      && cmd
-        .args
-        .first()
-        .and_then(|arg| arg.as_str())
-        .map(|l| l == ASYNC)
-        .unwrap_or(false)
-  } else {
-    false
-  }
-}
-
 /// Send the final error to all pending callers waiting on a response before shutting down the client.
 fn write_final_error_to_callers(inner: &Arc<RedisClientInner>, commands: VecDeque<SentCommand>, error: &RedisError) {
   for mut command in commands.into_iter() {
@@ -609,7 +591,7 @@ async fn check_command_structure_t(
   inner: &Arc<RedisClientInner>,
   multiplexer: &Multiplexer,
   has_policy: bool,
-  mut command: RedisCommand,
+  command: RedisCommand,
 ) -> Result<Option<RedisCommand>, RedisError> {
   let span = fspan!(command, "check_command_structure");
   check_command_structure(inner, multiplexer, has_policy, command)

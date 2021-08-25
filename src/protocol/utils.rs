@@ -249,26 +249,6 @@ pub fn check_auth_error(frame: ProtocolFrame) -> ProtocolFrame {
   }
 }
 
-#[cfg(feature = "reconnect-on-auth-error")]
-/// Parses the response frame to see if it's an auth error.
-fn parse_redis_auth_error(frame: &ProtocolFrame) -> Option<RedisError> {
-  if frame.is_error() {
-    match frame {
-      ProtocolFrame::Error(ref s) => {
-        let err = pretty_error(s);
-        if *err.kind() == RedisErrorKind::Auth {
-          Some(err)
-        } else {
-          None
-        }
-      }
-      _ => None,
-    }
-  } else {
-    None
-  }
-}
-
 /// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
 ///
 /// If the array contains one element then that element will be returned.

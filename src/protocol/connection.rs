@@ -292,6 +292,7 @@ async fn read_cluster_state(
   None
 }
 
+#[allow(dead_code)]
 pub async fn read_server_version<T>(
   inner: &Arc<RedisClientInner>,
   transport: Framed<T, RedisCodec>,
@@ -336,6 +337,8 @@ where
   }
 }
 
+// TODO
+#[allow(dead_code)]
 pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version, RedisError> {
   let uses_tls = protocol_utils::uses_tls(inner);
 
