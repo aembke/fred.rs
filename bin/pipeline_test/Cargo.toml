@@ -22,13 +22,13 @@ pretty_env_logger = "0.4"
 tokio = { version = "1.8", features = ["full"] }
 futures = "0.3"
 
-[dependencies.fred-rs]
+[dependencies.fred]
 path = "../.."
 features = ["ignore-auth-error"]
 default-features = false
 
 [features]
 default = []
-partial-tracing = ["fred-rs/partial-tracing"]
-full-tracing = ["fred-rs/full-tracing"]
-blocking-encoding = ["fred-rs/blocking-encoding"]
+partial-tracing = ["fred/partial-tracing"]
+full-tracing = ["fred/full-tracing"]
+blocking-encoding = ["fred/blocking-encoding"]

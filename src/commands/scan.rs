@@ -1,6 +1,6 @@
 use super::*;
-use crate::client::RedisClientInner;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::types::*;
 use crate::utils;

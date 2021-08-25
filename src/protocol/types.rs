@@ -6,11 +6,10 @@ use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
 use parking_lot::RwLock;
-pub use redis_protocol::{redis_keyslot, CRLF, NULL};
+pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
-
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;
@@ -23,6 +22,7 @@ use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::Span;
 use rand::Rng;
+use std::borrow::Cow;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
@@ -610,6 +610,13 @@ impl RedisCommandKind {
   pub fn is_custom(&self) -> bool {
     match *self {
       RedisCommandKind::_Custom(_) => true,
+      _ => false,
+    }
+  }
+
+  pub fn closes_connection(&self) -> bool {
+    match *self {
+      RedisCommandKind::Quit | RedisCommandKind::Shutdown => true,
       _ => false,
     }
   }
@@ -1506,16 +1513,18 @@ impl RedisCommand {
   }
 
   /// Read the first key in the command, if any.
-  pub fn extract_key(&self) -> Option<&str> {
+  pub fn extract_key(&self) -> Option<Cow<str>> {
     if self.no_cluster() {
       return None;
     }
 
     match self.args.first() {
-      Some(RedisValue::String(ref s)) => Some(s),
+      Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
+      Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
       Some(_) => match self.args.get(1) {
         // some commands take a `num_keys` argument first, followed by keys
-        Some(RedisValue::String(ref s)) => Some(s),
+        Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
+        Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
         _ => None,
       },
       None => None,
@@ -1651,6 +1660,10 @@ impl ClusterKeyCache {
 
   /// Find the server that owns the provided hash slot.
   pub fn get_server(&self, slot: u16) -> Option<Arc<SlotRange>> {
+    if self.data.is_empty() {
+      return None;
+    }
+
     protocol_utils::binary_search(&self.data, slot)
   }
 

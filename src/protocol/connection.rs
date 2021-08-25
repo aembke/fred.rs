@@ -1,18 +1,18 @@
-use crate::client::RedisClientInner;
 use crate::error::{RedisError, RedisErrorKind};
+use crate::inner::RedisClientInner;
 use crate::multiplexer::{Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::trace;
-use crate::types::ClientState;
 use crate::types::Resolve;
+use crate::types::{ClientState, InfoKind};
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use semver::Version;
 use std::net::SocketAddr;
-
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -21,6 +21,7 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-tls")]
 use crate::protocol::tls;
+use crate::protocol::utils::pretty_error;
 #[cfg(feature = "enable-tls")]
 use tokio_native_tls::TlsStream;
 
@@ -49,6 +50,11 @@ pub enum RedisSink {
   Tcp(TcpRedisWriter),
 }
 
+pub enum RedisTransport {
+  Tls(FramedTls),
+  Tcp(FramedTcp),
+}
+
 pub async fn request_response<T>(
   mut transport: Framed<T, RedisCodec>,
   request: &RedisCommand,
@@ -67,16 +73,50 @@ where
   Ok((response, transport))
 }
 
+pub async fn request_response_safe<T>(
+  mut transport: Framed<T, RedisCodec>,
+  request: &RedisCommand,
+) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let frame = match request.to_frame() {
+    Ok(frame) => frame,
+    Err(e) => return Err((e, transport)),
+  };
+  if let Err(e) = transport.send(frame).await {
+    return Err((e, transport));
+  };
+  let (response, transport) = transport.into_future().await;
+
+  let response = match response {
+    Some(result) => match result {
+      Ok(frame) => frame,
+      Err(e) => return Err((e, transport)),
+    },
+    None => ProtocolFrame::Null,
+  };
+
+  Ok((response, transport))
+}
+
 pub async fn authenticate<T>(
   transport: Framed<T, RedisCodec>,
   name: &str,
-  key: Option<String>,
+  username: Option<String>,
+  password: Option<String>,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  let transport = if let Some(key) = key {
-    let command = RedisCommand::new(RedisCommandKind::Auth, vec![key.into()], None);
+  let transport = if let Some(password) = password {
+    let args = if let Some(username) = username {
+      vec![username.into(), password.into()]
+    } else {
+      vec![password.into()]
+    };
+    let command = RedisCommand::new(RedisCommandKind::Auth, args, None);
+
     debug!("{}: Authenticating Redis client...", name);
     let (response, transport) = request_response(transport, &command).await?;
 
@@ -115,6 +155,23 @@ where
   }
 }
 
+pub async fn read_client_id<T>(
+  transport: Framed<T, RedisCodec>,
+) -> Result<(Option<i64>, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
+  let (result, transport) = request_response_safe(transport, &command).await?;
+  debug!("Read client ID: {:?}", result);
+  let id = match result {
+    ProtocolFrame::Integer(i) => Some(i),
+    _ => None,
+  };
+
+  Ok((id, transport))
+}
+
 #[cfg(feature = "enable-tls")]
 pub async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
@@ -124,12 +181,13 @@ pub async fn create_authenticated_connection_tls(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let auth_key = inner.config.read().key();
+  let password = inner.config.read().password.clone();
+  let username = inner.config.read().username.clone();
 
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
-  let framed = authenticate(Framed::new(socket, codec), &client_name, auth_key).await?;
+  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
@@ -151,10 +209,11 @@ pub async fn create_authenticated_connection(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let auth_key = inner.config.read().key();
+  let password = inner.config.read().password.clone();
+  let username = inner.config.read().username.clone();
 
   let socket = TcpStream::connect(addr).await?;
-  let framed = authenticate(Framed::new(socket, codec), &client_name, auth_key).await?;
+  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
@@ -233,9 +292,128 @@ async fn read_cluster_state(
   None
 }
 
+#[allow(dead_code)]
+pub async fn read_server_version<T>(
+  inner: &Arc<RedisClientInner>,
+  transport: Framed<T, RedisCodec>,
+) -> Result<(Version, Framed<T, RedisCodec>), RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
+  let (result, transport) = request_response(transport, &command).await?;
+  let result = match result {
+    ProtocolFrame::BulkString(bytes) => String::from_utf8(bytes)?,
+    ProtocolFrame::Error(e) => return Err(pretty_error(&e)),
+    _ => {
+      return Err(RedisError::new(
+        RedisErrorKind::ProtocolError,
+        "Invalid server info response.",
+      ))
+    }
+  };
+
+  let version = result.lines().find_map(|line| {
+    let parts: Vec<&str> = line.split(":").collect();
+    if parts.len() < 2 {
+      return None;
+    }
+
+    if parts[0] == "redis_version" {
+      Version::parse(&parts[1]).ok()
+    } else {
+      None
+    }
+  });
+
+  if let Some(version) = version {
+    _debug!(inner, "Server version: {}", version);
+    Ok((version, transport))
+  } else {
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Failed to read redis server version.",
+    ))
+  }
+}
+
+// TODO
+#[allow(dead_code)]
+pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version, RedisError> {
+  let uses_tls = protocol_utils::uses_tls(inner);
+
+  if client_utils::is_clustered(&inner.config) {
+    let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
+
+    for (host, port) in known_nodes.into_iter() {
+      let addr = match inner.resolver.resolve(host.clone(), port).await {
+        Ok(addr) => addr,
+        Err(e) => {
+          _debug!(inner, "Resolver error: {:?}", e);
+          continue;
+        }
+      };
+
+      if uses_tls {
+        let transport = match create_authenticated_connection_tls(&addr, &host, inner).await {
+          Ok(t) => t,
+          Err(e) => {
+            _warn!(inner, "Error creating connection to {}: {:?}", host, e);
+            continue;
+          }
+        };
+        let version = match read_server_version(inner, transport).await {
+          Ok((v, _)) => v,
+          Err(e) => {
+            _warn!(inner, "Error reading server version from {}: {:?}", host, e);
+            continue;
+          }
+        };
+
+        return Ok(version);
+      } else {
+        let transport = match create_authenticated_connection(&addr, inner).await {
+          Ok(t) => t,
+          Err(e) => {
+            _warn!(inner, "Error creating connection to {}: {:?}", host, e);
+            continue;
+          }
+        };
+        let version = match read_server_version(inner, transport).await {
+          Ok((v, _)) => v,
+          Err(e) => {
+            _warn!(inner, "Error reading server version from {}: {:?}", host, e);
+            continue;
+          }
+        };
+
+        return Ok(version);
+      }
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Failed to read server version from any cluster node.",
+    ))
+  } else {
+    let addr = protocol_utils::read_centralized_addr(&inner).await?;
+
+    if uses_tls {
+      let domain = protocol_utils::read_centralized_domain(&inner.config)?;
+      let transport = create_authenticated_connection_tls(&addr, &domain, inner).await?;
+      let (version, _) = read_server_version(inner, transport).await?;
+      Ok(version)
+    } else {
+      let transport = create_authenticated_connection(&addr, inner).await?;
+      let (version, _) = read_server_version(inner, transport).await?;
+      Ok(version)
+    }
+  }
+}
+
 pub async fn read_cluster_nodes(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
   let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
-  let uses_tls = inner.config.read().tls().is_some();
+  let uses_tls = protocol_utils::uses_tls(inner);
 
   for (host, port) in known_nodes.into_iter() {
     _debug!(inner, "Attempting to read cluster state from {}:{}", host, port);

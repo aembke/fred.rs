@@ -1,5 +1,5 @@
-use crate::client::RedisClientInner;
 use crate::error::{RedisError, RedisErrorKind};
+use crate::inner::RedisClientInner;
 use crate::metrics::LatencyStats;
 use crate::multiplexer::utils;
 use crate::multiplexer::{Counters, SentCommand, SentCommands};
@@ -11,13 +11,15 @@ use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
 use parking_lot::RwLock;
-use redis_protocol::types::Frame as ProtocolFrame;
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock as AsyncRwLock;
+
+#[cfg(feature = "custom-reconnect-errors")]
+use crate::globals::globals;
 
 const LAST_CURSOR: &'static str = "0";
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
@@ -425,14 +427,14 @@ fn respond_to_caller_error(inner: &Arc<RedisClientInner>, last_command: SentComm
 }
 
 /// Handle a frame that came from a command that was sent to all nodes in the cluster.
-fn handle_all_nodes_response(
+async fn handle_all_nodes_response(
   inner: &Arc<RedisClientInner>,
   last_command: SentCommand,
   frame: ProtocolFrame,
 ) -> Option<SentCommand> {
   if let Some(resp) = last_command.command.kind.all_nodes_response() {
     if frame.is_error() {
-      check_command_resp_tx(inner, &last_command);
+      check_command_resp_tx(inner, &last_command).await;
 
       if let Some(tx) = resp.take_tx() {
         let err = protocol_utils::frame_to_error(&frame).unwrap_or(RedisError::new_canceled());
@@ -445,7 +447,7 @@ fn handle_all_nodes_response(
       }
     } else {
       if resp.decr_num_nodes() == 0 {
-        check_command_resp_tx(inner, &last_command);
+        check_command_resp_tx(inner, &last_command).await;
 
         // take the final response sender off the command and write to that
         if let Some(tx) = resp.take_tx() {
@@ -474,7 +476,7 @@ fn handle_all_nodes_response(
 /// Process the frame in the context of the last (oldest) command sent.
 ///
 /// If the last command has more expected responses it will be returned so it can be put back on the front of the response queue.
-fn process_response(
+async fn process_response(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   counters: &Counters,
@@ -529,7 +531,7 @@ fn process_response(
     };
 
     if let Some(frames) = frames {
-      check_command_resp_tx(inner, &last_command);
+      check_command_resp_tx(inner, &last_command).await;
       respond_to_caller(inner, last_command, frames);
     } else {
       // more responses are expected so return the last command to be put back in the queue
@@ -543,13 +545,13 @@ fn process_response(
       Ok(result) => result,
       Err(e) => {
         let _ = send_key_scan_error(inner, &last_command, e);
-        check_command_resp_tx(inner, &last_command);
+        check_command_resp_tx(inner, &last_command).await;
         return Ok(None);
       }
     };
     let should_stop = next_cursor.as_str() == LAST_CURSOR;
     update_scan_cursor(inner, &mut last_command, next_cursor);
-    check_command_resp_tx(inner, &last_command);
+    check_command_resp_tx(inner, &last_command).await;
 
     _trace!(inner, "Sending key scan result with {} keys", keys.len());
     if let Err(_) = send_key_scan_result(inner, last_command, keys, !should_stop) {
@@ -563,25 +565,25 @@ fn process_response(
       Ok(result) => result,
       Err(e) => {
         let _ = send_value_scan_error(inner, &last_command, e);
-        check_command_resp_tx(inner, &last_command);
+        check_command_resp_tx(inner, &last_command).await;
         return Ok(None);
       }
     };
     let should_stop = next_cursor.as_str() == LAST_CURSOR;
     update_scan_cursor(inner, &mut last_command, next_cursor);
-    check_command_resp_tx(inner, &last_command);
+    check_command_resp_tx(inner, &last_command).await;
 
     _trace!(inner, "Sending value scan result with {} values", values.len());
     if let Err(_) = send_value_scan_result(inner, last_command, values, !should_stop) {
       _warn!(inner, "Failed to send value scan result");
     }
   } else if last_command.command.kind.is_all_cluster_nodes() {
-    return Ok(handle_all_nodes_response(inner, last_command, frame));
+    return Ok(handle_all_nodes_response(inner, last_command, frame).await);
   } else {
     client_utils::decr_atomic(&counters.in_flight);
     sample_latency(&inner.latency_stats, last_command.command.sent);
 
-    check_command_resp_tx(inner, &last_command);
+    check_command_resp_tx(inner, &last_command).await;
     respond_to_caller(inner, last_command, frame);
   }
 
@@ -731,8 +733,11 @@ async fn add_back_last_cluster_command(
 }
 
 /// Check if the command has a response sender to unblock the multiplexer loop, and if send a message on that channel.
-fn check_command_resp_tx(inner: &Arc<RedisClientInner>, command: &SentCommand) {
+async fn check_command_resp_tx(inner: &Arc<RedisClientInner>, command: &SentCommand) {
   _trace!(inner, "Writing to multiplexer sender to unblock command loop.");
+  if command.command.kind.is_blocking() {
+    inner.backchannel.write().await.set_unblocked();
+  }
 
   if let Some(tx) = command.command.take_resp_tx() {
     if let Err(e) = tx.send(()) {
@@ -802,7 +807,7 @@ async fn take_most_recent_cluster_command(
 /// Send a `Canceled` error to all commands in a centralized command response queue.
 async fn cancel_centralized_multi_commands(inner: &Arc<RedisClientInner>, commands: &Arc<AsyncRwLock<SentCommands>>) {
   for command in commands.write().await.drain(..) {
-    check_command_resp_tx(inner, &command);
+    check_command_resp_tx(inner, &command).await;
     respond_to_caller_error(inner, command, RedisError::new_canceled());
   }
 }
@@ -815,7 +820,7 @@ async fn cancel_clustered_multi_commands(
 ) {
   if let Some(commands) = commands.write().await.get_mut(server) {
     for command in commands.drain(..) {
-      check_command_resp_tx(inner, &command);
+      check_command_resp_tx(inner, &command).await;
       respond_to_caller_error(inner, command, RedisError::new_canceled())
     }
   }
@@ -846,7 +851,7 @@ async fn end_centralized_multi_block(
 
     if let Some(mut recent_cmd) = recent_cmd {
       sample_command_latencies(inner, &mut recent_cmd);
-      check_command_resp_tx(inner, &recent_cmd);
+      check_command_resp_tx(inner, &recent_cmd).await;
       respond_to_caller(inner, recent_cmd, frame);
       return Ok(());
     } else {
@@ -876,7 +881,7 @@ async fn end_centralized_multi_block(
   }
 
   sample_command_latencies(inner, &mut last_command);
-  check_command_resp_tx(inner, &last_command);
+  check_command_resp_tx(inner, &last_command).await;
   respond_to_caller(inner, last_command, frame);
 
   let _ = client_utils::take_locked(&inner.multi_block);
@@ -911,7 +916,7 @@ async fn end_clustered_multi_block(
 
     if let Some(mut recent_cmd) = recent_cmd {
       sample_command_latencies(inner, &mut recent_cmd);
-      check_command_resp_tx(inner, &recent_cmd);
+      check_command_resp_tx(inner, &recent_cmd).await;
       respond_to_caller(inner, recent_cmd, frame);
       return Ok(());
     } else {
@@ -941,7 +946,7 @@ async fn end_clustered_multi_block(
   }
 
   sample_command_latencies(inner, &mut last_command);
-  check_command_resp_tx(inner, &last_command);
+  check_command_resp_tx(inner, &last_command).await;
   respond_to_caller(inner, last_command, frame);
 
   let _ = client_utils::take_locked(&inner.multi_block);
@@ -986,7 +991,7 @@ async fn handle_clustered_queued_response(
   }
 
   sample_command_latencies(inner, &mut last_command);
-  check_command_resp_tx(inner, &last_command);
+  check_command_resp_tx(inner, &last_command).await;
   respond_to_caller(inner, last_command, frame);
 
   Ok(())
@@ -1027,7 +1032,7 @@ async fn handle_centralized_queued_response(
   }
 
   sample_command_latencies(inner, &mut last_command);
-  check_command_resp_tx(inner, &last_command);
+  check_command_resp_tx(inner, &last_command).await;
   respond_to_caller(inner, last_command, frame);
 
   Ok(())
@@ -1045,6 +1050,42 @@ fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame)
   }
 }
 
+#[cfg(feature = "custom-reconnect-errors")]
+fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+  if let ProtocolFrame::Error(ref message) = frame {
+    for prefix in globals().reconnect_errors.read().iter() {
+      if message.starts_with(prefix.to_str()) {
+        _warn!(inner, "Found reconnection error: {}", message);
+        let error = protocol_utils::pretty_error(message);
+        utils::emit_error(inner, &error);
+        return Some(error);
+      }
+    }
+
+    None
+  } else {
+    None
+  }
+}
+
+#[cfg(not(feature = "custom-reconnect-errors"))]
+fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &ProtocolFrame) -> Option<RedisError> {
+  None
+}
+
+fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+  if let Some(auth_error) = parse_redis_auth_error(frame) {
+    // this closes the stream and initiates a reconnect, if applicable
+    return Some(auth_error);
+  }
+  if let Some(redirection_error) = check_redirection_error(inner, frame) {
+    // emit an error to close the stream and reload the cluster state
+    return Some(redirection_error);
+  }
+
+  check_global_reconnect_errors(inner, frame)
+}
+
 /// Process a frame on a clustered client instance from the provided server.
 ///
 /// Errors in this context are considered fatal and will close the stream.
@@ -1055,13 +1096,9 @@ pub async fn process_clustered_frame(
   commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
-  if let Some(auth_error) = parse_redis_auth_error(&frame) {
-    // this closes the stream and initiates a reconnect, if applicable
-    return Err(auth_error);
-  }
-  if let Some(redirection_error) = check_redirection_error(inner, &frame) {
-    // emit an error to close the stream and reload the cluster state
-    return Err(redirection_error);
+  if let Some(error) = check_special_errors(&inner, &frame) {
+    // this closes the stream and initiates a reconnect, if configured
+    return Err(error);
   }
 
   if let Some(frame) = check_pubsub_message(inner, frame) {
@@ -1093,7 +1130,7 @@ pub async fn process_clustered_frame(
         }
       };
 
-      if let Some(last_command) = process_response(inner, server, &counters, last_command, frame)? {
+      if let Some(last_command) = process_response(inner, server, &counters, last_command, frame).await? {
         add_back_last_cluster_command(inner, commands, server, last_command).await?;
       }
       Ok(())
@@ -1113,14 +1150,9 @@ pub async fn process_centralized_frame(
   commands: &Arc<AsyncRwLock<SentCommands>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
-  // errors in this context are considered fatal and will close the stream
-  if let Some(auth_error) = parse_redis_auth_error(&frame) {
-    // this closes the stream and initiates a reconnect, if applicable
-    return Err(auth_error);
-  }
-  if let Some(redirection_error) = check_redirection_error(inner, &frame) {
-    // emit an error to close the stream and reload the cluster state
-    return Err(redirection_error);
+  if let Some(error) = check_special_errors(inner, &frame) {
+    // this closes the stream and initiates a reconnect, if configured
+    return Err(error);
   }
 
   if let Some(frame) = check_pubsub_message(inner, frame) {
@@ -1145,7 +1177,7 @@ pub async fn process_centralized_frame(
         }
       };
 
-      if let Some(last_command) = process_response(inner, server, counters, last_command, frame)? {
+      if let Some(last_command) = process_response(inner, server, counters, last_command, frame).await? {
         commands.write().await.push_front(last_command);
       }
 

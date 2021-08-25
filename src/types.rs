@@ -1,16 +1,17 @@
-use crate::client::{RedisClient, RedisClientInner};
+use crate::client::RedisClient;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::connection::OK;
 pub use crate::protocol::tls::TlsConfig;
 pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::utils;
-pub use redis_protocol::types::Frame;
-use redis_protocol::NULL;
+pub use redis_protocol::resp2::types::Frame;
+use redis_protocol::resp2::types::NULL;
 use std::borrow::Cow;
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::Hash;
@@ -25,6 +26,8 @@ use tokio::task::JoinHandle;
 
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
+#[cfg(not(feature = "index-map"))]
+use std::collections::HashSet;
 
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";
@@ -541,139 +544,175 @@ impl ReconnectPolicy {
   }
 }
 
-/// Connection configuration for the Redis server.
-///
-/// Hosts must be provided as strings in order to support connections using TLS.
+/// Describes how the client should respond when a command is sent while the client is in a blocked state from a blocking command.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RedisConfig {
+pub enum Blocking {
+  /// Wait to send the command until the blocked command finishes. (Default)
+  Block,
+  /// Return an error to the caller.
+  Error,
+  /// Interrupt the blocked command by automatically sending `CLIENT UNBLOCK` for the blocked connection.
+  Interrupt,
+}
+
+impl Default for Blocking {
+  fn default() -> Self {
+    Blocking::Block
+  }
+}
+
+/// Configuration options for a `RedisClient`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RedisConfig {
+  /// Whether or not the client should return an error if it cannot connect to the server the first time when being initialized.
+  /// If `false` the client will run the reconnect logic if it cannot connect to the server the first time, but if `true` the client
+  /// will return initial connection errors to the caller immediately.
+  ///
+  /// Normally the reconnection logic only applies to connections that close unexpectedly, but this flag can apply the same logic to
+  /// the first connection as it is being created.
+  ///
+  /// Note: Callers should use caution setting this to `false` since it can make debugging configuration issues more difficult.
+  ///
+  /// Default: `true`
+  pub fail_fast: bool,
+  /// Whether or not the client should automatically pipeline commands when possible.
+  ///
+  /// Default: `true`
+  pub pipeline: bool,
+  /// The default behavior of the client when a command is sent while the connection is blocked on a blocking command.
+  ///
+  /// Default: `Blocking::Block`
+  pub blocking: Blocking,
+  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should be `None`.
+  ///
+  /// Default: `None`
+  pub username: Option<String>,
+  /// An optional password for the client to use when authenticating.
+  ///
+  /// Default: `None`
+  pub password: Option<String>,
+  /// Connection configuration for the server(s).
+  ///
+  /// Default: `Centralized(localhost, 6379)`
+  pub server: ServerConfig,
+  /// TLS configuration fields. If `None` the connection will not use TLS.
+  ///
+  /// Default: `None`
+  #[cfg(feature = "enable-tls")]
+  pub tls: Option<TlsConfig>,
+}
+
+impl Default for RedisConfig {
+  #[cfg(feature = "enable-tls")]
+  fn default() -> Self {
+    RedisConfig {
+      fail_fast: true,
+      pipeline: true,
+      blocking: Blocking::default(),
+      username: None,
+      password: None,
+      server: ServerConfig::default(),
+      tls: None,
+    }
+  }
+
+  #[cfg(not(feature = "enable-tls"))]
+  fn default() -> Self {
+    RedisConfig {
+      fail_fast: true,
+      pipeline: true,
+      blocking: Blocking::default(),
+      username: None,
+      password: None,
+      server: ServerConfig::default(),
+    }
+  }
+}
+
+impl RedisConfig {
+  /// Whether or not the client uses TLS.
+  #[cfg(feature = "enable-tls")]
+  pub fn uses_tls(&self) -> bool {
+    self.tls.is_some()
+  }
+
+  /// Whether or not the client uses TLS.
+  #[cfg(not(feature = "enable-tls"))]
+  pub fn uses_tls(&self) -> bool {
+    false
+  }
+}
+
+/// Connection configuration for the Redis server.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ServerConfig {
   Centralized {
     /// The hostname or IP address of the Redis server.
     host: String,
     /// The port on which the Redis server is listening.
     port: u16,
-    /// An optional authentication key to use after connecting.
-    key: Option<String>,
-    /// TLS configuration options. If `None` then TLS will not be used. This will only take effect when `enable-tls` is used.
-    tls: Option<TlsConfig>,
   },
   Clustered {
-    /// A vector of (Host, Port) tuples for nodes in the cluster. Only a subset of nodes in the cluster need to be provided here,
-    /// the rest will be discovered via the CLUSTER NODES command.
+    /// An array of `(host, port)` tuples for nodes in the cluster. Only one node in the cluster needs to be provided here,
+    /// the rest will be discovered via the `CLUSTER NODES` command.
     hosts: Vec<(String, u16)>,
-    /// An optional authentication key to use after connecting.
-    key: Option<String>,
-    /// TLS configuration options. If `None` then TLS will not be used. This will only take effect when `enable-tls` is used.
-    tls: Option<TlsConfig>,
   },
 }
 
-impl Default for RedisConfig {
-  fn default() -> RedisConfig {
-    RedisConfig::default_centralized()
+impl Default for ServerConfig {
+  fn default() -> Self {
+    ServerConfig::default_centralized()
   }
 }
 
-impl RedisConfig {
-  /// Create a new centralized config with the provided host, port, and key.
-  pub fn new_centralized<S>(host: S, port: u16, key: Option<String>) -> RedisConfig
+impl ServerConfig {
+  /// Create a new centralized config with the provided host and port.
+  pub fn new_centralized<S>(host: S, port: u16) -> ServerConfig
   where
     S: Into<String>,
   {
-    RedisConfig::Centralized {
+    ServerConfig::Centralized {
       host: host.into(),
       port,
-      key,
-      tls: None,
     }
   }
 
-  /// Create a new clustered config with the provided set of hosts and ports, and an optional key.
+  /// Create a new clustered config with the provided set of hosts and ports.
   ///
-  /// Only one valid host in the cluster needs to be provided here. The client will inspect the state of the cluster
-  /// with the CLUSTER NODES command and will initiate connections based on that response.
-  pub fn new_clustered<S>(mut hosts: Vec<(S, u16)>, key: Option<String>) -> RedisConfig
+  /// Only one valid host in the cluster needs to be provided here. The client will use `CLUSTER NODES` to discover the other nodes.
+  pub fn new_clustered<S>(mut hosts: Vec<(S, u16)>) -> ServerConfig
   where
     S: Into<String>,
   {
-    let hosts = hosts.drain(..).map(|(s, p)| (s.into(), p)).collect();
-
-    RedisConfig::Clustered { hosts, key, tls: None }
+    ServerConfig::Clustered {
+      hosts: hosts.drain(..).map(|(s, p)| (s.into(), p)).collect(),
+    }
   }
 
   /// Create a centralized config with default settings for a local deployment.
-  pub fn default_centralized() -> RedisConfig {
-    RedisConfig::Centralized {
+  pub fn default_centralized() -> ServerConfig {
+    ServerConfig::Centralized {
       host: "127.0.0.1".to_owned(),
       port: 6379,
-      key: None,
-      tls: None,
     }
   }
 
   /// Create a clustered config with the same defaults as specified in the `create-cluster` script provided by Redis.
-  pub fn default_clustered() -> RedisConfig {
-    RedisConfig::Clustered {
+  pub fn default_clustered() -> ServerConfig {
+    ServerConfig::Clustered {
       hosts: vec![
         ("127.0.0.1".to_owned(), 30001),
         ("127.0.0.1".to_owned(), 30002),
         ("127.0.0.1".to_owned(), 30003),
       ],
-      key: None,
-      tls: None,
-    }
-  }
-
-  /// Overwrite the auth key on this config.
-  pub fn set_key<T>(&mut self, new_key: Option<T>)
-  where
-    T: Into<String>,
-  {
-    match *self {
-      RedisConfig::Centralized { ref mut key, .. } => *key = new_key.map(|t| t.into()),
-      RedisConfig::Clustered { ref mut key, .. } => *key = new_key.map(|t| t.into()),
-    }
-  }
-
-  /// Read the auth key for the config if it exists.
-  pub fn key(&self) -> Option<String> {
-    match *self {
-      RedisConfig::Centralized { ref key, .. } => key.clone(),
-      RedisConfig::Clustered { ref key, .. } => key.clone(),
     }
   }
 
   /// Check if the config is for a clustered Redis deployment.
   pub fn is_clustered(&self) -> bool {
     match *self {
-      RedisConfig::Centralized { .. } => false,
-      RedisConfig::Clustered { .. } => true,
-    }
-  }
-
-  /// Whether or not the config uses TLS.
-  #[cfg(feature = "enable-tls")]
-  pub fn tls(&self) -> &Option<TlsConfig> {
-    match *self {
-      RedisConfig::Centralized { ref tls, .. } => tls,
-      RedisConfig::Clustered { ref tls, .. } => tls,
-    }
-  }
-
-  /// Whether or not the config uses TLS.
-  #[cfg(not(feature = "enable-tls"))]
-  pub fn tls(&self) -> Option<TlsConfig> {
-    None
-  }
-
-  /// Change the TLS configuration config.
-  pub fn set_tls(&mut self, config: Option<TlsConfig>) {
-    match *self {
-      RedisConfig::Centralized { ref mut tls, .. } => {
-        *tls = config;
-      }
-      RedisConfig::Clustered { ref mut tls, .. } => {
-        *tls = config;
-      }
+      ServerConfig::Centralized { .. } => false,
+      ServerConfig::Clustered { .. } => true,
     }
   }
 }
@@ -752,46 +791,89 @@ impl fmt::Display for ClientState {
 /// A key in Redis.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RedisKey {
-  // TODO explore making this a Cow
-  key: String,
+  key: Vec<u8>,
 }
 
 impl RedisKey {
+  /// Create a new redis key from anything that can be read as bytes.
   pub fn new<S>(key: S) -> RedisKey
   where
-    S: Into<String>,
+    S: Into<Vec<u8>>,
   {
     RedisKey { key: key.into() }
   }
 
-  pub fn as_str(&self) -> &str {
+  /// Read the key as a str slice if it can be parsed as a UTF8 string.
+  pub fn as_str(&self) -> Option<&str> {
+    str::from_utf8(&self.key).ok()
+  }
+
+  /// Read the key as a byte slice.
+  pub fn as_bytes(&self) -> &[u8] {
     &self.key
   }
 
-  pub fn into_string(self) -> String {
+  /// Read the key as a lossy UTF8 string with `String::from_utf8_lossy`.
+  pub fn as_str_lossy(&self) -> Cow<str> {
+    String::from_utf8_lossy(&self.key)
+  }
+
+  /// Convert the key to a UTF8 string, if possible.
+  pub fn into_string(self) -> Option<String> {
+    String::from_utf8(self.key).ok()
+  }
+
+  /// Read the inner bytes making up the key.
+  pub fn into_bytes(self) -> Vec<u8> {
     self.key
   }
 
-  pub fn take(&mut self) -> String {
-    mem::replace(&mut self.key, String::new())
+  /// Hash the key to find the associated cluster [hash slot](https://redis.io/topics/cluster-spec#keys-distribution-model).
+  pub fn cluster_hash(&self) -> u16 {
+    let as_str = String::from_utf8_lossy(&self.key);
+    redis_protocol::redis_keyslot(&as_str)
+  }
+
+  /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is known.
+  pub fn cluster_owner(&self, client: &RedisClient) -> Option<Arc<String>> {
+    if utils::is_clustered(&client.inner.config) {
+      let hash_slot = self.cluster_hash();
+      client
+        .inner
+        .cluster_state
+        .read()
+        .as_ref()
+        .and_then(|state| state.get_server(hash_slot).map(|slot| slot.server.clone()))
+    } else {
+      None
+    }
+  }
+
+  /// Replace this key with an empty string, returning the bytes from the original key.
+  pub fn take(&mut self) -> Vec<u8> {
+    mem::replace(&mut self.key, Vec::new())
   }
 }
 
 impl From<String> for RedisKey {
   fn from(s: String) -> RedisKey {
-    RedisKey { key: s }
+    RedisKey { key: s.into_bytes() }
   }
 }
 
 impl<'a> From<&'a str> for RedisKey {
   fn from(s: &'a str) -> RedisKey {
-    RedisKey { key: s.to_owned() }
+    RedisKey {
+      key: s.as_bytes().to_vec(),
+    }
   }
 }
 
 impl<'a> From<&'a String> for RedisKey {
   fn from(s: &'a String) -> RedisKey {
-    RedisKey { key: s.to_owned() }
+    RedisKey {
+      key: s.as_bytes().to_vec(),
+    }
   }
 }
 
@@ -800,6 +882,22 @@ impl<'a> From<&'a RedisKey> for RedisKey {
     k.clone()
   }
 }
+
+impl<'a> From<&'a [u8]> for RedisKey {
+  fn from(k: &'a [u8]) -> Self {
+    RedisKey { key: k.to_vec() }
+  }
+}
+
+/*
+// conflicting impl with MultipleKeys when this is used
+// callers should use `RedisKey::new` here
+impl From<Vec<u8>> for RedisKey {
+  fn from(key: Vec<u8>) -> Self {
+    RedisKey { key }
+  }
+}
+*/
 
 /// Convenience struct for commands that take 1 or more keys.
 pub struct MultipleKeys {
@@ -1451,6 +1549,20 @@ impl<'a> RedisValue {
     Some(s)
   }
 
+  /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
+  pub fn as_str_lossy(&self) -> Option<Cow<str>> {
+    let s = match *self {
+      RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
+      RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
+      RedisValue::Null => Cow::Borrowed(NIL),
+      RedisValue::Queued => Cow::Borrowed(QUEUED),
+      RedisValue::Bytes(ref b) => String::from_utf8_lossy(b),
+      _ => return None,
+    };
+
+    Some(s)
+  }
+
   /// Read the inner value as an array of bytes, if possible.
   pub fn as_bytes(&self) -> Option<&[u8]> {
     match *self {
@@ -1609,43 +1721,43 @@ impl Hash for RedisValue {
 }
 
 impl From<u8> for RedisValue {
-  fn from(d: u8) -> RedisValue {
+  fn from(d: u8) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<u16> for RedisValue {
-  fn from(d: u16) -> RedisValue {
+  fn from(d: u16) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<u32> for RedisValue {
-  fn from(d: u32) -> RedisValue {
+  fn from(d: u32) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i8> for RedisValue {
-  fn from(d: i8) -> RedisValue {
+  fn from(d: i8) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i16> for RedisValue {
-  fn from(d: i16) -> RedisValue {
+  fn from(d: i16) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i32> for RedisValue {
-  fn from(d: i32) -> RedisValue {
+  fn from(d: i32) -> Self {
     RedisValue::Integer(d as i64)
   }
 }
 
 impl From<i64> for RedisValue {
-  fn from(d: i64) -> RedisValue {
+  fn from(d: i64) -> Self {
     RedisValue::Integer(d)
   }
 }
@@ -1691,20 +1803,26 @@ impl TryFrom<usize> for RedisValue {
 }
 
 impl From<String> for RedisValue {
-  fn from(d: String) -> RedisValue {
+  fn from(d: String) -> Self {
     RedisValue::String(d)
   }
 }
 
 impl<'a> From<&'a str> for RedisValue {
-  fn from(d: &'a str) -> RedisValue {
+  fn from(d: &'a str) -> Self {
     RedisValue::String(d.to_owned())
   }
 }
 
 impl<'a> From<&'a String> for RedisValue {
-  fn from(s: &'a String) -> RedisValue {
+  fn from(s: &'a String) -> Self {
     RedisValue::String(s.clone())
+  }
+}
+
+impl<'a> From<&'a [u8]> for RedisValue {
+  fn from(b: &'a [u8]) -> Self {
+    RedisValue::Bytes(b.to_vec())
   }
 }
 
@@ -1746,7 +1864,7 @@ impl From<IndexMap<String, RedisValue>> for RedisValue {
 }
 
 impl From<HashMap<String, RedisValue>> for RedisValue {
-  fn from(d: HashMap<String, RedisValue>) -> RedisValue {
+  fn from(d: HashMap<String, RedisValue>) -> Self {
     RedisValue::Map(d.into())
   }
 }
@@ -1758,8 +1876,8 @@ impl From<BTreeMap<String, RedisValue>> for RedisValue {
 }
 
 impl From<RedisKey> for RedisValue {
-  fn from(d: RedisKey) -> RedisValue {
-    RedisValue::String(d.into_string())
+  fn from(d: RedisKey) -> Self {
+    RedisValue::Bytes(d.key)
   }
 }
 

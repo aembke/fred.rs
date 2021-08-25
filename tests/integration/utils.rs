@@ -1,18 +1,38 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
-use fred::types::RedisConfig;
+use fred::types::{ReconnectPolicy, RedisConfig, ServerConfig};
+use std::env;
 use std::future::Future;
 
-pub async fn run_cluster<F, Fut>(func: F, no_pipeline: bool)
+fn read_fail_fast_env() -> bool {
+  match env::var_os("FRED_FAIL_FAST") {
+    Some(s) => match s.into_string() {
+      Ok(s) => match s.as_ref() {
+        "f" | "false" | "FALSE" | "0" => false,
+        _ => true,
+      },
+      Err(_) => true,
+    },
+    None => true,
+  }
+}
+
+pub async fn run_cluster<F, Fut>(func: F, pipeline: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  let config = RedisConfig::default_clustered();
+  let policy = ReconnectPolicy::new_constant(60, 1000);
+  let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
+    server: ServerConfig::default_clustered(),
+    pipeline,
+    ..Default::default()
+  };
   let client = RedisClient::new(config.clone());
   let _client = client.clone();
 
-  let _jh = client.connect(None, no_pipeline);
+  let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _ = client.flushall_cluster().await;
@@ -20,16 +40,22 @@ where
   let _ = client.quit().await;
 }
 
-pub async fn run_centralized<F, Fut>(func: F, no_pipeline: bool)
+pub async fn run_centralized<F, Fut>(func: F, pipeline: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  let config = RedisConfig::default_centralized();
+  let policy = ReconnectPolicy::new_constant(60, 1000);
+  let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
+    server: ServerConfig::default_centralized(),
+    pipeline,
+    ..Default::default()
+  };
   let client = RedisClient::new(config.clone());
   let _client = client.clone();
 
-  let _jh = client.connect(None, no_pipeline);
+  let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _ = client.flushall(false).await;
@@ -44,14 +70,14 @@ macro_rules! centralized_test_panic(
       #[should_panic]
       async fn pipelined() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, true).await;
       }
 
       #[tokio::test]
       #[should_panic]
       async fn no_pipeline() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_centralized(crate::integration::$module::$name, true).await;
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
       }
     }
   }
@@ -64,14 +90,14 @@ macro_rules! cluster_test_panic(
       #[should_panic]
       async fn pipelined() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_cluster(crate::integration::$module::$name, false).await;
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, true).await;
       }
 
       #[tokio::test]
       #[should_panic]
       async fn no_pipeline() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_cluster(crate::integration::$module::$name, true).await;
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, false).await;
       }
     }
   }
@@ -83,13 +109,13 @@ macro_rules! centralized_test(
       #[tokio::test]
       async fn pipelined() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, true).await;
       }
 
       #[tokio::test]
       async fn no_pipeline() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_centralized(crate::integration::$module::$name, true).await;
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
       }
     }
   }
@@ -101,13 +127,13 @@ macro_rules! cluster_test(
       #[tokio::test]
       async fn pipelined() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_cluster(crate::integration::$module::$name, false).await;
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, true).await;
       }
 
       #[tokio::test]
       async fn no_pipeline() {
         let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_cluster(crate::integration::$module::$name, true).await;
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, false).await;
       }
     }
   }

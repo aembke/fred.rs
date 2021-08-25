@@ -3,33 +3,48 @@ use futures::stream::StreamExt;
 use std::time::Duration;
 use tokio::time::sleep;
 
+const DATABASE: u8 = 2;
+
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let database = 2;
-  let config = RedisConfig::Centralized {
-    host: "127.0.0.1".into(),
-    port: 6379,
-    key: Some("your key".into()),
+  // example showing full config options
+  let config = RedisConfig {
+    // whether to skip reconnect logic when first connecting
+    fail_fast: true,
+    // server configuration
+    server: ServerConfig::new_centralized("127.0.0.1", 6379),
+    // whether to automatically pipeline commands
+    pipeline: true,
+    // how to handle commands sent while a connection is blocked
+    blocking: Blocking::Block,
+    // an optional username, if using ACL rules
+    username: None,
+    // an optional authentication key
+    password: None,
+    // optional TLS settings
     tls: None,
   };
+  // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
   let client = RedisClient::new(config);
 
+  // run a function when the connection closes unexpectedly
   tokio::spawn(client.on_error().for_each(|e| async move {
     println!("Client received connection error: {:?}", e);
   }));
+  // run a function whenever the client reconnects
   tokio::spawn(client.on_reconnect().for_each(move |client| async move {
     println!("Client {} reconnected.", client.id());
     // select the database each time we connect or reconnect
-    let _ = client.select(database).await;
+    let _ = client.select(DATABASE).await;
   }));
 
-  let jh = client.connect(Some(policy), false);
+  let _ = client.connect(Some(policy));
   let _ = client.wait_for_connect().await?;
 
   println!("Foo: {:?}", client.get("foo").await?);
   let _ = client
-    .set("foo", "bar", Some(Expiration::PX(1000)), Some(SetOptions::NX), false)
+    .set("foo", "bar", Some(Expiration::EX(1)), Some(SetOptions::NX), false)
     .await?;
   println!("Foo: {:?}", client.get("foo").await?);
 
@@ -37,6 +52,5 @@ async fn main() -> Result<(), RedisError> {
   println!("Foo: {:?}", client.get("foo").await?);
 
   let _ = client.quit().await?;
-  let _ = jh.await;
   Ok(())
 }

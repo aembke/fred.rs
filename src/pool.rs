@@ -4,7 +4,7 @@ use crate::types::{ConnectHandle, ReconnectPolicy, RedisConfig};
 use crate::utils;
 use parking_lot::RwLock;
 use std::fmt;
-use std::ops::{Deref};
+use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
@@ -16,7 +16,6 @@ pub(crate) struct DynamicPoolInner {
   config: RedisConfig,
   policy: Option<ReconnectPolicy>,
   connect_guard: AsyncMutex<()>,
-  disable_pipeline: bool,
 }
 
 /// A struct to pool multiple Redis clients together into one interface that will round-robin requests among clients,
@@ -42,13 +41,7 @@ impl<'a> From<&'a DynamicRedisPool> for RedisClient {
 
 impl DynamicRedisPool {
   /// Create a new pool without connecting to the server.
-  pub fn new(
-    config: RedisConfig,
-    policy: Option<ReconnectPolicy>,
-    disable_pipeline: bool,
-    size: usize,
-    max_size: usize,
-  ) -> DynamicRedisPool {
+  pub fn new(config: RedisConfig, policy: Option<ReconnectPolicy>, size: usize, max_size: usize) -> DynamicRedisPool {
     let mut clients = Vec::with_capacity(max_size);
     for _ in 0..size {
       clients.push(RedisClient::new(config.clone()));
@@ -61,7 +54,6 @@ impl DynamicRedisPool {
         connect_guard: AsyncMutex::new(()),
         config,
         policy,
-        disable_pipeline,
       }),
     }
   }
@@ -77,12 +69,7 @@ impl DynamicRedisPool {
       .clients
       .read()
       .iter()
-      .map(|c| {
-        let policy = self.inner.policy.clone();
-        let disable_pipeline = self.inner.disable_pipeline.clone();
-
-        c.connect(policy, disable_pipeline)
-      })
+      .map(|c| c.connect(self.inner.policy.clone()))
       .collect()
   }
 
@@ -216,7 +203,7 @@ impl DynamicRedisPool {
     let _guard = self.inner.connect_guard.lock().await;
 
     let client = RedisClient::new(self.inner.config.clone());
-    let connection = client.connect(self.inner.policy.clone(), self.inner.disable_pipeline);
+    let connection = client.connect(self.inner.policy.clone());
     self.inner.clients.write().push(client.clone());
 
     (client, connection)
@@ -312,13 +299,8 @@ impl StaticRedisPool {
   /// Connect each client to the server, returning the task driving each connection.
   ///
   /// The caller is responsible for calling `wait_for_connect` or any `on_*` functions on each client.
-  pub fn connect(&self, policy: Option<ReconnectPolicy>, disable_pipeline: bool) -> Vec<ConnectHandle> {
-    self
-      .inner
-      .clients
-      .iter()
-      .map(|c| c.connect(policy.clone(), disable_pipeline))
-      .collect()
+  pub fn connect(&self, policy: Option<ReconnectPolicy>) -> Vec<ConnectHandle> {
+    self.inner.clients.iter().map(|c| c.connect(policy.clone())).collect()
   }
 
   /// Wait for all the clients to connect to the server.

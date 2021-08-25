@@ -9,7 +9,7 @@ const COUNT: usize = 60;
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init();
 
-  let config = RedisConfig::default_centralized();
+  let config = RedisConfig::default();
   let policy = ReconnectPolicy::new_linear(0, 5000, 500);
   let publisher_client = RedisClient::new(config.clone());
   let subscriber_client = RedisClient::new(config);
@@ -28,23 +28,18 @@ async fn main() -> Result<(), RedisError> {
     }
   }));
 
-  let _ = publisher_client.connect(Some(policy.clone()), false);
-  let _ = subscriber_client.connect(Some(policy), false);
+  let _ = publisher_client.connect(Some(policy.clone()));
+  let _ = subscriber_client.connect(Some(policy));
   let _ = publisher_client.wait_for_connect().await?;
   let _ = subscriber_client.wait_for_connect().await?;
 
   let subscribe_task = tokio::spawn(async move {
     let mut message_stream = subscriber_client.on_message();
 
-    loop {
-      if let Some((channel, message)) = message_stream.next().await {
-        println!("Recv {:?} on channel {}", message, channel);
-
-        if let Some(COUNT) = message.as_usize() {
-          return Ok::<_, RedisError>(());
-        }
-      }
+    while let Some((channel, message)) = message_stream.next().await {
+      println!("Recv {:?} on channel {}", message, channel);
     }
+    Ok::<_, RedisError>(())
   });
 
   for idx in 0..COUNT {

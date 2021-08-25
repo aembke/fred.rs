@@ -11,12 +11,12 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), RedisError> {
-//!   let config = RedisConfig::default_centralized();
+//!   let config = RedisConfig::default();
 //!   let policy = ReconnectPolicy::default();
 //!   let client = RedisClient::new(config);
 //!
 //!   // connect to the server, returning a handle to a task that drives the connection
-//!   let jh = client.connect(Some(policy), false);
+//!   let jh = client.connect(Some(policy));
 //!   // wait for the client to connect
 //!   let _ = client.wait_for_connect().await?;
 //!   
@@ -31,7 +31,7 @@
 //! }
 //! ```
 //!
-//! See the [github repository](https://github.com/aembke/fred-rs) for more examples.
+//! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 //!
 extern crate bytes;
 extern crate float_cmp;
@@ -64,6 +64,7 @@ extern crate tracing_futures;
 mod macros;
 
 mod commands;
+mod inner;
 mod multiplexer;
 mod protocol;
 mod trace;

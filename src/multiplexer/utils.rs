@@ -1,6 +1,7 @@
-use crate::client::{CommandSender, RedisClient, RedisClientInner};
+use crate::client::{CommandSender, RedisClient};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
+use crate::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::{responses, Multiplexer};
 use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
 use crate::protocol::connection::{self, RedisSink, RedisStream};
@@ -108,16 +109,37 @@ pub fn emit_reconnect(inner: &Arc<RedisClientInner>) {
 /// Emit a message to the task monitoring for connection closed events.
 ///
 /// If the caller has provided a reconnect policy it will kick in when this message is received.
-pub fn emit_connection_closed(inner: &Arc<RedisClientInner>, commands: VecDeque<SentCommand>, error: RedisError) {
-  if let Some(tx) = &*inner.connection_closed_tx.read() {
-    if let Err(_e) = tx.send((commands, error)) {
-      _warn!(
-        inner,
-        "Could not send connection closed event. Reconnection logic will not run."
-      );
+pub async fn emit_connection_closed(inner: &Arc<RedisClientInner>, connections: &Connections, error: RedisError) {
+  _debug!(inner, "Emit connection closed from error: {:?}", error);
+  if client_utils::read_client_state(&inner.state) == ClientState::Disconnected {
+    let closed_tx = { inner.connection_closed_tx.write().take() };
+
+    if let Some(tx) = closed_tx {
+      let commands = reset_connections(&connections).await;
+      _trace!(inner, "Emitting connection closed with {} messages", commands.len());
+      let state = ClosedState {
+        commands,
+        error,
+        // in a clustered environment multiple connections may simultaneously try to emit a message on this channel.
+        // this is a (probably roundabout) way of ensuring that only one message gets through by taking the sender
+        // half off the connection state, sending it in the channel, and setting it back on the connection state when
+        // the connection has been established again. any competing writes to this channel will have finished by then
+        // and new reader tasks for handling frames will have been spawned in that process. after finishing the reconnection
+        // process the reconnection task will put this sender back on the connection state.
+        tx: tx.clone(),
+      };
+
+      if let Err(_e) = tx.send(state) {
+        _warn!(
+          inner,
+          "Could not send connection closed event. Reconnection logic will not run."
+        );
+      }
+    } else {
+      _warn!(inner, "Redis client does not have connection closed sender.");
     }
   } else {
-    _warn!(inner, "Redis client does not have connection closed sender.");
+    _debug!(inner, "Skip sending connection closed message.")
   }
 }
 
@@ -181,6 +203,7 @@ pub async fn reset_connections(connections: &Connections) -> VecDeque<SentComman
       commands: _,
       ref writers,
       ref cache,
+      ..
     } => {
       cache.write().clear();
       client_utils::set_locked(counters, BTreeMap::new());
@@ -214,9 +237,9 @@ pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<
 }
 
 pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> Arc<String> {
-  match &*inner.config.read() {
-    RedisConfig::Centralized { ref host, ref port, .. } => Arc::new(format!("{}:{}", host, port)),
-    RedisConfig::Clustered { .. } => {
+  match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port, .. } => Arc::new(format!("{}:{}", host, port)),
+    ServerConfig::Clustered { .. } => {
       _error!(
         inner,
         "Falling back to default server name due to unexpected clustered config. This is a bug."
@@ -293,7 +316,7 @@ pub async fn write_all_nodes(
     }
   }
 
-  Ok(None)
+  Ok(Backpressure::Skipped)
 }
 
 pub async fn write_command(
@@ -321,7 +344,7 @@ pub async fn write_centralized_command(
   if !no_backpressure {
     if let Some(backpressure) = should_apply_backpressure(connections, None) {
       _warn!(inner, "Applying backpressure for {} ms", backpressure);
-      return Ok(Some((Duration::from_millis(backpressure), command)));
+      return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
     }
   }
 
@@ -330,6 +353,7 @@ pub async fn write_centralized_command(
     ref commands,
     ref writer,
     ref server,
+    ..
   } = connections
   {
     if let Some(writer) = writer.write().await.deref_mut() {
@@ -337,7 +361,7 @@ pub async fn write_centralized_command(
 
       write_command(inner, server, counters, writer, &mut *commands_guard, command)
         .await
-        .map(|_| None)
+        .map(|_| Backpressure::Ok(server.clone()))
     } else {
       Err(RedisError::new_context(
         RedisErrorKind::Unknown,
@@ -366,11 +390,12 @@ pub async fn write_clustered_command(
     ref commands,
     ref counters,
     ref cache,
+    ..
   } = connections
   {
     let hash_slot = match hash_slot {
       Some(slot) => Some(slot),
-      None => command.extract_key().map(|key| redis_keyslot(key)),
+      None => command.extract_key().map(|key| redis_keyslot(&key)),
     };
     let server = match hash_slot {
       Some(hash_slot) => match cache.read().get_server(hash_slot) {
@@ -398,7 +423,7 @@ pub async fn write_clustered_command(
     if !no_backpressure {
       if let Some(backpressure) = should_apply_backpressure(connections, Some(&server)) {
         _warn!(inner, "Applying backpressure for {} ms", backpressure);
-        return Ok(Some((Duration::from_millis(backpressure), command)));
+        return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
       }
     }
     if log_enabled!(Level::Trace) {
@@ -422,7 +447,7 @@ pub async fn write_clustered_command(
         if let Some(commands) = commands_guard.get_mut(&server) {
           write_command(inner, &server, &counters, writer, commands, command)
             .await
-            .map(|_| None)
+            .map(|_| Backpressure::Ok(server.clone()))
         } else {
           return Err(RedisError::new_context(
             RedisErrorKind::Unknown,
@@ -594,13 +619,7 @@ pub fn spawn_clustered_listener(
 
     _debug!(inner, "Redis clustered frame stream closed with error {:?}", error);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    let sent_commands = reset_connections(&connections).await;
-    _trace!(
-      inner,
-      "Emitting connection closed with {} messages",
-      sent_commands.len()
-    );
-    emit_connection_closed(&inner, sent_commands, error);
+    emit_connection_closed(&inner, &connections, error).await;
 
     Ok::<(), RedisError>(())
   });
@@ -618,13 +637,15 @@ pub async fn connect_clustered(
     ref counters,
     ref writers,
     ref cache,
+    ref connection_ids,
   } = connections
   {
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
-    let uses_tls = inner.config.read().tls().is_some();
+    let uses_tls = protocol_utils::uses_tls(inner);
     let cluster_state = connection::read_cluster_nodes(inner).await?;
     let main_nodes = cluster_state.unique_main_nodes();
     client_utils::set_locked(cache, cluster_state);
+    connection_ids.write().clear();
 
     let (tx, _) = broadcast_channel(DEFAULT_BROADCAST_CAPACITY);
     for server in main_nodes.into_iter() {
@@ -633,11 +654,31 @@ pub async fn connect_clustered(
       let (sink, stream) = if uses_tls {
         _trace!(inner, "Connecting to {} with domain {}", addr, domain);
         let socket = connection::create_authenticated_connection_tls(&addr, &domain, inner).await?;
+        let socket = match connection::read_client_id(socket).await {
+          Ok((id, socket)) => {
+            if let Some(id) = id {
+              connection_ids.write().insert(server.clone(), id);
+            }
+            socket
+          }
+          Err((_, socket)) => socket,
+        };
+
         let (sink, stream) = socket.split();
         (RedisSink::Tls(sink), RedisStream::Tls(stream))
       } else {
         _trace!(inner, "Connecting to {}", addr);
         let socket = connection::create_authenticated_connection(&addr, inner).await?;
+        let socket = match connection::read_client_id(socket).await {
+          Ok((id, socket)) => {
+            if let Some(id) = id {
+              connection_ids.write().insert(server.clone(), id);
+            }
+            socket
+          }
+          Err((_, socket)) => socket,
+        };
+
         let (sink, stream) = socket.split();
         (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
       };
@@ -648,6 +689,7 @@ pub async fn connect_clustered(
       spawn_clustered_listener(inner, connections, commands, counters, tx.subscribe(), &server, stream);
     }
 
+    _debug!(inner, "Set clustered connection closed sender.");
     client_utils::set_locked(close_tx, Some(tx));
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     Ok(pending_commands)
@@ -725,13 +767,7 @@ fn spawn_centralized_listener(
 
     _debug!(inner, "Redis frame stream closed with error {:?}", error);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    let sent_commands = reset_connections(&connections).await;
-    _trace!(
-      inner,
-      "Emitting connection closed with {} messages",
-      sent_commands.len()
-    );
-    emit_connection_closed(&inner, sent_commands, error);
+    emit_connection_closed(&inner, &connections, error).await;
 
     Ok::<(), RedisError>(())
   });
@@ -749,21 +785,42 @@ pub async fn connect_centralized(
     ref writer,
     ref counters,
     ref server,
+    ref connection_id,
   } = connections
   {
     let addr = protocol_utils::read_centralized_addr(&inner).await?;
-    let uses_tls = inner.config.read().tls().is_some();
+    let uses_tls = protocol_utils::uses_tls(inner);
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
     let (sink, stream) = if uses_tls {
       let domain = protocol_utils::read_centralized_domain(&inner.config)?;
       _trace!(inner, "Connecting to {} with domain {}", addr, domain);
       let socket = connection::create_authenticated_connection_tls(&addr, &domain, inner).await?;
+      let socket = match connection::read_client_id(socket).await {
+        Ok((id, socket)) => {
+          if let Some(id) = id {
+            connection_id.write().replace(id);
+          }
+          socket
+        }
+        Err((_, socket)) => socket,
+      };
+
       let (sink, stream) = socket.split();
       (RedisSink::Tls(sink), RedisStream::Tls(stream))
     } else {
       _trace!(inner, "Connecting to {}", addr);
       let socket = connection::create_authenticated_connection(&addr, inner).await?;
+      let socket = match connection::read_client_id(socket).await {
+        Ok((id, socket)) => {
+          if let Some(id) = id {
+            connection_id.write().replace(id);
+          }
+          socket
+        }
+        Err((_, socket)) => socket,
+      };
+
       let (sink, stream) = socket.split();
       (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
     };
@@ -771,6 +828,7 @@ pub async fn connect_centralized(
     counters.reset_feed_count();
 
     let (tx, rx) = broadcast_channel(DEFAULT_BROADCAST_CAPACITY);
+    _debug!(inner, "Set centralized connection closed sender.");
     let _ = client_utils::set_locked(close_tx, Some(tx));
     let _ = client_utils::set_locked_async(&writer, Some(sink)).await;
     spawn_centralized_listener(inner, server, connections, rx, commands, counters, stream);

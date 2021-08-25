@@ -1,16 +1,16 @@
-use crate::client::RedisClientInner;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::connection::OK;
 use crate::protocol::types::*;
 use crate::types::Resolve;
 use crate::types::*;
-use crate::types::{RedisConfig, QUEUED};
+use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
 use parking_lot::RwLock;
-use redis_protocol::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
+use redis_protocol::resp2::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-
 use std::str;
 use std::sync::Arc;
 
@@ -19,6 +19,24 @@ macro_rules! parse_or_zero(
     $data.parse::<$t>().ok().unwrap_or(0)
   }
 );
+
+#[cfg(feature = "enable-tls")]
+pub fn uses_tls(inner: &Arc<RedisClientInner>) -> bool {
+  inner.config.read().tls.is_some()
+}
+
+#[cfg(not(feature = "enable-tls"))]
+pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
+  false
+}
+
+pub fn server_to_parts(server: &Arc<String>) -> Result<(&str, u16), RedisError> {
+  let parts: Vec<&str> = server.split(":").collect();
+  if parts.len() < 2 {
+    return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));
+  }
+  Ok((parts[0], parts[1].parse::<u16>()?))
+}
 
 /// Parse a cluster server string to read the (domain, IP address/port).
 pub async fn parse_cluster_server(
@@ -40,8 +58,8 @@ pub async fn parse_cluster_server(
 }
 
 pub fn read_clustered_hosts(config: &RwLock<RedisConfig>) -> Result<Vec<(String, u16)>, RedisError> {
-  match *config.read() {
-    RedisConfig::Clustered { ref hosts, .. } => Ok(hosts.clone()),
+  match config.read().server {
+    ServerConfig::Clustered { ref hosts, .. } => Ok(hosts.clone()),
     _ => Err(RedisError::new(
       RedisErrorKind::Unknown,
       "Invalid redis config. Clustered config expected.",
@@ -50,7 +68,7 @@ pub fn read_clustered_hosts(config: &RwLock<RedisConfig>) -> Result<Vec<(String,
 }
 
 pub fn read_centralized_domain(config: &RwLock<RedisConfig>) -> Result<String, RedisError> {
-  if let RedisConfig::Centralized { ref host, .. } = *config.read() {
+  if let ServerConfig::Centralized { ref host, .. } = config.read().server {
     Ok(host.to_owned())
   } else {
     Err(RedisError::new(
@@ -61,8 +79,8 @@ pub fn read_centralized_domain(config: &RwLock<RedisConfig>) -> Result<String, R
 }
 
 pub async fn read_centralized_addr(inner: &Arc<RedisClientInner>) -> Result<SocketAddr, RedisError> {
-  let (host, port) = match *inner.config.read() {
-    RedisConfig::Centralized { ref host, ref port, .. } => (host.clone(), *port),
+  let (host, port) = match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port, .. } => (host.clone(), *port),
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::Unknown,
@@ -174,22 +192,17 @@ pub fn parse_cluster_nodes(status: String) -> Result<HashMap<Arc<String>, Vec<Sl
   Ok(out)
 }
 
-fn first_two_words(s: &str) -> (&str, &str) {
-  let mut parts = s.split_whitespace();
-  (parts.next().unwrap_or(""), parts.next().unwrap_or(""))
-}
-
 pub fn pretty_error(resp: &str) -> RedisError {
   let kind = {
-    let (first, second) = first_two_words(resp);
+    let mut parts = resp.split_whitespace();
 
-    match first.as_ref() {
+    match parts.next().unwrap_or("").as_ref() {
       "" => RedisErrorKind::Unknown,
       "ERR" => RedisErrorKind::Unknown,
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" => RedisErrorKind::Auth,
       "MOVED" | "ASK" => RedisErrorKind::Cluster,
-      "Invalid" => match second.as_ref() {
+      "Invalid" => match parts.next().unwrap_or("").as_ref() {
         "argument(s)" | "Argument" => RedisErrorKind::InvalidArgument,
         "command" | "Command" => RedisErrorKind::InvalidCommand,
         _ => RedisErrorKind::Unknown,
@@ -197,12 +210,12 @@ pub fn pretty_error(resp: &str) -> RedisError {
       _ => RedisErrorKind::Unknown,
     }
   };
-  let details = if resp.is_empty() {
-    "No response!".into()
-  } else {
-    resp.to_owned()
-  };
 
+  let details = if resp.is_empty() {
+    Cow::Borrowed("No response!")
+  } else {
+    Cow::Owned(resp.to_owned())
+  };
   RedisError::new(kind, details)
 }
 
@@ -233,26 +246,6 @@ pub fn check_auth_error(frame: ProtocolFrame) -> ProtocolFrame {
     ProtocolFrame::SimpleString("OK".into())
   } else {
     frame
-  }
-}
-
-#[cfg(feature = "reconnect-on-auth-error")]
-/// Parses the response frame to see if it's an auth error.
-fn parse_redis_auth_error(frame: &ProtocolFrame) -> Option<RedisError> {
-  if frame.is_error() {
-    match frame {
-      ProtocolFrame::Error(ref s) => {
-        let err = pretty_error(s);
-        if *err.kind() == RedisErrorKind::Auth {
-          Some(err)
-        } else {
-          None
-        }
-      }
-      _ => None,
-    }
-  } else {
-    None
   }
 }
 
@@ -291,7 +284,6 @@ pub fn frame_to_results(frame: ProtocolFrame) -> Result<RedisValue, RedisError> 
       }
     }
     ProtocolFrame::Error(s) => return Err(pretty_error(&s)),
-    _ => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid frame.")),
   };
 
   Ok(value)
@@ -339,7 +331,6 @@ pub fn frame_to_single_result(frame: ProtocolFrame) -> Result<RedisValue, RedisE
     }
     ProtocolFrame::Null => Ok(RedisValue::Null),
     ProtocolFrame::Error(s) => Err(pretty_error(&s)),
-    _ => Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid frame.")),
   }
 }
 
@@ -414,8 +405,6 @@ pub fn array_to_map(data: RedisValue) -> Result<RedisMap, RedisError> {
 pub fn frame_to_error(frame: &ProtocolFrame) -> Option<RedisError> {
   match frame {
     ProtocolFrame::Error(ref s) => Some(pretty_error(s)),
-    ProtocolFrame::Moved(ref s) => Some(RedisError::new(RedisErrorKind::Cluster, s.to_owned())),
-    ProtocolFrame::Ask(ref s) => Some(RedisError::new(RedisErrorKind::Cluster, s.to_owned())),
     _ => None,
   }
 }
@@ -1047,8 +1036,6 @@ pub fn frame_size(frame: &Frame) -> usize {
     Frame::Integer(ref i) => i64_size(*i),
     Frame::Null => 3,
     Frame::Error(ref s) => s.as_bytes().len(),
-    Frame::Ask(ref s) => s.as_bytes().len(),
-    Frame::Moved(ref s) => s.as_bytes().len(),
     Frame::SimpleString(ref s) => s.as_bytes().len(),
     Frame::BulkString(ref b) => b.len(),
     Frame::Array(ref a) => a.iter().fold(0, |c, f| c + frame_size(f)),

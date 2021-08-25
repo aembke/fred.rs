@@ -9,11 +9,16 @@ const CHANNEL3: &'static str = "baz";
 const FAKE_MESSAGE: &'static str = "wibble";
 const NUM_MESSAGES: i64 = 20;
 
-pub async fn should_publish_and_recv_messages(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
-  let publisher_client = client;
+// when using chaos monkey pubsub messages can be lost since they're fire and forget and these arent stored in aof files
+#[cfg(feature = "chaos-monkey")]
+const EXTRA_MESSAGES: i64 = 10;
+#[cfg(not(feature = "chaos-monkey"))]
+const EXTRA_MESSAGES: i64 = 0;
 
-  let subscriber_client = RedisClient::new(config);
-  let _ = subscriber_client.connect(None, !publisher_client.is_pipelined());
+pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber_client = client.clone_new();
+  let policy = client.client_reconnect_policy();
+  let _ = subscriber_client.connect(policy);
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.subscribe(CHANNEL1).await?;
 
@@ -34,11 +39,9 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, config: Redis
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..NUM_MESSAGES {
+  for idx in 0..NUM_MESSAGES + EXTRA_MESSAGES {
     // https://redis.io/commands/publish#return-value
-    let _ = publisher_client
-      .publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx))
-      .await?;
+    let _ = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -48,13 +51,13 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, config: Redis
   Ok(())
 }
 
-pub async fn should_psubscribe_and_recv_messages(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
-  let publisher_client = client;
+pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let channels = vec![CHANNEL1, CHANNEL2, CHANNEL3];
   let subscriber_channels = channels.clone();
 
-  let subscriber_client = RedisClient::new(config);
-  let _ = subscriber_client.connect(None, !publisher_client.is_pipelined());
+  let subscriber_client = client.clone_new();
+  let policy = client.client_reconnect_policy();
+  let _ = subscriber_client.connect(policy);
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.psubscribe(channels.clone()).await?;
 
@@ -75,13 +78,11 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, config: Re
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..NUM_MESSAGES {
+  for idx in 0..NUM_MESSAGES + EXTRA_MESSAGES {
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value
-    let _ = publisher_client
-      .publish(channel, format!("{}-{}", FAKE_MESSAGE, idx))
-      .await?;
+    let _ = client.publish(channel, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;

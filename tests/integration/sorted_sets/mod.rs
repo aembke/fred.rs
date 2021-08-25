@@ -1,6 +1,5 @@
 use float_cmp::approx_eq;
 use fred::prelude::*;
-use futures::StreamExt;
 use std::cmp::Ordering as CmpOrdering;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -40,7 +39,8 @@ async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, 
 
 pub async fn should_bzpopmin(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher_client = client.clone_new();
-  let _ = publisher_client.connect(None, !client.is_pipelined());
+  let policy = client.client_reconnect_policy();
+  let _ = publisher_client.connect(policy);
   let _ = publisher_client.wait_for_connect().await?;
 
   let jh = tokio::task::spawn(async move {
@@ -65,7 +65,8 @@ pub async fn should_bzpopmin(client: RedisClient, _: RedisConfig) -> Result<(), 
 
 pub async fn should_bzpopmax(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher_client = client.clone_new();
-  let _ = publisher_client.connect(None, !client.is_pipelined());
+  let policy = client.client_reconnect_policy();
+  let _ = publisher_client.connect(policy);
   let _ = publisher_client.wait_for_connect().await?;
 
   let jh = tokio::task::spawn(async move {
@@ -472,7 +473,7 @@ pub async fn should_zrangebylex(client: RedisClient, _: RedisConfig) -> Result<(
 }
 
 pub async fn should_zrevrangebylex(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let mut expected = create_lex_data(&client, "foo").await?;
+  let expected = create_lex_data(&client, "foo").await?;
   let mut expected_values: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
   expected_values.reverse();
 
@@ -679,7 +680,7 @@ pub async fn should_zremrangebyscore(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_zrevrank_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let expected = create_count_data(&client, "foo").await?;
+  let _ = create_count_data(&client, "foo").await?;
 
   let result = client.zrevrank("foo", COUNT + 1).await?;
   assert!(result.is_null());

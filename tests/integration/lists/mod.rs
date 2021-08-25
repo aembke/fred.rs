@@ -16,7 +16,8 @@ async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<RedisV
 
 pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect(None, !client.is_pipelined());
+  let policy = client.client_reconnect_policy();
+  let _ = publisher.connect(policy);
   let _ = publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
@@ -41,7 +42,8 @@ pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<
 
 pub async fn should_brpop_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect(None, !client.is_pipelined());
+  let policy = client.client_reconnect_policy();
+  let _ = publisher.connect(policy);
   let _ = publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
@@ -66,7 +68,8 @@ pub async fn should_brpop_values(client: RedisClient, _: RedisConfig) -> Result<
 
 pub async fn should_brpoplpush_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect(None, !client.is_pipelined());
+  let policy = client.client_reconnect_policy();
+  let _ = publisher.connect(policy);
   let _ = publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
@@ -94,7 +97,8 @@ pub async fn should_brpoplpush_values(client: RedisClient, _: RedisConfig) -> Re
 
 pub async fn should_blmove_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect(None, !client.is_pipelined());
+  let policy = client.client_reconnect_policy();
+  let _ = publisher.connect(policy);
   let _ = publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {

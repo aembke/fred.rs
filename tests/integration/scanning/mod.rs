@@ -1,6 +1,5 @@
 use fred::prelude::*;
-
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 
 const SCAN_KEYS: i64 = 100;
 
@@ -19,7 +18,7 @@ pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result
         // scanning wont return results in any particular order, so we just check the format of the key
 
         for key in results.into_iter() {
-          let parts: Vec<&str> = key.as_str().split("-").collect();
+          let parts: Vec<&str> = key.as_str().unwrap().split("-").collect();
           assert!(parts[1].parse::<i64>().is_ok());
         }
       } else {

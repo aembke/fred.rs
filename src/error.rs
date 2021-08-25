@@ -1,6 +1,8 @@
 use crate::protocol::types::RedisCommand;
 use futures::channel::oneshot::Canceled;
-use redis_protocol::types::{Frame, RedisProtocolError};
+use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::types::RedisProtocolError;
+use semver::Error as SemverError;
 use std::borrow::{Borrow, Cow};
 use std::convert::Infallible;
 use std::fmt;
@@ -12,6 +14,7 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use tokio::task::JoinError;
 use url::ParseError;
+use std::error::Error;
 
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -97,7 +100,7 @@ impl fmt::Display for RedisError {
   }
 }
 
-impl<'a> From<RedisProtocolError<'a>> for RedisError {
+impl From<RedisProtocolError> for RedisError {
   fn from(e: RedisProtocolError) -> Self {
     RedisError::new(RedisErrorKind::ProtocolError, format!("{}", e))
   }
@@ -187,6 +190,12 @@ impl From<JoinError> for RedisError {
   }
 }
 
+impl From<SemverError> for RedisError {
+  fn from(e: SemverError) -> Self {
+    RedisError::new(RedisErrorKind::ProtocolError, format!("Invalid Redis version: {:?}", e))
+  }
+}
+
 impl From<Infallible> for RedisError {
   fn from(e: Infallible) -> Self {
     warn!("Infallible error: {:?}", e);
@@ -194,10 +203,10 @@ impl From<Infallible> for RedisError {
   }
 }
 
-impl From<Frame> for RedisError {
-  fn from(e: Frame) -> Self {
+impl From<Resp2Frame> for RedisError {
+  fn from(e: Resp2Frame) -> Self {
     match e {
-      Frame::SimpleString(s) => match s.as_ref() {
+      Resp2Frame::SimpleString(s) => match s.as_ref() {
         "Canceled" => RedisError::new_canceled(),
         _ => RedisError::new(RedisErrorKind::Unknown, "Unknown frame error."),
       },
@@ -281,5 +290,11 @@ impl RedisError {
       RedisErrorKind::Canceled => true,
       _ => false,
     }
+  }
+}
+
+impl Error for RedisError {
+  fn source(&self) -> Option<&(dyn Error + 'static)> {
+    None
   }
 }

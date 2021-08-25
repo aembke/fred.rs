@@ -1,6 +1,6 @@
 use super::*;
-use crate::client::RedisClientInner;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -400,3 +400,13 @@ where
 
   protocol_utils::frame_to_single_result(frame)
 }
+
+pub async fn watch<K>(inner: &Arc<RedisClientInner>, keys: K) -> Result<(), RedisError>
+where
+  K: Into<MultipleKeys>,
+{
+  let args = keys.into().inner().into_iter().map(|k| k.into()).collect();
+  args_ok_cmd(inner, RedisCommandKind::Watch, args).await
+}
+
+ok_cmd!(unwatch, Unwatch);

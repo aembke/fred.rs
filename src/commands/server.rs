@@ -1,6 +1,7 @@
 use super::*;
-use crate::client::{RedisClient, RedisClientInner};
+use crate::client::RedisClient;
 use crate::error::*;
+use crate::inner::RedisClientInner;
 use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
@@ -51,7 +52,7 @@ pub async fn shutdown(inner: &Arc<RedisClientInner>, flags: Option<ShutdownFlags
 pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
   let (tx, rx) = oneshot_channel();
   let config = utils::read_locked(&inner.config);
-  if !config.is_clustered() {
+  if !config.server.is_clustered() {
     return Err(RedisError::new(
       RedisErrorKind::Unknown,
       "Expected clustered redis deployment.",
@@ -133,11 +134,24 @@ pub async fn discard(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   Ok(())
 }
 
-pub async fn auth<V>(inner: &Arc<RedisClientInner>, password: V) -> Result<(), RedisError>
+pub async fn auth<V>(inner: &Arc<RedisClientInner>, username: Option<String>, password: V) -> Result<(), RedisError>
 where
   V: Into<String>,
 {
-  one_arg_ok_cmd(inner, RedisCommandKind::Auth, password.into().into()).await
+  let password = password.into();
+  let frame = utils::request_response(inner, move || {
+    let mut args = Vec::with_capacity(2);
+    if let Some(username) = username {
+      args.push(username.into());
+    }
+    args.push(password.into());
+
+    Ok((RedisCommandKind::Auth, args))
+  })
+  .await?;
+
+  let response = protocol_utils::frame_to_single_result(frame)?;
+  protocol_utils::expect_ok(&response)
 }
 
 pub async fn custom(
