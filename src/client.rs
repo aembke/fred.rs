@@ -208,7 +208,7 @@ impl RedisClient {
     tokio::spawn(async move {
       let result = multiplexer_commands::init(&inner, policy).await;
       if let Err(ref e) = result {
-        multiplexer_utils::emit_connect_error(&inner.connect_tx, e);
+        multiplexer_utils::emit_connect_error(&inner, e);
       }
       utils::set_client_state(&inner.state, ClientState::Disconnected);
       result

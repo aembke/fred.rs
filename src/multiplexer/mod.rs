@@ -8,7 +8,6 @@ use crate::types::ClientState;
 use crate::utils as client_utils;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, VecDeque};
-use std::ops::DerefMut;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -150,7 +150,7 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
 }
 
 fn shutdown_client(inner: &Arc<RedisClientInner>, error: &RedisError) {
-  utils::emit_connect_error(&inner.connect_tx, &error);
+  utils::emit_connect_error(inner, &error);
   utils::emit_error(&inner, &error);
   client_utils::shutdown_listeners(&inner);
   client_utils::set_locked(&inner.command_tx, None);
@@ -277,12 +277,18 @@ fn handle_connection_closed(
         } else {
           multiplexer.connect_and_flush().await
         };
+        _debug!(
+          inner,
+          "Reconnect task finished reconnecting or syncing with: {:?}",
+          result
+        );
 
         if let Err(error) = result {
           _warn!(inner, "Failed to reconnect with error {:?}", error);
 
           if *error.kind() == RedisErrorKind::Auth {
             // stop trying to connect if auth is failing
+            _warn!(inner, "Stop trying to reconnect due to auth failure.");
             write_final_error_to_callers(&inner, commands, &error);
             shutdown_client(&inner, &error);
             break 'recv;
@@ -303,6 +309,7 @@ fn handle_connection_closed(
           clear_multi_block_commands(&inner, &mut commands);
         }
 
+        _debug!(inner, "Sending {} commands after reconnecting.", commands.len());
         'inner: for _ in 0..commands.len() {
           let command = match commands.pop_front() {
             Some(cmd) => cmd,
@@ -320,7 +327,7 @@ fn handle_connection_closed(
       }
 
       policy.reset_attempts();
-      utils::emit_connect(&inner.connect_tx);
+      utils::emit_connect(&inner);
       utils::emit_reconnect(&inner);
     }
 
@@ -712,8 +719,13 @@ async fn handle_command(
         return Ok(());
       }
       Err(mut error) => {
-        _warn!(inner, "Error writing command: {:?}", error);
         let command = error.take_context();
+        _warn!(
+          inner,
+          "Error writing command {:?}: {:?}",
+          command.as_ref().map(|c| c.kind.to_str_debug()),
+          error
+        );
 
         // TODO maybe send reconnect/sync-cluster message here to be safe
         if handle_write_error(&inner, &multiplexer, has_policy, &error).await? {
@@ -784,7 +796,7 @@ async fn connect_with_policy(
               "Max reconnect attempts reached. Stopping initial connection logic."
             );
             let error = RedisError::new(RedisErrorKind::Unknown, "Max reconnection attempts reached.");
-            utils::emit_connect_error(&inner.connect_tx, &error);
+            utils::emit_connect_error(inner, &error);
             utils::emit_error(inner, &error);
             return Err(error);
           }
@@ -792,18 +804,18 @@ async fn connect_with_policy(
         _info!(inner, "Sleeping for {} ms before reconnecting", delay);
         sleep(Duration::from_millis(delay)).await;
       } else {
-        return Ok(());
+        break;
       }
     }
   } else {
     if let Err(err) = multiplexer.connect_and_flush().await {
-      utils::emit_connect_error(&inner.connect_tx, &err);
+      utils::emit_connect_error(inner, &err);
       utils::emit_error(inner, &err);
       return Err(err);
     }
-
-    Ok(())
   }
+
+  Ok(())
 }
 
 /// Initialize the multiplexer and network interface to accept commands.
@@ -823,7 +835,7 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
   _debug!(inner, "Initializing connections...");
   if inner.config.read().fail_fast {
     if let Err(err) = multiplexer.connect_and_flush().await {
-      utils::emit_connect_error(&inner.connect_tx, &err);
+      utils::emit_connect_error(inner, &err);
       utils::emit_error(inner, &err);
       return Err(err);
     }
@@ -834,7 +846,7 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
   let (tx, mut rx) = unbounded_channel();
   client_utils::set_locked(&inner.command_tx, Some(tx));
   client_utils::set_client_state(&inner.state, ClientState::Connected);
-  utils::emit_connect(&inner.connect_tx);
+  utils::emit_connect(inner);
   utils::emit_reconnect(inner);
 
   let has_policy = policy.is_some();

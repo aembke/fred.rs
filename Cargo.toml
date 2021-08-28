@@ -11,6 +11,9 @@ keywords = ["redis", "futures", "async", "cluster", "tokio"]
 categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 tokio = { version = "1.10", features = ["full"] }
 bytes = "1.0"

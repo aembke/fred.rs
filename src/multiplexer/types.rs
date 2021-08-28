@@ -15,13 +15,3 @@ impl Default for ClusterChange {
     }
   }
 }
-
-impl ClusterChange {
-  pub fn add_connection(&mut self, server: &Arc<String>) {
-    self.add.push(server.clone());
-  }
-
-  pub fn remove_connection(&mut self, server: &Arc<String>) {
-    self.remove.push(server.clone());
-  }
-}

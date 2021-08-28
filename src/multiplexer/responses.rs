@@ -1,7 +1,7 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::inner::{ClosedState, ConnectionClosedTx, RedisClientInner};
+use crate::inner::RedisClientInner;
 use crate::metrics::LatencyStats;
-use crate::multiplexer::{utils, Connections};
+use crate::multiplexer::utils;
 use crate::multiplexer::{Counters, SentCommand, SentCommands};
 use crate::protocol::types::RedisCommandKind;
 use crate::protocol::types::{ResponseKind, ValueScanInner, ValueScanResult};
@@ -1111,40 +1111,12 @@ async fn handle_redirection_error(
   Ok(())
 }
 
-async fn handle_clustered_connection_closed_error(
-  inner: &Arc<RedisClientInner>,
-  server: &Arc<String>,
-  connections: &Connections,
-  error: RedisError,
-) -> Result<(), RedisError> {
-  if let Connections::Clustered {
-    ref writers,
-    ref commands,
-    ..
-  } = connections
-  {
-    let commands = {
-      let _ = writers.write().await.remove(server);
-      commands.write().await.remove(server).unwrap_or(VecDeque::new())
-    };
-
-    if let Some(ref tx) = *inner.connection_closed_tx.read() {
-      if let Err(_) = tx.send(ClosedState { commands, error }) {
-        _error!(inner, "Error sending connection closed for {}", server);
-      }
-    }
-  }
-
-  Ok(())
-}
-
 /// Process a frame on a clustered client instance from the provided server.
 ///
 /// Errors in this context are considered fatal and will close the stream.
 pub async fn process_clustered_frame(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
-  connections: &Connections,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   frame: ProtocolFrame,
@@ -1155,8 +1127,7 @@ pub async fn process_clustered_frame(
   }
   if let Some(error) = check_special_errors(inner, &frame) {
     // this closes the stream and initiates a reconnect, if configured
-    handle_clustered_connection_closed_error(inner, server, connections, error).await?;
-    return Err(RedisError::new_canceled());
+    return Err(error);
   }
 
   if let Some(frame) = check_pubsub_message(inner, frame) {

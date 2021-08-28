@@ -214,7 +214,8 @@ impl Operation {
   pub fn delay(&self) -> u64 {
     match *self {
       Operation::MoveFoo => 8,
-      Operation::RestartCluster => 7,
+      // restarting a cluster can take a while. it may boot quickly but it takes several seconds to load the aof
+      Operation::RestartCluster => 10,
       Operation::RestartCentralized => 4,
     }
   }
@@ -253,7 +254,8 @@ fn run(root_path: String, cli_path: String, server_path: String, create_cluster_
 #[test]
 #[cfg(feature = "chaos-monkey")]
 fn start() {
-  pretty_env_logger::try_init();
+  let _ = pretty_env_logger::try_init_timed();
+
   globals::set_max_command_attempts(50);
   globals::set_default_command_timeout(30_000);
   globals::set_custom_reconnect_errors(vec![
