@@ -1,8 +1,14 @@
+use crate::chaos_monkey::set_test_kind;
 use fred::client::RedisClient;
 use fred::error::RedisError;
 use fred::types::{ReconnectPolicy, RedisConfig, ServerConfig};
 use std::env;
 use std::future::Future;
+
+#[cfg(feature = "chaos-monkey")]
+const RECONNECT_DELAY: u32 = 500;
+#[cfg(not(feature = "chaos-monkey"))]
+const RECONNECT_DELAY: u32 = 1000;
 
 fn read_fail_fast_env() -> bool {
   match env::var_os("FRED_FAIL_FAST") {
@@ -22,7 +28,9 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  let policy = ReconnectPolicy::new_constant(60, 1000);
+  set_test_kind(true);
+
+  let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::default_clustered(),
@@ -45,7 +53,9 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  let policy = ReconnectPolicy::new_constant(60, 1000);
+  set_test_kind(false);
+
+  let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::default_centralized(),

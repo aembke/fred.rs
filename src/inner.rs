@@ -22,7 +22,6 @@ use tokio::task::JoinHandle;
 
 /// State sent to the task that performs reconnection logic.
 pub struct ClosedState {
-  pub tx: ConnectionClosedTx,
   pub commands: VecDeque<SentCommand>,
   pub error: RedisError,
 }
@@ -293,5 +292,15 @@ impl RedisClientInner {
   pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {
     let mut guard = self.cluster_state.write();
     *guard = state;
+  }
+
+  #[cfg(feature = "partial-tracing")]
+  pub fn should_trace(&self) -> bool {
+    self.config.read().tracing
+  }
+
+  #[cfg(not(feature = "partial-tracing"))]
+  pub fn should_trace(&self) -> bool {
+    false
   }
 }

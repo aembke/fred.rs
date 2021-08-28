@@ -1,16 +1,51 @@
-use crate::chaos_monkey::Operation::MoveFoo;
 use fred::client::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::globals;
-use fred::globals::ReconnectError;
 use fred::types::{RedisConfig, RedisKey, ServerConfig};
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread::{self, sleep};
 use std::time::Duration;
 use subprocess::{Popen, PopenConfig, Redirection};
 use tokio::runtime::Builder;
+
+#[cfg(feature = "chaos-monkey")]
+use fred::globals::ReconnectError;
+
+lazy_static! {
+  static ref TEST_KIND: TestKind = TestKind::default();
+}
+
+pub struct TestKind {
+  is_clustered: Arc<RwLock<bool>>,
+}
+
+impl TestKind {
+  pub fn set_clustered(&self, is_clustered: bool) {
+    let mut guard = self.is_clustered.write();
+    *guard = is_clustered
+  }
+
+  pub fn is_clustered(&self) -> bool {
+    *self.is_clustered.read()
+  }
+}
+
+impl Default for TestKind {
+  fn default() -> Self {
+    TestKind {
+      is_clustered: Arc::new(RwLock::new(false)),
+    }
+  }
+}
+
+pub fn set_test_kind(clustered: bool) {
+  TEST_KIND.set_clustered(clustered);
+}
 
 struct MoveArgs {
   pub src: u16,
@@ -175,26 +210,33 @@ enum Operation {
   RestartCentralized,
 }
 
-fn next_operation(operations: &[Operation], count: &mut usize) -> Operation {
-  *count += 1;
-  operations[(*count) % operations.len()].clone()
+impl Operation {
+  pub fn delay(&self) -> u64 {
+    match *self {
+      Operation::MoveFoo => 8,
+      Operation::RestartCluster => 7,
+      Operation::RestartCentralized => 4,
+    }
+  }
 }
 
 fn run(root_path: String, cli_path: String, server_path: String, create_cluster_path: String) {
-  let operations = vec![
-    Operation::RestartCentralized,
-    Operation::RestartCluster,
-    //Operation::MoveFoo,
-    Operation::RestartCentralized,
-    Operation::RestartCluster,
-  ];
   let mut count = 0;
   debug!("Starting chaos monkey...");
+  sleep(Duration::from_secs(1));
 
   loop {
-    let operation = next_operation(&operations, &mut count);
-    let sleep_dur = if operation == Operation::MoveFoo { 5 } else { 3 };
-    sleep(Duration::from_secs(sleep_dur));
+    let operation = if TEST_KIND.is_clustered() {
+      if count % 4 == 0 {
+        Operation::RestartCluster
+        //Operation::MoveFoo
+      } else {
+        Operation::RestartCluster
+      }
+    } else {
+      Operation::RestartCentralized
+    };
+    let sleep_dur = operation.delay();
     debug!("Next operation: {:?}", operation);
 
     match operation {
@@ -202,10 +244,14 @@ fn run(root_path: String, cli_path: String, server_path: String, create_cluster_
       Operation::RestartCentralized => restart_centralized(&root_path),
       Operation::RestartCluster => restart_cluster(&root_path, &create_cluster_path),
     };
+
+    sleep(Duration::from_secs(sleep_dur));
+    count += 1;
   }
 }
 
 #[test]
+#[cfg(feature = "chaos-monkey")]
 fn start() {
   pretty_env_logger::try_init();
   globals::set_max_command_attempts(50);

@@ -483,11 +483,30 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
   Ok(())
 }
 
+pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+where
+  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
+{
+  let (kind, args) = func()?;
+  let (tx, rx) = oneshot_channel();
+  let command = RedisCommand::new(kind, args, Some(tx));
+
+  let _ = check_blocking_policy(inner, &command).await?;
+  let _ = disallow_nested_values(&command)?;
+  let _ = send_command(&inner, command)?;
+
+  wait_for_response(rx).await
+}
+
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
+  if !inner.should_trace() {
+    return basic_request_response(inner, func).await;
+  }
+
   let cmd_span = trace::create_command_span(inner);
   let end_cmd_span = cmd_span.clone();
 
@@ -531,15 +550,7 @@ pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Resu
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
-  let (kind, args) = func()?;
-  let (tx, rx) = oneshot_channel();
-  let command = RedisCommand::new(kind, args, Some(tx));
-
-  let _ = check_blocking_policy(inner, &command).await?;
-  let _ = disallow_nested_values(&command)?;
-  let _ = send_command(&inner, command)?;
-
-  wait_for_response(rx).await
+  basic_request_response(inner, func).await
 }
 
 fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {

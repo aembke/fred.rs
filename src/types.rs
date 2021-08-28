@@ -600,10 +600,14 @@ pub struct RedisConfig {
   /// Default: `None`
   #[cfg(feature = "enable-tls")]
   pub tls: Option<TlsConfig>,
+  /// Whether or not to enable tracing for this client.
+  ///
+  /// Default: `false`
+  #[cfg(feature = "partial-tracing")]
+  pub tracing: bool,
 }
 
 impl Default for RedisConfig {
-  #[cfg(feature = "enable-tls")]
   fn default() -> Self {
     RedisConfig {
       fail_fast: true,
@@ -612,19 +616,10 @@ impl Default for RedisConfig {
       username: None,
       password: None,
       server: ServerConfig::default(),
+      #[cfg(feature = "enable-tls")]
       tls: None,
-    }
-  }
-
-  #[cfg(not(feature = "enable-tls"))]
-  fn default() -> Self {
-    RedisConfig {
-      fail_fast: true,
-      pipeline: true,
-      blocking: Blocking::default(),
-      username: None,
-      password: None,
-      server: ServerConfig::default(),
+      #[cfg(feature = "partial-tracing")]
+      tracing: false,
     }
   }
 }
@@ -713,6 +708,14 @@ impl ServerConfig {
     match *self {
       ServerConfig::Centralized { .. } => false,
       ServerConfig::Clustered { .. } => true,
+    }
+  }
+
+  /// Read the first host
+  pub fn hosts(&self) -> Vec<(&str, u16)> {
+    match *self {
+      ServerConfig::Centralized { ref host, port } => vec![(host.as_str(), port)],
+      ServerConfig::Clustered { ref hosts } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
     }
   }
 }

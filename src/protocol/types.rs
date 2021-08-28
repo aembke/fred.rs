@@ -1400,7 +1400,7 @@ impl fmt::Display for RedisCommand {
 }
 
 impl RedisCommand {
-  #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+  #[cfg(feature = "partial-tracing")]
   pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>, tx: ResponseSender) -> RedisCommand {
     RedisCommand {
       kind,
@@ -1413,7 +1413,7 @@ impl RedisCommand {
     }
   }
 
-  #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
+  #[cfg(not(feature = "partial-tracing"))]
   pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>, tx: ResponseSender) -> RedisCommand {
     RedisCommand {
       kind,
@@ -1425,7 +1425,7 @@ impl RedisCommand {
     }
   }
 
-  #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+  #[cfg(feature = "partial-tracing")]
   pub fn duplicate(&self, kind: RedisCommandKind) -> RedisCommand {
     RedisCommand {
       kind,
@@ -1438,7 +1438,7 @@ impl RedisCommand {
     }
   }
 
-  #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
+  #[cfg(not(feature = "partial-tracing"))]
   pub fn duplicate(&self, kind: RedisCommandKind) -> RedisCommand {
     RedisCommand {
       kind,

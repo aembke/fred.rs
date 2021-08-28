@@ -156,6 +156,7 @@ where
 }
 
 pub async fn read_client_id<T>(
+  inner: &Arc<RedisClientInner>,
   transport: Framed<T, RedisCodec>,
 ) -> Result<(Option<i64>, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
 where
@@ -163,7 +164,7 @@ where
 {
   let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
   let (result, transport) = request_response_safe(transport, &command).await?;
-  debug!("Read client ID: {:?}", result);
+  _debug!(inner, "Read client ID: {:?}", result);
   let id = match result {
     ProtocolFrame::Integer(i) => Some(i),
     _ => None,
@@ -452,7 +453,9 @@ pub async fn write_command(
 
   if should_flush {
     _trace!(inner, "Sending command and flushing the sink.");
-    trace::set_network_span(&mut command.command, true);
+    if inner.should_trace() {
+      trace::set_network_span(&mut command.command, true);
+    }
 
     match sink {
       RedisSink::Tcp(ref mut inner) => inner.send(frame).await?,
@@ -461,7 +464,9 @@ pub async fn write_command(
     counters.reset_feed_count();
   } else {
     _trace!(inner, "Sending command without flushing the sink.");
-    trace::set_network_span(&mut command.command, false);
+    if inner.should_trace() {
+      trace::set_network_span(&mut command.command, false);
+    }
 
     match sink {
       RedisSink::Tcp(ref mut inner) => inner.feed(frame).await?,

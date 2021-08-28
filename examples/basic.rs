@@ -19,10 +19,12 @@ async fn main() -> Result<(), RedisError> {
     blocking: Blocking::Block,
     // an optional username, if using ACL rules
     username: None,
-    // an optional authentication key
+    // an optional authentication key or password
     password: None,
     // optional TLS settings
     tls: None,
+    // whether to enable tracing
+    tracing: false,
   };
   // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
