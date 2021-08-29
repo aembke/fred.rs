@@ -1,3 +1,7 @@
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 use fred::client::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::globals;
@@ -213,9 +217,9 @@ enum Operation {
 impl Operation {
   pub fn delay(&self) -> u64 {
     match *self {
-      Operation::MoveFoo => 8,
+      Operation::MoveFoo => 7,
       // restarting a cluster can take a while. it may boot quickly but it takes several seconds to load the aof
-      Operation::RestartCluster => 10,
+      Operation::RestartCluster => 9,
       Operation::RestartCentralized => 4,
     }
   }
@@ -228,9 +232,9 @@ fn run(root_path: String, cli_path: String, server_path: String, create_cluster_
 
   loop {
     let operation = if TEST_KIND.is_clustered() {
-      if count % 4 == 0 {
-        Operation::RestartCluster
-        //Operation::MoveFoo
+      if count % 2 == 0 {
+        //Operation::RestartCluster
+        Operation::MoveFoo
       } else {
         Operation::RestartCluster
       }

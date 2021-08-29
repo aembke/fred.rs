@@ -244,7 +244,7 @@ pub struct RedisClientInner {
   /// MPSC senders for `on_connect` futures.
   pub connect_tx: RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
   /// A join handle for the task that sleeps waiting to reconnect.
-  pub reconnect_sleep_jh: RwLock<Option<JoinHandle<()>>>,
+  pub reconnect_sleep_jh: RwLock<Option<JoinHandle<Result<(), ()>>>>,
   /// Command latency metrics.
   pub latency_stats: RwLock<LatencyStats>,
   /// Network latency metrics.

@@ -434,6 +434,8 @@ impl RedisClient {
   ///
   /// The client will automatically authenticate with the default user if a password is provided in the associated `RedisConfig` when calling [connect](Self::connect).
   ///
+  /// If running against clustered servers this function will authenticate all connections.
+  ///
   /// <https://redis.io/commands/auth>
   pub async fn auth<S>(&self, username: Option<String>, password: S) -> Result<(), RedisError>
   where
@@ -3005,7 +3007,6 @@ impl RedisClient {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
 
   #[cfg(feature = "sha1-support")]
   #[test]

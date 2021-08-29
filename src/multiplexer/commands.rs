@@ -221,7 +221,8 @@ fn handle_connection_closed(
     delay: globals().cluster_error_cache_delay() as u32,
   });
 
-  let _ = tokio::spawn(async move {
+  let reconnect_inner = inner.clone();
+  let jh = tokio::spawn(async move {
     let (tx, mut rx) = unbounded_channel();
     _debug!(inner, "Set inner connection closed sender.");
     client_utils::set_locked(&inner.connection_closed_tx, Some(tx));
@@ -261,17 +262,6 @@ fn handle_connection_closed(
         _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
         sleep(Duration::from_millis(next_delay)).await;
 
-        // detect if for some reason the caller manually resets the connection and reconnects by hand while we're sleeping.
-        // if this happens then the manual reconnect operation will have spawned another instance of this task, so we can
-        // just break out of this function entirely instead of continuing the loop. however, in this case we don't want to
-        // shut down the entire client since the caller manually reconnected and is probably using it again.
-        if client_utils::read_client_state(&inner.state) == ClientState::Connected {
-          _info!(
-            inner,
-            "Breaking out of reconnect attempt due to client already being connected."
-          );
-          break 'recv;
-        }
         let result = if client_utils::is_clustered(&inner.config) {
           multiplexer.sync_cluster().await
         } else {
@@ -316,6 +306,7 @@ fn handle_connection_closed(
             None => break 'inner,
           };
 
+          utils::unblock_multiplexer(&inner, &command.command);
           if let Err(e) = client_utils::send_command(&inner, command.command) {
             _debug!(inner, "Failed to retry command: {:?}", e);
             continue 'outer;
@@ -334,6 +325,8 @@ fn handle_connection_closed(
     _debug!(inner, "Exit reconnection task.");
     Ok::<(), ()>(())
   });
+
+  reconnect_inner.reconnect_sleep_jh.write().replace(jh);
 }
 
 /// Whether or not the error represents a fatal CONFIG error. CONFIG errors are fatal errors that represent problems with the provided config such that no amount of reconnect or retry will help.

@@ -64,7 +64,9 @@ cargo add fred
 * Built in support for [tracing](https://crates.io/crates/tracing).
 * Good test coverage.
 
-The main goal of this library is to provide callers with a flexible and reliable interface that manages all the details related to connection management. When configured correctly callers can stop, start, scale up, scale down, rebalance, and modify Redis servers as needed without client errors.
+The main goal of this library is to provide callers with a flexible and reliable interface that manages all the details related to safe connection management. 
+
+If configured properly callers can stop, start, scale up, scale down, rebalance, and modify Redis servers as needed without client errors as long as the server(s) eventually return to a healthy state.
 
 ## Tracing
 

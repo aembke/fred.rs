@@ -57,6 +57,7 @@ mod hashes {
   cluster_test!(hashes, should_get_values);
 }
 
+#[cfg(not(feature = "chaos-monkey"))]
 mod pubsub {
 
   cluster_test!(pubsub, should_publish_and_recv_messages);
@@ -137,7 +138,9 @@ pub mod lua {
 
 pub mod sorted_sets {
 
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(sorted_sets, should_bzpopmin);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(sorted_sets, should_bzpopmax);
   cluster_test!(sorted_sets, should_zadd_values);
   cluster_test!(sorted_sets, should_zcard_values);
@@ -170,10 +173,15 @@ pub mod sorted_sets {
 
 pub mod lists {
 
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_blpop_values);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_brpop_values);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_brpoplpush_values);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_blmove_values);
+
   cluster_test!(lists, should_lindex_values);
   cluster_test!(lists, should_linsert_values);
   cluster_test!(lists, should_lpop_values);

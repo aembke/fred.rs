@@ -265,6 +265,13 @@ pub fn emit_closed_message(
   }
 }
 
+pub fn unblock_multiplexer(inner: &Arc<RedisClientInner>, command: &RedisCommand) {
+  if let Some(tx) = command.resp_tx.write().take() {
+    _debug!(inner, "Unblocking multiplexer command: {}", command.kind.to_str_debug());
+    let _ = tx.send(());
+  }
+}
+
 /// Write a command to all nodes in the cluster.
 ///
 /// The callback will come from the first node to respond to the request.
@@ -1005,6 +1012,7 @@ async fn remove_server(
         server
       );
 
+      unblock_multiplexer(inner, &command.command);
       client_utils::send_command(inner, command.command)?;
     }
   }
