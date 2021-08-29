@@ -247,7 +247,7 @@ fn handle_connection_closed(
       }
       client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
-      'outer: loop {
+      'reconnect: loop {
         let next_delay = match next_reconnect_delay(&inner, &mut policy, &error) {
           Some(delay) => delay,
           None => {
@@ -286,7 +286,7 @@ fn handle_connection_closed(
             utils::emit_error(&inner, &error);
           }
 
-          continue 'outer;
+          continue 'reconnect;
         }
 
         if client_utils::take_locked(&inner.multi_block).is_some() {
@@ -300,21 +300,21 @@ fn handle_connection_closed(
         }
 
         _debug!(inner, "Sending {} commands after reconnecting.", commands.len());
-        'inner: for _ in 0..commands.len() {
+        'retry: for _ in 0..commands.len() {
           let command = match commands.pop_front() {
             Some(cmd) => cmd,
-            None => break 'inner,
+            None => break 'retry,
           };
 
           utils::unblock_multiplexer(&inner, &command.command);
           if let Err(e) = client_utils::send_command(&inner, command.command) {
             _debug!(inner, "Failed to retry command: {:?}", e);
-            continue 'outer;
+            continue 'reconnect;
           };
         }
 
         // break when the connection is established
-        break 'outer;
+        break 'reconnect;
       }
 
       policy.reset_attempts();

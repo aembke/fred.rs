@@ -20,41 +20,15 @@ This document gives some background on how the library is structured and how to 
 
 If you'd like to contribute to any of the above features feel free to reach out
 
-# Background
+## Design 
 
 This section covers some useful design considerations and assumptions that went into this module. 
 
-## Keep In Mind 
-
-* The `COMMAND` interface makes it possible for clients to generate their interfaces at runtime. This kind of implementation can push bugs to runtime that could otherwise be caught at build time, so this module does not do this.
 * Debugging Redis issues late at night is not fun. If you find yourself adding log lines that help debug an issue please clean them up and leave them in the code. The one exception is that logs should **never** include potentially sensitive user data (i.e. don't commit changes that log full requests or responses). The `network-logs` feature can enable sensitive logs if needed.
 * The `RedisClient` struct needs to be `Send + Sync` to work effectively with Tokio.
 * The `RedisClient` struct should be fast and cheap to `Clone`.
 * The primary command interfaces should be as flexible as possible via use of `Into` and `TryInto` for arguments.
 * Assume nearly any command might be used in the context of a transaction, and so it could return a `QUEUED` response even if the docs only mention bulk strings, arrays, etc. There are some exceptions to this (blocking commands, etc) where return values could be typed to exactly match the rust-equivalent type of the return value, but generally speaking every command should return a `RedisValue`. 
-
-## Design
-
-This section gives some background and covers how the library is organized.
-
-### Background 
-
-This module was originally built as a PoC for async Rust in late 2016. Shortly after this it was adapted and used in a product 
-that had strict uptime requirements and a very low tolerance for errors across a wide variety of use cases. At the time these applications
-required using a relatively small amount of the Redis API, but had relatively complicated requirements around error tolerance, connection
-management, etc. 
-
-Some relevant requirements for this library ended up being along the lines of:
-
-* It should support both clustered and centralized Redis deployments.
-* It should use async Rust features.
-* It should work with ElastiCache and vanilla Redis.
-* It should have support for TLS.
-* The cluster may frequently scale up or down, but MOVED or ASK errors should not be surfaced to the application. The client should automatically handle changing cluster state without surfacing this complexity to the caller.
-* If a connection dies the library should automatically reconnect, replay any failed in-flight commands, and these settings should all be configurable to the caller.
-* Connection management features such as reconnection, backoff, backpressure, etc should be supported by the library.
-
-At the time there weren't any existing Redis libraries for Rust that checked all these boxes and so this module was written. 
 
 There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers
 with a high level interface that abstracts away everything to do with safe and reliable connection management. This also includes
