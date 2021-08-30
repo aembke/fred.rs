@@ -1,4 +1,10 @@
 
+## 3.0.0-beta.3
+
+* Redo cluster state change implementation to diff `CLUSTER NODES` changes
+* MOVED/ASK errors no longer initiate reconnection logic
+* Fix chaos monkey tests
+
 ## 3.0.0-beta.2
 
 * Extend and refactor RedisConfig options 
