@@ -139,19 +139,36 @@ where
   V: Into<String>,
 {
   let password = password.into();
-  let frame = utils::request_response(inner, move || {
+
+  if utils::is_clustered(&inner.config) {
     let mut args = Vec::with_capacity(2);
     if let Some(username) = username {
       args.push(username.into());
     }
     args.push(password.into());
 
-    Ok((RedisCommandKind::Auth, args))
-  })
-  .await?;
+    let (tx, rx) = oneshot_channel();
+    let kind = RedisCommandKind::_AuthAllCluster(AllNodesResponse::new(tx));
+    let command = RedisCommand::new(kind, args, None);
+    let _ = utils::send_command(inner, command)?;
+    let _ = rx.await??;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
-  protocol_utils::expect_ok(&response)
+    Ok(())
+  } else {
+    let frame = utils::request_response(inner, move || {
+      let mut args = Vec::with_capacity(2);
+      if let Some(username) = username {
+        args.push(username.into());
+      }
+      args.push(password.into());
+
+      Ok((RedisCommandKind::Auth, args))
+    })
+    .await?;
+
+    let response = protocol_utils::frame_to_single_result(frame)?;
+    protocol_utils::expect_ok(&response)
+  }
 }
 
 pub async fn custom(

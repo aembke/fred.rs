@@ -208,7 +208,7 @@ impl RedisClient {
     tokio::spawn(async move {
       let result = multiplexer_commands::init(&inner, policy).await;
       if let Err(ref e) = result {
-        multiplexer_utils::emit_connect_error(&inner.connect_tx, e);
+        multiplexer_utils::emit_connect_error(&inner, e);
       }
       utils::set_client_state(&inner.state, ClientState::Disconnected);
       result
@@ -433,6 +433,8 @@ impl RedisClient {
   /// Request for authentication in a password-protected Redis server. Returns ok if successful.
   ///
   /// The client will automatically authenticate with the default user if a password is provided in the associated `RedisConfig` when calling [connect](Self::connect).
+  ///
+  /// If running against clustered servers this function will authenticate all connections.
   ///
   /// <https://redis.io/commands/auth>
   pub async fn auth<S>(&self, username: Option<String>, password: S) -> Result<(), RedisError>
@@ -3005,7 +3007,6 @@ impl RedisClient {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
 
   #[cfg(feature = "sha1-support")]
   #[test]

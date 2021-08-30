@@ -20,41 +20,15 @@ This document gives some background on how the library is structured and how to 
 
 If you'd like to contribute to any of the above features feel free to reach out
 
-# Background
+## Design 
 
 This section covers some useful design considerations and assumptions that went into this module. 
 
-## Keep In Mind 
-
-* The `COMMAND` interface makes it possible for clients to generate their interfaces at runtime. This kind of implementation can push bugs to runtime that could otherwise be caught at build time, so this module does not do this.
 * Debugging Redis issues late at night is not fun. If you find yourself adding log lines that help debug an issue please clean them up and leave them in the code. The one exception is that logs should **never** include potentially sensitive user data (i.e. don't commit changes that log full requests or responses). The `network-logs` feature can enable sensitive logs if needed.
 * The `RedisClient` struct needs to be `Send + Sync` to work effectively with Tokio.
 * The `RedisClient` struct should be fast and cheap to `Clone`.
 * The primary command interfaces should be as flexible as possible via use of `Into` and `TryInto` for arguments.
 * Assume nearly any command might be used in the context of a transaction, and so it could return a `QUEUED` response even if the docs only mention bulk strings, arrays, etc. There are some exceptions to this (blocking commands, etc) where return values could be typed to exactly match the rust-equivalent type of the return value, but generally speaking every command should return a `RedisValue`. 
-
-## Design
-
-This section gives some background and covers how the library is organized.
-
-### Background 
-
-This module was originally built as a PoC for async Rust in late 2016. Shortly after this it was adapted and used in a product 
-that had strict uptime requirements and a very low tolerance for errors across a wide variety of use cases. At the time these applications
-required using a relatively small amount of the Redis API, but had relatively complicated requirements around error tolerance, connection
-management, etc. 
-
-Some relevant requirements for this library ended up being along the lines of:
-
-* It should support both clustered and centralized Redis deployments.
-* It should use async Rust features.
-* It should work with ElastiCache and vanilla Redis.
-* It should have support for TLS.
-* The cluster may frequently scale up or down, but MOVED or ASK errors should not be surfaced to the application. The client should automatically handle changing cluster state without surfacing this complexity to the caller.
-* If a connection dies the library should automatically reconnect, replay any failed in-flight commands, and these settings should all be configurable to the caller.
-* Connection management features such as reconnection, backoff, backpressure, etc should be supported by the library.
-
-At the time there weren't any existing Redis libraries for Rust that checked all these boxes and so this module was written. 
 
 There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers
 with a high level interface that abstracts away everything to do with safe and reliable connection management. This also includes
@@ -131,16 +105,6 @@ All commands from a `RedisClient` instance move through one [channel](https://do
 and the `Multiplexer` reads from the channel. Clones of a `RedisClient` all share the same command channel, so cloning a `RedisClient` mostly boils down to cloning an `Arc<UnboundedSender>`. 
 The rate at which commands are processed from this channel depends on the client's settings. 
 
-This design has several benefits:
-
-* Pausing the command stream due to MOVED or ASK errors or network problems is very easy. The `Multiplexer` can just `await` a future that rebuilds connections or replays commands while it reads from the channel.
-* The hot path of writing a command to a socket doesn't need to acquire a WriteLock or Mutex in the client. This is more of a benefit of message passing patterns in general. 
-* Applying backpressure is easy. If a socket's command queue hits some configurable limit of in-flight commands the `Multiplexer` can just `await` a Tokio `sleep` call while processing commands from the channel.
-* Switching between pipelined and non-pipelined commands is easy. When a command should be pipelined the `Multiplexer` can write it to the socket and move on to the next command, but when a command should not be pipelined the `Multiplexer` just needs to `await` the response to the command before moving on to the next command. This makes it easy to switch between connection states without surfacing this complexity to the caller.
-* Implementing blocking commands is easy. The logic here is exactly the same as non-pipelined commands, and the client can switch to this mode without surfacing any of the complexity to the caller.
-* This pattern is generic enough that callers do not need different clients for different connection modes (i.e. there's one `RedisClient` instead of a `PubSubClient`, `RequestResponseClient`, etc). All possible connection states can be implemented on top of this pattern.
-* It's fast and cheap to clone a Redis client, and all clones will use the same underlying set of connections because they use the same channel. 
-
 When the client sends a command to the server the following operations occur:
 
 1. The client prepares the command, creating a `Vec<RedisValue>` array of arguments.
@@ -164,23 +128,11 @@ Once a connection is established to a Redis server the client splits the connect
 
 The reader half processes frames asynchronously with respect to the writer half via a separate Tokio task. After the socket is split the client spawns another Tokio task where this task has access to a shallow clone of the `Multiplexer` struct. 
 
-This design has several benefits:
-
-* Not everything in Redis follows a request-response model. It can often be very helpful to receive messages out of band of a request-response command. This will be especially useful when RESP3 support lands and `PUSH` frames become more widely used by the server.
-* The library can get a signal when the socket closes without having to try to write to it first. If the socket were not split then callers would need to try to write to the socket to detect if it had closed. By splitting the socket we can get a signal immediately if the socket closes so reconnection logic can run right away.
-* Reading and writing operations can run concurrently. 
-
-However, there is one drawback to this design:
-
-* Some shared state is necessary. Both the reader and writer tasks need to have access to the queue of in-flight commands for example. Since these are separate tasks Tokio requires this shared state to be `Send + Sync`, which means a `RwLock` is required.
-
-That being said, the size of the critical section of code that needs to acquire a write lock on the in-flight command queue is pretty small. The writer has to clone the command contents anyways when converting to a `Frame`, so the writer half only holds the write lock while it calls `push_back` on the underlying `VecDeque`. On the reader side the reader only needs to acquire a write lock to call `pop_front` on the underlying `VecDeque`.  
-
 Once a connection is established the `Multiplexer` does the following:
 
 1. Split the connection. The writer half is covered above.
-2. Spawn a Tokio task with access to the reader half, a reference to the server ID to which the reader half is connected, and a shallow clone of the `Multiplexer`.
-3. Convert the reader half to a `Stream`, calling [try_fold](https://docs.rs/futures/0.3.16/futures/stream/struct.TryFold.html) on it in the process. While this does mean the stream is processed in series the reader task never `awaits` a future so there wouldn't be any benefit of processing the stream concurrently on an event loop anyways. By processing the stream in series it also makes it very easy to handle situations where the command should be retried, or reconnection needs to occur, since the reader task can just put the command back at the front of the in-flight queue without worrying about another task having popped from the queue in the meantime.
+2. Spawn a task with access to the reader half, a reference to the server ID to which the reader half is connected, and a shallow clone of the `Multiplexer`.
+3. Convert the reader half to a `Stream`, calling [try_fold](https://docs.rs/futures/0.3.16/futures/stream/struct.TryFold.html) on it in the process. While this does mean the stream is processed in series the reader task never `awaits` a future so there wouldn't be any benefit of processing the stream concurrently on an event loop. By processing the stream in series it also makes it very easy to handle situations where the command should be retried, or reconnection needs to occur, since the reader task can just put the command back at the front of the in-flight queue without worrying about another task having popped from the queue in the meantime.
 
 Inside the `try_fold` loop the reader task does the following:
 
@@ -198,8 +150,6 @@ The response handling logic is in the [responses.rs](src/multiplexer/responses.r
 Automatic tracing in client libraries can be very useful. However, Redis is fast enough that emitting trace data for a Redis client can result in a ton of network traffic to the tracing collector. 
 
 [This document](src/tracing/README.md) covers what is traced and how these relate to the two optional tracing features: `full-tracing` and `partial-tracing`. While writing and testing this library I often saw tracing exporter errors due to having filled up the buffer between the subscriber and exporter. As a result the tracing logic was separated into the two features mentioned earlier. Callers can see a lot of benefit just from the `partial-tracing` feature, but it may also be beneficial to enable `full-tracing` while debugging a difficult issue. However, callers that use `full-tracing` should expect to spend some time tuning their subscriber and exporter settings to handle a lot of tracing output.
-
-For most use cases the caller is only concerned with tracing individual commands through the client. Features such as automatic reconnection can drastically impact performance, but these are not directly traced since they often occur outside the context of an individual command, and therefore most likely outside the context of an application-level span from the caller. 
 
 #### Performance
 

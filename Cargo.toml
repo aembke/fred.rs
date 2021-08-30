@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "3.0.0-beta.2"
+version = "3.0.0-beta.3"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -10,6 +10,9 @@ homepage = "https://github.com/aembke/fred.rs"
 keywords = ["redis", "futures", "async", "cluster", "tokio"]
 categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 tokio = { version = "1.10", features = ["full"] }
@@ -47,6 +50,10 @@ test = true
 name = "resilience"
 required-features = ["custom-reconnect-errors"]
 
+[[example]]
+name = "basic"
+required-features = ["partial-tracing"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
 ignore-auth-error = []
@@ -56,7 +63,7 @@ mocks = []
 reconnect-on-auth-error = []
 index-map = ["indexmap"]
 pool-prefer-active = []
-full-tracing = ["tracing", "tracing-futures"]
+full-tracing = ["partial-tracing", "tracing", "tracing-futures"]
 partial-tracing = ["tracing", "tracing-futures"]
 blocking-encoding = ["tokio/rt-multi-thread"]
 network-logs = []

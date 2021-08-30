@@ -31,4 +31,5 @@ ROOT="$ROOT" \
  REDIS_CLI_PATH="$REDIS_ROOT_DIR/src/redis-cli" \
  REDIS_SERVER_PATH="$REDIS_ROOT_DIR/src/redis-server" \
  CREATE_CLUSTER_PATH="$REDIS_ROOT_DIR/utils/create-cluster/create-cluster" \
- cargo test --release --features "chaos-monkey custom-reconnect-errors" --lib --tests -- --test-threads=1 -- "$@"
+ cargo test --release --features "chaos-monkey custom-reconnect-errors network-logs" \
+ --lib --tests -- --test-threads=1 -- "$@"

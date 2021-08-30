@@ -31,7 +31,9 @@ mod multi {
 
 mod other {
 
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_track_size_stats);
+
   centralized_test!(other, should_automatically_unblock);
   centralized_test!(other, should_manually_unblock);
   centralized_test!(other, should_error_when_blocked);
@@ -54,6 +56,7 @@ mod hashes {
   centralized_test!(hashes, should_get_values);
 }
 
+#[cfg(not(feature = "chaos-monkey"))]
 mod pubsub {
 
   centralized_test!(pubsub, should_publish_and_recv_messages);
@@ -166,10 +169,15 @@ pub mod sorted_sets {
 
 pub mod lists {
 
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_blpop_values);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_brpop_values);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_brpoplpush_values);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_blmove_values);
+
   centralized_test!(lists, should_lindex_values);
   centralized_test!(lists, should_linsert_values);
   centralized_test!(lists, should_lpop_values);

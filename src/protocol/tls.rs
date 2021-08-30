@@ -1,4 +1,3 @@
-use std::env;
 use std::fmt;
 
 #[cfg(feature = "enable-tls")]
@@ -9,6 +8,8 @@ use crate::types::RedisConfig;
 use native_tls::{Certificate, Protocol, TlsConnector as NativeTlsConnector};
 #[cfg(feature = "enable-tls")]
 use parking_lot::RwLock;
+#[cfg(feature = "enable-tls")]
+use std::env;
 #[cfg(feature = "enable-tls")]
 use tokio_native_tls::TlsConnector;
 

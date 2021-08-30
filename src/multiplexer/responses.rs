@@ -645,18 +645,31 @@ fn parse_keyspace_notification(channel: String, message: RedisValue) -> Result<K
 /// If not then return it to the caller for further processing.
 fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: ProtocolFrame) -> Option<ProtocolFrame> {
   if frame.is_pubsub_message() {
-    let span = trace::create_pubsub_span(inner, &frame);
-    let _enter = span.enter();
-    _trace!(inner, "Processing pubsub message.");
+    let span = if inner.should_trace() {
+      let span = trace::create_pubsub_span(inner, &frame);
+      Some(span)
+    } else {
+      None
+    };
 
-    let (channel, message) = match protocol_utils::frame_to_pubsub(frame) {
+    _trace!(inner, "Processing pubsub message.");
+    let parsed_frame = if let Some(ref span) = span {
+      let _enter = span.enter();
+      protocol_utils::frame_to_pubsub(frame)
+    } else {
+      protocol_utils::frame_to_pubsub(frame)
+    };
+
+    let (channel, message) = match parsed_frame {
       Ok(data) => data,
       Err(err) => {
         _warn!(inner, "Invalid message on pubsub interface: {:?}", err);
         return None;
       }
     };
-    span.record("channel", &channel.as_str());
+    if let Some(ref span) = span {
+      span.record("channel", &channel.as_str());
+    }
 
     match parse_keyspace_notification(channel, message) {
       Ok(event) => emit_keyspace_event(inner, event),
@@ -1041,9 +1054,9 @@ async fn handle_centralized_queued_response(
 /// Check if the frame represents a MOVED or ASK error.
 fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
   if frame.is_moved_or_ask_error() {
-    _debug!(inner, "Recv moved or ask error.");
     let error = frame_to_error(frame).unwrap_or(RedisError::new(RedisErrorKind::Cluster, "MOVED or ASK error."));
     utils::emit_error(&inner, &error);
+    _debug!(inner, "Recv moved or ask error: {:?}", error);
     Some(error)
   } else {
     None
@@ -1073,17 +1086,29 @@ fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &ProtocolFrame) -
   None
 }
 
+/// Check for special errors configured by the caller to initiate a reconnection process.
 fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
   if let Some(auth_error) = parse_redis_auth_error(frame) {
     // this closes the stream and initiates a reconnect, if applicable
     return Some(auth_error);
   }
-  if let Some(redirection_error) = check_redirection_error(inner, frame) {
-    // emit an error to close the stream and reload the cluster state
-    return Some(redirection_error);
-  }
 
   check_global_reconnect_errors(inner, frame)
+}
+
+/// Refresh the cluster state and retry the last command.
+async fn handle_redirection_error(
+  inner: &Arc<RedisClientInner>,
+  server: &Arc<String>,
+  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  error: RedisError,
+) -> Result<(), RedisError> {
+  let last_command = last_cluster_command(inner, commands, server).await?;
+
+  if let Some(command) = last_command {
+    utils::refresh_cluster_state(inner, command, error);
+  }
+  Ok(())
 }
 
 /// Process a frame on a clustered client instance from the provided server.
@@ -1096,7 +1121,11 @@ pub async fn process_clustered_frame(
   commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
-  if let Some(error) = check_special_errors(&inner, &frame) {
+  if let Some(error) = check_redirection_error(inner, &frame) {
+    handle_redirection_error(inner, server, commands, error).await?;
+    return Ok(());
+  }
+  if let Some(error) = check_special_errors(inner, &frame) {
     // this closes the stream and initiates a reconnect, if configured
     return Err(error);
   }

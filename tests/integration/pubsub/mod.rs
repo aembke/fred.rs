@@ -15,6 +15,11 @@ const EXTRA_MESSAGES: i64 = 10;
 #[cfg(not(feature = "chaos-monkey"))]
 const EXTRA_MESSAGES: i64 = 0;
 
+#[cfg(feature = "chaos-monkey")]
+const ASSERT_COUNT: bool = false;
+#[cfg(not(feature = "chaos-monkey"))]
+const ASSERT_COUNT: bool = true;
+
 pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let subscriber_client = client.clone_new();
   let policy = client.client_reconnect_policy();
@@ -31,7 +36,9 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
         let message = message.as_str().unwrap();
 
         assert_eq!(CHANNEL1, channel);
-        assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+        if ASSERT_COUNT {
+          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+        }
         count += 1;
       }
     }
@@ -70,7 +77,9 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
         let message = message.as_str().unwrap();
 
         assert!(subscriber_channels.contains(&channel.as_str()));
-        assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+        if ASSERT_COUNT {
+          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+        }
         count += 1;
       }
     }

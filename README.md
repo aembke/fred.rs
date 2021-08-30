@@ -62,9 +62,6 @@ cargo add fred
 * Built-in tracking for network latency and payload size metrics.
 * A client pooling interface to round-robin requests among a pool of clients.
 * Built in support for [tracing](https://crates.io/crates/tracing).
-* Good test coverage.
-
-The main goal of this library is to provide callers with a flexible and reliable interface that manages all the details related to connection management. When configured correctly callers can stop, start, scale up, scale down, rebalance, and modify Redis servers as needed without client errors.
 
 ## Tracing
 
@@ -105,7 +102,7 @@ These are environment variables because they're dangerous in production and call
 
 ## Pipelining
 
-The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags on the `RedisConfig` provided to a client. These settings can drastically affect performance on both the server and client, but further performance tuning may be necessary to avoid issues such as using too much memory on the client or server while buffering commands.
+The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags on the `RedisConfig` provided to a client to enable automatic pipelining for commands whenever possible. These settings can drastically affect performance on both the server and client, but further performance tuning may be necessary to avoid issues such as using too much memory on the client or server while buffering commands.
 
 See the global performance tuning functions for more information on how to tune backpressure or other relevant settings related to pipelining.
 
@@ -121,12 +118,11 @@ If callers are using ACLs and Redis version >=6.x they can configure the client 
 
 If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `auth` command inside the `on_reconnect` block.
 
-
 ## Customizing Error Handling
 
 The `custom-reconnect-errors` feature enables an interface on the [globals](src/globals.rs) to customize the list of errors that should automatically trigger reconnection logic (if configured). 
 
-In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/unstable/src/server.c#L2506-L2538) in the error message, and this interface allows caller to specify which errors should be handled this way.
+In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/unstable/src/server.c#L2506-L2538) in the error message, and this interface allows callers to specify which errors should be handled this way.
 
 Errors that trigger this can be seen with the [on_error](https://docs.rs/fred/*/fred/client/struct.RedisClient.html#method.on_error) function. 
 

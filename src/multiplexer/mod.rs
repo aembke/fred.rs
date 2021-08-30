@@ -4,6 +4,7 @@ use crate::inner::RedisClientInner;
 use crate::protocol::connection::RedisSink;
 use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::RedisCommand;
+use crate::types::ClientState;
 use crate::utils as client_utils;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, VecDeque};
@@ -11,6 +12,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast::Sender as BroadcastSender;
+use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use tokio::sync::RwLock as AsyncRwLock;
 
 pub mod commands;
@@ -143,6 +145,8 @@ pub struct Multiplexer {
   inner: Arc<RedisClientInner>,
   clustered: bool,
   close_tx: Arc<RwLock<Option<CloseTx>>>,
+  synchronizing_tx: Arc<RwLock<VecDeque<OneshotSender<()>>>>,
+  synchronizing: Arc<RwLock<bool>>,
 }
 
 impl Multiplexer {
@@ -157,6 +161,8 @@ impl Multiplexer {
     Multiplexer {
       inner: inner.clone(),
       close_tx: Arc::new(RwLock::new(None)),
+      synchronizing_tx: Arc::new(RwLock::new(VecDeque::new())),
+      synchronizing: Arc::new(RwLock::new(false)),
       clustered,
       connections,
     }
@@ -176,6 +182,8 @@ impl Multiplexer {
     mut command: RedisCommand,
     hash_slot: u16,
   ) -> Result<Backpressure, RedisError> {
+    let _ = self.wait_for_sync().await;
+
     if utils::max_attempts_reached(&self.inner, &mut command) {
       return Ok(Backpressure::Skipped);
     }
@@ -192,6 +200,11 @@ impl Multiplexer {
 
   /// Write a command to the server(s), signaling back to the caller whether they should implement backpressure.
   pub async fn write(&self, mut command: RedisCommand) -> Result<Backpressure, RedisError> {
+    let _ = self.wait_for_sync().await;
+
+    if command.kind.is_all_cluster_nodes() {
+      return self.write_all_cluster(command).await;
+    }
     if utils::max_attempts_reached(&self.inner, &mut command) {
       return Ok(Backpressure::Skipped);
     }
@@ -209,6 +222,8 @@ impl Multiplexer {
 
   /// Write a command to all nodes in the cluster.
   pub async fn write_all_cluster(&self, mut command: RedisCommand) -> Result<Backpressure, RedisError> {
+    let _ = self.wait_for_sync().await;
+
     if utils::max_attempts_reached(&self.inner, &mut command) {
       return Ok(Backpressure::Skipped);
     }
@@ -259,5 +274,53 @@ impl Multiplexer {
       Connections::Clustered { ref connection_ids, .. } => ConnectionIDs::Clustered(connection_ids.clone()),
       Connections::Centralized { ref connection_id, .. } => ConnectionIDs::Centralized(connection_id.clone()),
     }
+  }
+
+  pub fn is_synchronizing(&self) -> bool {
+    *self.synchronizing.read()
+  }
+
+  pub fn set_synchronizing(&self, synchronizing: bool) {
+    let mut guard = self.synchronizing.write();
+    *guard = synchronizing;
+  }
+
+  pub fn check_and_set_sync(&self) -> bool {
+    let mut guard = self.synchronizing.write();
+    if *guard {
+      true
+    } else {
+      *guard = false;
+      false
+    }
+  }
+
+  pub async fn wait_for_sync(&self) -> Result<(), RedisError> {
+    let inner = &self.inner;
+    if !self.is_synchronizing() {
+      _trace!(inner, "Skip waiting on cluster sync.");
+      return Ok(());
+    }
+
+    let (tx, rx) = oneshot_channel();
+    self.synchronizing_tx.write().push_back(tx);
+    _debug!(inner, "Waiting on cluster sync to finish.");
+    let _ = rx.await?;
+    _debug!(inner, "Finished waiting on cluster sync.");
+
+    Ok(())
+  }
+
+  pub async fn sync_cluster(&self) -> Result<(), RedisError> {
+    if self.check_and_set_sync() {
+      // dont return here. if multiple consecutive repair commands come in while one is running we still want to run them all, but not concurrently.
+      let _ = self.wait_for_sync().await?;
+    }
+    utils::sync_cluster(&self.inner, &self.connections, &self.close_tx).await?;
+
+    self.set_synchronizing(false);
+    client_utils::set_client_state(&self.inner.state, ClientState::Connected);
+    utils::finish_synchronizing(&self.inner, &self.synchronizing_tx);
+    Ok(())
   }
 }

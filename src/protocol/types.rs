@@ -469,11 +469,9 @@ pub enum RedisCommandKind {
   Sscan(ValueScanInner),
   Hscan(ValueScanInner),
   Zscan(ValueScanInner),
-  #[doc(hidden)]
   _Close,
-  #[doc(hidden)]
   _Split(SplitCommand),
-  #[doc(hidden)]
+  _AuthAllCluster(AllNodesResponse),
   _FlushAllCluster(AllNodesResponse),
   _ScriptFlushCluster(AllNodesResponse),
   _ScriptLoadCluster(AllNodesResponse),
@@ -867,6 +865,7 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
       RedisCommandKind::_Close => "CLOSE",
       RedisCommandKind::_Split(_) => "SPLIT",
+      RedisCommandKind::_AuthAllCluster(_) => "AUTH ALL CLUSTER",
       RedisCommandKind::_FlushAllCluster(_) => "FLUSHALL CLUSTER",
       RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT FLUSH CLUSTER",
       RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT LOAD CLUSTER",
@@ -1123,6 +1122,7 @@ impl RedisCommandKind {
       RedisCommandKind::Sscan(_) => "SSCAN",
       RedisCommandKind::Hscan(_) => "HSCAN",
       RedisCommandKind::Zscan(_) => "ZSCAN",
+      RedisCommandKind::_AuthAllCluster(_) => "AUTH",
       RedisCommandKind::_Custom(ref kind) => kind.cmd,
       RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
         panic!("unreachable (redis command)")
@@ -1326,6 +1326,7 @@ impl RedisCommandKind {
   pub fn is_all_cluster_nodes(&self) -> bool {
     match *self {
       RedisCommandKind::_FlushAllCluster(_)
+      | RedisCommandKind::_AuthAllCluster(_)
       | RedisCommandKind::_ScriptFlushCluster(_)
       | RedisCommandKind::_ScriptKillCluster(_)
       | RedisCommandKind::_ScriptLoadCluster(_) => true,
@@ -1342,6 +1343,7 @@ impl RedisCommandKind {
 
   pub fn all_nodes_response(&self) -> Option<&AllNodesResponse> {
     match *self {
+      RedisCommandKind::_AuthAllCluster(ref inner) => Some(inner),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(inner),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(inner),
       RedisCommandKind::_ScriptLoadCluster(ref inner) => Some(inner),
@@ -1352,6 +1354,7 @@ impl RedisCommandKind {
 
   pub fn clone_all_nodes(&self) -> Option<Self> {
     match *self {
+      RedisCommandKind::_AuthAllCluster(ref inner) => Some(RedisCommandKind::_AuthAllCluster(inner.clone())),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(RedisCommandKind::_FlushAllCluster(inner.clone())),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(RedisCommandKind::_ScriptFlushCluster(inner.clone())),
       RedisCommandKind::_ScriptLoadCluster(ref inner) => Some(RedisCommandKind::_ScriptLoadCluster(inner.clone())),
@@ -1400,7 +1403,7 @@ impl fmt::Display for RedisCommand {
 }
 
 impl RedisCommand {
-  #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+  #[cfg(feature = "partial-tracing")]
   pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>, tx: ResponseSender) -> RedisCommand {
     RedisCommand {
       kind,
@@ -1413,7 +1416,7 @@ impl RedisCommand {
     }
   }
 
-  #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
+  #[cfg(not(feature = "partial-tracing"))]
   pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>, tx: ResponseSender) -> RedisCommand {
     RedisCommand {
       kind,
@@ -1425,7 +1428,7 @@ impl RedisCommand {
     }
   }
 
-  #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+  #[cfg(feature = "partial-tracing")]
   pub fn duplicate(&self, kind: RedisCommandKind) -> RedisCommand {
     RedisCommand {
       kind,
@@ -1438,7 +1441,7 @@ impl RedisCommand {
     }
   }
 
-  #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
+  #[cfg(not(feature = "partial-tracing"))]
   pub fn duplicate(&self, kind: RedisCommandKind) -> RedisCommand {
     RedisCommand {
       kind,
