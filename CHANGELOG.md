@@ -1,3 +1,7 @@
+## 3.0.0
+
+See the 3.0.0-beta.x versions for the full list of changes.
+
 ## 3.0.0-beta.4
 
 * Add support for the `MONITOR` command.
