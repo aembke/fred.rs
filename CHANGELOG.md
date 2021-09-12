@@ -1,3 +1,6 @@
+## 3.0.0-beta.4
+
+* Add support for the `MONITOR` command.
 
 ## 3.0.0-beta.3
 
@@ -11,7 +14,7 @@
 * Change RedisKey to work with bytes, not str 
 * Support unblocking clients with a control connection 
 * First draft of chaos monkey tests 
-* Custom reconnect errors feature
+* Custom reconnect errors feature 
 
 ## 3.0.0-beta.1
 

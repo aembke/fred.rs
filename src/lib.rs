@@ -70,6 +70,10 @@ mod protocol;
 mod trace;
 mod utils;
 
+/// An interface to run the `MONITOR` command.
+#[cfg(feature = "monitor")]
+pub mod monitor;
+
 /// The primary interface for communicating with the Redis server.
 pub mod client;
 /// Error structs returned by Redis commands.

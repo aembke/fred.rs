@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "3.0.0-beta.3"
+version = "3.0.0-beta.4"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -36,6 +36,7 @@ tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
 async-trait = "0.1"
 semver = "1.0"
+nom = { version = "6.1", optional = true }
 
 [dev-dependencies]
 prometheus = "0.12"
@@ -54,6 +55,10 @@ required-features = ["custom-reconnect-errors"]
 name = "basic"
 required-features = ["partial-tracing"]
 
+[[example]]
+name = "monitor"
+required-features = ["monitor"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
 ignore-auth-error = []
@@ -68,5 +73,6 @@ partial-tracing = ["tracing", "tracing-futures"]
 blocking-encoding = ["tokio/rt-multi-thread"]
 network-logs = []
 custom-reconnect-errors = []
+monitor = ["nom"]
 # a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
 chaos-monkey = ["custom-reconnect-errors"]

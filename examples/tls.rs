@@ -5,8 +5,7 @@ use futures::stream::StreamExt;
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig {
-    server: ServerConfig::default_centralized(),
-    password: Some("your key".into()),
+    // or use Some(TlsConfig::default()) to use default TLS settings
     tls: Some(TlsConfig {
       root_certs: None,
       min_protocol_version: None,
