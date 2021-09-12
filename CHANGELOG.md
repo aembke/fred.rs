@@ -1,3 +1,6 @@
+## 3.0.0-beta.4
+
+* Add support for the `MONITOR` command.
 
 ## 3.0.0-beta.3
 
