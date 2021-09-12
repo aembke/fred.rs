@@ -90,6 +90,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | blocking-encoding           |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime.  |
 | network-logs                |         | Enable TRACE level logging statements that will print out all data sent to or received from the server.  |
 | custom-reconnect-errors     |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.    |
+| monitor                     |         | Enable an interface for running the `MONITOR` command.                                                                    |
 
 ## Environment Variables
 

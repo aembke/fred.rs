@@ -13,5 +13,6 @@ Examples
 * [Static Pool](./static_pool.rs) - Use a redis pool that cannot be modified after being created.
 * [Dynamic Pool](./dynamic_pool.rs) - Use a redis pool that can be scaled up and down at runtime.
 * [Resilience](./resilience.rs) - Configure the client to work under bad network conditions or against unreliable servers.
+* [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 
 Or check out the [tests](../tests/integration) for more examples.

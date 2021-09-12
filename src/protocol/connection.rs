@@ -5,8 +5,7 @@ use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::trace;
-use crate::types::Resolve;
-use crate::types::{ClientState, InfoKind};
+use crate::types::{ClientState, InfoKind, Resolve, ServerConfig};
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
@@ -218,6 +217,28 @@ pub async fn create_authenticated_connection(
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
+}
+
+pub async fn create_centralized_connection(inner: &Arc<RedisClientInner>) -> Result<RedisTransport, RedisError> {
+  let (host, port) = match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port } => (host.clone(), *port),
+    _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
+  };
+
+  let transport = if inner.config.read().uses_tls() {
+    let domain = host.clone();
+    let addr = inner.resolver.resolve(host, port).await?;
+    let framed = create_authenticated_connection_tls(&addr, &domain, inner).await?;
+
+    RedisTransport::Tls(framed)
+  } else {
+    let addr = inner.resolver.resolve(host, port).await?;
+    let framed = create_authenticated_connection(&addr, inner).await?;
+
+    RedisTransport::Tcp(framed)
+  };
+
+  Ok(transport)
 }
 
 async fn read_cluster_state(

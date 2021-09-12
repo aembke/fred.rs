@@ -1,23 +1,20 @@
 use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::inner::{Backchannel, MultiPolicy, RedisClientInner};
+use crate::inner::{MultiPolicy, RedisClientInner};
 use crate::metrics::*;
 use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
-use crate::protocol::types::{DefaultResolver, RedisCommand};
+use crate::protocol::types::RedisCommand;
 use crate::types::*;
 use crate::utils;
 use futures::Stream;
-use parking_lot::RwLock;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt;
 use std::ops::Deref;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio::sync::RwLock as AsyncRwLock;
 use tokio::time::interval as tokio_interval;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -136,41 +133,9 @@ impl<'a> From<&'a Arc<RedisClientInner>> for RedisClient {
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
   pub fn new(config: RedisConfig) -> RedisClient {
-    let state = ClientState::Disconnected;
-    let backchannel = Backchannel::default();
-    let latency = LatencyStats::default();
-    let network_latency = LatencyStats::default();
-    let req_size = SizeStats::default();
-    let res_size = SizeStats::default();
-    let id = Arc::new(format!("fred-{}", utils::random_string(10)));
-    let resolver = DefaultResolver::new(&id);
-
-    let inner = Arc::new(RedisClientInner {
-      config: RwLock::new(config),
-      policy: RwLock::new(None),
-      state: RwLock::new(state),
-      error_tx: RwLock::new(VecDeque::new()),
-      message_tx: RwLock::new(VecDeque::new()),
-      keyspace_tx: RwLock::new(VecDeque::new()),
-      reconnect_tx: RwLock::new(VecDeque::new()),
-      connect_tx: RwLock::new(VecDeque::new()),
-      command_tx: RwLock::new(None),
-      reconnect_sleep_jh: RwLock::new(None),
-      latency_stats: RwLock::new(latency),
-      network_latency_stats: RwLock::new(network_latency),
-      req_size_stats: Arc::new(RwLock::new(req_size)),
-      res_size_stats: Arc::new(RwLock::new(res_size)),
-      cmd_buffer_len: Arc::new(AtomicUsize::new(0)),
-      redeliver_count: Arc::new(AtomicUsize::new(0)),
-      connection_closed_tx: RwLock::new(None),
-      multi_block: RwLock::new(None),
-      cluster_state: RwLock::new(None),
-      backchannel: Arc::new(AsyncRwLock::new(backchannel)),
-      resolver,
-      id,
-    });
-
-    RedisClient { inner }
+    RedisClient {
+      inner: RedisClientInner::new(config),
+    }
   }
 
   /// The unique ID identifying this client and underlying connections. All connections will use the ID of the client that created them.
