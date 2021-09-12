@@ -3,10 +3,9 @@ use fred::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
-  let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
   let client = RedisClient::new(config);
 
-  let jh = client.connect(Some(policy));
+  let jh = client.connect(None);
   let _ = client.wait_for_connect().await?;
 
   // a special function to clear all data in a cluster
