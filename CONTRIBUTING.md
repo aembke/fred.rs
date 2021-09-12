@@ -30,9 +30,7 @@ This section covers some useful design considerations and assumptions that went 
 * The primary command interfaces should be as flexible as possible via use of `Into` and `TryInto` for arguments.
 * Assume nearly any command might be used in the context of a transaction, and so it could return a `QUEUED` response even if the docs only mention bulk strings, arrays, etc. There are some exceptions to this (blocking commands, etc) where return values could be typed to exactly match the rust-equivalent type of the return value, but generally speaking every command should return a `RedisValue`. 
 
-There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers
-with a high level interface that abstracts away everything to do with safe and reliable connection management. This also includes
-some optional features to automatically handle common use cases around error handling, reconnection & backoff, retry, metrics, etc.
+There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers with a high level interface that abstracts away everything to do with safe and reliable connection management. This also includes some optional features to automatically handle common use cases around error handling, reconnection & backoff, retry, metrics, etc.
 
 ### Connection Management
 
@@ -177,7 +175,7 @@ $ RUST_LOG=pipeline_test=debug cargo run --release -- -c 300000 -C 20 pipeline
 Performed 300000 operations in: 2.495155038s. Throughput: 120240 req/sec
 ```
 
-Note that in the first example above the tracing data isn't even being emitted to the collector (the sampler is `AlwaysOff`). The act of including the tracing logic to add and track spans is enough to cut performance in half.
+Note that in the first example above the tracing data isn't even being emitted to the collector (the sampler is `AlwaysOff`). Just including the tracing logic to add and track spans is enough to cut performance in half.
 
 Many applications are not bounded by Redis throughput and so enabling the tracing features likely won't have any noticeable effect. However, the tracing features are opt-in for callers because of this performance impact. Callers will have to weigh the significant benefits of tracing against the performance loss to their application's use cases.
 
@@ -434,7 +432,7 @@ This will generate test wrappers to call your test function against both central
 
 Scanning is implemented in a way where callers can throttle the rate at which they page results from the server. Scanning typically works by repeatedly running the `SCAN` (or `HSCAN`, `SSCAN`, etc) command with a different cursor each time, where the new cursor comes from the response to the previous `SCAN` call.
 
-There are a few ways to implement `SCAN`, but this module opted for a method that allows the caller to throttle the scanning for a few reasons:
+There are a few ways to implement `SCAN`, but this library opted for a method that allows the caller to throttle the scanning for a few reasons:
 
 1. `SCAN` only returns keys, so it's very common for callers to read the associated values for each page of results.
 2. Background scanning can cause the in-memory buffer of pages to grow very quickly.

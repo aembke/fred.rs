@@ -4,8 +4,9 @@ use crate::multiplexer::{Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
+use crate::protocol::utils::pretty_error;
 use crate::trace;
-use crate::types::{ClientState, InfoKind, Resolve, ServerConfig};
+use crate::types::{ClientState, InfoKind, Resolve};
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
@@ -20,7 +21,8 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-tls")]
 use crate::protocol::tls;
-use crate::protocol::utils::pretty_error;
+#[cfg(feature = "monitor")]
+use crate::types::ServerConfig;
 #[cfg(feature = "enable-tls")]
 use tokio_native_tls::TlsStream;
 
@@ -219,6 +221,7 @@ pub async fn create_authenticated_connection(
   Ok(framed)
 }
 
+#[cfg(feature = "monitor")]
 pub async fn create_centralized_connection(inner: &Arc<RedisClientInner>) -> Result<RedisTransport, RedisError> {
   let (host, port) = match inner.config.read().server {
     ServerConfig::Centralized { ref host, ref port } => (host.clone(), *port),

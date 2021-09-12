@@ -1,5 +1,6 @@
 use crate::error::RedisError;
 use crate::inner::RedisClientInner;
+use crate::monitor::parser;
 use crate::monitor::{Command, Config};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::connection::{self, RedisTransport};
@@ -7,7 +8,7 @@ use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::types::{RedisConfig, ServerConfig};
 use futures::stream::{Stream, StreamExt};
-use redis_protocol::resp2::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
+use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -16,15 +17,6 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
-
-fn parse_monitor_frame(inner: &Arc<RedisClientInner>, frame: ProtocolFrame) -> Option<Command> {
-  let frame_str = match frame.as_str() {
-    Some(s) => s,
-    None => return None,
-  };
-
-  unimplemented!()
-}
 
 #[cfg(feature = "blocking-encoding")]
 async fn handle_monitor_frame(
@@ -42,13 +34,19 @@ async fn handle_monitor_frame(
 
   if frame_size >= globals().blocking_encode_threshold() {
     // since this isn't called from the Encoder/Decoder trait we can use spawn_blocking here
+    _trace!(
+      inner,
+      "Parsing monitor frame with blocking task with size {}",
+      frame_size
+    );
 
-    tokio::task::spawn_blocking(|| parse_monitor_frame(inner, frame))
+    let inner = inner.clone();
+    tokio::task::spawn_blocking(move || parser::parse(&inner, frame))
       .await
       .ok()
       .flatten()
   } else {
-    parse_monitor_frame(inner, frame)
+    parser::parse(inner, frame)
   }
 }
 
@@ -65,7 +63,7 @@ async fn handle_monitor_frame(
     }
   };
 
-  parse_monitor_frame(inner, frame)
+  parser::parse(inner, frame)
 }
 
 #[cfg(feature = "enable-tls")]

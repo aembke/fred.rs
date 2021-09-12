@@ -70,6 +70,10 @@ mod protocol;
 mod trace;
 mod utils;
 
+/// An interface to run the `MONITOR` command.
+#[cfg(feature = "monitor")]
+pub mod monitor;
+
 /// The primary interface for communicating with the Redis server.
 pub mod client;
 /// Error structs returned by Redis commands.
@@ -78,8 +82,6 @@ pub mod error;
 pub mod globals;
 /// Metrics describing the latency and size of commands sent to the Redis server.
 pub mod metrics;
-/// An interface to run the `MONITOR` command.
-pub mod monitor;
 /// Client pooling structs.
 pub mod pool;
 /// The structs and enums used by the Redis client.

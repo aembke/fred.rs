@@ -51,7 +51,8 @@ cargo add fred
 * Optional built-in reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
 * Supports transactions.
-* Supports Lua scripts.  
+* Supports Lua scripts. 
+* Supports streaming results from the `MONITOR` command. 
 * Supports custom commands provided by third party modules. 
 * Supports connections over TLS.
 * Handles cluster rebalancing operations without downtime or errors.
@@ -138,7 +139,15 @@ cargo test -- --test-threads=1
 OR
 
 ```
+# run the tests with default features
 ./tests/run.sh
+```
+
+OR 
+
+```
+# run the tests 3 times, once with default features, once with no features, and once with all features (except chaos monkey)
+./tests/run_all.sh
 ```
 
 Note: a local Redis server must be running on port 6379, and a clustered deployment must be running on ports 30001 - 30006 for the integration tests to pass. 

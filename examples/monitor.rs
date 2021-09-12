@@ -8,14 +8,6 @@ use tokio::time::sleep;
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init();
 
-  let config = RedisConfig::default();
-  let client = RedisClient::new(config);
-
-  let _ = client.connect(None);
-  if let Err(error) = client.wait_for_connect().await {
-    println!("Client failed to connect with error: {:?}", error);
-  }
-
   let monitor_jh = tokio::spawn(async move {
     let config = Config::default();
     let mut monitor_stream = monitor::run(config).await?;
@@ -28,8 +20,15 @@ async fn main() -> Result<(), RedisError> {
     Ok::<(), RedisError>(())
   });
 
+  let config = RedisConfig::default();
+  let client = RedisClient::new(config);
+  let _ = client.connect(None);
+  if let Err(error) = client.wait_for_connect().await {
+    println!("Client failed to connect with error: {:?}", error);
+  }
+
   for idx in 0..50 {
-    let _ = client.set("foo", idx, None, None, false).await?;
+    let _ = client.set("foo", idx, Some(Expiration::EX(10)), None, false).await?;
   }
   let _ = client.quit().await?;
 
