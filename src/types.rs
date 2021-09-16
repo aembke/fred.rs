@@ -24,6 +24,8 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
+pub use crate::response::*;
+
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
 #[cfg(not(feature = "index-map"))]
@@ -1585,10 +1587,11 @@ impl<'a> RedisValue {
         _ => None,
       },
       RedisValue::String(ref s) => match s.as_ref() {
-        "true" | "TRUE" | "t" | "T" => Some(true),
-        "false" | "FALSE" | "f" | "F" => Some(false),
+        "true" | "TRUE" | "t" | "T" | "1" => Some(true),
+        "false" | "FALSE" | "f" | "F" | "0" => Some(false),
         _ => None,
       },
+      RedisValue::Null => Some(false),
       _ => None,
     }
   }
@@ -1679,6 +1682,21 @@ impl<'a> RedisValue {
       }
       _ => vec![self],
     }
+  }
+
+  /// Convert the value to an array of bytes, if possible.
+  pub fn into_bytes(self) -> Option<Vec<u8>> {
+    let v = match self {
+      RedisValue::String(s) => s.into_bytes(),
+      RedisValue::Bytes(b) => b,
+      RedisValue::Null => NULL.as_bytes().to_vec(),
+      RedisValue::Queued => QUEUED.as_bytes().to_vec(),
+      // TODO maybe rethink this
+      RedisValue::Integer(i) => i.to_string().into_bytes(),
+      _ => return None,
+    };
+
+    Some(v)
   }
 
   /// Convert the value into a `GeoPosition`, if possible.

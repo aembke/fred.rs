@@ -5,6 +5,7 @@ use crate::metrics::*;
 use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::types::RedisCommand;
+use crate::response::RedisResponse;
 use crate::types::*;
 use crate::utils;
 use futures::Stream;
@@ -413,24 +414,33 @@ impl RedisClient {
   /// Instruct Redis to start an Append Only File rewrite process.
   ///
   /// <https://redis.io/commands/bgrewriteaof>
-  pub async fn bgrewriteaof(&self) -> Result<RedisValue, RedisError> {
+  pub async fn bgrewriteaof<R>(&self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
     utils::disallow_during_transaction(&self.inner)?;
-    commands::server::bgrewriteaof(&self.inner).await
+    convert!(R, commands::server::bgrewriteaof(&self.inner).await)
   }
 
   /// Save the DB in background.
   ///
   /// <https://redis.io/commands/bgsave>
-  pub async fn bgsave(&self) -> Result<RedisValue, RedisError> {
+  pub async fn bgsave<R>(&self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
     utils::disallow_during_transaction(&self.inner)?;
-    commands::server::bgsave(&self.inner).await
+    convert!(R, commands::server::bgsave(&self.inner).await)
   }
 
   /// Return the number of keys in the selected database.
   ///
   /// <https://redis.io/commands/dbsize>
-  pub async fn dbsize(&self) -> Result<RedisValue, RedisError> {
-    commands::server::dbsize(&self.inner).await
+  pub async fn dbsize<R>(&self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
+    convert!(R, commands::server::dbsize(&self.inner).await)
   }
 
   /// Run a custom command that is not yet supported via another interface on this client. This is most useful when interacting with third party modules or extensions.
@@ -448,12 +458,16 @@ impl RedisClient {
   /// Callers that find themselves using this interface for commands that are not a part of a third party extension should file an issue
   /// to add the command to the list of supported commands. This interface should be used with caution as it may break the automatic pipeline
   /// features in the client if command flags are not properly configured.
-  pub async fn custom<T>(&self, cmd: CustomCommand, args: Vec<T>) -> Result<RedisValue, RedisError>
+  pub async fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> Result<R, RedisError>
   where
+    R: RedisResponse,
     T: TryInto<RedisValue>,
     T::Error: Into<RedisError>,
   {
-    commands::server::custom(&self.inner, cmd, utils::try_into_vec(args)?).await
+    convert!(
+      R,
+      commands::server::custom(&self.inner, cmd, utils::try_into_vec(args)?).await
+    )
   }
 
   /// Subscribe to a channel on the PubSub interface, returning the number of channels to which the client is subscribed.
@@ -506,13 +520,14 @@ impl RedisClient {
   /// Publish a message on the PubSub interface, returning the number of clients that received the message.
   ///
   /// <https://redis.io/commands/publish>
-  pub async fn publish<S, V>(&self, channel: S, message: V) -> Result<RedisValue, RedisError>
+  pub async fn publish<R, S, V>(&self, channel: S, message: V) -> Result<R, RedisError>
   where
+    R: RedisResponse,
     S: Into<String>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
   {
-    commands::pubsub::publish(&self.inner, channel, to!(message)?).await
+    convert!(R, commands::pubsub::publish(&self.inner, channel, to!(message)?).await)
   }
 
   /// Enter a MULTI block, executing subsequent commands as a transaction.
@@ -594,8 +609,11 @@ impl RedisClient {
   /// Delete the keys in all databases.
   ///
   /// <https://redis.io/commands/flushall>
-  pub async fn flushall(&self, r#async: bool) -> Result<RedisValue, RedisError> {
-    commands::server::flushall(&self.inner, r#async).await
+  pub async fn flushall<R>(&self, r#async: bool) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
+    convert!(R, commands::server::flushall(&self.inner, r#async).await)
   }
 
   /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis interface.
@@ -610,8 +628,11 @@ impl RedisClient {
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  pub async fn ping(&self) -> Result<RedisValue, RedisError> {
-    commands::server::ping(&self.inner).await
+  pub async fn ping<R>(&self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
+    convert!(R, commands::server::ping(&self.inner).await)
   }
 
   /// Select the database this client should use.
@@ -1261,11 +1282,12 @@ impl RedisClient {
   /// Read a value from the server.
   ///
   /// <https://redis.io/commands/get>
-  pub async fn get<K>(&self, key: K) -> Result<RedisValue, RedisError>
+  pub async fn get<R, K>(&self, key: K) -> Result<R, RedisError>
   where
+    R: RedisResponse,
     K: Into<RedisKey>,
   {
-    commands::keys::get(&self.inner, key).await
+    convert!(R, commands::keys::get(&self.inner, key).await)
   }
 
   /// Returns the substring of the string value stored at `key` with offsets `start` and `end` (both inclusive).

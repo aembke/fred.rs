@@ -67,6 +67,7 @@ mod commands;
 mod inner;
 mod multiplexer;
 mod protocol;
+mod response;
 mod trace;
 mod utils;
 

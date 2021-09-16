@@ -61,3 +61,53 @@ macro_rules! fspan (
     crate::trace::Span {}
   }
 );
+
+macro_rules! to_signed_number(
+  ($t:ty, $v:ident) => {
+    match $v {
+      RedisValue::Integer(i) => Ok(i as $t),
+      RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
+      _ => Err(RedisError::new(RedisErrorKind::Parse, "Cannot convert to number.")),
+    }
+  }
+);
+
+macro_rules! to_unsigned_number(
+  ($t:ty, $v:ident) => {
+    match $v {
+      RedisValue::Integer(i) => if i < 0 {
+        Err(RedisError::new(RedisErrorKind::Parse, "Cannot convert from negative number."))
+      }else{
+        Ok(i as $t)
+      },
+      RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
+      _ => Err(RedisError::new(RedisErrorKind::Parse, "Cannot convert to number.")),
+    }
+  }
+);
+
+macro_rules! impl_signed_number (
+  ($t:ty) => {
+    impl RedisResponse for $t {
+      fn from_value(value: RedisValue) -> Result<$t, RedisError> {
+        to_signed_number!($t, value)
+      }
+    }
+  }
+);
+
+macro_rules! impl_unsigned_number (
+  ($t:ty) => {
+    impl RedisResponse for $t {
+      fn from_value(value: RedisValue) -> Result<$t, RedisError> {
+        to_unsigned_number!($t, value)
+      }
+    }
+  }
+);
+
+macro_rules! convert (
+  ($t:ty, $value:expr) => {
+    <$t>::from_value($value?)
+  }
+);
