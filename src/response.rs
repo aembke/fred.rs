@@ -172,8 +172,22 @@ where
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
     match value {
-      RedisValue::Bytes(b) => T::from_bytes(b).ok_or(RedisError::new_parse("Cannot convert to bytes")),
+      RedisValue::Bytes(bytes) => T::from_bytes(bytes).ok_or(RedisError::new_parse("Cannot convert to bytes")),
+      RedisValue::String(bytes) => {
+        T::from_bytes(bytes.into_bytes()).ok_or(RedisError::new_parse("Cannot convert to bytes"))
+      }
       RedisValue::Array(values) => T::from_values(values),
+      RedisValue::Map(map) => {
+        // not being able to use collect() here is unfortunate
+        let out = Vec::with_capacity(map.len() * 2);
+        map.inner().into_iter().fold(Ok(out), |out, (key, value)| {
+          out.and_then(|mut out| {
+            out.push(T::from_value(RedisValue::String(key))?);
+            out.push(T::from_value(value)?);
+            Ok(out)
+          })
+        })
+      }
       RedisValue::Null => Ok(vec![]),
       _ => Err(RedisError::new_parse("Cannot convert to array.")),
     }
@@ -315,25 +329,165 @@ impl_redis_response_tuple! { T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, 
 
 #[cfg(test)]
 mod tests {
+  use crate::types::RedisValue;
+  use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
   #[test]
-  fn should_convert_signed_numeric_types() {}
+  fn should_convert_null() {
+    let _foo: () = RedisValue::Null.convert().unwrap();
+  }
 
   #[test]
-  fn should_convert_unsigned_numeric_types() {}
+  fn should_convert_signed_numeric_types() {
+    let _foo: i8 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i8 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i16 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i16 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i32 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i32 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i64 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i64 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i128 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: i128 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: isize = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: isize = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: f32 = RedisValue::String("123.5".into()).convert().unwrap();
+    assert_eq!(_foo, 123.5);
+    let _foo: f64 = RedisValue::String("123.5".into()).convert().unwrap();
+    assert_eq!(_foo, 123.5);
+  }
 
   #[test]
-  fn should_convert_strings() {}
+  fn should_convert_unsigned_numeric_types() {
+    let _foo: u8 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u8 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u16 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u16 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u32 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u32 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u64 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u64 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u128 = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: u128 = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: usize = RedisValue::String("123".into()).convert().unwrap();
+    assert_eq!(_foo, 123);
+    let _foo: usize = RedisValue::Integer(123).convert().unwrap();
+    assert_eq!(_foo, 123);
+  }
 
   #[test]
-  fn should_convert_bools() {}
+  fn should_convert_strings() {
+    let _foo: String = RedisValue::String("foo".into()).convert().unwrap();
+    assert_eq!(_foo, "foo".to_owned());
+  }
 
   #[test]
-  fn should_convert_bytes() {}
+  fn should_convert_bools() {
+    let _foo: bool = RedisValue::Integer(0).convert().unwrap();
+    assert_eq!(_foo, false);
+    let _foo: bool = RedisValue::Integer(1).convert().unwrap();
+    assert_eq!(_foo, true);
+    let _foo: bool = RedisValue::String("0".into()).convert().unwrap();
+    assert_eq!(_foo, false);
+    let _foo: bool = RedisValue::String("1".into()).convert().unwrap();
+    assert_eq!(_foo, true);
+  }
 
   #[test]
-  fn should_convert_arrays() {}
+  fn should_convert_bytes() {
+    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec()).convert().unwrap();
+    assert_eq!(_foo, "foo".as_bytes().to_vec());
+    let _foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
+    assert_eq!(_foo, "foo".as_bytes().to_vec());
+    let _foo: Vec<u8> = RedisValue::Array(vec![102.into(), 111.into(), 111.into()])
+      .convert()
+      .unwrap();
+    assert_eq!(_foo, "foo".as_bytes().to_vec());
+  }
 
   #[test]
-  fn should_convert_tuples() {}
+  fn should_convert_arrays() {
+    let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert().unwrap();
+    assert_eq!(foo, vec!["a".to_owned(), "b".to_owned()]);
+  }
+
+  #[test]
+  fn should_convert_hash_maps() {
+    let foo: HashMap<String, u16> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
+      .convert()
+      .unwrap();
+
+    let mut expected = HashMap::new();
+    expected.insert("a".to_owned(), 1);
+    expected.insert("b".to_owned(), 2);
+    assert_eq!(foo, expected);
+  }
+
+  #[test]
+  fn should_convert_hash_sets() {
+    let foo: HashSet<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert().unwrap();
+
+    let mut expected = HashSet::new();
+    expected.insert("a".to_owned());
+    expected.insert("b".to_owned());
+    assert_eq!(foo, expected);
+  }
+
+  #[test]
+  fn should_convert_btree_maps() {
+    let foo: BTreeMap<String, u16> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
+      .convert()
+      .unwrap();
+
+    let mut expected = BTreeMap::new();
+    expected.insert("a".to_owned(), 1);
+    expected.insert("b".to_owned(), 2);
+    assert_eq!(foo, expected);
+  }
+
+  #[test]
+  fn should_convert_btree_sets() {
+    let foo: BTreeSet<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert().unwrap();
+
+    let mut expected = BTreeSet::new();
+    expected.insert("a".to_owned());
+    expected.insert("b".to_owned());
+    assert_eq!(foo, expected);
+  }
+
+  #[test]
+  fn should_convert_tuples() {
+    let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert().unwrap();
+    assert_eq!(foo, ("a".to_owned(), 1));
+  }
+
+  #[test]
+  fn should_convert_array_tuples() {
+    let foo: Vec<(String, i64)> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
+      .convert()
+      .unwrap();
+    assert_eq!(foo, vec![("a".to_owned(), 1), ("b".to_owned(), 2)]);
+  }
 }

@@ -43,7 +43,7 @@ where
   let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _ = client.flushall_cluster().await;
+  let _: () = client.flushall_cluster().await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -68,7 +68,7 @@ where
   let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _ = client.flushall(false).await;
+  let _: () = client.flushall(false).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }

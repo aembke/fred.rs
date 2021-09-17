@@ -30,11 +30,11 @@ pub async fn should_geoadd_values(client: RedisClient, _: RedisConfig) -> Result
   ];
 
   for value in values.into_iter() {
-    let result = client.geoadd("foo", None, false, value).await?;
-    assert_eq!(result.as_i64().unwrap(), 1);
+    let result: i64 = client.geoadd("foo", None, false, value).await?;
+    assert_eq!(result, 1);
   }
-  let result = client.zcard("foo").await?;
-  assert_eq!(result.as_usize().unwrap(), 2);
+  let result: usize = client.zcard("foo").await?;
+  assert_eq!(result, 2);
 
   Ok(())
 }
@@ -42,10 +42,10 @@ pub async fn should_geoadd_values(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_geohash_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = create_fake_data(&client, "foo").await?;
 
-  let result = client.geohash("foo", "Palermo").await?;
-  assert_eq!(result.as_str().unwrap(), "sqc8b49rny0");
-  let result = client.geohash("foo", "Catania").await?;
-  assert_eq!(result.as_str().unwrap(), "sqdtr74hyu0");
+  let result: String = client.geohash("foo", "Palermo").await?;
+  assert_eq!(result, "sqc8b49rny0");
+  let result: String = client.geohash("foo", "Catania").await?;
+  assert_eq!(result, "sqdtr74hyu0");
 
   let result = client.geohash("foo", vec!["Palermo", "Catania"]).await?;
   assert_eq!(result.into_array(), vec!["sqc8b49rny0".into(), "sqdtr74hyu0".into()]);

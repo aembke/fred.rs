@@ -974,22 +974,17 @@ pub struct MultipleValues {
 }
 
 impl MultipleValues {
-  pub(crate) fn new() -> MultipleValues {
-    MultipleValues { values: Vec::new() }
-  }
-
-  pub(crate) fn inner(self) -> Vec<RedisValue> {
+  pub fn inner(self) -> Vec<RedisValue> {
     self.values
   }
 
-  pub(crate) fn len(&self) -> usize {
+  pub fn len(&self) -> usize {
     self.values.len()
   }
-}
 
-impl From<()> for MultipleValues {
-  fn from(_: ()) -> Self {
-    MultipleValues::new()
+  /// Convert this a nested `RedisValue`.
+  pub fn into_values(self) -> RedisValue {
+    RedisValue::Array(self.values)
   }
 }
 
@@ -1006,7 +1001,7 @@ where
     Ok(MultipleValues { values: vec![to!(d)?] })
   }
 }
- */
+*/
 
 impl<T> From<T> for MultipleValues
 where
@@ -1762,19 +1757,32 @@ impl<'a> RedisValue {
 
   /// Attempt to convert this value to any value that implements the [RedisResponse](crate::types::RedisResponse) trait.
   ///
-  /// ```rust no_run
+  /// ```rust
   /// # use fred::types::RedisValue;
+  /// # use std::collections::HashMap;
   /// let foo: usize = RedisValue::String("123".into()).convert()?;
   /// let foo: i64 = RedisValue::String("123".into()).convert()?;
   /// let foo: String = RedisValue::String("123".into()).convert()?;
+  /// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111]).convert()?;
+  /// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
   /// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
+  /// let foo: HashMap<String, u16> = RedisValue::Array(vec![
+  ///   "a".into(), 1.into(),
+  ///   "b".into(), 2.into()
+  /// ])
+  /// .convert()?;
+  /// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
+  /// let foo: Vec<(String, i64)> = RedisValue::Array(vec![
+  ///   "a".into(), 1.into(),
+  ///   "b".into(), 2.into()
+  /// ])
+  /// .convert()?;
   /// // ...
   /// ```
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
     R: RedisResponse,
   {
-    println!("Converting from {:?}", self);
     R::from_value(self)
   }
 }
@@ -1872,6 +1880,30 @@ impl TryFrom<u64> for RedisValue {
   fn try_from(d: u64) -> Result<Self, Self::Error> {
     if d >= (i64::MAX as u64) {
       return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+    }
+
+    Ok((d as i64).into())
+  }
+}
+
+impl TryFrom<u128> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(d: u128) -> Result<Self, Self::Error> {
+    if d >= (i64::MAX as u128) {
+      return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+    }
+
+    Ok((d as i64).into())
+  }
+}
+
+impl TryFrom<i128> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(d: i128) -> Result<Self, Self::Error> {
+    if d >= (i64::MAX as i128) {
+      return Err(RedisError::new(RedisErrorKind::Unknown, "Signed integer too large."));
     }
 
     Ok((d as i64).into())

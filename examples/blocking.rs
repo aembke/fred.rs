@@ -2,7 +2,7 @@ use fred::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
 
-static COUNT: usize = 50;
+static COUNT: i64 = 50;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
@@ -18,26 +18,15 @@ async fn main() -> Result<(), RedisError> {
   let _ = subscriber_client.wait_for_connect().await?;
 
   let subscriber_jh = tokio::spawn(async move {
-    let result: RedisValue = match subscriber_client.blpop("foo", 5.0).await {
-      Ok(r) => {
-        println!("HERE {:?}", r);
-        r
-      }
-      Err(e) => {
-        println!("{:?}", e);
-        RedisValue::Null
-      }
-    };
-
-    /*while let Ok(RedisValue::String(result)) = subscriber_client.blpop("foo", 5.0).await {
-      println!("Blocking pop result: {:?}", result);
-    }*/
+    while let Ok((key, value)) = subscriber_client.blpop::<(String, i64), _>("foo", 5.0).await {
+      println!("Blocking pop result on {}: {}", key, value);
+    }
 
     Ok::<(), RedisError>(())
   });
 
-  for _ in 0..COUNT {
-    let _ = publisher_client.rpush("foo", "bar").await?;
+  for idx in 0..COUNT {
+    let _ = publisher_client.rpush("foo", idx).await?;
     sleep(Duration::from_millis(1000)).await;
   }
 

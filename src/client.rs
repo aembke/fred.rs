@@ -75,9 +75,12 @@ impl TransactionClient {
   /// If the underlying connection closes while a transaction is in process the client will abort the transaction by
   /// returning a `Canceled` error to the caller of any pending intermediate command, as well as this one. It's up to
   /// the caller to retry transactions as needed.
-  pub async fn exec(mut self) -> Result<RedisValue, RedisError> {
+  pub async fn exec<R>(mut self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
     self.finished = true;
-    commands::server::exec(&self.client.inner).await
+    commands::server::exec(&self.client.inner).await?.convert()
   }
 
   /// Flushes all previously queued commands in a transaction and restores the connection state to normal.
@@ -629,20 +632,14 @@ impl RedisClient {
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  pub async fn ping<R>(&self) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
+  pub async fn ping(&self) -> Result<(), RedisError> {
     commands::server::ping(&self.inner).await?.convert()
   }
 
   /// Select the database this client should use.
   ///
   /// <https://redis.io/commands/select>
-  pub async fn select<R>(&self, db: u8) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
+  pub async fn select(&self, db: u8) -> Result<(), RedisError> {
     commands::server::select(&self.inner, db).await?.convert()
   }
 
