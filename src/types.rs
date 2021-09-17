@@ -24,7 +24,7 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub use crate::response::*;
+pub use crate::response::RedisResponse;
 
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
@@ -1477,6 +1477,13 @@ impl<'a> RedisValue {
         }
       }
       RedisValue::String(ref s) => s.parse::<u64>().ok(),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_u64())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1486,6 +1493,13 @@ impl<'a> RedisValue {
     match self {
       RedisValue::Integer(ref i) => Some(*i),
       RedisValue::String(ref s) => s.parse::<i64>().ok(),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_i64())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1501,6 +1515,13 @@ impl<'a> RedisValue {
         }
       }
       RedisValue::String(ref s) => s.parse::<usize>().ok(),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_usize())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1510,6 +1531,13 @@ impl<'a> RedisValue {
     match self {
       RedisValue::String(ref s) => utils::redis_string_to_f64(s).ok(),
       RedisValue::Integer(ref i) => Some(*i as f64),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_f64())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1521,6 +1549,13 @@ impl<'a> RedisValue {
       RedisValue::Bytes(b) => String::from_utf8(b).ok(),
       RedisValue::Integer(i) => Some(i.to_string()),
       RedisValue::Queued => Some(QUEUED.to_owned()),
+      RedisValue::Array(mut inner) => {
+        if inner.len() == 1 {
+          inner.pop().and_then(|v| v.into_string())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1592,6 +1627,13 @@ impl<'a> RedisValue {
         _ => None,
       },
       RedisValue::Null => Some(false),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_bool())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1691,6 +1733,13 @@ impl<'a> RedisValue {
       RedisValue::Bytes(b) => b,
       RedisValue::Null => NULL.as_bytes().to_vec(),
       RedisValue::Queued => QUEUED.as_bytes().to_vec(),
+      RedisValue::Array(mut inner) => {
+        if inner.len() == 1 {
+          return inner.pop().and_then(|v| v.into_bytes());
+        } else {
+          return None;
+        }
+      }
       // TODO maybe rethink this
       RedisValue::Integer(i) => i.to_string().into_bytes(),
       _ => return None,
@@ -1709,6 +1758,24 @@ impl<'a> RedisValue {
   /// Replace this value with `RedisValue::Null`, returning the original value.
   pub fn take(&mut self) -> RedisValue {
     mem::replace(self, RedisValue::Null)
+  }
+
+  /// Attempt to convert this value to any value that implements the [RedisResponse](crate::types::RedisResponse) trait.
+  ///
+  /// ```rust no_run
+  /// # use fred::types::RedisValue;
+  /// let foo: usize = RedisValue::String("123".into()).convert()?;
+  /// let foo: i64 = RedisValue::String("123".into()).convert()?;
+  /// let foo: String = RedisValue::String("123".into()).convert()?;
+  /// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
+  /// // ...
+  /// ```
+  pub fn convert<R>(self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
+    println!("Converting from {:?}", self);
+    R::from_value(self)
   }
 }
 

@@ -12,11 +12,11 @@ async fn main() -> Result<(), RedisError> {
   let _ = client.flushall_cluster().await?;
 
   let trx = client.multi(true).await?;
-  let res1 = trx.get("foo").await?;
+  let res1: RedisValue = trx.get("foo").await?;
   assert!(res1.is_queued());
-  let res2 = trx.set("foo", "bar", None, None, false).await?;
+  let res2: RedisValue = trx.set("foo", "bar", None, None, false).await?;
   assert!(res2.is_queued());
-  let res3 = trx.get("foo").await?;
+  let res3: RedisValue = trx.get("foo").await?;
   assert!(res3.is_queued());
 
   if let RedisValue::Array(values) = trx.exec().await? {

@@ -158,9 +158,10 @@ macro_rules! return_err(
 );
 
 macro_rules! check_null(
-  ($client:ident, $arg:expr) => {
-    if !$client.get($arg).await?.is_null() {
+  ($client:ident, $arg:expr) => { {
+    let foo: RedisValue = $client.get($arg).await?;
+    if !foo.is_null() {
       panic!("expected {} to be null", $arg);
     }
-  }
+  } }
 );

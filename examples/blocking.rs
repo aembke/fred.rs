@@ -6,6 +6,8 @@ static COUNT: usize = 50;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
+  pretty_env_logger::init();
+
   let config = RedisConfig::default();
   let publisher_client = RedisClient::new(config.clone());
   let subscriber_client = RedisClient::new(config.clone());
@@ -16,11 +18,22 @@ async fn main() -> Result<(), RedisError> {
   let _ = subscriber_client.wait_for_connect().await?;
 
   let subscriber_jh = tokio::spawn(async move {
-    while let Ok(result) = subscriber_client.blpop("foo", 5.0).await {
-      println!("Blocking pop result: {:?}", result);
-    }
+    let result: RedisValue = match subscriber_client.blpop("foo", 5.0).await {
+      Ok(r) => {
+        println!("HERE {:?}", r);
+        r
+      }
+      Err(e) => {
+        println!("{:?}", e);
+        RedisValue::Null
+      }
+    };
 
-    Ok::<_, RedisError>(())
+    /*while let Ok(RedisValue::String(result)) = subscriber_client.blpop("foo", 5.0).await {
+      println!("Blocking pop result: {:?}", result);
+    }*/
+
+    Ok::<(), RedisError>(())
   });
 
   for _ in 0..COUNT {

@@ -44,14 +44,16 @@ async fn main() -> Result<(), RedisError> {
   let _ = client.connect(Some(policy));
   let _ = client.wait_for_connect().await?;
 
-  println!("Foo: {:?}", client.get("foo").await?);
+  // declare types on response values
+  let foo: Option<String> = client.get("foo").await?;
+  println!("Foo: {:?}", foo);
+
   let _ = client
     .set("foo", "bar", Some(Expiration::EX(1)), Some(SetOptions::NX), false)
     .await?;
-  println!("Foo: {:?}", client.get("foo").await?);
 
-  sleep(Duration::from_millis(1000)).await;
-  println!("Foo: {:?}", client.get("foo").await?);
+  // or use turbofish. the first type is always the response type.
+  println!("Foo: {:?}", client.get::<String, _>("foo").await?);
 
   let _ = client.quit().await?;
   Ok(())
