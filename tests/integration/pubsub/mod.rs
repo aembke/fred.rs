@@ -33,7 +33,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
     let mut count = 0;
     while count < NUM_MESSAGES {
       if let Some((channel, message)) = message_stream.next().await {
-        let message = message.as_str().unwrap();
+        let message: String = message.convert().unwrap();
 
         assert_eq!(CHANNEL1, channel);
         if ASSERT_COUNT {
@@ -48,7 +48,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
 
   for idx in 0..NUM_MESSAGES + EXTRA_MESSAGES {
     // https://redis.io/commands/publish#return-value
-    let _ = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+    let _: () = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -74,7 +74,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
     let mut count = 0;
     while count < NUM_MESSAGES {
       if let Some((channel, message)) = message_stream.next().await {
-        let message = message.as_str().unwrap();
+        let message: String = message.convert().unwrap();
 
         assert!(subscriber_channels.contains(&channel.as_str()));
         if ASSERT_COUNT {
@@ -91,7 +91,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value
-    let _ = client.publish(channel, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+    let _: () = client.publish(channel, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;

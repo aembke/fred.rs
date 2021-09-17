@@ -988,6 +988,12 @@ impl MultipleValues {
   }
 }
 
+impl From<()> for MultipleValues {
+  fn from(_: ()) -> Self {
+    MultipleValues { values: vec![] }
+  }
+}
+
 /*
 // https://github.com/rust-lang/rust/issues/50133
 impl<T> TryFrom<T> for MultipleValues

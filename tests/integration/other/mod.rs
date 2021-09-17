@@ -18,7 +18,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
     let _ = unblock_client.ping().await;
   });
 
-  let result = client.blpop("foo", 60.0).await;
+  let result = client.blpop::<(), _>("foo", 60.0).await;
   assert!(result.is_err());
   assert_ne!(*result.unwrap_err().kind(), RedisErrorKind::Timeout);
   Ok(())
@@ -32,11 +32,13 @@ pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Res
     sleep(Duration::from_secs(1)).await;
 
     for (_, id) in connections_ids.into_iter() {
-      let _ = unblock_client.client_unblock(id, Some(ClientUnblockFlag::Error)).await;
+      let _ = unblock_client
+        .client_unblock::<(), _>(id, Some(ClientUnblockFlag::Error))
+        .await;
     }
   });
 
-  let result = client.blpop("foo", 60.0).await;
+  let result = client.blpop::<(), _>("foo", 60.0).await;
   assert!(result.is_err());
   assert_ne!(*result.unwrap_err().kind(), RedisErrorKind::Timeout);
   Ok(())
@@ -59,7 +61,7 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
     let _ = error_client.unblock_self(None).await;
   });
 
-  let result = client.blpop("foo", 60.0).await;
+  let result = client.blpop::<(), _>("foo", 60.0).await;
   assert!(result.is_err());
   Ok(())
 }
@@ -116,13 +118,13 @@ pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) ->
   let count: i64 = 200;
 
   for idx in 0..count {
-    let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+    let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   let _ = client.flushall_cluster().await?;
 
   for idx in 0..count {
-    let value = client.get(format!("foo-{}", idx)).await?;
-    assert!(value.is_null());
+    let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
+    assert!(value.is_none());
   }
 
   Ok(())

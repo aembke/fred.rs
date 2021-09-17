@@ -1,5 +1,5 @@
 use crate::error::RedisError;
-use crate::types::RedisValue;
+use crate::types::{RedisValue, QUEUED};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
 use std::str::FromStr;
@@ -172,9 +172,14 @@ where
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
     match value {
-      RedisValue::Bytes(bytes) => T::from_bytes(bytes).ok_or(RedisError::new_parse("Cannot convert to bytes")),
-      RedisValue::String(bytes) => {
-        T::from_bytes(bytes.into_bytes()).ok_or(RedisError::new_parse("Cannot convert to bytes"))
+      RedisValue::Bytes(bytes) => T::from_bytes(bytes).ok_or(RedisError::new_parse("Cannot convert from bytes")),
+      RedisValue::String(string) => {
+        // hacky way to check if T is bytes without consuming `string`
+        if T::from_bytes(vec![]).is_some() {
+          T::from_bytes(string.into_bytes()).ok_or(RedisError::new_parse("Could not convert string to bytes."))
+        } else {
+          Ok(vec![T::from_value(RedisValue::String(string))?])
+        }
       }
       RedisValue::Array(values) => T::from_values(values),
       RedisValue::Map(map) => {
@@ -189,7 +194,8 @@ where
         })
       }
       RedisValue::Null => Ok(vec![]),
-      _ => Err(RedisError::new_parse("Cannot convert to array.")),
+      RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
+      RedisValue::Queued => Ok(vec![T::from_value(RedisValue::String(QUEUED.into()))?]),
     }
   }
 }

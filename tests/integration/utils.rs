@@ -1,3 +1,5 @@
+#![allow(unused_macros)]
+
 use crate::chaos_monkey::set_test_kind;
 use fred::client::RedisClient;
 use fred::error::RedisError;

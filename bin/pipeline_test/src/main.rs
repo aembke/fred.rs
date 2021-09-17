@@ -144,7 +144,7 @@ fn spawn_client_task(
 
   tokio::spawn(async move {
     while utils::incr_atomic(&counter) < argv.count {
-      let _ = client.incr(TEST_KEY).await?;
+      let _: () = client.incr(TEST_KEY).await?;
     }
 
     Ok(())

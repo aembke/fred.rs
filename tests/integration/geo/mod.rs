@@ -19,7 +19,7 @@ async fn create_fake_data(client: &RedisClient, key: &str) -> Result<Vec<GeoPosi
     (15.087269, 37.502669, "Catania").try_into()?,
   ];
 
-  let _ = client.geoadd(key, None, false, values.clone()).await?;
+  let _: () = client.geoadd(key, None, false, values.clone()).await?;
   Ok(values.into_iter().map(|p| p.coordinates).collect())
 }
 
@@ -47,8 +47,8 @@ pub async fn should_geohash_values(client: RedisClient, _: RedisConfig) -> Resul
   let result: String = client.geohash("foo", "Catania").await?;
   assert_eq!(result, "sqdtr74hyu0");
 
-  let result = client.geohash("foo", vec!["Palermo", "Catania"]).await?;
-  assert_eq!(result.into_array(), vec!["sqc8b49rny0".into(), "sqdtr74hyu0".into()]);
+  let result: Vec<String> = client.geohash("foo", vec!["Palermo", "Catania"]).await?;
+  assert_eq!(result, vec!["sqc8b49rny0", "sqdtr74hyu0"]);
 
   Ok(())
 }
@@ -82,16 +82,16 @@ pub async fn should_geopos_values(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_geodist_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = create_fake_data(&client, "foo").await?;
 
-  let result = client.geodist("foo", "Palermo", "Catania", None).await?;
-  assert!(loose_eq(result.as_f64().unwrap(), 166274.1516, 4));
-  let result = client
+  let result: f64 = client.geodist("foo", "Palermo", "Catania", None).await?;
+  assert!(loose_eq(result, 166274.1516, 4));
+  let result: f64 = client
     .geodist("foo", "Palermo", "Catania", Some(GeoUnit::Kilometers))
     .await?;
-  assert!(loose_eq(result.as_f64().unwrap(), 166.2742, 4));
-  let result = client
+  assert!(loose_eq(result, 166.2742, 4));
+  let result: f64 = client
     .geodist("foo", "Palermo", "Catania", Some(GeoUnit::Miles))
     .await?;
-  assert!(loose_eq(result.as_f64().unwrap(), 103.3182, 4));
+  assert!(loose_eq(result, 103.3182, 4));
 
   Ok(())
 }
