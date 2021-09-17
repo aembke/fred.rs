@@ -19,13 +19,21 @@
 //!   let jh = client.connect(Some(policy));
 //!   // wait for the client to connect
 //!   let _ = client.wait_for_connect().await?;
-//!   
-//!   println!("Foo: {:?}", client.get("foo").await?);
-//!   let _ = client.set("foo", "bar", None, None, false).await?;
-//!   println!("Foo: {:?}", client.get("foo".to_owned()).await?);
+//!   let _ = client.flushall(false).await?;
+//!  
+//!   let foo: Option<String> = client.get("foo").await?;
+//!   println!("Foo: {:?}", foo);
+//!   assert_eq!(foo, None);
+//!
+//!   let _: () = client.set("foo", "bar", None, None, false).await?;
+//!   // or use turbofish to declare types. the first type is always the response.
+//!   println!("Foo: {:?}", client.get::<String, _>("foo".to_owned()).await?);
+//!   // or use a lower level interface for responses to defer parsing, etc
+//!   let foo: RedisValue = client.get("foo").await?;
+//!   assert!(foo.is_string());
 //!
 //!   let _ = client.quit().await?;
-//!   // wait for the task driving the connection to finish
+//!   // and/or wait for the task driving the connection to finish
 //!   let _ = jh.await;
 //!   Ok(())
 //! }
