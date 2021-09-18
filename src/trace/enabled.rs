@@ -1,4 +1,4 @@
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::RedisCommand;
 use crate::protocol::utils as protocol_utils;
 use crate::utils;

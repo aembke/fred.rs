@@ -22,17 +22,17 @@ async fn main() -> Result<(), RedisError> {
   
   // connect to the server, returning a handle to the task that drives the connection
   let _ = client.connect(Some(policy));
-  // wait for the client to connect
   let _ = client.wait_for_connect().await?;
   let _ = client.flushall(false).await?;
  
+  // convert responses to many common Rust types
   let foo: Option<String> = client.get("foo").await?;
-  println!("Foo: {:?}", foo);
-  assert_eq!(foo, None);
+  assert!(foo.is_none());
   
   let _: () = client.set("foo", "bar", None, None, false).await?;
-  // or use turbofish to declare types
+  // or use turbofish to declare response types
   println!("Foo: {:?}", client.get<String, _>("foo").await?);
+  
   // or use a lower level interface for responses to defer parsing, etc
   let foo: RedisValue = client.get("foo").await?;
   assert_eq!(foo.as_str().unwrap(), "bar");
@@ -74,7 +74,7 @@ cargo add fred
 
 ## Tracing
 
-This crate supports tracing via the [tracing](https://github.com/tokio-rs/tracing) crate. See the [tracing docs](./src/trace/README.md) for more information.
+This crate supports tracing via the [tracing crate](https://github.com/tokio-rs/tracing). See the [tracing info](./src/trace/README.md) for more information.
 
 This feature is disabled by default, but callers can opt-in via the `full-tracing` or `partial-tracing` features.
 
@@ -91,6 +91,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | enable-tls                  |    x    | Enable TLS support. This requires OpenSSL (or equivalent) dependencies.                                                                      |
 | vendored-tls                |         | Enable TLS support, using vendored OpenSSL (or equivalent) dependencies, if possible.                                                        |
 | ignore-auth-error           |    x    | Ignore auth errors that occur when a password is supplied but not required.                                                                  |
+| metrics                     |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                  |
 | reconnect-on-auth-error     |         | A NOAUTH error is treated the same as a general connection failure and the client will reconnect based on the reconnection policy.           |
 | index-map                   |         | Use [IndexMap](https://docs.rs/indexmap/*/indexmap/) instead of [HashMap](https://doc.rust-lang.org/std/collections/struct.HashMap.html) as the backing store for Redis Map types. This is useful for testing and may also be useful for callers.  |
 | pool-prefer-active          |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                          |

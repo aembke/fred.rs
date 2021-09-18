@@ -23,3 +23,19 @@ function check_move_env {
     exit 1
   fi
 }
+
+function check_root_dir {
+  if [ ! -d "./tests/tmp" ]; then
+    # there's a gitignore for the files that this can create in the root dir
+    echo "Must be in application root for chaos monkey to work."
+    exit 1
+  fi
+}
+
+# Returns 0 if not installed, 1 otherwise.
+function check_redis {
+  if [ ! -d "$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION" ]; then
+    echo "Redis install not found."
+    exit 1
+  fi
+}

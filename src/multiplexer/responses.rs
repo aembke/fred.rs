@@ -1,6 +1,5 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::inner::RedisClientInner;
-use crate::metrics::LatencyStats;
+use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils;
 use crate::multiplexer::{Counters, SentCommand, SentCommands};
 use crate::protocol::types::RedisCommandKind;
@@ -20,6 +19,8 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
+#[cfg(feature = "metrics")]
+use crate::modules::metrics::MovingStats;
 
 const LAST_CURSOR: &'static str = "0";
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
@@ -31,19 +32,24 @@ enum TransactionEnded {
   Discard,
 }
 
-fn sample_latency(latency_stats: &RwLock<LatencyStats>, sent: Instant) {
+#[cfg(feature = "metrics")]
+fn sample_latency(latency_stats: &RwLock<MovingStats>, sent: Instant) {
   let dur = Instant::now().duration_since(sent);
   let dur_ms = cmp::max(0, (dur.as_secs() * 1000) + dur.subsec_millis() as u64) as i64;
   latency_stats.write().sample(dur_ms);
 }
 
 /// Sample overall and network latency values for a command.
+#[cfg(feature = "metrics")]
 fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut SentCommand) {
   if let Some(sent) = command.network_start.take() {
     sample_latency(&inner.network_latency_stats, sent);
   }
   sample_latency(&inner.latency_stats, command.command.sent);
 }
+
+#[cfg(not(feature = "metrics"))]
+fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut SentCommand) {}
 
 /// Merge multiple potentially nested frames into one flat array of frames.
 fn merge_multiple_frames(frames: &mut VecDeque<ProtocolFrame>) -> ProtocolFrame {
@@ -491,10 +497,6 @@ async fn process_response(
     frame.kind()
   );
 
-  if let Some(sent) = last_command.network_start.take() {
-    sample_latency(&inner.network_latency_stats, sent);
-  }
-
   if last_command.command.kind.has_multiple_response_kind() {
     let frames = match last_command.command.kind.response_kind_mut() {
       Some(kind) => {
@@ -539,7 +541,6 @@ async fn process_response(
     }
   } else if last_command.command.kind.is_scan() {
     client_utils::decr_atomic(&counters.in_flight);
-    sample_latency(&inner.latency_stats, last_command.command.sent);
 
     let (next_cursor, keys) = match handle_key_scan_result(frame) {
       Ok(result) => result,
@@ -559,7 +560,6 @@ async fn process_response(
     }
   } else if last_command.command.kind.is_value_scan() {
     client_utils::decr_atomic(&counters.in_flight);
-    sample_latency(&inner.latency_stats, last_command.command.sent);
 
     let (next_cursor, values) = match handle_value_scan_result(frame) {
       Ok(result) => result,
@@ -581,7 +581,7 @@ async fn process_response(
     return Ok(handle_all_nodes_response(inner, last_command, frame).await);
   } else {
     client_utils::decr_atomic(&counters.in_flight);
-    sample_latency(&inner.latency_stats, last_command.command.sent);
+    sample_command_latencies(inner, &mut last_command);
 
     check_command_resp_tx(inner, &last_command).await;
     respond_to_caller(inner, last_command, frame);

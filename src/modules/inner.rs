@@ -1,7 +1,6 @@
 use crate::client::CommandSender;
 use crate::client::RedisClient;
 use crate::error::*;
-use crate::metrics::{LatencyStats, SizeStats};
 use crate::multiplexer::{ConnectionIDs, SentCommand};
 use crate::protocol::connection::{
   create_authenticated_connection, create_authenticated_connection_tls, request_response_safe, FramedTcp, FramedTls,
@@ -21,9 +20,14 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::JoinHandle;
 
+#[cfg(feature = "metrics")]
+use crate::modules::metrics::MovingStats;
+
 /// State sent to the task that performs reconnection logic.
 pub struct ClosedState {
+  /// Commands that were in flight that can be retried again after reconnecting.
   pub commands: VecDeque<SentCommand>,
+  /// The error that closed the last connection.
   pub error: RedisError,
 }
 
@@ -173,7 +177,7 @@ impl Backchannel {
   /// Send the provided command to the server at `host:port`.
   ///
   /// If an existing transport to the provided server is found this function will try to use it, but will automatically retry once if the connection is dead.
-  /// If a new transport has to be created this function will create it and set it on `self` if the command succeeds.
+  /// If a new transport has to be created this function will create it, use it, and set it on `self` if the command succeeds.
   pub async fn request_response(
     &mut self,
     inner: &Arc<RedisClientInner>,
@@ -201,7 +205,7 @@ impl Backchannel {
           _warn!(inner, "Failed to create backchannel to {}", server);
           Err(e)
         } else {
-          // avoid async recursion
+          // need to avoid async recursion
           let (transport, _, _) = self.take_or_create_transport(inner, host, port, uses_tls).await?;
           let result = match transport {
             RedisTransport::Tcp(transport) => map_tcp_response(request_response_safe(transport, &cmd).await),
@@ -246,14 +250,6 @@ pub struct RedisClientInner {
   pub connect_tx: RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
   /// A join handle for the task that sleeps waiting to reconnect.
   pub reconnect_sleep_jh: RwLock<Option<JoinHandle<Result<(), ()>>>>,
-  /// Command latency metrics.
-  pub latency_stats: RwLock<LatencyStats>,
-  /// Network latency metrics.
-  pub network_latency_stats: RwLock<LatencyStats>,
-  /// Payload size metrics tracking for requests.
-  pub req_size_stats: Arc<RwLock<SizeStats>>,
-  /// Payload size metrics tracking for responses.
-  pub res_size_stats: Arc<RwLock<SizeStats>>,
   /// Command queue buffer size.
   pub cmd_buffer_len: Arc<AtomicUsize>,
   /// Number of message redeliveries.
@@ -266,23 +262,40 @@ pub struct RedisClientInner {
   pub resolver: DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel: Arc<AsyncRwLock<Backchannel>>,
+
+  /// Command latency metrics.
+  #[cfg(feature = "metrics")]
+  pub latency_stats: RwLock<MovingStats>,
+  /// Network latency metrics.
+  #[cfg(feature = "metrics")]
+  pub network_latency_stats: RwLock<MovingStats>,
+  /// Payload size metrics tracking for requests.
+  #[cfg(feature = "metrics")]
+  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  /// Payload size metrics tracking for responses
+  #[cfg(feature = "metrics")]
+  pub res_size_stats: Arc<RwLock<MovingStats>>,
 }
 
 impl RedisClientInner {
   pub fn new(config: RedisConfig) -> Arc<RedisClientInner> {
-    let state = ClientState::Disconnected;
     let backchannel = Backchannel::default();
-    let latency = LatencyStats::default();
-    let network_latency = LatencyStats::default();
-    let req_size = SizeStats::default();
-    let res_size = SizeStats::default();
     let id = Arc::new(format!("fred-{}", utils::random_string(10)));
     let resolver = DefaultResolver::new(&id);
 
     Arc::new(RedisClientInner {
+      #[cfg(feature = "metrics")]
+      latency_stats: RwLock::new(MovingStats::default()),
+      #[cfg(feature = "metrics")]
+      network_latency_stats: RwLock::new(MovingStats::default()),
+      #[cfg(feature = "metrics")]
+      req_size_stats: Arc::new(RwLock::new(MovingStats::default())),
+      #[cfg(feature = "metrics")]
+      res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
+
       config: RwLock::new(config),
       policy: RwLock::new(None),
-      state: RwLock::new(state),
+      state: RwLock::new(ClientState::Disconnected),
       error_tx: RwLock::new(VecDeque::new()),
       message_tx: RwLock::new(VecDeque::new()),
       keyspace_tx: RwLock::new(VecDeque::new()),
@@ -290,10 +303,6 @@ impl RedisClientInner {
       connect_tx: RwLock::new(VecDeque::new()),
       command_tx: RwLock::new(None),
       reconnect_sleep_jh: RwLock::new(None),
-      latency_stats: RwLock::new(latency),
-      network_latency_stats: RwLock::new(network_latency),
-      req_size_stats: Arc::new(RwLock::new(req_size)),
-      res_size_stats: Arc::new(RwLock::new(res_size)),
       cmd_buffer_len: Arc::new(AtomicUsize::new(0)),
       redeliver_count: Arc::new(AtomicUsize::new(0)),
       connection_closed_tx: RwLock::new(None),

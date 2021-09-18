@@ -13,9 +13,10 @@ license = "MIT"
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-tokio = { version = "1.10", features = ["full"] }
+tokio = { version = "1.11", features = ["full"] }
 bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
@@ -61,6 +62,7 @@ required-features = ["monitor"]
 
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
+metrics = []
 ignore-auth-error = []
 enable-tls = ["native-tls", "tokio-native-tls"]
 vendored-tls = ["enable-tls", "native-tls/vendored"]

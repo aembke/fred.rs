@@ -1,5 +1,5 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};

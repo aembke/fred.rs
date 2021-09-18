@@ -1,9 +1,7 @@
 use crate::client::RedisClient;
 use crate::error::*;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::protocol::connection::OK;
-pub use crate::protocol::tls::TlsConfig;
-pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::utils;
@@ -24,7 +22,12 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub use crate::response::RedisResponse;
+pub use crate::modules::response::RedisResponse;
+pub use crate::protocol::tls::TlsConfig;
+pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
+
+#[cfg(feature = "metrics")]
+pub use crate::modules::metrics::Stats;
 
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};

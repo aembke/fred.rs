@@ -70,6 +70,7 @@ macro_rules! impl_unsigned_number (
   }
 );
 
+/// A trait used to [convert](crate::modules::types::RedisValue::convert) various forms of [RedisValue](crate::modules::types::RedisValue) into different types.
 pub trait RedisResponse: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 

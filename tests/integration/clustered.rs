@@ -32,7 +32,7 @@ mod multi {
 
 mod other {
 
-  #[cfg(not(feature = "chaos-monkey"))]
+  #[cfg(all(not(feature = "chaos-monkey"), feature = "metrics"))]
   cluster_test!(other, should_track_size_stats);
 
   cluster_test!(other, should_split_clustered_connection);

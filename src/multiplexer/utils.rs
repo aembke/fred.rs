@@ -1,7 +1,7 @@
 use crate::client::{CommandSender, RedisClient};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::{ClosedState, RedisClientInner};
+use crate::modules::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::types::ClusterChange;
 use crate::multiplexer::{responses, Multiplexer};
 use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};

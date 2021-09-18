@@ -1,21 +1,7 @@
 #!/bin/bash
 
 ROOT=$PWD
-
-function check_root_dir {
-  if [ ! -d "./tests/tmp" ]; then
-    echo "Must be in application root for chaos monkey to work."
-    exit 1
-  fi
-}
-
-# Returns 0 if not installed, 1 otherwise.
-function check_redis {
-  if [ ! -d "$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION" ]; then
-    echo "Redis install not found."
-    exit 1
-  fi
-}
+. $ROOT/tests/chaos_monkey/util.sh
 
 if [ -z "$REDIS_VERSION" ]; then
     echo "REDIS_VERSION must be set!"

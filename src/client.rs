@@ -1,11 +1,11 @@
 use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::inner::{MultiPolicy, RedisClientInner};
-use crate::metrics::*;
+use crate::modules::inner::{MultiPolicy, RedisClientInner};
+use crate::modules::metrics::Stats;
+use crate::modules::response::RedisResponse;
 use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::types::RedisCommand;
-use crate::response::RedisResponse;
 use crate::types::*;
 use crate::utils;
 use futures::Stream;
@@ -260,12 +260,14 @@ impl RedisClient {
   ///
   /// This metric reflects the total latency experienced by callers, including time spent waiting in memory to be written and network latency.
   /// Features such as automatic reconnect, `reconnect-on-auth-error`, and frame serialization time can all affect these values.
-  pub fn read_latency_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn read_latency_metrics(&self) -> Stats {
     self.inner.latency_stats.read().read_metrics()
   }
 
   /// Read and consume latency metrics, resetting their values afterwards.
-  pub fn take_latency_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn take_latency_metrics(&self) -> Stats {
     self.inner.latency_stats.write().take_metrics()
   }
 
@@ -273,32 +275,38 @@ impl RedisClient {
   ///
   /// This metric only reflects time spent waiting on a response. It will factor in reconnect time if a response doesn't arrive due to a connection
   /// closing, but it does not factor in the time a command spends waiting to be written, serialization time, backpressure, etc.  
-  pub fn read_network_latency_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn read_network_latency_metrics(&self) -> Stats {
     self.inner.network_latency_stats.read().read_metrics()
   }
 
   /// Read and consume network latency metrics, resetting their values afterwards.
-  pub fn take_network_latency_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn take_network_latency_metrics(&self) -> Stats {
     self.inner.network_latency_stats.write().take_metrics()
   }
 
   /// Read request payload size metrics across all commands.
-  pub fn read_req_size_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn read_req_size_metrics(&self) -> Stats {
     self.inner.req_size_stats.read().read_metrics()
   }
 
   /// Read and consume request payload size metrics, resetting their values afterwards.
-  pub fn take_req_size_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn take_req_size_metrics(&self) -> Stats {
     self.inner.req_size_stats.write().take_metrics()
   }
 
   /// Read response payload size metrics across all commands.
-  pub fn read_res_size_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn read_res_size_metrics(&self) -> Stats {
     self.inner.res_size_stats.read().read_metrics()
   }
 
   /// Read and consume response payload size metrics, resetting their values afterwards.
-  pub fn take_res_size_metrics(&self) -> DistributionStats {
+  #[cfg(feature = "metrics")]
+  pub fn take_res_size_metrics(&self) -> Stats {
     self.inner.res_size_stats.write().take_metrics()
   }
 

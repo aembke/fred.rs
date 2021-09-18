@@ -1,6 +1,6 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils as multiplexer_utils;
 use crate::multiplexer::ConnectionIDs;
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
@@ -553,6 +553,10 @@ where
   basic_request_response(inner, func).await
 }
 
+/// Find the server that should receive a command on the backchannel connection.
+///
+/// If the client is clustered then look for a key in the command to hash, otherwise pick a random node.
+/// If the client is not clustered then use the same server that the client is connected to.
 fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {
   match inner.config.read().server {
     ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
@@ -619,6 +623,7 @@ where
   let blocked_server = inner.backchannel.read().await.blocked.clone();
 
   if let Some(ref blocked_server) = blocked_server {
+    // if we're clustered and only one server is blocked then send the command to the blocked server
     _debug!(
       inner,
       "Backchannel: Using blocked server {} for {}",
@@ -633,6 +638,7 @@ where
       .request_response(inner, blocked_server, command)
       .await
   } else {
+    // otherwise no connections are blocked
     let server = find_backchannel_server(inner, &command)?;
     _debug!(
       inner,
