@@ -42,6 +42,10 @@ pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
   config.read().server.is_clustered()
 }
 
+pub fn is_sentinel(config: &RwLock<RedisConfig>) -> bool {
+  config.read().server.is_sentinel()
+}
+
 pub fn f64_eq(lhs: f64, rhs: f64) -> bool {
   approx_eq!(f64, lhs, rhs, ulps = 2)
 }

@@ -17,6 +17,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 pub mod commands;
 pub mod responses;
+pub mod sentinel;
 pub mod types;
 pub mod utils;
 
@@ -252,6 +253,8 @@ impl Multiplexer {
       let messages = utils::connect_clustered(&self.inner, &self.connections, &self.close_tx).await?;
       self.inner.update_cluster_state(self.cluster_state());
       messages
+    } else if client_utils::is_sentinel(&self.inner.config) {
+      sentinel::connect_sentinel(&self.inner, &self.connections, &self.close_tx).await?
     } else {
       utils::connect_centralized(&self.inner, &self.connections, &self.close_tx).await?
     };

@@ -55,7 +55,7 @@ cargo add fred
 ## Features
 
 * Flexible and generic client interfaces.
-* Supports clustered and centralized Redis deployments.
+* Supports clustered, centralized, and sentinel Redis deployments.
 * Optional built-in reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
 * Supports transactions.
