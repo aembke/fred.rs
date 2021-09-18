@@ -38,7 +38,7 @@ async fn main() -> Result<(), RedisError> {
       let client = page.create_client();
 
       for key in keys.into_iter() {
-        let value = client.get(&key).await?;
+        let value: RedisValue = client.get(&key).await?;
         println!("Scanned {} -> {:?}", key.as_str_lossy(), value);
         buffer.push((key, value));
       }

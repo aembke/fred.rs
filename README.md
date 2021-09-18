@@ -24,10 +24,18 @@ async fn main() -> Result<(), RedisError> {
   let _ = client.connect(Some(policy));
   // wait for the client to connect
   let _ = client.wait_for_connect().await?;
+  let _ = client.flushall(false).await?;
+ 
+  let foo: Option<String> = client.get("foo").await?;
+  println!("Foo: {:?}", foo);
+  assert_eq!(foo, None);
   
-  println!("Foo: {:?}", client.get("foo").await?);
-  let _ = client.set("foo", "bar", None, None, false).await?;
-  println!("Foo: {:?}", client.get("foo".to_owned()).await?);
+  let _: () = client.set("foo", "bar", None, None, false).await?;
+  // or use turbofish to declare types
+  println!("Foo: {:?}", client.get<String, _>("foo").await?);
+  // or use a lower level interface for responses to defer parsing, etc
+  let foo: RedisValue = client.get("foo").await?;
+  assert_eq!(foo.as_str().unwrap(), "bar");
   
   let _ = client.quit().await?;
   Ok(())

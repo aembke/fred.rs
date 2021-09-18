@@ -15,17 +15,9 @@ async fn main() -> Result<(), RedisError> {
     }),
     ..RedisConfig::default()
   };
-  let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
   let client = RedisClient::new(config);
 
-  tokio::spawn(client.on_error().for_each(|e| async move {
-    println!("Client received connection error: {:?}", e);
-  }));
-  tokio::spawn(client.on_reconnect().for_each(|client| async move {
-    println!("Client {} reconnected.", client.id());
-  }));
-
-  let jh = client.connect(Some(policy));
+  let jh = client.connect(None);
   if let Err(error) = client.wait_for_connect().await {
     println!("Client failed to connect with error: {:?}", error);
   }

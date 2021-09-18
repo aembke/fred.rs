@@ -5,6 +5,7 @@ use redis_protocol::types::RedisProtocolError;
 use semver::Error as SemverError;
 use std::borrow::{Borrow, Cow};
 use std::convert::Infallible;
+use std::error::Error;
 use std::fmt;
 use std::fmt::Display;
 use std::io::Error as IoError;
@@ -14,7 +15,6 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use tokio::task::JoinError;
 use url::ParseError;
-use std::error::Error;
 
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -43,6 +43,8 @@ pub enum RedisErrorKind {
   Timeout,
   /// An error used to indicate that the cluster's state has changed. These errors will show up on the `on_error` error stream even though the client will automatically attempt to recover.
   Cluster,
+  /// A parser error.
+  Parse,
 }
 
 impl RedisErrorKind {
@@ -60,6 +62,7 @@ impl RedisErrorKind {
       RedisErrorKind::Timeout => "Timeout Error",
       RedisErrorKind::Tls => "TLS Error",
       RedisErrorKind::Config => "Config Error",
+      RedisErrorKind::Parse => "Parse Error",
     }
   }
 }
@@ -150,25 +153,25 @@ impl From<ParseError> for RedisError {
 
 impl From<ParseFloatError> for RedisError {
   fn from(_: ParseFloatError) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, "Invalid floating point number.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid floating point number.")
   }
 }
 
 impl From<ParseIntError> for RedisError {
   fn from(_: ParseIntError) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, "Invalid integer string.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid integer string.")
   }
 }
 
 impl From<FromUtf8Error> for RedisError {
   fn from(_: FromUtf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, "Invalid UTF8 string.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid UTF8 string.")
   }
 }
 
 impl From<Utf8Error> for RedisError {
   fn from(_: Utf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, "Invalid UTF8 string.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid UTF8 string.")
   }
 }
 
@@ -282,6 +285,14 @@ impl RedisError {
   /// Create a new empty Timeout error.
   pub fn new_timeout() -> RedisError {
     RedisError::new(RedisErrorKind::Timeout, "")
+  }
+
+  /// Create a new parse error with the provided details.
+  pub(crate) fn new_parse<T>(details: T) -> RedisError
+  where
+    T: Into<Cow<'static, str>>,
+  {
+    RedisError::new(RedisErrorKind::Parse, details)
   }
 
   /// Whether or not the error is a Canceled error.

@@ -23,7 +23,7 @@ pub async fn should_run_memory_stats(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_run_memory_usage(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.set("foo", "bar", None, None, false).await?;
+  let _: () = client.set("foo", "bar", None, None, false).await?;
   let amt = client.memory_usage("foo", None).await?;
   assert!(amt.unwrap() > 0);
 

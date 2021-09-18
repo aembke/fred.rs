@@ -1,3 +1,13 @@
+
+## 4.0.0
+
+* Add generic response interface.
+* Add tests
+
+## 3.0.0
+
+See below.
+
 ## 3.0.0-beta.4
 
 * Add support for the `MONITOR` command.

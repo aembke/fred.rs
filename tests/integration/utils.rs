@@ -1,3 +1,5 @@
+#![allow(unused_macros)]
+
 use crate::chaos_monkey::set_test_kind;
 use fred::client::RedisClient;
 use fred::error::RedisError;
@@ -43,7 +45,7 @@ where
   let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _ = client.flushall_cluster().await;
+  let _: () = client.flushall_cluster().await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -68,7 +70,7 @@ where
   let _jh = client.connect(Some(policy));
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _ = client.flushall(false).await;
+  let _: () = client.flushall(false).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -158,9 +160,10 @@ macro_rules! return_err(
 );
 
 macro_rules! check_null(
-  ($client:ident, $arg:expr) => {
-    if !$client.get($arg).await?.is_null() {
+  ($client:ident, $arg:expr) => { {
+    let foo: RedisValue = $client.get($arg).await?;
+    if !foo.is_null() {
       panic!("expected {} to be null", $arg);
     }
-  }
+  } }
 );

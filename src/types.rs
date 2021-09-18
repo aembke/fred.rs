@@ -24,6 +24,8 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
+pub use crate::response::RedisResponse;
+
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
 #[cfg(not(feature = "index-map"))]
@@ -972,22 +974,23 @@ pub struct MultipleValues {
 }
 
 impl MultipleValues {
-  pub(crate) fn new() -> MultipleValues {
-    MultipleValues { values: Vec::new() }
-  }
-
-  pub(crate) fn inner(self) -> Vec<RedisValue> {
+  pub fn inner(self) -> Vec<RedisValue> {
     self.values
   }
 
-  pub(crate) fn len(&self) -> usize {
+  pub fn len(&self) -> usize {
     self.values.len()
+  }
+
+  /// Convert this a nested `RedisValue`.
+  pub fn into_values(self) -> RedisValue {
+    RedisValue::Array(self.values)
   }
 }
 
 impl From<()> for MultipleValues {
   fn from(_: ()) -> Self {
-    MultipleValues::new()
+    MultipleValues { values: vec![] }
   }
 }
 
@@ -1004,7 +1007,7 @@ where
     Ok(MultipleValues { values: vec![to!(d)?] })
   }
 }
- */
+*/
 
 impl<T> From<T> for MultipleValues
 where
@@ -1475,6 +1478,13 @@ impl<'a> RedisValue {
         }
       }
       RedisValue::String(ref s) => s.parse::<u64>().ok(),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_u64())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1484,6 +1494,13 @@ impl<'a> RedisValue {
     match self {
       RedisValue::Integer(ref i) => Some(*i),
       RedisValue::String(ref s) => s.parse::<i64>().ok(),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_i64())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1499,6 +1516,13 @@ impl<'a> RedisValue {
         }
       }
       RedisValue::String(ref s) => s.parse::<usize>().ok(),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_usize())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1508,6 +1532,13 @@ impl<'a> RedisValue {
     match self {
       RedisValue::String(ref s) => utils::redis_string_to_f64(s).ok(),
       RedisValue::Integer(ref i) => Some(*i as f64),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_f64())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1519,6 +1550,13 @@ impl<'a> RedisValue {
       RedisValue::Bytes(b) => String::from_utf8(b).ok(),
       RedisValue::Integer(i) => Some(i.to_string()),
       RedisValue::Queued => Some(QUEUED.to_owned()),
+      RedisValue::Array(mut inner) => {
+        if inner.len() == 1 {
+          inner.pop().and_then(|v| v.into_string())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1585,10 +1623,18 @@ impl<'a> RedisValue {
         _ => None,
       },
       RedisValue::String(ref s) => match s.as_ref() {
-        "true" | "TRUE" | "t" | "T" => Some(true),
-        "false" | "FALSE" | "f" | "F" => Some(false),
+        "true" | "TRUE" | "t" | "T" | "1" => Some(true),
+        "false" | "FALSE" | "f" | "F" | "0" => Some(false),
         _ => None,
       },
+      RedisValue::Null => Some(false),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner.first().and_then(|v| v.as_bool())
+        } else {
+          None
+        }
+      }
       _ => None,
     }
   }
@@ -1681,6 +1727,28 @@ impl<'a> RedisValue {
     }
   }
 
+  /// Convert the value to an array of bytes, if possible.
+  pub fn into_bytes(self) -> Option<Vec<u8>> {
+    let v = match self {
+      RedisValue::String(s) => s.into_bytes(),
+      RedisValue::Bytes(b) => b,
+      RedisValue::Null => NULL.as_bytes().to_vec(),
+      RedisValue::Queued => QUEUED.as_bytes().to_vec(),
+      RedisValue::Array(mut inner) => {
+        if inner.len() == 1 {
+          return inner.pop().and_then(|v| v.into_bytes());
+        } else {
+          return None;
+        }
+      }
+      // TODO maybe rethink this
+      RedisValue::Integer(i) => i.to_string().into_bytes(),
+      _ => return None,
+    };
+
+    Some(v)
+  }
+
   /// Convert the value into a `GeoPosition`, if possible.
   ///
   /// Null values are returned as `None` to work more easily with the result of the `GEOPOS` command.
@@ -1691,6 +1759,37 @@ impl<'a> RedisValue {
   /// Replace this value with `RedisValue::Null`, returning the original value.
   pub fn take(&mut self) -> RedisValue {
     mem::replace(self, RedisValue::Null)
+  }
+
+  /// Attempt to convert this value to any value that implements the [RedisResponse](crate::types::RedisResponse) trait.
+  ///
+  /// ```rust
+  /// # use fred::types::RedisValue;
+  /// # use std::collections::HashMap;
+  /// let foo: usize = RedisValue::String("123".into()).convert()?;
+  /// let foo: i64 = RedisValue::String("123".into()).convert()?;
+  /// let foo: String = RedisValue::String("123".into()).convert()?;
+  /// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111]).convert()?;
+  /// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
+  /// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
+  /// let foo: HashMap<String, u16> = RedisValue::Array(vec![
+  ///   "a".into(), 1.into(),
+  ///   "b".into(), 2.into()
+  /// ])
+  /// .convert()?;
+  /// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
+  /// let foo: Vec<(String, i64)> = RedisValue::Array(vec![
+  ///   "a".into(), 1.into(),
+  ///   "b".into(), 2.into()
+  /// ])
+  /// .convert()?;
+  /// // ...
+  /// ```
+  pub fn convert<R>(self) -> Result<R, RedisError>
+  where
+    R: RedisResponse,
+  {
+    R::from_value(self)
   }
 }
 
@@ -1787,6 +1886,30 @@ impl TryFrom<u64> for RedisValue {
   fn try_from(d: u64) -> Result<Self, Self::Error> {
     if d >= (i64::MAX as u64) {
       return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+    }
+
+    Ok((d as i64).into())
+  }
+}
+
+impl TryFrom<u128> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(d: u128) -> Result<Self, Self::Error> {
+    if d >= (i64::MAX as u128) {
+      return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+    }
+
+    Ok((d as i64).into())
+  }
+}
+
+impl TryFrom<i128> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(d: i128) -> Result<Self, Self::Error> {
+    if d >= (i64::MAX as i128) {
+      return Err(RedisError::new(RedisErrorKind::Unknown, "Signed integer too large."));
     }
 
     Ok((d as i64).into())
