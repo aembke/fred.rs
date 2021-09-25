@@ -262,6 +262,8 @@ pub struct RedisClientInner {
   pub resolver: DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel: Arc<AsyncRwLock<Backchannel>>,
+  /// The server host/port resolved from the sentinel nodes, if known.
+  pub sentinel_primary: Arc<RwLock<(String, u16)>>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]

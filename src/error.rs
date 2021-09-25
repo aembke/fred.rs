@@ -45,6 +45,8 @@ pub enum RedisErrorKind {
   Cluster,
   /// A parser error.
   Parse,
+  /// An error communicating with redis sentinel.
+  Sentinel,
 }
 
 impl RedisErrorKind {
@@ -63,6 +65,7 @@ impl RedisErrorKind {
       RedisErrorKind::Tls => "TLS Error",
       RedisErrorKind::Config => "Config Error",
       RedisErrorKind::Parse => "Parse Error",
+      RedisErrorKind::Sentinel => "Sentinel Error",
     }
   }
 }
@@ -266,6 +269,11 @@ impl RedisError {
   /// Read the type of error without any associated data.
   pub fn kind(&self) -> &RedisErrorKind {
     &self.kind
+  }
+
+  /// Change the kind of the error.
+  pub fn change_kind(&mut self, kind: RedisErrorKind) {
+    self.kind = kind;
   }
 
   /// Read details about the error.

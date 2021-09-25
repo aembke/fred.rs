@@ -7,7 +7,7 @@ use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
 use float_cmp::approx_eq;
 use futures::future::{select, Either};
-use futures::pin_mut;
+use futures::{pin_mut, Future};
 use parking_lot::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{self, Rng};
@@ -405,23 +405,30 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
   }
 }
 
+pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
+where
+  E: Into<RedisError>,
+  Fut: Future<Output = Result<T, E>>,
+{
+  if timeout > 0 {
+    let sleep_ft = sleep(Duration::from_millis(timeout));
+    pin_mut!(sleep_ft);
+    pin_mut!(ft);
+
+    match select(ft, sleep_ft).await {
+      Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
+      Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
+    }
+  } else {
+    ft.await.map_err(|e| e.into())
+  }
+}
+
 async fn wait_for_response(
   rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
 ) -> Result<ProtocolFrame, RedisError> {
   let sleep_duration = globals().default_command_timeout();
-
-  if sleep_duration > 0 {
-    let sleep_ft = sleep(Duration::from_millis(sleep_duration as u64));
-    pin_mut!(sleep_ft);
-    pin_mut!(rx);
-
-    match select(rx, sleep_ft).await {
-      Either::Left((lhs, _)) => lhs?,
-      Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
-    }
-  } else {
-    rx.await?
-  }
+  apply_timeout(rx, sleep_duration as u64).await?
 }
 
 fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {

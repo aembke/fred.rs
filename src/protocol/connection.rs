@@ -56,6 +56,19 @@ pub enum RedisTransport {
   Tcp(FramedTcp),
 }
 
+pub fn split_transport(transport: RedisTransport) -> (RedisSink, RedisStream) {
+  match transport {
+    RedisTransport::Tcp(framed) => {
+      let (sink, stream) = framed.split();
+      (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
+    }
+    RedisTransport::Tls(framed) => {
+      let (sink, stream) = framed.split();
+      (RedisSink::Tls(sink), RedisStream::Tls(stream))
+    }
+  }
+}
+
 pub async fn request_response<T>(
   mut transport: Framed<T, RedisCodec>,
   request: &RedisCommand,
@@ -99,6 +112,28 @@ where
   };
 
   Ok((response, transport))
+}
+
+pub async fn transport_request_response(
+  transport: RedisTransport,
+  request: &RedisCommand,
+) -> Result<(ProtocolFrame, RedisTransport), RedisError> {
+  match transport {
+    RedisTransport::Tcp(transport) => {
+      let (frame, transport) = match request_response_safe(transport, request).await {
+        Ok(result) => result,
+        Err((e, _)) => return Err(e),
+      };
+      Ok((frame, RedisTransport::Tcp(transport)))
+    }
+    RedisTransport::Tls(transport) => {
+      let (frame, transport) = match request_response_safe(transport, request).await {
+        Ok(result) => result,
+        Err((e, _)) => return Err(e),
+      };
+      Ok((frame, RedisTransport::Tls(transport)))
+    }
+  }
 }
 
 pub async fn authenticate<T>(

@@ -64,6 +64,8 @@ pub(crate) struct Globals {
   pub(crate) cluster_error_cache_delay: Arc<AtomicUsize>,
   /// The default timeout to apply to commands, in ms. A value of 0 means no timeout.
   pub(crate) default_command_timeout: Arc<AtomicUsize>,
+  /// The default timeout to apply to connections to sentinel nodes.
+  pub(crate) sentinel_connection_timeout_ms: Arc<AtomicUsize>,
   #[cfg(feature = "blocking-encoding")]
   /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
   pub(crate) blocking_encode_threshold: Arc<AtomicUsize>,
@@ -81,6 +83,7 @@ impl Default for Globals {
       min_backpressure_time_ms: Arc::new(AtomicUsize::new(100)),
       cluster_error_cache_delay: Arc::new(AtomicUsize::new(100)),
       default_command_timeout: Arc::new(AtomicUsize::new(0)),
+      sentinel_connection_timeout_ms: Arc::new(AtomicUsize::new(200)),
       #[cfg(feature = "blocking-encoding")]
       blocking_encode_threshold: Arc::new(AtomicUsize::new(500_000)),
       #[cfg(feature = "custom-reconnect-errors")]
@@ -94,6 +97,10 @@ impl Default for Globals {
 }
 
 impl Globals {
+  pub fn sentinel_connection_timeout_ms(&self) -> usize {
+    read_atomic(&self.sentinel_connection_timeout_ms)
+  }
+
   pub fn max_command_attempts(&self) -> usize {
     read_atomic(&self.max_command_attempts)
   }
@@ -246,4 +253,16 @@ pub fn get_blocking_encode_threshold() -> usize {
 #[cfg(feature = "blocking-encoding")]
 pub fn set_blocking_encode_threshold(val: usize) -> usize {
   set_atomic(&globals().blocking_encode_threshold, val)
+}
+
+/// The timeout to apply to connections to sentinel servers.
+///
+/// Default: 200 ms
+pub fn get_sentinel_connection_timeout_ms() -> usize {
+  read_atomic(&globals().sentinel_connection_timeout_ms)
+}
+
+/// See [get_sentinel_connection_timeout_ms] for more information.
+pub fn set_sentinel_connection_timeout_ms(val: usize) -> usize {
+  set_atomic(&globals().sentinel_connection_timeout_ms, val)
 }
