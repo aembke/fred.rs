@@ -25,16 +25,47 @@ services:
       - "6379"
     networks:
       - app-tier
-  redis-sentinel:
+  redis-sentinel-1:
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
       - redis-replica
     environment:
+      - REDIS_SENTINEL_PORT_NUMBER=26379
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
     ports:
-      - '26379-26381:26379'
+      - '26379:26379'
+    networks:
+      - app-tier
+  redis-sentinel-2:
+    image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
+    depends_on:
+      - redis-main
+      - redis-replica
+      - redis-sentinel-1
+    environment:
+      - REDIS_SENTINEL_PORT_NUMBER=26380
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_MASTER_HOST=redis-main
+      - REDIS_MASTER_SET=redis-sentinel-main
+    ports:
+      - '26380:26380'
+    networks:
+      - app-tier
+  redis-sentinel-3:
+    image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
+    depends_on:
+      - redis-main
+      - redis-replica
+      - redis-sentinel-2
+    environment:
+      - REDIS_SENTINEL_PORT_NUMBER=26381
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_MASTER_HOST=redis-main
+      - REDIS_MASTER_SET=redis-sentinel-main
+    ports:
+      - '26381:26381'
     networks:
       - app-tier

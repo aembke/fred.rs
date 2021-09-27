@@ -11,4 +11,4 @@ if [ -z "$REDIS_VERSION" ]; then
 fi
 
 echo "Note: this requires docker, docker-compose, and redis >=6.2 to work reliably."
-docker-compose -f ./tests/sentinel-docker-compose.yml up --scale redis-sentinel=3 -d
+docker-compose -f ./tests/sentinel-docker-compose.yml up -d
