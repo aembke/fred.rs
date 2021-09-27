@@ -62,7 +62,7 @@ cargo add fred
 * Supports Lua scripts. 
 * Supports streaming results from the `MONITOR` command. 
 * Supports custom commands provided by third party modules. 
-* Supports Unix sockets and TLS connections.
+* Supports TLS connections.
 * Handles cluster rebalancing operations without downtime or errors.
 * Supports streaming interfaces for scanning functions.
 * Options to automatically [pipeline](https://redis.io/topics/pipelining) requests when possible.
