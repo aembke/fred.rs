@@ -24,6 +24,8 @@ async fn main() -> Result<(), RedisError> {
 
   // add a sentinel node...
 
+  // force update the sentinel node list if needed
+  let _ = client.update_sentinel_nodes().await?;
   println!("New sentinel nodes: {:?}", client.client_config().server.hosts());
 
   let _ = client.quit().await?;

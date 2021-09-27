@@ -739,7 +739,7 @@ impl RedisClient {
     ))
   }
 
-  /// Update the client's sentinel nodes list in place if using the sentinel interface.
+  /// Update the client's sentinel nodes list if using the sentinel interface.
   ///
   /// The client will automatically update this when connections to the primary server close.
   pub async fn update_sentinel_nodes(&self) -> Result<(), RedisError> {

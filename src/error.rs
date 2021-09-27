@@ -266,6 +266,14 @@ impl RedisError {
     }
   }
 
+  /// Whether or not the error is from a sentinel node.
+  pub fn is_sentinel_error(&self) -> bool {
+    match self.kind {
+      RedisErrorKind::Sentinel => true,
+      _ => false,
+    }
+  }
+
   /// Read the type of error without any associated data.
   pub fn kind(&self) -> &RedisErrorKind {
     &self.kind
