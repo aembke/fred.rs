@@ -1,9 +1,7 @@
 use crate::client::RedisClient;
 use crate::error::*;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::protocol::connection::OK;
-pub use crate::protocol::tls::TlsConfig;
-pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::utils;
@@ -24,7 +22,12 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub use crate::response::RedisResponse;
+pub use crate::modules::response::RedisResponse;
+pub use crate::protocol::tls::TlsConfig;
+pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
+
+#[cfg(feature = "metrics")]
+pub use crate::modules::metrics::Stats;
 
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
@@ -654,6 +657,12 @@ pub enum ServerConfig {
     /// the rest will be discovered via the `CLUSTER NODES` command.
     hosts: Vec<(String, u16)>,
   },
+  Sentinel {
+    /// An array of `(host, port)` tuples for each known sentinel instance.
+    hosts: Vec<(String, u16)>,
+    /// The service name for primary/main instances.
+    service_name: String,
+  },
 }
 
 impl Default for ServerConfig {
@@ -686,6 +695,20 @@ impl ServerConfig {
     }
   }
 
+  /// Create a new sentinel config with the provided set of hosts and the name of the service.
+  ///
+  /// This library will connect using the details from the [Redis documentation](https://redis.io/topics/sentinel-clients).
+  pub fn new_sentinel<H, N>(mut hosts: Vec<(H, u16)>, service_name: N) -> ServerConfig
+  where
+    H: Into<String>,
+    N: Into<String>,
+  {
+    ServerConfig::Sentinel {
+      hosts: hosts.drain(..).map(|(h, p)| (h.into(), p)).collect(),
+      service_name: service_name.into(),
+    }
+  }
+
   /// Create a centralized config with default settings for a local deployment.
   pub fn default_centralized() -> ServerConfig {
     ServerConfig::Centralized {
@@ -707,9 +730,17 @@ impl ServerConfig {
 
   /// Check if the config is for a clustered Redis deployment.
   pub fn is_clustered(&self) -> bool {
-    match *self {
-      ServerConfig::Centralized { .. } => false,
+    match self {
       ServerConfig::Clustered { .. } => true,
+      _ => false,
+    }
+  }
+
+  /// Check if the config is for a sentinel deployment.
+  pub fn is_sentinel(&self) -> bool {
+    match self {
+      ServerConfig::Sentinel { .. } => true,
+      _ => false,
     }
   }
 
@@ -718,6 +749,7 @@ impl ServerConfig {
     match *self {
       ServerConfig::Centralized { ref host, port } => vec![(host.as_str(), port)],
       ServerConfig::Clustered { ref hosts } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
     }
   }
 }

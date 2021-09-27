@@ -1,7 +1,7 @@
 use crate::client::{CommandSender, RedisClient};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::{ClosedState, RedisClientInner};
+use crate::modules::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::types::ClusterChange;
 use crate::multiplexer::{responses, Multiplexer};
 use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
@@ -236,16 +236,11 @@ pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<
   }
 }
 
-pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> Arc<String> {
+pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> String {
   match inner.config.read().server {
-    ServerConfig::Centralized { ref host, ref port, .. } => Arc::new(format!("{}:{}", host, port)),
-    ServerConfig::Clustered { .. } => {
-      _error!(
-        inner,
-        "Falling back to default server name due to unexpected clustered config. This is a bug."
-      );
-      Arc::new("unknown".to_owned())
-    }
+    ServerConfig::Centralized { ref host, ref port, .. } => format!("{}:{}", host, port),
+    // for sentinel configs this will be replaced later after reading the primary node from the sentinel(s)
+    _ => "unknown".to_owned(),
   }
 }
 
@@ -314,7 +309,7 @@ pub async fn write_all_nodes(
       };
       let _command = command.duplicate(kind);
 
-      write_command(inner, server, &counter, writer, commands, _command).await?;
+      write_command(inner, &server, &counter, writer, commands, _command).await?;
     } else {
       return Err(RedisError::new(
         RedisErrorKind::Config,
@@ -328,7 +323,7 @@ pub async fn write_all_nodes(
 
 pub async fn write_command(
   inner: &Arc<RedisClientInner>,
-  server: &Arc<String>,
+  server: &str,
   counters: &Counters,
   writer: &mut RedisSink,
   commands: &mut SentCommands,
@@ -365,10 +360,11 @@ pub async fn write_centralized_command(
   {
     if let Some(writer) = writer.write().await.deref_mut() {
       let mut commands_guard = commands.write().await;
+      let server_guard = server.read().await;
 
-      write_command(inner, server, counters, writer, &mut *commands_guard, command)
+      write_command(inner, &*server_guard, counters, writer, &mut *commands_guard, command)
         .await
-        .map(|_| Backpressure::Ok(server.clone()))
+        .map(|_| Backpressure::Ok((*server_guard).clone()))
     } else {
       Err(RedisError::new_context(
         RedisErrorKind::Unknown,
@@ -681,7 +677,7 @@ async fn create_cluster_connection(
   }
 }
 
-fn get_or_create_close_tx(inner: &Arc<RedisClientInner>, close_tx: &Arc<RwLock<Option<CloseTx>>>) -> CloseTx {
+pub fn get_or_create_close_tx(inner: &Arc<RedisClientInner>, close_tx: &Arc<RwLock<Option<CloseTx>>>) -> CloseTx {
   let mut guard = close_tx.write();
 
   if let Some(tx) = { guard.clone() } {
@@ -737,7 +733,7 @@ pub async fn connect_clustered(
   }
 }
 
-fn spawn_centralized_listener(
+pub fn spawn_centralized_listener(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   connections: &Connections,
@@ -866,7 +862,9 @@ pub async fn connect_centralized(
     let tx = get_or_create_close_tx(inner, close_tx);
     _debug!(inner, "Set centralized connection closed sender.");
     let _ = client_utils::set_locked_async(&writer, Some(sink)).await;
-    spawn_centralized_listener(inner, server, connections, tx.subscribe(), commands, counters, stream);
+    let server = server.read().await.clone();
+
+    spawn_centralized_listener(inner, &server, connections, tx.subscribe(), commands, counters, stream);
     client_utils::set_client_state(&inner.state, ClientState::Connected);
 
     Ok(pending_commands)

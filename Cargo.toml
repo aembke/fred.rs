@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "4.0.0"
+version = "4.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -13,9 +13,10 @@ license = "MIT"
 
 [package.metadata.docs.rs]
 all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-tokio = { version = "1.10", features = ["full"] }
+tokio = { version = "1.11", features = ["full"] }
 bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
@@ -60,7 +61,8 @@ name = "monitor"
 required-features = ["monitor"]
 
 [features]
-default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
+default = ["ignore-auth-error", "pool-prefer-active", "enable-tls", "metrics"]
+metrics = []
 ignore-auth-error = []
 enable-tls = ["native-tls", "tokio-native-tls"]
 vendored-tls = ["enable-tls", "native-tls/vendored"]
@@ -74,5 +76,7 @@ blocking-encoding = ["tokio/rt-multi-thread"]
 network-logs = []
 custom-reconnect-errors = []
 monitor = ["nom"]
+# Testing Features
+sentinel-tests = []
 # a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
 chaos-monkey = ["custom-reconnect-errors"]

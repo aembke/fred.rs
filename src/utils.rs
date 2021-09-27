@@ -1,13 +1,13 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils as multiplexer_utils;
-use crate::multiplexer::ConnectionIDs;
+use crate::multiplexer::{sentinel, ConnectionIDs};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
 use float_cmp::approx_eq;
 use futures::future::{select, Either};
-use futures::pin_mut;
+use futures::{pin_mut, Future};
 use parking_lot::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{self, Rng};
@@ -40,6 +40,10 @@ use tracing_futures::Instrument;
 
 pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
   config.read().server.is_clustered()
+}
+
+pub fn is_sentinel(config: &RwLock<RedisConfig>) -> bool {
+  config.read().server.is_sentinel()
 }
 
 pub fn f64_eq(lhs: f64, rhs: f64) -> bool {
@@ -191,10 +195,10 @@ pub fn check_and_set_client_state(
 }
 
 pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<String>> {
-  if let ServerConfig::Centralized { ref host, ref port } = inner.config.read().server {
-    Some(Arc::new(format!("{}:{}", host, port)))
-  } else {
-    None
+  match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port } => Some(Arc::new(format!("{}:{}", host, port))),
+    ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().clone(),
+    _ => None,
   }
 }
 
@@ -401,23 +405,30 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
   }
 }
 
+pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
+where
+  E: Into<RedisError>,
+  Fut: Future<Output = Result<T, E>>,
+{
+  if timeout > 0 {
+    let sleep_ft = sleep(Duration::from_millis(timeout));
+    pin_mut!(sleep_ft);
+    pin_mut!(ft);
+
+    match select(ft, sleep_ft).await {
+      Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
+      Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
+    }
+  } else {
+    ft.await.map_err(|e| e.into())
+  }
+}
+
 async fn wait_for_response(
   rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
 ) -> Result<ProtocolFrame, RedisError> {
   let sleep_duration = globals().default_command_timeout();
-
-  if sleep_duration > 0 {
-    let sleep_ft = sleep(Duration::from_millis(sleep_duration as u64));
-    pin_mut!(sleep_ft);
-    pin_mut!(rx);
-
-    match select(rx, sleep_ft).await {
-      Either::Left((lhs, _)) => lhs?,
-      Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
-    }
-  } else {
-    rx.await?
-  }
+  apply_timeout(rx, sleep_duration as u64).await?
 }
 
 fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
@@ -553,8 +564,23 @@ where
   basic_request_response(inner, func).await
 }
 
+/// Find the server that should receive a command on the backchannel connection.
+///
+/// If the client is clustered then look for a key in the command to hash, otherwise pick a random node.
+/// If the client is not clustered then use the same server that the client is connected to.
 fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {
   match inner.config.read().server {
+    ServerConfig::Sentinel { .. } => {
+      inner
+        .sentinel_primary
+        .read()
+        .as_ref()
+        .map(|s| s.clone())
+        .ok_or(RedisError::new(
+          RedisErrorKind::Sentinel,
+          "Failed to read sentinel primary server",
+        ))
+    }
     ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
     ServerConfig::Clustered { .. } => {
       if let Some(key) = command.extract_key() {
@@ -619,6 +645,7 @@ where
   let blocked_server = inner.backchannel.read().await.blocked.clone();
 
   if let Some(ref blocked_server) = blocked_server {
+    // if we're clustered and only one server is blocked then send the command to the blocked server
     _debug!(
       inner,
       "Backchannel: Using blocked server {} for {}",
@@ -633,6 +660,7 @@ where
       .request_response(inner, blocked_server, command)
       .await
   } else {
+    // otherwise no connections are blocked
     let server = find_backchannel_server(inner, &command)?;
     _debug!(
       inner,
@@ -676,6 +704,50 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
         }
       }
     })
+}
+
+pub async fn update_sentinel_nodes(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  let old_config = inner.config.read().clone();
+
+  if let ServerConfig::Sentinel { hosts, service_name } = old_config.server {
+    let timeout = globals().sentinel_connection_timeout_ms() as u64;
+
+    for (host, port) in hosts.into_iter() {
+      _debug!(inner, "Updating sentinel nodes from {}:{}...", host, port);
+
+      let transport = match sentinel::connect_to_sentinel(inner, &host, port, timeout).await {
+        Ok(transport) => transport,
+        Err(e) => {
+          _warn!(
+            inner,
+            "Failed to connect to sentinel {}:{} with error: {:?}",
+            host,
+            port,
+            e
+          );
+          continue;
+        }
+      };
+      if let Err(e) = sentinel::update_sentinel_nodes(inner, transport, &service_name).await {
+        _warn!(
+          inner,
+          "Failed to read sentinel nodes from {}:{} with error: {:?}",
+          host,
+          port,
+          e
+        );
+      } else {
+        return Ok(());
+      }
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Failed to read sentinel nodes from any known sentinel.",
+    ))
+  } else {
+    Err(RedisError::new(RedisErrorKind::Config, "Expected sentinel config."))
+  }
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {

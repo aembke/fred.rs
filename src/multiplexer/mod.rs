@@ -1,6 +1,6 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::protocol::connection::RedisSink;
 use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::RedisCommand;
@@ -17,6 +17,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 pub mod commands;
 pub mod responses;
+pub mod sentinel;
 pub mod types;
 pub mod utils;
 
@@ -103,7 +104,8 @@ pub enum Connections {
     writer: Arc<AsyncRwLock<Option<RedisSink>>>,
     commands: Arc<AsyncRwLock<SentCommands>>,
     counters: Counters,
-    server: Arc<String>,
+    // TODO find a better way to do this that works with mutable servers due to sentinel changes, but where server names are cloned a lot
+    server: Arc<AsyncRwLock<Arc<String>>>,
     connection_id: Arc<RwLock<Option<i64>>>,
   },
   Clustered {
@@ -117,8 +119,10 @@ pub enum Connections {
 
 impl Connections {
   pub fn new_centralized(inner: &Arc<RedisClientInner>, cmd_buffer_len: &Arc<AtomicUsize>) -> Self {
+    let server = utils::centralized_server_name(inner);
+
     Connections::Centralized {
-      server: utils::centralized_server_name(inner),
+      server: Arc::new(AsyncRwLock::new(Arc::new(server))),
       counters: Counters::new(cmd_buffer_len),
       writer: Arc::new(AsyncRwLock::new(None)),
       commands: Arc::new(AsyncRwLock::new(VecDeque::new())),
@@ -135,6 +139,19 @@ impl Connections {
       commands: Arc::new(AsyncRwLock::new(BTreeMap::new())),
       counters: Arc::new(RwLock::new(BTreeMap::new())),
       connection_ids: Arc::new(RwLock::new(BTreeMap::new())),
+    }
+  }
+
+  /// Disconnect and clear local state for the connection to a centralized server.
+  pub async fn disconnect_centralized(&self) {
+    if let Connections::Centralized {
+      ref writer,
+      ref connection_id,
+      ..
+    } = self
+    {
+      let _ = writer.write().await.take();
+      let _ = connection_id.write().take();
     }
   }
 }
@@ -252,6 +269,8 @@ impl Multiplexer {
       let messages = utils::connect_clustered(&self.inner, &self.connections, &self.close_tx).await?;
       self.inner.update_cluster_state(self.cluster_state());
       messages
+    } else if client_utils::is_sentinel(&self.inner.config) {
+      sentinel::connect_centralized_from_sentinel(&self.inner, &self.connections, &self.close_tx).await?
     } else {
       utils::connect_centralized(&self.inner, &self.connections, &self.close_tx).await?
     };

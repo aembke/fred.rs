@@ -1,3 +1,8 @@
+## 4.1.0
+
+* Support Redis Sentinel
+* Sentinel tests
+* Move metrics behind compiler flag
 
 ## 4.0.0
 

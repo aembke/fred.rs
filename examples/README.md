@@ -14,5 +14,6 @@ Examples
 * [Dynamic Pool](./dynamic_pool.rs) - Use a redis pool that can be scaled up and down at runtime.
 * [Resilience](./resilience.rs) - Configure the client to work under bad network conditions or against unreliable servers.
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
+* [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
 
 Or check out the [tests](../tests/integration) for more examples.
