@@ -62,10 +62,10 @@ cargo add fred
 * Supports Lua scripts. 
 * Supports streaming results from the `MONITOR` command. 
 * Supports custom commands provided by third party modules. 
-* Supports connections over TLS.
+* Supports Unix sockets and TLS connections.
 * Handles cluster rebalancing operations without downtime or errors.
-* Supports various scanning functions.
-* Automatically [pipeline](https://redis.io/topics/pipelining) requests, with an option for callers to disable this.
+* Supports streaming interfaces for scanning functions.
+* Options to automatically [pipeline](https://redis.io/topics/pipelining) requests when possible.
 * Automatically retry requests under bad network conditions.
 * Support for configuring global settings that can affect performance under different network conditions. Callers can configure backpressure settings, when and how the underlying socket is flushed, and how many times requests are attempted. 
 * Built-in tracking for network latency and payload size metrics.
@@ -91,7 +91,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | enable-tls                  |    x    | Enable TLS support. This requires OpenSSL (or equivalent) dependencies.                                                                      |
 | vendored-tls                |         | Enable TLS support, using vendored OpenSSL (or equivalent) dependencies, if possible.                                                        |
 | ignore-auth-error           |    x    | Ignore auth errors that occur when a password is supplied but not required.                                                                  |
-| metrics                     |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                  |
+| metrics                     |    x    | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                  |
 | reconnect-on-auth-error     |         | A NOAUTH error is treated the same as a general connection failure and the client will reconnect based on the reconnection policy.           |
 | index-map                   |         | Use [IndexMap](https://docs.rs/indexmap/*/indexmap/) instead of [HashMap](https://doc.rust-lang.org/std/collections/struct.HashMap.html) as the backing store for Redis Map types. This is useful for testing and may also be useful for callers.  |
 | pool-prefer-active          |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                          |
@@ -128,6 +128,14 @@ If callers are using ACLs and Redis version >=6.x they can configure the client 
 **It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER NODES`.** Callers can still change users via the `auth` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
 
 If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `auth` command inside the `on_reconnect` block.
+
+## Redis Sentinel
+
+To use the [Redis Sentinel](https://redis.io/topics/sentinel) interface callers should provide a `ServerConfig::Sentinel` variant when creating the client's `RedisConfig`. This should contain the host/port tuples for the known sentinel nodes when first [creating the client](https://redis.io/topics/sentinel-clients). 
+
+The client will automatically update these values in place as sentinel nodes change whenever connections to the primary Redis server close. Callers can inspect these changes with the `client_config` function on any `RedisClient` that uses the sentinel interface.
+
+Note: Sentinel connections will use the same authentication and TLS configuration options as the connections to the Redis servers.
 
 ## Customizing Error Handling
 

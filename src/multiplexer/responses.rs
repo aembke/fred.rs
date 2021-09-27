@@ -11,16 +11,18 @@ use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult
 use crate::utils as client_utils;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as ProtocolFrame;
-use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::RwLock as AsyncRwLock;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+#[cfg(feature = "metrics")]
+use std::cmp;
+#[cfg(feature = "metrics")]
+use std::time::Instant;
 
 const LAST_CURSOR: &'static str = "0";
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";

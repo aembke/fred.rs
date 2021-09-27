@@ -263,7 +263,7 @@ pub struct RedisClientInner {
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel: Arc<AsyncRwLock<Backchannel>>,
   /// The server host/port resolved from the sentinel nodes, if known.
-  pub sentinel_primary: Arc<RwLock<(String, u16)>>,
+  pub sentinel_primary: RwLock<Option<Arc<String>>>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
@@ -311,6 +311,7 @@ impl RedisClientInner {
       multi_block: RwLock::new(None),
       cluster_state: RwLock::new(None),
       backchannel: Arc::new(AsyncRwLock::new(backchannel)),
+      sentinel_primary: RwLock::new(None),
       resolver,
       id,
     })
@@ -340,6 +341,11 @@ impl RedisClientInner {
   pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {
     let mut guard = self.cluster_state.write();
     *guard = state;
+  }
+
+  pub fn update_sentinel_primary(&self, server: &Arc<String>) {
+    let mut guard = self.sentinel_primary.write();
+    *guard = Some(server.clone());
   }
 
   #[cfg(feature = "partial-tracing")]

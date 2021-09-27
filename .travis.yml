@@ -1,4 +1,6 @@
 language: rust
+services:
+  - docker
 rust:
   - stable
   - beta
@@ -31,7 +33,9 @@ branches:
 env:
   - REDIS_VERSION=6.2.2
 before_script:
-  - ./tests/scripts/install_redis_centralized.sh && ./tests/scripts/install_redis_clustered.sh
+  - ./tests/scripts/install_redis_centralized.sh
+  - ./tests/scripts/install_redis_clustered.sh
+  - ./tests/scripts/docker-install-redis-sentinel.sh
 jobs:
   allow_failures:
     - rust: nightly

@@ -2,7 +2,7 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils as multiplexer_utils;
-use crate::multiplexer::ConnectionIDs;
+use crate::multiplexer::{sentinel, ConnectionIDs};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
 use float_cmp::approx_eq;
@@ -195,10 +195,10 @@ pub fn check_and_set_client_state(
 }
 
 pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<String>> {
-  if let ServerConfig::Centralized { ref host, ref port } = inner.config.read().server {
-    Some(Arc::new(format!("{}:{}", host, port)))
-  } else {
-    None
+  match inner.config.read().server {
+    ServerConfig::Centralized { ref host, ref port } => Some(Arc::new(format!("{}:{}", host, port))),
+    ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().clone(),
+    _ => None,
   }
 }
 
@@ -570,6 +570,17 @@ where
 /// If the client is not clustered then use the same server that the client is connected to.
 fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {
   match inner.config.read().server {
+    ServerConfig::Sentinel { .. } => {
+      inner
+        .sentinel_primary
+        .read()
+        .as_ref()
+        .map(|s| s.clone())
+        .ok_or(RedisError::new(
+          RedisErrorKind::Sentinel,
+          "Failed to read sentinel primary server",
+        ))
+    }
     ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
     ServerConfig::Clustered { .. } => {
       if let Some(key) = command.extract_key() {
@@ -693,6 +704,50 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
         }
       }
     })
+}
+
+pub async fn update_sentinel_nodes(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  let old_config = inner.config.read().clone();
+
+  if let ServerConfig::Sentinel { hosts, service_name } = old_config.server {
+    let timeout = globals().sentinel_connection_timeout_ms() as u64;
+
+    for (host, port) in hosts.into_iter() {
+      _debug!(inner, "Updating sentinel nodes from {}:{}...", host, port);
+
+      let transport = match sentinel::connect_to_sentinel(inner, &host, port, timeout).await {
+        Ok(transport) => transport,
+        Err(e) => {
+          _warn!(
+            inner,
+            "Failed to connect to sentinel {}:{} with error: {:?}",
+            host,
+            port,
+            e
+          );
+          continue;
+        }
+      };
+      if let Err(e) = sentinel::update_sentinel_nodes(inner, transport, &service_name).await {
+        _warn!(
+          inner,
+          "Failed to read sentinel nodes from {}:{} with error: {:?}",
+          host,
+          port,
+          e
+        );
+      } else {
+        return Ok(());
+      }
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Failed to read sentinel nodes from any known sentinel.",
+    ))
+  } else {
+    Err(RedisError::new(RedisErrorKind::Config, "Expected sentinel config."))
+  }
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {

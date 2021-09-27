@@ -2,8 +2,6 @@ use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::utils as protocol_utils;
 use bytes::BytesMut;
-use parking_lot::RwLock;
-use rand::Rng;
 use redis_protocol::resp2::decode::decode as resp2_decode;
 use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
@@ -14,6 +12,8 @@ use tokio_util::codec::{Decoder, Encoder};
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+#[cfg(feature = "metrics")]
+use parking_lot::RwLock;
 #[cfg(feature = "network-logs")]
 use std::str;
 

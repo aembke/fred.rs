@@ -677,7 +677,7 @@ async fn create_cluster_connection(
   }
 }
 
-fn get_or_create_close_tx(inner: &Arc<RedisClientInner>, close_tx: &Arc<RwLock<Option<CloseTx>>>) -> CloseTx {
+pub fn get_or_create_close_tx(inner: &Arc<RedisClientInner>, close_tx: &Arc<RwLock<Option<CloseTx>>>) -> CloseTx {
   let mut guard = close_tx.write();
 
   if let Some(tx) = { guard.clone() } {
@@ -733,7 +733,7 @@ pub async fn connect_clustered(
   }
 }
 
-fn spawn_centralized_listener(
+pub fn spawn_centralized_listener(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   connections: &Connections,

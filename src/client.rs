@@ -1,7 +1,6 @@
 use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::{MultiPolicy, RedisClientInner};
-use crate::modules::metrics::Stats;
 use crate::modules::response::RedisResponse;
 use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
@@ -18,6 +17,9 @@ use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::time::interval as tokio_interval;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+
+#[cfg(feature = "metrics")]
+use crate::modules::metrics::Stats;
 
 #[doc(hidden)]
 pub type CommandSender = UnboundedSender<RedisCommand>;
@@ -735,6 +737,13 @@ impl RedisClient {
       RedisErrorKind::Unknown,
       "Failed to read connection IDs",
     ))
+  }
+
+  /// Update the client's sentinel nodes list in place if using the sentinel interface.
+  ///
+  /// The client will automatically update this when connections to the primary server close.
+  pub async fn update_sentinel_nodes(&self) -> Result<(), RedisError> {
+    utils::update_sentinel_nodes(&self.inner).await
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable format.

@@ -6,7 +6,7 @@ networks:
 
 services:
   redis-main:
-    image: 'bitnami/redis:6.2.5'
+    image: 'bitnami/redis:${REDIS_VERSION}'
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
     ports:
@@ -14,7 +14,7 @@ services:
     networks:
       - app-tier
   redis-replica:
-    image: 'bitnami/redis:6.2.5'
+    image: 'bitnami/redis:${REDIS_VERSION}'
     depends_on:
       - redis-main
     environment:
@@ -26,7 +26,7 @@ services:
     networks:
       - app-tier
   redis-sentinel:
-    image: 'bitnami/redis-sentinel:6.2.5'
+    image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
       - redis-replica
