@@ -1,20 +1,21 @@
 use crate::error::RedisError;
-use crate::inner::RedisClientInner;
-use crate::metrics::SizeStats;
+use crate::modules::inner::RedisClientInner;
 use crate::protocol::utils as protocol_utils;
 use bytes::BytesMut;
-use parking_lot::RwLock;
 use redis_protocol::resp2::decode::decode as resp2_decode;
 use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 
-#[cfg(feature = "network-logs")]
-use std::str;
-
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
+#[cfg(feature = "metrics")]
+use crate::modules::metrics::MovingStats;
+#[cfg(feature = "metrics")]
+use parking_lot::RwLock;
+#[cfg(feature = "network-logs")]
+use std::str;
 
 #[cfg(not(feature = "network-logs"))]
 fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
@@ -50,6 +51,18 @@ fn log_resp2_frame(name: &str, frame: &Resp2Frame, encode: bool) {
   trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))
 }
 
+#[cfg(feature = "metrics")]
+fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
+  if decode {
+    codec.res_size_stats.write().sample(value);
+  } else {
+    codec.req_size_stats.write().sample(value);
+  }
+}
+
+#[cfg(not(feature = "metrics"))]
+fn sample_stats(_: &RedisCodec, _: bool, _: i64) {}
+
 fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
   let offset = dst.len();
 
@@ -64,7 +77,7 @@ fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) 
     res
   );
   log_resp2_frame(&codec.name, &item, true);
-  codec.req_size_stats.write().sample(len as u64);
+  sample_stats(&codec, false, len as i64);
 
   Ok(())
 }
@@ -78,7 +91,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
   if let Some((frame, amt)) = resp2_decode(src)? {
     trace!("{}: Parsed {} bytes from {}", codec.name, amt, codec.server);
     log_resp2_frame(&codec.name, &frame, false);
-    codec.res_size_stats.write().sample(amt as u64);
+    sample_stats(&codec, true, amt as i64);
 
     let _ = src.split_to(amt);
     Ok(Some(protocol_utils::check_auth_error(frame)))
@@ -90,8 +103,10 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
 pub struct RedisCodec {
   pub name: Arc<String>,
   pub server: String,
-  pub req_size_stats: Arc<RwLock<SizeStats>>,
-  pub res_size_stats: Arc<RwLock<SizeStats>>,
+  #[cfg(feature = "metrics")]
+  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  #[cfg(feature = "metrics")]
+  pub res_size_stats: Arc<RwLock<MovingStats>>,
 }
 
 impl RedisCodec {
@@ -99,7 +114,9 @@ impl RedisCodec {
     RedisCodec {
       server,
       name: inner.id.clone(),
+      #[cfg(feature = "metrics")]
       req_size_stats: inner.req_size_stats.clone(),
+      #[cfg(feature = "metrics")]
       res_size_stats: inner.res_size_stats.clone(),
     }
   }

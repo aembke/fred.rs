@@ -25,6 +25,39 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
+#[cfg(all(feature = "sentinel-tests", not(feature = "chaos-monkey")))]
+pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
+where
+  F: Fn(RedisClient, RedisConfig) -> Fut,
+  Fut: Future<Output = Result<(), RedisError>>,
+{
+  set_test_kind(false);
+
+  let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
+  let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
+    server: ServerConfig::Sentinel {
+      hosts: vec![
+        ("127.0.0.1".into(), 26379),
+        ("127.0.0.1".into(), 26380),
+        ("127.0.0.1".into(), 26381),
+      ],
+      service_name: "redis-sentinel-main".into(),
+    },
+    pipeline,
+    ..Default::default()
+  };
+  let client = RedisClient::new(config.clone());
+  let _client = client.clone();
+
+  let _jh = client.connect(Some(policy));
+  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+
+  let _: () = client.flushall(false).await.expect("Failed to flushall");
+  func(_client, config.clone()).await.expect("Failed to run test");
+  let _ = client.quit().await;
+}
+
 pub async fn run_cluster<F, Fut>(func: F, pipeline: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
@@ -77,6 +110,7 @@ where
 
 macro_rules! centralized_test_panic(
   ($module:tt, $name:tt) => {
+    #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       #[tokio::test]
       #[should_panic]
@@ -92,11 +126,29 @@ macro_rules! centralized_test_panic(
         crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
       }
     }
+
+    #[cfg(feature="sentinel-tests")]
+    mod $name {
+      #[tokio::test]
+      #[should_panic]
+      async fn sentinel_pipelined() {
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_sentinel(crate::integration::$module::$name, true).await;
+      }
+
+      #[tokio::test]
+      #[should_panic]
+      async fn sentinel_no_pipeline() {
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_sentinel(crate::integration::$module::$name, false).await;
+      }
+    }
   }
 );
 
 macro_rules! cluster_test_panic(
   ($module:tt, $name:tt) => {
+    #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       #[tokio::test]
       #[should_panic]
@@ -117,6 +169,7 @@ macro_rules! cluster_test_panic(
 
 macro_rules! centralized_test(
   ($module:tt, $name:tt) => {
+    #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       #[tokio::test]
       async fn pipelined() {
@@ -130,11 +183,27 @@ macro_rules! centralized_test(
         crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
       }
     }
+
+    #[cfg(feature="sentinel-tests")]
+    mod $name {
+      #[tokio::test]
+      async fn sentinel_pipelined() {
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_sentinel(crate::integration::$module::$name, true).await;
+      }
+
+      #[tokio::test]
+      async fn sentinel_no_pipeline() {
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_sentinel(crate::integration::$module::$name, false).await;
+      }
+    }
   }
 );
 
 macro_rules! cluster_test(
   ($module:tt, $name:tt) => {
+    #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       #[tokio::test]
       async fn pipelined() {

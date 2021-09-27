@@ -92,6 +92,7 @@ pub async fn should_split_clustered_connection(client: RedisClient, _config: Red
   Ok(())
 }
 
+#[cfg(feature = "metrics")]
 pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   let _ = client.take_res_size_metrics();
   let _ = client.take_req_size_metrics();

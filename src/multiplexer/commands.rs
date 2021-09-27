@@ -1,7 +1,7 @@
 use crate::client::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{utils, SentCommand};
 use crate::multiplexer::{Backpressure, Multiplexer};
 use crate::protocol::connection::read_cluster_nodes;

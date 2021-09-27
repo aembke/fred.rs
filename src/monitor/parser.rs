@@ -1,4 +1,4 @@
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::monitor::Command;
 use crate::types::RedisValue;
 use nom::bytes::complete::{escaped as nom_escaped, tag as nom_tag, take as nom_take, take_until as nom_take_until};
@@ -78,10 +78,6 @@ fn d_parse_command(input: &[u8]) -> IResult<&[u8], String, RedisParseError<&[u8]
 }
 
 fn d_parse_arg(input: &[u8]) -> IResult<&[u8], RedisValue, RedisParseError<&[u8]>> {
-  // this is annoying because there is no special delimiter between args. the frames use quotes
-  // and spaces as delimiters, but inner values can also contain those. spaces obviously don't
-  // have an escape character, so this uses unescaped quotes to detect the end of a value.
-
   let escaped_parser = nom_escaped(nom_none_of("\\\""), '\\', nom_tag(QUOTE));
   nom_map_res(
     nom_terminated(

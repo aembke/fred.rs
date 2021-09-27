@@ -1,5 +1,5 @@
 use crate::error::RedisError;
-use crate::inner::RedisClientInner;
+use crate::modules::inner::RedisClientInner;
 use crate::monitor::parser;
 use crate::monitor::{Command, Config};
 use crate::protocol::codec::RedisCodec;

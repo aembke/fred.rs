@@ -31,7 +31,7 @@ mod multi {
 
 mod other {
 
-  #[cfg(not(feature = "chaos-monkey"))]
+  #[cfg(all(not(feature = "chaos-monkey"), feature = "metrics"))]
   centralized_test!(other, should_track_size_stats);
 
   centralized_test!(other, should_automatically_unblock);
