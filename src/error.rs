@@ -222,6 +222,7 @@ impl From<Resp2Frame> for RedisError {
 }
 
 #[cfg(feature = "enable-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
 impl From<native_tls::Error> for RedisError {
   fn from(e: native_tls::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))

@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "4.1.0"
+version = "4.2.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -76,6 +76,7 @@ blocking-encoding = ["tokio/rt-multi-thread"]
 network-logs = []
 custom-reconnect-errors = []
 monitor = ["nom"]
+sentinel-client = []
 # Testing Features
 sentinel-tests = []
 # a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
