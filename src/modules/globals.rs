@@ -143,12 +143,14 @@ pub(crate) fn globals() -> &'static Globals {
 ///
 /// Default: CLUSTERDOWN, READONLY, LOADING
 #[cfg(feature = "custom-reconnect-errors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
 pub fn get_custom_reconnect_errors() -> Vec<ReconnectError> {
   globals().reconnect_errors.read().clone()
 }
 
 /// See [get_custom_reconnect_errors] for more information.
 #[cfg(feature = "custom-reconnect-errors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
 pub fn set_custom_reconnect_errors(prefixes: Vec<ReconnectError>) {
   let mut guard = globals().reconnect_errors.write();
   *guard = prefixes;
@@ -247,12 +249,14 @@ pub fn set_min_backpressure_time_ms(val: usize) -> usize {
 ///
 /// Default: 500 Kb
 #[cfg(feature = "blocking-encoding")]
+#[cfg_attr(docsrs, doc(cfg(feature = "blocking-encoding")))]
 pub fn get_blocking_encode_threshold() -> usize {
   read_atomic(&globals().blocking_encode_threshold)
 }
 
 /// See [get_blocking_encode_threshold] for more information.
 #[cfg(feature = "blocking-encoding")]
+#[cfg_attr(docsrs, doc(cfg(feature = "blocking-encoding")))]
 pub fn set_blocking_encode_threshold(val: usize) -> usize {
   set_atomic(&globals().blocking_encode_threshold, val)
 }

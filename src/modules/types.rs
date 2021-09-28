@@ -27,6 +27,7 @@ pub use crate::protocol::tls::TlsConfig;
 pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 
 #[cfg(feature = "metrics")]
+#[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
 
 #[cfg(feature = "index-map")]
@@ -604,11 +605,13 @@ pub struct RedisConfig {
   ///
   /// Default: `None`
   #[cfg(feature = "enable-tls")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
   pub tls: Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing: bool,
 }
 
@@ -622,8 +625,10 @@ impl Default for RedisConfig {
       password: None,
       server: ServerConfig::default(),
       #[cfg(feature = "enable-tls")]
+      #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
+      #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
       tracing: false,
     }
   }
@@ -1253,6 +1258,7 @@ impl RedisMap {
 
   /// Take the inner `IndexMap`.
   #[cfg(feature = "index-map")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
   pub fn inner(self) -> IndexMap<String, RedisValue> {
     self.inner
   }
@@ -1264,6 +1270,7 @@ impl RedisMap {
 
   /// Take the inner `HashMap`.
   #[cfg(not(feature = "index-map"))]
+  #[cfg_attr(docsrs, doc(cfg(not(feature = "index-map"))))]
   pub fn inner(self) -> HashMap<String, RedisValue> {
     self.inner
   }
@@ -1271,8 +1278,10 @@ impl RedisMap {
 
 impl Deref for RedisMap {
   #[cfg(feature = "index-map")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
   type Target = IndexMap<String, RedisValue>;
   #[cfg(not(feature = "index-map"))]
+  #[cfg_attr(docsrs, doc(cfg(not(feature = "index-map"))))]
   type Target = HashMap<String, RedisValue>;
 
   fn deref(&self) -> &Self::Target {
@@ -1287,6 +1296,7 @@ impl DerefMut for RedisMap {
 }
 
 #[cfg(feature = "index-map")]
+#[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
 impl From<IndexMap<String, RedisValue>> for RedisMap {
   fn from(d: IndexMap<String, RedisValue>) -> Self {
     RedisMap { inner: d }
@@ -2015,6 +2025,7 @@ impl FromIterator<RedisValue> for RedisValue {
 }
 
 #[cfg(feature = "index-map")]
+#[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
 impl From<IndexMap<String, RedisValue>> for RedisValue {
   fn from(d: IndexMap<String, RedisValue>) -> Self {
     RedisValue::Map(d.into())
@@ -2955,6 +2966,7 @@ impl TryFrom<f64> for ZRange {
 /// Arguments for the `SENTINEL SIMULATE-FAILURE` command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sentinel-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub enum SentinelFailureKind {
   CrashAfterElection,
   CrashAfterPromotion,
