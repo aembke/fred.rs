@@ -73,8 +73,10 @@ pub mod error;
 /// An interface to run the `MONITOR` command.
 #[cfg(feature = "monitor")]
 pub mod monitor;
+/// An interface for interacting directly with sentinel nodes.
+#[cfg(feature = "sentinel-client")]
+pub mod sentinel;
 
-// TODO test cargo doc works
 pub use crate::modules::{globals, pool, types};
 
 /// Convenience module to `use` a `RedisClient`, `RedisError`, and any argument types.

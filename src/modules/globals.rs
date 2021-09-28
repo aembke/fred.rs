@@ -182,6 +182,8 @@ pub fn set_cluster_error_cache_delay_ms(val: usize) -> usize {
 ///
 /// A connection closing while a command is in flight can result in a command being written multiple times.
 ///
+/// Callers can set this to 1 to disable automatic command retry.
+///
 /// Default: 3
 pub fn get_max_command_attempts() -> usize {
   read_atomic(&globals().max_command_attempts)

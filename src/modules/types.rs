@@ -2952,6 +2952,26 @@ impl TryFrom<f64> for ZRange {
   }
 }
 
+/// Arguments for the `SENTINEL SIMULATE-FAILURE` command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sentinel-client")]
+pub enum SentinelFailureKind {
+  CrashAfterElection,
+  CrashAfterPromotion,
+  Help,
+}
+
+#[cfg(feature = "sentinel-client")]
+impl SentinelFailureKind {
+  pub(crate) fn to_str(&self) -> &'static str {
+    match self {
+      SentinelFailureKind::CrashAfterElection => "crash-after-election",
+      SentinelFailureKind::CrashAfterPromotion => "crash-after-promotion",
+      SentinelFailureKind::Help => "help",
+    }
+  }
+}
+
 impl<'a> From<&'a ZRange> for ZRange {
   fn from(range: &'a ZRange) -> Self {
     range.clone()

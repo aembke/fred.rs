@@ -97,10 +97,11 @@ When a client is initialized it will generate a unique client name with a prefix
 | pool-prefer-active          |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                          |
 | full-tracing                |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data so a partial tracing feature is also provided.           |
 | partial-tracing             |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency. Note: this has a non-trivial impact on [performance](./bin/pipeline_test/README.md#Examples).  |
-| blocking-encoding           |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime.  |
+| blocking-encoding           |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/modules/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime.  |
 | network-logs                |         | Enable TRACE level logging statements that will print out all data sent to or received from the server.  |
 | custom-reconnect-errors     |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.    |
 | monitor                     |         | Enable an interface for running the `MONITOR` command.                                                                    |
+| sentinel-client             |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                               |
 
 ## Environment Variables
 
@@ -137,11 +138,13 @@ The client will automatically update these values in place as sentinel nodes cha
 
 Note: Sentinel connections will use the same authentication and TLS configuration options as the connections to the Redis servers.
 
+Callers can also use the `sentinel-client` feature to communicate directly with Sentinel nodes.
+
 ## Customizing Error Handling
 
-The `custom-reconnect-errors` feature enables an interface on the [globals](src/globals.rs) to customize the list of errors that should automatically trigger reconnection logic (if configured). 
+The `custom-reconnect-errors` feature enables an interface on the [globals](src/modules/globals.rs) to customize the list of errors that should automatically trigger reconnection logic (if configured). 
 
-In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/unstable/src/server.c#L2506-L2538) in the error message, and this interface allows callers to specify which errors should be handled this way.
+In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/66002530466a45bce85e4930364f1b153c44840b/src/server.c#L2998-L3031) in the error message, and this interface allows callers to specify which errors should be handled this way.
 
 Errors that trigger this can be seen with the [on_error](https://docs.rs/fred/*/fred/client/struct.RedisClient.html#method.on_error) function. 
 
