@@ -42,11 +42,13 @@ pub struct SentinelConfig {
   ///
   /// Default: `None`
   #[cfg(feature = "enable-tls")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
   pub tls: Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing: bool,
 }
 
