@@ -1,3 +1,7 @@
+#![cfg_attr(docsrs, deny(rustdoc::broken_intra_doc_links))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(docsrs, allow(unused_attributes))]
+
 //! Fred
 //! ====
 //!
@@ -72,9 +76,13 @@ pub mod client;
 pub mod error;
 /// An interface to run the `MONITOR` command.
 #[cfg(feature = "monitor")]
+#[cfg_attr(docsrs, doc(cfg(feature = "monitor")))]
 pub mod monitor;
+/// An interface for interacting directly with sentinel nodes.
+#[cfg(feature = "sentinel-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
+pub mod sentinel;
 
-// TODO test cargo doc works
 pub use crate::modules::{globals, pool, types};
 
 /// Convenience module to `use` a `RedisClient`, `RedisError`, and any argument types.

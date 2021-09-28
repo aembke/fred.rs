@@ -1,3 +1,8 @@
+## 4.2.0
+
+* Support Sentinel clients
+* Fix broken doc links
+
 ## 4.1.0
 
 * Support Redis Sentinel
