@@ -472,6 +472,16 @@ async fn handle_backpressure(
   }
 }
 
+/// If the client is clustered, and has a hash slot declared for a MULTI transaction, then return the
+/// hash slot declared earlier in the transaction.
+fn check_clustered_multi_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> {
+  if client_utils::is_clustered(&inner.config) && client_utils::is_locked_some(&inner.multi_block) {
+    client_utils::read_multi_hash_slot(inner)
+  } else {
+    None
+  }
+}
+
 async fn write_command(
   inner: &Arc<RedisClientInner>,
   multiplexer: &Multiplexer,
@@ -496,8 +506,13 @@ async fn write_command(
     let result = multiplexer.write_all_cluster(command).await?;
     handle_backpressure(inner, multiplexer, result, true, true).await
   } else {
-    let result = multiplexer.write(command).await?;
-    handle_backpressure(inner, multiplexer, result, true, false).await
+    if let Some(hash_slot) = check_clustered_multi_hash_slot(inner) {
+      let result = multiplexer.write_with_hash_slot(command, hash_slot).await?;
+      handle_backpressure(inner, multiplexer, result, false, false).await
+    } else {
+      let result = multiplexer.write(command).await?;
+      handle_backpressure(inner, multiplexer, result, true, false).await
+    }
   }
 }
 
