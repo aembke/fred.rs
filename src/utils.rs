@@ -322,6 +322,19 @@ pub fn should_send_multi_command(inner: &Arc<RedisClientInner>) -> Option<u16> {
   }
 }
 
+/// Read the MULTI block hash slot, if known.
+pub fn read_multi_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> {
+  if is_clustered(&inner.config) {
+    inner
+      .multi_block
+      .read()
+      .as_ref()
+      .and_then(|policy| policy.hash_slot.clone())
+  } else {
+    None
+  }
+}
+
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   let formatted = val.starts_with("(") || val.starts_with("[") || val == "+" || val == "-";
 
