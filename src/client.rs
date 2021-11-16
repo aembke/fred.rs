@@ -21,9 +21,6 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::Stats;
 
-#[doc(hidden)]
-pub type CommandSender = UnboundedSender<RedisCommand>;
-
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {
   pub use crate::utils::f64_to_redis_string;

@@ -1,4 +1,4 @@
-use crate::client::{CommandSender, RedisClient};
+use crate::client::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::{ClosedState, RedisClientInner};
@@ -59,10 +59,6 @@ pub fn close_connect_tx(connect_tx: &RwLock<VecDeque<OneshotSender<Result<(), Re
     trace!("Closing connect tx");
     let _ = tx.send(Err(RedisError::new_canceled()));
   }
-}
-
-pub fn close_command_tx(command_tx: &RwLock<Option<CommandSender>>) {
-  let _ = command_tx.write().take();
 }
 
 pub fn emit_connect(inner: &Arc<RedisClientInner>) {

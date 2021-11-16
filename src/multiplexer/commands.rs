@@ -153,7 +153,6 @@ fn shutdown_client(inner: &Arc<RedisClientInner>, error: &RedisError) {
   utils::emit_connect_error(inner, &error);
   utils::emit_error(&inner, &error);
   client_utils::shutdown_listeners(&inner);
-  client_utils::set_locked(&inner.command_tx, None);
   client_utils::set_locked(&inner.multi_block, None);
   client_utils::set_client_state(&inner.state, ClientState::Disconnected);
   inner.update_cluster_state(None);
@@ -837,6 +836,15 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
       "Connections are already initialized or connecting.",
     ));
   }
+  let mut rx = match inner.take_command_rx() {
+    Some(rx) => rx,
+    None => {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Redis client is already initialized.",
+      ))
+    }
+  };
   client_utils::set_locked(&inner.policy, policy.clone());
   let multiplexer = Multiplexer::new(inner);
 
@@ -851,8 +859,6 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
     connect_with_policy(inner, &multiplexer, &mut policy).await?;
   }
 
-  let (tx, mut rx) = unbounded_channel();
-  client_utils::set_locked(&inner.command_tx, Some(tx));
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   utils::emit_connect(inner);
   utils::emit_reconnect(inner);
@@ -865,12 +871,14 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
   while let Some(command) = rx.recv().await {
     if let Err(e) = handle_command_t(inner, &multiplexer, command, has_policy, disable_pipeline).await {
       if e.is_canceled() {
-        return Ok(());
+        break;
       } else {
+        inner.store_command_rx(rx);
         return Err(e);
       }
     }
   }
 
+  inner.store_command_rx(rx);
   Ok(())
 }
