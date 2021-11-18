@@ -401,7 +401,7 @@ async fn handle_write_error(
     Ok(false)
   } else {
     _debug!(inner, "Closing command stream from error without reconnect policy.");
-    let in_flight_commands = utils::take_sent_commands(&multiplexer.connections).await;
+    let in_flight_commands = utils::take_sent_commands(&multiplexer.connections);
     write_final_error_to_callers(&inner, in_flight_commands, &error);
 
     Ok(true)

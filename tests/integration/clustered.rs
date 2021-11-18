@@ -20,6 +20,7 @@ mod keys {
   cluster_test!(keys, should_mget_values);
   cluster_test!(keys, should_msetnx_values);
   cluster_test!(keys, should_copy_values);
+  cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
 mod multi {

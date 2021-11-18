@@ -493,28 +493,11 @@ pub async fn write_command(
   inner: &Arc<RedisClientInner>,
   sink: &mut RedisSink,
   counters: &Counters,
-  command: &mut SentCommand,
+  frame: ProtocolFrame,
+  should_flush: bool
 ) -> Result<(), RedisError> {
-  let frame = command.command.to_frame()?;
-  command.command.incr_attempted();
-  command.network_start = Some(Instant::now());
-
-  // flush the socket under the following conditions:
-  // * we don't know of any queued commands following this command
-  // * we've fed up to the global max feed count commands already
-  // * the command closes the connection
-  // * the command ends a transaction
-  // * the command blocks the multiplexer command loop
-  let should_flush = counters.should_send()
-    || command.command.is_quit()
-    || command.command.kind.ends_transaction()
-    || client_utils::is_locked_some(&command.command.resp_tx);
-
   if should_flush {
     _trace!(inner, "Sending command and flushing the sink.");
-    if inner.should_trace() {
-      trace::set_network_span(&mut command.command, true);
-    }
 
     match sink {
       RedisSink::Tcp(ref mut inner) => inner.send(frame).await?,
@@ -523,9 +506,6 @@ pub async fn write_command(
     counters.reset_feed_count();
   } else {
     _trace!(inner, "Sending command without flushing the sink.");
-    if inner.should_trace() {
-      trace::set_network_span(&mut command.command, false);
-    }
 
     match sink {
       RedisSink::Tcp(ref mut inner) => inner.feed(frame).await?,
