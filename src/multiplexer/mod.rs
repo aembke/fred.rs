@@ -6,7 +6,7 @@ use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::RedisCommand;
 use crate::types::ClientState;
 use crate::utils as client_utils;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -102,7 +102,7 @@ pub enum ConnectionIDs {
 pub enum Connections {
   Centralized {
     writer: Arc<AsyncRwLock<Option<RedisSink>>>,
-    commands: Arc<RwLock<SentCommands>>,
+    commands: Arc<Mutex<SentCommands>>,
     counters: Counters,
     // TODO find a better way to do this that works with mutable servers due to sentinel changes, but where server names are cloned a lot
     server: Arc<AsyncRwLock<Arc<String>>>,
@@ -112,7 +112,7 @@ pub enum Connections {
     cache: Arc<RwLock<ClusterKeyCache>>,
     counters: Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
     writers: Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-    commands: Arc<RwLock<BTreeMap<Arc<String>, SentCommands>>>,
+    commands: Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
     connection_ids: Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
   },
 }
@@ -125,7 +125,7 @@ impl Connections {
       server: Arc::new(AsyncRwLock::new(Arc::new(server))),
       counters: Counters::new(cmd_buffer_len),
       writer: Arc::new(AsyncRwLock::new(None)),
-      commands: Arc::new(RwLock::new(VecDeque::new())),
+      commands: Arc::new(Mutex::new(VecDeque::new())),
       connection_id: Arc::new(RwLock::new(None)),
     }
   }
@@ -136,7 +136,7 @@ impl Connections {
     Connections::Clustered {
       cache: Arc::new(RwLock::new(cache)),
       writers: Arc::new(AsyncRwLock::new(BTreeMap::new())),
-      commands: Arc::new(RwLock::new(BTreeMap::new())),
+      commands: Arc::new(Mutex::new(BTreeMap::new())),
       counters: Arc::new(RwLock::new(BTreeMap::new())),
       connection_ids: Arc::new(RwLock::new(BTreeMap::new())),
     }

@@ -16,7 +16,7 @@ use futures::pin_mut;
 use futures::select;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::mem;
@@ -107,10 +107,10 @@ pub fn emit_reconnect(inner: &Arc<RedisClientInner>) {
 }
 
 fn take_commands(
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   server: &Arc<String>,
 ) -> Option<SentCommands> {
-  commands.write().remove(server)
+  commands.lock().remove(server)
 }
 
 /// Emit a message to the task monitoring for connection closed events.
@@ -127,7 +127,7 @@ pub fn emit_connection_closed(
   let commands = match connections {
     Connections::Clustered { ref commands, .. } => take_commands(commands, server),
     Connections::Centralized { ref commands, .. } => {
-      let commands: SentCommands = commands.write().drain(..).collect();
+      let commands: SentCommands = commands.lock().drain(..).collect();
       Some(commands)
     }
   };
@@ -176,6 +176,10 @@ pub fn refresh_cluster_state(inner: &Arc<RedisClientInner>, mut command: SentCom
 
 pub fn insert_locked_map<K: Ord, V>(locked: &RwLock<BTreeMap<K, V>>, key: K, value: V) -> Option<V> {
   locked.write().insert(key, value)
+}
+
+pub fn insert_locked_map_mutex<K: Ord, V>(locked: &Mutex<BTreeMap<K, V>>, key: K, value: V) -> Option<V> {
+  locked.lock().insert(key, value)
 }
 
 pub async fn insert_locked_map_async<K: Ord, V>(locked: &AsyncRwLock<BTreeMap<K, V>>, key: K, value: V) -> Option<V> {
@@ -270,7 +274,7 @@ pub fn unblock_multiplexer(inner: &Arc<RedisClientInner>, command: &RedisCommand
 pub async fn write_all_nodes(
   inner: &Arc<RedisClientInner>,
   writers: &Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   command: RedisCommand,
 ) -> Result<Backpressure, RedisError> {
@@ -342,7 +346,7 @@ pub async fn send_centralized_command(
   server: &Arc<String>,
   counters: &Counters,
   writer: &mut RedisSink,
-  commands: &Arc<RwLock<SentCommands>>,
+  commands: &Arc<Mutex<SentCommands>>,
   command: RedisCommand,
 ) -> Result<(), RedisError> {
   let (command, frame, should_flush) = prepare_command(inner, counters, command)?;
@@ -354,7 +358,7 @@ pub async fn send_centralized_command(
   );
 
   {
-    commands.write().push_back(command.into());
+    commands.lock().push_back(command.into());
   }
   // if writing the command fails it will be retried from this point forward since it has been added to the commands queue
   connection::write_command(inner, writer, counters, frame, should_flush).await
@@ -365,7 +369,7 @@ pub async fn send_clustered_command(
   server: &Arc<String>,
   counters: &Counters,
   writer: &mut RedisSink,
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   command: RedisCommand,
 ) -> Result<(), RedisError> {
   let (command, frame, should_flush) = prepare_command(inner, counters, command)?;
@@ -377,7 +381,7 @@ pub async fn send_clustered_command(
   );
 
   {
-    if let Some(commands) = commands.write().get_mut(server) {
+    if let Some(commands) = commands.lock().get_mut(server) {
       commands.push_back(command);
     } else {
       _error!(inner, "Failed to lookup command queue for {}", server);
@@ -529,7 +533,7 @@ pub async fn write_clustered_command(
 
 pub fn take_sent_commands(connections: &Connections) -> VecDeque<SentCommand> {
   match connections {
-    Connections::Centralized { ref commands, .. } => commands.write().drain(..).collect(),
+    Connections::Centralized { ref commands, .. } => commands.lock().drain(..).collect(),
     Connections::Clustered {
       ref cache,
       ref commands,
@@ -551,7 +555,7 @@ pub fn take_sent_commands(connections: &Connections) -> VecDeque<SentCommand> {
 /// This will return `[1,7,5,2,8,6,3,9,4]`
 pub fn zip_cluster_commands(
   cache: &Arc<RwLock<ClusterKeyCache>>,
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
 ) -> VecDeque<SentCommand> {
   let num_connections = {
     let mut out = BTreeSet::new();
@@ -565,7 +569,7 @@ pub fn zip_cluster_commands(
     let mut out = Vec::with_capacity(num_connections);
     let mut capacity = 0;
 
-    for (_, commands) in commands.write().iter_mut() {
+    for (_, commands) in commands.lock().iter_mut() {
       capacity += commands.len();
       out.push(mem::replace(commands, VecDeque::new()));
     }
@@ -611,7 +615,7 @@ async fn remove_cluster_writer(connections: &Connections, server: &Arc<String>) 
 pub fn spawn_clustered_listener(
   inner: &Arc<RedisClientInner>,
   connections: &Connections,
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   mut close_rx: BroadcastReceiver<RedisError>,
   server: &Arc<String>,
@@ -762,7 +766,7 @@ pub async fn connect_clustered(
     for server in main_nodes.into_iter() {
       let (sink, stream) = create_cluster_connection(inner, connection_ids, &server, uses_tls).await?;
 
-      insert_locked_map(commands, server.clone(), VecDeque::new());
+      insert_locked_map_mutex(commands, server.clone(), VecDeque::new());
       insert_locked_map_async(writers, server.clone(), sink).await;
       insert_locked_map(counters, server.clone(), Counters::new(&inner.cmd_buffer_len));
       spawn_clustered_listener(inner, connections, commands, counters, tx.subscribe(), &server, stream);
@@ -784,7 +788,7 @@ pub fn spawn_centralized_listener(
   server: &Arc<String>,
   connections: &Connections,
   mut close_rx: BroadcastReceiver<RedisError>,
-  commands: &Arc<RwLock<VecDeque<SentCommand>>>,
+  commands: &Arc<Mutex<VecDeque<SentCommand>>>,
   counters: &Counters,
   stream: RedisStream,
 ) {
@@ -1035,7 +1039,7 @@ async fn remove_server(
   inner: &Arc<RedisClientInner>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   writers: &Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   connection_ids: &Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
   server: &Arc<String>,
 ) -> Result<(), RedisError> {
@@ -1044,7 +1048,7 @@ async fn remove_server(
     let _ = { writers.write().await.remove(server) };
     let _ = { counters.write().remove(server) };
     let _ = { connection_ids.write().remove(server) };
-    commands.write().remove(server)
+    commands.lock().remove(server)
   };
 
   if let Some(commands) = commands {
@@ -1068,7 +1072,7 @@ async fn add_server(
   connections: &Connections,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   writers: &Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-  commands: &Arc<RwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   connection_ids: &Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
   close_tx: &Arc<RwLock<Option<CloseTx>>>,
   server: &Arc<String>,
@@ -1078,7 +1082,7 @@ async fn add_server(
   let (sink, stream) = create_cluster_connection(inner, connection_ids, server, uses_tls).await?;
   let tx = get_or_create_close_tx(inner, close_tx);
 
-  insert_locked_map(commands, server.clone(), VecDeque::new());
+  insert_locked_map_mutex(commands, server.clone(), VecDeque::new());
   insert_locked_map_async(writers, server.clone(), sink).await;
   insert_locked_map(counters, server.clone(), Counters::new(&inner.cmd_buffer_len));
   spawn_clustered_listener(inner, connections, commands, counters, tx.subscribe(), &server, stream);
@@ -1276,7 +1280,7 @@ mod tests {
     commands.insert(server_a, server_a_commands);
     commands.insert(server_b, server_b_commands);
     commands.insert(server_c, server_c_commands);
-    let commands = Arc::new(RwLock::new(commands));
+    let commands = Arc::new(Mutex::new(commands));
 
     let zipped: Vec<u64> = zip_cluster_commands(&cache, &commands)
       .into_iter()
@@ -1286,7 +1290,7 @@ mod tests {
 
     assert_eq!(zipped, expected);
 
-    for (_, commands) in commands.read().iter() {
+    for (_, commands) in commands.lock().iter() {
       assert!(commands.is_empty());
     }
   }
