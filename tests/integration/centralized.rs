@@ -40,6 +40,12 @@ mod other {
   centralized_test!(other, should_error_when_blocked);
 }
 
+mod pool {
+  centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
+  centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
+  centralized_test!(pool, should_connect_and_ping_static_pool_many_conn);
+}
+
 mod hashes {
 
   centralized_test!(hashes, should_hset_and_hget);

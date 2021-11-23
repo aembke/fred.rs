@@ -44,6 +44,12 @@ mod other {
   cluster_test!(other, should_error_when_blocked);
 }
 
+mod pool {
+  cluster_test!(pool, should_connect_and_ping_static_pool_single_conn);
+  cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
+  cluster_test!(pool, should_connect_and_ping_static_pool_many_conn);
+}
+
 mod hashes {
 
   cluster_test!(hashes, should_hset_and_hget);

@@ -3,6 +3,7 @@
 use crate::chaos_monkey::set_test_kind;
 use fred::client::RedisClient;
 use fred::error::RedisError;
+use fred::globals;
 use fred::types::{ReconnectPolicy, RedisConfig, ServerConfig};
 use std::env;
 use std::future::Future;
@@ -64,6 +65,7 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   set_test_kind(true);
+  globals::set_default_command_timeout(10_000);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
@@ -89,6 +91,7 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   set_test_kind(false);
+  globals::set_default_command_timeout(10_000);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
