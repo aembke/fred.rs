@@ -44,6 +44,7 @@ mod pool {
   centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
   centralized_test!(pool, should_connect_and_ping_static_pool_many_conn);
+  centralized_test!(pool, should_connect_and_ping_static_pool_repeatedly);
 }
 
 mod hashes {

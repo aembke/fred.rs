@@ -48,6 +48,7 @@ mod pool {
   cluster_test!(pool, should_connect_and_ping_static_pool_single_conn);
   cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
   cluster_test!(pool, should_connect_and_ping_static_pool_many_conn);
+  cluster_test!(pool, should_connect_and_ping_static_pool_repeatedly);
 }
 
 mod hashes {
