@@ -35,6 +35,7 @@ pub async fn should_connect_and_ping_static_pool_two_conn(
 }
 
 // this may require increasing the number of allowed file descriptors
+#[cfg(feature = "fd-tests")]
 pub async fn should_connect_and_ping_static_pool_many_conn(
   _: RedisClient,
   config: RedisConfig,
@@ -47,6 +48,7 @@ pub async fn should_connect_and_ping_static_pool_many_conn(
   Ok(())
 }
 
+#[cfg(feature = "fd-tests")]
 pub async fn should_connect_and_ping_static_pool_repeatedly(
   _: RedisClient,
   config: RedisConfig,
