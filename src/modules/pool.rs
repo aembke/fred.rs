@@ -195,7 +195,7 @@ impl DynamicRedisPool {
   /// Call `QUIT` on each client in the pool.
   pub async fn quit_pool(&self) {
     let clients = self.clients();
-    let futures = clients.iter().map(|c| c.wait_for_connect());
+    let futures = clients.iter().map(|c| c.quit());
     let _ = join_all(futures).await;
   }
 
