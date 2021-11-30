@@ -2,7 +2,6 @@ use super::*;
 use crate::client::RedisClient;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;

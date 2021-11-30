@@ -13,7 +13,6 @@ use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
-use tokio::sync::RwLock as AsyncRwLock;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
@@ -815,7 +814,7 @@ fn take_most_recent_cluster_command(
 
 /// Send a `Canceled` error to all commands in a centralized command response queue.
 async fn cancel_centralized_multi_commands(inner: &Arc<RedisClientInner>, commands: &Arc<Mutex<SentCommands>>) {
-  let mut commands: Vec<SentCommand> = { commands.lock().drain(..).collect() };
+  let commands: Vec<SentCommand> = { commands.lock().drain(..).collect() };
 
   for command in commands.into_iter() {
     check_command_resp_tx(inner, &command).await;
@@ -829,7 +828,7 @@ async fn cancel_clustered_multi_commands(
   commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   server: &Arc<String>,
 ) {
-  let mut commands = if let Some(commands) = commands.lock().get_mut(server) {
+  let commands = if let Some(commands) = commands.lock().get_mut(server) {
     commands.drain(..).collect()
   } else {
     vec![]

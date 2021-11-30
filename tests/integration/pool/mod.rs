@@ -1,10 +1,10 @@
 use fred::client::RedisClient;
-use fred::error::{RedisError, RedisErrorKind};
+use fred::error::RedisError;
 use fred::pool::StaticRedisPool;
-use fred::types::{RedisConfig, ServerConfig};
-use std::collections::BTreeSet;
+use fred::types::RedisConfig;
+
+#[cfg(feature = "fd-tests")]
 use std::time::Duration;
-use tokio::time::sleep;
 
 async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
   let pool = StaticRedisPool::new(config.clone(), count)?;

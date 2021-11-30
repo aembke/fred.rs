@@ -385,12 +385,11 @@ pub async fn send_clustered_command(
       commands.push_back(command);
     } else {
       _error!(inner, "Failed to lookup command queue for {}", server);
-      let mut error = RedisError::new_context(
+      return Err(RedisError::new_context(
         RedisErrorKind::IO,
         format!("Missing command queue for {}", server),
         command.command,
-      );
-      return Err(error);
+      ));
     }
   }
   // if writing the command fails it will be retried from this point forward since it has been added to the commands queue

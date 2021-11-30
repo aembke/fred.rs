@@ -406,7 +406,9 @@ pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), Redis
 pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Result<(), RedisError> {
   if let Err(mut e) = inner.command_tx.send(command) {
     if let Some(tx) = e.0.tx.take() {
-      tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command.")));
+      if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
+        _error!(inner, "Failed to send command {:?}.", e.0.extract_key());
+      }
     }
   }
 

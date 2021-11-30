@@ -6,7 +6,7 @@ use fred::types::{ReconnectPolicy, RedisConfig, RedisMap, RedisValue};
 use futures::pin_mut;
 use futures::StreamExt;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio;
 use tokio::time::sleep;
 
@@ -298,8 +298,8 @@ pub async fn should_get_keys_from_pool_in_a_stream(
   let _ = pool.connect(Some(ReconnectPolicy::default()));
   let _ = pool.wait_for_connect().await?;
 
-  let mut stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_millis(100)))
-    .then(move |_| {
+  let stream =
+    tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_millis(100))).then(move |_| {
       let pool = pool.clone();
 
       async move {

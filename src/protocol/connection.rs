@@ -1,11 +1,10 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::{Counters, SentCommand};
+use crate::multiplexer::Counters;
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::pretty_error;
-use crate::trace;
 use crate::types::{ClientState, InfoKind, Resolve};
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
@@ -14,7 +13,6 @@ use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use semver::Version;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
@@ -494,7 +492,7 @@ pub async fn write_command(
   sink: &mut RedisSink,
   counters: &Counters,
   frame: ProtocolFrame,
-  should_flush: bool
+  should_flush: bool,
 ) -> Result<(), RedisError> {
   if should_flush {
     _trace!(inner, "Sending command and flushing the sink.");
