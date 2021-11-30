@@ -1,3 +1,12 @@
+## 4.2.2
+
+* Remove some unnecessary async locks
+* Fix client pool `wait_for_connect` implementation
+
+## 4.2.1
+
+* Fix https://github.com/aembke/fred.rs/issues/11
+
 ## 4.2.0
 
 * Support Sentinel clients
