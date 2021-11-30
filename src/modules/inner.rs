@@ -1,22 +1,25 @@
-use crate::client::CommandSender;
 use crate::client::RedisClient;
 use crate::error::*;
 use crate::modules::backchannel::Backchannel;
 use crate::multiplexer::SentCommand;
 use crate::protocol::types::DefaultResolver;
+use crate::protocol::types::RedisCommand;
 use crate::types::*;
 use crate::utils;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::JoinHandle;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+
+pub type CommandSender = UnboundedSender<RedisCommand>;
+pub type CommandReceiver = UnboundedReceiver<RedisCommand>;
 
 /// State sent to the task that performs reconnection logic.
 pub struct ClosedState {
@@ -69,7 +72,9 @@ pub struct RedisClientInner {
   /// An mpsc sender for errors to `on_error` streams.
   pub error_tx: RwLock<VecDeque<UnboundedSender<RedisError>>>,
   /// An mpsc sender for commands to the multiplexer.
-  pub command_tx: RwLock<Option<CommandSender>>,
+  pub command_tx: CommandSender,
+  /// Temporary storage for the receiver half of the multiplexer command channel.
+  pub command_rx: RwLock<Option<CommandReceiver>>,
   /// An mpsc sender for pubsub messages to `on_message` streams.
   pub message_tx: RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>,
   /// An mpsc sender for pubsub messages to `on_keyspace_event` streams.
@@ -114,6 +119,7 @@ impl RedisClientInner {
     let backchannel = Backchannel::default();
     let id = Arc::new(format!("fred-{}", utils::random_string(10)));
     let resolver = DefaultResolver::new(&id);
+    let (command_tx, command_rx) = unbounded_channel();
 
     Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
@@ -133,7 +139,6 @@ impl RedisClientInner {
       keyspace_tx: RwLock::new(VecDeque::new()),
       reconnect_tx: RwLock::new(VecDeque::new()),
       connect_tx: RwLock::new(VecDeque::new()),
-      command_tx: RwLock::new(None),
       reconnect_sleep_jh: RwLock::new(None),
       cmd_buffer_len: Arc::new(AtomicUsize::new(0)),
       redeliver_count: Arc::new(AtomicUsize::new(0)),
@@ -142,6 +147,8 @@ impl RedisClientInner {
       cluster_state: RwLock::new(None),
       backchannel: Arc::new(AsyncRwLock::new(backchannel)),
       sentinel_primary: RwLock::new(None),
+      command_rx: RwLock::new(Some(command_rx)),
+      command_tx,
       resolver,
       id,
     })
@@ -186,5 +193,14 @@ impl RedisClientInner {
   #[cfg(not(feature = "partial-tracing"))]
   pub fn should_trace(&self) -> bool {
     false
+  }
+
+  pub fn take_command_rx(&self) -> Option<CommandReceiver> {
+    self.command_rx.write().take()
+  }
+
+  pub fn store_command_rx(&self, rx: CommandReceiver) {
+    let mut guard = self.command_rx.write();
+    *guard = Some(rx);
   }
 }

@@ -4,7 +4,6 @@ use crate::modules::inner::{MultiPolicy, RedisClientInner};
 use crate::modules::response::RedisResponse;
 use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
-use crate::protocol::types::RedisCommand;
 use crate::types::*;
 use crate::utils;
 use futures::Stream;
@@ -14,15 +13,12 @@ use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::interval as tokio_interval;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::Stats;
-
-#[doc(hidden)]
-pub type CommandSender = UnboundedSender<RedisCommand>;
 
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {
@@ -170,7 +166,7 @@ impl RedisClient {
   ///
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve
   /// until the connection closes, and if a reconnection policy with unlimited attempts
-  /// is provided then the `JoinHandle` will run forever.
+  /// is provided then the `JoinHandle` will run forever, or until `QUIT` is called.
   ///
   /// **Note:** See the [RedisConfig](crate::types::RedisConfig) documentation for more information on how the `policy` is applied to new connections.
   pub fn connect(&self, policy: Option<ReconnectPolicy>) -> ConnectHandle {

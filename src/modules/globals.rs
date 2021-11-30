@@ -78,7 +78,7 @@ impl Default for Globals {
   fn default() -> Self {
     Globals {
       max_command_attempts: Arc::new(AtomicUsize::new(3)),
-      backpressure_count: Arc::new(AtomicUsize::new(500)),
+      backpressure_count: Arc::new(AtomicUsize::new(5000)),
       feed_count: Arc::new(AtomicUsize::new(500)),
       min_backpressure_time_ms: Arc::new(AtomicUsize::new(100)),
       cluster_error_cache_delay: Arc::new(AtomicUsize::new(100)),
@@ -206,7 +206,7 @@ pub fn set_max_command_attempts(val: usize) -> usize {
 /// to use the `disable_pipeline` flag on the [connect](crate::client::RedisClient::connect) function instead since backpressure is probabilistic
 /// while the `no_pipeline` flag is not.
 ///
-/// Default: 500
+/// Default: 5000
 pub fn get_backpressure_count() -> usize {
   read_atomic(&globals().backpressure_count)
 }

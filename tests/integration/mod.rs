@@ -13,6 +13,7 @@ mod lua;
 mod memory;
 mod multi;
 mod other;
+mod pool;
 mod pubsub;
 mod scanning;
 mod server;

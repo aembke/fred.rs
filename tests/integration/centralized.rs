@@ -20,6 +20,7 @@ mod keys {
   centralized_test!(keys, should_mget_values);
   centralized_test!(keys, should_msetnx_values);
   centralized_test!(keys, should_copy_values);
+  centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
 mod multi {
@@ -37,6 +38,15 @@ mod other {
   centralized_test!(other, should_automatically_unblock);
   centralized_test!(other, should_manually_unblock);
   centralized_test!(other, should_error_when_blocked);
+}
+
+mod pool {
+  centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
+  centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
+  #[cfg(feature = "fd-tests")]
+  centralized_test!(pool, should_connect_and_ping_static_pool_many_conn);
+  #[cfg(feature = "fd-tests")]
+  centralized_test!(pool, should_connect_and_ping_static_pool_repeatedly);
 }
 
 mod hashes {

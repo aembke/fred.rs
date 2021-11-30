@@ -9,11 +9,10 @@ use crate::protocol::utils::{frame_to_error, frame_to_single_result};
 use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
-use tokio::sync::RwLock as AsyncRwLock;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
@@ -707,12 +706,12 @@ fn parse_redis_auth_error(_frame: &ProtocolFrame) -> Option<RedisError> {
 }
 
 /// Read the last (oldest) command from the command queue.
-async fn last_cluster_command(
+fn last_cluster_command(
   inner: &Arc<RedisClientInner>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   server: &Arc<String>,
 ) -> Result<Option<SentCommand>, RedisError> {
-  let last_command = match commands.write().await.get_mut(server) {
+  let last_command = match commands.lock().get_mut(server) {
     Some(commands) => match commands.pop_front() {
       Some(cmd) => cmd,
       None => {
@@ -730,13 +729,13 @@ async fn last_cluster_command(
 }
 
 /// Push the last command back on the command queue.
-async fn add_back_last_cluster_command(
+fn add_back_last_cluster_command(
   inner: &Arc<RedisClientInner>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   server: &Arc<String>,
   command: SentCommand,
 ) -> Result<(), RedisError> {
-  match commands.write().await.get_mut(server) {
+  match commands.lock().get_mut(server) {
     Some(commands) => commands.push_front(command),
     None => {
       _error!(inner, "Couldn't find command queue for server {}", server);
@@ -749,12 +748,12 @@ async fn add_back_last_cluster_command(
 
 /// Check if the command has a response sender to unblock the multiplexer loop, and if send a message on that channel.
 async fn check_command_resp_tx(inner: &Arc<RedisClientInner>, command: &SentCommand) {
-  _trace!(inner, "Writing to multiplexer sender to unblock command loop.");
   if command.command.kind.is_blocking() {
     inner.backchannel.write().await.set_unblocked();
   }
 
   if let Some(tx) = command.command.take_resp_tx() {
+    _trace!(inner, "Writing to multiplexer sender to unblock command loop.");
     if let Err(e) = tx.send(()) {
       _warn!(inner, "Error sending cmd loop response: {:?}", e);
     }
@@ -762,10 +761,8 @@ async fn check_command_resp_tx(inner: &Arc<RedisClientInner>, command: &SentComm
 }
 
 /// Whether or not the most recent command ends a transaction.
-async fn last_centralized_command_ends_transaction(
-  commands: &Arc<AsyncRwLock<SentCommands>>,
-) -> Option<TransactionEnded> {
-  commands.read().await.back().and_then(|c| {
+async fn last_centralized_command_ends_transaction(commands: &Arc<Mutex<SentCommands>>) -> Option<TransactionEnded> {
+  commands.lock().back().and_then(|c| {
     if c.command.kind.is_exec() {
       Some(TransactionEnded::Exec)
     } else if c.command.kind.is_discard() {
@@ -777,11 +774,11 @@ async fn last_centralized_command_ends_transaction(
 }
 
 /// Whether or not the most recent command ends a transaction.
-async fn last_clustered_command_ends_transaction(
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+fn last_clustered_command_ends_transaction(
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   server: &Arc<String>,
 ) -> Option<TransactionEnded> {
-  commands.read().await.get(server).and_then(|commands| {
+  commands.lock().get(server).and_then(|commands| {
     commands.back().and_then(|c| {
       if c.command.kind.is_exec() {
         Some(TransactionEnded::Exec)
@@ -803,25 +800,23 @@ fn response_is_queued(frame: &ProtocolFrame) -> bool {
 }
 
 /// Read the most recent (newest) command from a centralized command response queue.
-async fn take_most_recent_centralized_command(commands: &Arc<AsyncRwLock<SentCommands>>) -> Option<SentCommand> {
-  commands.write().await.pop_back()
+fn take_most_recent_centralized_command(commands: &Arc<Mutex<SentCommands>>) -> Option<SentCommand> {
+  commands.lock().pop_back()
 }
 
 /// Read the most recent (newest) command from a clustered command queue.
-async fn take_most_recent_cluster_command(
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+fn take_most_recent_cluster_command(
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   server: &Arc<String>,
 ) -> Option<SentCommand> {
-  commands
-    .write()
-    .await
-    .get_mut(server)
-    .and_then(|commands| commands.pop_back())
+  commands.lock().get_mut(server).and_then(|commands| commands.pop_back())
 }
 
 /// Send a `Canceled` error to all commands in a centralized command response queue.
-async fn cancel_centralized_multi_commands(inner: &Arc<RedisClientInner>, commands: &Arc<AsyncRwLock<SentCommands>>) {
-  for command in commands.write().await.drain(..) {
+async fn cancel_centralized_multi_commands(inner: &Arc<RedisClientInner>, commands: &Arc<Mutex<SentCommands>>) {
+  let commands: Vec<SentCommand> = { commands.lock().drain(..).collect() };
+
+  for command in commands.into_iter() {
     check_command_resp_tx(inner, &command).await;
     respond_to_caller_error(inner, command, RedisError::new_canceled());
   }
@@ -830,14 +825,18 @@ async fn cancel_centralized_multi_commands(inner: &Arc<RedisClientInner>, comman
 /// Send a `Canceled` error to all commands in a clustered command queue.
 async fn cancel_clustered_multi_commands(
   inner: &Arc<RedisClientInner>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   server: &Arc<String>,
 ) {
-  if let Some(commands) = commands.write().await.get_mut(server) {
-    for command in commands.drain(..) {
-      check_command_resp_tx(inner, &command).await;
-      respond_to_caller_error(inner, command, RedisError::new_canceled())
-    }
+  let commands = if let Some(commands) = commands.lock().get_mut(server) {
+    commands.drain(..).collect()
+  } else {
+    vec![]
+  };
+
+  for command in commands.into_iter() {
+    check_command_resp_tx(inner, &command).await;
+    respond_to_caller_error(inner, command, RedisError::new_canceled())
   }
 }
 
@@ -845,7 +844,7 @@ async fn cancel_clustered_multi_commands(
 async fn end_centralized_multi_block(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
-  commands: &Arc<AsyncRwLock<SentCommands>>,
+  commands: &Arc<Mutex<SentCommands>>,
   frame: ProtocolFrame,
   ending_cmd: TransactionEnded,
 ) -> Result<(), RedisError> {
@@ -860,7 +859,7 @@ async fn end_centralized_multi_block(
   if ending_cmd == TransactionEnded::Discard || (ending_cmd == TransactionEnded::Exec && frame.is_null()) {
     // the transaction was discarded or aborted due to a WATCH condition failing
     _trace!(inner, "Ending transaction with discard or null response");
-    let recent_cmd = take_most_recent_centralized_command(commands).await;
+    let recent_cmd = take_most_recent_centralized_command(commands);
     cancel_centralized_multi_commands(inner, commands).await;
     let _ = client_utils::take_locked(&inner.multi_block);
 
@@ -879,13 +878,15 @@ async fn end_centralized_multi_block(
 
   // return the frame to the caller directly, let them sort out the results
   _trace!(inner, "Returning exec result to the caller directly");
-  let mut last_command = match commands.write().await.pop_front() {
-    Some(cmd) => cmd,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Missing last command from EXEC or DISCARD.",
-      ))
+  let mut last_command = {
+    match commands.lock().pop_front() {
+      Some(cmd) => cmd,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::ProtocolError,
+          "Missing last command from EXEC or DISCARD.",
+        ))
+      }
     }
   };
   if !last_command.command.kind.ends_transaction() {
@@ -908,7 +909,7 @@ async fn end_clustered_multi_block(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   frame: ProtocolFrame,
   ending_cmd: TransactionEnded,
 ) -> Result<(), RedisError> {
@@ -925,7 +926,7 @@ async fn end_clustered_multi_block(
   if ending_cmd == TransactionEnded::Discard || (ending_cmd == TransactionEnded::Exec && frame.is_null()) {
     // the transaction was discarded or aborted due to a WATCH condition failing
     _trace!(inner, "Ending transaction with discard or null response.");
-    let recent_cmd = take_most_recent_cluster_command(commands, server).await;
+    let recent_cmd = take_most_recent_cluster_command(commands, server);
     cancel_clustered_multi_commands(inner, commands, server).await;
     let _ = client_utils::take_locked(&inner.multi_block);
 
@@ -944,7 +945,7 @@ async fn end_clustered_multi_block(
 
   // return the frame to the caller directly, let them sort out the results
   _trace!(inner, "Returning exec result to the caller directly.");
-  let mut last_command = match last_cluster_command(inner, commands, server).await? {
+  let mut last_command = match last_cluster_command(inner, commands, server)? {
     Some(cmd) => cmd,
     None => {
       return Err(RedisError::new(
@@ -973,7 +974,7 @@ async fn handle_clustered_queued_response(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
   let multi_block = match client_utils::read_locked(&inner.multi_block) {
@@ -991,7 +992,7 @@ async fn handle_clustered_queued_response(
 
   // read the last command and respond with the QUEUED result
   _trace!(inner, "Handle QUEUED response for transaction.");
-  let mut last_command = match last_cluster_command(inner, commands, server).await? {
+  let mut last_command = match last_cluster_command(inner, commands, server)? {
     Some(cmd) => cmd,
     None => {
       return Err(RedisError::new(
@@ -1016,7 +1017,7 @@ async fn handle_clustered_queued_response(
 async fn handle_centralized_queued_response(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
-  commands: &Arc<AsyncRwLock<SentCommands>>,
+  commands: &Arc<Mutex<SentCommands>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
   let multi_block = match client_utils::read_locked(&inner.multi_block) {
@@ -1032,13 +1033,15 @@ async fn handle_centralized_queued_response(
 
   // read the last command and respond with the QUEUED result
   _trace!(inner, "Handle QUEUED response for transaction.");
-  let mut last_command = match commands.write().await.pop_front() {
-    Some(cmd) => cmd,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Could not find last request.",
-      ))
+  let mut last_command = {
+    match commands.lock().pop_front() {
+      Some(cmd) => cmd,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::ProtocolError,
+          "Could not find last request.",
+        ))
+      }
     }
   };
 
@@ -1099,13 +1102,13 @@ fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) ->
 }
 
 /// Refresh the cluster state and retry the last command.
-async fn handle_redirection_error(
+fn handle_redirection_error(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, SentCommands>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   error: RedisError,
 ) -> Result<(), RedisError> {
-  let last_command = last_cluster_command(inner, commands, server).await?;
+  let last_command = last_cluster_command(inner, commands, server)?;
 
   if let Some(command) = last_command {
     utils::refresh_cluster_state(inner, command, error);
@@ -1120,11 +1123,11 @@ pub async fn process_clustered_frame(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-  commands: &Arc<AsyncRwLock<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
+  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
   if let Some(error) = check_redirection_error(inner, &frame) {
-    handle_redirection_error(inner, server, commands, error).await?;
+    handle_redirection_error(inner, server, commands, error)?;
     return Ok(());
   }
   if let Some(error) = check_special_errors(inner, &frame) {
@@ -1138,7 +1141,7 @@ pub async fn process_clustered_frame(
       return Ok(());
     }
 
-    if let Some(trx_ended) = last_clustered_command_ends_transaction(commands, server).await {
+    if let Some(trx_ended) = last_clustered_command_ends_transaction(commands, server) {
       end_clustered_multi_block(inner, server, counters, commands, frame, trx_ended).await
     } else {
       let counters = match counters.read().get(server) {
@@ -1148,7 +1151,7 @@ pub async fn process_clustered_frame(
           return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command counters."));
         }
       };
-      let last_command = match last_cluster_command(inner, commands, server).await? {
+      let last_command = match last_cluster_command(inner, commands, server)? {
         Some(cmd) => cmd,
         None => {
           _error!(
@@ -1162,7 +1165,7 @@ pub async fn process_clustered_frame(
       };
 
       if let Some(last_command) = process_response(inner, server, &counters, last_command, frame).await? {
-        add_back_last_cluster_command(inner, commands, server, last_command).await?;
+        add_back_last_cluster_command(inner, commands, server, last_command)?;
       }
       Ok(())
     }
@@ -1178,7 +1181,7 @@ pub async fn process_centralized_frame(
   inner: &Arc<RedisClientInner>,
   server: &Arc<String>,
   counters: &Counters,
-  commands: &Arc<AsyncRwLock<SentCommands>>,
+  commands: &Arc<Mutex<SentCommands>>,
   frame: ProtocolFrame,
 ) -> Result<(), RedisError> {
   if let Some(error) = check_special_errors(inner, &frame) {
@@ -1192,24 +1195,27 @@ pub async fn process_centralized_frame(
       return Ok(());
     }
 
+    // TODO change this so we can check the last command without contending for a lock
     if let Some(trx_ended) = last_centralized_command_ends_transaction(commands).await {
       end_centralized_multi_block(inner, counters, commands, frame, trx_ended).await
     } else {
-      let last_command = match commands.write().await.pop_front() {
-        Some(cmd) => cmd,
-        None => {
-          _error!(
-            inner,
-            "Missing last command for {:?} frame from {}",
-            frame.kind(),
-            server
-          );
-          return Ok(());
+      let last_command = {
+        match commands.lock().pop_front() {
+          Some(cmd) => cmd,
+          None => {
+            _error!(
+              inner,
+              "Missing last command for {:?} frame from {}",
+              frame.kind(),
+              server
+            );
+            return Ok(());
+          }
         }
       };
 
       if let Some(last_command) = process_response(inner, server, counters, last_command, frame).await? {
-        commands.write().await.push_front(last_command);
+        commands.lock().push_front(last_command);
       }
 
       Ok(())

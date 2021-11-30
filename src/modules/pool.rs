@@ -2,6 +2,7 @@ use crate::client::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::types::{ConnectHandle, ReconnectPolicy, RedisConfig};
 use crate::utils;
+use futures::future::{join_all, try_join_all};
 use parking_lot::RwLock;
 use std::fmt;
 use std::ops::Deref;
@@ -75,9 +76,9 @@ impl DynamicRedisPool {
 
   /// Wait for all the clients to connect to the server.
   pub async fn wait_for_connect(&self) -> Result<(), RedisError> {
-    for client in self.clients() {
-      let _ = client.wait_for_connect().await?;
-    }
+    let clients = self.clients();
+    let futures = clients.iter().map(|client| client.wait_for_connect());
+    let _ = try_join_all(futures).await?;
 
     Ok(())
   }
@@ -193,9 +194,9 @@ impl DynamicRedisPool {
 
   /// Call `QUIT` on each client in the pool.
   pub async fn quit_pool(&self) {
-    for client in self.inner.clients.read().iter() {
-      let _ = client.quit().await;
-    }
+    let clients = self.clients();
+    let futures = clients.iter().map(|c| c.quit());
+    let _ = join_all(futures).await;
   }
 
   /// Add a client to the pool, using the same config and reconnection policy from the initial connections.
@@ -305,9 +306,8 @@ impl StaticRedisPool {
 
   /// Wait for all the clients to connect to the server.
   pub async fn wait_for_connect(&self) -> Result<(), RedisError> {
-    for client in self.inner.clients.iter() {
-      let _ = client.wait_for_connect().await?;
-    }
+    let futures = self.inner.clients.iter().map(|c| c.wait_for_connect());
+    let _ = try_join_all(futures).await?;
 
     Ok(())
   }
@@ -346,8 +346,7 @@ impl StaticRedisPool {
 
   /// Call `QUIT` on each client in the pool.
   pub async fn quit_pool(&self) {
-    for client in self.inner.clients.iter() {
-      let _ = client.quit().await;
-    }
+    let futures = self.inner.clients.iter().map(|c| c.quit());
+    let _ = join_all(futures).await;
   }
 }

@@ -404,18 +404,16 @@ pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), Redis
 }
 
 pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Result<(), RedisError> {
-  if let Some(tx) = &*inner.command_tx.read() {
-    if let Err(e) = tx.send(command) {
-      _error!(inner, "Error sending redis command: {:?}", e);
+  if let Err(mut e) = inner.command_tx.send(command) {
+    if let Some(tx) = e.0.tx.take() {
+      if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
+        _error!(inner, "Failed to send command {:?}.", e.0.extract_key());
+      }
     }
-    incr_atomic(&inner.cmd_buffer_len);
-    Ok(())
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Redis connection is not initialized.",
-    ))
   }
+
+  incr_atomic(&inner.cmd_buffer_len);
+  Ok(())
 }
 
 pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>

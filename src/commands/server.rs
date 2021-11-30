@@ -2,7 +2,6 @@ use super::*;
 use crate::client::RedisClient;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -19,7 +18,6 @@ pub async fn quit(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let _ = utils::request_response(&inner, || Ok((RedisCommandKind::Quit, vec![]))).await;
 
   // close anything left over from previous connections or reconnection attempts
-  multiplexer_utils::close_command_tx(&inner.command_tx);
   utils::shutdown_listeners(&inner);
   utils::set_client_state(&inner.state, ClientState::Disconnected);
 
@@ -42,7 +40,6 @@ pub async fn shutdown(inner: &Arc<RedisClientInner>, flags: Option<ShutdownFlags
   })
   .await?;
 
-  multiplexer_utils::close_command_tx(&inner.command_tx);
   utils::shutdown_listeners(&inner);
   utils::set_client_state(&inner.state, ClientState::Disconnected);
 

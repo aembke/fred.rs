@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "4.2.1"
+version = "4.2.2"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -16,7 +16,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-tokio = { version = "1.11", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
@@ -30,7 +30,7 @@ native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 rand = "0.8"
 tokio-util = { version = "0.6", features = ["codec"] }
-tokio-stream = "0.1.5"
+tokio-stream = "0.1"
 indexmap = { version = "1.7", optional = true }
 sha-1 = "0.9"
 tracing = { version = "0.1", optional = true }
@@ -81,3 +81,5 @@ sentinel-client = []
 sentinel-tests = []
 # a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
 chaos-monkey = ["custom-reconnect-errors"]
+# tests that may not work on some systems that have low file descriptor limits
+fd-tests = []

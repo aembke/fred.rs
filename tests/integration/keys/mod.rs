@@ -1,9 +1,11 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
+use fred::pool::StaticRedisPool;
 use fred::prelude::Expiration;
-use fred::types::{RedisConfig, RedisMap, RedisValue};
+use fred::types::{ReconnectPolicy, RedisConfig, RedisMap, RedisValue};
+use futures::pin_mut;
+use futures::StreamExt;
 use std::collections::HashMap;
-
 use std::time::Duration;
 use tokio;
 use tokio::time::sleep;
@@ -282,6 +284,40 @@ pub async fn should_copy_values(client: RedisClient, _: RedisConfig) -> Result<(
   assert_eq!(result, 1);
   let b: String = client.get("b{1}").await?;
   assert_eq!(b, "baz");
+
+  Ok(())
+}
+
+pub async fn should_get_keys_from_pool_in_a_stream(
+  client: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  let _ = client.set("foo", "bar", None, None, false).await?;
+
+  let pool = StaticRedisPool::new(config, 5)?;
+  let _ = pool.connect(Some(ReconnectPolicy::default()));
+  let _ = pool.wait_for_connect().await?;
+
+  let stream =
+    tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_millis(100))).then(move |_| {
+      let pool = pool.clone();
+
+      async move {
+        let value: Option<String> = pool.get("foo").await.unwrap();
+        value
+      }
+    });
+  pin_mut!(stream);
+
+  let mut count = 0;
+  while let Some(value) = stream.next().await {
+    assert_eq!(value, Some("bar".into()));
+    count += 1;
+
+    if count >= 10 {
+      break;
+    }
+  }
 
   Ok(())
 }

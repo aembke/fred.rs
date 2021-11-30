@@ -34,6 +34,7 @@ static DEFAULT_PORT: u16 = 6379;
 static TEST_KEY: &'static str = "foo";
 
 mod utils;
+use fred::globals;
 
 #[derive(Debug)]
 struct Argv {
@@ -153,6 +154,7 @@ fn spawn_client_task(
 
 fn main() {
   pretty_env_logger::init();
+  globals::set_backpressure_count(1000000);
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 

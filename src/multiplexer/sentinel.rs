@@ -368,7 +368,7 @@ pub async fn connect_centralized_from_sentinel(
   connections: &Connections,
   close_tx: &Arc<RwLock<Option<CloseTx>>>,
 ) -> Result<VecDeque<SentCommand>, RedisError> {
-  let pending_commands = utils::take_sent_commands(connections).await;
+  let pending_commands = utils::take_sent_commands(connections);
   connections.disconnect_centralized().await;
   client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
