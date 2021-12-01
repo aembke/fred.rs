@@ -1,4 +1,4 @@
-use crate::error::RedisError;
+use crate::error::{RedisError, RedisErrorKind};
 use crate::types::{RedisValue, QUEUED};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
@@ -9,14 +9,16 @@ macro_rules! to_signed_number(
     match $v {
       RedisValue::Integer(i) => Ok(i as $t),
       RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
+      RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       RedisValue::Array(mut a) => if a.len() == 1 {
         match a.pop().unwrap() {
           RedisValue::Integer(i) => Ok(i as $t),
           RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
+          RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
           _ => Err(RedisError::new_parse("Cannot convert to number."))
         }
       }else{
-        Err(RedisError::new_parse("Cannot convert to number."))
+        Err(RedisError::new_parse("Cannot convert array to number."))
       }
       _ => Err(RedisError::new_parse("Cannot convert to number.")),
     }
@@ -39,12 +41,14 @@ macro_rules! to_unsigned_number(
           }else{
             Ok(i as $t)
           },
+          RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
           RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
           _ => Err(RedisError::new_parse("Cannot convert to number."))
         }
       }else{
-        Err(RedisError::new_parse("Cannot convert to number."))
-      }
+        Err(RedisError::new_parse("Cannot convert array to number."))
+      },
+      RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       _ => Err(RedisError::new_parse("Cannot convert to number.")),
     }
   }
@@ -123,34 +127,62 @@ impl_unsigned_number!(usize);
 
 impl RedisResponse for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    value
-      .into_string()
-      .ok_or(RedisError::new_parse("Could not convert to string."))
+    if value.is_null() {
+      Err(RedisError::new(
+        RedisErrorKind::NotFound,
+        "Cannot convert nil response to string.",
+      ))
+    } else {
+      value
+        .into_string()
+        .ok_or(RedisError::new_parse("Could not convert to string."))
+    }
   }
 }
 
 impl RedisResponse for f64 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    value
-      .as_f64()
-      .ok_or(RedisError::new_parse("Could not convert to double."))
+    if value.is_null() {
+      Err(RedisError::new(
+        RedisErrorKind::NotFound,
+        "Cannot convert nil response to double.",
+      ))
+    } else {
+      value
+        .as_f64()
+        .ok_or(RedisError::new_parse("Could not convert to double."))
+    }
   }
 }
 
 impl RedisResponse for f32 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    value
-      .as_f64()
-      .map(|f| f as f32)
-      .ok_or(RedisError::new_parse("Could not convert to float."))
+    if value.is_null() {
+      Err(RedisError::new(
+        RedisErrorKind::NotFound,
+        "Cannot convert nil response to float.",
+      ))
+    } else {
+      value
+        .as_f64()
+        .map(|f| f as f32)
+        .ok_or(RedisError::new_parse("Could not convert to float."))
+    }
   }
 }
 
 impl RedisResponse for bool {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    value
-      .as_bool()
-      .ok_or(RedisError::new_parse("Could not convert to bool."))
+    if value.is_null() {
+      Err(RedisError::new(
+        RedisErrorKind::NotFound,
+        "Cannot convert nil response to bool.",
+      ))
+    } else {
+      value
+        .as_bool()
+        .ok_or(RedisError::new_parse("Could not convert to bool."))
+    }
   }
 }
 
@@ -336,6 +368,7 @@ impl_redis_response_tuple! { T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, 
 
 #[cfg(test)]
 mod tests {
+  use crate::error::RedisError;
   use crate::types::RedisValue;
   use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -402,6 +435,42 @@ mod tests {
     assert_eq!(_foo, 123);
     let _foo: usize = RedisValue::Integer(123).convert().unwrap();
     assert_eq!(_foo, 123);
+  }
+
+  #[test]
+  fn should_return_not_found_with_null_scalar_values() {
+    let result: Result<u8, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<u16, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<u32, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<u64, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<u128, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<usize, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<i8, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<i16, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<i32, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<i64, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<i128, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<isize, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+  }
+
+  #[test]
+  fn should_return_not_found_with_null_strings_and_bools() {
+    let result: Result<String, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
+    let result: Result<bool, RedisError> = RedisValue::Null.convert();
+    assert!(result.unwrap_err().is_not_found());
   }
 
   #[test]

@@ -47,6 +47,8 @@ pub enum RedisErrorKind {
   Parse,
   /// An error communicating with redis sentinel.
   Sentinel,
+  /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a non-nullable type.
+  NotFound,
 }
 
 impl RedisErrorKind {
@@ -66,6 +68,7 @@ impl RedisErrorKind {
       RedisErrorKind::Config => "Config Error",
       RedisErrorKind::Parse => "Parse Error",
       RedisErrorKind::Sentinel => "Sentinel Error",
+      RedisErrorKind::NotFound => "Not Found",
     }
   }
 }
@@ -312,10 +315,18 @@ impl RedisError {
     RedisError::new(RedisErrorKind::Parse, details)
   }
 
-  /// Whether or not the error is a Canceled error.
+  /// Whether or not the error is a `Canceled` error.
   pub fn is_canceled(&self) -> bool {
     match self.kind {
       RedisErrorKind::Canceled => true,
+      _ => false,
+    }
+  }
+
+  /// Whether or not the error is a `NotFound` error.
+  pub fn is_not_found(&self) -> bool {
+    match self.kind {
+      RedisErrorKind::NotFound => true,
       _ => false,
     }
   }
