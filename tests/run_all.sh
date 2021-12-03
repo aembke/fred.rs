@@ -13,8 +13,10 @@ echo "Testing with all features..."
 cargo test --release --lib --tests --features \
   "index-map network-logs pool-prefer-active enable-tls vendored-tls
   custom-reconnect-errors ignore-auth-error blocking-encoding full-tracing
-  reconnect-on-auth-error monitor metrics sentinel-client sentinel-auth" \
+  reconnect-on-auth-error monitor metrics sentinel-client" \
   -- --test-threads=1
 
 echo "Testing with sentinel interface..."
-cargo test --release --features sentinel-tests --lib --tests -- --test-threads=1
+cargo test --release --features "sentinel-tests" --lib --tests -- --test-threads=1
+echo "Testing with sentinel interface and sentinel auth..."
+cargo test --release --features "sentinel-tests sentinel-auth" --lib --tests -- --test-threads=1

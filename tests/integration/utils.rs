@@ -44,6 +44,10 @@ where
         ("127.0.0.1".into(), 26381),
       ],
       service_name: "redis-sentinel-main".into(),
+      #[cfg(feature = "sentinel-auth")]
+      username: None,
+      #[cfg(feature = "sentinel-auth")]
+      password: None,
     },
     pipeline,
     ..Default::default()

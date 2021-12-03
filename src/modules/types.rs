@@ -762,7 +762,7 @@ impl ServerConfig {
     }
   }
 
-  /// Read the first host
+  /// Read the server hosts or sentinel hosts if using the sentinel interface.
   pub fn hosts(&self) -> Vec<(&str, u16)> {
     match *self {
       ServerConfig::Centralized { ref host, port } => vec![(host.as_str(), port)],
