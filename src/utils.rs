@@ -717,48 +717,61 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
     })
 }
 
+// TODO clean this up in the next major version
+pub fn read_sentinel_host(inner: &Arc<RedisClientInner>) -> Result<(Vec<(String, u16)>, String), RedisError> {
+  match inner.config.read().server {
+    #[cfg(not(feature = "sentinel-auth"))]
+    ServerConfig::Sentinel {
+      ref hosts,
+      ref service_name,
+    } => Ok((hosts.clone(), service_name.to_owned())),
+    #[cfg(feature = "sentinel-auth")]
+    ServerConfig::Sentinel {
+      ref hosts,
+      ref service_name,
+      ..
+    } => Ok((hosts.clone(), service_name.to_owned())),
+    _ => Err(RedisError::new(RedisErrorKind::Config, "Expected sentinel config.")),
+  }
+}
+
 pub async fn update_sentinel_nodes(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let old_config = inner.config.read().clone();
+  let (hosts, service_name) = read_sentinel_host(inner)?;
+  let timeout = globals().sentinel_connection_timeout_ms() as u64;
 
-  if let ServerConfig::Sentinel { hosts, service_name } = old_config.server {
-    let timeout = globals().sentinel_connection_timeout_ms() as u64;
+  for (host, port) in hosts.into_iter() {
+    _debug!(inner, "Updating sentinel nodes from {}:{}...", host, port);
 
-    for (host, port) in hosts.into_iter() {
-      _debug!(inner, "Updating sentinel nodes from {}:{}...", host, port);
-
-      let transport = match sentinel::connect_to_sentinel(inner, &host, port, timeout).await {
-        Ok(transport) => transport,
-        Err(e) => {
-          _warn!(
-            inner,
-            "Failed to connect to sentinel {}:{} with error: {:?}",
-            host,
-            port,
-            e
-          );
-          continue;
-        }
-      };
-      if let Err(e) = sentinel::update_sentinel_nodes(inner, transport, &service_name).await {
+    let transport = match sentinel::connect_to_sentinel(inner, &host, port, timeout).await {
+      Ok(transport) => transport,
+      Err(e) => {
         _warn!(
           inner,
-          "Failed to read sentinel nodes from {}:{} with error: {:?}",
+          "Failed to connect to sentinel {}:{} with error: {:?}",
           host,
           port,
           e
         );
-      } else {
-        return Ok(());
+        continue;
       }
+    };
+    if let Err(e) = sentinel::update_sentinel_nodes(inner, transport, &service_name).await {
+      _warn!(
+        inner,
+        "Failed to read sentinel nodes from {}:{} with error: {:?}",
+        host,
+        port,
+        e
+      );
+    } else {
+      return Ok(());
     }
-
-    Err(RedisError::new(
-      RedisErrorKind::Sentinel,
-      "Failed to read sentinel nodes from any known sentinel.",
-    ))
-  } else {
-    Err(RedisError::new(RedisErrorKind::Config, "Expected sentinel config."))
   }
+
+  Err(RedisError::new(
+    RedisErrorKind::Sentinel,
+    "Failed to read sentinel nodes from any known sentinel.",
+  ))
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {

@@ -667,6 +667,15 @@ pub enum ServerConfig {
     hosts: Vec<(String, u16)>,
     /// The service name for primary/main instances.
     service_name: String,
+
+    /// An optional ACL username for the client to use when authenticating.
+    #[cfg(feature = "sentinel-auth")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-auth")))]
+    username: Option<String>,
+    /// An optional password for the client to use when authenticating.
+    #[cfg(feature = "sentinel-auth")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-auth")))]
+    password: Option<String>,
   },
 }
 
@@ -711,6 +720,10 @@ impl ServerConfig {
     ServerConfig::Sentinel {
       hosts: hosts.drain(..).map(|(h, p)| (h.into(), p)).collect(),
       service_name: service_name.into(),
+      #[cfg(feature = "sentinel-auth")]
+      username: None,
+      #[cfg(feature = "sentinel-auth")]
+      password: None,
     }
   }
 

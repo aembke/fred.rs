@@ -45,19 +45,8 @@ macro_rules! stry (
   }
 );
 
-fn read_sentinel_hosts(inner: &Arc<RedisClientInner>) -> Result<(String, Vec<(String, u16)>), RedisError> {
-  if let ServerConfig::Sentinel {
-    ref hosts,
-    ref service_name,
-  } = inner.config.read().server
-  {
-    Ok((service_name.to_owned(), hosts.to_vec()))
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected sentinel server config.",
-    ))
-  }
+fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
+  unimplemented!()
 }
 
 async fn connect_to_server(
@@ -69,6 +58,7 @@ async fn connect_to_server(
   let uses_tls = inner.config.read().uses_tls();
 
   let transport = if uses_tls {
+    // TODO change these calls to use a local function that uses sentinel creds
     let transport_ft = connection::create_authenticated_connection_tls(addr, host, inner);
     let transport = stry!(client_utils::apply_timeout(transport_ft, timeout).await);
 
@@ -123,7 +113,7 @@ pub async fn connect_to_sentinel(
 async fn discover_primary_node(
   inner: &Arc<RedisClientInner>,
 ) -> Result<(String, RedisTransport, String, SocketAddr), RedisError> {
-  let (name, hosts) = read_sentinel_hosts(inner)?;
+  let (hosts, name) = client_utils::read_sentinel_host(inner)?;
   let timeout = globals().sentinel_connection_timeout_ms() as u64;
 
   for (idx, (sentinel_host, port)) in hosts.into_iter().enumerate() {

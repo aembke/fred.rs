@@ -102,6 +102,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | custom-reconnect-errors     |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.    |
 | monitor                     |         | Enable an interface for running the `MONITOR` command.                                                                    |
 | sentinel-client             |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                               |
+| sentinel-auth               |         | Enable an interface for using different authentication credentials to sentinel nodes.                                     |
 
 ## Environment Variables
 
@@ -136,7 +137,7 @@ To use the [Redis Sentinel](https://redis.io/topics/sentinel) interface callers 
 
 The client will automatically update these values in place as sentinel nodes change whenever connections to the primary Redis server close. Callers can inspect these changes with the `client_config` function on any `RedisClient` that uses the sentinel interface.
 
-Note: Sentinel connections will use the same authentication and TLS configuration options as the connections to the Redis servers.
+Note: Sentinel connections will use the same TLS configuration options as the connections to the Redis servers. By default connections will also use the same authentication credentials as well unless the `sentinel-auth` feature is enabled.
 
 Callers can also use the `sentinel-client` feature to communicate directly with Sentinel nodes.
 
