@@ -1,3 +1,12 @@
+## 4.3.0
+
+* Add `sentinel-auth` feature
+
+## 4.2.3
+
+* Add `NotFound` error kind variant
+* Use `NotFound` errors when casting `nil` server responses to non-nullable types
+
 ## 4.2.2
 
 * Remove some unnecessary async locks

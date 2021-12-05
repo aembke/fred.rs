@@ -20,6 +20,27 @@ This document gives some background on how the library is structured and how to 
 
 If you'd like to contribute to any of the above features feel free to reach out
 
+### Next Major Release
+
+The next major release (5.0.0) will include the following:
+
+* RESP3 support (this will result in breaking changes to nearly all response types due to value attributes being added)
+* Move several global config options to the `RedisConfig` struct. Currently there are some use cases where current global options would work better if they were client-specific
+* Improved error types and messages
+* Remove or collapse several compile-time features. For example, the `sentinel-auth` feature will become the default interface, etc. 
+* Replace some configuration struct locks with `ArcSwap`
+* Collapse the different pool types to one pool type that can dynamically scale while supporting client use via the `Deref` trait.
+* Switch from `Arc<String>` to `ArcStr`
+* Publish benchmarks and run them during CI. The closest thing to that currently is in the [pipeline_test](bin/pipeline_test) module. 
+* Lots of code cleanup and refactoring.
+
+In addition, in 5.1.0 the [streams](https://redis.io/topics/streams-intro) interface will be added. This will likely include the following:
+
+* A lower level interface to use the X* interface directly.
+* An optional, higher level client interface to manage the strange ways that stream subscriptions can interact with reconnect/retry. This will likely look a lot like a Kafka client. 
+
+Finally, the 5.2.0 release will add [client tracking](https://redis.io/topics/client-side-caching) support built into the client (behind a new feature). 
+
 ## Design 
 
 This section covers some useful design considerations and assumptions that went into this module. 

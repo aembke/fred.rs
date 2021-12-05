@@ -3,7 +3,8 @@ use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
 use crate::modules::types::ClientState;
 use crate::multiplexer::{utils, CloseTx, Connections, Counters, SentCommand};
-use crate::protocol::connection::{self, RedisTransport};
+use crate::protocol::codec::RedisCodec;
+use crate::protocol::connection::{self, authenticate, FramedTcp, FramedTls, RedisTransport};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::types::Resolve;
@@ -14,7 +15,12 @@ use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpStream;
 use tokio::sync::RwLock as AsyncRwLock;
+use tokio_util::codec::Framed;
+
+#[cfg(feature = "enable-tls")]
+use crate::protocol::tls;
 
 /// The amount of time to wait when trying to connect to the redis server.
 ///
@@ -45,19 +51,69 @@ macro_rules! stry (
   }
 );
 
-fn read_sentinel_hosts(inner: &Arc<RedisClientInner>) -> Result<(String, Vec<(String, u16)>), RedisError> {
-  if let ServerConfig::Sentinel {
-    ref hosts,
-    ref service_name,
-  } = inner.config.read().server
-  {
-    Ok((service_name.to_owned(), hosts.to_vec()))
-  } else {
-    Err(RedisError::new(
+#[cfg(feature = "sentinel-auth")]
+fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
+  match inner.config.read().server {
+    ServerConfig::Sentinel {
+      ref username,
+      ref password,
+      ..
+    } => Ok((username.clone(), password.clone())),
+    _ => Err(RedisError::new(
       RedisErrorKind::Config,
-      "Expected sentinel server config.",
-    ))
+      "Expected sentinel server configuration.",
+    )),
   }
+}
+
+#[cfg(not(feature = "sentinel-auth"))]
+fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
+  let guard = inner.config.read();
+  Ok((guard.username.clone(), guard.password.clone()))
+}
+
+// TODO clean this up in the next major release by breaking up the connection functions
+#[cfg(feature = "enable-tls")]
+pub async fn create_authenticated_connection_tls(
+  addr: &SocketAddr,
+  domain: &str,
+  inner: &Arc<RedisClientInner>,
+) -> Result<FramedTls, RedisError> {
+  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
+  let codec = RedisCodec::new(inner, server);
+  let client_name = inner.client_name();
+  let (username, password) = read_sentinel_auth(inner)?;
+
+  let socket = TcpStream::connect(addr).await?;
+  let tls_stream = tls::create_tls_connector(&inner.config)?;
+  let socket = tls_stream.connect(domain, socket).await?;
+  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
+
+  Ok(framed)
+}
+
+#[cfg(not(feature = "enable-tls"))]
+pub(crate) async fn create_authenticated_connection_tls(
+  addr: &SocketAddr,
+  _domain: &str,
+  inner: &Arc<RedisClientInner>,
+) -> Result<FramedTls, RedisError> {
+  create_authenticated_connection(addr, inner).await
+}
+
+pub async fn create_authenticated_connection(
+  addr: &SocketAddr,
+  inner: &Arc<RedisClientInner>,
+) -> Result<FramedTcp, RedisError> {
+  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
+  let codec = RedisCodec::new(inner, server);
+  let client_name = inner.client_name();
+  let (username, password) = read_sentinel_auth(inner)?;
+
+  let socket = TcpStream::connect(addr).await?;
+  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
+
+  Ok(framed)
 }
 
 async fn connect_to_server(
@@ -69,12 +125,12 @@ async fn connect_to_server(
   let uses_tls = inner.config.read().uses_tls();
 
   let transport = if uses_tls {
-    let transport_ft = connection::create_authenticated_connection_tls(addr, host, inner);
+    let transport_ft = create_authenticated_connection_tls(addr, host, inner);
     let transport = stry!(client_utils::apply_timeout(transport_ft, timeout).await);
 
     RedisTransport::Tls(transport)
   } else {
-    let transport_ft = connection::create_authenticated_connection(addr, inner);
+    let transport_ft = create_authenticated_connection(addr, inner);
     let transport = stry!(client_utils::apply_timeout(transport_ft, timeout).await);
 
     RedisTransport::Tcp(transport)
@@ -123,7 +179,7 @@ pub async fn connect_to_sentinel(
 async fn discover_primary_node(
   inner: &Arc<RedisClientInner>,
 ) -> Result<(String, RedisTransport, String, SocketAddr), RedisError> {
-  let (name, hosts) = read_sentinel_hosts(inner)?;
+  let (hosts, name) = client_utils::read_sentinel_host(inner)?;
   let timeout = globals().sentinel_connection_timeout_ms() as u64;
 
   for (idx, (sentinel_host, port)) in hosts.into_iter().enumerate() {

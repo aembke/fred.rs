@@ -17,4 +17,6 @@ cargo test --release --lib --tests --features \
   -- --test-threads=1
 
 echo "Testing with sentinel interface..."
-cargo test --release --features sentinel-tests --lib --tests -- --test-threads=1
+cargo test --release --features "sentinel-tests" --lib --tests -- --test-threads=1
+echo "Testing with sentinel interface and sentinel auth..."
+cargo test --release --features "sentinel-tests sentinel-auth" --lib --tests -- --test-threads=1

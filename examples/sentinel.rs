@@ -13,8 +13,14 @@ async fn main() -> Result<(), RedisError> {
         ("localhost".into(), 26380),
         ("localhost".into(), 26381),
       ],
+      // note: by default sentinel nodes use the same authentication settings as the redis servers, however
+      // callers can also use the `sentinel-auth` feature to use different credentials to sentinel nodes
+      #[cfg(feature = "sentinel-auth")]
+      username: None,
+      #[cfg(feature = "sentinel-auth")]
+      password: None,
     },
-    // sentinels should use the same TLS and authentication settings as the Redis servers
+    // sentinels should use the same TLS settings as the Redis servers
     ..Default::default()
   };
 
