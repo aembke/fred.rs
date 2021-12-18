@@ -92,6 +92,10 @@ pub async fn create_authenticated_connection_tls(
   Ok(framed)
 }
 
+// TODO issue is that this is using the same function to connect to the sentinel and the redis server
+// more arguments need to be passed to connect_to_server to pick the right auth blob to use
+// or refactor this more
+
 #[cfg(not(feature = "enable-tls"))]
 pub(crate) async fn create_authenticated_connection_tls(
   addr: &SocketAddr,

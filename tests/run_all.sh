@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export RUST_BACKTRACE=full
+export RUST_BACKTRACE=full REDIS_USERNAME=foo REDIS_PASSWORD=bar
 
 echo "Testing with default features..."
 cargo test --release --lib --tests -- --test-threads=1

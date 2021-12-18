@@ -13,6 +13,10 @@ const RECONNECT_DELAY: u32 = 500;
 #[cfg(not(feature = "chaos-monkey"))]
 const RECONNECT_DELAY: u32 = 1000;
 
+pub fn read_env_var(name: &str) -> Option<String> {
+  env::var_os(name).and_then(|s| s.into_string().ok())
+}
+
 fn read_fail_fast_env() -> bool {
   match env::var_os("FRED_FAIL_FAST") {
     Some(s) => match s.into_string() {
@@ -25,6 +29,17 @@ fn read_fail_fast_env() -> bool {
     None => true,
   }
 }
+
+#[cfg(feature = "sentinel-auth")]
+fn read_sentinel_password() -> String {
+  read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
+}
+
+#[cfg(feature = "sentinel-auth")]
+fn read_redis_password() -> String {
+  read_env_var("REDIS_SENTINEL_PASSWORD").expect("Failed to read REDIS_SENTINEL_PASSWORD env")
+}
+
 
 #[cfg(all(feature = "sentinel-tests", not(feature = "chaos-monkey")))]
 pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
@@ -44,12 +59,12 @@ where
         ("127.0.0.1".into(), 26381),
       ],
       service_name: "redis-sentinel-main".into(),
-      #[cfg(feature = "sentinel-auth")]
+      // TODO fix this so sentinel-tests can run without sentinel-auth
       username: None,
-      #[cfg(feature = "sentinel-auth")]
-      password: None,
+      password: Some(read_sentinel_password()),
     },
     pipeline,
+    password: Some(read_redis_password()),
     ..Default::default()
   };
   let client = RedisClient::new(config.clone());

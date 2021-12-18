@@ -215,3 +215,8 @@ pub mod geo {
   centralized_test!(geo, should_georadiusbymember_values);
   centralized_test!(geo, should_geosearch_values);
 }
+
+pub mod acl {
+  centralized_test!(acl, should_auth_as_test_user);
+  centralized_test!(acl, should_auth_as_test_user_via_config);
+}

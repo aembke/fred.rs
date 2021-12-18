@@ -1,3 +1,3 @@
 #!/bin/bash
 
-cargo test --release --lib --tests -- --test-threads=1 -- "$@"
+REDIS_USERNAME=foo REDIS_PASSWORD=bar cargo test --release --lib --tests -- --test-threads=1 -- "$@"
