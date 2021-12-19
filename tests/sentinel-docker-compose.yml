@@ -9,7 +9,7 @@ services:
     image: 'bitnami/redis:${REDIS_VERSION}'
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
-      - REDIS_PASSWORD=bar
+      - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - "6379"
     networks:
@@ -19,8 +19,8 @@ services:
     depends_on:
       - redis-main
     environment:
-      - REDIS_PASSWORD=bar
-      - REDIS_MASTER_PASSWORD=bar
+      - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_REPLICATION_MODE=slave
       - REDIS_MASTER_HOST=redis-main
@@ -38,8 +38,8 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
-      - REDIS_SENTINEL_PASSWORD=baz
-      - REDIS_MASTER_PASSWORD=bar
+      - 'REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - '26379:26379'
     networks:
@@ -55,8 +55,8 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
-      - REDIS_SENTINEL_PASSWORD=baz
-      - REDIS_MASTER_PASSWORD=bar
+      - 'REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - '26380:26380'
     networks:
@@ -72,8 +72,8 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
-      - REDIS_SENTINEL_PASSWORD=baz
-      - REDIS_MASTER_PASSWORD=bar
+      - 'REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - '26381:26381'
     networks:

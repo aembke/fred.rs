@@ -3,17 +3,20 @@
 ROOT=$PWD
 . $ROOT/tests/chaos_monkey/util.sh
 
-if [ -z "$REDIS_VERSION" ]; then
-    echo "REDIS_VERSION must be set!"
+declare -a arr=("REDIS_VERSION" "REDIS_USERNAME" "REDIS_PASSWORD" "REDIS_SENTINEL_PASSWORD")
+
+for env in "${arr[@]}"
+do
+  if [ -z "$env" ]; then
+    echo "$env must be set. Run `source tests/environ` if needed."
     exit 1
-fi
+  fi
+done
 
 check_root_dir
 check_redis
 
 ROOT="$ROOT" \
-  REDIS_USERNAME=foo \
-  REDIS_PASSWORD=bar \
   FRED_FAIL_FAST=false \
   REDIS_ROOT_DIR="$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION" \
   REDIS_CLI_PATH="$REDIS_ROOT_DIR/src/redis-cli" \
