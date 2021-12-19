@@ -5,3 +5,4 @@ tests/tmp/*
 !tests/tmp/.gitkeep
 dump.rdb
 appendonly.aof
+test_users.acl

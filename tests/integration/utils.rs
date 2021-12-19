@@ -31,15 +31,14 @@ fn read_fail_fast_env() -> bool {
 }
 
 #[cfg(feature = "sentinel-auth")]
-fn read_sentinel_password() -> String {
+fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
 }
 
 #[cfg(feature = "sentinel-auth")]
-fn read_redis_password() -> String {
+fn read_sentinel_password() -> String {
   read_env_var("REDIS_SENTINEL_PASSWORD").expect("Failed to read REDIS_SENTINEL_PASSWORD env")
 }
-
 
 #[cfg(all(feature = "sentinel-tests", not(feature = "chaos-monkey")))]
 pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)

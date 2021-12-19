@@ -1,3 +1,9 @@
+## 4.3.1
+
+* Fix authentication bug with `sentinel-auth` tests
+* Update tests and CI config for `sentinel-auth` feature
+* Switch to CircleCI
+
 ## 4.3.0
 
 * Add `sentinel-auth` feature
