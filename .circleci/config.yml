@@ -6,6 +6,9 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install OpenSSL
+          command: apk add openssl
+      - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
@@ -17,6 +20,9 @@ jobs:
       - image: cimg/rust:1.57.0
     steps:
       - checkout
+      - run:
+          name: Install OpenSSL
+          command: apk add openssl
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -41,6 +47,9 @@ jobs:
       - image: cimg/rust:1.57.0
     steps:
       - checkout
+      - run:
+          name: Install OpenSSL
+          command: apk add openssl
       - run:
           name: Install Docker Compose
           environment:
