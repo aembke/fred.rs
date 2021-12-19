@@ -14,7 +14,9 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-      - run: tests/runners/default-features.sh
+          background: true
+          no_output_timeout: 30m
+      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
   test-no-features:
     docker:
       - image: cimg/rust:1.57.0
@@ -29,7 +31,9 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-      - run: tests/runners/no-features.sh
+          background: true
+          no_output_timeout: 30m
+      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
   test-all-features:
     docker:
       - image: cimg/rust:1.57.0
@@ -44,7 +48,9 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-      - run: tests/runners/all-features.sh
+          background: true
+          no_output_timeout: 30m
+      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
   test-sentinel:
     docker:
       - image: cimg/rust:1.57.0
@@ -65,7 +71,7 @@ jobs:
       - run:
           name: Setup sentinel redis via docker-compose
           command: tests/scripts/docker-install-redis-sentinel.sh
-      - run: tests/runners/sentinel-features.sh
+      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/sentinel-features.sh
 
 workflows:
   version: 2
