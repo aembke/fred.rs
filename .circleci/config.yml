@@ -6,53 +6,65 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install OpenSSL & Expect
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
+          name: Install OpenSSL
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with default features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
   test-no-features:
     docker:
       - image: cimg/rust:1.57.0
     steps:
       - checkout
       - run:
-          name: Install OpenSSL & Expect
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
+          name: Install OpenSSL
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with no features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
   test-all-features:
     docker:
       - image: cimg/rust:1.57.0
     steps:
       - checkout
       - run:
-          name: Install Expect
-          command: sudo apt-get update && sudo apt-get install -y expect
-      - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with all features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
   test-sentinel:
     docker:
       - image: cimg/rust:1.57.0
     steps:
       - checkout
       - run:
-          name: Install OpenSSL & Expect
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
+          name: Install OpenSSL
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev
       - run:
           name: Install redis-cli for debugging
           command: .circleci/install_redis_cli.sh
@@ -68,7 +80,12 @@ jobs:
       - run:
           name: Setup sentinel redis via docker-compose
           command: tests/scripts/docker-install-redis-sentinel.sh
-      - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/sentinel-features.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with sentinel features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/sentinel-features.sh
 
 workflows:
   version: 2
