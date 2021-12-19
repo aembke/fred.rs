@@ -7,7 +7,7 @@ jobs:
       - checkout
       - run:
           name: Install OpenSSL
-          command: apk add openssl
+          command: apt-get update && apt-get install libssl-dev
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -22,7 +22,7 @@ jobs:
       - checkout
       - run:
           name: Install OpenSSL
-          command: apk add openssl
+          command: apt-get update && apt-get install libssl-dev
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -49,7 +49,7 @@ jobs:
       - checkout
       - run:
           name: Install OpenSSL
-          command: apk add openssl
+          command: apt-get update && apt-get install libssl-dev
       - run:
           name: Install Docker Compose
           environment:
