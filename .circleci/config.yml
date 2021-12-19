@@ -14,8 +14,6 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-          background: true
-          no_output_timeout: 30m
       - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
   test-no-features:
     docker:
@@ -31,8 +29,6 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-          background: true
-          no_output_timeout: 30m
       - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
   test-all-features:
     docker:
@@ -48,8 +44,6 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
-          background: true
-          no_output_timeout: 30m
       - run: eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
   test-sentinel:
     docker:
@@ -59,6 +53,9 @@ jobs:
       - run:
           name: Install OpenSSL & Expect
           command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
+      - run:
+          name: Install redis-cli for debugging
+          command: .circleci/install_redis_cli.sh
       - run:
           name: Install Docker Compose
           environment:

@@ -7,7 +7,7 @@ function check_root_dir {
   fi
 }
 
-declare -a arr=("REDIS_VERSION" "REDIS_USERNAME" "REDIS_PASSWORD" "REDIS_SENTINEL_PASSWORD")
+declare -a arr=("REDIS_VERSION")
 
 for env in "${arr[@]}"
 do
@@ -45,22 +45,10 @@ function install_redis {
   popd > /dev/null
 }
 
-function start_cluster {
-  echo "Creating and starting cluster..."
-  pushd $ROOT > /dev/null
-  cd $ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/utils/create-cluster
-  ./create-cluster stop
-  ./create-cluster clean
-  ./create-cluster start
-  ./create-cluster create -f
-  popd > /dev/null
-}
-
 check_root_dir
 check_redis
 if [[ "$?" -eq 0 ]]; then
   install_redis
 fi
-start_cluster
 
-echo "Finished installing clustered redis server."
+echo "Finished installing centralized redis server."
