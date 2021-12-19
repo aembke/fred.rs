@@ -1,0 +1,65 @@
+version: 2
+jobs:
+  test-default:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install redis centralized
+          command: tests/scripts/install_redis_centralized.sh
+      - run:
+          name: Install redis cluster
+          command: tests/scripts/install_redis_clustered.sh
+      - run: tests/runners/default-features.sh
+  test-no-features:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install redis centralized
+          command: tests/scripts/install_redis_centralized.sh
+      - run:
+          name: Install redis cluster
+          command: tests/scripts/install_redis_clustered.sh
+      - run: tests/runners/no-features.sh
+  test-all-features:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install redis centralized
+          command: tests/scripts/install_redis_centralized.sh
+      - run:
+          name: Install redis cluster
+          command: tests/scripts/install_redis_clustered.sh
+      - run: tests/runners/all-features.sh
+  test-sentinel:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install Docker Compose
+          environment:
+            COMPOSE_VERSION: '1.29.2'
+          command: |
+            curl -L "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o ~/docker-compose
+            chmod +x ~/docker-compose
+            sudo mv ~/docker-compose /usr/local/bin/docker-compose
+      - setup_remote_docker
+      - run:
+          name: Setup sentinel redis via docker-compose
+          command: tests/scripts/docker-install-redis-sentinel.sh
+      - run: tests/runners/sentinel-features.sh
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - test-default
+      - test-all-features
+      - test-no-features
+      - test-sentinel
