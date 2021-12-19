@@ -6,8 +6,8 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install OpenSSL
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev
+          name: Install OpenSSL & Expect
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -21,8 +21,8 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install OpenSSL
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev
+          name: Install OpenSSL & Expect
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -36,6 +36,9 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install Expect
+          command: sudo apt-get update && sudo apt-get install -y expect
+      - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
@@ -48,8 +51,8 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install OpenSSL
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev
+          name: Install OpenSSL & Expect
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev expect
       - run:
           name: Install Docker Compose
           environment:
