@@ -40,6 +40,15 @@ fn read_sentinel_password() -> String {
   read_env_var("REDIS_SENTINEL_PASSWORD").expect("Failed to read REDIS_SENTINEL_PASSWORD env")
 }
 
+#[cfg(feature = "sentinel-tests")]
+fn read_sentinel_hostname() -> String {
+  if read_env_var("CIRCLECI_TESTS").is_some() {
+    "redis-sentinel-1".to_owned()
+  }else{
+    "127.0.0.1".to_owned()
+  }
+}
+
 #[cfg(all(feature = "sentinel-tests", not(feature = "chaos-monkey")))]
 pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
 where
@@ -53,9 +62,9 @@ where
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::Sentinel {
       hosts: vec![
-        ("127.0.0.1".into(), 26379),
-        ("127.0.0.1".into(), 26380),
-        ("127.0.0.1".into(), 26381),
+        (read_sentinel_hostname(), 26379),
+        (read_sentinel_hostname(), 26380),
+        (read_sentinel_hostname(), 26381),
       ],
       service_name: "redis-sentinel-main".into(),
       // TODO fix this so sentinel-tests can run without sentinel-auth
