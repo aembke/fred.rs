@@ -6,6 +6,7 @@ networks:
 
 services:
   redis-main:
+    container_name: "redis-main"
     image: 'bitnami/redis:${REDIS_VERSION}'
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
@@ -15,6 +16,7 @@ services:
     networks:
       - app-tier
   redis-replica:
+    container_name: "redis-replica"
     image: 'bitnami/redis:${REDIS_VERSION}'
     depends_on:
       - redis-main
@@ -29,6 +31,7 @@ services:
     networks:
       - app-tier
   redis-sentinel-1:
+    container_name: "redis-sentinel-1"
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
@@ -45,6 +48,7 @@ services:
     networks:
       - app-tier
   redis-sentinel-2:
+    container_name: "redis-sentinel-2"
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
@@ -62,6 +66,7 @@ services:
     networks:
       - app-tier
   redis-sentinel-3:
+    container_name: "redis-sentinel-3"
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
