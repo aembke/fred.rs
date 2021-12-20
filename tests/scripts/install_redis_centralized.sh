@@ -7,10 +7,15 @@ function check_root_dir {
   fi
 }
 
-if [ -z "$REDIS_VERSION" ]; then
-    echo "REDIS_VERSION must be set!"
+declare -a arr=("REDIS_VERSION" "REDIS_USERNAME" "REDIS_PASSWORD" "REDIS_SENTINEL_PASSWORD")
+
+for env in "${arr[@]}"
+do
+  if [ -z "$env" ]; then
+    echo "$env must be set. Run `source tests/environ` if needed."
     exit 1
-fi
+  fi
+done
 
 ROOT=$PWD
 [[ -z "${JOBS}" ]] && PARALLEL_JOBS='2' || PARALLEL_JOBS="${JOBS}"
@@ -37,6 +42,25 @@ function install_redis {
   rm redis-$REDIS_VERSION.tar.gz
   cd redis_$REDIS_VERSION/redis-$REDIS_VERSION
   make -j"${PARALLEL_JOBS}"
+  mv redis.conf redis.conf.bk
+  popd > /dev/null
+}
+
+function configure_acl {
+  if [ -z "$REDIS_USERNAME" ]; then
+    echo "Skipping ACL setup due to missing REDIS_USERNAME..."
+    return
+  fi
+  if [ -z "$REDIS_PASSWORD" ]; then
+    echo "Skipping ACL setup due to missing REDIS_PASSWORD..."
+    return
+  fi
+
+  echo "Configuring ACL rules..."
+  pushd $ROOT > /dev/null
+  cd tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION
+  echo "user $REDIS_USERNAME on allkeys allcommands allchannels >$REDIS_PASSWORD" > ./test_users.acl
+  echo "aclfile `pwd`/test_users.acl" > ./redis_centralized.conf
   popd > /dev/null
 }
 
@@ -49,8 +73,13 @@ function start_server {
     kill -9 `cat ./redis_server.pid`
   fi
 
-  echo "Starting server..."
-  nohup ./src/redis-server > ./centralized_server.log 2>&1 &
+  if [ -f "./redis_centralized.conf" ]; then
+    echo "Starting server with config file..."
+    nohup ./src/redis-server ./redis_centralized.conf > ./centralized_server.log 2>&1 &
+  else
+    echo "Starting server without config file..."
+    nohup ./src/redis-server > ./centralized_server.log 2>&1 &
+  fi
   echo $! > ./redis_server.pid
   echo "Redis server PID is `cat redis_server.pid`"
   popd > /dev/null
@@ -61,6 +90,7 @@ check_redis
 if [[ "$?" -eq 0 ]]; then
   install_redis
 fi
+configure_acl
 start_server
 
 echo "Finished installing centralized redis server."

@@ -3,7 +3,7 @@ Fred
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://travis-ci.com/aembke/fred.rs.svg?branch=main)](https://travis-ci.com/aembke/fred.rs)
+[![CircleCI](https://circleci.com/gh/aembke/fred.rs/tree/main.svg?style=svg)](https://circleci.com/gh/aembke/fred.rs/tree/main)
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
@@ -151,35 +151,7 @@ Errors that trigger this can be seen with the [on_error](https://docs.rs/fred/*/
 
 ## Tests
 
-To run the unit and integration tests:
-
-```
-cargo test -- --test-threads=1
-```
-
-OR
-
-```
-# run the tests with default features
-./tests/run.sh
-```
-
-OR 
-
-```
-# run the tests 3 times, once with default features, once with no features, and once with all features (except chaos monkey)
-./tests/run_all.sh
-```
-
-Note: a local Redis server must be running on port 6379, and a clustered deployment must be running on ports 30001 - 30006 for the integration tests to pass. 
-
-Scripts are included to download and run centralized and clustered redis servers at any Redis version. These scripts will not make any modifications to your system outside the `tests/tmp` folder.
-
-```
-export REDIS_VERSION=6.2.2
-./tests/scripts/install_redis_centralized.sh
-./tests/scripts/install_redis_clustered.sh
-```
+See the [testing documentation](./tests/README.md) for more information.
 
 **Beware: the tests will periodically run `flushall`.**
 

@@ -6,18 +6,23 @@ networks:
 
 services:
   redis-main:
+    container_name: "redis-main"
     image: 'bitnami/redis:${REDIS_VERSION}'
     environment:
       - ALLOW_EMPTY_PASSWORD=yes
+      - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - "6379"
     networks:
       - app-tier
   redis-replica:
+    container_name: "redis-replica"
     image: 'bitnami/redis:${REDIS_VERSION}'
     depends_on:
       - redis-main
     environment:
+      - 'REDIS_PASSWORD=${REDIS_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_REPLICATION_MODE=slave
       - REDIS_MASTER_HOST=redis-main
@@ -26,6 +31,7 @@ services:
     networks:
       - app-tier
   redis-sentinel-1:
+    container_name: "redis-sentinel-1"
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
@@ -35,11 +41,14 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
+      - 'REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - '26379:26379'
     networks:
       - app-tier
   redis-sentinel-2:
+    container_name: "redis-sentinel-2"
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
@@ -50,11 +59,14 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
+      - 'REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - '26380:26380'
     networks:
       - app-tier
   redis-sentinel-3:
+    container_name: "redis-sentinel-3"
     image: 'bitnami/redis-sentinel:${REDIS_VERSION}'
     depends_on:
       - redis-main
@@ -65,6 +77,8 @@ services:
       - ALLOW_EMPTY_PASSWORD=yes
       - REDIS_MASTER_HOST=redis-main
       - REDIS_MASTER_SET=redis-sentinel-main
+      - 'REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD}'
+      - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
     ports:
       - '26381:26381'
     networks:

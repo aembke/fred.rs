@@ -15,5 +15,8 @@ do
   fi
 done
 
-echo "Note: this requires docker, docker-compose, and redis >=6.2 to work reliably."
-docker-compose -f ./tests/sentinel-docker-compose.yml up -d
+echo "Stopping redis processes..."
+pgrep redis | sudo xargs kill -9
+
+echo "Stopping sentinel redis in docker..."
+docker-compose -f ./tests/sentinel-docker-compose.yml stop

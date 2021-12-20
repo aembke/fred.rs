@@ -1,0 +1,85 @@
+version: 2
+jobs:
+  test-default:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install OpenSSL
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - run:
+          name: Install redis centralized
+          command: tests/scripts/install_redis_centralized.sh
+      - run:
+          name: Install redis cluster
+          command: tests/scripts/install_redis_clustered.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with default features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
+  test-no-features:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install OpenSSL
+          command: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - run:
+          name: Install redis centralized
+          command: tests/scripts/install_redis_centralized.sh
+      - run:
+          name: Install redis cluster
+          command: tests/scripts/install_redis_clustered.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with no features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
+  test-all-features:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install redis centralized
+          command: tests/scripts/install_redis_centralized.sh
+      - run:
+          name: Install redis cluster
+          command: tests/scripts/install_redis_clustered.sh
+      - run:
+          name: Clear the cargo git cache
+          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
+      - run:
+          name: Run tests with all features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
+  test-sentinel:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install Docker Compose
+          environment:
+            COMPOSE_VERSION: '1.29.2'
+          command: |
+            curl -L "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o ~/docker-compose
+            chmod +x ~/docker-compose
+            sudo mv ~/docker-compose /usr/local/bin/docker-compose
+      - setup_remote_docker
+      - run:
+          name: Install and run sentinel tests
+          command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      - test-default
+      - test-all-features
+      - test-no-features
+      - test-sentinel
