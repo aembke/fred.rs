@@ -38,6 +38,9 @@ use std::collections::HashSet;
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";
 
+// TODO docs
+pub type RedisResult<T> = Result<T, RedisError>;
+
 /// The ANY flag used on certain GEO commands.
 pub type Any = bool;
 /// The result from any of the `connect` functions showing the error that closed the connection, if any.

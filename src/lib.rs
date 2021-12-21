@@ -74,6 +74,8 @@ mod utils;
 pub mod client;
 /// Error structs returned by Redis commands.
 pub mod error;
+/// TODO docs
+pub mod interfaces;
 /// An interface to run the `MONITOR` command.
 #[cfg(feature = "monitor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "monitor")))]
@@ -88,6 +90,7 @@ pub use crate::modules::{globals, pool, types};
 /// Convenience module to `use` a `RedisClient`, `RedisError`, and any argument types.
 pub mod prelude {
   pub use crate::client::RedisClient;
-  pub use crate::error::RedisError;
+  pub use crate::error::{RedisError, RedisErrorKind};
+  pub use crate::interfaces::*;
   pub use crate::types::*;
 }

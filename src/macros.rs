@@ -61,3 +61,35 @@ macro_rules! fspan (
     crate::trace::Span {}
   }
 );
+
+macro_rules! into (
+  ($val:ident) => (let $val = $val.into(););
+  ($v1:ident, $v2:ident) => (
+    let ($v1, $v2) = ($v1.into(), $v2.into());
+  );
+  ($v1:ident, $v2:ident, $v3:ident) => (
+    let ($v1, $v2, $v3) = ($v1.into(), $v2.into(), $v3.into());
+  );
+  ($v1:ident, $v2:ident, $v3:ident, $v4:ident) => (
+    let ($v1, $v2, $v3, $v4) = ($v1.into(), $v2.into(), $v3.into(), $v4.into());
+  );
+  ($v1:ident, $v2:ident, $v3:ident, $v4:ident, $v5:ident) => (
+    let ($v1, $v2, $v3, $v4, $v5) = ($v1.into(), $v2.into(), $v3.into(), $v4.into(), $v5.into());
+  );
+);
+
+macro_rules! try_into (
+  ($val:ident) => (let $val = $val.try_into()?;);
+  ($v1:ident, $v2:ident) => (
+    let ($v1, $v2) = ($v1.try_into()?, $v2.try_into()?);
+  );
+  ($v1:ident, $v2:ident, $v3:ident) => (
+    let ($v1, $v2, $v3) = ($v1.try_into()?, $v2.try_into()?, $v3.try_into()?);
+  );
+  ($v1:ident, $v2:ident, $v3:ident, $v4:ident) => (
+    let ($v1, $v2, $v3, $v4) = ($v1.try_into()?, $v2.try_into()?, $v3.try_into()?, $v4.try_into()?);
+  );
+  ($v1:ident, $v2:ident, $v3:ident, $v4:ident, $v5:ident) => (
+    let ($v1, $v2, $v3, $v4, $v5) = ($v1.try_into()?, $v2.try_into()?, $v3.try_into()?, $v4.try_into()?, $v5.try_into()?);
+  );
+);

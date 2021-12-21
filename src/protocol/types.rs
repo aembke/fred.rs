@@ -5,7 +5,7 @@ use crate::globals::globals;
 use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt;
@@ -28,6 +28,8 @@ pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
 #[derive(Clone)]
 pub struct AllNodesResponse {
+  // this state can shared across tasks scheduled in different threads on multi-thread runtimes when we
+  // send commands to all servers at once and wait for all the responses
   num_nodes: Arc<RwLock<usize>>,
   resp_tx: Arc<RwLock<Option<OneshotSender<Result<(), RedisError>>>>>,
 }
@@ -82,6 +84,7 @@ pub struct CustomKeySlot {
 
 #[derive(Clone)]
 pub struct SplitCommand {
+  // TODO change to mutex
   pub tx: Arc<RwLock<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
   pub config: Option<RedisConfig>,
 }

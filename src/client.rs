@@ -1,5 +1,6 @@
 use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
+use crate::interfaces::AclInterface;
 use crate::modules::inner::{MultiPolicy, RedisClientInner};
 use crate::modules::response::RedisResponse;
 use crate::multiplexer::commands as multiplexer_commands;
@@ -19,6 +20,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::Stats;
+use crate::prelude::ClientLike;
 
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {
@@ -132,6 +134,15 @@ impl<'a> From<&'a Arc<RedisClientInner>> for RedisClient {
   }
 }
 
+#[doc(hidden)]
+impl ClientLike for RedisClient {
+  fn inner(&self) -> &Arc<RedisClientInner> {
+    &self.inner
+  }
+}
+
+impl AclInterface for RedisClient {}
+
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
   pub fn new(config: RedisConfig) -> RedisClient {
@@ -192,6 +203,7 @@ impl RedisClient {
 
   /// Create a new `RedisClient` from the config provided to this client.
   ///
+  // TODO fix these docs to make it clear this is a deep clone while Clone is a shallow clone
   /// The returned client will not be connected to the server, and it will use new connections after connecting.
   pub fn clone_new(&self) -> Self {
     RedisClient::new(utils::read_locked(&self.inner.config))
@@ -204,6 +216,7 @@ impl RedisClient {
 
   /// Return a future that will ping the server on an interval.
   ///
+  // TODO take a bool argument to determine whether or break on errors or continue
   /// If the underlying connection closes or `PING` returns an error this will break the interval and this function will need to be called again.
   pub async fn enable_heartbeat(&self, interval: Duration) -> Result<(), RedisError> {
     let mut interval = tokio_interval(interval);
@@ -717,137 +730,6 @@ impl RedisClient {
     commands::slowlog::slowlog_reset(&self.inner).await
   }
 
-  // ------------- CLIENT ---------------
-
-  /// Return the ID of the current connection.
-  ///
-  /// Note: Against a clustered deployment this will return the ID of a random connection. See [connection_ids](Self::connection_ids) for  more information.
-  ///
-  /// <https://redis.io/commands/client-id>
-  pub async fn client_id<R>(&self) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
-    commands::client::client_id(&self.inner).await?.convert()
-  }
-
-  /// Read the connection IDs for the active connections to each server.
-  ///
-  /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
-  ///
-  /// Note: despite being async this function will usually return cached information from the client if possible.
-  pub async fn connection_ids(&self) -> Result<HashMap<Arc<String>, i64>, RedisError> {
-    utils::read_connection_ids(&self.inner).await.ok_or(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Failed to read connection IDs",
-    ))
-  }
-
-  /// Update the client's sentinel nodes list if using the sentinel interface.
-  ///
-  /// The client will automatically update this when connections to the primary server close.
-  pub async fn update_sentinel_nodes(&self) -> Result<(), RedisError> {
-    utils::update_sentinel_nodes(&self.inner).await
-  }
-
-  /// The command returns information and statistics about the current client connection in a mostly human readable format.
-  ///
-  /// <https://redis.io/commands/client-info>
-  pub async fn client_info<R>(&self) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
-    commands::client::client_info(&self.inner).await?.convert()
-  }
-
-  /// Close a given connection or set of connections.
-  ///
-  /// <https://redis.io/commands/client-kill>
-  pub async fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
-    commands::client::client_kill(&self.inner, filters).await?.convert()
-  }
-
-  /// The CLIENT LIST command returns information and statistics about the client connections server in a mostly human readable format.
-  ///
-  /// <https://redis.io/commands/client-list>
-  pub async fn client_list<R, I>(&self, r#type: Option<ClientKillType>, ids: Option<Vec<I>>) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-    I: Into<RedisKey>,
-  {
-    commands::client::client_list(&self.inner, r#type, ids).await?.convert()
-  }
-
-  /// The CLIENT GETNAME returns the name of the current connection as set by CLIENT SETNAME.
-  ///
-  /// <https://redis.io/commands/client-getname>
-  pub async fn client_getname<R>(&self) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
-    commands::client::client_getname(&self.inner).await?.convert()
-  }
-
-  /// Assign a name to the current connection.
-  ///
-  /// **Note: The client automatically generates a unique name for each client that is shared by all underlying connections.
-  /// Use [Self::id] to read the automatically generated name.**
-  ///
-  /// <https://redis.io/commands/client-setname>
-  pub async fn client_setname<S>(&self, name: S) -> Result<(), RedisError>
-  where
-    S: Into<String>,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::client::client_setname(&self.inner, name).await
-  }
-
-  /// CLIENT PAUSE is a connections control command able to suspend all the Redis clients for the specified amount of time (in milliseconds).
-  ///
-  /// <https://redis.io/commands/client-pause>
-  pub async fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::client::client_pause(&self.inner, timeout, mode).await
-  }
-
-  /// CLIENT UNPAUSE is used to resume command processing for all clients that were paused by CLIENT PAUSE.
-  ///
-  /// <https://redis.io/commands/client-unpause>
-  pub async fn client_unpause(&self) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::client::client_unpause(&self.inner).await
-  }
-
-  /// The CLIENT REPLY command controls whether the server will reply the client's commands. The following modes are available:
-  ///
-  /// <https://redis.io/commands/client-reply>
-  pub async fn client_reply(&self, flag: ClientReplyFlag) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::client::client_reply(&self.inner, flag).await
-  }
-
-  /// This command can unblock, from a different connection, a client blocked in a blocking operation, such as for instance BRPOP or XREAD or WAIT.
-  ///
-  /// Note: this command is sent on a backchannel connection and will work even when the main connection is blocked.
-  ///
-  /// <https://redis.io/commands/client-unblock>
-  pub async fn client_unblock<R, S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-    S: Into<RedisValue>,
-  {
-    commands::client::client_unblock(&self.inner, id, flag).await?.convert()
-  }
-
-  /// A convenience function to unblock any blocked connection on this client.
-  pub async fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::client::unblock_self(&self.inner, flag).await
-  }
-
   // ------------- CLUSTER -----------
 
   /// Advances the cluster config epoch.
@@ -1151,125 +1033,6 @@ impl RedisClient {
   {
     utils::disallow_during_transaction(&self.inner)?;
     commands::memory::memory_usage(&self.inner, key, samples).await
-  }
-
-  // ---------------- ACL ------------------------
-
-  /// When Redis is configured to use an ACL file (with the aclfile configuration option), this command will reload the
-  /// ACLs from the file, replacing all the current ACL rules with the ones defined in the file.
-  ///
-  /// <https://redis.io/commands/acl-load>
-  pub async fn acl_load(&self) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_load(&self.inner).await
-  }
-
-  /// When Redis is configured to use an ACL file (with the aclfile configuration option), this command will save the
-  /// currently defined ACLs from the server memory to the ACL file.
-  ///
-  /// <https://redis.io/commands/acl-save>
-  pub async fn acl_save(&self) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_save(&self.inner).await
-  }
-
-  /// The command shows the currently active ACL rules in the Redis server.
-  ///
-  /// <https://redis.io/commands/acl-list>
-  pub async fn acl_list<R>(&self) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_list(&self.inner).await?.convert()
-  }
-
-  /// The command shows a list of all the usernames of the currently configured users in the Redis ACL system.
-  ///
-  /// <https://redis.io/commands/acl-users>
-  pub async fn acl_users<R>(&self) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_users(&self.inner).await?.convert()
-  }
-
-  /// The command returns all the rules defined for an existing ACL user.
-  ///
-  /// <https://redis.io/commands/acl-getuser>
-  pub async fn acl_getuser<S>(&self, username: S) -> Result<Option<AclUser>, RedisError>
-  where
-    S: Into<String>,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_getuser(&self.inner, username).await
-  }
-
-  /// Create an ACL user with the specified rules or modify the rules of an existing user.
-  ///
-  /// <https://redis.io/commands/acl-setuser>
-  pub async fn acl_setuser<S>(&self, username: S, rules: Vec<AclRule>) -> Result<(), RedisError>
-  where
-    S: Into<String>,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_setuser(&self.inner, username, rules).await
-  }
-
-  /// Delete all the specified ACL users and terminate all the connections that are authenticated with such users.
-  ///
-  /// <https://redis.io/commands/acl-deluser>
-  pub async fn acl_deluser<R, S>(&self, usernames: S) -> Result<R, RedisError>
-  where
-    R: RedisResponse,
-    S: Into<MultipleStrings>,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_deluser(&self.inner, usernames).await?.convert()
-  }
-
-  /// The command shows the available ACL categories if called without arguments. If a category name is given,
-  /// the command shows all the Redis commands in the specified category.
-  ///
-  /// <https://redis.io/commands/acl-cat>
-  pub async fn acl_cat<R, S>(&self, category: Option<S>) -> Result<Vec<String>, RedisError>
-  where
-    S: Into<String>,
-  {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_cat(&self.inner, category).await?.convert()
-  }
-
-  /// Generate a password with length `bits`, returning the password.
-  pub async fn acl_genpass(&self, bits: Option<u16>) -> Result<String, RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_genpass(&self.inner, bits).await?.convert()
-  }
-
-  /// Return the username the current connection is authenticated with. New connections are authenticated
-  /// with the "default" user.
-  ///
-  /// <https://redis.io/commands/acl-whoami>
-  pub async fn acl_whoami(&self) -> Result<String, RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_whoami(&self.inner).await?.convert()
-  }
-
-  /// Read `count` recent ACL security events.
-  ///
-  /// <https://redis.io/commands/acl-log>
-  pub async fn acl_log_count(&self, count: Option<u32>) -> Result<RedisValue, RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_log_count(&self.inner, count).await
-  }
-
-  /// Clear the ACL security events logs.
-  ///
-  /// <https://redis.io/commands/acl-log>
-  pub async fn acl_log_reset(&self) -> Result<(), RedisError> {
-    utils::disallow_during_transaction(&self.inner)?;
-    commands::acl::acl_log_reset(&self.inner).await
   }
 
   // ----------- KEYS ------------

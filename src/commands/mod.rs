@@ -139,24 +139,43 @@ pub async fn args_ok_cmd(
 }
 
 pub mod acl;
+pub mod acl_interface;
 pub mod client;
+pub mod client_interface;
 pub mod cluster;
+pub mod cluster_interface;
 pub mod config;
+pub mod config_interface;
 pub mod geo;
+pub mod geo_interface;
 pub mod hashes;
+pub mod hashes_interface;
 pub mod hyperloglog;
+pub mod hyperloglog_interface;
 pub mod keys;
+pub mod keys_interface;
 pub mod lists;
+pub mod lists_interface;
 pub mod lua;
+pub mod lua_interface;
 pub mod memory;
+pub mod memory_interface;
 pub mod pubsub;
+pub mod pubsub_interface;
 pub mod scan;
+pub mod scan_interface;
 pub mod server;
+pub mod server_interface;
 pub mod sets;
+pub mod sets_interface;
 pub mod slowlog;
+pub mod slowlog_interface;
 pub mod sorted_sets;
+pub mod sorted_sets_interface;
 pub mod streams;
+pub mod streams_interface;
 pub mod strings;
+pub mod strings_interface;
 
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;

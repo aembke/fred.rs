@@ -222,3 +222,7 @@ pub mod geo {
   cluster_test!(geo, should_georadiusbymember_values);
   cluster_test!(geo, should_geosearch_values);
 }
+
+pub mod acl {
+  cluster_test!(acl, should_run_acl_getuser);
+}

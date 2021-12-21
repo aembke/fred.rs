@@ -219,4 +219,5 @@ pub mod geo {
 pub mod acl {
   centralized_test!(acl, should_auth_as_test_user);
   centralized_test!(acl, should_auth_as_test_user_via_config);
+  centralized_test!(acl, should_run_acl_getuser);
 }
