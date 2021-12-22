@@ -4,18 +4,21 @@ use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
 use crate::types::{
-  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, ReconnectPolicy, RedisConfig, RedisResponse,
+  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, InfoKind, ReconnectPolicy, RedisConfig, RedisResponse,
   RedisValue, ShutdownFlags,
 };
 use crate::utils;
+use futures::Stream;
 use std::convert::TryInto;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::JoinHandle;
 use tokio::time::interval as tokio_interval;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 // This is a strange file.
 //
@@ -119,6 +122,34 @@ where
   }
 }
 
+/// A wrapper type for async stream return values from functions implemented in a trait.
+///
+/// This is used to work around the lack of `impl Trait` support in trait functions.
+pub struct AsyncStream<T: Unpin + Send + 'static> {
+  inner: UnboundedReceiverStream<T>,
+}
+
+impl<T> Stream for AsyncStream<T>
+where
+  T: Unpin + Send + 'static,
+{
+  type Item = T;
+
+  fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    Pin::new(&mut self.get_mut().inner).poll_next(cx)
+  }
+}
+
+#[doc(hidden)]
+impl<T> From<UnboundedReceiverStream<T>> for AsyncStream<T>
+where
+  T: Unpin + Send + 'static,
+{
+  fn from(rx: UnboundedReceiverStream<T>) -> Self {
+    AsyncStream { inner: rx }
+  }
+}
+
 /// Run a function in the context of a new tokio task, returning an `AsyncResult`.
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
@@ -133,7 +164,7 @@ where
 }
 
 /// Any Redis client that implements any part of the Redis interface.
-pub trait ClientLike: Clone + Send {
+pub trait ClientLike: Unpin + Clone + Send {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
@@ -216,7 +247,20 @@ pub trait ClientLike: Clone + Send {
     async_spawn(self, |inner| async move { utils::wait_for_connect(&inner).await })
   }
 
+  /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
+  /// not appear in the request-response cycle, and so cannot be handled by response futures.
+  ///
+  /// This function does not need to be called again if the connection closes.
+  fn on_error(&self) -> AsyncStream<RedisError> {
+    let (tx, rx) = unbounded_channel();
+    self.inner().error_tx.write().push_back(tx);
+
+    UnboundedReceiverStream::new(rx).into()
+  }
+
   /// Return a future that will ping the server on an interval.
+  ///
+  /// When running against a cluster this will ping a random node on each interval.
   #[allow(unreachable_code)]
   fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
@@ -273,6 +317,18 @@ pub trait ClientLike: Clone + Send {
     )
   }
 
+  /// Read info about the server.
+  ///
+  /// <https://redis.io/commands/info>
+  fn info<R>(&self, section: Option<InfoKind>) -> AsyncResult<R>
+  where
+    R: RedisResponse + Unpin + Send,
+  {
+    async_spawn(self, |inner| async move {
+      commands::server::info(&inner, section).await?.convert()
+    })
+  }
+
   /// Run a custom command that is not yet supported via another interface on this client. This is most useful when interacting with third party modules or extensions.
   ///
   /// This interface makes some assumptions about the nature of the provided command:
@@ -303,6 +359,11 @@ pub trait ClientLike: Clone + Send {
 
 pub use crate::commands::interfaces::{
   acl::AclInterface, client::ClientInterface, cluster::ClusterInterface, config::ConfigInterface, geo::GeoInterface,
-  hashes::HashesInterface, hyperloglog::HyperloglogInterface, keys::KeysInterface, lua::LuaInterface,
-  metrics::MetricsInterface, pubsub::PubsubInterface, transactions::TransactionInterface,
+  hashes::HashesInterface, hyperloglog::HyperloglogInterface, keys::KeysInterface, lists::ListInterface,
+  lua::LuaInterface, memory::MemoryInterface, metrics::MetricsInterface, pubsub::PubsubInterface,
+  server::AuthInterface, server::ServerInterface, sets::SetsInterface, slowlog::SlowlogInterface,
+  transactions::TransactionInterface,
 };
+
+#[cfg(feature = "sentinel-client")]
+pub use crate::commands::interfaces::sentinel::SentinelInterface;

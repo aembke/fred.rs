@@ -19,3 +19,6 @@ pub mod sorted_sets;
 pub mod streams;
 pub mod strings;
 pub mod transactions;
+
+#[cfg(feature = "sentinel-client")]
+pub mod sentinel;

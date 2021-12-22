@@ -92,5 +92,5 @@ pub mod prelude {
   pub use crate::client::RedisClient;
   pub use crate::error::{RedisError, RedisErrorKind};
   pub use crate::interfaces::*;
-  pub use crate::types::*;
+  pub use crate::types::{RedisConfig, RedisResponse, RedisValue, RedisValueKind, ServerConfig};
 }
