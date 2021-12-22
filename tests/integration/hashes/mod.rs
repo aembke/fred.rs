@@ -1,7 +1,7 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
+use fred::interfaces::*;
 use fred::types::{RedisConfig, RedisMap, RedisValue};
-
 use std::collections::{HashMap, HashSet};
 
 fn assert_contains<'a, T: Eq + PartialEq>(values: Vec<T>, item: &'a T) {

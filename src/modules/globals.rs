@@ -203,7 +203,7 @@ pub fn set_max_command_attempts(val: usize) -> usize {
 ///
 /// The client will automatically [pipeline](https://redis.io/topics/pipelining) all commands to the server, and this setting can
 /// be used to effectively disable pipelining by setting this to `1`. However, If the caller wants to avoid pipelining commands it's recommended
-/// to use the `disable_pipeline` flag on the [connect](crate::client::RedisClient::connect) function instead since backpressure is probabilistic
+/// to use the `disable_pipeline` flag on the [connect](crate::interfaces::ClientLike::connect) function instead since backpressure is probabilistic
 /// while the `no_pipeline` flag is not.
 ///
 /// Default: 5000

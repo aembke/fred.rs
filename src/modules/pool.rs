@@ -1,5 +1,6 @@
 use crate::client::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
+use crate::interfaces::ClientLike;
 use crate::types::{ConnectHandle, ReconnectPolicy, RedisConfig};
 use crate::utils;
 use futures::future::{join_all, try_join_all};

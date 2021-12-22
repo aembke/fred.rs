@@ -1,5 +1,6 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
+use fred::interfaces::*;
 use fred::types::{RedisConfig, RedisValue};
 
 pub async fn should_run_get_set_trx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {

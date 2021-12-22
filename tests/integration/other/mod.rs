@@ -1,5 +1,6 @@
 use fred::client::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
+use fred::interfaces::*;
 use fred::prelude::Blocking;
 use fred::types::{ClientUnblockFlag, RedisConfig, ServerConfig};
 use std::collections::BTreeSet;

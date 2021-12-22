@@ -1,5 +1,6 @@
 use fred::client::RedisClient;
 use fred::error::RedisError;
+use fred::interfaces::*;
 use fred::pool::StaticRedisPool;
 use fred::types::RedisConfig;
 

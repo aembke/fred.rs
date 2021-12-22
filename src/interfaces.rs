@@ -1,10 +1,21 @@
+use crate::client::RedisClient;
+use crate::commands;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
+use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
+use crate::types::{
+  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, ReconnectPolicy, RedisConfig, RedisResponse,
+  RedisValue, ShutdownFlags,
+};
+use crate::utils;
+use std::convert::TryInto;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Duration;
 use tokio::task::JoinHandle;
+use tokio::time::interval as tokio_interval;
 
 // This is a strange file.
 //
@@ -56,6 +67,7 @@ pub struct AsyncResult<T: Unpin + Send + 'static> {
   inner: AsyncInner<T>,
 }
 
+#[doc(hidden)]
 impl<T, E> From<Result<T, E>> for AsyncResult<T>
 where
   T: Unpin + Send + 'static,
@@ -68,6 +80,7 @@ where
   }
 }
 
+#[doc(hidden)]
 impl<T> From<JoinHandle<Result<T, RedisError>>> for AsyncResult<T>
 where
   T: Unpin + Send + 'static,
@@ -106,6 +119,7 @@ where
   }
 }
 
+/// Run a function in the context of a new tokio task, returning an `AsyncResult`.
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike,
@@ -118,9 +132,177 @@ where
   tokio::spawn(func(inner)).into()
 }
 
-#[doc(hidden)]
-pub trait ClientLike {
+/// Any Redis client that implements any part of the Redis interface.
+pub trait ClientLike: Clone + Send {
+  #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
+
+  /// The unique ID identifying this client and underlying connections.
+  ///
+  /// All connections will use the ID of the client that created them for `CLIENT SETNAME`.
+  fn id(&self) -> &Arc<String> {
+    &self.inner().id
+  }
+
+  /// Read the config used to initialize the client.
+  fn client_config(&self) -> RedisConfig {
+    utils::read_locked(&self.inner().config)
+  }
+
+  /// Read the reconnect policy used to initialize the client.
+  fn client_reconnect_policy(&self) -> Option<ReconnectPolicy> {
+    self.inner().policy.read().clone()
+  }
+
+  /// Whether or not the client has a reconnection policy.
+  fn has_reconnect_policy(&self) -> bool {
+    self.inner().policy.read().is_some()
+  }
+
+  /// Whether or not the client will pipeline commands.
+  fn is_pipelined(&self) -> bool {
+    self.inner().is_pipelined()
+  }
+
+  /// Read the number of request redeliveries.
+  ///
+  /// This is the number of times a request had to be sent again due to a connection closing while waiting on a response.
+  fn read_redelivery_count(&self) -> usize {
+    utils::read_atomic(&self.inner().redeliver_count)
+  }
+
+  /// Read and reset the number of request redeliveries.
+  fn take_redelivery_count(&self) -> usize {
+    utils::set_atomic(&self.inner().redeliver_count, 0)
+  }
+
+  /// Read the state of the underlying connection(s).
+  ///
+  /// If running against a cluster the underlying state will reflect the state of the least healthy connection, if any.
+  fn state(&self) -> ClientState {
+    self.inner().state.read().clone()
+  }
+
+  /// Whether or not the client has an active connection to the server(s).
+  fn is_connected(&self) -> bool {
+    *self.inner().state.read() == ClientState::Connected
+  }
+
+  /// Connect to the Redis server with an optional reconnection policy.
+  ///
+  /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve
+  /// until the connection closes, and if a reconnection policy with unlimited attempts
+  /// is provided then the `JoinHandle` will run forever, or until `QUIT` is called.
+  ///
+  /// **Note:** See the [RedisConfig](crate::types::RedisConfig) documentation for more information on how the `policy` is applied to new connections.
+  fn connect(&self, policy: Option<ReconnectPolicy>) -> ConnectHandle {
+    let inner = self.inner().clone();
+
+    tokio::spawn(async move {
+      let result = multiplexer_commands::init(&inner, policy).await;
+      if let Err(ref e) = result {
+        multiplexer_utils::emit_connect_error(&inner, e);
+      }
+      utils::set_client_state(&inner.state, ClientState::Disconnected);
+      result
+    })
+  }
+
+  /// Wait for the client to connect to the server, or return an error if the initial connection cannot be established.
+  /// If the client is already connected this future will resolve immediately.
+  ///
+  /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the first connection attempt vs subsequent attempts.
+  fn wait_for_connect(&self) -> AsyncResult<()> {
+    async_spawn(self, |inner| async move { utils::wait_for_connect(&inner).await })
+  }
+
+  /// Return a future that will ping the server on an interval.
+  #[allow(unreachable_code)]
+  fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> AsyncResult<()> {
+    async_spawn(self, |inner| async move {
+      let _self = RedisClient::from(&inner);
+      let mut interval = tokio_interval(interval);
+
+      loop {
+        interval.tick().await;
+
+        if utils::is_locked_some(&inner.multi_block) {
+          _debug!(inner, "Skip heartbeat while inside transaction.");
+          continue;
+        }
+
+        if break_on_error {
+          let _ = _self.ping().await?;
+        } else {
+          if let Err(e) = _self.ping().await {
+            _warn!(inner, "Heartbeat ping failed with error: {:?}", e);
+          }
+        }
+      }
+
+      Ok(())
+    })
+  }
+
+  /// Close the connection to the Redis server. The returned future resolves when the command has been written to the socket,
+  /// not when the connection has been fully closed. Some time after this future resolves the future returned by [connect](Self::connect)
+  /// will resolve which indicates that the connection has been fully closed.
+  ///
+  /// This function will also close all error, pubsub message, and reconnection event streams.
+  fn quit(&self) -> AsyncResult<()> {
+    async_spawn(self, |inner| async move { commands::server::quit(&inner).await })
+  }
+
+  /// Shut down the server and quit the client.
+  ///
+  /// <https://redis.io/commands/shutdown>
+  fn shutdown(&self, flags: Option<ShutdownFlags>) -> AsyncResult<()> {
+    async_spawn(self, |inner| async move {
+      utils::disallow_during_transaction(&inner)?;
+      commands::server::shutdown(&inner, flags).await
+    })
+  }
+
+  /// Ping the Redis server.
+  ///
+  /// <https://redis.io/commands/ping>
+  fn ping(&self) -> AsyncResult<()> {
+    async_spawn(
+      self,
+      |inner| async move { commands::server::ping(&inner).await?.convert() },
+    )
+  }
+
+  /// Run a custom command that is not yet supported via another interface on this client. This is most useful when interacting with third party modules or extensions.
+  ///
+  /// This interface makes some assumptions about the nature of the provided command:
+  /// * For commands comprised of multiple command strings they must be separated by a space.
+  /// * The command string will be sent to the server exactly as written.
+  /// * Arguments will be sent in the order provided.
+  /// * When used against a cluster the caller must provide the correct hash slot to identify the cluster
+  /// node that should receive the command. If one is not provided the command will be sent to a random node
+  /// in the cluster.
+  ///
+  /// Callers should use the re-exported [redis_keyslot](crate::client::util::redis_keyslot) function to hash the command's key, if necessary.
+  ///
+  /// Callers that find themselves using this interface for commands that are not a part of a third party extension should file an issue
+  /// to add the command to the list of supported commands. This interface should be used with caution as it may break the automatic pipeline
+  /// features in the client if command flags are not properly configured.
+  fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<R>
+  where
+    R: RedisResponse + Unpin + Send,
+    T: TryInto<RedisValue>,
+    T::Error: Into<RedisError>,
+  {
+    let args = atry!(utils::try_into_vec(args));
+    async_spawn(self, |inner| async move {
+      commands::server::custom(&inner, cmd, args).await?.convert()
+    })
+  }
 }
 
-pub use crate::commands::acl_interface::AclInterface;
+pub use crate::commands::interfaces::{
+  acl::AclInterface, client::ClientInterface, cluster::ClusterInterface, config::ConfigInterface, geo::GeoInterface,
+  hashes::HashesInterface, hyperloglog::HyperloglogInterface, keys::KeysInterface, lua::LuaInterface,
+  metrics::MetricsInterface, pubsub::PubsubInterface, transactions::TransactionInterface,
+};

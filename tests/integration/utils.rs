@@ -4,6 +4,7 @@ use crate::chaos_monkey::set_test_kind;
 use fred::client::RedisClient;
 use fred::error::RedisError;
 use fred::globals;
+use fred::interfaces::*;
 use fred::types::{ReconnectPolicy, RedisConfig, ServerConfig};
 use std::env;
 use std::future::Future;
@@ -44,7 +45,7 @@ fn read_sentinel_password() -> String {
 fn read_sentinel_hostname() -> String {
   if read_env_var("CIRCLECI_TESTS").is_some() {
     "redis-sentinel-1".to_owned()
-  }else{
+  } else {
     "127.0.0.1".to_owned()
   }
 }

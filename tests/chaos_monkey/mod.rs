@@ -5,6 +5,7 @@
 use fred::client::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::globals;
+use fred::interfaces::*;
 use fred::types::{RedisConfig, RedisKey, ServerConfig};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;

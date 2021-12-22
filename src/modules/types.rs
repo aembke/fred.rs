@@ -958,6 +958,9 @@ impl From<Vec<u8>> for RedisKey {
 */
 
 /// Convenience struct for commands that take 1 or more keys.
+///
+/// **Note: this can also be used to represent an empty array of keys by passing `None` to any function that takes `Into<MultipleKeys>`.** This
+/// is mostly useful for `EVAL` and `EVALSHA`.
 pub struct MultipleKeys {
   keys: Vec<RedisKey>,
 }
@@ -973,6 +976,13 @@ impl MultipleKeys {
 
   pub fn len(&self) -> usize {
     self.keys.len()
+  }
+}
+
+impl From<Option<RedisKey>> for MultipleKeys {
+  fn from(key: Option<RedisKey>) -> Self {
+    let keys = if let Some(key) = key { vec![key] } else { vec![] };
+    MultipleKeys { keys }
   }
 }
 
@@ -1022,6 +1032,9 @@ where
 pub type MultipleStrings = MultipleKeys;
 
 /// Convenience struct for commands that take 1 or more values.
+///
+/// **Note: this can be used to represent an empty set of values by using `None` for any function that takes `Into<MultipleValues>`.** This
+/// is most useful for `EVAL` and `EVALSHA`.
 pub struct MultipleValues {
   values: Vec<RedisValue>,
 }
@@ -1041,9 +1054,10 @@ impl MultipleValues {
   }
 }
 
-impl From<()> for MultipleValues {
-  fn from(_: ()) -> Self {
-    MultipleValues { values: vec![] }
+impl From<Option<RedisValue>> for MultipleValues {
+  fn from(val: Option<RedisValue>) -> Self {
+    let values = if let Some(val) = val { vec![val] } else { vec![] };
+    MultipleValues { values }
   }
 }
 
@@ -2063,6 +2077,12 @@ impl From<BTreeMap<String, RedisValue>> for RedisValue {
 impl From<RedisKey> for RedisValue {
   fn from(d: RedisKey) -> Self {
     RedisValue::Bytes(d.key)
+  }
+}
+
+impl From<()> for RedisValue {
+  fn from(_: ()) -> Self {
+    RedisValue::Null
   }
 }
 

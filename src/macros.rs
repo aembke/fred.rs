@@ -62,6 +62,16 @@ macro_rules! fspan (
   }
 );
 
+/// Async try! for `AsyncResult`. This is rarely used on its own, but rather as a part of try_into!.
+macro_rules! atry (
+  ($expr:expr) => {
+    match $expr {
+      Ok(val) => val,
+      Err(e) => return crate::interfaces::AsyncResult::from(Err(e))
+    }
+  }
+);
+
 macro_rules! into (
   ($val:ident) => (let $val = $val.into(););
   ($v1:ident, $v2:ident) => (
@@ -76,20 +86,22 @@ macro_rules! into (
   ($v1:ident, $v2:ident, $v3:ident, $v4:ident, $v5:ident) => (
     let ($v1, $v2, $v3, $v4, $v5) = ($v1.into(), $v2.into(), $v3.into(), $v4.into(), $v5.into());
   );
+  // add to this as needed
 );
 
 macro_rules! try_into (
-  ($val:ident) => (let $val = $val.try_into()?;);
+  ($val:ident) => (let $val = atry!(to!($val)););
   ($v1:ident, $v2:ident) => (
-    let ($v1, $v2) = ($v1.try_into()?, $v2.try_into()?);
+    let ($v1, $v2) = (atry!(to!($v1)), atry!(to!($v2)));
   );
   ($v1:ident, $v2:ident, $v3:ident) => (
-    let ($v1, $v2, $v3) = ($v1.try_into()?, $v2.try_into()?, $v3.try_into()?);
+    let ($v1, $v2, $v3) = (atry!(to!($v1)), atry!(to!($v2)), atry!(to!($v3)));
   );
   ($v1:ident, $v2:ident, $v3:ident, $v4:ident) => (
-    let ($v1, $v2, $v3, $v4) = ($v1.try_into()?, $v2.try_into()?, $v3.try_into()?, $v4.try_into()?);
+    let ($v1, $v2, $v3, $v4) = (atry!(to!($v1)), atry!(to!($v2)), atry!(to!($v3)), atry!(to!($v4)));
   );
   ($v1:ident, $v2:ident, $v3:ident, $v4:ident, $v5:ident) => (
-    let ($v1, $v2, $v3, $v4, $v5) = ($v1.try_into()?, $v2.try_into()?, $v3.try_into()?, $v4.try_into()?, $v5.try_into()?);
+    let ($v1, $v2, $v3, $v4, $v5) = (atry!(to!($v1)), atry!(to!($v2)), atry!(to!($v3)), atry!(to!($v4)), atry!(to!($v5)));
   );
+  // add to this as needed
 );

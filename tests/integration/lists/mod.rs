@@ -1,3 +1,4 @@
+use fred::interfaces::*;
 use fred::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
