@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, RedisResponse, RedisValue};
+use crate::types::{LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, FromRedis, RedisValue};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -13,7 +13,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/blpop>
   fn blpop<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
@@ -29,7 +29,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/brpop>
   fn brpop<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
@@ -44,7 +44,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/brpoplpush>
   fn brpoplpush<R, S, D>(&self, source: S, destination: D, timeout: f64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
     D: Into<RedisKey>,
   {
@@ -69,7 +69,7 @@ pub trait ListInterface: ClientLike + Sized {
     timeout: f64,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
     D: Into<RedisKey>,
   {
@@ -95,7 +95,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lindex>
   fn lindex<R, K>(&self, key: K, index: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -109,7 +109,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/linsert>
   fn linsert<R, K, P, V>(&self, key: K, location: ListLocation, pivot: P, element: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     P: TryInto<RedisValue>,
     P::Error: Into<RedisError>,
@@ -130,7 +130,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/llen>
   fn llen<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -144,7 +144,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lpop>
   fn lpop<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -165,7 +165,7 @@ pub trait ListInterface: ClientLike + Sized {
     maxlen: Option<i64>,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -184,7 +184,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lpush>
   fn lpush<R, K, V>(&self, key: K, elements: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -201,7 +201,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lpushx>
   fn lpushx<R, K, V>(&self, key: K, elements: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -218,7 +218,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lrange>
   fn lrange<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -232,7 +232,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lrem>
   fn lrem<R, K, V>(&self, key: K, count: i64, element: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -249,7 +249,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lset>
   fn lset<R, K, V>(&self, key: K, index: i64, element: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -266,7 +266,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/ltrim>
   fn ltrim<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -280,7 +280,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/rpop>
   fn rpop<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -294,7 +294,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/rpoplpush>
   fn rpoplpush<R, S, D>(&self, source: S, dest: D) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
     D: Into<RedisKey>,
   {
@@ -316,7 +316,7 @@ pub trait ListInterface: ClientLike + Sized {
     dest_direction: LMoveDirection,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
     D: Into<RedisKey>,
   {
@@ -333,7 +333,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/rpush>
   fn rpush<R, K, V>(&self, key: K, elements: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -350,7 +350,7 @@ pub trait ListInterface: ClientLike + Sized {
   /// <https://redis.io/commands/rpushx>
   fn rpushx<R, K, V>(&self, key: K, elements: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,

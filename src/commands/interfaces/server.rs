@@ -1,6 +1,6 @@
 use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::RedisResponse;
+use crate::types::FromRedis;
 use crate::utils;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
@@ -69,7 +69,7 @@ pub trait ServerInterface: ClientLike + Sized {
   /// <https://redis.io/commands/bgrewriteaof>
   fn bgrewriteaof<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -82,7 +82,7 @@ pub trait ServerInterface: ClientLike + Sized {
   /// <https://redis.io/commands/bgsave>
   fn bgsave<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -95,7 +95,7 @@ pub trait ServerInterface: ClientLike + Sized {
   /// <https://redis.io/commands/dbsize>
   fn dbsize<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::server::dbsize(&inner).await?.convert()
@@ -107,7 +107,7 @@ pub trait ServerInterface: ClientLike + Sized {
   /// <https://redis.io/commands/flushall>
   fn flushall<R>(&self, r#async: bool) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::server::flushall(&inner, r#async).await?.convert()
@@ -146,7 +146,7 @@ pub trait ServerInterface: ClientLike + Sized {
   /// <https://redis.io/commands/lastsave>
   fn lastsave<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::server::lastsave(&inner).await?.convert()

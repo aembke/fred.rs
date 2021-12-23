@@ -93,6 +93,6 @@ pub mod prelude {
   pub use crate::error::{RedisError, RedisErrorKind};
   pub use crate::interfaces::*;
   pub use crate::types::{
-    Blocking, Expiration, RedisConfig, RedisResponse, RedisValue, RedisValueKind, ServerConfig, SetOptions,
+    Blocking, Expiration, RedisConfig, FromRedis, RedisValue, RedisValueKind, ServerConfig, SetOptions,
   };
 }

@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{RedisResponse, RedisValue};
+use crate::types::{FromRedis, RedisValue};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -34,7 +34,7 @@ pub trait ConfigInterface: ClientLike + Sized {
   /// <https://redis.io/commands/config-get>
   fn config_get<R, S>(&self, parameter: S) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<String>,
   {
     into!(parameter);

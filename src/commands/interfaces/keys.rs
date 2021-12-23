@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{Expiration, MultipleKeys, RedisKey, RedisMap, RedisResponse, RedisValue, SetOptions};
+use crate::types::{Expiration, MultipleKeys, RedisKey, RedisMap, FromRedis, RedisValue, SetOptions};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -12,7 +12,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/randomkey>
   fn randomkey<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::keys::randomkey(&inner).await?.convert()
@@ -24,7 +24,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/copy>
   fn copy<R, S, D>(&self, source: S, destination: D, db: Option<u8>, replace: bool) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
     D: Into<RedisKey>,
   {
@@ -81,7 +81,7 @@ pub trait KeysInterface: ClientLike + Sized {
     get: bool,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -100,7 +100,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/get>
   fn get<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -116,7 +116,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/getrange>
   fn getrange<R, K>(&self, key: K, start: usize, end: usize) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -130,7 +130,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/setrange>
   fn setrange<R, K, V>(&self, key: K, offset: u32, value: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -149,7 +149,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/getset>
   fn getset<R, K, V>(&self, key: K, value: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -166,7 +166,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/getdel>
   fn getdel<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -180,7 +180,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/strlen>
   fn strlen<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -196,7 +196,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/del>
   fn del<R, K>(&self, keys: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
@@ -210,7 +210,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/mget>
   fn mget<R, K>(&self, keys: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
@@ -235,7 +235,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/msetnx>
   fn msetnx<R, V>(&self, values: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     V: Into<RedisMap>,
   {
     into!(values);
@@ -251,7 +251,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/incr>
   fn incr<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -267,7 +267,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/incrby>
   fn incr_by<R, K>(&self, key: K, val: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -283,7 +283,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/incrbyfloat>
   fn incr_by_float<R, K>(&self, key: K, val: f64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -299,7 +299,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/decr>
   fn decr<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -315,7 +315,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/decrby>
   fn decr_by<R, K>(&self, key: K, val: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -329,7 +329,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/ttl>
   fn ttl<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -343,7 +343,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/pttl>
   fn pttl<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -360,7 +360,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/persist>
   fn persist<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -376,7 +376,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/expire>
   fn expire<R, K>(&self, key: K, seconds: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -392,7 +392,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/expireat>
   fn expire_at<R, K>(&self, key: K, timestamp: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -406,7 +406,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/exists>
   fn exists<R, K>(&self, keys: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);

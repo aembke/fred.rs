@@ -3,7 +3,7 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::modules::inner::RedisClientInner;
 use crate::types::{
-  AclChannelPattern, AclCommandPattern, AclKeyPattern, AclRule, AclUser, AclUserFlag, MultipleStrings, RedisResponse,
+  AclChannelPattern, AclCommandPattern, AclKeyPattern, AclRule, AclUser, AclUserFlag, MultipleStrings, FromRedis,
   RedisValue,
 };
 use crate::utils;
@@ -53,7 +53,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-list>
   fn acl_list<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -66,7 +66,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-users>
   fn acl_users<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -93,7 +93,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-deluser>
   fn acl_deluser<R, S>(&self, usernames: S) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<MultipleStrings>,
   {
     into!(usernames);

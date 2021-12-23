@@ -56,7 +56,7 @@ macro_rules! to_unsigned_number(
 
 macro_rules! impl_signed_number (
   ($t:ty) => {
-    impl RedisResponse for $t {
+    impl FromRedis for $t {
       fn from_value(value: RedisValue) -> Result<$t, RedisError> {
         to_signed_number!($t, value)
       }
@@ -66,7 +66,7 @@ macro_rules! impl_signed_number (
 
 macro_rules! impl_unsigned_number (
   ($t:ty) => {
-    impl RedisResponse for $t {
+    impl FromRedis for $t {
       fn from_value(value: RedisValue) -> Result<$t, RedisError> {
         to_unsigned_number!($t, value)
       }
@@ -75,7 +75,7 @@ macro_rules! impl_unsigned_number (
 );
 
 /// A trait used to [convert](crate::modules::types::RedisValue::convert) various forms of [RedisValue](crate::modules::types::RedisValue) into different types.
-pub trait RedisResponse: Sized {
+pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
   #[doc(hidden)]
@@ -90,13 +90,13 @@ pub trait RedisResponse: Sized {
   }
 }
 
-impl RedisResponse for RedisValue {
+impl FromRedis for RedisValue {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     Ok(value)
   }
 }
 
-impl RedisResponse for () {
+impl FromRedis for () {
   fn from_value(_: RedisValue) -> Result<Self, RedisError> {
     Ok(())
   }
@@ -109,7 +109,7 @@ impl_signed_number!(i64);
 impl_signed_number!(i128);
 impl_signed_number!(isize);
 
-impl RedisResponse for u8 {
+impl FromRedis for u8 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     to_unsigned_number!(u8, value)
   }
@@ -125,7 +125,7 @@ impl_unsigned_number!(u64);
 impl_unsigned_number!(u128);
 impl_unsigned_number!(usize);
 
-impl RedisResponse for String {
+impl FromRedis for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     if value.is_null() {
       Err(RedisError::new(
@@ -140,7 +140,7 @@ impl RedisResponse for String {
   }
 }
 
-impl RedisResponse for f64 {
+impl FromRedis for f64 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     if value.is_null() {
       Err(RedisError::new(
@@ -155,7 +155,7 @@ impl RedisResponse for f64 {
   }
 }
 
-impl RedisResponse for f32 {
+impl FromRedis for f32 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     if value.is_null() {
       Err(RedisError::new(
@@ -171,7 +171,7 @@ impl RedisResponse for f32 {
   }
 }
 
-impl RedisResponse for bool {
+impl FromRedis for bool {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     if value.is_null() {
       Err(RedisError::new(
@@ -186,9 +186,9 @@ impl RedisResponse for bool {
   }
 }
 
-impl<T> RedisResponse for Option<T>
+impl<T> FromRedis for Option<T>
 where
-  T: RedisResponse,
+  T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Option<T>, RedisError> {
     if value.is_null() {
@@ -199,9 +199,9 @@ where
   }
 }
 
-impl<T> RedisResponse for Vec<T>
+impl<T> FromRedis for Vec<T>
 where
-  T: RedisResponse,
+  T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
     match value {
@@ -233,10 +233,10 @@ where
   }
 }
 
-impl<K, V, S> RedisResponse for HashMap<K, V, S>
+impl<K, V, S> FromRedis for HashMap<K, V, S>
 where
   K: FromStr + Eq + Hash,
-  V: RedisResponse,
+  V: FromRedis,
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
@@ -262,9 +262,9 @@ where
   }
 }
 
-impl<V, S> RedisResponse for HashSet<V, S>
+impl<V, S> FromRedis for HashSet<V, S>
 where
-  V: RedisResponse + Hash + Eq,
+  V: FromRedis + Hash + Eq,
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
@@ -272,10 +272,10 @@ where
   }
 }
 
-impl<K, V> RedisResponse for BTreeMap<K, V>
+impl<K, V> FromRedis for BTreeMap<K, V>
 where
   K: FromStr + Ord,
-  V: RedisResponse,
+  V: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     let as_map = if value.is_array() || value.is_map() {
@@ -300,9 +300,9 @@ where
   }
 }
 
-impl<V> RedisResponse for BTreeSet<V>
+impl<V> FromRedis for BTreeSet<V>
 where
-  V: RedisResponse + Ord,
+  V: FromRedis + Ord,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     value.into_array().into_iter().map(|v| V::from_value(v)).collect()
@@ -314,7 +314,7 @@ where
 macro_rules! impl_redis_response_tuple {
   () => ();
   ($($name:ident,)+) => (
-    impl<$($name: RedisResponse),*> RedisResponse for ($($name,)*) {
+    impl<$($name: FromRedis),*> FromRedis for ($($name,)*) {
       #[allow(non_snake_case, unused_variables)]
       fn from_value(v: RedisValue) -> Result<($($name,)*), RedisError> {
         if let RedisValue::Array(mut values) = v {

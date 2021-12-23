@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, RedisKey, RedisMap, RedisResponse, RedisValue};
+use crate::types::{MultipleKeys, RedisKey, RedisMap, FromRedis, RedisValue};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -12,7 +12,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hgetall>
   fn hgetall<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -26,7 +26,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hdel>
   fn hdel<R, K, F>(&self, key: K, fields: F) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<MultipleKeys>,
   {
@@ -41,7 +41,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hexists>
   fn hexists<R, K, F>(&self, key: K, field: F) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<RedisKey>,
   {
@@ -56,7 +56,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hget>
   fn hget<R, K, F>(&self, key: K, field: F) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<RedisKey>,
   {
@@ -71,7 +71,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hincrby>
   fn hincrby<R, K, F>(&self, key: K, field: F, increment: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<RedisKey>,
   {
@@ -88,7 +88,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hincrbyfloat>
   fn hincrbyfloat<R, K, F>(&self, key: K, field: F, increment: f64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<RedisKey>,
   {
@@ -105,7 +105,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hkeys>
   fn hkeys<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -119,7 +119,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hlen>
   fn hlen<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -133,7 +133,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hmget>
   fn hmget<R, K, F>(&self, key: K, fields: F) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<MultipleKeys>,
   {
@@ -148,7 +148,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hmset>
   fn hmset<R, K, V>(&self, key: K, values: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: Into<RedisMap>,
   {
@@ -163,7 +163,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hset>
   fn hset<R, K, V>(&self, key: K, values: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: Into<RedisMap>,
   {
@@ -178,7 +178,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hsetnx>
   fn hsetnx<R, K, F, V>(&self, key: K, field: F, value: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<RedisKey>,
     V: TryInto<RedisValue>,
@@ -198,7 +198,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hrandfield>
   fn hrandfield<R, K>(&self, key: K, count: Option<(i64, bool)>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -212,7 +212,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hstrlen>
   fn hstrlen<R, K, F>(&self, key: K, field: F) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     F: Into<RedisKey>,
   {
@@ -227,7 +227,7 @@ pub trait HashesInterface: ClientLike + Sized {
   /// <https://redis.io/commands/hvals>
   fn hvals<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);

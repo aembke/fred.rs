@@ -12,7 +12,7 @@ use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::tls::TlsConfig;
 use crate::types::{
   AclRule, AclUser, Blocking, ClientKillFilter, ClientKillType, ClientPauseKind, ClientState, ConnectHandle,
-  InfoKind, MultipleStrings, ReconnectPolicy, RedisConfig, RedisKey, RedisMap, RedisResponse, RedisValue,
+  InfoKind, MultipleStrings, ReconnectPolicy, RedisConfig, RedisKey, RedisMap, FromRedis, RedisValue,
   SentinelFailureKind, ServerConfig, ShutdownFlags, Stats,
 };
 use crate::utils;

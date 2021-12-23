@@ -7,7 +7,7 @@ use crate::interfaces::{
   SortedSetsInterface, TransactionInterface,
 };
 use crate::modules::inner::{MultiPolicy, RedisClientInner};
-use crate::modules::response::RedisResponse;
+use crate::modules::response::FromRedis;
 use crate::multiplexer::commands as multiplexer_commands;
 use crate::multiplexer::utils as multiplexer_utils;
 use crate::prelude::{AsyncStream, ClientLike};
@@ -275,7 +275,7 @@ impl TransactionClient {
   /// the caller to retry transactions as needed.
   pub async fn exec<R>(self) -> Result<R, RedisError>
   where
-    R: RedisResponse,
+    R: FromRedis,
   {
     if check_and_set_bool(&self.finished, true) {
       return Err(RedisError::new(

@@ -22,7 +22,7 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub use crate::modules::response::RedisResponse;
+pub use crate::modules::response::FromRedis;
 pub use crate::protocol::tls::TlsConfig;
 pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 
@@ -1837,7 +1837,7 @@ impl<'a> RedisValue {
     mem::replace(self, RedisValue::Null)
   }
 
-  /// Attempt to convert this value to any value that implements the [RedisResponse](crate::types::RedisResponse) trait.
+  /// Attempt to convert this value to any value that implements the [FromRedis](crate::types::FromRedis) trait.
   ///
   /// ```rust
   /// # use fred::types::RedisValue;
@@ -1863,7 +1863,7 @@ impl<'a> RedisValue {
   /// ```
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
-    R: RedisResponse,
+    R: FromRedis,
   {
     R::from_value(self)
   }

@@ -2,7 +2,7 @@ use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
   AggregateOptions, Limit, MultipleKeys, MultipleValues, MultipleWeights, MultipleZaddValues, Ordering, RedisKey,
-  RedisResponse, RedisValue, SetOptions, ZRange, ZSort,
+  FromRedis, RedisValue, SetOptions, ZRange, ZSort,
 };
 use crate::{commands, utils};
 use std::convert::TryInto;
@@ -50,7 +50,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     values: V,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleZaddValues>,
     V::Error: Into<RedisError>,
@@ -69,7 +69,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zcard>
   fn zcard<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -83,7 +83,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zcount>
   fn zcount<R, K>(&self, key: K, min: f64, max: f64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -97,7 +97,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zdiff>
   fn zdiff<R, K>(&self, keys: K, withscores: bool) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
@@ -111,7 +111,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zdiffstore>
   fn zdiffstore<R, D, K>(&self, dest: D, keys: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     K: Into<MultipleKeys>,
   {
@@ -126,7 +126,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zincrby>
   fn zincrby<R, K, V>(&self, key: K, increment: f64, member: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -151,7 +151,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     withscores: bool,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
     W: Into<MultipleWeights>,
   {
@@ -174,7 +174,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     aggregate: Option<AggregateOptions>,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     K: Into<MultipleKeys>,
     W: Into<MultipleWeights>,
@@ -193,7 +193,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zlexcount>
   fn zlexcount<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -212,7 +212,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zpopmax>
   fn zpopmax<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -226,7 +226,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zpopmin>
   fn zpopmin<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -240,7 +240,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrandmember>
   fn zrandmember<R, K>(&self, key: K, count: Option<(i64, bool)>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -263,7 +263,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     limit: Option<Limit>,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     S: Into<RedisKey>,
     M: TryInto<ZRange>,
@@ -294,7 +294,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     withscores: bool,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -316,7 +316,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrangebylex>
   fn zrangebylex<R, K, M, N>(&self, key: K, min: M, max: N, limit: Option<Limit>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -338,7 +338,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrevrangebylex>
   fn zrevrangebylex<R, K, M, N>(&self, key: K, max: M, min: N, limit: Option<Limit>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -367,7 +367,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     limit: Option<Limit>,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -396,7 +396,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     limit: Option<Limit>,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -417,7 +417,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrank>
   fn zrank<R, K, V>(&self, key: K, member: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -434,7 +434,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrem>
   fn zrem<R, K, V>(&self, key: K, members: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -453,7 +453,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zremrangebylex>
   fn zremrangebylex<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -474,7 +474,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zremrangebyrank>
   fn zremrangebyrank<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -490,7 +490,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zremrangebyscore>
   fn zremrangebyscore<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
@@ -511,7 +511,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrevrange>
   fn zrevrange<R, K>(&self, key: K, start: i64, stop: i64, withscores: bool) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);
@@ -527,7 +527,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zrevrank>
   fn zrevrank<R, K, V>(&self, key: K, member: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -544,7 +544,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zscore>
   fn zscore<R, K, V>(&self, key: K, member: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
@@ -587,7 +587,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     aggregate: Option<AggregateOptions>,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     K: Into<MultipleKeys>,
     W: Into<MultipleWeights>,
@@ -605,7 +605,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/zmscore>
   fn zmscore<R, K, V>(&self, key: K, members: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,

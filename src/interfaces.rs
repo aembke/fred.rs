@@ -4,7 +4,7 @@ use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
 use crate::types::{
-  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, InfoKind, ReconnectPolicy, RedisConfig, RedisResponse,
+  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, InfoKind, ReconnectPolicy, RedisConfig, FromRedis,
   RedisValue, ShutdownFlags,
 };
 use crate::utils;
@@ -295,7 +295,7 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// <https://redis.io/commands/info>
   fn info<R>(&self, section: Option<InfoKind>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::server::info(&inner, section).await?.convert()
@@ -319,7 +319,7 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// features in the client if command flags are not properly configured.
   fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     T: TryInto<RedisValue>,
     T::Error: Into<RedisError>,
   {

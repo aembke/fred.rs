@@ -2,7 +2,7 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  Any, GeoPosition, GeoRadiusInfo, GeoUnit, MultipleGeoValues, MultipleValues, RedisKey, RedisResponse, RedisValue,
+  Any, GeoPosition, GeoRadiusInfo, GeoUnit, MultipleGeoValues, MultipleValues, RedisKey, FromRedis, RedisValue,
   SetOptions, SortOrder,
 };
 use crate::utils;
@@ -15,7 +15,7 @@ pub trait GeoInterface: ClientLike + Sized {
   /// <https://redis.io/commands/geoadd>
   fn geoadd<R, K, V>(&self, key: K, options: Option<SetOptions>, changed: bool, values: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: Into<MultipleGeoValues>,
   {
@@ -32,7 +32,7 @@ pub trait GeoInterface: ClientLike + Sized {
   /// <https://redis.io/commands/geohash>
   fn geohash<R, K, V>(&self, key: K, members: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -67,7 +67,7 @@ pub trait GeoInterface: ClientLike + Sized {
   /// <https://redis.io/commands/geodist>
   fn geodist<R, K, S, D>(&self, key: K, src: S, dest: D, unit: Option<GeoUnit>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     S: TryInto<RedisValue>,
     S::Error: Into<RedisError>,
@@ -210,7 +210,7 @@ pub trait GeoInterface: ClientLike + Sized {
     storedist: bool,
   ) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     S: Into<RedisKey>,
   {

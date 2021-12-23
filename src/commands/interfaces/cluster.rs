@@ -3,7 +3,7 @@ use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
   ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, MultipleHashSlots,
-  RedisKey, RedisResponse, RedisValue,
+  RedisKey, FromRedis, RedisValue,
 };
 use crate::utils;
 
@@ -24,7 +24,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-bumpepoch>
   fn cluster_bumpepoch<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_bumpepoch(&inner).await?.convert()
@@ -46,7 +46,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-myid>
   fn cluster_myid<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_myid(&inner).await?.convert()
@@ -113,7 +113,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-count-failure-reports>
   fn cluster_count_failure_reports<R, S>(&self, node_id: S) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<String>,
   {
     into!(node_id);
@@ -129,7 +129,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-countkeysinslot>
   fn cluster_count_keys_in_slot<R>(&self, slot: u16) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_count_keys_in_slot(&inner, slot)
@@ -182,7 +182,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-getkeysinslot>
   fn cluster_get_keys_in_slot<R>(&self, slot: u16, count: u64) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -197,7 +197,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-keyslot>
   fn cluster_keyslot<R, K>(&self, key: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
   {
     into!(key);

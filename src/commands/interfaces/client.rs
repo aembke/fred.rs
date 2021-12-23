@@ -2,7 +2,7 @@ use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, RedisKey, RedisResponse,
+  ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, RedisKey, FromRedis,
   RedisValue,
 };
 use crate::utils;
@@ -18,7 +18,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-id>
   fn client_id<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::client::client_id(&inner).await?.convert()
@@ -51,7 +51,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-info>
   fn client_info<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::client::client_info(&inner).await?.convert()
@@ -63,7 +63,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-kill>
   fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::client::client_kill(&inner, filters).await?.convert()
@@ -75,7 +75,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-list>
   fn client_list<R, I>(&self, r#type: Option<ClientKillType>, ids: Option<Vec<String>>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::client::client_list(&inner, r#type, ids).await?.convert()
@@ -87,7 +87,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-getname>
   fn client_getname<R>(&self) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
       commands::client::client_getname(&inner).await?.convert()
@@ -148,7 +148,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-unblock>
   fn client_unblock<R, S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<RedisValue>,
   {
     into!(id);

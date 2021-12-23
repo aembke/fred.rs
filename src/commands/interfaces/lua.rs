@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleStrings, MultipleValues, RedisResponse, ScriptDebugFlag};
+use crate::types::{MultipleKeys, MultipleStrings, MultipleValues, FromRedis, ScriptDebugFlag};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -98,7 +98,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// **Note: Use `None` to represent an empty set of keys or args instead of `()`.**
   fn evalsha<R, S, K, V>(&self, hash: S, keys: K, args: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<String>,
     K: Into<MultipleKeys>,
     V: TryInto<MultipleValues>,
@@ -119,7 +119,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// **Note: Use `None` to represent an empty set of keys or args instead of `()`.**
   fn eval<R, S, K, V>(&self, script: S, keys: K, args: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<String>,
     K: Into<MultipleKeys>,
     V: TryInto<MultipleValues>,

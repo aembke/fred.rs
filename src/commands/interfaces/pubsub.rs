@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, AsyncStream, ClientLike};
-use crate::types::{KeyspaceEvent, MultipleStrings, RedisResponse, RedisValue};
+use crate::types::{KeyspaceEvent, MultipleStrings, FromRedis, RedisValue};
 use crate::utils;
 use futures::Stream;
 use std::convert::TryInto;
@@ -94,7 +94,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// <https://redis.io/commands/publish>
   fn publish<R, S, V>(&self, channel: S, message: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     S: Into<String>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,

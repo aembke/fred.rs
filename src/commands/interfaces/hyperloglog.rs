@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleValues, RedisKey, RedisResponse};
+use crate::types::{MultipleKeys, MultipleValues, RedisKey, FromRedis};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -12,7 +12,7 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   /// <https://redis.io/commands/pfadd>
   fn pfadd<R, K, V>(&self, key: K, elements: V) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -33,7 +33,7 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   /// <https://redis.io/commands/pfcount>
   fn pfcount<R, K>(&self, keys: K) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
@@ -48,7 +48,7 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   /// <https://redis.io/commands/pfmerge>
   fn pfmerge<R, D, S>(&self, dest: D, sources: S) -> AsyncResult<R>
   where
-    R: RedisResponse + Unpin + Send,
+    R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     S: Into<MultipleKeys>,
   {
