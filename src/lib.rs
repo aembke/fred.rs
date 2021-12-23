@@ -87,10 +87,12 @@ pub mod sentinel;
 
 pub use crate::modules::{globals, pool, types};
 
-/// Convenience module to `use` a `RedisClient`, `RedisError`, and any argument types.
+/// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or return value types.
 pub mod prelude {
   pub use crate::client::RedisClient;
   pub use crate::error::{RedisError, RedisErrorKind};
   pub use crate::interfaces::*;
-  pub use crate::types::{RedisConfig, RedisResponse, RedisValue, RedisValueKind, ServerConfig};
+  pub use crate::types::{
+    Blocking, Expiration, RedisConfig, RedisResponse, RedisValue, RedisValueKind, ServerConfig, SetOptions,
+  };
 }

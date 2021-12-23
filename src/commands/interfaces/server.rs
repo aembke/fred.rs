@@ -2,6 +2,8 @@ use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::RedisResponse;
 use crate::utils;
+use std::time::Duration;
+use tokio::time::interval as tokio_interval;
 
 /// Functions for authenticating clients.
 pub trait AuthInterface: ClientLike + Sized {
@@ -24,6 +26,40 @@ pub trait AuthInterface: ClientLike + Sized {
   }
 
   // TODO add HELLO here
+}
+
+/// Functions that provide a connection heartbeat interface.
+pub trait HeartbeatInterface: ClientLike + Sized + Clone + 'static {
+  /// Return a future that will ping the server on an interval.
+  ///
+  /// When running against a cluster this will ping a random node on each interval.
+  #[allow(unreachable_code)]
+  fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> AsyncResult<()> {
+    let _self = self.clone();
+
+    async_spawn(self, |inner| async move {
+      let mut interval = tokio_interval(interval);
+
+      loop {
+        interval.tick().await;
+
+        if utils::is_locked_some(&inner.multi_block) {
+          _debug!(inner, "Skip heartbeat while inside transaction.");
+          continue;
+        }
+
+        if break_on_error {
+          let _ = _self.ping().await?;
+        } else {
+          if let Err(e) = _self.ping().await {
+            _warn!(inner, "Heartbeat ping failed with error: {:?}", e);
+          }
+        }
+      }
+
+      Ok(())
+    })
+  }
 }
 
 /// Functions that implement the [Server](https://redis.io/commands#server) interface.

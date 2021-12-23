@@ -30,6 +30,7 @@ pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
 
+use crate::interfaces::ClientLike;
 #[cfg(feature = "index-map")]
 use indexmap::{IndexMap, IndexSet};
 #[cfg(not(feature = "index-map"))]
@@ -893,11 +894,14 @@ impl RedisKey {
   }
 
   /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is known.
-  pub fn cluster_owner(&self, client: &RedisClient) -> Option<Arc<String>> {
-    if utils::is_clustered(&client.inner.config) {
+  pub fn cluster_owner<C>(&self, client: &C) -> Option<Arc<String>>
+  where
+    C: ClientLike,
+  {
+    if utils::is_clustered(&client.inner().config) {
       let hash_slot = self.cluster_hash();
       client
-        .inner
+        .inner()
         .cluster_state
         .read()
         .as_ref()

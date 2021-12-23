@@ -1,7 +1,9 @@
 use crate::commands;
+use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{RedisMap, RedisResponse, SentinelFailureKind};
+use crate::types::{RedisMap, RedisResponse, RedisValue, SentinelFailureKind};
 use crate::utils;
+use std::convert::TryInto;
 use std::net::IpAddr;
 
 /// Functions that implement the [Sentinel](https://redis.io/topics/sentinel#sentinel-commands) interface.
@@ -194,6 +196,33 @@ pub trait SentinelInterface: ClientLike + Sized {
     into!(pattern);
     async_spawn(self, |inner| async move {
       commands::sentinel::reset(&inner, pattern).await?.convert()
+    })
+  }
+
+  /// Get the current value of a global Sentinel configuration parameter. The specified name may be a wildcard, similar to the Redis CONFIG GET command.
+  fn config_get<R, K>(&self, name: K) -> AsyncResult<R>
+  where
+    R: RedisResponse + Unpin + Send,
+    K: Into<String>,
+  {
+    into!(name);
+    async_spawn(self, |inner| async move {
+      commands::sentinel::config_get(&inner, name).await?.convert()
+    })
+  }
+
+  /// Set the value of a global Sentinel configuration parameter.
+  fn config_set<R, K, V>(&self, name: K, value: V) -> AsyncResult<R>
+  where
+    R: RedisResponse + Unpin + Send,
+    K: Into<String>,
+    V: TryInto<RedisValue>,
+    V::Error: Into<RedisError>,
+  {
+    into!(name);
+    try_into!(value);
+    async_spawn(self, |inner| async move {
+      commands::sentinel::config_set(&inner, name, value).await?.convert()
     })
   }
 }

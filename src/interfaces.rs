@@ -65,6 +65,9 @@ enum AsyncInner<T: Unpin + Send + 'static> {
   Task(JoinHandle<Result<T, RedisError>>),
 }
 
+// TODO the additional tokio task just kills the perf in benchmarks. maybe switch AsyncResult to hold a trait object
+// and get rid of the tokio spawn
+
 /// A wrapper type for return values from async functions implemented in a trait.
 pub struct AsyncResult<T: Unpin + Send + 'static> {
   inner: AsyncInner<T>,
@@ -164,7 +167,7 @@ where
 }
 
 /// Any Redis client that implements any part of the Redis interface.
-pub trait ClientLike: Unpin + Clone + Send {
+pub trait ClientLike: Unpin + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
@@ -258,36 +261,6 @@ pub trait ClientLike: Unpin + Clone + Send {
     UnboundedReceiverStream::new(rx).into()
   }
 
-  /// Return a future that will ping the server on an interval.
-  ///
-  /// When running against a cluster this will ping a random node on each interval.
-  #[allow(unreachable_code)]
-  fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      let _self = RedisClient::from(&inner);
-      let mut interval = tokio_interval(interval);
-
-      loop {
-        interval.tick().await;
-
-        if utils::is_locked_some(&inner.multi_block) {
-          _debug!(inner, "Skip heartbeat while inside transaction.");
-          continue;
-        }
-
-        if break_on_error {
-          let _ = _self.ping().await?;
-        } else {
-          if let Err(e) = _self.ping().await {
-            _warn!(inner, "Heartbeat ping failed with error: {:?}", e);
-          }
-        }
-      }
-
-      Ok(())
-    })
-  }
-
   /// Close the connection to the Redis server. The returned future resolves when the command has been written to the socket,
   /// not when the connection has been fully closed. Some time after this future resolves the future returned by [connect](Self::connect)
   /// will resolve which indicates that the connection has been fully closed.
@@ -361,8 +334,8 @@ pub use crate::commands::interfaces::{
   acl::AclInterface, client::ClientInterface, cluster::ClusterInterface, config::ConfigInterface, geo::GeoInterface,
   hashes::HashesInterface, hyperloglog::HyperloglogInterface, keys::KeysInterface, lists::ListInterface,
   lua::LuaInterface, memory::MemoryInterface, metrics::MetricsInterface, pubsub::PubsubInterface,
-  server::AuthInterface, server::ServerInterface, sets::SetsInterface, slowlog::SlowlogInterface,
-  transactions::TransactionInterface,
+  server::AuthInterface, server::HeartbeatInterface, server::ServerInterface, sets::SetsInterface,
+  slowlog::SlowlogInterface, sorted_sets::SortedSetsInterface, transactions::TransactionInterface,
 };
 
 #[cfg(feature = "sentinel-client")]

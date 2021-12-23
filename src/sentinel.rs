@@ -2,8 +2,8 @@ use crate::client::RedisClient;
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{
-  AclInterface, AsyncResult, AuthInterface, ClientInterface, ClientLike, ConfigInterface, MetricsInterface,
-  PubsubInterface, SentinelInterface,
+  AclInterface, AsyncResult, AuthInterface, ClientInterface, ClientLike, ConfigInterface, HeartbeatInterface,
+  MetricsInterface, PubsubInterface, SentinelInterface,
 };
 use crate::modules::inner::RedisClientInner;
 use crate::modules::types::CustomCommand;
@@ -133,11 +133,11 @@ impl From<RedisClient> for SentinelClient {
 
 impl SentinelInterface for SentinelClient {}
 impl MetricsInterface for SentinelClient {}
-impl ConfigInterface for SentinelClient {}
 impl AclInterface for SentinelClient {}
 impl PubsubInterface for SentinelClient {}
 impl ClientInterface for SentinelClient {}
 impl AuthInterface for SentinelClient {}
+impl HeartbeatInterface for SentinelClient {}
 
 impl SentinelClient {
   /// Create a new client instance without connecting to the sentinel node.

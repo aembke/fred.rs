@@ -194,6 +194,14 @@ pub fn check_and_set_client_state(
   }
 }
 
+/// Check and set the inner locked value by updating `locked` with `new_value`, returning the old value.
+pub fn check_and_set_bool(locked: &RwLock<bool>, new_value: bool) -> bool {
+  let mut guard = locked.write();
+  let old_value = *guard;
+  *guard = new_value;
+  old_value
+}
+
 pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<String>> {
   match inner.config.read().server {
     ServerConfig::Centralized { ref host, ref port } => Some(Arc::new(format!("{}:{}", host, port))),
