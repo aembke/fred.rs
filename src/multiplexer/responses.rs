@@ -2,15 +2,14 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils;
 use crate::multiplexer::{Counters, SentCommand, SentCommands};
-use crate::protocol::types::RedisCommandKind;
-use crate::protocol::types::{ResponseKind, ValueScanInner, ValueScanResult};
+use crate::protocol::types::{ProtocolFrame, RedisCommandKind, ResponseKind, ValueScanInner, ValueScanResult};
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::{frame_to_error, frame_to_single_result};
 use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
 use parking_lot::{Mutex, RwLock};
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
@@ -53,11 +52,11 @@ fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut SentCom
 fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut SentCommand) {}
 
 /// Merge multiple potentially nested frames into one flat array of frames.
-fn merge_multiple_frames(frames: &mut VecDeque<ProtocolFrame>) -> ProtocolFrame {
+fn merge_multiple_frames(frames: &mut VecDeque<Resp3Frame>) -> Resp3Frame {
   let inner_len = frames.iter().fold(0, |count, frame| {
     count
       + match frame {
-        ProtocolFrame::Array(ref inner) => inner.len(),
+        Resp3Frame::Array { ref data, .. } => data.len(),
         _ => 1,
       }
   });
@@ -66,8 +65,8 @@ fn merge_multiple_frames(frames: &mut VecDeque<ProtocolFrame>) -> ProtocolFrame 
 
   for frame in frames.drain(..) {
     match frame {
-      ProtocolFrame::Array(inner) => {
-        for inner_frame in inner.into_iter() {
+      Resp3Frame::Array { data, .. } => {
+        for inner_frame in data.into_iter() {
           out.push(inner_frame);
         }
       }
@@ -75,7 +74,10 @@ fn merge_multiple_frames(frames: &mut VecDeque<ProtocolFrame>) -> ProtocolFrame 
     };
   }
 
-  ProtocolFrame::Array(out)
+  Resp3Frame::Array {
+    data: out,
+    attributes: None,
+  }
 }
 
 /// Update the SCAN cursor on a command, changing the internal cursor and the arguments array for the next call to SCAN.
@@ -101,10 +103,10 @@ fn update_scan_cursor(inner: &Arc<RedisClientInner>, last_command: &mut SentComm
 }
 
 /// Parse the output of a command that scans keys.
-fn handle_key_scan_result(frame: ProtocolFrame) -> Result<(String, Vec<RedisKey>), RedisError> {
-  if let ProtocolFrame::Array(mut frames) = frame {
-    if frames.len() == 2 {
-      let cursor = match frames[0].to_string() {
+fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), RedisError> {
+  if let Resp3Frame::Array { mut data, .. } = frame {
+    if data.len() == 2 {
+      let cursor = match data[0].to_string() {
         Some(s) => s,
         None => {
           return Err(RedisError::new(
@@ -114,10 +116,10 @@ fn handle_key_scan_result(frame: ProtocolFrame) -> Result<(String, Vec<RedisKey>
         }
       };
 
-      if let Some(ProtocolFrame::Array(results)) = frames.pop() {
-        let mut keys = Vec::with_capacity(results.len());
+      if let Some(Resp3Frame::Array { data, .. }) = frames.pop() {
+        let mut keys = Vec::with_capacity(data.len());
 
-        for frame in results.into_iter() {
+        for frame in data.into_iter() {
           let key = match frame.to_string() {
             Some(s) => s,
             None => {
@@ -153,9 +155,9 @@ fn handle_key_scan_result(frame: ProtocolFrame) -> Result<(String, Vec<RedisKey>
 }
 
 /// Parse the output of a command that scans values.
-fn handle_value_scan_result(frame: ProtocolFrame) -> Result<(String, Vec<RedisValue>), RedisError> {
-  if let ProtocolFrame::Array(mut frames) = frame {
-    if frames.len() == 2 {
+fn handle_value_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisValue>), RedisError> {
+  if let Resp3Frame::Array { mut data, .. } = frame {
+    if data.len() == 2 {
       let cursor = match frames[0].to_string() {
         Some(s) => s,
         None => {
@@ -166,10 +168,10 @@ fn handle_value_scan_result(frame: ProtocolFrame) -> Result<(String, Vec<RedisVa
         }
       };
 
-      if let Some(ProtocolFrame::Array(results)) = frames.pop() {
-        let mut values = Vec::with_capacity(results.len());
+      if let Some(Resp3Frame::Array { data, .. }) = frames.pop() {
+        let mut values = Vec::with_capacity(data.len());
 
-        for frame in results.into_iter() {
+        for frame in data.into_iter() {
           values.push(frame_to_single_result(frame)?);
         }
 
@@ -397,7 +399,7 @@ fn emit_keyspace_event(inner: &Arc<RedisClientInner>, event: KeyspaceEvent) {
 }
 
 /// Respond to the caller with the output of the command.
-fn respond_to_caller(inner: &Arc<RedisClientInner>, last_command: SentCommand, frame: ProtocolFrame) {
+fn respond_to_caller(inner: &Arc<RedisClientInner>, last_command: SentCommand, frame: Resp3Frame) {
   _trace!(
     inner,
     "Responding to caller for {}",
@@ -437,7 +439,7 @@ fn respond_to_caller_error(inner: &Arc<RedisClientInner>, last_command: SentComm
 async fn handle_all_nodes_response(
   inner: &Arc<RedisClientInner>,
   last_command: SentCommand,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Option<SentCommand> {
   if let Some(resp) = last_command.command.kind.all_nodes_response() {
     if frame.is_error() {
@@ -484,7 +486,7 @@ async fn handle_all_nodes_response(
 async fn handle_multiple_responses(
   inner: &Arc<RedisClientInner>,
   mut last_command: SentCommand,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Result<Option<SentCommand>, RedisError> {
   let frames = match last_command.command.kind.response_kind_mut() {
     Some(kind) => {
@@ -538,7 +540,7 @@ async fn process_response(
   server: &Arc<String>,
   counters: &Counters,
   mut last_command: SentCommand,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Result<Option<SentCommand>, RedisError> {
   _trace!(
     inner,
@@ -666,7 +668,7 @@ fn parse_keyspace_notification(channel: String, message: RedisValue) -> Result<K
 /// Check if the frame is part of a pubsub message, and if so route it to any listeners.
 ///
 /// If not then return it to the caller for further processing.
-fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: ProtocolFrame) -> Option<ProtocolFrame> {
+fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Resp3Frame> {
   if frame.is_pubsub_message() {
     let span = if inner.should_trace() {
       let span = trace::create_pubsub_span(inner, &frame);
@@ -707,7 +709,7 @@ fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: ProtocolFrame) -> 
 
 #[cfg(feature = "reconnect-on-auth-error")]
 /// Parse the response frame to see if it's an auth error.
-fn parse_redis_auth_error(frame: &ProtocolFrame) -> Option<RedisError> {
+fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_error() {
     match frame_to_single_result(frame.clone()) {
       Ok(_) => None,
@@ -723,7 +725,7 @@ fn parse_redis_auth_error(frame: &ProtocolFrame) -> Option<RedisError> {
 
 #[cfg(not(feature = "reconnect-on-auth-error"))]
 /// Parse the response frame to see if it's an auth error.
-fn parse_redis_auth_error(_frame: &ProtocolFrame) -> Option<RedisError> {
+fn parse_redis_auth_error(_frame: &Resp3Frame) -> Option<RedisError> {
   None
 }
 
@@ -814,9 +816,9 @@ fn last_clustered_command_ends_transaction(
 }
 
 /// Whether or not the response is a QUEUED response to a command within a transaction.
-fn response_is_queued(frame: &ProtocolFrame) -> bool {
+fn response_is_queued(frame: &Resp3Frame) -> bool {
   match frame {
-    ProtocolFrame::SimpleString(ref s) => s == "QUEUED",
+    Resp3Frame::SimpleString { ref data, .. } => data == "QUEUED",
     _ => false,
   }
 }
@@ -867,7 +869,7 @@ async fn end_centralized_multi_block(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
   commands: &Arc<Mutex<SentCommands>>,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
   ending_cmd: TransactionEnded,
 ) -> Result<(), RedisError> {
   if !client_utils::is_locked_some(&inner.multi_block) {
@@ -932,7 +934,7 @@ async fn end_clustered_multi_block(
   server: &Arc<String>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
   ending_cmd: TransactionEnded,
 ) -> Result<(), RedisError> {
   if !client_utils::is_locked_some(&inner.multi_block) {
@@ -997,7 +999,7 @@ async fn handle_clustered_queued_response(
   server: &Arc<String>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   let multi_block = match client_utils::read_locked(&inner.multi_block) {
     Some(blk) => blk,
@@ -1040,7 +1042,7 @@ async fn handle_centralized_queued_response(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
   commands: &Arc<Mutex<SentCommands>>,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   let multi_block = match client_utils::read_locked(&inner.multi_block) {
     Some(blk) => blk,
@@ -1079,7 +1081,7 @@ async fn handle_centralized_queued_response(
 }
 
 /// Check if the frame represents a MOVED or ASK error.
-fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_moved_or_ask_error() {
     let error = frame_to_error(frame).unwrap_or(RedisError::new(RedisErrorKind::Cluster, "MOVED or ASK error."));
     utils::emit_error(&inner, &error);
@@ -1091,8 +1093,8 @@ fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame)
 }
 
 #[cfg(feature = "custom-reconnect-errors")]
-fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
-  if let ProtocolFrame::Error(ref message) = frame {
+fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
+  if let Resp3Frame::SimpleError { ref data, .. } = frame {
     for prefix in globals().reconnect_errors.read().iter() {
       if message.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", message);
@@ -1109,12 +1111,12 @@ fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Protocol
 }
 
 #[cfg(not(feature = "custom-reconnect-errors"))]
-fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &ProtocolFrame) -> Option<RedisError> {
+fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &Resp3Frame) -> Option<RedisError> {
   None
 }
 
 /// Check for special errors configured by the caller to initiate a reconnection process.
-fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &ProtocolFrame) -> Option<RedisError> {
+fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if let Some(auth_error) = parse_redis_auth_error(frame) {
     // this closes the stream and initiates a reconnect, if applicable
     return Some(auth_error);
@@ -1146,7 +1148,7 @@ pub async fn process_clustered_frame(
   server: &Arc<String>,
   counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
   commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   if let Some(error) = check_redirection_error(inner, &frame) {
     handle_redirection_error(inner, server, commands, error)?;
@@ -1204,7 +1206,7 @@ pub async fn process_centralized_frame(
   server: &Arc<String>,
   counters: &Counters,
   commands: &Arc<Mutex<SentCommands>>,
-  frame: ProtocolFrame,
+  frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   if let Some(error) = check_special_errors(inner, &frame) {
     // this closes the stream and initiates a reconnect, if configured
@@ -1217,7 +1219,6 @@ pub async fn process_centralized_frame(
       return Ok(());
     }
 
-    // TODO change this so we can check the last command without contending for a lock
     if let Some(trx_ended) = last_centralized_command_ends_transaction(commands).await {
       end_centralized_multi_block(inner, counters, commands, frame, trx_ended).await
     } else {

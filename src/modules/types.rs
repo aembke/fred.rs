@@ -599,7 +599,9 @@ pub struct RedisConfig {
   pub server: ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
-  /// If RESP3 is specified the client will automatically use `HELLO` instead of `AUTH` when authenticating.
+  /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis >=6.0.0.** If the `HELLO`
+  /// command fails this will prevent the client from connecting. Callers should set this to RESP2 and use `HELLO` manually to fall back
+  /// to RESP2 if needed.
   ///
   /// Default: RESP2
   pub version: RespVersion,
@@ -1362,7 +1364,9 @@ impl<S: Into<String>> From<VecDeque<(S, RedisValue)>> for RedisMap {
 /// The kind of value from Redis.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RedisValueKind {
+  Boolean,
   Integer,
+  Double,
   String,
   Bytes,
   Null,
@@ -1374,7 +1378,9 @@ pub enum RedisValueKind {
 impl fmt::Display for RedisValueKind {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     let s = match *self {
+      RedisValueKind::Boolean => "Boolean",
       RedisValueKind::Integer => "Integer",
+      RedisValueKind::Double => "Double",
       RedisValueKind::String => "String",
       RedisValueKind::Bytes => "Bytes",
       RedisValueKind::Null => "nil",
@@ -1390,11 +1396,15 @@ impl fmt::Display for RedisValueKind {
 /// A value used in a Redis command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RedisValue {
+  /// A boolean value.
+  Boolean(bool),
   /// An integer value.
   Integer(i64),
+  /// A double floating point number.
+  Double(f64),
   /// A string value.
   String(String),
-  /// A binary value to represent non-UTF8 strings.
+  /// A binary value to represent non-UTF8 strings or byte arrays.
   Bytes(Vec<u8>),
   /// A `nil` value.
   Null,
@@ -1435,7 +1445,9 @@ impl<'a> RedisValue {
   /// Read the type of the value without any associated data.
   pub fn kind(&self) -> RedisValueKind {
     match *self {
+      RedisValue::Boolean(_) => RedisValueKind::Boolean,
       RedisValue::Integer(_) => RedisValueKind::Integer,
+      RedisValue::Double(_) => RedisValueKind::Double,
       RedisValue::String(_) => RedisValueKind::String,
       RedisValue::Bytes(_) => RedisValueKind::Bytes,
       RedisValue::Null => RedisValueKind::Null,
@@ -1477,18 +1489,35 @@ impl<'a> RedisValue {
     }
   }
 
-  /// Check if the value is a `QUEUED` response.
-  pub fn is_queued(&self) -> bool {
+  /// Whether or not the value is a boolean value or can be parsed as a boolean value.
+  pub fn is_boolean(&self) -> bool {
     match *self {
-      RedisValue::Queued => true,
+      RedisValue::Boolean(_) => bool,
+      RedisValue::Integer(i) => match i {
+        0 | 1 => true,
+        _ => false,
+      },
+      RedisValue::String(ref s) => match s.as_ref() {
+        "true" | "false" | "t" | "f" | "TRUE" | "FALSE" | "T" | "F" | "1" | "0" => true,
+        _ => false,
+      },
       _ => false,
     }
   }
 
-  /// Check if the inner string value can be cast to an `f64`.
-  pub fn is_float(&self) -> bool {
+  /// Whether or not the inner value is a double or can be parsed as a double.
+  pub fn is_double(&self) -> bool {
     match *self {
+      RedisValue::Double(_) => true,
       RedisValue::String(ref s) => utils::redis_string_to_f64(s).is_ok(),
+      _ => false,
+    }
+  }
+
+  /// Check if the value is a `QUEUED` response.
+  pub fn is_queued(&self) -> bool {
+    match *self {
+      RedisValue::Queued => true,
       _ => false,
     }
   }
@@ -1572,6 +1601,7 @@ impl<'a> RedisValue {
   ///  Read and return the inner value as a `f64`, if possible.
   pub fn as_f64(&self) -> Option<f64> {
     match self {
+      RedisValue::Double(ref f) => Some(*f),
       RedisValue::String(ref s) => utils::redis_string_to_f64(s).ok(),
       RedisValue::Integer(ref i) => Some(*i as f64),
       RedisValue::Array(ref inner) => {
@@ -1585,9 +1615,10 @@ impl<'a> RedisValue {
     }
   }
 
-  /// Read and return the inner `String` if the value is a string or integer.
+  /// Read and return the inner `String` if the value is a string or scalar value.
   pub fn into_string(self) -> Option<String> {
     match self {
+      RedisValue::Double(f) => Some(f.to_string()),
       RedisValue::String(s) => Some(s),
       RedisValue::Bytes(b) => String::from_utf8(b).ok(),
       RedisValue::Integer(i) => Some(i.to_string()),
@@ -1603,11 +1634,12 @@ impl<'a> RedisValue {
     }
   }
 
-  /// Read and return the inner `String` if the value is a string or integer.
+  /// Read and return the inner `String` if the value is a string or scalar value.
   ///
-  /// Note: this will cast integers to strings.
+  /// Note: this will cast integers and doubles to strings.
   pub fn as_string(&self) -> Option<String> {
     match self {
+      RedisValue::Double(ref f) => Some(f.to_string()),
       RedisValue::String(ref s) => Some(s.to_owned()),
       RedisValue::Bytes(ref b) => str::from_utf8(b).ok().map(|s| s.to_owned()),
       RedisValue::Integer(ref i) => Some(i.to_string()),
@@ -1618,9 +1650,10 @@ impl<'a> RedisValue {
 
   /// Read the inner value as a string slice.
   ///
-  /// Null is returned as "nil" and integers are cast to a string.
+  /// Null is returned as "nil" and scalar values are cast to a string.
   pub fn as_str(&'a self) -> Option<Cow<'a, str>> {
     let s = match *self {
+      RedisValue::Double(ref f) => Cow::Owned(f.to_owned()),
       RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
@@ -1635,6 +1668,7 @@ impl<'a> RedisValue {
   /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
   pub fn as_str_lossy(&self) -> Option<Cow<str>> {
     let s = match *self {
+      RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
       RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
@@ -1659,6 +1693,7 @@ impl<'a> RedisValue {
   /// Attempt to convert the value to a `bool`.
   pub fn as_bool(&self) -> Option<bool> {
     match *self {
+      RedisValue::Boolean(b) => Some(b),
       RedisValue::Integer(ref i) => match *i {
         0 => Some(false),
         1 => Some(true),
@@ -1818,15 +1853,36 @@ impl<'a> RedisValue {
   {
     R::from_value(self)
   }
+
+  /// Whether or not the value can be hashed.
+  ///
+  /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate type can panic,
+  /// and this function can be used to more gracefully handle this situation.
+  pub fn can_hash(&self) -> bool {
+    match self.kind() {
+      RedisValueKind::String
+      | RedisValueKind::Boolean
+      | RedisValueKind::Double
+      | RedisValueKind::Integer
+      | RedisValueKind::Bytes
+      | RedisValueKind::Null
+      | RedisValueKind::Array
+      | RedisValueKind::Queued => true,
+      _ => false,
+    }
+  }
 }
 
 impl Hash for RedisValue {
   fn hash<H: Hasher>(&self, state: &mut H) {
+    // used to prevent collisions between different types
     let prefix = match self.kind() {
+      RedisValueKind::Boolean => 'B',
+      RedisValueKind::Double => 'd',
       RedisValueKind::Integer => 'i',
       RedisValueKind::String => 's',
       RedisValueKind::Null => 'n',
-      RedisValueKind::Queued => 'h',
+      RedisValueKind::Queued => 'q',
       RedisValueKind::Array => 'a',
       RedisValueKind::Map => 'm',
       RedisValueKind::Bytes => 'b',
@@ -1834,6 +1890,8 @@ impl Hash for RedisValue {
     prefix.hash(state);
 
     match *self {
+      RedisValue::Boolean(b) => b.hash(state),
+      RedisValue::Double(f) => f.to_be_bytes().hash(state),
       RedisValue::Integer(d) => d.hash(state),
       RedisValue::String(ref s) => s.hash(state),
       RedisValue::Bytes(ref b) => b.hash(state),
@@ -1892,19 +1950,15 @@ impl From<i64> for RedisValue {
   }
 }
 
-impl TryFrom<f32> for RedisValue {
-  type Error = RedisError;
-
-  fn try_from(f: f32) -> Result<Self, Self::Error> {
-    utils::f64_to_redis_string(f as f64)
+impl From<f32> for RedisValue {
+  fn from(f: f32) -> Self {
+    RedisValue::Double(f as f64)
   }
 }
 
-impl TryFrom<f64> for RedisValue {
-  type Error = RedisError;
-
-  fn try_from(f: f64) -> Result<Self, Self::Error> {
-    utils::f64_to_redis_string(f)
+impl From<f64> for RedisValue {
+  fn from(f: f64) -> Self {
+    RedisValue::Double(f)
   }
 }
 
@@ -1982,10 +2036,7 @@ impl<'a> From<&'a [u8]> for RedisValue {
 
 impl From<bool> for RedisValue {
   fn from(d: bool) -> Self {
-    RedisValue::from(match d {
-      true => "true",
-      false => "false",
-    })
+    RedisValue::Boolean(d)
   }
 }
 

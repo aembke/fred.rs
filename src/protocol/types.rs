@@ -29,6 +29,7 @@ use crate::trace::Span;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
+#[derive(Debug)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
   Resp3(Resp3Frame),
@@ -136,8 +137,8 @@ impl Eq for SplitCommand {}
 
 #[derive(Clone)]
 pub enum ResponseKind {
-  Blocking { tx: Option<UnboundedSender<Frame>> },
-  Multiple { count: usize, buffer: VecDeque<Frame> },
+  Blocking { tx: Option<UnboundedSender<Resp3Frame>> },
+  Multiple { count: usize, buffer: VecDeque<Resp3Frame> },
 }
 
 impl fmt::Debug for ResponseKind {
@@ -1419,7 +1420,7 @@ impl RedisCommandKind {
 }
 
 /// Alias for a sender to notify the caller that a response was received.
-pub type ResponseSender = Option<OneshotSender<Result<Frame, RedisError>>>;
+pub type ResponseSender = Option<OneshotSender<Result<Resp3Frame, RedisError>>>;
 
 /// An arbitrary Redis command.
 pub struct RedisCommand {

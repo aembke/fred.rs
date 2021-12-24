@@ -23,7 +23,6 @@ use crate::modules::metrics::MovingStats;
 use arc_swap::ArcSwap;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
-use redis_protocol::resp2::prelude::Frame;
 #[cfg(feature = "network-logs")]
 use std::str;
 
@@ -123,7 +122,7 @@ impl RedisCodec {
   }
 }
 
-impl Encoder<Resp2Frame> for RedisCodec {
+impl Encoder<ProtocolFrame> for RedisCodec {
   type Error = RedisError;
 
   #[cfg(not(feature = "blocking-encoding"))]

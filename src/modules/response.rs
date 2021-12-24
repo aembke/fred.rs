@@ -7,6 +7,7 @@ use std::str::FromStr;
 macro_rules! to_signed_number(
   ($t:ty, $v:expr) => {
     match $v {
+      RedisValue::Double(f) => Ok(f as $t),
       RedisValue::Integer(i) => Ok(i as $t),
       RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
       RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
@@ -28,6 +29,11 @@ macro_rules! to_signed_number(
 macro_rules! to_unsigned_number(
   ($t:ty, $v:expr) => {
     match $v {
+      RedisValue::Double(f) => if f.is_sign_negative() {
+        Err(RedisError::new_parse("Cannot convert from negative number."))
+      }else{
+        Ok(f as $t)
+      },
       RedisValue::Integer(i) => if i < 0 {
         Err(RedisError::new_parse("Cannot convert from negative number."))
       }else{
@@ -238,6 +244,7 @@ where
       }
       RedisValue::Null => Ok(vec![]),
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
+      RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
       RedisValue::Queued => Ok(vec![T::from_value(RedisValue::String(QUEUED.into()))?]),
     }
   }
@@ -332,7 +339,6 @@ macro_rules! impl_redis_response_tuple {
 
       #[allow(non_snake_case, unused_variables)]
       fn from_value(v: RedisValue) -> Result<($($name,)*), RedisError> {
-        println!("HERE {:?}", v);
         if let RedisValue::Array(mut values) = v {
           let mut n = 0;
           $(let $name = (); n += 1;)*

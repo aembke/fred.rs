@@ -4,3 +4,5 @@ export RUST_BACKTRACE=full \
   REDIS_USERNAME=foo \
   REDIS_PASSWORD=bar \
   REDIS_SENTINEL_PASSWORD=baz
+
+alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
