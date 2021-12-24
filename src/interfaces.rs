@@ -4,11 +4,11 @@ use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
 use crate::types::{
-  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, InfoKind, ReconnectPolicy, RedisConfig, FromRedis,
+  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig,
   RedisValue, ShutdownFlags,
 };
 use crate::utils;
-use futures::Stream;
+use futures::{Stream, TryFutureExt};
 use std::convert::TryInto;
 use std::future::Future;
 use std::pin::Pin;
@@ -60,23 +60,23 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// An enum used to represent the return value from a function that does some fallible synchronous work,
 /// followed by some more fallible async logic inside a new tokio task.
-enum AsyncInner<T: Unpin + Send + 'static> {
+enum AsyncInner<T: 'static> {
   Result(Option<Result<T, RedisError>>),
-  Task(JoinHandle<Result<T, RedisError>>),
+  Task(Pin<Box<dyn Future<Output = Result<T, RedisError>>>>),
 }
 
 // TODO the additional tokio task just kills the perf in benchmarks. maybe switch AsyncResult to hold a trait object
 // and get rid of the tokio spawn
 
 /// A wrapper type for return values from async functions implemented in a trait.
-pub struct AsyncResult<T: Unpin + Send + 'static> {
+pub struct AsyncResult<T: 'static> {
   inner: AsyncInner<T>,
 }
 
 #[doc(hidden)]
 impl<T, E> From<Result<T, E>> for AsyncResult<T>
 where
-  T: Unpin + Send + 'static,
+  T: 'static,
   E: Into<RedisError>,
 {
   fn from(value: Result<T, E>) -> Self {
@@ -87,25 +87,25 @@ where
 }
 
 #[doc(hidden)]
-impl<T> From<JoinHandle<Result<T, RedisError>>> for AsyncResult<T>
+impl<T> From<Pin<Box<dyn Future<Output = Result<T, RedisError>>>>> for AsyncResult<T>
 where
-  T: Unpin + Send + 'static,
+  T: 'static,
 {
-  fn from(value: JoinHandle<Result<T, RedisError>>) -> Self {
+  fn from(f: Pin<Box<dyn Future<Output = Result<T, RedisError>>>>) -> Self {
     AsyncResult {
-      inner: AsyncInner::Task(value),
+      inner: AsyncInner::Task(f),
     }
   }
 }
 
 impl<T> Future for AsyncResult<T>
 where
-  T: Unpin + Send + 'static,
+  T: 'static,
 {
   type Output = Result<T, RedisError>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.get_mut().inner {
+    match self.inner {
       AsyncInner::Result(ref mut output) => {
         if let Some(value) = output.take() {
           Poll::Ready(value)
@@ -114,13 +114,7 @@ where
           Poll::Ready(Err(RedisError::new_canceled()))
         }
       }
-      AsyncInner::Task(ref mut handle) => match Pin::new(handle).poll(cx) {
-        Poll::Ready(value) => match value {
-          Ok(value) => Poll::Ready(value),
-          Err(e) => Poll::Ready(Err(e.into())),
-        },
-        Poll::Pending => Poll::Pending,
-      },
+      AsyncInner::Task(ref mut fut) => Pin::new(fut).poll(cx),
     }
   }
 }
@@ -157,13 +151,14 @@ where
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike,
-  Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
+  Fut: Future<Output = Result<T, RedisError>> + 'static,
   F: FnOnce(Arc<RedisClientInner>) -> Fut,
-  T: Unpin + Send + 'static,
+  T: 'static,
 {
   // this is unfortunate but necessary without async functions in traits
   let inner = client.inner().clone();
-  tokio::spawn(func(inner)).into()
+  // TODO get rid of this ^?
+  Box::pin(func(inner)).into()
 }
 
 /// Any Redis client that implements any part of the Redis interface.

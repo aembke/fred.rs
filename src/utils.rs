@@ -24,11 +24,6 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::time::sleep;
 
-#[cfg(feature = "index-map")]
-use indexmap::map::IndexMap;
-#[cfg(feature = "index-map")]
-use std::hash::Hash;
-
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::protocol::utils as protocol_utils;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -208,43 +203,6 @@ pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<Stri
     ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().clone(),
     _ => None,
   }
-}
-
-#[cfg(feature = "index-map")]
-pub fn new_map(capacity: usize) -> IndexMap<String, RedisValue> {
-  if capacity == 0 {
-    IndexMap::new()
-  } else {
-    IndexMap::with_capacity(capacity)
-  }
-}
-
-#[cfg(not(feature = "index-map"))]
-pub fn new_map(capacity: usize) -> HashMap<String, RedisValue> {
-  if capacity == 0 {
-    HashMap::new()
-  } else {
-    HashMap::with_capacity(capacity)
-  }
-}
-
-#[cfg(feature = "index-map")]
-pub fn hash_map<H>(data: &IndexMap<String, RedisValue>, state: &mut H)
-where
-  H: Hasher,
-{
-  for (key, value) in data.iter() {
-    key.hash(state);
-    value.hash(state);
-  }
-}
-
-#[cfg(not(feature = "index-map"))]
-pub fn hash_map<H>(_data: &HashMap<String, RedisValue>, _state: &mut H)
-where
-  H: Hasher,
-{
-  panic!("Cannot use HashMap as hash key.");
 }
 
 pub fn decr_atomic(size: &Arc<AtomicUsize>) -> usize {

@@ -7,7 +7,7 @@ use crate::utils;
 use crate::utils::{set_locked, take_locked};
 use parking_lot::{Mutex, RwLock};
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
@@ -177,7 +177,7 @@ impl ValueScanInner {
       ));
     }
 
-    let mut out = utils::new_map(data.len() / 2);
+    let mut out = HashMap::with_capacity(data.len() / 2);
     while data.len() >= 2 {
       let value = data.pop().unwrap();
       let key = match data.pop().unwrap() {

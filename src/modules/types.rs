@@ -1,7 +1,11 @@
 use crate::client::RedisClient;
 use crate::error::*;
+use crate::interfaces::ClientLike;
 use crate::modules::inner::RedisClientInner;
+pub use crate::modules::response::FromRedis;
 use crate::protocol::connection::OK;
+pub use crate::protocol::tls::TlsConfig;
+pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::utils;
@@ -9,7 +13,7 @@ pub use redis_protocol::resp2::types::Frame;
 use redis_protocol::resp2::types::NULL;
 use std::borrow::Cow;
 use std::cmp;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::Hash;
@@ -22,25 +26,12 @@ use std::str;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub use crate::modules::response::FromRedis;
-pub use crate::protocol::tls::TlsConfig;
-pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
-
 #[cfg(feature = "metrics")]
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
 
-use crate::interfaces::ClientLike;
-#[cfg(feature = "index-map")]
-use indexmap::{IndexMap, IndexSet};
-#[cfg(not(feature = "index-map"))]
-use std::collections::HashSet;
-
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";
-
-// TODO docs
-pub type RedisResult<T> = Result<T, RedisError>;
 
 /// The ANY flag used on certain GEO commands.
 pub type Any = bool;
@@ -1271,30 +1262,18 @@ where
 /// A map of `(String, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisMap {
-  #[cfg(feature = "index-map")]
-  pub(crate) inner: IndexMap<String, RedisValue>,
-  #[cfg(not(feature = "index-map"))]
   pub(crate) inner: HashMap<String, RedisValue>,
 }
 
 impl RedisMap {
   /// Create a new empty map.
   pub fn new() -> Self {
-    RedisMap {
-      inner: utils::new_map(0),
-    }
+    RedisMap { inner: HashMap::new() }
   }
 
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
-    mem::replace(&mut self.inner, utils::new_map(0)).into()
-  }
-
-  /// Take the inner `IndexMap`.
-  #[cfg(feature = "index-map")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
-  pub fn inner(self) -> IndexMap<String, RedisValue> {
-    self.inner
+    mem::replace(&mut self.inner, HashMap::new()).into()
   }
 
   /// Read the number of (key, value) pairs in the map.
@@ -1303,19 +1282,12 @@ impl RedisMap {
   }
 
   /// Take the inner `HashMap`.
-  #[cfg(not(feature = "index-map"))]
-  #[cfg_attr(docsrs, doc(cfg(not(feature = "index-map"))))]
   pub fn inner(self) -> HashMap<String, RedisValue> {
     self.inner
   }
 }
 
 impl Deref for RedisMap {
-  #[cfg(feature = "index-map")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
-  type Target = IndexMap<String, RedisValue>;
-  #[cfg(not(feature = "index-map"))]
-  #[cfg_attr(docsrs, doc(cfg(not(feature = "index-map"))))]
   type Target = HashMap<String, RedisValue>;
 
   fn deref(&self) -> &Self::Target {
@@ -1329,26 +1301,6 @@ impl DerefMut for RedisMap {
   }
 }
 
-#[cfg(feature = "index-map")]
-#[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
-impl From<IndexMap<String, RedisValue>> for RedisMap {
-  fn from(d: IndexMap<String, RedisValue>) -> Self {
-    RedisMap { inner: d }
-  }
-}
-
-#[cfg(feature = "index-map")]
-impl From<HashMap<String, RedisValue>> for RedisMap {
-  fn from(d: HashMap<String, RedisValue>) -> Self {
-    let mut inner = utils::new_map(d.len());
-    for (key, value) in d.into_iter() {
-      inner.insert(key, value);
-    }
-    RedisMap { inner }
-  }
-}
-
-#[cfg(not(feature = "index-map"))]
 impl From<HashMap<String, RedisValue>> for RedisMap {
   fn from(d: HashMap<String, RedisValue>) -> Self {
     RedisMap { inner: d }
@@ -1357,7 +1309,7 @@ impl From<HashMap<String, RedisValue>> for RedisMap {
 
 impl From<BTreeMap<String, RedisValue>> for RedisMap {
   fn from(d: BTreeMap<String, RedisValue>) -> Self {
-    let mut inner = utils::new_map(d.len());
+    let mut inner = HashMap::with_capacity(d.len());
     for (key, value) in d.into_iter() {
       inner.insert(key, value);
     }
@@ -1367,7 +1319,7 @@ impl From<BTreeMap<String, RedisValue>> for RedisMap {
 
 impl<S: Into<String>> From<(S, RedisValue)> for RedisMap {
   fn from(d: (S, RedisValue)) -> Self {
-    let mut inner = utils::new_map(1);
+    let mut inner = HashMap::with_capacity(1);
     inner.insert(d.0.into(), d.1);
     RedisMap { inner }
   }
@@ -1375,7 +1327,7 @@ impl<S: Into<String>> From<(S, RedisValue)> for RedisMap {
 
 impl<S: Into<String>> From<Vec<(S, RedisValue)>> for RedisMap {
   fn from(d: Vec<(S, RedisValue)>) -> Self {
-    let mut inner = utils::new_map(d.len());
+    let mut inner = HashMap::with_capacity(d.len());
     for (key, value) in d.into_iter() {
       inner.insert(key.into(), value);
     }
@@ -1385,7 +1337,7 @@ impl<S: Into<String>> From<Vec<(S, RedisValue)>> for RedisMap {
 
 impl<S: Into<String>> From<VecDeque<(S, RedisValue)>> for RedisMap {
   fn from(d: VecDeque<(S, RedisValue)>) -> Self {
-    let mut inner = utils::new_map(d.len());
+    let mut inner = HashMap::with_capacity(d.len());
     for (key, value) in d.into_iter() {
       inner.insert(key.into(), value);
     }
@@ -1733,7 +1685,7 @@ impl<'a> RedisValue {
           "Expected an even number of elements.",
         ));
       }
-      let mut inner = utils::new_map(values.len() / 2);
+      let mut inner = HashMap::with_capacity(values.len() / 2);
       while values.len() >= 2 {
         let value = values.pop().unwrap();
         let key = match values.pop().unwrap().into_string() {
@@ -1756,24 +1708,9 @@ impl<'a> RedisValue {
   }
 
   /// Convert the array value to a set, if possible.
-  #[cfg(not(feature = "index-map"))]
   pub fn into_set(self) -> Result<HashSet<RedisValue>, RedisError> {
     if let RedisValue::Array(values) = self {
       let mut out = HashSet::with_capacity(values.len());
-
-      for value in values.into_iter() {
-        out.insert(value);
-      }
-      Ok(out)
-    } else {
-      Err(RedisError::new(RedisErrorKind::Unknown, "Expected array."))
-    }
-  }
-
-  #[cfg(feature = "index-map")]
-  pub fn into_set(self) -> Result<IndexSet<RedisValue>, RedisError> {
-    if let RedisValue::Array(values) = self {
-      let mut out = IndexSet::with_capacity(values.len());
 
       for value in values.into_iter() {
         out.insert(value);
@@ -1888,12 +1825,13 @@ impl Hash for RedisValue {
       RedisValue::Bytes(ref b) => b.hash(state),
       RedisValue::Null => NULL.hash(state),
       RedisValue::Queued => QUEUED.hash(state),
-      RedisValue::Map(ref map) => utils::hash_map(map, state),
       RedisValue::Array(ref arr) => {
+        // this might be a bad idea, but at least it's deterministic
         for value in arr.iter() {
           value.hash(state);
         }
       }
+      _ => panic!("Cannot hash aggregate value."),
     }
   }
 }
@@ -2055,14 +1993,6 @@ where
 impl FromIterator<RedisValue> for RedisValue {
   fn from_iter<I: IntoIterator<Item = RedisValue>>(iter: I) -> Self {
     RedisValue::Array(iter.into_iter().collect())
-  }
-}
-
-#[cfg(feature = "index-map")]
-#[cfg_attr(docsrs, doc(cfg(feature = "index-map")))]
-impl From<IndexMap<String, RedisValue>> for RedisValue {
-  fn from(d: IndexMap<String, RedisValue>) -> Self {
-    RedisValue::Map(d.into())
   }
 }
 

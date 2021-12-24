@@ -49,8 +49,6 @@
 extern crate async_trait;
 #[macro_use]
 extern crate log;
-#[cfg(feature = "index-map")]
-extern crate indexmap;
 #[cfg(feature = "enable-tls")]
 extern crate native_tls;
 #[cfg(feature = "enable-tls")]
@@ -93,6 +91,6 @@ pub mod prelude {
   pub use crate::error::{RedisError, RedisErrorKind};
   pub use crate::interfaces::*;
   pub use crate::types::{
-    Blocking, Expiration, RedisConfig, FromRedis, RedisValue, RedisValueKind, ServerConfig, SetOptions,
+    Blocking, Expiration, FromRedis, RedisConfig, RedisValue, RedisValueKind, ServerConfig, SetOptions,
   };
 }

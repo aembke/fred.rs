@@ -347,7 +347,7 @@ pub fn frame_to_map(frame: ProtocolFrame) -> Result<RedisMap, RedisError> {
       ));
     }
 
-    let mut inner = utils::new_map(frames.len() / 2);
+    let mut inner = HashMap::with_capacity(frames.len() / 2);
     while frames.len() >= 2 {
       let value = frames.pop().unwrap();
       let key = match frames.pop().unwrap().as_str() {
@@ -382,7 +382,7 @@ pub fn array_to_map(data: RedisValue) -> Result<RedisMap, RedisError> {
       ));
     }
 
-    let mut inner = utils::new_map(values.len() / 2);
+    let mut inner = HashMap::with_capacity(values.len() / 2);
     while values.len() >= 2 {
       let value = values.pop().unwrap();
       let key = match values.pop().unwrap().into_string() {
