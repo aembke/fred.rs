@@ -88,6 +88,10 @@ pub trait FromRedis: Sized {
   fn from_bytes(_: Vec<u8>) -> Option<Vec<Self>> {
     None
   }
+  #[doc(hidden)]
+  fn is_tuple() -> bool {
+    false
+  }
 }
 
 impl FromRedis for RedisValue {
@@ -220,8 +224,14 @@ where
         let out = Vec::with_capacity(map.len() * 2);
         map.inner().into_iter().fold(Ok(out), |out, (key, value)| {
           out.and_then(|mut out| {
-            out.push(T::from_value(RedisValue::String(key))?);
-            out.push(T::from_value(value)?);
+            if T::is_tuple() {
+              // try to convert to a 2-element tuple since that's a common use case from `HGETALL`, etc
+              out.push(T::from_value(RedisValue::Array(vec![key.into(), value]))?);
+            } else {
+              out.push(T::from_value(RedisValue::String(key))?);
+              out.push(T::from_value(value)?);
+            }
+
             Ok(out)
           })
         })
@@ -314,9 +324,15 @@ where
 macro_rules! impl_redis_response_tuple {
   () => ();
   ($($name:ident,)+) => (
+    #[doc(hidden)]
     impl<$($name: FromRedis),*> FromRedis for ($($name,)*) {
+      fn is_tuple() -> bool {
+        true
+      }
+
       #[allow(non_snake_case, unused_variables)]
       fn from_value(v: RedisValue) -> Result<($($name,)*), RedisError> {
+        println!("HERE {:?}", v);
         if let RedisValue::Array(mut values) = v {
           let mut n = 0;
           $(let $name = (); n += 1;)*

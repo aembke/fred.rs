@@ -45,38 +45,47 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 //
 // The abstractions implemented here are necessary because of this lack of async functions in traits. The
 // `async-trait` crate exists, but it reverts to using trait objects (a la futures 0.1 pre `impl Trait`) and I'm
-// not a fan of how it messes with your function signatures and uses boxes all over the place.
+// not a fan of how it obfuscates your function signatures and uses boxes as often as it does.
 //
-// Additionally, this module already spawns a tokio task for commands, so we can get around the lack of async
-// functions in traits simply by moving the current `tokio::spawn` call up the stack a bit, which can turn an async
-// function into a "sync" function that returns a Future, which is really the same thing. This is pretty much
-// what `async-trait` does under the hood (minus the spawn), but instead of using a trait object we just return
-// a struct that we define here which implements the `Future` trait.
+// That being said, originally when I implemented this file I tried using a new tokio task for each call to `async_spawn`. This
+// worked and provided a relatively clean implementation for `AsyncResult` and `AsyncInner` that didn't require relying on trait
+// objects, but it dramatically reduced performance. Prior to the introduction of the new tokio task for each command the pipeline
+// test benchmark could do ~2MM req/sec, but after adding the tokio task it could only do around 540k req/sec.
 //
-// We'll call this file "some cost abstractions" until async functions in traits are available since it does require
-// one more `Arc` clone than it otherwise would with async functions in traits. Once that feature is stable I'll come
-// back and remove this to avoid the added `Arc` clone used here (which is required to `move` the inner struct into the
-// new tokio task).
+// After noticing this I went back and re-implemented this with trait objects to fix the performance issue. This ended up making the
+// implementation very similar to `async-trait`, largely contradicting the paragraph above about boxes. However, the `AsyncResult`
+// abstraction does have the benefit of being quite a bit more readable than the `Pin<Box<...>>` return type from `async-trait`, so
+// I'm going to keep the `AsyncResult` abstraction in place for the time being for that reason alone.
+//
+// After switching from a new `tokio::spawn` call to trait objects the performance went back to about 1.85MM req/sec, which seems to be
+// about as good as we can hope for without support for async functions in traits. While it would be nice to remove the overhead of the
+// new trait object to get performance back to 2MM req/sec I think there's lower hanging fruit elsewhere in the code to tackle first that
+// would have an even greater impact on performance.
+//
+// The `Send` requirement exists because the underlying future must be marked as `Send` for commands to work inside a `tokio::spawn` call.
+// Some of the tests and examples do this for various reasons, and I don't want to prevent callers from implementing similar patterns. The
+// only use case I can think of where this might be problematic is one where callers are using a custom, probably-too-clever hashing
+// implementation with a `HashMap`, since all other `FromRedis` implementations are already for `Send` types. Aside from that I don't think
+// the `Send` requirement should be an issue (especially since a lot of the tokio interface already requires it anyways).
+//
+// That being said, if anybody has issues with the `Send` requirement I'd be very interested to hear more about the use case.
 
 /// An enum used to represent the return value from a function that does some fallible synchronous work,
 /// followed by some more fallible async logic inside a new tokio task.
-enum AsyncInner<T: 'static> {
+enum AsyncInner<T: Unpin + Send + 'static> {
   Result(Option<Result<T, RedisError>>),
-  Task(Pin<Box<dyn Future<Output = Result<T, RedisError>>>>),
+  Task(Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>),
 }
 
-// TODO the additional tokio task just kills the perf in benchmarks. maybe switch AsyncResult to hold a trait object
-// and get rid of the tokio spawn
-
 /// A wrapper type for return values from async functions implemented in a trait.
-pub struct AsyncResult<T: 'static> {
+pub struct AsyncResult<T: Unpin + Send + 'static> {
   inner: AsyncInner<T>,
 }
 
 #[doc(hidden)]
 impl<T, E> From<Result<T, E>> for AsyncResult<T>
 where
-  T: 'static,
+  T: Unpin + Send + 'static,
   E: Into<RedisError>,
 {
   fn from(value: Result<T, E>) -> Self {
@@ -87,11 +96,11 @@ where
 }
 
 #[doc(hidden)]
-impl<T> From<Pin<Box<dyn Future<Output = Result<T, RedisError>>>>> for AsyncResult<T>
+impl<T> From<Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>> for AsyncResult<T>
 where
-  T: 'static,
+  T: Unpin + Send + 'static,
 {
-  fn from(f: Pin<Box<dyn Future<Output = Result<T, RedisError>>>>) -> Self {
+  fn from(f: Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>) -> Self {
     AsyncResult {
       inner: AsyncInner::Task(f),
     }
@@ -100,12 +109,12 @@ where
 
 impl<T> Future for AsyncResult<T>
 where
-  T: 'static,
+  T: Unpin + Send + 'static,
 {
   type Output = Result<T, RedisError>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.inner {
+    match self.get_mut().inner {
       AsyncInner::Result(ref mut output) => {
         if let Some(value) = output.take() {
           Poll::Ready(value)
@@ -151,14 +160,15 @@ where
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike,
-  Fut: Future<Output = Result<T, RedisError>> + 'static,
+  Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce(Arc<RedisClientInner>) -> Fut,
-  T: 'static,
+  T: Unpin + Send + 'static,
 {
   // this is unfortunate but necessary without async functions in traits
   let inner = client.inner().clone();
-  // TODO get rid of this ^?
-  Box::pin(func(inner)).into()
+  AsyncResult {
+    inner: AsyncInner::Task(Box::pin(func(inner))),
+  }
 }
 
 /// Any Redis client that implements any part of the Redis interface.

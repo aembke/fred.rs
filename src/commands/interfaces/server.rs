@@ -9,7 +9,7 @@ use tokio::time::interval as tokio_interval;
 pub trait AuthInterface: ClientLike + Sized {
   /// Request for authentication in a password-protected Redis server. Returns ok if successful.
   ///
-  /// The client will automatically authenticate with the default user if a password is provided in the associated `RedisConfig` when calling [connect](Self::connect).
+  /// The client will automatically authenticate with the default user if a password is provided in the associated `RedisConfig` when calling [connect](crate::interfaces::ClientLike::connect).
   ///
   /// If running against clustered servers this function will authenticate all connections.
   ///

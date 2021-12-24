@@ -1,11 +1,53 @@
 use fred::client::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::interfaces::*;
-use fred::prelude::Blocking;
-use fred::types::{ClientUnblockFlag, RedisConfig, ServerConfig};
-use std::collections::BTreeSet;
+use fred::prelude::{Blocking, RedisValue};
+use fred::types::{ClientUnblockFlag, RedisConfig, RedisMap, ServerConfig};
+use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 use tokio::time::sleep;
+
+fn hash_to_btree(vals: &RedisMap) -> BTreeMap<String, u16> {
+  vals
+    .iter()
+    .map(|(key, value)| (key.clone(), value.as_u64().unwrap() as u16))
+    .collect()
+}
+
+fn array_to_set<T: Ord>(vals: Vec<T>) -> BTreeSet<T> {
+  vals.into_iter().collect()
+}
+
+pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let nested_values: RedisMap = vec![("a", 1.into()), ("b", 2.into())].into();
+  let _ = client.set("foo", "123", None, None, false).await?;
+  let _ = client.set("baz", "456", None, None, false).await?;
+  let _ = client.hset("bar", &nested_values).await?;
+
+  let foo: usize = client.get("foo").await?;
+  assert_eq!(foo, 123);
+  let foo: i64 = client.get("foo").await?;
+  assert_eq!(foo, 123);
+  let foo: String = client.get("foo").await?;
+  assert_eq!(foo, "123");
+  let foo: Vec<u8> = client.get("foo").await?;
+  assert_eq!(foo, "123".as_bytes());
+  let foo: Vec<String> = client.hvals("bar").await?;
+  assert_eq!(array_to_set(foo), array_to_set(vec!["1".to_owned(), "2".to_owned()]));
+  let foo: BTreeSet<String> = client.hvals("bar").await?;
+  assert_eq!(foo, array_to_set(vec!["1".to_owned(), "2".to_owned()]));
+  let foo: HashMap<String, u16> = client.hgetall("bar").await?;
+  assert_eq!(foo, RedisValue::Map(nested_values.clone()).convert()?);
+  let foo: BTreeMap<String, u16> = client.hgetall("bar").await?;
+  assert_eq!(foo, hash_to_btree(&nested_values));
+  let foo: (String, i64) = client.mget(vec!["foo", "baz"]).await?;
+  assert_eq!(foo, ("123".into(), 456));
+  let foo: Vec<(String, i64)> = client.hgetall("bar").await?;
+  assert_eq!(array_to_set(foo), array_to_set(vec![("a".into(), 1), ("b".into(), 2)]));
+
+  Ok(())
+}
 
 pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Interrupt;

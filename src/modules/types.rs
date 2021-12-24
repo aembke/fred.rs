@@ -1301,6 +1301,12 @@ impl DerefMut for RedisMap {
   }
 }
 
+impl<'a> From<&'a RedisMap> for RedisMap {
+  fn from(vals: &'a RedisMap) -> Self {
+    vals.clone()
+  }
+}
+
 impl From<HashMap<String, RedisValue>> for RedisMap {
   fn from(d: HashMap<String, RedisValue>) -> Self {
     RedisMap { inner: d }

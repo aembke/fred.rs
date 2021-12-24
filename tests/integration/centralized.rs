@@ -38,6 +38,7 @@ mod other {
   centralized_test!(other, should_automatically_unblock);
   centralized_test!(other, should_manually_unblock);
   centralized_test!(other, should_error_when_blocked);
+  centralized_test!(other, should_smoke_test_from_redis_impl);
 }
 
 mod pool {
