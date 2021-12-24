@@ -1,13 +1,18 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::connection::OK;
+use crate::protocol::types::ProtocolFrame;
 use crate::protocol::types::*;
 use crate::types::Resolve;
 use crate::types::*;
 use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
+use nom::AsBytes;
 use parking_lot::RwLock;
-use redis_protocol::resp2::types::{Frame as ProtocolFrame, FrameKind as ProtocolFrameKind};
+use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::resp2::types::FrameKind as Resp2FrameKind;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::types::FrameKind as Resp3FrameKind;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -231,19 +236,41 @@ pub fn frame_to_pubsub(frame: ProtocolFrame) -> Result<(String, RedisValue), Red
 }
 
 #[cfg(not(feature = "ignore-auth-error"))]
-pub fn check_auth_error(frame: ProtocolFrame) -> ProtocolFrame {
+pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
   frame
 }
 
 #[cfg(feature = "ignore-auth-error")]
-pub fn check_auth_error(frame: ProtocolFrame) -> ProtocolFrame {
+pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
   let is_auth_error = match frame {
-    ProtocolFrame::Error(ref s) => s == "ERR Client sent AUTH, but no password is set",
+    Resp2Frame::Error(ref s) => s == "ERR Client sent AUTH, but no password is set",
     _ => false,
   };
 
   if is_auth_error {
-    ProtocolFrame::SimpleString("OK".into())
+    Resp2Frame::SimpleString("OK".into())
+  } else {
+    frame
+  }
+}
+
+#[cfg(not(feature = "ignore-auth-error"))]
+pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
+  frame
+}
+
+#[cfg(feature = "ignore-auth-error")]
+pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
+  let is_auth_error = match frame {
+    Resp3Frame::SimpleError { ref data, .. } => data == "ERR Client sent AUTH, but no password is set",
+    _ => false,
+  };
+
+  if is_auth_error {
+    Resp3Frame::SimpleString {
+      data: "OK".into(),
+      attributes: None,
+    }
   } else {
     frame
   }
@@ -409,14 +436,13 @@ pub fn frame_to_error(frame: &ProtocolFrame) -> Option<RedisError> {
   }
 }
 
-pub fn value_to_outgoing_frame(value: &RedisValue) -> Result<ProtocolFrame, RedisError> {
+pub fn value_to_outgoing_resp2_frame(value: &RedisValue) -> Result<Resp2Frame, RedisError> {
   let frame = match value {
-    RedisValue::Integer(ref i) => ProtocolFrame::BulkString(i.to_string().into_bytes()),
-    RedisValue::String(ref s) => ProtocolFrame::BulkString(s.as_bytes().to_vec()),
-    RedisValue::Bytes(ref b) => ProtocolFrame::BulkString(b.to_vec()),
-    RedisValue::Queued => ProtocolFrame::BulkString(QUEUED.as_bytes().to_vec()),
-    RedisValue::Null => ProtocolFrame::Null,
-    // TODO implement when RESP3 support is in redis-protocol
+    RedisValue::Integer(ref i) => Resp2Frame::BulkString(i.to_string().into_bytes()),
+    RedisValue::String(ref s) => Resp2Frame::BulkString(s.as_bytes().to_vec()),
+    RedisValue::Bytes(ref b) => Resp2Frame::BulkString(b.to_vec()),
+    RedisValue::Queued => Resp2Frame::BulkString(QUEUED.as_bytes().to_vec()),
+    RedisValue::Null => Resp2Frame::Null,
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::InvalidArgument,
@@ -426,6 +452,11 @@ pub fn value_to_outgoing_frame(value: &RedisValue) -> Result<ProtocolFrame, Redi
   };
 
   Ok(frame)
+}
+
+pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, RedisError> {
+  // TODO does this work with newer types? or is everything still a bulk string?
+  unimplemented!()
 }
 
 pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {
@@ -1031,14 +1062,27 @@ pub fn arg_size(value: &RedisValue) -> usize {
 }
 
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
-pub fn frame_size(frame: &Frame) -> usize {
+pub fn resp2_frame_size(frame: &Resp2Frame) -> usize {
   match frame {
-    Frame::Integer(ref i) => i64_size(*i),
-    Frame::Null => 3,
-    Frame::Error(ref s) => s.as_bytes().len(),
-    Frame::SimpleString(ref s) => s.as_bytes().len(),
-    Frame::BulkString(ref b) => b.len(),
-    Frame::Array(ref a) => a.iter().fold(0, |c, f| c + frame_size(f)),
+    Resp2Frame::Integer(ref i) => i64_size(*i),
+    Resp2Frame::Null => 3,
+    Resp2Frame::Error(ref s) => s.as_bytes().len(),
+    Resp2Frame::SimpleString(ref s) => s.as_bytes().len(),
+    Resp2Frame::BulkString(ref b) => b.len(),
+    Resp2Frame::Array(ref a) => a.iter().fold(0, |c, f| c + frame_size(f)),
+  }
+}
+
+#[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
+pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
+  frame.encode_len().unwrap_or(0)
+}
+
+#[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
+pub fn frame_size(frame: &ProtocolFrame) -> usize {
+  match frame {
+    ProtocolFrame::Resp3(f) => resp3_frame_size(f),
+    ProtocolFrame::Resp2(f) => resp2_frame_size(f),
   }
 }
 
@@ -1047,20 +1091,25 @@ pub fn args_size(args: &Vec<RedisValue>) -> usize {
   args.iter().fold(0, |c, arg| c + arg_size(arg))
 }
 
-pub fn command_to_frame(command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
+pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
       let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
-      let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
 
-      for part in parts.into_iter() {
-        bulk_strings.push(ProtocolFrame::BulkString(part.as_bytes().to_vec()));
-      }
-      for value in command.args.iter() {
-        bulk_strings.push(value_to_outgoing_frame(value)?);
-      }
+      if is_resp3 {
+        unimplemented!()
+      } else {
+        let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
 
-      Ok(ProtocolFrame::Array(bulk_strings))
+        for part in parts.into_iter() {
+          bulk_strings.push(Resp2Frame::BulkString(part.as_bytes().to_vec()));
+        }
+        for value in command.args.iter() {
+          bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
+        }
+
+        Ok(ProtocolFrame::Resp2(Resp2Frame::Array(bulk_strings)))
+      }
     }
     RedisCommandKind::Hello(ref version) => {
       // this needs to return an enum around a frame that works for both 2 and 3
@@ -1068,19 +1117,23 @@ pub fn command_to_frame(command: &RedisCommand) -> Result<ProtocolFrame, RedisEr
       unimplemented!()
     }
     _ => {
-      let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
+      if is_resp3 {
+        unimplemented!()
+      } else {
+        let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
-      let cmd = command.kind.cmd_str().as_bytes();
-      bulk_strings.push(ProtocolFrame::BulkString(cmd.to_vec()));
+        let cmd = command.kind.cmd_str().as_bytes();
+        bulk_strings.push(Resp2Frame::BulkString(cmd.to_vec()));
 
-      if let Some(subcommand) = command.kind.subcommand_str() {
-        bulk_strings.push(ProtocolFrame::BulkString(subcommand.as_bytes().to_vec()));
+        if let Some(subcommand) = command.kind.subcommand_str() {
+          bulk_strings.push(Resp2Frame::BulkString(subcommand.as_bytes().to_vec()));
+        }
+        for value in command.args.iter() {
+          bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
+        }
+
+        Ok(ProtocolFrame::Resp2(Resp2Frame::Array(bulk_strings)))
       }
-      for value in command.args.iter() {
-        bulk_strings.push(value_to_outgoing_frame(value)?);
-      }
-
-      Ok(ProtocolFrame::Array(bulk_strings))
     }
   }
 }

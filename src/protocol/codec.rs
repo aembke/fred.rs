@@ -1,10 +1,18 @@
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::types::ProtocolFrame;
 use crate::protocol::utils as protocol_utils;
 use bytes::BytesMut;
 use redis_protocol::resp2::decode::decode as resp2_decode;
 use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::resp3::decode::streaming::decode as resp3_decode;
+use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
+use redis_protocol::resp3::types::RespVersion;
+use redis_protocol::resp3::types::{Frame as Resp3Frame, StreamedFrame};
+use std::borrow::Cow;
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -15,43 +23,18 @@ use crate::modules::metrics::MovingStats;
 use arc_swap::ArcSwap;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
-use redis_protocol::resp3::types::RespVersion;
+use redis_protocol::resp2::prelude::Frame;
 #[cfg(feature = "network-logs")]
 use std::str;
 
 #[cfg(not(feature = "network-logs"))]
-fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
-
+fn log_resp2_frame(_: &str, _: &ProtocolFrame, _: bool) {}
+#[cfg(not(feature = "network-logs"))]
+fn log_resp3_frame(_: &str, _: &ProtocolFrame, _: bool) {}
 #[cfg(feature = "network-logs")]
-#[derive(Debug)]
-enum DebugFrame {
-  String(String),
-  Bytes(Vec<u8>),
-  Integer(i64),
-  Array(Vec<DebugFrame>),
-}
-
+pub use crate::protocol::debug::log_resp2_frame;
 #[cfg(feature = "network-logs")]
-impl<'a> From<&'a Resp2Frame> for DebugFrame {
-  fn from(f: &'a Resp2Frame) -> Self {
-    match f {
-      Resp2Frame::Error(s) | Resp2Frame::SimpleString(s) => DebugFrame::String(s.to_owned()),
-      Resp2Frame::Integer(i) => DebugFrame::Integer(*i),
-      Resp2Frame::BulkString(b) => match str::from_utf8(b) {
-        Ok(s) => DebugFrame::String(s.to_owned()),
-        Err(_) => DebugFrame::Bytes(b.to_vec()),
-      },
-      Resp2Frame::Null => DebugFrame::String("nil".into()),
-      Resp2Frame::Array(frames) => DebugFrame::Array(frames.iter().map(|f| f.into()).collect()),
-    }
-  }
-}
-
-#[cfg(feature = "network-logs")]
-fn log_resp2_frame(name: &str, frame: &Resp2Frame, encode: bool) {
-  let prefix = if encode { "Encoded" } else { "Decoded" };
-  trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))
-}
+pub use crate::protocol::debug::log_resp3_frame;
 
 #[cfg(feature = "metrics")]
 fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
@@ -96,15 +79,25 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
     sample_stats(&codec, true, amt as i64);
 
     let _ = src.split_to(amt);
-    Ok(Some(protocol_utils::check_auth_error(frame)))
+    Ok(Some(protocol_utils::check_resp2_auth_error(frame)))
   } else {
     Ok(None)
   }
 }
 
+fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
+fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Option<Resp3Frame>, RedisError> {
+  unimplemented!()
+}
+
 pub struct RedisCodec {
   pub name: Arc<String>,
   pub server: String,
+  pub version: Arc<ArcSwap<RespVersion>>,
+  pub streaming_state: Option<StreamedFrame>,
   #[cfg(feature = "metrics")]
   pub req_size_stats: Arc<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
@@ -116,11 +109,17 @@ impl RedisCodec {
     RedisCodec {
       server,
       name: inner.id.clone(),
+      version: inner.resp_version.clone(),
+      streaming_state: None,
       #[cfg(feature = "metrics")]
       req_size_stats: inner.req_size_stats.clone(),
       #[cfg(feature = "metrics")]
       res_size_stats: inner.res_size_stats.clone(),
     }
+  }
+
+  pub fn is_resp3(&self) -> bool {
+    *self.version.as_ref().load().as_ref() == RespVersion::RESP3
   }
 }
 
@@ -128,39 +127,64 @@ impl Encoder<Resp2Frame> for RedisCodec {
   type Error = RedisError;
 
   #[cfg(not(feature = "blocking-encoding"))]
-  fn encode(&mut self, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
-    resp2_encode_frame(&self, item, dst)
+  fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    match item {
+      ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
+      ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
+    }
   }
 
   #[cfg(feature = "blocking-encoding")]
-  fn encode(&mut self, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+  fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
     let frame_size = protocol_utils::frame_size(&item);
 
     if frame_size >= globals().blocking_encode_threshold() {
       trace!("{}: Encoding in blocking task with size {}", self.name, frame_size);
-      tokio::task::block_in_place(|| resp2_encode_frame(&self, item, dst))
+
+      tokio::task::block_in_place(|| match item {
+        ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
+        ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
+      })
     } else {
-      resp2_encode_frame(&self, item, dst)
+      match item {
+        ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
+        ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
+      }
     }
   }
 }
 
 impl Decoder for RedisCodec {
-  type Item = Resp2Frame;
+  type Item = ProtocolFrame;
   type Error = RedisError;
 
   #[cfg(not(feature = "blocking-encoding"))]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-    resp2_decode_frame(&self, src)
+    if self.is_resp3() {
+      resp3_decode_frame(&mut self, src).map(|f| f.map(|f| f.into()))
+    } else {
+      resp2_decode_frame(&self, src).map(|f| f.map(|f| f.into()))
+    }
   }
 
   #[cfg(feature = "blocking-encoding")]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
     if src.len() >= globals().blocking_encode_threshold() {
       trace!("{}: Decoding in blocking task with size {}", self.name, src.len());
-      tokio::task::block_in_place(|| resp2_decode_frame(&self, src))
+
+      tokio::task::block_in_place(|| {
+        if self.is_resp3() {
+          resp3_decode_frame(&mut self, src).map(|f| f.map(|f| f.into()))
+        } else {
+          resp2_decode_frame(&self, src).map(|f| f.map(|f| f.into()))
+        }
+      })
     } else {
-      resp2_decode_frame(&self, src)
+      if self.is_resp3() {
+        resp3_decode_frame(&mut self, src).map(|f| f.map(|f| f.into()))
+      } else {
+        resp2_decode_frame(&self, src).map(|f| f.map(|f| f.into()))
+      }
     }
   }
 }

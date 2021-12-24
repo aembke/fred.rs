@@ -320,7 +320,7 @@ pub fn prepare_command(
   counters: &Counters,
   command: RedisCommand,
 ) -> Result<(SentCommand, Frame, bool), RedisError> {
-  let frame = command.to_frame()?;
+  let frame = command.to_frame(inner.is_resp3())?;
   let mut sent_command: SentCommand = command.into();
   sent_command.command.incr_attempted();
   sent_command.network_start = Some(Instant::now());
@@ -633,6 +633,7 @@ pub fn spawn_clustered_listener(
       RedisStream::Tls(stream) => Either::Left(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_clustered_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -641,6 +642,7 @@ pub fn spawn_clustered_listener(
       RedisStream::Tcp(stream) => Either::Right(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_clustered_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -804,6 +806,7 @@ pub fn spawn_centralized_listener(
       RedisStream::Tls(stream) => Either::Left(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_centralized_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -812,6 +815,7 @@ pub fn spawn_centralized_listener(
       RedisStream::Tcp(stream) => Either::Right(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_centralized_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })

@@ -176,6 +176,16 @@ pub async fn custom(
   args_values_cmd(inner, RedisCommandKind::_Custom(cmd), args).await
 }
 
+/*
+pub async fn custom_raw(
+  inner: &Arc<RedisClientInner>,
+  cmd: CustomCommand,
+  args: Vec<RedisValue>,
+) -> Result<ProtocolFrame, RedisError> {
+  utils::request_response(inner, move || Ok((RedisCommandKind::_Custom(cmd), args))).await?
+}
+*/
+
 value_cmd!(dbsize, DBSize);
 value_cmd!(bgrewriteaof, BgreWriteAof);
 value_cmd!(bgsave, BgSave);

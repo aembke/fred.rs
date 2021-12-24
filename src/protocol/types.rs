@@ -1528,20 +1528,20 @@ impl RedisCommand {
 
   /// Convert to a single frame with an array of bulk strings (or null).
   #[cfg(not(feature = "blocking-encoding"))]
-  pub fn to_frame(&self) -> Result<Frame, RedisError> {
-    protocol_utils::command_to_frame(self)
+  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+    protocol_utils::command_to_frame(self, is_resp3)
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(feature = "blocking-encoding")]
-  pub fn to_frame(&self) -> Result<Frame, RedisError> {
+  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(&self.args);
 
     if cmd_size >= globals().blocking_encode_threshold() {
       trace!("Using blocking task to convert command to frame with size {}", cmd_size);
-      tokio::task::block_in_place(|| protocol_utils::command_to_frame(self))
+      tokio::task::block_in_place(|| protocol_utils::command_to_frame(self, is_resp3))
     } else {
-      protocol_utils::command_to_frame(self)
+      protocol_utils::command_to_frame(self, is_resp3)
     }
   }
 

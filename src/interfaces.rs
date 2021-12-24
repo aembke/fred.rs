@@ -9,6 +9,7 @@ use crate::types::{
 };
 use crate::utils;
 use futures::{Stream, TryFutureExt};
+pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::convert::TryInto;
 use std::future::Future;
 use std::pin::Pin;
@@ -331,6 +332,21 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |inner| async move {
       commands::server::custom(&inner, cmd, args).await?.convert()
+    })
+  }
+
+  /// Run a custom command similar to [custom](Self::custom), but return the response frame directly without any parsing.
+  ///
+  /// Note: RESP2 frames are automatically converted to RESP3 if needed.
+  fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<Resp3Frame>
+  where
+    T: TryInto<RedisValue>,
+    T::Error: Into<RedisError>,
+  {
+    let args = atry!(utils::try_into_vec(args));
+    async_spawn(self, |inner| async move {
+      unimplemented!()
+      //commands::server::custom_raw(&inner, cmd, args).await?.convert()
     })
   }
 }

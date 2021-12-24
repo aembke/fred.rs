@@ -70,11 +70,12 @@ pub fn split_transport(transport: RedisTransport) -> (RedisSink, RedisStream) {
 pub async fn request_response<T>(
   mut transport: Framed<T, RedisCodec>,
   request: &RedisCommand,
+  is_resp3: bool,
 ) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  let frame = request.to_frame()?;
+  let frame = request.to_frame(is_resp3)?;
   let _ = transport.send(frame).await?;
   let (response, transport) = transport.into_future().await;
 
@@ -88,11 +89,12 @@ where
 pub async fn request_response_safe<T>(
   mut transport: Framed<T, RedisCodec>,
   request: &RedisCommand,
+  is_resp3: bool,
 ) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  let frame = match request.to_frame() {
+  let frame = match request.to_frame(is_resp3) {
     Ok(frame) => frame,
     Err(e) => return Err((e, transport)),
   };
