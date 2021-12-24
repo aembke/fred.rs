@@ -12,8 +12,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use arc_swap::ArcSwap;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
+use redis_protocol::resp3::types::RespVersion;
 #[cfg(feature = "network-logs")]
 use std::str;
 

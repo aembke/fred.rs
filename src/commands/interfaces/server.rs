@@ -1,6 +1,7 @@
 use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::FromRedis;
+use crate::types::RespVersion;
 use crate::utils;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
@@ -26,6 +27,9 @@ pub trait AuthInterface: ClientLike + Sized {
   }
 
   // TODO add HELLO here
+  fn hello<S>(&self, version: RespVersion, username: Option<String>, password: S) -> AsyncResult<()> {
+    unimplemented!()
+  }
 }
 
 /// Functions that provide a connection heartbeat interface.

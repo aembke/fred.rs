@@ -16,7 +16,10 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+arcstr = "1.1"
+arc-swap = "1.5"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.6", features = ["codec"] }
 bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
@@ -26,16 +29,15 @@ log = "0.4"
 pretty_env_logger = "0.4"
 float-cmp = "0.8"
 url = "2.2"
-native-tls = { version = "0.2", optional = true }
-tokio-native-tls = { version = "0.3", optional = true }
-rand = "0.8"
-tokio-util = { version = "0.6", features = ["codec"] }
 tokio-stream = "0.1"
 sha-1 = "0.9"
-tracing = { version = "0.1", optional = true }
-tracing-futures = { version = "0.2", optional = true }
+rand = "0.8"
 async-trait = "0.1"
 semver = "1.0"
+native-tls = { version = "0.2", optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-futures = { version = "0.2", optional = true }
 nom = { version = "6.1", optional = true }
 
 [dev-dependencies]

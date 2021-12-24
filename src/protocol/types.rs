@@ -6,7 +6,12 @@ use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
 use parking_lot::{Mutex, RwLock};
+use rand::Rng;
+use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::resp2_frame_to_resp3;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -21,10 +26,36 @@ use crate::trace::disabled::Span as FakeSpan;
 use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::Span;
-use rand::Rng;
-use std::borrow::Cow;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
+
+pub enum ProtocolFrame {
+  Resp2(Resp2Frame),
+  Resp3(Resp3Frame),
+}
+
+impl ProtocolFrame {
+  pub fn into_resp3(self) -> Resp3Frame {
+    // since the `RedisValue::convert` logic already accounts for different encodings of maps and sets we can just
+    // change everything to RESP3 above the protocol layer. resp2->resp3 is lossless so this is safe.
+    match self {
+      ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
+      ProtocolFrame::Resp3(frame) => frame,
+    }
+  }
+}
+
+impl From<Resp2Frame> for ProtocolFrame {
+  fn from(frame: Resp2Frame) -> Self {
+    ProtocolFrame::Resp2(frame)
+  }
+}
+
+impl From<Resp3Frame> for ProtocolFrame {
+  fn from(frame: Resp3Frame) -> Self {
+    ProtocolFrame::Resp3(frame)
+  }
+}
 
 #[derive(Clone)]
 pub struct AllNodesResponse {
@@ -324,6 +355,7 @@ pub enum RedisCommandKind {
   GetRange,
   GetSet,
   HDel,
+  Hello(RespVersion),
   HExists,
   HGet,
   HGetAll,
@@ -514,6 +546,13 @@ impl RedisCommandKind {
   pub fn is_zscan(&self) -> bool {
     match *self {
       RedisCommandKind::Zscan(_) => true,
+      _ => false,
+    }
+  }
+
+  pub fn is_hello(&self) -> bool {
+    match *self {
+      RedisCommandKind::Hello(_) => true,
       _ => false,
     }
   }
@@ -719,6 +758,7 @@ impl RedisCommandKind {
       RedisCommandKind::GetRange => "GETRANGE",
       RedisCommandKind::GetSet => "GETSET",
       RedisCommandKind::HDel => "HDEL",
+      RedisCommandKind::Hello(_) => "HELLO",
       RedisCommandKind::HExists => "HEXISTS",
       RedisCommandKind::HGet => "HGET",
       RedisCommandKind::HGetAll => "HGETALL",
@@ -976,6 +1016,7 @@ impl RedisCommandKind {
       RedisCommandKind::GetRange => "GETRANGE",
       RedisCommandKind::GetSet => "GETSET",
       RedisCommandKind::HDel => "HDEL",
+      RedisCommandKind::Hello(_) => "HELLO",
       RedisCommandKind::HExists => "HEXISTS",
       RedisCommandKind::HGet => "HGET",
       RedisCommandKind::HGetAll => "HGETALL",

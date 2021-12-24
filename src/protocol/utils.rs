@@ -1048,32 +1048,40 @@ pub fn args_size(args: &Vec<RedisValue>) -> usize {
 }
 
 pub fn command_to_frame(command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
-  if let RedisCommandKind::_Custom(ref kind) = command.kind {
-    let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
-    let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
+  match command.kind {
+    RedisCommandKind::_Custom(ref kind) => {
+      let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
+      let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
 
-    for part in parts.into_iter() {
-      bulk_strings.push(ProtocolFrame::BulkString(part.as_bytes().to_vec()));
+      for part in parts.into_iter() {
+        bulk_strings.push(ProtocolFrame::BulkString(part.as_bytes().to_vec()));
+      }
+      for value in command.args.iter() {
+        bulk_strings.push(value_to_outgoing_frame(value)?);
+      }
+
+      Ok(ProtocolFrame::Array(bulk_strings))
     }
-    for value in command.args.iter() {
-      bulk_strings.push(value_to_outgoing_frame(value)?);
+    RedisCommandKind::Hello(ref version) => {
+      // this needs to return an enum around a frame that works for both 2 and 3
+      // the args also need to change to check the protocol version
+      unimplemented!()
     }
+    _ => {
+      let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
-    Ok(ProtocolFrame::Array(bulk_strings))
-  } else {
-    let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
+      let cmd = command.kind.cmd_str().as_bytes();
+      bulk_strings.push(ProtocolFrame::BulkString(cmd.to_vec()));
 
-    let cmd = command.kind.cmd_str().as_bytes();
-    bulk_strings.push(ProtocolFrame::BulkString(cmd.to_vec()));
+      if let Some(subcommand) = command.kind.subcommand_str() {
+        bulk_strings.push(ProtocolFrame::BulkString(subcommand.as_bytes().to_vec()));
+      }
+      for value in command.args.iter() {
+        bulk_strings.push(value_to_outgoing_frame(value)?);
+      }
 
-    if let Some(subcommand) = command.kind.subcommand_str() {
-      bulk_strings.push(ProtocolFrame::BulkString(subcommand.as_bytes().to_vec()));
+      Ok(ProtocolFrame::Array(bulk_strings))
     }
-    for value in command.args.iter() {
-      bulk_strings.push(value_to_outgoing_frame(value)?);
-    }
-
-    Ok(ProtocolFrame::Array(bulk_strings))
   }
 }
 

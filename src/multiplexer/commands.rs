@@ -363,7 +363,9 @@ fn should_disable_pipeline(inner: &Arc<RedisClientInner>, command: &RedisCommand
     // when the final response to EXEC or DISCARD arrives the command buffer will only contain commands that were
     // a part of the transaction. this makes reconnection logic much easier to reason about in the context of transactions
     || command.kind == RedisCommandKind::Multi
-    || command.kind.ends_transaction();
+    || command.kind.ends_transaction()
+    // we also disable pipelining on the HELLO command so that we don't try to decode any in-flight responses with the wrong codec logic
+    || command.kind.is_hello();
 
   // prefer pipelining for all commands not in a multi block (unless specified above), unless the command is blocking.
   // but, in the context of a transaction blocking commands can be pipelined since the server responds immediately.

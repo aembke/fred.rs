@@ -6,6 +6,7 @@ use crate::protocol::types::DefaultResolver;
 use crate::protocol::types::RedisCommand;
 use crate::types::*;
 use crate::utils;
+use arc_swap::ArcSwap;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
@@ -61,6 +62,8 @@ impl MultiPolicy {
 pub struct RedisClientInner {
   /// The client ID as seen by the server.
   pub id: Arc<String>,
+  /// The RESP version used by the underlying connections.
+  pub resp_version: Arc<ArcSwap<RespVersion>>,
   /// The response policy to apply when the client is in a MULTI block.
   pub multi_block: RwLock<Option<MultiPolicy>>,
   /// The state of the underlying connection.
@@ -120,6 +123,7 @@ impl RedisClientInner {
     let id = Arc::new(format!("fred-{}", utils::random_string(10)));
     let resolver = DefaultResolver::new(&id);
     let (command_tx, command_rx) = unbounded_channel();
+    let version = config.version.clone();
 
     Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
@@ -131,6 +135,7 @@ impl RedisClientInner {
       #[cfg(feature = "metrics")]
       res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
 
+      resp_version: Arc::new(ArcSwap::from(Arc::new(version))),
       config: RwLock::new(config),
       policy: RwLock::new(None),
       state: RwLock::new(ClientState::Disconnected),
@@ -202,5 +207,13 @@ impl RedisClientInner {
   pub fn store_command_rx(&self, rx: CommandReceiver) {
     let mut guard = self.command_rx.write();
     *guard = Some(rx);
+  }
+
+  pub fn is_resp3(&self) -> bool {
+    *self.resp_version.as_ref().load().as_ref() == RespVersion::RESP3
+  }
+
+  pub fn switch_protocol_versions(&self, version: RespVersion) {
+    self.resp_version.as_ref().store(Arc::new(version))
   }
 }

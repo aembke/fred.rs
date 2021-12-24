@@ -480,6 +480,56 @@ async fn handle_all_nodes_response(
   None
 }
 
+/// Handle a response frame from a command that expects multiple top-level response frames, such as PSUBSCRIBE.
+async fn handle_multiple_responses(
+  inner: &Arc<RedisClientInner>,
+  mut last_command: SentCommand,
+  frame: ProtocolFrame,
+) -> Result<Option<SentCommand>, RedisError> {
+  let frames = match last_command.command.kind.response_kind_mut() {
+    Some(kind) => {
+      if let ResponseKind::Multiple {
+        ref count,
+        ref mut buffer,
+      } = kind
+      {
+        buffer.push_back(frame);
+
+        if buffer.len() < *count {
+          _trace!(
+            inner,
+            "Waiting for {} more frames for request with multiple responses.",
+            count - buffer.len()
+          );
+          None
+        } else {
+          _trace!(inner, "Merging {} frames into one response.", buffer.len());
+          Some(merge_multiple_frames(buffer))
+        }
+      } else {
+        _warn!(inner, "Invalid command response kind. Expected multiple responses.");
+        return Ok(None);
+      }
+    }
+    None => {
+      _warn!(
+        inner,
+        "Failed to read multiple response kind. Dropping response frame..."
+      );
+      return Ok(None);
+    }
+  };
+
+  if let Some(frames) = frames {
+    check_command_resp_tx(inner, &last_command).await;
+    respond_to_caller(inner, last_command, frames);
+    Ok(None)
+  } else {
+    // more responses are expected so return the last command to be put back in the queue
+    Ok(Some(last_command))
+  }
+}
+
 /// Process the frame in the context of the last (oldest) command sent.
 ///
 /// If the last command has more expected responses it will be returned so it can be put back on the front of the response queue.
@@ -499,47 +549,11 @@ async fn process_response(
   );
 
   if last_command.command.kind.has_multiple_response_kind() {
-    let frames = match last_command.command.kind.response_kind_mut() {
-      Some(kind) => {
-        if let ResponseKind::Multiple {
-          ref count,
-          ref mut buffer,
-        } = kind
-        {
-          buffer.push_back(frame);
-
-          if buffer.len() < *count {
-            _trace!(
-              inner,
-              "Waiting for {} more frames for request with multiple responses.",
-              count - buffer.len()
-            );
-            None
-          } else {
-            _trace!(inner, "Merging {} frames into one response.", buffer.len());
-            Some(merge_multiple_frames(buffer))
-          }
-        } else {
-          _warn!(inner, "Invalid command response kind. Expected multiple responses.");
-          return Ok(None);
-        }
-      }
-      None => {
-        _warn!(
-          inner,
-          "Failed to read multiple response kind. Dropping response frame..."
-        );
-        return Ok(None);
-      }
-    };
-
-    if let Some(frames) = frames {
-      check_command_resp_tx(inner, &last_command).await;
-      respond_to_caller(inner, last_command, frames);
-    } else {
-      // more responses are expected so return the last command to be put back in the queue
-      return Ok(Some(last_command));
-    }
+    // one assumption this makes, which might not be true, is that in cases where multiple responses are sent in separate top-level response frames,
+    // such as PSUBSCRIBE, that those frames will all arrive without any other command responses interleaved in the middle. i _think_ this is the case,
+    // but there's a chance it's not when the client is pipelined. if this is not true then i'm not sure what to do here other than to make these
+    // types of commands non-pipelined in all cases, since there's no mechanism in the protocol to associate out-of-order responses.
+    return handle_multiple_responses(inner, last_command, frame).await;
   } else if last_command.command.kind.is_scan() {
     client_utils::decr_atomic(&counters.in_flight);
 
@@ -583,6 +597,14 @@ async fn process_response(
   } else {
     client_utils::decr_atomic(&counters.in_flight);
     sample_command_latencies(inner, &mut last_command);
+
+    // update the protocol version after a non-error response is received from HELLO
+    if let RedisCommandKind::Hello(ref version) = last_command.command.kind {
+      if !frame.is_error() {
+        // HELLO cannot be pipelined so this is safe
+        inner.switch_protocol_versions(version.clone());
+      }
+    }
 
     check_command_resp_tx(inner, &last_command).await;
     respond_to_caller(inner, last_command, frame);

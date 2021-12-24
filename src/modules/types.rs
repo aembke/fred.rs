@@ -11,6 +11,7 @@ use crate::protocol::utils as protocol_utils;
 use crate::utils;
 pub use redis_protocol::resp2::types::Frame;
 use redis_protocol::resp2::types::NULL;
+pub use redis_protocol::resp3::types::RespVersion;
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -596,6 +597,12 @@ pub struct RedisConfig {
   ///
   /// Default: `Centralized(localhost, 6379)`
   pub server: ServerConfig,
+  /// The protocol version to use when communicating with the server(s).
+  ///
+  /// If RESP3 is specified the client will automatically use `HELLO` instead of `AUTH` when authenticating.
+  ///
+  /// Default: RESP2
+  pub version: RespVersion,
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
   /// Default: `None`
@@ -619,6 +626,7 @@ impl Default for RedisConfig {
       username: None,
       password: None,
       server: ServerConfig::default(),
+      version: RespVersion::RESP2,
       #[cfg(feature = "enable-tls")]
       #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
       tls: None,
