@@ -116,9 +116,21 @@ These are environment variables because they're dangerous in production and call
 
 The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags on the `RedisConfig` provided to a client to enable automatic pipelining for commands whenever possible. These settings can drastically affect performance on both the server and client, but further performance tuning may be necessary to avoid issues such as using too much memory on the client or server while buffering commands.
 
-See the global performance tuning functions for more information on how to tune backpressure or other relevant settings related to pipelining.
-
 This module also contains a [separate test application](bin/pipeline_test) that can be used to demonstrate the effects of pipelining. This test application also contains some helpful information on how to use the tracing features.
+
+### Backpressure & Throttling
+
+If callers enable automatic pipelining the client can automatically throttle requests in order to avoid using too much memory on the server while it buffers commands. 
+
+The [globals](src/modules/globals.rs) file contains 2 relevant settings that can control this: `set_backpressure_count()` and `set_min_backpressure_time_ms()`. These functions control the maximum number of in-flight requests and the minimum duration to wait when the max number of in-flight requests is reached, respectively. 
+
+When the max number of in-flight requests is reached the client will inject an async `sleep` call before the next request. The formula for calculating the duration of the `sleep` call is as follows:
+
+```
+duration = max(get_min_backpressure_time_ms(), number_of_in_flight_commands)
+```
+
+However, this formula can be modified by callers. The `disable_backpressure_scaling` flag on the client's `RedisConfig` will change the backpressure formula to always wait for a constant duration defined by `get_min_backpressure_time_ms()`.
 
 ## ACL & Authentication
 
@@ -126,9 +138,9 @@ Prior to the introduction of ACL commands in Redis version 6 clients would authe
 
 If callers are using ACLs and Redis version >=6.x they can configure the client to automatically authenticate by using the `username` and `password` fields on the provided `RedisConfig`. 
 
-**It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER NODES`.** Callers can still change users via the `auth` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
+**It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER NODES`.** Callers can still change users via the `AUTH` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
 
-If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `auth` command inside the `on_reconnect` block.
+If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `AUTH` or `HELLO` command inside the `on_reconnect` block.
 
 ## Redis Sentinel
 
@@ -147,6 +159,22 @@ The `custom-reconnect-errors` feature enables an interface on the [globals](src/
 In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/66002530466a45bce85e4930364f1b153c44840b/src/server.c#L2998-L3031) in the error message, and this interface allows callers to specify which errors should be handled this way.
 
 Errors that trigger this can be seen with the [on_error](https://docs.rs/fred/*/fred/client/struct.RedisClient.html#method.on_error) function. 
+
+## Protocol Versions
+
+This module supports both [RESP2](https://redis.io/topics/protocol#resp-protocol-description) and [RESP3](https://github.com/antirez/RESP3/blob/master/spec.md). However, only Redis versions >=6.0.0 contain support for RESP3.
+
+RESP3 has certain advantages over RESP2. It supports various new data types such as sets, maps, floating point values, big numbers, etc. Additionally, it has cleaner semantics for handling out-of-band data such as publish-subscribe messages. However, these are largely implementation details for the client and will not affect callers.
+
+That being said, perhaps the most compelling reason to use RESP3 is for streaming support. When in RESP3 mode the server can chunk large values into smaller frames to reduce the memory footprint on the server while sending commands. This module supports streaming values in this manner (largely in the interest of future-proofing the interface), but it is unclear if or when the Redis server will do this, or what effect it can have on server performance.
+
+**A note about stability and reliability with RESP3:**
+
+While RESP3 support has been in Redis 6 for a while now the documentation and real-world examples of its usage is sparse at best. In fact, while implementing support for RESP3 I found at least two cases where the spec was either ambiguous or unclear on certain important implementation details. 
+
+This ambiguity tends to revolve around the use of value attributes and the `HELLO` command, however it would not be surprising to learn about issues with the implementation here of other aspects of the protocol. 
+
+While this library does have extensive test coverage (over 1000 real-world tests that cover every combination of centralized, clustered, sentinel, pipelined, non-pipelined, RESP2, and RESP3 clients), RESP3 support is still relatively early in its stability lifecycle. For example, it does not even have documentation available on the Redis website (just the github page linked above). If you encounter any bugs or strange behavior while in RESP3 mode please file an issue. 
 
 ## Tests
 

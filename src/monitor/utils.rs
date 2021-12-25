@@ -4,11 +4,10 @@ use crate::monitor::parser;
 use crate::monitor::{Command, Config};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::connection::{self, RedisTransport};
-use crate::protocol::types::{RedisCommand, RedisCommandKind};
+use crate::protocol::types::{ProtocolFrame, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::types::{RedisConfig, ServerConfig};
 use futures::stream::{Stream, StreamExt};
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -24,13 +23,13 @@ async fn handle_monitor_frame(
   frame: Result<ProtocolFrame, RedisError>,
 ) -> Option<Command> {
   let frame = match frame {
-    Ok(frame) => frame,
+    Ok(frame) => frame.into_resp3(),
     Err(e) => {
       _error!(inner, "Error on monitor stream: {:?}", e);
       return None;
     }
   };
-  let frame_size = protocol_utils::frame_size(&frame);
+  let frame_size = protocol_utils::resp3_frame_size(&frame);
 
   if frame_size >= globals().blocking_encode_threshold() {
     // since this isn't called from the Encoder/Decoder trait we can use spawn_blocking here
@@ -56,7 +55,7 @@ async fn handle_monitor_frame(
   frame: Result<ProtocolFrame, RedisError>,
 ) -> Option<Command> {
   let frame = match frame {
-    Ok(frame) => frame,
+    Ok(frame) => frame.into_resp3(),
     Err(e) => {
       _error!(inner, "Error on monitor stream: {:?}", e);
       return None;
@@ -106,12 +105,12 @@ async fn send_monitor_command(
   let command = RedisCommand::new(RedisCommandKind::Monitor, vec![], None);
   let (frame, connection) = match connection {
     RedisTransport::Tcp(framed) => {
-      let (frame, framed) = connection::request_response(framed, &command).await?;
-      (frame, RedisTransport::Tcp(framed))
+      let (frame, framed) = connection::request_response(framed, &command, false).await?;
+      (frame.into_resp3(), RedisTransport::Tcp(framed))
     }
     RedisTransport::Tls(framed) => {
-      let (frame, framed) = connection::request_response(framed, &command).await?;
-      (frame, RedisTransport::Tls(framed))
+      let (frame, framed) = connection::request_response(framed, &command, false).await?;
+      (frame.into_resp3(), RedisTransport::Tls(framed))
     }
   };
 

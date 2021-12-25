@@ -1,8 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{RedisMap, FromRedis, RedisValue, SentinelFailureKind};
-use crate::utils;
+use crate::types::{FromRedis, RedisMap, RedisValue, SentinelFailureKind};
 use std::convert::TryInto;
 use std::net::IpAddr;
 

@@ -1,28 +1,12 @@
 use crate::clients::redis::RedisClient;
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{
-  AclInterface, AsyncResult, AuthInterface, ClientInterface, ClientLike, ConfigInterface, HeartbeatInterface,
-  MetricsInterface, PubsubInterface, SentinelInterface,
-};
+use crate::interfaces::*;
 use crate::modules::inner::RedisClientInner;
-use crate::modules::types::CustomCommand;
-use crate::multiplexer::commands as multiplexer_commands;
-use crate::multiplexer::utils as multiplexer_utils;
 use crate::protocol::tls::TlsConfig;
-use crate::types::{
-  AclRule, AclUser, Blocking, ClientKillFilter, ClientKillType, ClientPauseKind, ClientState, ConnectHandle,
-  FromRedis, InfoKind, MultipleStrings, ReconnectPolicy, RedisConfig, RedisKey, RedisMap, RedisValue,
-  SentinelFailureKind, ServerConfig, ShutdownFlags, Stats,
-};
-use crate::utils;
+use crate::types::{Blocking, RedisConfig, ServerConfig};
 use futures::{Stream, StreamExt};
 use redis_protocol::resp3::prelude::RespVersion;
-use std::convert::TryInto;
 use std::fmt;
-use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 

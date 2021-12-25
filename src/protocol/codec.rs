@@ -20,8 +20,6 @@ use crate::modules::metrics::MovingStats;
 use arc_swap::ArcSwap;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
-#[cfg(feature = "network-logs")]
-use std::str;
 
 #[cfg(not(feature = "network-logs"))]
 fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}

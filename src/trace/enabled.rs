@@ -100,7 +100,7 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Span 
     "parse_pubsub",
     module = "fred",
     client_id = &inner.id.as_str(),
-    res_size = &protocol_utils::frame_size(frame),
+    res_size = &protocol_utils::resp3_frame_size(frame),
     channel = Empty
   )
 }

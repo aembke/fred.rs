@@ -1,10 +1,6 @@
-use crate::protocol::types::ProtocolFrame;
-use log::Level::Debug;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp3::types::Auth;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use redis_protocol::resp3::types::RespVersion;
-use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::str;
@@ -16,7 +12,10 @@ enum DebugFrame {
   Integer(i64),
   Double(f64),
   Array(Vec<DebugFrame>),
+  // TODO add support for maps in network logs
+  #[allow(dead_code)]
   Map(HashMap<DebugFrame, DebugFrame>),
+  #[allow(dead_code)]
   Set(HashSet<DebugFrame>),
 }
 
@@ -77,7 +76,7 @@ impl<'a> From<&'a Resp3Frame> for DebugFrame {
       Resp3Frame::BlobString { ref data, .. } => bytes_or_string(data),
       Resp3Frame::SimpleString { ref data, .. } => DebugFrame::String(data.clone()),
       Resp3Frame::SimpleError { ref data, .. } => DebugFrame::String(data.clone()),
-      Resp3Frame::Double { ref data, .. } => DebugFrame::String(data.to_string()),
+      Resp3Frame::Double { ref data, .. } => DebugFrame::Double(*data),
       Resp3Frame::BigNumber { ref data, .. } => bytes_or_string(data),
       Resp3Frame::Number { ref data, .. } => DebugFrame::Integer(*data),
       Resp3Frame::Boolean { ref data, .. } => DebugFrame::String(data.to_string()),

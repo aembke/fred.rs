@@ -2,11 +2,13 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
+use crate::types::RespVersion;
 use crate::types::{
   ClientState, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig, RedisValue,
   ShutdownFlags,
 };
 use crate::utils;
+use arc_swap::AsRaw;
 use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::convert::TryInto;
@@ -173,7 +175,7 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
 
   /// The unique ID identifying this client and underlying connections.
   ///
-  /// All connections will use the ID of the client that created them for `CLIENT SETNAME`.
+  /// All connections created by this client will use `CLIENT SETNAME` with this value.
   fn id(&self) -> &Arc<String> {
     &self.inner().id
   }
@@ -188,12 +190,17 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
     self.inner().policy.read().clone()
   }
 
+  /// Read the RESP version used by the client when communicating with the server.
+  fn protocol_version(&self) -> RespVersion {
+    self.inner().resp_version.as_ref().load().as_ref().clone()
+  }
+
   /// Whether or not the client has a reconnection policy.
   fn has_reconnect_policy(&self) -> bool {
     self.inner().policy.read().is_some()
   }
 
-  /// Whether or not the client will pipeline commands.
+  /// Whether or not the client will automatically pipeline commands.
   fn is_pipelined(&self) -> bool {
     self.inner().is_pipelined()
   }
@@ -331,7 +338,7 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
 
   /// Run a custom command similar to [custom](Self::custom), but return the response frame directly without any parsing.
   ///
-  /// Note: RESP2 frames are automatically converted to RESP3 if needed.
+  /// Note: RESP2 frames from the server are automatically converted to the RESP3 format when parsed by the client.
   fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<Resp3Frame>
   where
     T: TryInto<RedisValue>,

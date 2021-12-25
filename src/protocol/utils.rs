@@ -10,7 +10,7 @@ use crate::utils;
 use crate::utils::redis_string_to_f64;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::types::Auth;
+use redis_protocol::resp3::types::{Auth, PUBSUB_PUSH_PREFIX};
 use redis_protocol::resp3::types::{Frame as Resp3Frame, FrameMap};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -259,6 +259,37 @@ pub fn frame_to_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisE
     Err(RedisError::new(
       RedisErrorKind::ProtocolError,
       "Invalid pubsub message frame.",
+    ))
+  }
+}
+
+/// Attempt to parse a RESP3 frame as a pubsub message in the RESP2 format.
+///
+/// This can be useful in cases where the codec layer automatically upgrades to RESP3,
+/// but the contents of the pubsub message still use the RESP2 format.
+pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisError> {
+  // there's a few ways to do this, but i don't want to re-implement the logic in redis_protocol.
+  // the main difference between resp2 and resp3 here is the presence of a "pubsub" string at the
+  // beginning of the push array, so we just add that to the front here.
+
+  let mut out = Vec::with_capacity(frame.len() + 1);
+  out.push(Resp3Frame::SimpleString {
+    data: PUBSUB_PUSH_PREFIX.into(),
+    attributes: None,
+  });
+
+  if let Resp3Frame::Push { data, .. } = frame {
+    out.extend(data);
+    let frame = Resp3Frame::Push {
+      data: out,
+      attributes: None,
+    };
+
+    frame_to_pubsub(frame)
+  } else {
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Invalid pubsub message. Expected push frame.",
     ))
   }
 }
