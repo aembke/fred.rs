@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use fred::client::RedisClient;
+use fred::clients::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::globals;
 use fred::interfaces::*;

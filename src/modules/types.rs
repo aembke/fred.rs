@@ -1,4 +1,4 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::*;
 use crate::interfaces::ClientLike;
 use crate::modules::inner::RedisClientInner;

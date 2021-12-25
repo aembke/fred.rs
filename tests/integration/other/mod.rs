@@ -1,4 +1,4 @@
-use fred::client::RedisClient;
+use fred::clients::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::interfaces::*;
 use fred::prelude::{Blocking, RedisValue};

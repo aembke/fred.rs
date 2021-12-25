@@ -1,6 +1,6 @@
 use fred::globals;
 use fred::prelude::*;
-use futures::stream::StreamExt;
+
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {

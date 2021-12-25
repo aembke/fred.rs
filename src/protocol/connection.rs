@@ -11,7 +11,7 @@ use crate::utils as client_utils;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -223,14 +223,20 @@ pub async fn switch_protocols<T>(
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
+  // reset the protocol version to the one specified by the config when we create new connections
+  inner.reset_protocol_version();
   // this is only used when initializing connections, and if the caller has not specified RESP3 then we can skip this
   if !inner.is_resp3() {
     return Ok(transport);
   }
 
   _debug!(inner, "Switching to RESP3 protocol with HELLO...");
-  // use HELLO with the provided auth
-  unimplemented!()
+  let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), vec![], None);
+  let (response, transport) = request_response(transport, &cmd, true).await?;
+  let response = protocol_utils::frame_to_results(response.into_resp3())?;
+
+  _debug!(inner, "Recv HELLO response {:?}", response);
+  Ok(transport)
 }
 
 pub async fn read_client_id<T>(

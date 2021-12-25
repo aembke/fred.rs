@@ -1,9 +1,8 @@
 use crate::commands;
-use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, MultipleHashSlots,
-  RedisKey, FromRedis, RedisValue,
+  ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, FromRedis,
+  MultipleHashSlots, RedisKey, RedisValue,
 };
 use crate::utils;
 

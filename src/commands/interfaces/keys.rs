@@ -1,8 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{Expiration, MultipleKeys, RedisKey, RedisMap, FromRedis, RedisValue, SetOptions};
-use crate::utils;
+use crate::types::{Expiration, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions};
 use std::convert::TryInto;
 
 /// Functions that implement the generic [keys](https://redis.io/commands#generic) interface.

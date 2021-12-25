@@ -1,5 +1,5 @@
 use super::utils::read_env_var;
-use fred::client::RedisClient;
+use fred::clients::RedisClient;
 use fred::error::RedisError;
 use fred::interfaces::*;
 use fred::types::{AclUserFlag, RedisConfig};

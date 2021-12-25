@@ -2,8 +2,7 @@ use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, RedisKey, FromRedis,
-  RedisValue,
+  ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, FromRedis, RedisValue,
 };
 use crate::utils;
 use std::collections::HashMap;

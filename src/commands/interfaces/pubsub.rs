@@ -1,9 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, AsyncStream, ClientLike};
-use crate::types::{KeyspaceEvent, MultipleStrings, FromRedis, RedisValue};
-use crate::utils;
-use futures::Stream;
+use crate::types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue};
 use std::convert::TryInto;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;

@@ -1,10 +1,10 @@
 use super::*;
-use crate::client::util::sha1_hash;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
+use crate::util::sha1_hash;
 use crate::utils;
 use std::convert::TryInto;
 use std::sync::Arc;

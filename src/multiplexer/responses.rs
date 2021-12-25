@@ -2,7 +2,7 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils;
 use crate::multiplexer::{Counters, SentCommand, SentCommands};
-use crate::protocol::types::{ProtocolFrame, RedisCommandKind, ResponseKind, ValueScanInner, ValueScanResult};
+use crate::protocol::types::{RedisCommandKind, ResponseKind, ValueScanInner, ValueScanResult};
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::{frame_to_error, frame_to_single_result};
 use crate::trace;
@@ -1098,9 +1098,9 @@ fn check_redirection_error(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) ->
 fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if let Resp3Frame::SimpleError { ref data, .. } = frame {
     for prefix in globals().reconnect_errors.read().iter() {
-      if message.starts_with(prefix.to_str()) {
-        _warn!(inner, "Found reconnection error: {}", message);
-        let error = protocol_utils::pretty_error(message);
+      if data.starts_with(prefix.to_str()) {
+        _warn!(inner, "Found reconnection error: {}", data);
+        let error = protocol_utils::pretty_error(data);
         utils::emit_error(inner, &error);
         return Some(error);
       }

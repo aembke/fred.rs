@@ -10,8 +10,7 @@ use crate::utils;
 use crate::utils::redis_string_to_f64;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp2::types::FrameKind as Resp2FrameKind;
-use redis_protocol::resp3::types::{Auth, FrameKind as Resp3FrameKind};
+use redis_protocol::resp3::types::Auth;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, FrameMap};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -418,7 +417,7 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
       let parsed = String::from_utf8_lossy(&data);
       Err(pretty_error(&parsed))
     }
-    Resp3Frame::Array { mut data, .. } => {
+    Resp3Frame::Array { mut data, .. } | Resp3Frame::Push { mut data, .. } => {
       if data.len() > 1 {
         return Err(RedisError::new(
           RedisErrorKind::ProtocolError,

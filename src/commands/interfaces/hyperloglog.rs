@@ -1,8 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleValues, RedisKey, FromRedis};
-use crate::utils;
+use crate::types::{FromRedis, MultipleKeys, MultipleValues, RedisKey};
 use std::convert::TryInto;
 
 /// Functions that implement the [HyperLogLog](https://redis.io/commands#hyperloglog) interface.

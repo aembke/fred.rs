@@ -1,4 +1,4 @@
-use crate::client::TransactionClient;
+use crate::clients::TransactionClient;
 use crate::commands;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};

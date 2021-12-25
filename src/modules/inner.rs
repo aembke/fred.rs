@@ -1,4 +1,4 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::*;
 use crate::modules::backchannel::Backchannel;
 use crate::multiplexer::SentCommand;
@@ -215,5 +215,10 @@ impl RedisClientInner {
 
   pub fn switch_protocol_versions(&self, version: RespVersion) {
     self.resp_version.as_ref().store(Arc::new(version))
+  }
+
+  pub fn reset_protocol_version(&self) {
+    let version = self.config.read().version.clone();
+    self.resp_version.as_ref().store(Arc::new(version));
   }
 }

@@ -27,7 +27,7 @@ pub trait AuthInterface: ClientLike + Sized {
   }
 
   // TODO add HELLO here
-  fn hello<S>(&self, version: RespVersion, username: Option<String>, password: S) -> AsyncResult<()> {
+  fn hello<S>(&self, _version: RespVersion, _username: Option<String>, _password: S) -> AsyncResult<()> {
     unimplemented!()
   }
 }

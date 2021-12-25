@@ -10,9 +10,6 @@ use redis_protocol::resp3::decode::streaming::decode as resp3_decode;
 use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
 use redis_protocol::resp3::types::RespVersion;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, StreamedFrame};
-use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -145,7 +142,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
         // we're not in the middle of a stream and we found a complete frame
         let frame = frame.into_complete_frame()?;
         log_resp3_frame(&codec.name, &frame, false);
-        Some(frame)
+        Some(protocol_utils::check_resp3_auth_error(frame))
       }
     };
 

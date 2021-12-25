@@ -1,4 +1,4 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::ClientLike;
 use crate::types::{ConnectHandle, ReconnectPolicy, RedisConfig};

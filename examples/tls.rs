@@ -1,6 +1,6 @@
 use fred::prelude::*;
 use fred::types::TlsConfig;
-use futures::stream::StreamExt;
+
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {

@@ -1,11 +1,11 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{utils, SentCommand};
 use crate::multiplexer::{Backpressure, Multiplexer};
 use crate::protocol::connection::read_cluster_nodes;
-use crate::protocol::types::{ProtocolFrame, RedisCommand, RedisCommandKind};
+use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils::pretty_error;
 use crate::trace;
 use crate::types::{ClientState, ReconnectPolicy, ServerConfig};

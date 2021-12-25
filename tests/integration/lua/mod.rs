@@ -1,5 +1,5 @@
-use fred::client::util;
 use fred::prelude::*;
+use fred::util;
 
 static ECHO_SCRIPT: &'static str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
 static GET_SCRIPT: &'static str = "return redis.call('get', KEYS[1])";

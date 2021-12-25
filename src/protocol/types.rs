@@ -1,11 +1,11 @@
 use super::utils as protocol_utils;
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rand::Rng;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp2_frame_to_resp3;

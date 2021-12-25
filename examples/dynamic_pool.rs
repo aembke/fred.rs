@@ -1,6 +1,5 @@
 use fred::pool::DynamicRedisPool;
 use fred::prelude::*;
-use futures::stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {

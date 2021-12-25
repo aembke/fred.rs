@@ -68,29 +68,43 @@ mod protocol;
 mod trace;
 mod utils;
 
-/// The primary interface for communicating with the Redis server.
-pub mod client;
+/// Redis client implementations.
+pub mod clients;
 /// Error structs returned by Redis commands.
 pub mod error;
-/// TODO docs
+/// Traits that implement portions of the Redis interface.
 pub mod interfaces;
 /// An interface to run the `MONITOR` command.
 #[cfg(feature = "monitor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "monitor")))]
 pub mod monitor;
 /// An interface for interacting directly with sentinel nodes.
-#[cfg(feature = "sentinel-client")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-pub mod sentinel;
+
+/// Utility functions used by the client that may also be useful to callers.
+pub mod util {
+  pub use crate::utils::f64_to_redis_string;
+  pub use crate::utils::redis_string_to_f64;
+  pub use redis_protocol::redis_keyslot;
+
+  /// Calculate the SHA1 hash output as a hex string. This is provided for clients that use the Lua interface to manage their own script caches.
+  pub fn sha1_hash(input: &str) -> String {
+    use sha1::Digest;
+
+    let mut hasher = sha1::Sha1::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+  }
+}
 
 pub use crate::modules::{globals, pool, types};
 
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or return value types.
 pub mod prelude {
-  pub use crate::client::RedisClient;
+  pub use crate::clients::RedisClient;
   pub use crate::error::{RedisError, RedisErrorKind};
   pub use crate::interfaces::*;
   pub use crate::types::{
-    Blocking, Expiration, FromRedis, RedisConfig, RedisValue, RedisValueKind, ServerConfig, SetOptions,
+    Blocking, Expiration, FromRedis, ReconnectPolicy, RedisConfig, RedisValue, RedisValueKind, ServerConfig,
+    SetOptions,
   };
 }

@@ -2,10 +2,9 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  Any, GeoPosition, GeoRadiusInfo, GeoUnit, MultipleGeoValues, MultipleValues, RedisKey, FromRedis, RedisValue,
+  Any, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, MultipleGeoValues, MultipleValues, RedisKey, RedisValue,
   SetOptions, SortOrder,
 };
-use crate::utils;
 use std::convert::TryInto;
 
 /// Functions that implement the [GEO](https://redis.io/commands#geo) interface.

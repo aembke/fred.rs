@@ -1,4 +1,4 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::{ClosedState, RedisClientInner};

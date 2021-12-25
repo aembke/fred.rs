@@ -1,14 +1,7 @@
 use crate::commands;
-use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::modules::inner::RedisClientInner;
-use crate::types::{
-  AclChannelPattern, AclCommandPattern, AclKeyPattern, AclRule, AclUser, AclUserFlag, MultipleStrings, FromRedis,
-  RedisValue,
-};
+use crate::types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue};
 use crate::utils;
-use std::future::Future;
-use std::sync::Arc;
 
 /// Functions that implement the [ACL](https://redis.io/commands#server) interface.
 pub trait AclInterface: ClientLike + Sized {

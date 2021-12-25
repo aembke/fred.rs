@@ -1,28 +1,22 @@
-use crate::client::RedisClient;
 use crate::commands;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
 use crate::types::{
-  ClientState, ClusterKeyCache, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig,
-  RedisValue, ShutdownFlags,
+  ClientState, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig, RedisValue,
+  ShutdownFlags,
 };
 use crate::utils;
-use futures::{Stream, TryFutureExt};
+use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::convert::TryInto;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::task::JoinHandle;
-use tokio::time::interval as tokio_interval;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-// This is a strange file.
-//
 // The motivation for these abstractions comes from the fact that the Redis interface is huge, and managing it all
 // in one `RedisClient` struck is becoming unwieldy and unsustainable. Additionally, there are now use cases for
 // supporting different client structs that implement subsets of the Redis interface where some of the underlying
@@ -345,8 +339,7 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |inner| async move {
-      unimplemented!()
-      //commands::server::custom_raw(&inner, cmd, args).await?.convert()
+      commands::server::custom_raw(&inner, cmd, args).await
     })
   }
 }
