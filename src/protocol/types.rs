@@ -558,6 +558,13 @@ impl RedisCommandKind {
     }
   }
 
+  pub fn is_auth(&self) -> bool {
+    match *self {
+      RedisCommandKind::Auth => true,
+      _ => false,
+    }
+  }
+
   pub fn is_value_scan(&self) -> bool {
     match *self {
       RedisCommandKind::Zscan(_) | RedisCommandKind::Hscan(_) | RedisCommandKind::Sscan(_) => true,

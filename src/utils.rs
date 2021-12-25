@@ -11,7 +11,7 @@ use futures::{pin_mut, Future};
 use parking_lot::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{self, Rng};
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::{Frame as Resp3Frame, FrameKind as Resp3FrameKind};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::hash::Hasher;
@@ -401,9 +401,7 @@ where
   }
 }
 
-async fn wait_for_response(
-  rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
-) -> Result<ProtocolFrame, RedisError> {
+async fn wait_for_response(rx: OneshotReceiver<Result<Resp3Frame, RedisError>>) -> Result<Resp3Frame, RedisError> {
   let sleep_duration = globals().default_command_timeout();
   apply_timeout(rx, sleep_duration as u64).await?
 }
@@ -471,7 +469,7 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
   Ok(())
 }
 
-pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -487,7 +485,7 @@ where
 }
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -534,7 +532,7 @@ where
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -608,10 +606,7 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
   }
 }
 
-pub async fn backchannel_request_response<F>(
-  inner: &Arc<RedisClientInner>,
-  func: F,
-) -> Result<ProtocolFrame, RedisError>
+pub async fn backchannel_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {

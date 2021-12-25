@@ -9,6 +9,7 @@ pub use crate::protocol::types::{ClusterKeyCache, SlotRange};
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::utils;
+use float_cmp::approx_eq;
 pub use redis_protocol::resp2::types::Frame;
 use redis_protocol::resp2::types::NULL;
 pub use redis_protocol::resp3::types::RespVersion;
@@ -1394,7 +1395,7 @@ impl fmt::Display for RedisValueKind {
 }
 
 /// A value used in a Redis command.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum RedisValue {
   /// A boolean value.
   Boolean(bool),
@@ -1415,6 +1416,53 @@ pub enum RedisValue {
   /// An ordered list of values.
   Array(Vec<RedisValue>),
 }
+
+impl PartialEq for RedisValue {
+  fn eq(&self, other: &Self) -> bool {
+    use RedisValue::*;
+
+    match self {
+      Boolean(ref s) => match other {
+        Boolean(ref o) => *s == *o,
+        _ => false,
+      },
+      Integer(ref s) => match other {
+        Integer(ref o) => *s == *o,
+        _ => false,
+      },
+      Double(ref s) => match other {
+        Double(ref o) => approx_eq!(f64, *s, *o, ulps = 2),
+        _ => false,
+      },
+      String(ref s) => match other {
+        String(ref o) => s == o,
+        _ => false,
+      },
+      Bytes(ref s) => match other {
+        Bytes(ref o) => s == o,
+        _ => false,
+      },
+      Null => match other {
+        Null => true,
+        _ => false,
+      },
+      Queued => match other {
+        Queued => true,
+        _ => false,
+      },
+      Map(ref s) => match other {
+        Map(ref o) => s == o,
+        _ => false,
+      },
+      Array(ref s) => match other {
+        Array(ref o) => s == o,
+        _ => false,
+      },
+    }
+  }
+}
+
+impl Eq for RedisValue {}
 
 impl<'a> RedisValue {
   /// Create a new `RedisValue` with the `OK` status.
@@ -1492,7 +1540,7 @@ impl<'a> RedisValue {
   /// Whether or not the value is a boolean value or can be parsed as a boolean value.
   pub fn is_boolean(&self) -> bool {
     match *self {
-      RedisValue::Boolean(_) => bool,
+      RedisValue::Boolean(_) => true,
       RedisValue::Integer(i) => match i {
         0 | 1 => true,
         _ => false,
@@ -1618,6 +1666,7 @@ impl<'a> RedisValue {
   /// Read and return the inner `String` if the value is a string or scalar value.
   pub fn into_string(self) -> Option<String> {
     match self {
+      RedisValue::Boolean(ref b) => Some(b.to_string()),
       RedisValue::Double(f) => Some(f.to_string()),
       RedisValue::String(s) => Some(s),
       RedisValue::Bytes(b) => String::from_utf8(b).ok(),
@@ -1639,6 +1688,7 @@ impl<'a> RedisValue {
   /// Note: this will cast integers and doubles to strings.
   pub fn as_string(&self) -> Option<String> {
     match self {
+      RedisValue::Boolean(ref b) => Some(b.to_string()),
       RedisValue::Double(ref f) => Some(f.to_string()),
       RedisValue::String(ref s) => Some(s.to_owned()),
       RedisValue::Bytes(ref b) => str::from_utf8(b).ok().map(|s| s.to_owned()),
@@ -1653,7 +1703,8 @@ impl<'a> RedisValue {
   /// Null is returned as "nil" and scalar values are cast to a string.
   pub fn as_str(&'a self) -> Option<Cow<'a, str>> {
     let s = match *self {
-      RedisValue::Double(ref f) => Cow::Owned(f.to_owned()),
+      RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
+      RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
       RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
@@ -1668,6 +1719,7 @@ impl<'a> RedisValue {
   /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
   pub fn as_str_lossy(&self) -> Option<Cow<str>> {
     let s = match *self {
+      RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
       RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),

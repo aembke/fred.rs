@@ -3,10 +3,10 @@ use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::ConnectionIDs;
 use crate::protocol::connection;
 use crate::protocol::connection::{FramedTcp, FramedTls, RedisTransport};
-use crate::protocol::types::RedisCommand;
+use crate::protocol::types::{ProtocolFrame, RedisCommand};
 use crate::protocol::utils as protocol_utils;
 use crate::types::Resolve;
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 
 async fn create_transport(
@@ -30,17 +30,17 @@ async fn create_transport(
 
 fn map_tcp_response(
   result: Result<(ProtocolFrame, FramedTcp), (RedisError, FramedTcp)>,
-) -> Result<(ProtocolFrame, RedisTransport), (RedisError, RedisTransport)> {
+) -> Result<(Resp3Frame, RedisTransport), (RedisError, RedisTransport)> {
   result
-    .map(|(f, t)| (f, RedisTransport::Tcp(t)))
+    .map(|(f, t)| (f.into_resp3(), RedisTransport::Tcp(t)))
     .map_err(|(e, t)| (e, RedisTransport::Tcp(t)))
 }
 
 fn map_tls_response(
   result: Result<(ProtocolFrame, FramedTls), (RedisError, FramedTls)>,
-) -> Result<(ProtocolFrame, RedisTransport), (RedisError, RedisTransport)> {
+) -> Result<(Resp3Frame, RedisTransport), (RedisError, RedisTransport)> {
   result
-    .map(|(f, t)| (f, RedisTransport::Tls(t)))
+    .map(|(f, t)| (f.into_resp3(), RedisTransport::Tls(t)))
     .map_err(|(e, t)| (e, RedisTransport::Tls(t)))
 }
 
@@ -132,7 +132,8 @@ impl Backchannel {
     inner: &Arc<RedisClientInner>,
     server: &Arc<String>,
     command: RedisCommand,
-  ) -> Result<ProtocolFrame, RedisError> {
+  ) -> Result<Resp3Frame, RedisError> {
+    let is_resp3 = inner.is_resp3();
     let uses_tls = inner.config.read().uses_tls();
     let (host, port) = protocol_utils::server_to_parts(server)?;
 
@@ -140,10 +141,10 @@ impl Backchannel {
     let server = _server.unwrap_or(server.clone());
     let result = match transport {
       RedisTransport::Tcp(transport) => {
-        map_tcp_response(connection::request_response_safe(transport, &command).await)
+        map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
       }
       RedisTransport::Tls(transport) => {
-        map_tls_response(connection::request_response_safe(transport, &command).await)
+        map_tls_response(connection::request_response_safe(transport, &command, is_resp3).await)
       }
     };
 
@@ -162,10 +163,10 @@ impl Backchannel {
           let (transport, _, _) = self.take_or_create_transport(inner, host, port, uses_tls).await?;
           let result = match transport {
             RedisTransport::Tcp(transport) => {
-              map_tcp_response(connection::request_response_safe(transport, &command).await)
+              map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
             }
             RedisTransport::Tls(transport) => {
-              map_tls_response(connection::request_response_safe(transport, &command).await)
+              map_tls_response(connection::request_response_safe(transport, &command, is_resp3).await)
             }
           };
 

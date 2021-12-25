@@ -5,7 +5,7 @@ use crate::protocol::codec::RedisCodec;
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::pretty_error;
+use crate::protocol::utils::{frame_into_string, pretty_error};
 use crate::types::{ClientState, InfoKind, Resolve};
 use crate::utils as client_utils;
 use futures::sink::SinkExt;
@@ -181,10 +181,20 @@ where
     debug!("{}: Authenticating Redis client...", name);
     let (response, transport) = request_response(transport, &command, is_resp3).await?;
 
-    if is_ok(&response) {
-      transport
-    } else {
-      return Err(RedisError::new(RedisErrorKind::Auth, inner));
+    match frame_into_string(response.into_resp3()) {
+      Ok(inner) => {
+        if inner == OK {
+          transport
+        } else {
+          return Err(RedisError::new(RedisErrorKind::Auth, inner));
+        }
+      }
+      Err(_) => {
+        return Err(RedisError::new(
+          RedisErrorKind::Auth,
+          "Invalid auth response. Expected string.",
+        ))
+      }
     }
   } else {
     transport
@@ -198,7 +208,11 @@ where
     debug!("{}: Successfully set Redis client name.", name);
     Ok(transport)
   } else {
-    Err(RedisError::new(RedisErrorKind::ProtocolError, inner))
+    error!("{} Failed to set client name with error {:?}", name, response);
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Failed to set client name.",
+    ))
   }
 }
 
@@ -335,7 +349,7 @@ async fn read_cluster_state(
     };
 
     match request_response(connection, &command, inner.is_resp3()).await {
-      Ok((frame, _)) => frame,
+      Ok((frame, _)) => frame.into_resp3(),
       Err(e) => {
         _trace!(inner, "Failed to read cluster state from {}:{} => {:?}", host, port, e);
         return None;
@@ -351,7 +365,7 @@ async fn read_cluster_state(
     };
 
     match request_response(connection, &command, inner.is_resp3()).await {
-      Ok((frame, _)) => frame,
+      Ok((frame, _)) => frame.into_resp3(),
       Err(e) => {
         _trace!(inner, "Failed to read cluster state from {}:{} => {:?}", host, port, e);
         return None;

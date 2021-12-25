@@ -17,6 +17,7 @@ use futures::select;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::mem;
@@ -319,7 +320,7 @@ pub fn prepare_command(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
   command: RedisCommand,
-) -> Result<(SentCommand, Frame, bool), RedisError> {
+) -> Result<(SentCommand, ProtocolFrame, bool), RedisError> {
   let frame = command.to_frame(inner.is_resp3())?;
   let mut sent_command: SentCommand = command.into();
   sent_command.command.incr_attempted();
@@ -332,10 +333,13 @@ pub fn prepare_command(
   // * we've fed up to the global max feed count commands already
   // * the command closes the connection
   // * the command ends a transaction
+  // * the command does some form of authentication
   // * the command blocks the multiplexer command loop
   let should_flush = counters.should_send()
     || sent_command.command.is_quit()
     || sent_command.command.kind.ends_transaction()
+    || sent_command.command.kind.is_hello()
+    || sent_command.command.kind.is_auth()
     || client_utils::is_locked_some(&sent_command.command.resp_tx);
 
   Ok((sent_command, frame, should_flush))
@@ -1137,8 +1141,8 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
       }
     };
 
-    if let Frame::BulkString(bytes) = frame {
-      let response = String::from_utf8(bytes)?;
+    if let Resp3Frame::BlobString { data, .. } = frame {
+      let response = String::from_utf8(data)?;
       let state = match ClusterKeyCache::new(Some(response)) {
         Ok(state) => state,
         Err(e) => {

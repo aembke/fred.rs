@@ -1,4 +1,4 @@
-use crate::error::RedisError;
+use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::utils as protocol_utils;
@@ -27,9 +27,9 @@ use parking_lot::RwLock;
 use std::str;
 
 #[cfg(not(feature = "network-logs"))]
-fn log_resp2_frame(_: &str, _: &ProtocolFrame, _: bool) {}
+fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
 #[cfg(not(feature = "network-logs"))]
-fn log_resp3_frame(_: &str, _: &ProtocolFrame, _: bool) {}
+fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 #[cfg(feature = "network-logs")]
 pub use crate::protocol::debug::log_resp2_frame;
 #[cfg(feature = "network-logs")]
@@ -85,11 +85,77 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
 }
 
 fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
-  unimplemented!()
+  let offset = dst.len();
+
+  let res = resp3_encode(dst, &item)?;
+  let len = res.saturating_sub(offset);
+
+  trace!(
+    "{}: Encoded {} bytes to {}. Buffer len: {}",
+    codec.name,
+    len,
+    codec.server,
+    res
+  );
+  log_resp3_frame(&codec.name, &item, true);
+  sample_stats(&codec, false, len as i64);
+
+  Ok(())
 }
 
 fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Option<Resp3Frame>, RedisError> {
-  unimplemented!()
+  trace!("{}: Recv {} bytes from {}.", codec.name, src.len(), codec.server);
+  if src.is_empty() {
+    return Ok(None);
+  }
+
+  if let Some((frame, amt)) = resp3_decode(&src)? {
+    let _ = src.split_to(amt);
+    sample_stats(&codec, true, amt as i64);
+
+    if codec.streaming_state.is_some() && frame.is_streaming() {
+      return Err(RedisError::new(
+        RedisErrorKind::ProtocolError,
+        "Cannot start a stream while already inside a stream.",
+      ));
+    }
+
+    let result = if let Some(ref mut streamed_frame) = codec.streaming_state {
+      // we started receiving streamed data earlier
+      let frame = frame.into_complete_frame()?;
+      streamed_frame.add_frame(frame);
+
+      if streamed_frame.is_finished() {
+        let frame = streamed_frame.into_frame()?;
+        trace!("{}: Ending {:?} stream", codec.name, frame.kind());
+        log_resp3_frame(&codec.name, &frame, false);
+        Some(frame)
+      } else {
+        trace!("{}: Continuing {:?} stream", codec.name, streamed_frame.kind);
+        None
+      }
+    } else {
+      // we're processing a complete frame or starting a new streamed frame
+      if frame.is_streaming() {
+        let frame = frame.into_streaming_frame()?;
+        trace!("{}: Starting {:?} stream", codec.name, frame.kind);
+        codec.streaming_state = Some(frame);
+        None
+      } else {
+        // we're not in the middle of a stream and we found a complete frame
+        let frame = frame.into_complete_frame()?;
+        log_resp3_frame(&codec.name, &frame, false);
+        Some(frame)
+      }
+    };
+
+    if result.is_some() {
+      let _ = codec.streaming_state.take();
+    }
+    Ok(result)
+  } else {
+    Ok(None)
+  }
 }
 
 pub struct RedisCodec {
@@ -160,9 +226,9 @@ impl Decoder for RedisCodec {
   #[cfg(not(feature = "blocking-encoding"))]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
     if self.is_resp3() {
-      resp3_decode_frame(&mut self, src).map(|f| f.map(|f| f.into()))
+      resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
     } else {
-      resp2_decode_frame(&self, src).map(|f| f.map(|f| f.into()))
+      resp2_decode_frame(self, src).map(|f| f.map(|f| f.into()))
     }
   }
 
@@ -173,16 +239,16 @@ impl Decoder for RedisCodec {
 
       tokio::task::block_in_place(|| {
         if self.is_resp3() {
-          resp3_decode_frame(&mut self, src).map(|f| f.map(|f| f.into()))
+          resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
         } else {
-          resp2_decode_frame(&self, src).map(|f| f.map(|f| f.into()))
+          resp2_decode_frame(self, src).map(|f| f.map(|f| f.into()))
         }
       })
     } else {
       if self.is_resp3() {
-        resp3_decode_frame(&mut self, src).map(|f| f.map(|f| f.into()))
+        resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
       } else {
-        resp2_decode_frame(&self, src).map(|f| f.map(|f| f.into()))
+        resp2_decode_frame(self, src).map(|f| f.map(|f| f.into()))
       }
     }
   }

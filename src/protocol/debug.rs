@@ -1,5 +1,7 @@
 use crate::protocol::types::ProtocolFrame;
+use log::Level::Debug;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::resp3::types::Auth;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use redis_protocol::resp3::types::RespVersion;
 use std::borrow::Cow;
@@ -44,7 +46,7 @@ impl Hash for DebugFrame {
 
 fn bytes_or_string(b: &[u8]) -> DebugFrame {
   match str::from_utf8(b) {
-    Ok(s) => DebugFrame::String(s),
+    Ok(s) => DebugFrame::String(s.to_owned()),
     Err(_) => DebugFrame::Bytes(b.to_vec()),
   }
 }
@@ -64,23 +66,39 @@ impl<'a> From<&'a Resp2Frame> for DebugFrame {
 impl<'a> From<&'a Resp3Frame> for DebugFrame {
   fn from(frame: &'a Resp3Frame) -> Self {
     match frame {
-      Resp3Frame::Map { ref data, .. } => {}
-      Resp3Frame::Set { ref data, .. } => {}
-      Resp3Frame::Array { ref data, .. } => {}
-      Resp3Frame::BlobError { ref data, .. } => {}
-      Resp3Frame::BlobString { ref data, .. } => {}
-      Resp3Frame::SimpleString { ref data, .. } => {}
-      Resp3Frame::SimpleError { ref data, .. } => {}
-      Resp3Frame::Double { ref data, .. } => {}
-      Resp3Frame::BigNumber { ref data, .. } => {}
-      Resp3Frame::Number { ref data, .. } => {}
-      Resp3Frame::Boolean { ref data, .. } => {}
-      Resp3Frame::Null => {}
-      Resp3Frame::Push { ref data, .. } => {}
-      Resp3Frame::ChunkedString(ref data) => {}
+      Resp3Frame::Map { ref data, .. } => DebugFrame::Array(data.iter().fold(vec![], |mut memo, (key, value)| {
+        memo.push(key.into());
+        memo.push(value.into());
+        memo
+      })),
+      Resp3Frame::Set { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
+      Resp3Frame::Array { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
+      Resp3Frame::BlobError { ref data, .. } => bytes_or_string(data),
+      Resp3Frame::BlobString { ref data, .. } => bytes_or_string(data),
+      Resp3Frame::SimpleString { ref data, .. } => DebugFrame::String(data.clone()),
+      Resp3Frame::SimpleError { ref data, .. } => DebugFrame::String(data.clone()),
+      Resp3Frame::Double { ref data, .. } => DebugFrame::String(data.to_string()),
+      Resp3Frame::BigNumber { ref data, .. } => bytes_or_string(data),
+      Resp3Frame::Number { ref data, .. } => DebugFrame::Integer(*data),
+      Resp3Frame::Boolean { ref data, .. } => DebugFrame::String(data.to_string()),
+      Resp3Frame::Null => DebugFrame::String("nil".into()),
+      Resp3Frame::Push { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
+      Resp3Frame::ChunkedString(ref data) => bytes_or_string(data),
+      Resp3Frame::VerbatimString { ref data, .. } => bytes_or_string(data),
       Resp3Frame::Hello {
         ref version, ref auth, ..
-      } => {}
+      } => {
+        let mut values = vec![DebugFrame::Integer(version.to_byte() as i64)];
+        if let Some(Auth {
+          ref username,
+          ref password,
+        }) = auth
+        {
+          values.push(DebugFrame::String(username.to_string()));
+          values.push(DebugFrame::String(password.to_string()));
+        }
+        DebugFrame::Array(values)
+      }
     }
   }
 }

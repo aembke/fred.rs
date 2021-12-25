@@ -5,6 +5,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
 ok_cmd!(acl_load, AclLoad);
@@ -43,11 +44,11 @@ where
   let frame =
     utils::request_response(inner, move || Ok((RedisCommandKind::AclGetUser, vec![username.into()]))).await?;
 
-  if frame.is_null() {
+  if protocol_utils::is_null(&frame) {
     return Ok(None);
   }
-  if let Frame::Array(frames) = frame {
-    protocol_utils::parse_acl_getuser_frames(frames).map(|u| Some(u))
+  if let Frame::Array { data, .. } = frame {
+    protocol_utils::parse_acl_getuser_frames(data).map(|u| Some(u))
   } else {
     Err(RedisError::new(
       RedisErrorKind::ProtocolError,

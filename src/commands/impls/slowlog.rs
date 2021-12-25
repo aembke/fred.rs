@@ -5,6 +5,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
 pub async fn slowlog_get(inner: &Arc<RedisClientInner>, count: Option<i64>) -> Result<Vec<SlowlogEntry>, RedisError> {
@@ -20,8 +21,8 @@ pub async fn slowlog_get(inner: &Arc<RedisClientInner>, count: Option<i64>) -> R
   })
   .await?;
 
-  if let Frame::Array(frames) = frame {
-    protocol_utils::parse_slowlog_entries(frames)
+  if let Frame::Array { data, .. } = frame {
+    protocol_utils::parse_slowlog_entries(data)
   } else {
     Err(RedisError::new(
       RedisErrorKind::ProtocolError,

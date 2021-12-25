@@ -5,13 +5,13 @@ use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{utils, SentCommand};
 use crate::multiplexer::{Backpressure, Multiplexer};
 use crate::protocol::connection::read_cluster_nodes;
-use crate::protocol::types::{RedisCommand, RedisCommandKind};
+use crate::protocol::types::{ProtocolFrame, RedisCommand, RedisCommandKind};
 use crate::protocol::utils::pretty_error;
 use crate::trace;
 use crate::types::{ClientState, ReconnectPolicy, ServerConfig};
 use crate::utils as client_utils;
 use redis_protocol::redis_keyslot;
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::VecDeque;
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -413,14 +413,14 @@ async fn handle_write_error(
 /// Handle the response to the MULTI command, forwarding any errors onto the caller of the next command and returning whether the multiplexers should skip the next command.
 async fn handle_deferred_multi_response(
   inner: &Arc<RedisClientInner>,
-  rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
+  rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
   command: &mut RedisCommand,
 ) -> bool {
   match rx.await {
     Ok(Ok(frame)) => {
-      if let ProtocolFrame::Error(s) = frame {
+      if let Resp3Frame::SimpleError { data, .. } = frame {
         if let Some(tx) = command.tx.take() {
-          let _ = tx.send(Err(pretty_error(&s)));
+          let _ = tx.send(Err(pretty_error(&data)));
         }
         true
       } else {

@@ -116,7 +116,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), 
         }
       };
 
-      if let Some(Resp3Frame::Array { data, .. }) = frames.pop() {
+      if let Some(Resp3Frame::Array { data, .. }) = data.pop() {
         let mut keys = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
@@ -158,7 +158,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), 
 fn handle_value_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisValue>), RedisError> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match frames[0].to_string() {
+      let cursor = match data[0].to_string() {
         Some(s) => s,
         None => {
           return Err(RedisError::new(
@@ -168,7 +168,7 @@ fn handle_value_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisValue
         }
       };
 
-      if let Some(Resp3Frame::Array { data, .. }) = frames.pop() {
+      if let Some(Resp3Frame::Array { data, .. }) = data.pop() {
         let mut values = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
@@ -880,7 +880,8 @@ async fn end_centralized_multi_block(
   }
   counters.decr_in_flight();
 
-  if ending_cmd == TransactionEnded::Discard || (ending_cmd == TransactionEnded::Exec && frame.is_null()) {
+  let frame_is_null = protocol_utils::is_null(&frame);
+  if ending_cmd == TransactionEnded::Discard || (ending_cmd == TransactionEnded::Exec && frame_is_null) {
     // the transaction was discarded or aborted due to a WATCH condition failing
     _trace!(inner, "Ending transaction with discard or null response");
     let recent_cmd = take_most_recent_centralized_command(commands);
@@ -947,7 +948,8 @@ async fn end_clustered_multi_block(
     counters.decr_in_flight();
   }
 
-  if ending_cmd == TransactionEnded::Discard || (ending_cmd == TransactionEnded::Exec && frame.is_null()) {
+  let frame_is_null = protocol_utils::is_null(&frame);
+  if ending_cmd == TransactionEnded::Discard || (ending_cmd == TransactionEnded::Exec && frame_is_null) {
     // the transaction was discarded or aborted due to a WATCH condition failing
     _trace!(inner, "Ending transaction with discard or null response.");
     let recent_cmd = take_most_recent_cluster_command(commands, server);

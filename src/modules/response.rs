@@ -245,6 +245,7 @@ where
       RedisValue::Null => Ok(vec![]),
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
       RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
+      RedisValue::Boolean(b) => Ok(vec![T::from_value(RedisValue::Boolean(b))?]),
       RedisValue::Queued => Ok(vec![T::from_value(RedisValue::String(QUEUED.into()))?]),
     }
   }

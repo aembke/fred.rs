@@ -8,7 +8,6 @@ use crate::types::*;
 use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
 use crate::utils::redis_string_to_f64;
-use nom::AsBytes;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp2::types::FrameKind as Resp2FrameKind;
@@ -29,6 +28,14 @@ macro_rules! parse_or_zero(
 #[cfg(feature = "enable-tls")]
 pub fn uses_tls(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.read().tls.is_some()
+}
+
+/// Whether the provided frame is null.
+pub fn is_null(frame: &Resp3Frame) -> bool {
+  match frame {
+    Resp3Frame::Null => true,
+    _ => false,
+  }
 }
 
 #[cfg(not(feature = "enable-tls"))]
@@ -258,6 +265,25 @@ pub fn frame_to_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisE
 }
 
 #[cfg(not(feature = "ignore-auth-error"))]
+pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp3Frame {
+  frame
+}
+
+#[cfg(feature = "ignore-auth-error")]
+pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
+  let is_auth_error = match frame {
+    Resp2Frame::Error(ref data) => data == "ERR Client sent AUTH, but no password is set",
+    _ => false,
+  };
+
+  if is_auth_error {
+    Resp2Frame::SimpleString(OK.into())
+  } else {
+    frame
+  }
+}
+
+#[cfg(not(feature = "ignore-auth-error"))]
 pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
   frame
 }
@@ -307,10 +333,13 @@ fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
 
   // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types as keys...
   for (key, value) in data.into_iter() {
-    let key = frame_to_single_result(key)?;
+    let key = match frame_to_single_result(key)?.into_string() {
+      Some(s) => s,
+      None => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid map key type.")),
+    };
     let value = frame_to_results(value)?;
 
-    out.insert(key.into_string(), value);
+    out.insert(key, value);
   }
 
   Ok(out.into())
@@ -349,9 +378,9 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
         out.push(frame_to_results(frame)?);
       }
 
-      Ok(RedisValue::Array(out))
+      RedisValue::Array(out)
     }
-    Resp3Frame::Map { data, .. } => Ok(RedisValue::Map(parse_nested_map(data)?)),
+    Resp3Frame::Map { data, .. } => RedisValue::Map(parse_nested_map(data)?),
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,
@@ -400,9 +429,12 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
       }
 
       let first_frame = data.pop().unwrap();
-      if first_frame.kind() == Resp3FrameKind::Array || first_frame.kind() == Resp3FrameKind::Error {
+      if first_frame.is_array() || first_frame.is_error() {
         // there shouldn't be errors buried in arrays, nor should there be more than one layer of nested arrays
-        return Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid nested array."));
+        return Err(RedisError::new(
+          RedisErrorKind::ProtocolError,
+          "Invalid nested array or error.",
+        ));
       }
 
       frame_to_single_result(first_frame)
@@ -588,7 +620,7 @@ fn parse_u64(val: &Resp3Frame) -> u64 {
         *data as u64
       }
     }
-    Resp3Frame::Double { ref data, .. } => data as u64,
+    Resp3Frame::Double { ref data, .. } => *data as u64,
     Resp3Frame::SimpleString { ref data, .. } => data.parse::<u64>().ok().unwrap_or(0),
     Resp3Frame::BlobString { ref data, .. } => str::from_utf8(data)
       .ok()
@@ -600,8 +632,8 @@ fn parse_u64(val: &Resp3Frame) -> u64 {
 
 fn parse_f64(val: &Resp3Frame) -> f64 {
   match *val {
-    Resp3Frame::Number { ref data, .. } => *i as f64,
-    Resp3Frame::Double { ref data, .. } => *f,
+    Resp3Frame::Number { ref data, .. } => *data as f64,
+    Resp3Frame::Double { ref data, .. } => *data,
     Resp3Frame::SimpleString { ref data, .. } => redis_string_to_f64(data).unwrap_or(0.0),
     Resp3Frame::BlobString { ref data, .. } => str::from_utf8(data)
       .ok()
@@ -738,9 +770,9 @@ fn parse_acl_getuser_flag(value: &Resp3Frame) -> Result<Vec<AclUserFlag>, RedisE
 
 fn frames_to_strings(frames: &Resp3Frame) -> Result<Vec<String>, RedisError> {
   if let Resp3Frame::Array { ref data, .. } = frames {
-    let mut out = Vec::with_capacity(frames.len());
+    let mut out = Vec::with_capacity(data.len());
 
-    for frame in frames.iter() {
+    for frame in data.iter() {
       let val = match frame.as_str() {
         Some(v) => v.to_owned(),
         None => continue,
@@ -970,7 +1002,7 @@ fn frame_to_f64(frame: &Resp3Frame) -> Result<f64, RedisError> {
 
 pub fn parse_geo_position(frame: &Resp3Frame) -> Result<GeoPosition, RedisError> {
   if let Resp3Frame::Array { ref data, .. } = frame {
-    if frames.len() == 2 {
+    if data.len() == 2 {
       let longitude = frame_to_f64(&data[0])?;
       let latitude = frame_to_f64(&data[1])?;
 
@@ -1360,19 +1392,27 @@ pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<Protoc
 #[cfg(test)]
 mod tests {
   use super::*;
-
   use std::collections::HashMap;
 
-  fn str_to_f(s: &str) -> ProtocolFrame {
-    ProtocolFrame::SimpleString(s.to_owned())
+  fn str_to_f(s: &str) -> Resp3Frame {
+    Resp3Frame::SimpleString {
+      data: s.to_owned(),
+      attributes: None,
+    }
   }
 
-  fn str_to_bs(s: &str) -> ProtocolFrame {
-    ProtocolFrame::BulkString(s.as_bytes().to_vec())
+  fn str_to_bs(s: &str) -> Resp3Frame {
+    Resp3Frame::BlobString {
+      data: s.as_bytes().to_vec(),
+      attributes: None,
+    }
   }
 
-  fn int_to_f(i: i64) -> ProtocolFrame {
-    ProtocolFrame::Integer(i)
+  fn int_to_f(i: i64) -> Resp3Frame {
+    Resp3Frame::Number {
+      data: i,
+      attributes: None,
+    }
   }
 
   fn string_vec(d: Vec<&str>) -> Vec<String> {
@@ -1382,7 +1422,7 @@ mod tests {
   #[test]
   fn should_parse_memory_stats() {
     // better from()/into() interfaces for frames coming in the next redis-protocol version...
-    let frames: Vec<ProtocolFrame> = vec![
+    let frames: Vec<Resp3Frame> = vec![
       str_to_f("peak.allocated"),
       int_to_f(934192),
       str_to_f("total.allocated"),
@@ -1400,12 +1440,15 @@ mod tests {
       str_to_f("lua.caches"),
       int_to_f(0),
       str_to_f("db.0"),
-      ProtocolFrame::Array(vec![
-        str_to_f("overhead.hashtable.main"),
-        int_to_f(72),
-        str_to_f("overhead.hashtable.expires"),
-        int_to_f(0),
-      ]),
+      Resp3Frame::Array {
+        data: vec![
+          str_to_f("overhead.hashtable.main"),
+          int_to_f(72),
+          str_to_f("overhead.hashtable.expires"),
+          int_to_f(0),
+        ],
+        attributes: None,
+      },
       str_to_f("overhead.total"),
       int_to_f(830480),
       str_to_f("keys.count"),
@@ -1503,18 +1546,30 @@ mod tests {
 
     let input = vec![
       str_to_bs("flags"),
-      ProtocolFrame::Array(vec![str_to_bs("on")]),
+      Resp3Frame::Array {
+        data: vec![str_to_bs("on")],
+        attributes: None,
+      },
       str_to_bs("passwords"),
-      ProtocolFrame::Array(vec![
-        str_to_bs("c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"),
-        str_to_bs("39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"),
-      ]),
+      Resp3Frame::Array {
+        data: vec![
+          str_to_bs("c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"),
+          str_to_bs("39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"),
+        ],
+        attributes: None,
+      },
       str_to_bs("commands"),
       str_to_bs("-@all +@sortedset +@geo +config|get"),
       str_to_bs("keys"),
-      ProtocolFrame::Array(vec![str_to_bs("a"), str_to_bs("b"), str_to_bs("c")]),
+      Resp3Frame::Array {
+        data: vec![str_to_bs("a"), str_to_bs("b"), str_to_bs("c")],
+        attributes: None,
+      },
       str_to_bs("channels"),
-      ProtocolFrame::Array(vec![str_to_bs("c1"), str_to_bs("c2")]),
+      Resp3Frame::Array {
+        data: vec![str_to_bs("c1"), str_to_bs("c2")],
+        attributes: None,
+      },
     ];
     let actual = parse_acl_getuser_frames(input).unwrap();
 
@@ -1548,18 +1603,30 @@ mod tests {
     */
 
     let input = vec![
-      ProtocolFrame::Array(vec![
-        int_to_f(14),
-        int_to_f(1309448221),
-        int_to_f(15),
-        ProtocolFrame::Array(vec![str_to_bs("ping")]),
-      ]),
-      ProtocolFrame::Array(vec![
-        int_to_f(13),
-        int_to_f(1309448128),
-        int_to_f(30),
-        ProtocolFrame::Array(vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")]),
-      ]),
+      Resp3Frame::Array {
+        data: vec![
+          int_to_f(14),
+          int_to_f(1309448221),
+          int_to_f(15),
+          Resp3Frame::Array {
+            data: vec![str_to_bs("ping")],
+            attributes: None,
+          },
+        ],
+        attributes: None,
+      },
+      Resp3Frame::Array {
+        data: vec![
+          int_to_f(13),
+          int_to_f(1309448128),
+          int_to_f(30),
+          Resp3Frame::Array {
+            data: vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+            attributes: None,
+          },
+        ],
+        attributes: None,
+      },
     ];
     let actual = parse_slowlog_entries(input).unwrap();
 
@@ -1606,22 +1673,34 @@ mod tests {
     */
 
     let input = vec![
-      ProtocolFrame::Array(vec![
-        int_to_f(14),
-        int_to_f(1309448221),
-        int_to_f(15),
-        ProtocolFrame::Array(vec![str_to_bs("ping")]),
-        str_to_bs("127.0.0.1:58217"),
-        str_to_bs("worker-123"),
-      ]),
-      ProtocolFrame::Array(vec![
-        int_to_f(13),
-        int_to_f(1309448128),
-        int_to_f(30),
-        ProtocolFrame::Array(vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")]),
-        str_to_bs("127.0.0.1:58217"),
-        str_to_bs("worker-123"),
-      ]),
+      Resp3Frame::Array {
+        data: vec![
+          int_to_f(14),
+          int_to_f(1309448221),
+          int_to_f(15),
+          Resp3Frame::Array {
+            data: vec![str_to_bs("ping")],
+            attributes: None,
+          },
+          str_to_bs("127.0.0.1:58217"),
+          str_to_bs("worker-123"),
+        ],
+        attributes: None,
+      },
+      Resp3Frame::Array {
+        data: vec![
+          int_to_f(13),
+          int_to_f(1309448128),
+          int_to_f(30),
+          Resp3Frame::Array {
+            data: vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+            attributes: None,
+          },
+          str_to_bs("127.0.0.1:58217"),
+          str_to_bs("worker-123"),
+        ],
+        attributes: None,
+      },
     ];
     let actual = parse_slowlog_entries(input).unwrap();
 
@@ -1675,7 +1754,11 @@ cluster_stats_messages_received:1483968";
       cluster_stats_messages_received: 1483968,
     };
 
-    let actual = parse_cluster_info(ProtocolFrame::BulkString(input.as_bytes().to_vec())).unwrap();
+    let actual = parse_cluster_info(Resp3Frame::BlobString {
+      data: input.as_bytes().to_vec(),
+      attributes: None,
+    })
+    .unwrap();
     assert_eq!(actual, expected);
   }
 

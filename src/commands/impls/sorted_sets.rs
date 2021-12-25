@@ -5,6 +5,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use redis_protocol::resp3::types::Frame;
 use std::convert::TryInto;
 use std::str;
 use std::sync::Arc;
@@ -66,7 +67,9 @@ fn frames_to_bzpop_result(mut frames: Vec<Frame>) -> Result<Option<(RedisKey, Re
   let key_frame = frames.pop().unwrap();
 
   let score = match score_frame {
-    Frame::BulkString(b) => bytes_to_f64(&b)?,
+    Frame::SimpleString { data, .. } => data.parse::<f64>()?,
+    Frame::BlobString { data, .. } => bytes_to_f64(&data)?,
+    Frame::Double { data, .. } => data,
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,
@@ -76,7 +79,8 @@ fn frames_to_bzpop_result(mut frames: Vec<Frame>) -> Result<Option<(RedisKey, Re
   };
   let value = protocol_utils::frame_to_results(value_frame)?;
   let key = match key_frame {
-    Frame::BulkString(b) => String::from_utf8(b)?.into(),
+    Frame::SimpleString { data, .. } => data.into(),
+    Frame::BlobString { data, .. } => String::from_utf8(data)?.into(),
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,
@@ -109,10 +113,10 @@ where
   })
   .await?;
 
-  if let Frame::Array(frames) = frame {
-    frames_to_bzpop_result(frames)
+  if let Frame::Array { data, .. } = frame {
+    frames_to_bzpop_result(data)
   } else {
-    if frame.is_null() {
+    if protocol_utils::is_null(&frame) {
       Ok(None)
     } else {
       Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected nil or array."))
@@ -141,10 +145,10 @@ where
   })
   .await?;
 
-  if let Frame::Array(frames) = frame {
-    frames_to_bzpop_result(frames)
+  if let Frame::Array { data, .. } = frame {
+    frames_to_bzpop_result(data)
   } else {
-    if frame.is_null() {
+    if protocol_utils::is_null(&frame) {
       Ok(None)
     } else {
       Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected nil or array."))

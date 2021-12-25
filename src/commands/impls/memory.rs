@@ -5,6 +5,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
 pub async fn memory_doctor(inner: &Arc<RedisClientInner>) -> Result<String, RedisError> {
@@ -28,9 +29,10 @@ pub async fn memory_malloc_stats(inner: &Arc<RedisClientInner>) -> Result<String
 ok_cmd!(memory_purge, MemoryPurge);
 
 pub async fn memory_stats(inner: &Arc<RedisClientInner>) -> Result<MemoryStats, RedisError> {
-  if let Frame::Array(frames) = utils::request_response(inner, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?
-  {
-    protocol_utils::parse_memory_stats(&frames)
+  let response = utils::request_response(inner, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?;
+
+  if let Frame::Array { data, .. } = response {
+    protocol_utils::parse_memory_stats(&data)
   } else {
     Err(RedisError::new(
       RedisErrorKind::ProtocolError,
