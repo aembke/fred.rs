@@ -38,7 +38,7 @@ pub trait ClientInterface: ClientLike + Sized {
     })
   }
 
-  /// Update the client's sentinel nodes list if using the sentinel interface.
+  /// Force update the client's sentinel nodes list if using the sentinel interface.
   ///
   /// The client will automatically update this when connections to the primary server close.
   fn update_sentinel_nodes(&self) -> AsyncResult<()> {

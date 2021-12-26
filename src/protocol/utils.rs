@@ -478,6 +478,59 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
   }
 }
 
+/// Flatten a single nested layer of arrays or sets into one array.
+pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
+  match frame {
+    Resp3Frame::Array { data, .. } => {
+      let count = data.iter().fold(0, |c, f| {
+        c + match f {
+          Resp3Frame::Array { ref data, .. } => data.len(),
+          Resp3Frame::Set { ref data, .. } => data.len(),
+          _ => 1,
+        }
+      });
+
+      let mut out = Vec::with_capacity(count);
+      for frame in data.into_iter() {
+        match frame {
+          Resp3Frame::Array { data, .. } => out.extend(data),
+          Resp3Frame::Set { data, .. } => out.extend(data),
+          _ => out.push(frame),
+        };
+      }
+
+      Resp3Frame::Array {
+        data: out,
+        attributes: None,
+      }
+    }
+    Resp3Frame::Set { data, .. } => {
+      let count = data.iter().fold(0, |c, f| {
+        c + match f {
+          Resp3Frame::Array { ref data, .. } => data.len(),
+          Resp3Frame::Set { ref data, .. } => data.len(),
+          _ => 1,
+        }
+      });
+
+      let mut out = Vec::with_capacity(count);
+      for frame in data.into_iter() {
+        match frame {
+          Resp3Frame::Array { data, .. } => out.extend(data),
+          Resp3Frame::Set { data, .. } => out.extend(data),
+          _ => out.push(frame),
+        };
+      }
+
+      Resp3Frame::Array {
+        data: out,
+        attributes: None,
+      }
+    }
+    _ => frame,
+  }
+}
+
 /// Convert a frame to a nested RedisMap.
 pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
   match frame {
@@ -841,6 +894,35 @@ fn parse_acl_getuser_field(user: &mut AclUser, key: &str, value: &Resp3Frame) ->
   Ok(())
 }
 
+pub fn frame_map_or_set_to_nested_array(frame: Resp3Frame) -> Result<Resp3Frame, RedisError> {
+  match frame {
+    Resp3Frame::Map { data, .. } => {
+      let mut out = Vec::with_capacity(data.len() * 2);
+      for (key, value) in data.into_iter() {
+        out.push(key);
+        out.push(frame_map_or_set_to_nested_array(value)?);
+      }
+
+      Ok(Resp3Frame::Array {
+        data: out,
+        attributes: None,
+      })
+    }
+    Resp3Frame::Set { data, .. } => {
+      let mut out = Vec::with_capacity(data.len());
+      for frame in data.into_iter() {
+        out.push(frame_map_or_set_to_nested_array(frame)?);
+      }
+
+      Ok(Resp3Frame::Array {
+        data: out,
+        attributes: None,
+      })
+    }
+    _ => Ok(frame),
+  }
+}
+
 pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, RedisError> {
   if frames.len() % 2 != 0 || frames.len() > 10 {
     return Err(RedisError::new(
@@ -1180,8 +1262,29 @@ pub fn parse_georadius_result(
   }
 }
 
+/// Flatten a nested array of values into one array.
+pub fn flatten_redis_value(value: RedisValue) -> RedisValue {
+  if let RedisValue::Array(values) = value {
+    let mut out = Vec::with_capacity(values.len());
+    for value in values.into_iter() {
+      let flattened = flatten_redis_value(value);
+      if let RedisValue::Array(flattened) = flattened {
+        out.extend(flattened);
+      } else {
+        out.push(flattened);
+      }
+    }
+
+    RedisValue::Array(out)
+  } else {
+    value
+  }
+}
+
 /// Convert a redis value to an array of (value, score) tuples.
 pub fn value_to_zset_result(value: RedisValue) -> Result<Vec<(RedisValue, f64)>, RedisError> {
+  let value = flatten_redis_value(value);
+
   if let RedisValue::Array(mut values) = value {
     if values.is_empty() {
       return Ok(Vec::new());

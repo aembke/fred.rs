@@ -6,6 +6,18 @@ use crate::modules::metrics::Stats;
 
 /// Functions that implement the internal metrics interface, largely controlled by the `metrics` feature flag.
 pub trait MetricsInterface: ClientLike + Sized {
+  /// Read the number of request redeliveries.
+  ///
+  /// This is the number of times a request had to be sent again due to a connection closing while waiting on a response.
+  fn read_redelivery_count(&self) -> usize {
+    utils::read_atomic(&self.inner().redeliver_count)
+  }
+
+  /// Read and reset the number of request redeliveries.
+  fn take_redelivery_count(&self) -> usize {
+    utils::set_atomic(&self.inner().redeliver_count, 0)
+  }
+
   /// Read the number of buffered commands that have not yet been sent to the server.
   fn command_queue_len(&self) -> usize {
     utils::read_atomic(&self.inner().cmd_buffer_len)

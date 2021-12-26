@@ -435,7 +435,7 @@ pub async fn interrupt_blocked_connection(
     }
   };
 
-  backchannel_request_response(inner, move || {
+  backchannel_request_response(inner, true, move || {
     Ok((
       RedisCommandKind::ClientUnblock,
       vec![connection_id.into(), flag.to_str().into()],
@@ -605,7 +605,11 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
   }
 }
 
-pub async fn backchannel_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn backchannel_request_response<F>(
+  inner: &Arc<RedisClientInner>,
+  use_blocked: bool,
+  func: F,
+) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -628,7 +632,7 @@ where
       .backchannel
       .write()
       .await
-      .request_response(inner, blocked_server, command)
+      .request_response(inner, blocked_server, command, use_blocked)
       .await
   } else {
     // otherwise no connections are blocked
@@ -644,7 +648,7 @@ where
       .backchannel
       .write()
       .await
-      .request_response(inner, &server, command)
+      .request_response(inner, &server, command, use_blocked)
       .await
   }
 }

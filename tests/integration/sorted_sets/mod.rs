@@ -794,8 +794,8 @@ pub async fn should_zmscore_values(client: RedisClient, _: RedisConfig) -> Resul
     let _: () = client.zadd("foo", None, None, false, false, (idx as f64, idx)).await?;
   }
 
-  let result: Vec<RedisValue> = client.zmscore("foo", vec![0, 1]).await?;
-  assert_eq!(result, vec!["0".into(), "1".into()]);
+  let result: Vec<f64> = client.zmscore("foo", vec![0, 1]).await?;
+  assert_eq!(result, vec![0.0, 1.0]);
   let result: Option<f64> = client.zmscore("foo", vec![11]).await?;
   assert!(result.is_none());
 

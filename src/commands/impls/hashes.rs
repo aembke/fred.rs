@@ -211,6 +211,7 @@ where
 
   if has_count {
     if has_values {
+      let frame = protocol_utils::flatten_frame(frame);
       protocol_utils::frame_to_map(frame).map(|m| RedisValue::Map(m))
     } else {
       protocol_utils::frame_to_results(frame)

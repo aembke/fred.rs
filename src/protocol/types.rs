@@ -509,6 +509,7 @@ pub enum RedisCommandKind {
   _Close,
   _Split(SplitCommand),
   _AuthAllCluster(AllNodesResponse),
+  _HelloAllCluster((AllNodesResponse, RespVersion)),
   _FlushAllCluster(AllNodesResponse),
   _ScriptFlushCluster(AllNodesResponse),
   _ScriptLoadCluster(AllNodesResponse),
@@ -553,7 +554,7 @@ impl RedisCommandKind {
 
   pub fn is_hello(&self) -> bool {
     match *self {
-      RedisCommandKind::Hello(_) => true,
+      RedisCommandKind::Hello(_) | RedisCommandKind::_HelloAllCluster(_) => true,
       _ => false,
     }
   }
@@ -919,6 +920,7 @@ impl RedisCommandKind {
       RedisCommandKind::_Close => "CLOSE",
       RedisCommandKind::_Split(_) => "SPLIT",
       RedisCommandKind::_AuthAllCluster(_) => "AUTH ALL CLUSTER",
+      RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
       RedisCommandKind::_FlushAllCluster(_) => "FLUSHALL CLUSTER",
       RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT FLUSH CLUSTER",
       RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT LOAD CLUSTER",
@@ -1178,6 +1180,7 @@ impl RedisCommandKind {
       RedisCommandKind::Hscan(_) => "HSCAN",
       RedisCommandKind::Zscan(_) => "ZSCAN",
       RedisCommandKind::_AuthAllCluster(_) => "AUTH",
+      RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_Custom(ref kind) => kind.cmd,
       RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
         panic!("unreachable (redis command)")
@@ -1384,6 +1387,7 @@ impl RedisCommandKind {
       | RedisCommandKind::_AuthAllCluster(_)
       | RedisCommandKind::_ScriptFlushCluster(_)
       | RedisCommandKind::_ScriptKillCluster(_)
+      | RedisCommandKind::_HelloAllCluster(_)
       | RedisCommandKind::_ScriptLoadCluster(_) => true,
       _ => false,
     }
@@ -1398,6 +1402,7 @@ impl RedisCommandKind {
 
   pub fn all_nodes_response(&self) -> Option<&AllNodesResponse> {
     match *self {
+      RedisCommandKind::_HelloAllCluster((ref inner, _)) => Some(inner),
       RedisCommandKind::_AuthAllCluster(ref inner) => Some(inner),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(inner),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(inner),
@@ -1409,6 +1414,9 @@ impl RedisCommandKind {
 
   pub fn clone_all_nodes(&self) -> Option<Self> {
     match *self {
+      RedisCommandKind::_HelloAllCluster((ref inner, ref version)) => {
+        Some(RedisCommandKind::_HelloAllCluster((inner.clone(), version.clone())))
+      }
       RedisCommandKind::_AuthAllCluster(ref inner) => Some(RedisCommandKind::_AuthAllCluster(inner.clone())),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(RedisCommandKind::_FlushAllCluster(inner.clone())),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(RedisCommandKind::_ScriptFlushCluster(inner.clone())),

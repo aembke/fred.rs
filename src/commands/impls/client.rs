@@ -120,7 +120,7 @@ where
   S: Into<RedisValue>,
 {
   let id = id.into();
-  let frame = utils::backchannel_request_response(inner, move || {
+  let frame = utils::backchannel_request_response(inner, true, move || {
     let mut args = Vec::with_capacity(2);
     args.push(id);
 

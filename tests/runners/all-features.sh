@@ -13,5 +13,5 @@ done
 # cant use all-features here or it'll run chaos monkey and then the tests will take forever
 cargo test --release --lib --tests --features \
   "network-logs pool-prefer-active enable-tls vendored-tls custom-reconnect-errors ignore-auth-error
-  blocking-encoding full-tracing reconnect-on-auth-error monitor metrics sentinel-client" \
+  blocking-encoding full-tracing reconnect-on-auth-error monitor metrics sentinel-client pubsub-client" \
   -- --test-threads=1 "$@"

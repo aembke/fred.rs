@@ -132,6 +132,33 @@ pub async fn discard(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   Ok(())
 }
 
+pub async fn hello(
+  inner: &Arc<RedisClientInner>,
+  version: RespVersion,
+  auth: Option<(String, String)>,
+) -> Result<(), RedisError> {
+  let args = if let Some((username, password)) = auth {
+    vec![username.into(), password.into()]
+  } else {
+    vec![]
+  };
+
+  if utils::is_clustered(&inner.config) {
+    let (tx, rx) = oneshot_channel();
+    let kind = RedisCommandKind::_HelloAllCluster((AllNodesResponse::new(tx), version));
+    let command = RedisCommand::new(kind, args, None);
+    let _ = utils::send_command(inner, command)?;
+    let _ = rx.await??;
+
+    Ok(())
+  } else {
+    let frame = utils::request_response(inner, move || Ok((RedisCommandKind::Hello(version), args))).await?;
+
+    let response = protocol_utils::frame_to_single_result(frame)?;
+    protocol_utils::expect_ok(&response)
+  }
+}
+
 pub async fn auth<V>(inner: &Arc<RedisClientInner>, username: Option<String>, password: V) -> Result<(), RedisError>
 where
   V: Into<String>,

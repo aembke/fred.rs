@@ -31,7 +31,8 @@ ok_cmd!(memory_purge, MemoryPurge);
 pub async fn memory_stats(inner: &Arc<RedisClientInner>) -> Result<MemoryStats, RedisError> {
   let response = utils::request_response(inner, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?;
 
-  if let Frame::Array { data, .. } = response {
+  let frame = protocol_utils::frame_map_or_set_to_nested_array(response)?;
+  if let Frame::Array { data, .. } = frame {
     protocol_utils::parse_memory_stats(&data)
   } else {
     Err(RedisError::new(

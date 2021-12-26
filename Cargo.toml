@@ -24,8 +24,7 @@ bytes = "1.0"
 futures = "0.3"
 parking_lot = "0.11"
 lazy_static = "1.4"
-#redis-protocol = "3.0"
-redis-protocol = { path = "../../../redis-protocol.rs" }
+redis-protocol = "3.0.2"
 log = "0.4"
 pretty_env_logger = "0.4"
 float-cmp = "0.8"
@@ -64,6 +63,7 @@ required-features = ["monitor"]
 
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls", "metrics"]
+subscriber-client = []
 metrics = []
 ignore-auth-error = []
 enable-tls = ["native-tls", "tokio-native-tls"]

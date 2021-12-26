@@ -8,7 +8,6 @@ use crate::types::{
   ShutdownFlags,
 };
 use crate::utils;
-use arc_swap::AsRaw;
 use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::convert::TryInto;
@@ -153,7 +152,7 @@ where
   }
 }
 
-/// Run a function in the context of a new tokio task, returning an `AsyncResult`.
+/// Run a function in the context of an async block, returning an `AsyncResult` that wraps a trait object.
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike,
@@ -165,6 +164,19 @@ where
   let inner = client.inner().clone();
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func(inner))),
+  }
+}
+
+/// Run a function and wrap the result in an `AsyncResult` trait object.
+#[cfg(feature = "subscriber-client")]
+pub(crate) fn wrap_async<F, Fut, T>(func: F) -> AsyncResult<T>
+where
+  Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
+  F: FnOnce() -> Fut,
+  T: Unpin + Send + 'static,
+{
+  AsyncResult {
+    inner: AsyncInner::Task(Box::pin(func())),
   }
 }
 
@@ -203,18 +215,6 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// Whether or not the client will automatically pipeline commands.
   fn is_pipelined(&self) -> bool {
     self.inner().is_pipelined()
-  }
-
-  /// Read the number of request redeliveries.
-  ///
-  /// This is the number of times a request had to be sent again due to a connection closing while waiting on a response.
-  fn read_redelivery_count(&self) -> usize {
-    utils::read_atomic(&self.inner().redeliver_count)
-  }
-
-  /// Read and reset the number of request redeliveries.
-  fn take_redelivery_count(&self) -> usize {
-    utils::set_atomic(&self.inner().redeliver_count, 0)
   }
 
   /// Read the state of the underlying connection(s).
@@ -319,11 +319,9 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// node that should receive the command. If one is not provided the command will be sent to a random node
   /// in the cluster.
   ///
-  /// Callers should use the re-exported [redis_keyslot](crate::client::util::redis_keyslot) function to hash the command's key, if necessary.
+  /// Callers should use the re-exported [redis_keyslot](crate::util::redis_keyslot) function to hash the command's key, if necessary.
   ///
-  /// Callers that find themselves using this interface for commands that are not a part of a third party extension should file an issue
-  /// to add the command to the list of supported commands. This interface should be used with caution as it may break the automatic pipeline
-  /// features in the client if command flags are not properly configured.
+  /// This interface should be used with caution as it may break the automatic pipeline features in the client if command flags are not properly configured.
   fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,

@@ -26,9 +26,16 @@ pub trait AuthInterface: ClientLike + Sized {
     })
   }
 
-  // TODO add HELLO here
-  fn hello<S>(&self, _version: RespVersion, _username: Option<String>, _password: S) -> AsyncResult<()> {
-    unimplemented!()
+  /// Switch to a different protocol, optionally authenticating in the process.
+  ///
+  /// If running against clustered servers this function will issue the HELLO command to each server concurrently.
+  ///
+  /// <https://redis.io/commands/hello>
+  fn hello<R>(&self, version: RespVersion, auth: Option<(String, String)>) -> AsyncResult<()> {
+    async_spawn(self, |inner| async move {
+      utils::disallow_during_transaction(&inner)?;
+      commands::server::hello(&inner, version, auth).await
+    })
   }
 }
 

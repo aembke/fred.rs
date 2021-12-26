@@ -967,6 +967,7 @@ impl From<Vec<u8>> for RedisKey {
 ///
 /// **Note: this can also be used to represent an empty array of keys by passing `None` to any function that takes `Into<MultipleKeys>`.** This
 /// is mostly useful for `EVAL` and `EVALSHA`.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleKeys {
   keys: Vec<RedisKey>,
 }
@@ -1041,6 +1042,7 @@ pub type MultipleStrings = MultipleKeys;
 ///
 /// **Note: this can be used to represent an empty set of values by using `None` for any function that takes `Into<MultipleValues>`.** This
 /// is most useful for `EVAL` and `EVALSHA`.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleValues {
   values: Vec<RedisValue>,
 }

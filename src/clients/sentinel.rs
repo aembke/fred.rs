@@ -12,6 +12,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// Configuration options for sentinel clients.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub struct SentinelConfig {
   /// The hostname for the sentinel node.
   ///
@@ -82,10 +83,11 @@ impl From<SentinelConfig> for RedisConfig {
 
 /// A struct for interacting directly with Sentinel nodes.
 ///
-/// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the sentinel nodes themselves. Callers should use the [RedisClient](crate::client::RedisClient) interface with a [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a sentinel layer.
+/// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::RedisClient) interface with a [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a sentinel layer.
 ///
 /// See the [sentinel API docs](https://redis.io/topics/sentinel#sentinel-api) for more information.
 #[derive(Clone)]
+#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub struct SentinelClient {
   inner: Arc<RedisClientInner>,
 }

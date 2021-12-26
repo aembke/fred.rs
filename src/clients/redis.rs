@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-/// A Redis client struct.
+/// The primary Redis client struct.
 #[derive(Clone)]
 pub struct RedisClient {
   pub(crate) inner: Arc<RedisClientInner>,

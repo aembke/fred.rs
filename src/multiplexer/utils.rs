@@ -1133,7 +1133,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     let mut backchannel = inner.backchannel.write().await;
 
     _debug!(inner, "Reading cluster nodes on backchannel: {}", server);
-    let frame = match backchannel.request_response(inner, &server, cmd).await {
+    let frame = match backchannel.request_response(inner, &server, cmd, true).await {
       Ok(frame) => frame,
       Err(e) => {
         _warn!(inner, "Error creating or using backchannel for cluster nodes: {:?}", e);

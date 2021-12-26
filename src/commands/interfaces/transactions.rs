@@ -8,7 +8,7 @@ use crate::utils;
 
 /// Functions that implement the [transactions](https://redis.io/commands#transactions) interface.
 ///
-/// See the [TransactionClient](crate::client::TransactionClient) for more information;
+/// See the [TransactionClient](crate::clients::TransactionClient) for more information;
 pub trait TransactionInterface: ClientLike + Sized {
   /// Enter a MULTI block, executing subsequent commands as a transaction.
   ///
@@ -67,7 +67,7 @@ pub trait TransactionInterface: ClientLike + Sized {
 
   /// Force the client to abort any in-flight transactions.
   ///
-  /// The `Drop` trait on the [TransactionClient](crate::client::TransactionClient) is not async and so callers that accidentally drop the transaction
+  /// The `Drop` trait on the [TransactionClient](crate::clients::TransactionClient) is not async and so callers that accidentally drop the transaction
   /// client associated with a MULTI block before calling EXEC or DISCARD can use this function to exit the transaction.
   /// A warning log line will be emitted if the transaction client is dropped before calling EXEC or DISCARD.
   fn force_discard_transaction(&self) -> AsyncResult<()> {

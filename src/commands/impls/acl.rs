@@ -47,6 +47,8 @@ where
   if protocol_utils::is_null(&frame) {
     return Ok(None);
   }
+  let frame = protocol_utils::frame_map_or_set_to_nested_array(frame)?;
+
   if let Frame::Array { data, .. } = frame {
     protocol_utils::parse_acl_getuser_frames(data).map(|u| Some(u))
   } else {

@@ -459,6 +459,11 @@ async fn handle_all_nodes_response(
       if resp.decr_num_nodes() == 0 {
         check_command_resp_tx(inner, &last_command).await;
 
+        // if the client sent HELLO to all nodes then wait for the last response to arrive before changing the protocol version
+        if last_command.command.kind.is_hello() {
+          update_protocol_version(inner, &last_command, &frame);
+        }
+
         // take the final response sender off the command and write to that
         if let Some(tx) = resp.take_tx() {
           _trace!(inner, "Sending all nodes response after recv all responses.");
@@ -533,6 +538,20 @@ async fn handle_multiple_responses(
   }
 }
 
+/// Update the client's protocol version codec version after receiving a non-error response to HELLO.
+fn update_protocol_version(inner: &Arc<RedisClientInner>, last_command: &SentCommand, frame: &Resp3Frame) {
+  if !frame.is_error() {
+    let version = match last_command.command.kind {
+      RedisCommandKind::Hello(ref version) => version,
+      RedisCommandKind::_HelloAllCluster((_, ref version)) => version,
+      _ => return,
+    };
+
+    // HELLO cannot be pipelined so this is safe
+    inner.switch_protocol_versions(version.clone());
+  }
+}
+
 /// Process the frame in the context of the last (oldest) command sent.
 ///
 /// If the last command has more expected responses it will be returned so it can be put back on the front of the response queue.
@@ -602,11 +621,8 @@ async fn process_response(
     sample_command_latencies(inner, &mut last_command);
 
     // update the protocol version after a non-error response is received from HELLO
-    if let RedisCommandKind::Hello(ref version) = last_command.command.kind {
-      if !frame.is_error() {
-        // HELLO cannot be pipelined so this is safe
-        inner.switch_protocol_versions(version.clone());
-      }
+    if last_command.command.kind.is_hello() {
+      update_protocol_version(inner, &last_command, &frame);
     }
 
     check_command_resp_tx(inner, &last_command).await;

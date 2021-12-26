@@ -105,8 +105,9 @@ impl Backchannel {
     host: &str,
     port: u16,
     uses_tls: bool,
+    use_blocked: bool,
   ) -> Result<(RedisTransport, Option<Arc<String>>, bool), RedisError> {
-    if self.has_blocked_transport() {
+    if self.has_blocked_transport() && use_blocked {
       if let Some((transport, server)) = self.transport.take() {
         Ok((transport, Some(server), false))
       } else {
@@ -132,12 +133,15 @@ impl Backchannel {
     inner: &Arc<RedisClientInner>,
     server: &Arc<String>,
     command: RedisCommand,
+    use_blocked: bool,
   ) -> Result<Resp3Frame, RedisError> {
     let is_resp3 = inner.is_resp3();
     let uses_tls = inner.config.read().uses_tls();
     let (host, port) = protocol_utils::server_to_parts(server)?;
 
-    let (transport, _server, try_once) = self.take_or_create_transport(inner, host, port, uses_tls).await?;
+    let (transport, _server, try_once) = self
+      .take_or_create_transport(inner, host, port, uses_tls, use_blocked)
+      .await?;
     let server = _server.unwrap_or(server.clone());
     let result = match transport {
       RedisTransport::Tcp(transport) => {
@@ -160,7 +164,9 @@ impl Backchannel {
           Err(e)
         } else {
           // need to avoid async recursion
-          let (transport, _, _) = self.take_or_create_transport(inner, host, port, uses_tls).await?;
+          let (transport, _, _) = self
+            .take_or_create_transport(inner, host, port, uses_tls, use_blocked)
+            .await?;
           let result = match transport {
             RedisTransport::Tcp(transport) => {
               map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
