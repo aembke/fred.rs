@@ -1,5 +1,4 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::connection::RedisSink;
 use crate::protocol::types::ClusterKeyCache;
@@ -66,8 +65,8 @@ impl Counters {
     }
   }
 
-  pub fn should_send(&self) -> bool {
-    client_utils::read_atomic(&self.feed_count) > globals().feed_count()
+  pub fn should_send(&self, inner: &Arc<RedisClientInner>) -> bool {
+    client_utils::read_atomic(&self.feed_count) > inner.perf_config.max_feed_count()
       || client_utils::read_atomic(&self.cmd_buffer_len) == 0
   }
 

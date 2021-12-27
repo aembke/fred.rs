@@ -400,9 +400,11 @@ where
   }
 }
 
-async fn wait_for_response(rx: OneshotReceiver<Result<Resp3Frame, RedisError>>) -> Result<Resp3Frame, RedisError> {
-  let sleep_duration = globals().default_command_timeout();
-  apply_timeout(rx, sleep_duration as u64).await?
+async fn wait_for_response(
+  rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
+  timeout: u64,
+) -> Result<Resp3Frame, RedisError> {
+  apply_timeout(rx, timeout).await?
 }
 
 fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
@@ -480,7 +482,7 @@ where
   let _ = disallow_nested_values(&command)?;
   let _ = send_command(&inner, command)?;
 
-  wait_for_response(rx).await
+  wait_for_response(rx, inner.perf_config.default_command_timeout() as u64).await
 }
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -521,7 +523,7 @@ where
 
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = send_command(&inner, command)?;
-  wait_for_response(rx)
+  wait_for_response(rx, inner.perf_config.default_command_timeout() as u64)
     .and_then(|frame| async move {
       trace::record_response_size(&end_cmd_span, &frame);
       Ok::<_, RedisError>(frame)

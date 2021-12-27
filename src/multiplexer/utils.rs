@@ -1,6 +1,5 @@
 use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
 use crate::modules::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::types::ClusterChange;
 use crate::multiplexer::{responses, Multiplexer};
@@ -8,6 +7,7 @@ use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentComma
 use crate::protocol::connection::{self, RedisSink, RedisStream};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
+use crate::protocol::utils::server_to_parts;
 use crate::trace;
 use crate::types::*;
 use crate::utils as client_utils;
@@ -189,7 +189,7 @@ pub async fn insert_locked_map_async<K: Ord, V>(locked: &AsyncRwLock<BTreeMap<K,
 
 /// Check whether the command has reached the max number of write attempts, and if so emit an error to the caller.
 pub fn max_attempts_reached(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) -> bool {
-  if command.max_attempts_exceeded() {
+  if command.max_attempts_exceeded(inner) {
     _warn!(
       inner,
       "Exceeded max write attempts for command: {}",
@@ -216,7 +216,11 @@ pub fn max_attempts_reached(inner: &Arc<RedisClientInner>, command: &mut RedisCo
   }
 }
 
-pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<String>>) -> Option<u64> {
+pub fn should_apply_backpressure(
+  inner: &Arc<RedisClientInner>,
+  connections: &Connections,
+  server: Option<&Arc<String>>,
+) -> Result<Option<u64>, RedisError> {
   let in_flight = match connections {
     Connections::Centralized { ref counters, .. } => client_utils::read_atomic(&counters.in_flight),
     Connections::Clustered { ref counters, .. } => server
@@ -228,14 +232,28 @@ pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<
       })
       .unwrap_or(0),
   };
-  let min_backpressure_time_ms = globals().min_backpressure_time_ms();
-  let backpressure_command_count = globals().backpressure_count();
+  let min_backpressure_time_ms = inner.perf_config.min_sleep_duration();
+  let backpressure_command_count = inner.perf_config.max_in_flight_commands();
+  let disable_backpressure_scaling = inner.perf_config.disable_backpressure_scaling();
 
-  if in_flight > backpressure_command_count {
-    Some(cmp::max(in_flight - backpressure_command_count, min_backpressure_time_ms) as u64)
+  let amt = if in_flight > backpressure_command_count {
+    if inner.perf_config.disable_auto_backpressure() {
+      return Err(RedisError::new(
+        RedisErrorKind::Backpressure,
+        "Max number of in-flight commands reached.",
+      ));
+    }
+
+    if disable_backpressure_scaling {
+      Some(min_backpressure_time_ms as u64)
+    } else {
+      Some(cmp::max(min_backpressure_time_ms as u64, in_flight as u64))
+    }
   } else {
     None
-  }
+  };
+
+  Ok(amt)
 }
 
 pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> String {
@@ -335,7 +353,7 @@ pub fn prepare_command(
   // * the command ends a transaction
   // * the command does some form of authentication
   // * the command blocks the multiplexer command loop
-  let should_flush = counters.should_send()
+  let should_flush = counters.should_send(inner)
     || sent_command.command.is_quit()
     || sent_command.command.kind.ends_transaction()
     || sent_command.command.kind.is_hello()
@@ -400,6 +418,21 @@ pub async fn send_clustered_command(
   connection::write_command(inner, writer, counters, frame, should_flush).await
 }
 
+fn respond_early_to_caller_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, error: RedisError) {
+  _debug!(inner, "Responding early to caller with error {:?}", error);
+
+  if let Some(tx) = command.tx.take() {
+    if let Err(e) = tx.send(Err(error)) {
+      _warn!(inner, "Error sending response to caller: {:?}", e);
+    }
+  }
+
+  // check for a multiplexer response sender too
+  if let Some(tx) = command.resp_tx.write().take() {
+    let _ = tx.send(());
+  }
+}
+
 pub async fn write_centralized_command(
   inner: &Arc<RedisClientInner>,
   connections: &Connections,
@@ -407,7 +440,15 @@ pub async fn write_centralized_command(
   no_backpressure: bool,
 ) -> Result<Backpressure, RedisError> {
   if !no_backpressure {
-    if let Some(backpressure) = should_apply_backpressure(connections, None) {
+    let backpressure = match should_apply_backpressure(inner, connections, None) {
+      Ok(backpressure) => backpressure,
+      Err(e) => {
+        respond_early_to_caller_error(inner, command, e);
+        return Ok(Backpressure::Skipped);
+      }
+    };
+
+    if let Some(backpressure) = backpressure {
       _warn!(inner, "Applying backpressure for {} ms", backpressure);
       return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
     }
@@ -486,7 +527,15 @@ pub async fn write_clustered_command(
     };
 
     if !no_backpressure {
-      if let Some(backpressure) = should_apply_backpressure(connections, Some(&server)) {
+      let backpressure = match should_apply_backpressure(inner, connections, Some(&server)) {
+        Ok(backpressure) => backpressure,
+        Err(e) => {
+          respond_early_to_caller_error(inner, command, e);
+          return Ok(Backpressure::Skipped);
+        }
+      };
+
+      if let Some(backpressure) = backpressure {
         _warn!(inner, "Applying backpressure for {} ms", backpressure);
         return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
       }
@@ -1164,6 +1213,44 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     RedisErrorKind::Cluster,
     "Failed to read cluster nodes on all possible backchannel servers.",
   ))
+}
+
+fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterChange) {
+  let has_listeners = { inner.cluster_change_tx.read().len() > 0 };
+
+  if has_listeners {
+    let (added, removed) = {
+      let mut added = Vec::with_capacity(changes.add.len());
+      let mut removed = Vec::with_capacity(changes.remove.len());
+
+      for server in changes.add.iter() {
+        let parts = match server_to_parts(server) {
+          Ok((host, port)) => (host.to_owned(), port),
+          Err(_) => continue,
+        };
+
+        added.push(parts);
+      }
+      for server in changes.remove.iter() {
+        let parts = match server_to_parts(server) {
+          Ok((host, port)) => (host.to_owned(), port),
+          Err(_) => continue,
+        };
+
+        removed.push(parts);
+      }
+
+      (added, removed)
+    };
+    let mut changes = Vec::with_capacity(added.len() + removed.len() + 1);
+    if added.is_empty() && removed.is_empty() {
+      changes.push(ClusterStateChange::Rebalance);
+    } else {
+      for parts in added.into_iter() {
+        changes.push(ClusterStateChange::Add(parts))
+      }
+    }
+  }
 }
 
 pub async fn sync_cluster(

@@ -6,7 +6,7 @@ use fred::clients::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::globals;
 use fred::interfaces::*;
-use fred::types::{RedisConfig, RedisKey, ServerConfig};
+use fred::types::{PerformanceConfig, RedisConfig, RedisKey, ServerConfig};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use std::env;
@@ -80,7 +80,10 @@ fn env_vars() -> Vec<(OsString, OsString)> {
 async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
   let config = RedisConfig {
     server: ServerConfig::default_clustered(),
-    pipeline: false,
+    performance: PerformanceConfig {
+      pipeline: false,
+      ..Default::default()
+    },
     ..Default::default()
   };
   let client = RedisClient::new(config);

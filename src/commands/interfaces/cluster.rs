@@ -1,10 +1,11 @@
 use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, FromRedis,
+  ClusterChange, ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, FromRedis,
   MultipleHashSlots, RedisKey, RedisValue,
 };
 use crate::utils;
+use futures::Stream;
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
 pub trait ClusterInterface: ClientLike + Sized {

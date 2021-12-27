@@ -49,6 +49,8 @@ pub enum RedisErrorKind {
   Sentinel,
   /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a non-nullable type.
   NotFound,
+  /// An error indicating that the caller should apply backpressure and retry the command.
+  Backpressure,
 }
 
 impl RedisErrorKind {
@@ -69,6 +71,7 @@ impl RedisErrorKind {
       RedisErrorKind::Parse => "Parse Error",
       RedisErrorKind::Sentinel => "Sentinel Error",
       RedisErrorKind::NotFound => "Not Found",
+      RedisErrorKind::Backpressure => "Backpressure",
     }
   }
 }

@@ -1,6 +1,5 @@
 use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{utils, SentCommand};
 use crate::multiplexer::{Backpressure, Multiplexer};
@@ -197,8 +196,12 @@ fn next_reconnect_delay(
   error: &RedisError,
 ) -> Option<u64> {
   if error.is_cluster_error() {
-    let amt = globals().cluster_error_cache_delay();
-    _debug!(inner, "Waiting {} ms to reconnect due to cluster error", amt);
+    let amt = inner.perf_config.cluster_cache_update_delay_ms();
+    _debug!(
+      inner,
+      "Waiting {} ms to rebuild cluster state due to cluster error",
+      amt
+    );
     Some(amt as u64)
   } else {
     policy.next_delay()
@@ -217,7 +220,7 @@ fn handle_connection_closed(
   let mut policy = policy.unwrap_or(ReconnectPolicy::Constant {
     attempts: 0,
     max_attempts: 0,
-    delay: globals().cluster_error_cache_delay() as u32,
+    delay: inner.perf_config.cluster_cache_update_delay_ms() as u32,
   });
 
   let reconnect_inner = inner.clone();
@@ -258,8 +261,10 @@ fn handle_connection_closed(
           }
         };
 
-        _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
-        sleep(Duration::from_millis(next_delay)).await;
+        if next_delay > 0 {
+          _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
+          sleep(Duration::from_millis(next_delay)).await;
+        }
 
         let result = if client_utils::is_clustered(&inner.config) {
           multiplexer.sync_cluster().await
@@ -866,11 +871,11 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
   utils::emit_reconnect(inner);
 
   let has_policy = policy.is_some();
-  let disable_pipeline = !inner.is_pipelined();
   handle_connection_closed(inner, &multiplexer, policy);
 
   _debug!(inner, "Starting command stream...");
   while let Some(command) = rx.recv().await {
+    let disable_pipeline = !inner.perf_config.pipeline();
     if let Err(e) = handle_command_t(inner, &multiplexer, command, has_policy, disable_pipeline).await {
       if e.is_canceled() {
         break;

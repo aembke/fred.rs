@@ -3,10 +3,10 @@
 use crate::chaos_monkey::set_test_kind;
 use fred::clients::RedisClient;
 use fred::error::RedisError;
-use fred::globals;
 use fred::interfaces::*;
-use fred::types::{ReconnectPolicy, RedisConfig, ServerConfig};
+use fred::types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig};
 use redis_protocol::resp3::prelude::RespVersion;
+use std::default::Default;
 use std::env;
 use std::future::Future;
 
@@ -73,7 +73,11 @@ where
       username: None,
       password: Some(read_sentinel_password()),
     },
-    pipeline,
+    performance: PerformanceConfig {
+      pipeline,
+      default_command_timeout_ms: 10_000,
+      ..Default::default()
+    },
     password: Some(read_redis_password()),
     ..Default::default()
   };
@@ -94,14 +98,17 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   set_test_kind(true);
-  globals::set_default_command_timeout(10_000);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::default_clustered(),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    pipeline,
+    performance: PerformanceConfig {
+      pipeline,
+      default_command_timeout_ms: 10_000,
+      ..Default::default()
+    },
     ..Default::default()
   };
   let client = RedisClient::new(config.clone());
@@ -121,14 +128,17 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   set_test_kind(false);
-  globals::set_default_command_timeout(10_000);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::default_centralized(),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    pipeline,
+    performance: PerformanceConfig {
+      pipeline,
+      default_command_timeout_ms: 10_000,
+      ..Default::default()
+    },
     ..Default::default()
   };
   let client = RedisClient::new(config.clone());

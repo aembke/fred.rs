@@ -564,6 +564,23 @@ impl Default for Blocking {
   }
 }
 
+/// An enum describing the possible ways in which a Redis cluster can change state.
+///
+/// See [on_cluster_change](crate::clients::RedisClient::on_cluster_change) for more information.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClusterStateChange {
+  /// Nodes were added to the cluster.
+  ///
+  /// This implies that hash slots were also probably rebalanced.
+  Add(Vec<(String, u16)>),
+  /// Nodes were removed from the cluster.
+  ///
+  /// This implies that hash slots were also probably rebalanced.
+  Remove(Vec<String, u16>),
+  /// Hash slots were rebalanced across the cluster.
+  Rebalance,
+}
+
 /// Configuration options for backpressure features in the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackpressureConfig {
@@ -579,7 +596,16 @@ pub struct BackpressureConfig {
   ///
   /// Default: `false`
   pub disable_backpressure_scaling: bool,
-  // TODO add backpressure min time, backpressure count
+  /// The minimum amount of time to wait when applying backpressure to a command.
+  ///
+  /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless `disable_auto_backpressure` is `true`.
+  ///
+  /// Default: 100 ms
+  pub min_sleep_duration_ms: u64,
+  /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
+  ///
+  /// Default: 5000
+  pub max_in_flight_commands: u64,
 }
 
 impl Default for BackpressureConfig {
@@ -587,6 +613,8 @@ impl Default for BackpressureConfig {
     BackpressureConfig {
       disable_auto_backpressure: false,
       disable_backpressure_scaling: false,
+      min_sleep_duration_ms: 100,
+      max_in_flight_commands: 5000,
     }
   }
 }
@@ -612,8 +640,18 @@ pub struct PerformanceConfig {
   ///
   /// Default: `0`
   pub default_command_timeout_ms: u64,
-  // TODO add feed count, cluster cache delay
-  // add function to update this on the client
+  /// The maximum number of frames that will be passed to a socket before flushing the socket.
+  ///
+  /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
+  ///
+  /// Default: 1000
+  pub max_feed_count: u64,
+  /// The amount of time, in milliseconds, to wait after a `MOVED` or `ASK` error is received before the client will update the cached cluster state and try again.
+  ///
+  /// If `0` the client will follow `MOVED` or `ASK` redirects as quickly as possible. However, this can result in some unnecessary state synchronization commands when large values are being moved between nodes.
+  ///
+  /// Default: 50 ms
+  pub cluster_cache_update_delay_ms: u64,
 }
 
 impl Default for PerformanceConfig {
@@ -623,6 +661,8 @@ impl Default for PerformanceConfig {
       backpressure: BackpressureConfig::default(),
       max_command_attempts: 3,
       default_command_timeout_ms: 0,
+      max_feed_count: 1000,
+      cluster_cache_update_delay_ms: 50,
     }
   }
 }
@@ -667,6 +707,12 @@ pub struct RedisConfig {
   pub version: RespVersion,
   /// Configuration options that can affect the performance of the client.
   pub performance: PerformanceConfig,
+  /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
+  ///
+  /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect` block, if possible. Commands that were in-flight when the connection closed will retry before anything inside the `on_reconnect` block.
+  ///
+  /// Default: `None`
+  pub database: Option<u8>,
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
   /// Default: `None`
@@ -691,6 +737,7 @@ impl Default for RedisConfig {
       server: ServerConfig::default(),
       version: RespVersion::RESP2,
       performance: PerformanceConfig::default(),
+      database: None,
       #[cfg(feature = "enable-tls")]
       #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
       tls: None,

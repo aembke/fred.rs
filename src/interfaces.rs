@@ -2,11 +2,11 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
-use crate::types::RespVersion;
 use crate::types::{
   ClientState, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig, RedisValue,
   ShutdownFlags,
 };
+use crate::types::{PerformanceConfig, RespVersion};
 use crate::utils;
 use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -215,6 +215,14 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// Whether or not the client will automatically pipeline commands.
   fn is_pipelined(&self) -> bool {
     self.inner().is_pipelined()
+  }
+
+  /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) in place with new values.
+  fn update_perf_config(&self, config: PerformanceConfig) {
+    self.inner().perf_config.update(&config);
+
+    let mut guard = self.inner().config.write();
+    guard.performance = config;
   }
 
   /// Read the state of the underlying connection(s).

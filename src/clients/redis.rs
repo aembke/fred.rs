@@ -90,6 +90,16 @@ impl RedisClient {
     UnboundedReceiverStream::new(rx)
   }
 
+  /// Listen for notifications whenever the cluster state changes.
+  ///
+  /// This is usually triggered in response to a `MOVED` or `ASK` error, but can also happen when connections close unexpectedly.
+  pub fn on_cluster_change(&self) -> impl Stream<Item = Vec<ClusterStateChange>> {
+    let (tx, rx) = unbounded_channel();
+    self.inner().cluster_change_tx.write().push_back(tx);
+
+    UnboundedReceiverStream::new(rx)
+  }
+
   /// Split a clustered Redis client into a list of centralized clients - one for each primary node in the cluster.
   ///
   /// Some Redis commands are not designed to work with hash slots against a clustered deployment. For example,

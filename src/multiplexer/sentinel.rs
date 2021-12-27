@@ -4,7 +4,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::modules::types::ClientState;
 use crate::multiplexer::{utils, CloseTx, Connections, Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
-use crate::protocol::connection::{self, authenticate, FramedTcp, FramedTls, RedisTransport};
+use crate::protocol::connection::{self, authenticate, select_database, FramedTcp, FramedTls, RedisTransport};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::types::Resolve;
@@ -103,6 +103,11 @@ pub async fn create_authenticated_connection_tls(
     connection::switch_protocols(inner, Framed::new(socket, codec)).await?
   };
   let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = if is_sentinel {
+    framed
+  } else {
+    select_database(inner, framed).await?
+  };
 
   Ok(framed)
 }
@@ -138,6 +143,11 @@ pub async fn create_authenticated_connection(
     connection::switch_protocols(inner, Framed::new(socket, codec)).await?
   };
   let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = if is_sentinel {
+    framed
+  } else {
+    select_database(inner, framed).await?
+  };
 
   Ok(framed)
 }

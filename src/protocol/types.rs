@@ -1,7 +1,7 @@
 use super::utils as protocol_utils;
 use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
+use crate::modules::inner::RedisClientInner;
 use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
@@ -1538,8 +1538,8 @@ impl RedisCommand {
     self.attempted += 1;
   }
 
-  pub fn max_attempts_exceeded(&self) -> bool {
-    self.attempted >= globals().max_command_attempts()
+  pub fn max_attempts_exceeded(&self, inner: &Arc<RedisClientInner>) -> bool {
+    self.attempted >= inner.perf_config.max_command_attempts()
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).

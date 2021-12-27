@@ -257,6 +257,30 @@ where
   Ok((id, transport))
 }
 
+pub async fn select_database<T>(
+  inner: &Arc<RedisClientInner>,
+  transport: Framed<T, RedisCodec>,
+) -> Result<Framed<T, RedisCodec>, RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let db = match inner.config.read().database.clone() {
+    Some(db) => db,
+    None => return Ok(transport),
+  };
+
+  _trace!(inner, "Selecting database {} after connecting.", db);
+  let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()], None);
+  let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
+  let response = result.into_resp3();
+
+  if let Some(error) = protocol_utils::frame_to_error(&response) {
+    Err(error)
+  } else {
+    Ok(transport)
+  }
+}
+
 #[cfg(feature = "enable-tls")]
 pub async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
@@ -274,6 +298,7 @@ pub async fn create_authenticated_connection_tls(
   let socket = tls_stream.connect(domain, socket).await?;
   let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
   let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
+  let framed = select_database(inner, framed).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
@@ -301,6 +326,7 @@ pub async fn create_authenticated_connection(
   let socket = TcpStream::connect(addr).await?;
   let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
   let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
+  let framed = select_database(inner, framed).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
