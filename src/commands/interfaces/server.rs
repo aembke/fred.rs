@@ -31,7 +31,7 @@ pub trait AuthInterface: ClientLike + Sized {
   /// If running against clustered servers this function will issue the HELLO command to each server concurrently.
   ///
   /// <https://redis.io/commands/hello>
-  fn hello<R>(&self, version: RespVersion, auth: Option<(String, String)>) -> AsyncResult<()> {
+  fn hello(&self, version: RespVersion, auth: Option<(String, String)>) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
       commands::server::hello(&inner, version, auth).await

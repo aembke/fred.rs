@@ -42,6 +42,7 @@ mod other {
   cluster_test!(other, should_automatically_unblock);
   cluster_test!(other, should_manually_unblock);
   cluster_test!(other, should_error_when_blocked);
+  cluster_test!(other, should_safely_change_protocols_repeatedly);
 }
 
 mod pool {

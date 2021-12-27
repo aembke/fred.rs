@@ -295,7 +295,7 @@ pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), 
 }
 
 #[cfg(not(feature = "ignore-auth-error"))]
-pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp3Frame {
+pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
   frame
 }
 

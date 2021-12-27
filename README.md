@@ -86,23 +86,23 @@ When a client is initialized it will generate a unique client name with a prefix
 
 ## Compile Time Features
 
-|    Name                     | Default | Description                                                                                                                                  |
-|---------------------------- |---------|----------------------------------------------------------------------------------------------------------------------------------------------|
-| enable-tls                  |    x    | Enable TLS support. This requires OpenSSL (or equivalent) dependencies.                                                                      |
-| vendored-tls                |         | Enable TLS support, using vendored OpenSSL (or equivalent) dependencies, if possible.                                                        |
-| ignore-auth-error           |    x    | Ignore auth errors that occur when a password is supplied but not required.                                                                  |
-| metrics                     |    x    | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                  |
-| reconnect-on-auth-error     |         | A NOAUTH error is treated the same as a general connection failure and the client will reconnect based on the reconnection policy.           |
-| pool-prefer-active          |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                          |
-| full-tracing                |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data so a partial tracing feature is also provided.           |
-| partial-tracing             |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency. Note: this has a non-trivial impact on [performance](./bin/pipeline_test/README.md#Examples).  |
-| blocking-encoding           |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/modules/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime.  |
-| network-logs                |         | Enable TRACE level logging statements that will print out all data sent to or received from the server.  |
-| custom-reconnect-errors     |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.    |
-| monitor                     |         | Enable an interface for running the `MONITOR` command.                                                                    |
-| sentinel-client             |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                               |
-| sentinel-auth               |         | Enable an interface for using different authentication credentials to sentinel nodes.                                     |
-| subscriber-client           |         | Enable a higher level subscriber client that manages channel subscription state for callers.                                    |
+|    Name                     | Default | Description                                                                                                                                                                                                                              |
+|---------------------------- |---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| enable-tls                  |    x    | Enable TLS support. This requires OpenSSL (or equivalent) dependencies.                                                                                                                                                                  |
+| vendored-tls                |         | Enable TLS support, using vendored OpenSSL (or equivalent) dependencies, if possible.                                                                                                                                                    |
+| ignore-auth-error           |    x    | Ignore auth errors that occur when a password is supplied but not required.                                                                                                                                                              |
+| metrics                     |    x    | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                                                                                      |
+| reconnect-on-auth-error     |         | A NOAUTH error is treated the same as a general connection failure and the client will reconnect based on the reconnection policy. This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.                                             |
+| pool-prefer-active          |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                                                                                                                      |
+| full-tracing                |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data so a partial tracing feature is also provided.                                                                                                         |
+| partial-tracing             |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency. Note: this has a non-trivial impact on [performance](./bin/pipeline_test/README.md#Examples).                  |
+| blocking-encoding           |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/modules/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime. |
+| network-logs                |         | Enable TRACE level logging statements that will print out all data sent to or received from the server. Logs will **never** include user data if this is disabled.                                                                       |
+| custom-reconnect-errors     |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.                                                                                                                   |
+| monitor                     |         | Enable an interface for running the `MONITOR` command.                                                                                                                                                                                   |
+| sentinel-client             |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                                                                                           |
+| sentinel-auth               |         | Enable an interface for using different authentication credentials to sentinel nodes.                                                                                                                                                    |
+| subscriber-client           |         | Enable a higher level subscriber client that manages channel subscription state for callers.                                                                                                                                             |
 
 ## Environment Variables
 
@@ -119,19 +119,44 @@ The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags
 
 This module also contains a [separate test application](bin/pipeline_test) that can be used to demonstrate the effects of pipelining. This test application also contains some helpful information on how to use the tracing features.
 
+This library takes a different approach to pipelining than many other clients. Instead of relying on callers to specify specific sequences of commands to be pipelined this library will instead automatically pipeline commands whenever possible. This makes pipelining an implementation detail for the client instead of something the caller needs to consider. This can also drastically improve performance since the client can pipeline commands that do not depend on each other automatically. Callers are then free to manage command ordering with the async or tokio ecosystem interface (`await`, `join`, `select`, `join_all`, etc), and the client will automatically associate responses with the correct command.
+
+The following commands will **never** be pipelined:
+
+* HELLO or AUTH
+* QUIT or SHUTDOWN
+* Blocking commands
+* MULTI, EXEC, WATCH, UNWATCH, or DISCARD
+* EVAL or EVALSHA
+* CLIENT UNBLOCK
+
 ### Backpressure & Throttling
 
-If callers enable automatic pipelining the client can automatically throttle requests in order to avoid using too much memory on the server while it buffers commands. 
+If callers enable automatic pipelining features there are two ways to manage potential backpressure situations. This can be necessary to avoid using too much memory on the server while buffering commands.
 
-The [globals](src/modules/globals.rs) file contains 2 relevant settings that can control this: `set_backpressure_count()` and `set_min_backpressure_time_ms()`. These functions control the maximum number of in-flight requests and the minimum duration to wait when the max number of in-flight requests is reached, respectively. 
+#### Automatic Backpressure
+
+The client can automatically throttle requests via some flags on the `RedisConfig` and `globals` interface. 
+
+The [globals](src/modules/globals.rs) file contains 2 relevant settings that can control this: `set_backpressure_count()` and `set_min_backpressure_time_ms()`. 
+
+These functions control the maximum number of in-flight requests and the minimum duration to wait when the max number of in-flight requests is reached, respectively. 
 
 When the max number of in-flight requests is reached the client will inject an async `sleep` call before the next request. The formula for calculating the duration of the `sleep` call is as follows:
 
 ```
-duration = max(get_min_backpressure_time_ms(), number_of_in_flight_commands)
+duration_ms = max(get_min_backpressure_time_ms(), number_of_in_flight_commands)
 ```
 
-However, this formula can be modified by callers. The `disable_backpressure_scaling` flag on the client's `RedisConfig` will change the backpressure formula to always wait for a constant duration defined by `get_min_backpressure_time_ms()`.
+However, this formula can be modified by callers. The `disable_backpressure_scaling` flag will change the backpressure formula to always wait for a constant duration defined by `get_min_backpressure_time_ms()`.
+
+#### Manual Backpressure
+
+Alternatively, callers can disable the automatic backpressure logic via the `disable_auto_backpressure` flag on the `RedisConfig`.
+
+If this flag is enabled the client will return a special `RedisErrorKind::Backpressure` enum variant whenever the max in-flight request count is reached. Callers are then responsible for backing off and retrying commands as needed.
+
+Additionally, callers can entirely disable backpressure by setting the `disable_auto_backpressure` flag to `true` and running the `set_min_backpressure_time_ms(0)`. This can also be accomplished simply by setting the `set_backpressure_count` value to a very large number. 
 
 ## ACL & Authentication
 
@@ -167,21 +192,21 @@ This module supports both [RESP2](https://redis.io/topics/protocol#resp-protocol
 
 RESP3 has certain advantages over RESP2. It supports various new data types such as sets, maps, floating point values, big numbers, etc. Additionally, it has cleaner semantics for handling out-of-band data such as publish-subscribe messages. However, these are largely implementation details for the client and will not affect callers.
 
-That being said, perhaps the most compelling reason to use RESP3 is for streaming support. When in RESP3 mode the server can chunk large values into smaller frames to reduce the memory footprint on the server while sending commands. This module supports streaming values in this manner (largely in the interest of future-proofing the interface), but it is unclear if or when the Redis server will do this, or what effect it can have on server performance.
+That being said, perhaps the most compelling reason to use RESP3 is for streaming support. When in RESP3 mode the server can chunk large values into smaller frames to reduce the memory footprint on the server while sending commands. 
+
+This module supports streaming values in this manner (largely in the interest of future-proofing the interface), but it is unclear if or when the Redis server will do this, or what effect it can have on server performance.
 
 ### Upgrade Considerations
 
 In most cases this library will pass Redis response values directly to callers with minimal parsing. However, RESP3 is semantically different from RESP2, and in some cases callers need to account for this.
 
-Callers should take special care when handling aggregate types like arrays and maps in particular. For example, your code may take a dependency on a value being an array of key/value pairs in RESP2, but after upgrading to RESP3 it may now be a map. Additionally, the added support for floating point values in RESP3 can result in different `RedisValue` enum variants, particularly with sorted set commands. In some cases RESP3 will nest aggregate types differently as well. For example, in RESP2 `HRANDFIELD` (with values) will return a flat array, but in RESP3 it will return a nested array. **Keep in mind that nearly every example on the Redis docs website only shows RESP2 responses.**
+Callers should take special care when handling aggregate types like arrays and maps in particular. For example, your code may take a dependency on a value being an array of key/value pairs in RESP2, but after upgrading to RESP3 it may now be a map. 
+
+Additionally, the added support for floating point values in RESP3 can result in different `RedisValue` enum variants, particularly with sorted set commands. 
+
+In some cases RESP3 will nest aggregate types differently as well. For example, in RESP2 `HRANDFIELD` (with values) will return a flat array, but in RESP3 it will return a nested array. **Keep in mind that nearly every example on the Redis docs website only shows RESP2 responses.**
 
 In general this is only an issue for callers that use the lower level `RedisValue` enum directly. Callers that leverage the `FromRedis` trait to do type conversions are unlikely to notice any difference between RESP2 and RESP3. However, in some isolated cases (like the latter example in the paragraph above) callers will need to account for the different return types in RESP3 mode.
-
-**A note about stability and reliability with RESP3:**
-
-While RESP3 support has been in Redis 6 for a while now the documentation and real-world examples of its usage is sparse at best. 
-
-While this library does have extensive test coverage (over 1000 real-world tests that cover every combination of centralized, clustered, sentinel, pipelined, non-pipelined, RESP2, and RESP3 clients), RESP3 support is still relatively early in its stability lifecycle. For example, it does not even have documentation available on the Redis website (just the github page linked above). If you encounter any bugs or strange behavior while in RESP3 mode please file an issue.
 
 ## Tests
 

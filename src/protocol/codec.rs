@@ -49,7 +49,7 @@ fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) 
   let len = res.saturating_sub(offset);
 
   trace!(
-    "{}: Encoded {} bytes to {}. Buffer len: {}",
+    "{}: Encoded {} bytes to {}. Buffer len: {} (RESP2)",
     codec.name,
     len,
     codec.server,
@@ -62,7 +62,12 @@ fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) 
 }
 
 fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<Resp2Frame>, RedisError> {
-  trace!("{}: Recv {} bytes from {}.", codec.name, src.len(), codec.server);
+  trace!(
+    "{}: Recv {} bytes from {} (RESP2).",
+    codec.name,
+    src.len(),
+    codec.server
+  );
   if src.is_empty() {
     return Ok(None);
   }
@@ -86,7 +91,7 @@ fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) 
   let len = res.saturating_sub(offset);
 
   trace!(
-    "{}: Encoded {} bytes to {}. Buffer len: {}",
+    "{}: Encoded {} bytes to {}. Buffer len: {} (RESP3)",
     codec.name,
     len,
     codec.server,
@@ -99,7 +104,12 @@ fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) 
 }
 
 fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Option<Resp3Frame>, RedisError> {
-  trace!("{}: Recv {} bytes from {}.", codec.name, src.len(), codec.server);
+  trace!(
+    "{}: Recv {} bytes from {} (RESP3).",
+    codec.name,
+    src.len(),
+    codec.server
+  );
   if src.is_empty() {
     return Ok(None);
   }
@@ -150,6 +160,26 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
     Ok(result)
   } else {
     Ok(None)
+  }
+}
+
+/// Attempt to decode with RESP2, and if that fails try once with RESP3.
+///
+/// This is useful when handling HELLO commands sent in the middle of a RESP2 command sequence.
+fn resp2_decode_with_fallback(
+  codec: &mut RedisCodec,
+  src: &mut BytesMut,
+) -> Result<Option<ProtocolFrame>, RedisError> {
+  let resp2_result = resp2_decode_frame(codec, src).map(|f| f.map(|f| f.into()));
+  if resp2_result.is_err() {
+    let resp3_result = resp3_decode_frame(codec, src).map(|f| f.map(|f| f.into()));
+    if resp3_result.is_ok() {
+      resp3_result
+    } else {
+      resp2_result
+    }
+  } else {
+    resp2_result
   }
 }
 
@@ -223,7 +253,7 @@ impl Decoder for RedisCodec {
     if self.is_resp3() {
       resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
     } else {
-      resp2_decode_frame(self, src).map(|f| f.map(|f| f.into()))
+      resp2_decode_with_fallback(self, src)
     }
   }
 
@@ -236,14 +266,14 @@ impl Decoder for RedisCodec {
         if self.is_resp3() {
           resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
         } else {
-          resp2_decode_frame(self, src).map(|f| f.map(|f| f.into()))
+          resp2_decode_with_fallback(self, src)
         }
       })
     } else {
       if self.is_resp3() {
         resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
       } else {
-        resp2_decode_frame(self, src).map(|f| f.map(|f| f.into()))
+        resp2_decode_with_fallback(self, src)
       }
     }
   }

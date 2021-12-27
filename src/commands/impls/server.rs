@@ -153,9 +153,8 @@ pub async fn hello(
     Ok(())
   } else {
     let frame = utils::request_response(inner, move || Ok((RedisCommandKind::Hello(version), args))).await?;
-
-    let response = protocol_utils::frame_to_single_result(frame)?;
-    protocol_utils::expect_ok(&response)
+    let _ = protocol_utils::frame_to_results(frame)?;
+    Ok(())
   }
 }
 

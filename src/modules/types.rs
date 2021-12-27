@@ -564,6 +564,69 @@ impl Default for Blocking {
   }
 }
 
+/// Configuration options for backpressure features in the client.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BackpressureConfig {
+  /// Whether or not to disable the automatic backpressure features when pipelining is enabled.
+  ///
+  /// If `true` then `RedisErrorKind::Backpressure` errors may be surfaced to callers.
+  ///
+  /// Default: `false`
+  pub disable_auto_backpressure: bool,
+  /// Disable the backpressure scaling logic used to calculate the `sleep` duration when throttling commands.
+  ///
+  /// If `true` then the client will always wait a constant amount of time defined by [get_min_backpressure_time_ms](crate::globals::get_min_backpressure_time_ms) when throttling commands.
+  ///
+  /// Default: `false`
+  pub disable_backpressure_scaling: bool,
+  // TODO add backpressure min time, backpressure count
+}
+
+impl Default for BackpressureConfig {
+  fn default() -> Self {
+    BackpressureConfig {
+      disable_auto_backpressure: false,
+      disable_backpressure_scaling: false,
+    }
+  }
+}
+
+/// Configuration options that can affect the performance of the client.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PerformanceConfig {
+  /// Whether or not the client should automatically pipeline commands when possible.
+  ///
+  /// Default: `true`
+  pub pipeline: bool,
+  /// The maximum number of times the client will attempt to send a command.
+  ///
+  /// This value be incremented on a command whenever the connection closes while the command is in-flight.
+  ///
+  /// Default: `3`
+  pub max_command_attempts: u32,
+  /// Configuration options for backpressure features in the client.
+  pub backpressure: BackpressureConfig,
+  /// An optional timeout (in milliseconds) to apply to all commands.
+  ///
+  /// If `0` this will disable any timeout being applied to commands.
+  ///
+  /// Default: `0`
+  pub default_command_timeout_ms: u64,
+  // TODO add feed count, cluster cache delay
+  // add function to update this on the client
+}
+
+impl Default for PerformanceConfig {
+  fn default() -> Self {
+    PerformanceConfig {
+      pipeline: true,
+      backpressure: BackpressureConfig::default(),
+      max_command_attempts: 3,
+      default_command_timeout_ms: 0,
+    }
+  }
+}
+
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisConfig {
@@ -578,10 +641,6 @@ pub struct RedisConfig {
   ///
   /// Default: `true`
   pub fail_fast: bool,
-  /// Whether or not the client should automatically pipeline commands when possible.
-  ///
-  /// Default: `true`
-  pub pipeline: bool,
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking command.
   ///
   /// Default: `Blocking::Block`
@@ -604,8 +663,10 @@ pub struct RedisConfig {
   /// command fails this will prevent the client from connecting. Callers should set this to RESP2 and use `HELLO` manually to fall back
   /// to RESP2 if needed.
   ///
-  /// Default: RESP2
+  /// Default: `RESP2`
   pub version: RespVersion,
+  /// Configuration options that can affect the performance of the client.
+  pub performance: PerformanceConfig,
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
   /// Default: `None`
@@ -624,12 +685,12 @@ impl Default for RedisConfig {
   fn default() -> Self {
     RedisConfig {
       fail_fast: true,
-      pipeline: true,
       blocking: Blocking::default(),
       username: None,
       password: None,
       server: ServerConfig::default(),
       version: RespVersion::RESP2,
+      performance: PerformanceConfig::default(),
       #[cfg(feature = "enable-tls")]
       #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
       tls: None,

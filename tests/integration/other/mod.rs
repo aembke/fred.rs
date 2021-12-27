@@ -3,8 +3,12 @@ use fred::error::{RedisError, RedisErrorKind};
 use fred::interfaces::*;
 use fred::prelude::{Blocking, RedisValue};
 use fred::types::{ClientUnblockFlag, RedisConfig, RedisMap, ServerConfig};
+use parking_lot::RwLock;
+use redis_protocol::resp3::types::RespVersion;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BTreeSet};
+use std::mem;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -171,5 +175,40 @@ pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) ->
     assert!(value.is_none());
   }
 
+  Ok(())
+}
+
+pub async fn should_safely_change_protocols_repeatedly(
+  client: RedisClient,
+  _: RedisConfig,
+) -> Result<(), RedisError> {
+  let done = Arc::new(RwLock::new(false));
+  let other = client.clone();
+  let other_done = done.clone();
+
+  let jh = tokio::spawn(async move {
+    loop {
+      if *other_done.read() {
+        return Ok::<_, RedisError>(());
+      }
+
+      let _ = other.incr("foo").await?;
+      sleep(Duration::from_millis(10)).await;
+    }
+  });
+
+  // switch protocols every half second
+  for idx in 0..20 {
+    let version = if idx % 2 == 0 {
+      RespVersion::RESP2
+    } else {
+      RespVersion::RESP3
+    };
+    let _ = client.hello(version, None).await?;
+    sleep(Duration::from_millis(500)).await;
+  }
+  let _ = mem::replace(&mut *done.write(), true);
+
+  let _ = jh.await?;
   Ok(())
 }
