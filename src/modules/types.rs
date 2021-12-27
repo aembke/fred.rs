@@ -569,14 +569,14 @@ impl Default for Blocking {
 /// See [on_cluster_change](crate::clients::RedisClient::on_cluster_change) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterStateChange {
-  /// Nodes were added to the cluster.
+  /// A node was added to the cluster.
   ///
   /// This implies that hash slots were also probably rebalanced.
-  Add(Vec<(String, u16)>),
-  /// Nodes were removed from the cluster.
+  Add((String, u16)),
+  /// A node was removed from the cluster.
   ///
   /// This implies that hash slots were also probably rebalanced.
-  Remove(Vec<String, u16>),
+  Remove((String, u16)),
   /// Hash slots were rebalanced across the cluster.
   Rebalance,
 }
@@ -592,7 +592,7 @@ pub struct BackpressureConfig {
   pub disable_auto_backpressure: bool,
   /// Disable the backpressure scaling logic used to calculate the `sleep` duration when throttling commands.
   ///
-  /// If `true` then the client will always wait a constant amount of time defined by [get_min_backpressure_time_ms](crate::globals::get_min_backpressure_time_ms) when throttling commands.
+  /// If `true` then the client will always wait a constant amount of time defined by `min_sleep_duration_ms` when throttling commands.
   ///
   /// Default: `false`
   pub disable_backpressure_scaling: bool,

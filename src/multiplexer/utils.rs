@@ -1215,6 +1215,35 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
   ))
 }
 
+/// Emit cluster state change events to listeners, dropping any there were closed.
+fn emit_cluster_changes(inner: &Arc<RedisClientInner>, changes: Vec<ClusterStateChange>) {
+  let mut to_remove = BTreeSet::new();
+
+  // check for closed senders as we emit messages, and drop them at the end
+  {
+    for (idx, tx) in inner.cluster_change_tx.read().iter().enumerate() {
+      if let Err(_) = tx.send(changes.clone()) {
+        to_remove.insert(idx);
+      }
+    }
+  }
+
+  if !to_remove.is_empty() {
+    _trace!(inner, "Removing {} closed cluster change listeners", to_remove.len());
+    let mut message_tx_guard = inner.cluster_change_tx.write();
+    let message_tx_ref = &mut *message_tx_guard;
+
+    let mut new_listeners = VecDeque::with_capacity(message_tx_ref.len() - to_remove.len());
+
+    for (idx, tx) in message_tx_ref.drain(..).enumerate() {
+      if !to_remove.contains(&idx) {
+        new_listeners.push_back(tx);
+      }
+    }
+    *message_tx_ref = new_listeners;
+  }
+}
+
 fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterChange) {
   let has_listeners = { inner.cluster_change_tx.read().len() > 0 };
 
@@ -1249,7 +1278,12 @@ fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterCha
       for parts in added.into_iter() {
         changes.push(ClusterStateChange::Add(parts))
       }
+      for parts in removed.into_iter() {
+        changes.push(ClusterStateChange::Remove(parts));
+      }
     }
+
+    emit_cluster_changes(inner, changes);
   }
 }
 
@@ -1277,6 +1311,7 @@ pub async fn sync_cluster(
     };
     let changes = create_cluster_change(&cluster_state, &writers).await;
     _debug!(inner, "Changing cluster connections: {:?}", changes);
+    broadcast_cluster_changes(inner, &changes);
 
     for removed_server in changes.remove.into_iter() {
       remove_server(inner, counters, writers, commands, connection_ids, &removed_server).await?;

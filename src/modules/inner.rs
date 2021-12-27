@@ -190,7 +190,7 @@ pub struct RedisClientInner {
   /// An mpsc sender for reconnection events to `on_reconnect` streams.
   pub reconnect_tx: RwLock<VecDeque<UnboundedSender<RedisClient>>>,
   /// An mpsc sender for cluster change notifications.
-  pub cluster_change_tx: RwLock<VecDeque<UnboundedSender<Vec<ClusterChange>>>>,
+  pub cluster_change_tx: RwLock<VecDeque<UnboundedSender<Vec<ClusterStateChange>>>>,
   /// MPSC senders for `on_connect` futures.
   pub connect_tx: RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
   /// A join handle for the task that sleeps waiting to reconnect.
