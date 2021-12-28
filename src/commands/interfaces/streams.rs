@@ -1,9 +1,9 @@
+use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::prelude::RedisError;
 use crate::types::{
   FromRedis, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XID,
 };
-use crate::{commands, utils};
 use std::convert::TryInto;
 
 /// A trait that implements the [streams](https://redis.io/commands#stream) interface.
@@ -306,6 +306,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   fn xack<R, K, G, I>(&self, key: K, group: G, ids: I) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
     G: Into<String>,
     I: Into<MultipleIDs>,
   {
@@ -379,11 +380,33 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<String>,
     I: Into<XID>,
   {
-    into!(key, group, consumer, id);
+    into!(key, group, consumer, start);
     async_spawn(self, |inner| async move {
       commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
         .await?
         .convert()
+    })
+  }
+
+  /// Inspect the list of pending messages in a consumer group.
+  ///
+  /// The `args` argument has the form `[[IDLE min-idle-time] start end count [consumer]]`.
+  ///
+  /// <https://redis.io/commands/xpending>
+  fn xpending<R, K, G>(
+    &self,
+    key: K,
+    group: G,
+    args: Option<(Option<u64>, XID, XID, u64, Option<String>)>,
+  ) -> AsyncResult<R>
+  where
+    R: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    G: Into<String>,
+  {
+    into!(key, group);
+    async_spawn(self, |inner| async move {
+      commands::streams::xpending(&inner, key, group, args).await?.convert()
     })
   }
 }

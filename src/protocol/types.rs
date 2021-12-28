@@ -20,6 +20,9 @@ use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
+#[cfg(feature = "blocking-encoding")]
+use crate::globals::globals;
+
 #[cfg(not(feature = "full-tracing"))]
 use crate::trace::disabled::Span as FakeSpan;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]

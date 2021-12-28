@@ -2,9 +2,10 @@ use crate::clients::redis::RedisClient;
 use crate::interfaces::*;
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::tls::TlsConfig;
-use crate::types::{Blocking, RedisConfig, ServerConfig};
+use crate::types::{Blocking, PerformanceConfig, RedisConfig, ServerConfig};
 use futures::{Stream, StreamExt};
 use redis_protocol::resp3::prelude::RespVersion;
+use std::default::Default;
 use std::fmt;
 use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
@@ -68,7 +69,11 @@ impl From<SentinelConfig> for RedisConfig {
         port: config.port,
       },
       fail_fast: true,
-      pipeline: false,
+      performance: PerformanceConfig {
+        pipeline: false,
+        ..Default::default()
+      },
+      database: None,
       blocking: Blocking::Block,
       username: config.username,
       password: config.password,

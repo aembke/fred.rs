@@ -3,7 +3,6 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::types::{LimitCount, RedisKey, RedisValue};
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
-use tracing::Id;
 
 /// Representation for the "=" or "~" operator in `XADD`, etc.
 #[derive(Clone, Debug, Eq, PartialEq)]

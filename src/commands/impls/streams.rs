@@ -469,3 +469,34 @@ pub async fn xautoclaim(
 
   protocol_utils::frame_to_results(frame)
 }
+
+pub async fn xpending(
+  inner: &Arc<RedisClientInner>,
+  key: RedisKey,
+  group: String,
+  cmd_args: Option<(Option<u64>, XID, XID, u64, Option<String>)>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(inner, move || {
+    let mut args = Vec::with_capacity(8);
+    args.push(key.into());
+    args.push(group.into());
+
+    if let Some((idle, start, end, count, consumer)) = cmd_args {
+      if let Some(idle) = idle {
+        args.push(IDLE.into());
+        args.push(idle.try_into()?);
+      }
+      args.push(start.into_string().into());
+      args.push(end.into_string().into());
+      args.push(count.try_into()?);
+      if let Some(consumer) = consumer {
+        args.push(consumer.into());
+      }
+    }
+
+    Ok((RedisCommandKind::Xpending, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}

@@ -5,7 +5,7 @@ use crate::interfaces::{
   async_spawn, wrap_async, AsyncResult, AuthInterface, ClientLike, MetricsInterface, PubsubInterface,
 };
 use crate::modules::inner::RedisClientInner;
-use crate::modules::types::{MultipleStrings, RedisConfig};
+use crate::types::{MultipleStrings, RedisConfig};
 use crate::utils;
 use futures::future::join_all;
 use futures::Stream;
