@@ -1,6 +1,5 @@
 use crate::error::RedisError;
 use crate::types::{RedisKey, RedisValue};
-use crate::utils;
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::iter::FromIterator;

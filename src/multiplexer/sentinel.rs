@@ -1,12 +1,12 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
-use crate::modules::types::ClientState;
 use crate::multiplexer::{utils, CloseTx, Connections, Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::connection::{self, authenticate, select_database, FramedTcp, FramedTls, RedisTransport};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
+use crate::types::ClientState;
 use crate::types::Resolve;
 use crate::types::{RedisValue, ServerConfig};
 use crate::utils as client_utils;

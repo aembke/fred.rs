@@ -7,7 +7,7 @@ use crate::interfaces::{
   TransactionInterface,
 };
 use crate::modules::inner::RedisClientInner;
-use crate::prelude::ClientLike;
+use crate::prelude::{ClientLike, StreamsInterface};
 use crate::types::*;
 use crate::utils;
 use futures::Stream;
@@ -62,6 +62,7 @@ impl SlowlogInterface for RedisClient {}
 impl SetsInterface for RedisClient {}
 impl SortedSetsInterface for RedisClient {}
 impl HeartbeatInterface for RedisClient {}
+impl StreamsInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.

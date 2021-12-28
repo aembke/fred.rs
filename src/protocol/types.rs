@@ -477,13 +477,13 @@ pub enum RedisCommandKind {
   Xrange,
   Xrevrange,
   Xlen,
-  Xread,
+  Xread((bool, Option<u16>)),
   Xgroupcreate,
   XgroupCreateConsumer,
   XgroupDelConsumer,
   XgroupDestroy,
   XgroupSetId,
-  Xreadgroup,
+  Xreadgroup((bool, Option<u16>)),
   Xack,
   Xclaim,
   Xautoclaim,
@@ -908,13 +908,13 @@ impl RedisCommandKind {
       RedisCommandKind::Xrange => "XRANGE",
       RedisCommandKind::Xrevrange => "XREVRANGE",
       RedisCommandKind::Xlen => "XLEN",
-      RedisCommandKind::Xread => "XREAD",
+      RedisCommandKind::Xread(_) => "XREAD",
       RedisCommandKind::Xgroupcreate => "XGROUP CREATE",
       RedisCommandKind::XgroupCreateConsumer => "XGROUP CREATECONSUMER",
       RedisCommandKind::XgroupDelConsumer => "XGROUP DELCONSUMER",
       RedisCommandKind::XgroupDestroy => "XGROUP DESTROY",
       RedisCommandKind::XgroupSetId => "XGROUP SETID",
-      RedisCommandKind::Xreadgroup => "XREADGROUP",
+      RedisCommandKind::Xreadgroup(_) => "XREADGROUP",
       RedisCommandKind::Xack => "XACK",
       RedisCommandKind::Xclaim => "XCLAIM",
       RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
@@ -1187,13 +1187,13 @@ impl RedisCommandKind {
       RedisCommandKind::Xrange => "XRANGE",
       RedisCommandKind::Xrevrange => "XREVRANGE",
       RedisCommandKind::Xlen => "XLEN",
-      RedisCommandKind::Xread => "XREAD",
+      RedisCommandKind::Xread(_) => "XREAD",
       RedisCommandKind::Xgroupcreate => "XGROUP",
       RedisCommandKind::XgroupCreateConsumer => "XGROUP",
       RedisCommandKind::XgroupDelConsumer => "XGROUP",
       RedisCommandKind::XgroupDestroy => "XGROUP",
       RedisCommandKind::XgroupSetId => "XGROUP",
-      RedisCommandKind::Xreadgroup => "XREADGROUP",
+      RedisCommandKind::Xreadgroup(_) => "XREADGROUP",
       RedisCommandKind::Xack => "XACK",
       RedisCommandKind::Xclaim => "XCLAIM",
       RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
@@ -1436,13 +1436,13 @@ impl RedisCommandKind {
       | RedisCommandKind::Xrange
       | RedisCommandKind::Xrevrange
       | RedisCommandKind::Xlen
-      | RedisCommandKind::Xread
+      | RedisCommandKind::Xread(_)
       | RedisCommandKind::Xgroupcreate
       | RedisCommandKind::XgroupCreateConsumer
       | RedisCommandKind::XgroupDelConsumer
       | RedisCommandKind::XgroupDestroy
       | RedisCommandKind::XgroupSetId
-      | RedisCommandKind::Xreadgroup
+      | RedisCommandKind::Xreadgroup(_)
       | RedisCommandKind::Xack
       | RedisCommandKind::Xclaim
       | RedisCommandKind::Xautoclaim
@@ -1460,6 +1460,8 @@ impl RedisCommandKind {
       | RedisCommandKind::BzPopMin
       | RedisCommandKind::BzPopMax
       | RedisCommandKind::Wait => true,
+      RedisCommandKind::Xread((ref blocking, _)) => *blocking,
+      RedisCommandKind::Xreadgroup((ref blocking, _)) => *blocking,
       RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
       _ => false,
     }
@@ -1471,6 +1473,8 @@ impl RedisCommandKind {
       RedisCommandKind::_Custom(ref kind) => kind.hash_slot.clone(),
       RedisCommandKind::EvalSha(ref slot) => slot.key_slot.clone(),
       RedisCommandKind::Eval(ref slot) => slot.key_slot.clone(),
+      RedisCommandKind::Xread((_, ref slot)) => slot.clone(),
+      RedisCommandKind::Xreadgroup((_, ref slot)) => slot.clone(),
       _ => None,
     }
   }
@@ -1674,7 +1678,12 @@ impl RedisCommand {
 
   /// Read the first key in the command, if any.
   pub fn extract_key(&self) -> Option<Cow<str>> {
-    if self.no_cluster() {
+    let has_custom_key_location = match self.kind {
+      RedisCommandKind::Xread(_) => true,
+      RedisCommandKind::Xreadgroup(_) => true,
+      _ => false,
+    };
+    if self.no_cluster() || has_custom_key_location {
       return None;
     }
 

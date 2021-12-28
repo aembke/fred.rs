@@ -39,6 +39,11 @@ pub static FREQ: &'static str = "FREQ";
 pub static FULL: &'static str = "FULL";
 pub static NOMKSTREAM: &'static str = "NOMKSTREAM";
 pub static MINID: &'static str = "MINID";
+pub static BLOCK: &'static str = "BLOCK";
+pub static STREAMS: &'static str = "STREAMS";
+pub static MKSTREAM: &'static str = "MKSTREAM";
+pub static GROUP: &'static str = "GROUP";
+pub static NOACK: &'static str = "NOACK";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the caller.
 macro_rules! ok_cmd(

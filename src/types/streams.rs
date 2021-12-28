@@ -1,31 +1,33 @@
+use crate::commands::{MAXLEN, MINID};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::types::{LimitCount, RedisKey, RedisValue};
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
+use tracing::Id;
 
 /// Representation for the "=" or "~" operator in `XADD`, etc.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum XaddCapTrim {
+pub enum XCapTrim {
   Exact,
   AlmostExact,
 }
 
-impl XaddCapTrim {
+impl XCapTrim {
   pub(crate) fn to_str(&self) -> &'static str {
     match *self {
-      XaddCapTrim::Exact => "=",
-      XaddCapTrim::AlmostExact => "~",
+      XCapTrim::Exact => "=",
+      XCapTrim::AlmostExact => "~",
     }
   }
 }
 
-impl<'a> TryFrom<&'a str> for XaddCapTrim {
+impl<'a> TryFrom<&'a str> for XCapTrim {
   type Error = RedisError;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
     Ok(match s.as_ref() {
-      "=" => XaddCapTrim::Exact,
-      "~" => XaddCapTrim::AlmostExact,
+      "=" => XCapTrim::Exact,
+      "~" => XCapTrim::AlmostExact,
       _ => {
         return Err(RedisError::new(
           RedisErrorKind::InvalidArgument,
@@ -40,6 +42,16 @@ impl<'a> TryFrom<&'a str> for XaddCapTrim {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleOrderedPairs {
   values: Vec<(RedisKey, RedisValue)>,
+}
+
+impl MultipleOrderedPairs {
+  pub fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  pub fn inner(self) -> Vec<(RedisKey, RedisValue)> {
+    self.values
+  }
 }
 
 impl<K, V> TryFrom<(K, V)> for MultipleOrderedPairs
@@ -93,45 +105,117 @@ where
   }
 }
 
+/// One or more IDs for elements in a stream.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultipleIDs {
+  inner: Vec<XID>,
+}
+
+impl MultipleIDs {
+  pub fn len(&self) -> usize {
+    self.inner.len()
+  }
+
+  pub fn inner(self) -> Vec<XID> {
+    self.inner
+  }
+}
+
+impl<T> From<T> for MultipleIDs
+where
+  T: Into<XID>,
+{
+  fn from(value: T) -> Self {
+    MultipleIDs {
+      inner: vec![value.into()],
+    }
+  }
+}
+
+impl<T> From<Vec<T>> for MultipleIDs
+where
+  T: Into<XID>,
+{
+  fn from(value: Vec<T>) -> Self {
+    MultipleIDs {
+      inner: value.into_iter().map(|value| value.into()).collect(),
+    }
+  }
+}
+
+impl<T> From<VecDeque<T>> for MultipleIDs
+where
+  T: Into<XID>,
+{
+  fn from(value: VecDeque<T>) -> Self {
+    MultipleIDs {
+      inner: value.into_iter().map(|value| value.into()).collect(),
+    }
+  }
+}
+
 /// Stream cap arguments for `XADD`, etc.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum XaddCap {
-  /// The MAXLEN argument option.
-  MaxLen,
+pub enum XCap {
+  /// The MAXLEN argument option with the trim argument (=|~), the threshold, and LIMIT option, respectively.
+  MaxLen((XCapTrim, String, LimitCount)),
   /// The MINID argument option with the trim argument (=|~), the threshold, and LIMIT option, respectively.
-  MinID((XaddCapTrim, String, LimitCount)),
+  MinID((XCapTrim, String, LimitCount)),
 }
 
-/// Stream ID arguments for `XADD`, etc.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum XaddID {
-  Auto,
-  Manual(String),
-}
+impl XCap {
+  pub(crate) fn prefix_str(&self) -> &'static str {
+    match *self {
+      XCap::MaxLen(_) => MAXLEN,
+      XCap::MinID(_) => MINID,
+    }
+  }
 
-impl XaddID {
-  pub(crate) fn to_string(self) -> String {
+  pub(crate) fn into_parts(self) -> (XCapTrim, String, LimitCount) {
     match self {
-      XaddID::Auto => "*".to_owned(),
-      XaddID::Manual(s) => s,
+      XCap::MaxLen(parts) => parts,
+      XCap::MinID(parts) => parts,
     }
   }
 }
 
-impl<'a> From<&'a str> for XaddID {
+/// Stream ID arguments for `XADD`, `XREAD`, etc.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum XID {
+  /// The auto-generated key symbol "*".
+  Auto,
+  /// An ID specified by the user such as "12345-0".
+  Manual(String),
+  /// The highest ID in a stream ("$").
+  Max,
+}
+
+impl XID {
+  pub(crate) fn into_string(self) -> String {
+    match self {
+      XID::Auto => "*".to_owned(),
+      XID::Max => "$".to_owned(),
+      XID::Manual(s) => s,
+    }
+  }
+}
+
+impl<'a> From<&'a str> for XID {
   fn from(value: &'a str) -> Self {
     match value.as_ref() {
-      "*" => XaddID::Auto,
-      _ => XaddID::Manual(value.to_owned()),
+      "*" => XID::Auto,
+      "$" => XID::Max,
+      _ => XID::Manual(value.to_owned()),
     }
   }
 }
 
-impl From<String> for XaddID {
+impl From<String> for XID {
   fn from(value: String) -> Self {
     match value.as_ref() {
-      "*" => XaddID::Auto,
-      _ => XaddID::Manual(value),
+      "*" => XID::Auto,
+      "$" => XID::Max,
+      _ => XID::Manual(value),
     }
   }
 }

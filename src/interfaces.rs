@@ -362,7 +362,8 @@ pub use crate::commands::interfaces::{
   hashes::HashesInterface, hyperloglog::HyperloglogInterface, keys::KeysInterface, lists::ListInterface,
   lua::LuaInterface, memory::MemoryInterface, metrics::MetricsInterface, pubsub::PubsubInterface,
   server::AuthInterface, server::HeartbeatInterface, server::ServerInterface, sets::SetsInterface,
-  slowlog::SlowlogInterface, sorted_sets::SortedSetsInterface, transactions::TransactionInterface,
+  slowlog::SlowlogInterface, sorted_sets::SortedSetsInterface, streams::StreamsInterface,
+  transactions::TransactionInterface,
 };
 
 #[cfg(feature = "sentinel-client")]

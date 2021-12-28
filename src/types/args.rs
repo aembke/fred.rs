@@ -1,6 +1,7 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::ClientLike;
 use crate::protocol::connection::OK;
+use crate::protocol::utils as protocol_utils;
 use crate::types::{FromRedis, GeoPosition, NIL, QUEUED};
 use crate::utils;
 use float_cmp::approx_eq;
@@ -12,7 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use std::{fmt, mem};
+use std::{fmt, mem, str};
 
 /// A key in Redis.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
