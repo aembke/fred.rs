@@ -387,3 +387,85 @@ pub async fn xack(
 
   protocol_utils::frame_to_results(frame)
 }
+
+pub async fn xclaim(
+  inner: &Arc<RedisClientInner>,
+  key: RedisKey,
+  group: String,
+  consumer: String,
+  min_idle_time: u64,
+  ids: MultipleIDs,
+  idle: Option<u64>,
+  time: Option<u64>,
+  retry_count: Option<u64>,
+  force: bool,
+  justid: bool,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(inner, move || {
+    let mut args = Vec::with_capacity(12 + ids.len());
+    args.push(key.into());
+    args.push(group.into());
+    args.push(consumer.into());
+    args.push(min_idle_time.try_into()?);
+
+    for id in ids.inner().into_iter() {
+      args.push(id.into_string().into());
+    }
+    if let Some(idle) = idle {
+      args.push(IDLE.into());
+      args.push(idle.try_into()?);
+    }
+    if let Some(time) = time {
+      args.push(TIME.into());
+      args.push(time.try_into()?);
+    }
+    if let Some(retry_count) = retry_count {
+      args.push(RETRYCOUNT.into());
+      args.push(retry_count.try_into()?);
+    }
+    if force {
+      args.push(FORCE.into());
+    }
+    if justid {
+      args.push(JUSTID.into());
+    }
+
+    Ok((RedisCommandKind::Xclaim, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn xautoclaim(
+  inner: &Arc<RedisClientInner>,
+  key: RedisKey,
+  group: String,
+  consumer: String,
+  min_idle_time: u64,
+  start: XID,
+  count: Option<u64>,
+  justid: bool,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(inner, move || {
+    let mut args = Vec::with_capacity(8);
+    args.push(key.into());
+    args.push(group.into());
+    args.push(consumer.into());
+    args.push(min_idle_time.try_into()?);
+    args.push(start.into_string().into());
+
+    if let Some(count) = count {
+      args.push(COUNT.into());
+      args.push(count.try_into()?);
+    }
+    if justid {
+      args.push(JUSTID.into());
+    }
+
+    Ok((RedisCommandKind::Xautoclaim, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}

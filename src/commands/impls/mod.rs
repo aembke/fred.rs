@@ -44,6 +44,10 @@ pub static STREAMS: &'static str = "STREAMS";
 pub static MKSTREAM: &'static str = "MKSTREAM";
 pub static GROUP: &'static str = "GROUP";
 pub static NOACK: &'static str = "NOACK";
+pub static IDLE: &'static str = "IDLE";
+pub static TIME: &'static str = "TIME";
+pub static RETRYCOUNT: &'static str = "RETRYCOUNT";
+pub static JUSTID: &'static str = "JUSTID";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the caller.
 macro_rules! ok_cmd(

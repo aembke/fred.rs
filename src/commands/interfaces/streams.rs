@@ -314,4 +314,76 @@ pub trait StreamsInterface: ClientLike + Sized {
       commands::streams::xack(&inner, key, group, ids).await?.convert()
     })
   }
+
+  /// n the context of a stream consumer group, this command changes the ownership of a pending message,
+  /// so that the new owner is the consumer specified as the command argument.
+  ///
+  /// <https://redis.io/commands/xclaim>
+  fn xclaim<R, K, G, C, I>(
+    &self,
+    key: K,
+    group: G,
+    consumer: C,
+    min_idle_time: u64,
+    ids: I,
+    idle: Option<u64>,
+    time: Option<u64>,
+    retry_count: Option<u64>,
+    force: bool,
+    justid: bool,
+  ) -> AsyncResult<R>
+  where
+    R: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    G: Into<String>,
+    C: Into<String>,
+    I: Into<MultipleIDs>,
+  {
+    into!(key, group, consumer, ids);
+    async_spawn(self, |inner| async move {
+      commands::streams::xclaim(
+        &inner,
+        key,
+        group,
+        consumer,
+        min_idle_time,
+        ids,
+        idle,
+        time,
+        retry_count,
+        force,
+        justid,
+      )
+      .await?
+      .convert()
+    })
+  }
+
+  /// This command transfers ownership of pending stream entries that match the specified criteria.
+  ///
+  /// <https://redis.io/commands/xautoclaim>
+  fn xautoclaim<R, K, G, C, I>(
+    &self,
+    key: K,
+    group: G,
+    consumer: C,
+    min_idle_time: u64,
+    start: I,
+    count: Option<u64>,
+    justid: bool,
+  ) -> AsyncResult<R>
+  where
+    R: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    G: Into<String>,
+    C: Into<String>,
+    I: Into<XID>,
+  {
+    into!(key, group, consumer, id);
+    async_spawn(self, |inner| async move {
+      commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
+        .await?
+        .convert()
+    })
+  }
 }
