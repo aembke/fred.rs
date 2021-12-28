@@ -468,6 +468,26 @@ pub enum RedisCommandKind {
   Unwatch,
   Wait,
   Watch,
+  XinfoConsumers,
+  XinfoGroups,
+  XinfoStream,
+  Xadd,
+  Xtrim,
+  Xdel,
+  Xrange,
+  Xrevrange,
+  Xlen,
+  Xread,
+  Xgroupcreate,
+  XgroupCreateConsumer,
+  XgroupDelConsumer,
+  XgroupDestroy,
+  XgroupSetId,
+  Xreadgroup,
+  Xack,
+  Xclaim,
+  Xautoclaim,
+  Xpending,
   Zadd,
   Zcard,
   Zcount,
@@ -879,6 +899,26 @@ impl RedisCommandKind {
       RedisCommandKind::Unwatch => "UNWATCH",
       RedisCommandKind::Wait => "WAIT",
       RedisCommandKind::Watch => "WATCH",
+      RedisCommandKind::XinfoConsumers => "XINFO CONSUMERS",
+      RedisCommandKind::XinfoGroups => "XINFO GROUPS",
+      RedisCommandKind::XinfoStream => "XINFO STREAM",
+      RedisCommandKind::Xadd => "XADD",
+      RedisCommandKind::Xtrim => "XTRIM",
+      RedisCommandKind::Xdel => "XDEL",
+      RedisCommandKind::Xrange => "XRANGE",
+      RedisCommandKind::Xrevrange => "XREVRANGE",
+      RedisCommandKind::Xlen => "XLEN",
+      RedisCommandKind::Xread => "XREAD",
+      RedisCommandKind::Xgroupcreate => "XGROUP CREATE",
+      RedisCommandKind::XgroupCreateConsumer => "XGROUP CREATECONSUMER",
+      RedisCommandKind::XgroupDelConsumer => "XGROUP DELCONSUMER",
+      RedisCommandKind::XgroupDestroy => "XGROUP DESTROY",
+      RedisCommandKind::XgroupSetId => "XGROUP SETID",
+      RedisCommandKind::Xreadgroup => "XREADGROUP",
+      RedisCommandKind::Xack => "XACK",
+      RedisCommandKind::Xclaim => "XCLAIM",
+      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
+      RedisCommandKind::Xpending => "XPENDING",
       RedisCommandKind::Zadd => "ZADD",
       RedisCommandKind::Zcard => "ZCARD",
       RedisCommandKind::Zcount => "ZCOUNT",
@@ -1138,6 +1178,26 @@ impl RedisCommandKind {
       RedisCommandKind::Unwatch => "UNWATCH",
       RedisCommandKind::Wait => "WAIT",
       RedisCommandKind::Watch => "WATCH",
+      RedisCommandKind::XinfoConsumers => "XINFO",
+      RedisCommandKind::XinfoGroups => "XINFO",
+      RedisCommandKind::XinfoStream => "XINFO",
+      RedisCommandKind::Xadd => "XADD",
+      RedisCommandKind::Xtrim => "XTRIM",
+      RedisCommandKind::Xdel => "XDEL",
+      RedisCommandKind::Xrange => "XRANGE",
+      RedisCommandKind::Xrevrange => "XREVRANGE",
+      RedisCommandKind::Xlen => "XLEN",
+      RedisCommandKind::Xread => "XREAD",
+      RedisCommandKind::Xgroupcreate => "XGROUP",
+      RedisCommandKind::XgroupCreateConsumer => "XGROUP",
+      RedisCommandKind::XgroupDelConsumer => "XGROUP",
+      RedisCommandKind::XgroupDestroy => "XGROUP",
+      RedisCommandKind::XgroupSetId => "XGROUP",
+      RedisCommandKind::Xreadgroup => "XREADGROUP",
+      RedisCommandKind::Xack => "XACK",
+      RedisCommandKind::Xclaim => "XCLAIM",
+      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
+      RedisCommandKind::Xpending => "XPENDING",
       RedisCommandKind::Zadd => "ZADD",
       RedisCommandKind::Zcard => "ZCARD",
       RedisCommandKind::Zcount => "ZCOUNT",
@@ -1253,6 +1313,14 @@ impl RedisCommandKind {
       RedisCommandKind::MemoryMallocStats => "MALLOC-STATS",
       RedisCommandKind::MemoryStats => "STATS",
       RedisCommandKind::MemoryPurge => "PURGE",
+      RedisCommandKind::XinfoConsumers => "CONSUMERS",
+      RedisCommandKind::XinfoGroups => "GROUPS",
+      RedisCommandKind::XinfoStream => "STREAM",
+      RedisCommandKind::Xgroupcreate => "CREATE",
+      RedisCommandKind::XgroupCreateConsumer => "CREATECONSUMER",
+      RedisCommandKind::XgroupDelConsumer => "DELCONSUMER",
+      RedisCommandKind::XgroupDestroy => "DESTROY",
+      RedisCommandKind::XgroupSetId => "SETID",
       _ => return None,
     };
 
@@ -1353,6 +1421,32 @@ impl RedisCommandKind {
       | RedisCommandKind::MemoryMallocStats
       | RedisCommandKind::MemoryHelp
       | RedisCommandKind::MemoryDoctor => true,
+      _ => false,
+    }
+  }
+
+  pub fn is_stream_command(&self) -> bool {
+    match *self {
+      RedisCommandKind::XinfoConsumers
+      | RedisCommandKind::XinfoGroups
+      | RedisCommandKind::XinfoStream
+      | RedisCommandKind::Xadd
+      | RedisCommandKind::Xtrim
+      | RedisCommandKind::Xdel
+      | RedisCommandKind::Xrange
+      | RedisCommandKind::Xrevrange
+      | RedisCommandKind::Xlen
+      | RedisCommandKind::Xread
+      | RedisCommandKind::Xgroupcreate
+      | RedisCommandKind::XgroupCreateConsumer
+      | RedisCommandKind::XgroupDelConsumer
+      | RedisCommandKind::XgroupDestroy
+      | RedisCommandKind::XgroupSetId
+      | RedisCommandKind::Xreadgroup
+      | RedisCommandKind::Xack
+      | RedisCommandKind::Xclaim
+      | RedisCommandKind::Xautoclaim
+      | RedisCommandKind::Xpending => true,
       _ => false,
     }
   }

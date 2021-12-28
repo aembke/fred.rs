@@ -36,6 +36,9 @@ pub static REV: &'static str = "REV";
 pub static ABSTTL: &'static str = "ABSTTL";
 pub static IDLE_TIME: &'static str = "IDLETIME";
 pub static FREQ: &'static str = "FREQ";
+pub static FULL: &'static str = "FULL";
+pub static NOMKSTREAM: &'static str = "NOMKSTREAM";
+pub static MINID: &'static str = "MINID";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the caller.
 macro_rules! ok_cmd(

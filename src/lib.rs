@@ -78,6 +78,8 @@ pub mod interfaces;
 #[cfg(feature = "monitor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "monitor")))]
 pub mod monitor;
+/// The structs and enums used by the Redis client.
+pub mod types;
 /// An interface for interacting directly with sentinel nodes.
 
 /// Utility functions used by the client that may also be useful to callers.
@@ -96,7 +98,7 @@ pub mod util {
   }
 }
 
-pub use crate::modules::{globals, pool, types};
+pub use crate::modules::{globals, pool};
 
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or return value types.
 pub mod prelude {
