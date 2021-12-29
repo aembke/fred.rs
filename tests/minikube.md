@@ -45,7 +45,7 @@ There are a couple other things to note about Redis cluster usage:
 
 This doc will not cover how this happens because it's often not necessary to know that for minikube usage. However there are a few important things to remember with Redis clusters and minikube:
 
-* Clients often need to be aware of the stata of all cluster nodes in order to know which nodes need a connection. Generally speaking clients connect to each primary node. 
+* Clients often need to be aware of the state of all cluster nodes in order to know which nodes need a connection. Generally speaking clients connect to each primary node. 
 * The `CLUSTER NODES` response contains IP addresses for all of the nodes.
 * The client has to use the `CLUSTER NODES` response to initiate connections to other nodes.
 
@@ -62,12 +62,12 @@ This is how fred works. When initiating a connection to a cluster it does the fo
 
 ### Redis Sentinel
 
-When using a Redis server behind a Sentinel layer the process is somewhat similar to a cluster. Redis Sentinel works by adding a management layer in front of the Redis server that tracks the health of the Redis server. If the Redis server dies unexpectedly the sentinel can fail over to a replica. Clients connect to the sentinel first in order to learn about how they should connect to backing Redis server. Typically these sentinel nodes are deployed on different machines or containers.
+When using a Redis server behind a Sentinel layer the process is somewhat similar to a cluster. Redis Sentinel works by adding a management layer in front of the Redis server that tracks the health of the Redis server. If the Redis server dies unexpectedly the sentinel can fail over to a replica. Clients connect to the sentinel first in order to learn about how they should connect to the backing Redis server. Typically these sentinel nodes are deployed on different machines or containers.
 
 When connecting to a sentinel node the client does the following:
 
 1. Read the client's `ServerConfig::Sentinel` to find the list of known hosts/ports for the sentinel nodes provided by the caller.
-2. Try to connect to each of the sentinel nodes. If none can accept connections then fail over.
+2. Try to connect to each of the sentinel nodes. If none can accept connections then return an error.
 3. Run the `SENTINEL get-master-addr-by-name` command on the sentinel node. 
 4. Parse the response to find the IP address / port for the main Redis server. The sentinel will change this if it needs to fail over to a replica, etc.
 5. Connect to the IP address / port from the previous step. Return an error if a connection cannot be established.

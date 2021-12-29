@@ -29,7 +29,7 @@ I [_highly_ recommend](https://github.com/StackExchange/StackExchange.Redis/issu
 
 The underlying protocol parser library has great test coverage (close to 100%, excluding error generation boilerplate).
 
-This library itself has pretty good test coverage, but it could always be better. All in all there are about 1300 tests that are designed to cover real use cases from both the Redis docs website and my personal experience with Redis over the years. Pretty much every test will run multiple times to check the interaction between clustered servers, centralized servers, sentinel servers, pipelined clients, non-pipelined clients, and RESP2 or RESP3 modes.
+This library itself has pretty good test coverage, but it could always be better. All in all there are about 1600 tests that are designed to cover real use cases from both the Redis docs website and my personal experience with Redis over the years. Pretty much every test will run multiple times to check the interaction between clustered servers, centralized servers, sentinel servers, pipelined clients, non-pipelined clients, and RESP2 or RESP3 modes.
 
 All of the integration tests run against real, live Redis servers. In the past I tried using a mocking layer for the tests, but it proved to be unsustainable, and often didn't help prevent bugs. Redis just moves too fast and in my experience there's simply no replacement for real feedback from a real server in the tests.
 
@@ -37,7 +37,7 @@ The one area that is lacking test coverage is the CLUSTER command category. Thos
 
 ## How is the performance?
 
-It's pretty good in general, especially when the `pipeline` flag is enabled. I can do about 2MM req/sec in one process on my desktop (12 cores, 64 GB, Debian 10) running against a single centralized Redis server. When I try to do more the Redis server starts blowing up memory buffering commands, so I haven't tried to push it too much beyond that. In my experience most deployments don't vertically scale that much anyways - apps tend to horizontally scale instead.
+It's pretty good in general, especially when the `pipeline` flag is enabled. I can do about 2MM req/sec in one process on my desktop (12 cores, 64 GB, Debian 10) running against a single centralized Redis server. When I try to do more either the client or server starts blowing up memory buffering commands, so I haven't tried to push it too much beyond that. In my experience most deployments don't vertically scale that much anyways - apps tend to horizontally scale instead.
 
 The hot path on all commands only requires taking one write/mutex lock (a requirement for pipelining), and the rest is lock-free due to the use of message passing semantics throughout the implementation. There are a small number of commands that require reading another lock or two, but in general the hot path is largely lock-free. If you're reading the code you may see quite a few `RwLock` types, but the vast majority of those are not in the hot path. There are a few that are that I haven't mentioned since they're not actually used in a way where there can be any contention. However, since a lot of the Tokio interface requires that types be at least `Send` (and often `Sync + 'static` too), I often didn't have a choice but to wrap a type in `Arc<RwLock<T>` for mutability purposes even though there will never be any contention on the lock.
 
@@ -113,7 +113,7 @@ I prefer to use clients that offer robust configuration options such that I can 
 
 It is possible to configure this library such that even in the event of a total Redis outage the client doesn't lose any data, and the moment your Redis deployment comes back up everything starts working again without any manual intervention in the app layer. This assumes some things about your app, but it is possible. It can take quite a few feature flags and config options to enable this level of durability and resilience on both the client and server, hence the large number of build and runtime options in this library.
 
-With all of that said, I have a request for callers that use this library. If you use this in production and have an outage or major issue as a result of _anything_ related to Redis, please consider filing an issue with the "RCA" label, even if it's just to let me know about it. If you find yourself saying "this could have been avoided if the client did X", please let me know what X is, and I'll strongly consider adding it. I also use this in production at scale and would like to avoid as many issues as possible.
+With all of that said, I have a request for callers that use this library. If you use this in production and have an outage or major issue as a result of _anything_ related to Redis where a feature in this library could have helped, please consider filing an issue with the "RCA" label, even if it's just to let me know about it. If you find yourself saying "this could have been avoided if the client did X", please let me know what X is, and I'll strongly consider adding it. I also use this in production at scale and would like to avoid as many issues as possible.
 
 ## How can I contribute?
 

@@ -223,3 +223,55 @@ pub mod acl {
   centralized_test!(acl, should_auth_as_test_user_via_config);
   centralized_test!(acl, should_run_acl_getuser);
 }
+
+mod streams {
+  centralized_test!(streams, should_xinfo_consumers);
+  centralized_test!(streams, should_xinfo_groups);
+  centralized_test!(streams, should_xinfo_streams);
+  centralized_test!(streams, should_xadd_auto_id_to_a_stream);
+  centralized_test!(streams, should_xadd_manual_id_to_a_stream);
+  centralized_test!(streams, should_xadd_with_cap_to_a_stream);
+  centralized_test!(streams, should_xadd_nomkstream_to_a_stream);
+  centralized_test!(streams, should_xtrim_a_stream_approx_cap);
+  centralized_test!(streams, should_xtrim_a_stream_eq_cap);
+  centralized_test!(streams, should_xdel_one_id_in_a_stream);
+  centralized_test!(streams, should_xdel_multiple_ids_in_a_stream);
+  centralized_test!(streams, should_xrange_no_count);
+  centralized_test!(streams, should_xrange_with_count);
+  centralized_test!(streams, should_xrevrange_no_count);
+  centralized_test!(streams, should_xrevrange_with_count);
+  centralized_test!(streams, should_run_xlen_on_stream);
+  centralized_test!(streams, should_xread_one_key_latest_id);
+  centralized_test!(streams, should_xread_multiple_keys_latest_id);
+  centralized_test!(streams, should_xread_manual_id);
+  centralized_test!(streams, should_xread_with_blocking);
+  centralized_test!(streams, should_xread_with_count);
+  centralized_test!(streams, should_xread_with_blocking_and_count);
+  centralized_test!(streams, should_xgroup_create_no_mkstream);
+  centralized_test!(streams, should_xgroup_create_mkstream);
+  centralized_test!(streams, should_xgroup_createconsumer);
+  centralized_test!(streams, should_xgroup_delconsumer);
+  centralized_test!(streams, should_xgroup_destroy);
+  centralized_test!(streams, should_xgroup_setid);
+  centralized_test!(streams, should_xreadgroup_one_stream);
+  centralized_test!(streams, should_xreadgroup_multiple_stream);
+  centralized_test!(streams, should_xreadgroup_noack);
+  centralized_test!(streams, should_xreadgroup_block);
+  centralized_test!(streams, should_xreadgroup_count);
+  centralized_test!(streams, should_xreadgroup_block_and_count);
+  centralized_test!(streams, should_xack_one_id);
+  centralized_test!(streams, should_xack_multiple_ids);
+  centralized_test!(streams, should_xclaim_one_id);
+  centralized_test!(streams, should_xclaim_multiple_ids);
+  centralized_test!(streams, should_xclaim_with_idle);
+  centralized_test!(streams, should_xclaim_with_time);
+  centralized_test!(streams, should_xclaim_with_retrycount);
+  centralized_test!(streams, should_xclaim_with_force);
+  centralized_test!(streams, should_xclaim_with_justid);
+  centralized_test!(streams, should_xautoclaim_default);
+  centralized_test!(streams, should_xautoclaim_with_count);
+  centralized_test!(streams, should_xautoclaim_with_justid);
+  centralized_test!(streams, should_xpending_default);
+  centralized_test!(streams, should_xpending_with_idle_no_consumer);
+  centralized_test!(streams, should_xautoclaim_with_idle_and_consumer);
+}

@@ -20,6 +20,7 @@ mod server;
 mod sets;
 mod slowlog;
 mod sorted_sets;
+mod streams;
 
 pub mod centralized;
 pub mod clustered;

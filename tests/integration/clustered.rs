@@ -227,3 +227,55 @@ pub mod geo {
 pub mod acl {
   cluster_test!(acl, should_run_acl_getuser);
 }
+
+mod streams {
+  cluster_test!(streams, should_xinfo_consumers);
+  cluster_test!(streams, should_xinfo_groups);
+  cluster_test!(streams, should_xinfo_streams);
+  cluster_test!(streams, should_xadd_auto_id_to_a_stream);
+  cluster_test!(streams, should_xadd_manual_id_to_a_stream);
+  cluster_test!(streams, should_xadd_with_cap_to_a_stream);
+  cluster_test!(streams, should_xadd_nomkstream_to_a_stream);
+  cluster_test!(streams, should_xtrim_a_stream_approx_cap);
+  cluster_test!(streams, should_xtrim_a_stream_eq_cap);
+  cluster_test!(streams, should_xdel_one_id_in_a_stream);
+  cluster_test!(streams, should_xdel_multiple_ids_in_a_stream);
+  cluster_test!(streams, should_xrange_no_count);
+  cluster_test!(streams, should_xrange_with_count);
+  cluster_test!(streams, should_xrevrange_no_count);
+  cluster_test!(streams, should_xrevrange_with_count);
+  cluster_test!(streams, should_run_xlen_on_stream);
+  cluster_test!(streams, should_xread_one_key_latest_id);
+  cluster_test!(streams, should_xread_multiple_keys_latest_id);
+  cluster_test!(streams, should_xread_manual_id);
+  cluster_test!(streams, should_xread_with_blocking);
+  cluster_test!(streams, should_xread_with_count);
+  cluster_test!(streams, should_xread_with_blocking_and_count);
+  cluster_test!(streams, should_xgroup_create_no_mkstream);
+  cluster_test!(streams, should_xgroup_create_mkstream);
+  cluster_test!(streams, should_xgroup_createconsumer);
+  cluster_test!(streams, should_xgroup_delconsumer);
+  cluster_test!(streams, should_xgroup_destroy);
+  cluster_test!(streams, should_xgroup_setid);
+  cluster_test!(streams, should_xreadgroup_one_stream);
+  cluster_test!(streams, should_xreadgroup_multiple_stream);
+  cluster_test!(streams, should_xreadgroup_noack);
+  cluster_test!(streams, should_xreadgroup_block);
+  cluster_test!(streams, should_xreadgroup_count);
+  cluster_test!(streams, should_xreadgroup_block_and_count);
+  cluster_test!(streams, should_xack_one_id);
+  cluster_test!(streams, should_xack_multiple_ids);
+  cluster_test!(streams, should_xclaim_one_id);
+  cluster_test!(streams, should_xclaim_multiple_ids);
+  cluster_test!(streams, should_xclaim_with_idle);
+  cluster_test!(streams, should_xclaim_with_time);
+  cluster_test!(streams, should_xclaim_with_retrycount);
+  cluster_test!(streams, should_xclaim_with_force);
+  cluster_test!(streams, should_xclaim_with_justid);
+  cluster_test!(streams, should_xautoclaim_default);
+  cluster_test!(streams, should_xautoclaim_with_count);
+  cluster_test!(streams, should_xautoclaim_with_justid);
+  cluster_test!(streams, should_xpending_default);
+  cluster_test!(streams, should_xpending_with_idle_no_consumer);
+  cluster_test!(streams, should_xautoclaim_with_idle_and_consumer);
+}
