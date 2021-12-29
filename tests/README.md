@@ -17,7 +17,6 @@ In order to run the installation scripts the following must be installed:
 * OpenSSL (`libssl-dev`) for testing TLS features without vendored OpenSSL dependencies
 * `docker`
 * `docker-compose` (this may come with `docker` depending on the version you use)
-* `expect`
 
 ### Fresh Installation
 

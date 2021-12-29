@@ -62,7 +62,7 @@ name = "monitor"
 required-features = ["monitor"]
 
 [features]
-default = ["ignore-auth-error", "pool-prefer-active", "enable-tls", "metrics"]
+default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
 subscriber-client = []
 metrics = []
 ignore-auth-error = []
