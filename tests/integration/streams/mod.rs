@@ -1,14 +1,62 @@
 use fred::prelude::*;
+use std::collections::HashMap;
+
+async fn create_fake_group_and_stream(client: &RedisClient) -> Result<(), RedisError> {
+  client.xgroup_create("foo{1}", "group1", "$", true).await
+}
 
 pub async fn should_xinfo_consumers(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: Result<(), RedisError> = client.xinfo_consumers("foo{1}", "group1").await;
+  assert!(result.is_err());
+
+  let _ = create_fake_group_and_stream(&client).await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let consumers: Vec<HashMap<String, String>> = client.xinfo_consumers("foo{1}", "group1").await?;
+  assert_eq!(consumers.len(), 1);
+  assert_eq!(consumers[0].get("name"), Some(&"consumer1".to_owned()));
+
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+  let consumers: Vec<HashMap<String, String>> = client.xinfo_consumers("foo{1}", "group1").await?;
+  assert_eq!(consumers.len(), 2);
+  assert_eq!(consumers[0].get("name"), Some(&"consumer1".to_owned()));
+  assert_eq!(consumers[1].get("name"), Some(&"consumer2".to_owned()));
+
   Ok(())
 }
 
 pub async fn should_xinfo_groups(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: Result<(), RedisError> = client.xinfo_groups("foo{1}").await;
+  assert!(result.is_err());
+
+  let _ = create_fake_group_and_stream(&client).await?;
+  let result: Vec<HashMap<String, String>> = client.xinfo_groups("foo{1}").await?;
+  assert_eq!(result.len(), 1);
+  assert_eq!(result[0].get("name"), Some(&"group1".to_owned()));
+
+  let _: () = client.xgroup_create("foo{1}", "group2", "$", true).await?;
+  let result: Vec<HashMap<String, String>> = client.xinfo_groups("foo{1}").await?;
+  assert_eq!(result.len(), 2);
+  assert_eq!(result[0].get("name"), Some(&"group1".to_owned()));
+  assert_eq!(result[1].get("name"), Some(&"group2".to_owned()));
+
   Ok(())
 }
 
 pub async fn should_xinfo_streams(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: Result<(), RedisError> = client.xinfo_stream("foo{1}", true, None).await;
+  assert!(result.is_err());
+
+  let _ = create_fake_group_and_stream(&client).await?;
+  let mut result: HashMap<String, RedisValue> = client.xinfo_stream("foo{1}", true, None).await?;
+  assert_eq!(result.len(), 6);
+  assert_eq!(result.get("length"), Some(&RedisValue::Integer(0)));
+
+  let groups: HashMap<String, RedisValue> = result.remove("groups").unwrap().convert()?;
+  assert_eq!(groups.get("name"), Some(&RedisValue::from("group1")));
+
   Ok(())
 }
 

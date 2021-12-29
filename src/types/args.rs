@@ -429,10 +429,35 @@ impl<'a> RedisValue {
     }
   }
 
+  /// Whether or not the value is an array or map.
+  pub fn is_aggregate_type(&self) -> bool {
+    match *self {
+      RedisValue::Array(_) | RedisValue::Map(_) => true,
+      _ => false,
+    }
+  }
+
   /// Whether or not the value is a `RedisMap`.
   pub fn is_map(&self) -> bool {
     match *self {
       RedisValue::Map(_) => true,
+      _ => false,
+    }
+  }
+
+  /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered element is not an aggregate type.
+  ///
+  /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps.
+  pub fn is_probably_map(&self) -> bool {
+    match *self {
+      RedisValue::Map(_) => true,
+      RedisValue::Array(ref arr) => {
+        if arr.len() % 2 == 0 {
+          arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
+        } else {
+          false
+        }
+      }
       _ => false,
     }
   }

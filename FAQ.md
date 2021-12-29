@@ -9,7 +9,7 @@ However, some users have [reported issues with that version of actix](https://gi
 
 ## I'm not using Tokio - can I still use this?
 
-Unfortunately no, not really. I've found tokio to be just "too good to avoid", and it supports everything I wanted to do with this library and more. There are no plans to support `async-std`, but anybody is welcome to fork this and give it a try. If you need `async-std` support, or you don't want to use tokio I would recommend [redis-rs](https://crates.io/crates/redis), which is also a really good option.  
+Unfortunately no, not really. Tokio supports everything I wanted to do with this library and more. There are no plans to support `async-std`, but anybody is welcome to fork this and give it a try. If you need `async-std` support, or you don't want to use tokio I would recommend [redis-rs](https://crates.io/crates/redis), which is also a really good option.  
 
 In my opinion Tokio is really great though, and I highly recommend that callers consider using it if an async runtime is needed.
 

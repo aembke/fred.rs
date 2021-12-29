@@ -11,6 +11,18 @@ use redis_protocol::redis_keyslot;
 use std::convert::TryInto;
 use std::sync::Arc;
 
+fn check_map_array_wrapper(value: RedisValue) -> RedisValue {
+  // due to the automatic pop() on single element arrays the result here can be difficult to type generically.
+  // in commands like XINFO_* if the result only has one consumer you get a map, if it mas more than one you get
+  // an array of maps. ideally we'd get an array regardless, hence this added check...
+
+  if value.is_probably_map() {
+    RedisValue::Array(vec![value])
+  } else {
+    value
+  }
+}
+
 fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
   args.push(cap.prefix_str().into());
 
@@ -35,12 +47,12 @@ pub async fn xinfo_consumers(
   })
   .await?;
 
-  protocol_utils::frame_to_results(frame)
+  Ok(check_map_array_wrapper(protocol_utils::frame_to_results(frame)?))
 }
 
 pub async fn xinfo_groups(inner: &Arc<RedisClientInner>, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || Ok((RedisCommandKind::XinfoGroups, vec![key.into()]))).await?;
-  protocol_utils::frame_to_results(frame)
+  Ok(check_map_array_wrapper(protocol_utils::frame_to_results(frame)?))
 }
 
 pub async fn xinfo_stream(
