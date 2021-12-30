@@ -221,12 +221,14 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Sets the given keys to their respective values.
   ///
   /// <https://redis.io/commands/mset>
-  fn mset<V>(&self, values: V) -> AsyncResult<RedisValue>
+  fn mset<V>(&self, values: V) -> AsyncResult<()>
   where
     V: Into<RedisMap>,
   {
     into!(values);
-    async_spawn(self, |inner| async move { commands::keys::mset(&inner, values).await })
+    async_spawn(self, |inner| async move {
+      commands::keys::mset(&inner, values).await?.convert()
+    })
   }
 
   /// Sets the given keys to their respective values. MSETNX will not perform any operation at all even if just a single key already exists.

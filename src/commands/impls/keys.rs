@@ -294,10 +294,7 @@ where
   one_arg_value_cmd(inner, RedisCommandKind::Strlen, key.into().into()).await
 }
 
-pub async fn mget<K>(inner: &Arc<RedisClientInner>, keys: K) -> Result<RedisValue, RedisError>
-where
-  K: Into<MultipleKeys>,
-{
+pub async fn mget(inner: &Arc<RedisClientInner>, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   let keys = keys.into();
   utils::check_empty_keys(&keys)?;
 

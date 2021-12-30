@@ -11,12 +11,10 @@ This document gives some background on how the library is structured and how to 
 
 ## TODO List
 
-* Streams
-* [WIP] RESP3 support (see [redis-protocol](https://crates.io/crates/redis-protocol)). 
 * Redis version 7.x commands
-* Mocking layer
 * Gate commands unique to a particular Redis version behind build time features.
 * [WIP] Support custom DNS resolvers on the client.
+* Any missing commands.
 
 If you'd like to contribute to any of the above features feel free to reach out
 
@@ -46,8 +44,8 @@ Finally, the 5.2.0 release will add [client tracking](https://redis.io/topics/cl
 This section covers some useful design considerations and assumptions that went into this module. 
 
 * Debugging Redis issues late at night is not fun. If you find yourself adding log lines that help debug an issue please clean them up and leave them in the code. The one exception is that logs should **never** include potentially sensitive user data (i.e. don't commit changes that log full requests or responses). The `network-logs` feature can enable sensitive logs if needed.
-* The `RedisClient` struct needs to be `Send + Sync` to work effectively with Tokio.
-* The `RedisClient` struct should be fast and cheap to `Clone`.
+* Any client struct needs to be `Send + Sync` to work effectively with Tokio.
+* Any client struct should be fast and cheap to `Clone`.
 * The primary command interfaces should be as flexible as possible via use of `Into` and `TryInto` for arguments.
 * Assume nearly any command might be used in the context of a transaction, and so it could return a `QUEUED` response even if the docs only mention bulk strings, arrays, etc. There are some exceptions to this (blocking commands, etc) where return values could be typed to exactly match the rust-equivalent type of the return value, but generally speaking every command should return a `RedisValue`. 
 
@@ -70,6 +68,8 @@ to create a [Framed](https://docs.rs/tokio-util/0.6.7/tokio_util/codec/struct.Fr
   3. The current command is QUIT or SHUTDOWN.
   4. The current command ends a transaction.
   5. The client has pipelining disabled.
+
+**All frames are automatically converted to RESP3 frames, even in RESP2 mode, to provide a single interface for callers to parse responses.** This works because RESP3 is a superset of RESP2. 
   
 #### Clustered Connections
 
@@ -113,7 +113,7 @@ In order to support use cases where a client may switch between these states at 
 The `Multiplexer` struct stores the following state:
 
 * A connection map that maps server IDs to `Framed` sinks, or just one `Framed` sink when connected to a centralized Redis deployment.
-* A map that maps server IDs to a queue of in-flight commands (`VecDeque<RedisCommand>`). This is a different map/queue because it has different locking requirements than the connection map.
+* A map that maps server IDs to a queue of in-flight commands (`VecDeque<RedisCommand>`). This is a different map/queue because it has different locking requirements than the connection map. This is the only lock that should see any real contention, but it is a requirement to implement pipelining.
 * A [broadcast](https://docs.rs/tokio/1.9.0/tokio/sync/broadcast/index.html) sender used to broadcast connection issues from either the reader or writer half of the socket.
 * An instance of a `ClusterKeyCache` used to route commands to specific nodes in the cluster, if necessary.
 * An `Arc<RedisClientInner>`, used to communicate messages back to the client when a connection dies, state changes, pubsub messages are received, etc.
@@ -151,7 +151,7 @@ Once a connection is established the `Multiplexer` does the following:
 
 1. Split the connection. The writer half is covered above.
 2. Spawn a task with access to the reader half, a reference to the server ID to which the reader half is connected, and a shallow clone of the `Multiplexer`.
-3. Convert the reader half to a `Stream`, calling [try_fold](https://docs.rs/futures/0.3.16/futures/stream/struct.TryFold.html) on it in the process. While this does mean the stream is processed in series the reader task never `awaits` a future so there wouldn't be any benefit of processing the stream concurrently on an event loop. By processing the stream in series it also makes it very easy to handle situations where the command should be retried, or reconnection needs to occur, since the reader task can just put the command back at the front of the in-flight queue without worrying about another task having popped from the queue in the meantime.
+3. Convert the reader half to a `Stream`, calling [try_fold](https://docs.rs/futures/0.3.16/futures/stream/struct.TryFold.html) on it in the process. While this does mean the stream is processed in series the reader task never `awaits` a future so there wouldn't be any real benefit of processing the stream concurrently on an event loop. By processing the stream in series it also makes it very easy to handle situations where the command should be retried, or reconnection needs to occur, since the reader task can just put the command back at the front of the in-flight queue without worrying about another task having popped from the queue in the meantime.
 
 Inside the `try_fold` loop the reader task does the following:
 
@@ -235,23 +235,48 @@ If a command should not work inside a transaction then the command should use th
 
 This section will cover how to add new commands to the client.
 
+There are usually only 2 files that require modifications to add a command, although certain commands may require modifying 3 or 4 files.
+
+1. The appropriate [client](src/clients) file sometimes requires a line to implement a new interface trait. This is usually only the case when starting implementing the first command in a new command category.
+2. The [interface file](src/commands/interfaces) almost always requires changes to implement the generic interface to the command.
+3. The [implementation file](src/commands/impls) almost always requires changes to implement the actual command logic.
+4. The [protocol types](src/protocol/types.rs) file sometimes requires changes to add a new variant to the `RedisCommandKind` enum.
+
 ## New Commands
 
 When adding new commands a few new things often need to be added to the [protocol types](src/protocol/types.rs) file.
 
-1. Add a variant to the `RedisCommandKind` enum for the command. For most commands this variant will be empty.
+1. Add a variant to the `RedisCommandKind` enum for the command. For most commands this variant will be empty. However, if there are any special flags or state needed by the command that should go inside this new variant declaration.
 2. Add the string representation of the new variant to the `to_str_debug` function. This is what will be used in tracing fields and log lines.
 3. Add the first word of the string representation of the command to the `cmd_str` function.
 4. If the command is a compound command add the subcommand string to the `subcommand_str` function. If not then skip this step.
 5. If the command is a blocking command add it to the `is_blocking_command` function's match statement.
+6. If the command uses a unique key structure, such as a set of keys at the end of the command args (like `XREAD`) it may be necessary to change the `custom_key_slot` function to account for this. This is very rare though since almost every command takes the key as the first argument.
 
 ## Command Files
 
-Commands are organized in the [commands](src/commands) folder by their category.
+Commands are organized in two folders in the [commands](src/commands) folder. 
+
+The trait declarations exist in the [interfaces](src/commands/interfaces) folder by category, and the actual command implementation exists in the [impl](src/commands/impls) folder by category. The `interfaces` file often calls the associated function from the `impls` file.
+
+### Interfaces Folder
+
+These files contain the public interface declarations for subsets of the Redis interface.
+
+* Async functions are not supported in traits, so we return an `AsyncResult` from each of these functions. This struct implements the `Future` trait so callers can use it like an async function.
+* Functions should take generic arguments to be flexible to the caller. Use `Into<RedisKey>`, `TryInto<RedisValue>`, etc. There are quite a few helper structs in the [types](src/types) folder to make this easier.
+* These functions must convert generic arguments to the actual underlying types used by the associated [impl](src/commands/impls) file/function. The `into!()` and `try_into!()` macros can convert multiple types automatically, and are written to break out early with `AsyncResult` errors as needed.
+* These functions should return generic response types in most cases. This usually means declaring the response as `FromRedis + Unpin + Send`.
+* These functions should use the `async_spawn` function from the top-level [interfaces](src/interfaces.rs) file to call an async block from a non-async function.
+* Contributors should add some docs from the Redis website (try to limit to one sentence or so), and a link to the actual command documentation.
+
+### Impls Folder
+
+These files contain the actual implementation details for each command. They are not called directly by users, but rather by the associated file/function in the [interface](src/commands/interfaces) file.
 
 * All private command functions in this folder take their first argument as a `&Arc<RedisClientInner>`. This struct contains all the necessary state for any command.
-* Commands should take generic arguments to be flexible to the caller. Use `Into<RedisKey>`, `Into<RedisValue>`, etc. There are quite a few helper structs in the [types](src/types.rs) file to make this easier. 
-* Some helpful command function generation macros exist in the [command mod.rs](src/commands/mod.rs) file to remove boilerplate for simple commands.
+* These functions do not need to be written in a generic way. They can assume any callers will have converted values to any intermediate structs/enums. In the past they were written generically, so you may see that in some older code paths, but I'm trying to standardize these to use non-generic arguments going forward.
+* Some helpful command function generation macros exist in the [command mod.rs](src/commands/impls/mod.rs) file to remove boilerplate for simple commands.
 * All commands should use the `request_response` utility function from the [top level utils file](src/utils.rs).
 * Private command functions are responsible for preparing their arguments array and converting the response frame to the appropriate return value type.
 * It should not be necessary to add any tracing logic to individual command functions.
@@ -261,7 +286,7 @@ Commands are organized in the [commands](src/commands) folder by their category.
 There are 2 functions in the [protocol utils](src/protocol/utils.rs) for converting response frames into `RedisValue` enums. 
 
 * `frame_to_results` - Converts an arbitrarily nested response frame into an arbitrarily nested `RedisValue`, including support for `QUEUED` responses during a transaction. 
-* `frame_to_single_result` - The same as `frame_to_results`, but with an added validation layer that only allows for non-nested `RedisValue` variants. This is useful to detect unexpected protocol errors if a command should only return a `BulkString` but receives an `Array` instead.
+* `frame_to_single_result` - The same as `frame_to_results`, but with an added validation layer that only allows for non-nested `RedisValue` variants. This is useful to detect unexpected protocol errors if a command should only return a `BulkString` but receives an `Array` instead, for example.
 
 Both of these functions will automatically check for error frames and will generate the appropriate `RedisError`, if necessary.
 
@@ -275,29 +300,24 @@ There are also some utility functions for converting to other data types:
 
 ... and some others. 
 
+Additionally, the `convert` function on any `RedisValue` can convert to any type that implements `FromRedis`. See the [response type conversion file](src/modules/response.rs) for more information.
+
 ## Public Interface
 
-Once the private interface has been implemented the same function needs to be exposed on the `RedisClient` struct. 
+Once the trait interface function and private impl function have been implemented the same function needs to be exposed on any relevant client structs.
 
-1. Copy or create the same function signature in the `RedisClient` [struct](src/client.rs), but change the first argument to `&self`.
-2. The Redis interface is huge, so please keep this file organized.
-3. Use the `disallow_during_transaction` utility in this function, if necessary.
-4. Call the private function from this public function, using `&self.inner` as the first argument.  
-5. Copy or write documentation for the command in this file. Some docs are quite long so most command docs simply include the first few sentences or a high level overview of the command.
-6. Include a link to the full docs for the command from the [Redis docs website](https://redis.io/commands).
-
-Moving from the private to public interface is a bit tedious, so I'm looking for better ways to do this. 
+In most cases this will not require any changes, but when adding a new command category it can. If needed callers should go to the relevant [client](src/clients) file and `impl` the new trait. 
 
 ## Example
 
-This example shows how to add `MSET` to the commands.
+This example shows how to add `MGET` to the commands.
 
 1. Add the new variant to the `RedisCommandKind` enum, if needed.
 
 ```rust
 pub enum RedisCommandKind {
   // ...
-  Mset,
+  Mget,
   // ...
 }
 
@@ -308,7 +328,7 @@ impl RedisCommandKind {
   pub fn to_str_debug(&self) -> &'static str {
     match *self {
       // ..
-      RedisCommandKind::Mset => "MSET",
+      RedisCommandKind::Mget => "MGET",
       // ..
     }
   }
@@ -318,7 +338,7 @@ impl RedisCommandKind {
   pub fn cmd_str(&self) -> &'static str {
     match *self {
       // .. 
-      RedisCommandKind::Mset => "MSET"
+      RedisCommandKind::Mget => "MGET"
       // ..
     }
   }
@@ -327,98 +347,84 @@ impl RedisCommandKind {
 }
 ```
 
-2. Create the private function implementing the command in [src/commands/keys.rs](src/commands/keys.rs).
+2. Create the private function implementing the command in [src/commands/impls/keys.rs](src/commands/impls/keys.rs).
 
 ```rust
-pub async fn mset<V>(inner: &Arc<RedisClientInner>, values: V) -> Result<RedisValue, RedisError>
-where 
-  V: Into<RedisMap>,
-{
-  let values = values.into();
-  if values.len() == 0 {
-    return Err(RedisError::new(
-      RedisErrorKind::InvalidArgument,
-      "Values cannot be empty.",
-    ));
-  }
+pub async fn mget(inner: &Arc<RedisClientInner>, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+  utils::check_empty_keys(&keys)?;
 
   let frame = utils::request_response(inner, move || {
-    // this closure will appear in traces
-    let mut args = Vec::with_capacity(values.len() * 2);
+    // time spent here will show up in traces
+    let mut args = Vec::with_capacity(keys.len());
 
-    for (key, value) in values.inner().into_iter() {
+    for key in keys.inner().into_iter() {
       args.push(key.into());
-      args.push(value);
     }
 
-    Ok((RedisCommandKind::Mset, args))
+    Ok((RedisCommandKind::Mget, args))
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 ```
 
-3. Create the public function in the [RedisClient](src/client.rs) struct.
+3. Create the public function in the [src/commands/interfaces/keys.rs](src/commands/interfaces/keys.rs) file. 
 
 ```rust
 
 // ...
 
-impl RedisClient {
+pub trait KeysInterface: ClientLike + Sized {
  
   // ...
 
-  /// Sets the given keys to their respective values.
+  /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the special value nil is returned.
   ///
-  /// <https://redis.io/commands/mset>
-  pub async fn mset<V>(&self, values: V) -> Result<RedisValue, RedisError> 
-  where
-    V: Into<RedisMap>,
+  /// <https://redis.io/commands/mget>
+  fn mget<R, K>(&self, keys: K) -> AsyncResult<R> 
+    where
+      R: FromRedis + Unpin + Send,
+      K: Into<MultipleKeys>,
   {
-    commands::keys::mset(&self.inner, values).await
+    into!(keys);
+    async_spawn(self, |inner| async move {
+      commands::keys::mget(&inner, keys).await?.convert()
+    })
   }
   
   // ...
 }
 ```
 
+Finally, if the actual client struct (such as the `RedisClient`) doesn't already have a line to implement the `KeysInterface` then contributors need to add that.
+
+```rust
+impl KeysInterface for RedisClient {}
+```
+
 # Adding Tests
 
 Integration tests are in the [tests/integration](tests/integration) folder organized by category. See the tests [README](tests/README.md) for more information.
 
-Using `MSET` as an example:
+Using `MGET` as an example:
 
 1. Write tests in the [keys](tests/integration/keys/mod.rs) file.
 
 ```rust
-pub async fn should_mset_a_non_empty_map(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
-  // macro to panic if a value isn't nil/None
+pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "a{1}");
   check_null!(client, "b{1}");
   check_null!(client, "c{1}");
 
-  let mut map: HashMap<String, RedisValue> = HashMap::new();
-  // MSET args all have to map to the same cluster node
-  map.insert("a{1}".into(), 1.into());
-  map.insert("b{1}".into(), 2.into());
-  map.insert("c{1}".into(), 3.into());
-
-  let _ = client.mset(map).await?;
-  let a = client.get("a{1}").await?;
-  let b = client.get("b{1}").await?;
-  let c = client.get("c{1}").await?;
-
-  assert_eq!(a.as_i64().unwrap(), 1);
-  assert_eq!(b.as_i64().unwrap(), 2);
-  assert_eq!(c.as_i64().unwrap(), 3);
+  let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
+  for (key, value) in expected.iter() {
+    let _: () = client.set(*key, value.clone(), None, None, false).await?;
+  }
+  let values: Vec<i64> = client.mget(vec!["a{1}", "b{1}", "c{1}"]).await?;
+  assert_eq!(values, vec![1, 2, 3]);
 
   Ok(())
-}
-
-// should panic
-pub async fn should_error_mset_empty_map(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
-  client.mset(RedisMap::new()).await.map(|_| ())
 }
 ```
 
@@ -428,8 +434,7 @@ pub async fn should_error_mset_empty_map(client: RedisClient, config: RedisConfi
 mod keys {
    
   // ..
-  centralized_test!(keys, should_mset_a_non_empty_map);
-  centralized_test_panic!(keys, should_error_mset_empty_map);
+  centralized_test!(keys, should_mget_values);
 }
 
 ```
@@ -440,12 +445,11 @@ mod keys {
 mod keys {
   
   // ..
-  cluster_test!(keys, should_mset_a_non_empty_map);
-  cluster_test_panic!(keys, should_error_mset_empty_map);
+  cluster_test!(keys, should_mget_values);
 }
 ```
 
-This will generate test wrappers to call your test function against both centralized and clustered redis servers with pipelined and non-pipelined clients.
+This will generate test wrappers to call your test function against both centralized and clustered redis servers with pipelined and non-pipelined clients in RESP2 and RESP3 modes.
 
 # Misc
 

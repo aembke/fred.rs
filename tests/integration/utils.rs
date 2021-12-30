@@ -32,6 +32,24 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
+fn read_redis_centralized_host() -> (String, u16) {
+  let host = read_env_var("FRED_REDIS_CENTRALIZED_HOST").unwrap_or("127.0.0.1".into());
+  let port = read_env_var("FRED_REDIS_CENTRALIZED_PORT")
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(6379);
+
+  (host, port)
+}
+
+fn read_redis_cluster_host() -> (String, u16) {
+  let host = read_env_var("FRED_REDIS_CLUSTER_HOST").unwrap_or("127.0.0.1".into());
+  let port = read_env_var("FRED_REDIS_CLUSTER_PORT")
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(30001);
+
+  (host, port)
+}
+
 #[cfg(feature = "sentinel-auth")]
 fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
@@ -100,9 +118,12 @@ where
   set_test_kind(true);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
+  let (host, port) = read_redis_cluster_host();
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
-    server: ServerConfig::default_clustered(),
+    server: ServerConfig::Clustered {
+      hosts: vec![(host, port)],
+    },
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     performance: PerformanceConfig {
       pipeline,
@@ -130,9 +151,10 @@ where
   set_test_kind(false);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
+  let (host, port) = read_redis_centralized_host();
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
-    server: ServerConfig::default_centralized(),
+    server: ServerConfig::Centralized { host, port },
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     performance: PerformanceConfig {
       pipeline,
