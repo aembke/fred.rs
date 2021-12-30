@@ -24,15 +24,14 @@ fn check_map_array_wrapper(value: RedisValue) -> RedisValue {
 }
 
 fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
-  args.push(cap.prefix_str().into());
-
-  let (trim, threshold, limit) = cap.into_parts();
-  args.push(trim.to_str().into());
-  args.push(threshold.into());
-
-  if let Some(count) = limit {
-    args.push(LIMIT.into());
-    args.push(count.into());
+  if let Some((kind, trim, threshold, limit)) = cap.into_parts() {
+    args.push(kind.to_str().into());
+    args.push(trim.to_str().into());
+    args.push(threshold.into());
+    if let Some(count) = limit {
+      args.push(LIMIT.into());
+      args.push(count.into());
+    }
   }
 }
 
@@ -84,7 +83,7 @@ pub async fn xadd(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
   nomkstream: bool,
-  cap: Option<XCap>,
+  cap: XCap,
   id: XID,
   fields: MultipleOrderedPairs,
 ) -> Result<RedisValue, RedisError> {
@@ -95,9 +94,7 @@ pub async fn xadd(
     if nomkstream {
       args.push(NOMKSTREAM.into());
     }
-    if let Some(cap) = cap {
-      encode_cap(&mut args, cap);
-    }
+    encode_cap(&mut args, cap);
 
     args.push(id.into_string().into());
     for (key, value) in fields.inner().into_iter() {

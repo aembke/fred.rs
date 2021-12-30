@@ -1,4 +1,5 @@
 use fred::prelude::*;
+use fred::types::{XCap, XCapTrim};
 use std::collections::HashMap;
 
 async fn create_fake_group_and_stream(client: &RedisClient) -> Result<(), RedisError> {
@@ -61,18 +62,46 @@ pub async fn should_xinfo_streams(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_xadd_auto_id_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: String = client.xadd("foo{1}", false, None, "*", ("a", "b")).await?;
+  assert!(!result.is_empty());
+
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 1);
   Ok(())
 }
 
 pub async fn should_xadd_manual_id_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: String = client.xadd("foo{1}", false, None, "1-0", ("a", "b")).await?;
+  assert_eq!(result, "1-0");
+
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 1);
   Ok(())
 }
 
 pub async fn should_xadd_with_cap_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: String = client
+    .xadd("foo{1}", false, ("MAXLEN", "=", "1"), "*", ("a", "b"))
+    .await?;
+  assert_eq!(result, "1-0");
+
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 1);
   Ok(())
 }
 
 pub async fn should_xadd_nomkstream_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let result: Result<(), RedisError> = client.xadd("foo{1}", true, None, "*", ("a", "b")).await;
+  assert!(result.is_err());
+
+  let _ = create_fake_group_and_stream(&client).await?;
+  let _: () = client.xadd("foo{1}", true, None, "*", ("a", "b")).await?;
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 1);
   Ok(())
 }
 

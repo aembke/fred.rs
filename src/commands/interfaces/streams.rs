@@ -60,16 +60,18 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// NOMKSTREAM option.
   ///
   /// <https://redis.io/commands/xadd>
-  fn xadd<R, K, I, F>(&self, key: K, nomkstream: bool, cap: Option<XCap>, id: I, fields: F) -> AsyncResult<R>
+  fn xadd<R, K, C, I, F>(&self, key: K, nomkstream: bool, cap: C, id: I, fields: F) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     I: Into<XID>,
     F: TryInto<MultipleOrderedPairs>,
     F::Error: Into<RedisError>,
+    C: TryInto<XCap>,
+    C::Error: Into<RedisError>,
   {
     into!(key, id);
-    try_into!(fields);
+    try_into!(fields, cap);
     async_spawn(self, |inner| async move {
       commands::streams::xadd(&inner, key, nomkstream, cap, id, fields)
         .await?
@@ -80,13 +82,15 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// Trims the stream by evicting older entries (entries with lower IDs) if needed.
   ///
   /// <https://redis.io/commands/xtrim>
-  // TODO make XCAP more generic for argument type conversions
-  fn xtrim<R, K>(&self, key: K, cap: XCap) -> AsyncResult<R>
+  fn xtrim<R, K, C>(&self, key: K, cap: C) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
+    C: TryInto<XCap>,
+    C::Error: Into<RedisError>,
   {
     into!(key);
+    try_into!(cap);
     async_spawn(self, |inner| async move {
       commands::streams::xtrim(&inner, key, cap).await?.convert()
     })

@@ -153,28 +153,108 @@ where
   }
 }
 
-/// Stream cap arguments for `XADD`, etc.
+/// The MAXLEN or MINID argument for a stream cap.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum XCap {
-  /// The MAXLEN argument option with the trim argument (=|~), the threshold, and LIMIT option, respectively.
-  MaxLen((XCapTrim, String, LimitCount)),
-  /// The MINID argument option with the trim argument (=|~), the threshold, and LIMIT option, respectively.
-  MinID((XCapTrim, String, LimitCount)),
+pub enum XCapKind {
+  MaxLen,
+  MinID,
+}
+
+impl XCapKind {
+  pub(crate) fn to_str(&self) -> &'static str {
+    match *self {
+      XCapKind::MaxLen => MAXLEN,
+      XCapKind::MinID => MINID,
+    }
+  }
+}
+
+impl<'a> TryFrom<&'a str> for XCapKind {
+  type Error = RedisError;
+
+  fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+    Ok(match value.as_ref() {
+      "MAXLEN" => XCapKind::MaxLen,
+      "MINID" => XCapKind::MinID,
+      _ => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Expected MAXLEN or MINID,",
+        ))
+      }
+    })
+  }
+}
+
+/// Stream cap arguments for `XADD`, `XTRIM`, etc.
+///
+/// Equivalent to `[MAXLEN|MINID [=|~] threshold [LIMIT count]]`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XCap {
+  inner: Option<(XCapKind, XCapTrim, String, LimitCount)>,
 }
 
 impl XCap {
-  pub(crate) fn prefix_str(&self) -> &'static str {
-    match *self {
-      XCap::MaxLen(_) => MAXLEN,
-      XCap::MinID(_) => MINID,
-    }
+  pub(crate) fn into_parts(self) -> Option<(XCapKind, XCapTrim, String, LimitCount)> {
+    self.inner
   }
+}
 
-  pub(crate) fn into_parts(self) -> (XCapTrim, String, LimitCount) {
-    match self {
-      XCap::MaxLen(parts) => parts,
-      XCap::MinID(parts) => parts,
-    }
+impl From<Option<()>> for XCap {
+  fn from(_: Option<()>) -> Self {
+    XCap { inner: None }
+  }
+}
+
+impl<K, T, S> TryFrom<(K, T, S, Option<i64>)> for XCap
+where
+  K: TryInto<XCapKind>,
+  K::Error: Into<RedisError>,
+  T: TryInto<XCapTrim>,
+  T::Error: Into<RedisError>,
+  S: Into<String>,
+{
+  type Error = RedisError;
+
+  fn try_from((kind, trim, threshold, limit): (K, T, S, Option<i64>)) -> Result<Self, Self::Error> {
+    let (kind, trim) = (to!(kind)?, to!(trim)?);
+    Ok(XCap {
+      inner: Some((kind, trim, threshold.into(), limit)),
+    })
+  }
+}
+
+impl<K, T, S> TryFrom<(K, T, S)> for XCap
+where
+  K: TryInto<XCapKind>,
+  K::Error: Into<RedisError>,
+  T: TryInto<XCapTrim>,
+  T::Error: Into<RedisError>,
+  S: Into<String>,
+{
+  type Error = RedisError;
+
+  fn try_from((kind, trim, threshold): (K, T, S)) -> Result<Self, Self::Error> {
+    let (kind, trim) = (to!(kind)?, to!(trim)?);
+    Ok(XCap {
+      inner: Some((kind, trim, threshold.into(), None)),
+    })
+  }
+}
+
+impl<K, S> TryFrom<(K, S)> for XCap
+where
+  K: TryInto<XCapKind>,
+  K::Error: Into<RedisError>,
+  S: Into<String>,
+{
+  type Error = RedisError;
+
+  fn try_from((kind, threshold): (K, S)) -> Result<Self, Self::Error> {
+    let kind = to!(kind)?;
+    Ok(XCap {
+      inner: Some((kind, XCapTrim::Exact, threshold.into(), None)),
+    })
   }
 }
 
