@@ -55,6 +55,7 @@ cargo add fred
 ## Features
 
 * Flexible and generic client interfaces.
+* Supports RESP2 and RESP3 protocol modes.
 * Supports clustered, centralized, and sentinel Redis deployments.
 * Optional built-in reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
@@ -67,9 +68,11 @@ cargo add fred
 * Supports streaming interfaces for scanning functions.
 * Options to automatically [pipeline](https://redis.io/topics/pipelining) requests when possible.
 * Automatically retry requests under bad network conditions.
-* Support for configuring global settings that can affect performance under different network conditions. Callers can configure backpressure settings, when and how the underlying socket is flushed, and how many times requests are attempted. 
+* Support for configuring performance settings that can affect performance under different network conditions. Callers can configure backpressure settings, when and how the underlying socket is flushed, and how many times requests are attempted. 
 * Built-in tracking for network latency and payload size metrics.
-* A client pooling interface to round-robin requests among a pool of clients.
+* An optional client pooling interface to round-robin requests among a pool of clients.
+* An optional sentinel client for interacting directly with sentinel nodes to manually fail over servers, etc.
+* An optional pubsub subscriber client that will automatically manage channel subscriptions.
 * Built in support for [tracing](https://crates.io/crates/tracing).
 
 ## Tracing
@@ -119,7 +122,7 @@ The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags
 
 This module also contains a [separate test application](bin/pipeline_test) that can be used to demonstrate the effects of pipelining. This test application also contains some helpful information on how to use the tracing features.
 
-This library takes a different approach to pipelining than many other clients. Instead of relying on callers to specify specific sequences of commands to be pipelined this library will instead automatically pipeline commands whenever possible. This makes pipelining an implementation detail for the client instead of something the caller needs to consider. This can also drastically improve performance since the client can pipeline commands that do not depend on each other automatically. Callers are then free to manage command ordering with the async or tokio ecosystem interface (`await`, `join`, `select`, `join_all`, etc), and the client will automatically associate responses with the correct command.
+This library takes a different approach to pipelining than many other clients. Instead of relying on callers to specify specific sequences of commands to be pipelined this library will instead automatically pipeline commands whenever possible. This makes pipelining an implementation detail for the client instead of something the caller needs to consider. This can also drastically improve performance since the client can pipeline commands that do not depend on each other automatically. Callers are then free to manage command ordering with the async, tokio, or futures ecosystem interface (`await`, `join`, `select`, `join_all`, etc), and the client will automatically associate responses with the correct command.
 
 The following commands will **never** be pipelined:
 
@@ -138,25 +141,27 @@ If callers enable automatic pipelining features there are two ways to manage pot
 
 The client can automatically throttle requests via some flags on the `RedisConfig` and `globals` interface. 
 
-The [globals](src/modules/globals.rs) file contains 2 relevant settings that can control this: `set_backpressure_count()` and `set_min_backpressure_time_ms()`. 
+The client's `RedisConfig` struct contains a struct dedicated for performance tuning - the `PerformanceConfig`. Within this struct is another struct dedicated to tuning backpressure settings - the `BackpressureConfig` struct. 
+
+This struct contains 2 relevant settings that can control this: `max_in_flight_commands` and `min_backpressure_time_ms`. 
 
 These functions control the maximum number of in-flight requests and the minimum duration to wait when the max number of in-flight requests is reached, respectively. 
 
 When the max number of in-flight requests is reached the client will inject an async `sleep` call before the next request. The formula for calculating the duration of the `sleep` call is as follows:
 
 ```
-duration_ms = max(get_min_backpressure_time_ms(), number_of_in_flight_commands)
+duration_ms = max(min_backpressure_time_ms, number_of_in_flight_commands)
 ```
 
-However, this formula can be modified by callers. The `disable_backpressure_scaling` flag will change the backpressure formula to always wait for a constant duration defined by `get_min_backpressure_time_ms()`.
+However, this formula can be modified by callers. The `disable_backpressure_scaling` flag will change the backpressure formula to always wait for a constant duration defined by `min_backpressure_time_ms`.
 
 #### Manual Backpressure
 
-Alternatively, callers can disable the automatic backpressure logic via the `disable_auto_backpressure` flag on the `RedisConfig`.
+Alternatively, callers can disable the automatic backpressure logic via the `disable_auto_backpressure` flag on the `BackpressureConfig`.
 
 If this flag is enabled the client will return a special `RedisErrorKind::Backpressure` enum variant whenever the max in-flight request count is reached. Callers are then responsible for backing off and retrying commands as needed.
 
-Additionally, callers can entirely disable backpressure by setting the `disable_auto_backpressure` flag to `true` and running the `set_min_backpressure_time_ms(0)`. This can also be accomplished simply by setting the `set_backpressure_count` value to a very large number. 
+Although not recommended, callers can entirely disable backpressure by setting `min_backpressure_time_ms` to 0. This can also be accomplished simply by setting the `set_backpressure_count` value to a very large number. 
 
 ## ACL & Authentication
 
