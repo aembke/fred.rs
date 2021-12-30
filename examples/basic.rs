@@ -2,7 +2,6 @@ use fred::prelude::*;
 use fred::types::{BackpressureConfig, PerformanceConfig, RespVersion};
 use futures::stream::StreamExt;
 use std::default::Default;
-use std::time::Duration;
 
 const DATABASE: u8 = 2;
 
@@ -28,7 +27,7 @@ async fn main() -> Result<(), RedisError> {
     // the protocol version to use
     version: RespVersion::RESP2,
     // the database to automatically select after connecting or reconnecting
-    database: None,
+    database: Some(DATABASE),
     // performance tuning options
     performance: PerformanceConfig {
       // whether or not to automatically pipeline commands
@@ -75,7 +74,7 @@ async fn main() -> Result<(), RedisError> {
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);
 
-  let _ = client
+  let _: () = client
     .set("foo", "bar", Some(Expiration::EX(1)), Some(SetOptions::NX), false)
     .await?;
 

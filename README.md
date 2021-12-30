@@ -137,6 +137,8 @@ The following commands will **never** be pipelined:
 
 If callers enable automatic pipelining features there are two ways to manage potential backpressure situations. This can be necessary to avoid using too much memory on the server while buffering commands.
 
+If callers are using the tracing features the backpressure durations will have a special notation in traces.
+
 #### Automatic Backpressure
 
 The client can automatically throttle requests via some flags on the `RedisConfig` and `globals` interface. 
