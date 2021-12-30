@@ -13,31 +13,12 @@ This document gives some background on how the library is structured and how to 
 
 * Redis version 7.x commands
 * Gate commands unique to a particular Redis version behind build time features.
-* [WIP] Support custom DNS resolvers on the client.
+* Support custom DNS resolvers on the client.
 * Any missing commands.
+* Switch to `ArcStr` instead of `Arc<String>` for string identifiers in maps.
+* General cleanup and refactoring. A lot of the lower level logic was written before async/await, before `impl Trait`, and before NLLs. It could certainly be more generic.
 
 If you'd like to contribute to any of the above features feel free to reach out
-
-### Next Major Release
-
-The next major release (5.0.0) will include the following:
-
-* RESP3 support (this will result in breaking changes to nearly all response types due to value attributes being added)
-* Move several global config options to the `RedisConfig` struct. Currently there are some use cases where current global options would work better if they were client-specific
-* Improved error types and messages
-* Remove or collapse several compile-time features. For example, the `sentinel-auth` feature will become the default interface, etc. 
-* Replace some configuration struct locks with `ArcSwap`
-* Collapse the different pool types to one pool type that can dynamically scale while supporting client use via the `Deref` trait.
-* Switch from `Arc<String>` to `ArcStr`
-* Publish benchmarks and run them during CI. The closest thing to that currently is in the [pipeline_test](bin/pipeline_test) module. 
-* Lots of code cleanup and refactoring.
-
-In addition, in 5.1.0 the [streams](https://redis.io/topics/streams-intro) interface will be added. This will likely include the following:
-
-* A lower level interface to use the X* interface directly.
-* An optional, higher level client interface to manage the strange ways that stream subscriptions can interact with reconnect/retry. This will likely look a lot like a Kafka client. 
-
-Finally, the 5.2.0 release will add [client tracking](https://redis.io/topics/client-side-caching) support built into the client (behind a new feature). 
 
 ## Design 
 
@@ -128,7 +109,7 @@ When the client sends a command to the server the following operations occur:
 
 1. The client prepares the command, creating a `Vec<RedisValue>` array of arguments.
 2. The client attaches a [oneshot](https://docs.rs/tokio/1.9.0/tokio/sync/oneshot/index.html) sender to the command on which the response will be sent.
-3. The client acquires a _read_ lock on the command channel and writes the command to this channel.
+3. The client sends the command to the `command_tx` sender channel on the `RedisClientInner` struct. 
 4. The client calls `await` on the receiver half of the oneshot channel from step 2.
 5. Some time later the `Multiplexer` receives the command from the command stream running in a separate Tokio task.
 6. The `Multiplexer` checks the command's flags to determine if it makes sense to send in the current connection context.
