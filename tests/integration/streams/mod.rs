@@ -1,9 +1,19 @@
 use fred::prelude::*;
-use fred::types::{XCap, XCapTrim};
+use fred::types::{XCap, XCapKind, XCapTrim};
 use std::collections::HashMap;
 
-async fn create_fake_group_and_stream(client: &RedisClient) -> Result<(), RedisError> {
-  client.xgroup_create("foo{1}", "group1", "$", true).await
+async fn create_fake_group_and_stream(client: &RedisClient, key: &str) -> Result<(), RedisError> {
+  client.xgroup_create(key, "group1", "$", true).await
+}
+
+async fn add_stream_entries(client: &RedisClient, key: &str, count: usize) -> Result<Vec<String>, RedisError> {
+  let mut ids = Vec::with_capacity(count);
+  for idx in 0..count {
+    let id: String = client.xadd(key, false, None, "*", ("count", idx)).await?;
+    ids.push(id);
+  }
+
+  Ok(ids)
 }
 
 pub async fn should_xinfo_consumers(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -11,7 +21,7 @@ pub async fn should_xinfo_consumers(client: RedisClient, _: RedisConfig) -> Resu
   let result: Result<(), RedisError> = client.xinfo_consumers("foo{1}", "group1").await;
   assert!(result.is_err());
 
-  let _ = create_fake_group_and_stream(&client).await?;
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
   let consumers: Vec<HashMap<String, String>> = client.xinfo_consumers("foo{1}", "group1").await?;
   assert_eq!(consumers.len(), 1);
@@ -31,7 +41,7 @@ pub async fn should_xinfo_groups(client: RedisClient, _: RedisConfig) -> Result<
   let result: Result<(), RedisError> = client.xinfo_groups("foo{1}").await;
   assert!(result.is_err());
 
-  let _ = create_fake_group_and_stream(&client).await?;
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let result: Vec<HashMap<String, String>> = client.xinfo_groups("foo{1}").await?;
   assert_eq!(result.len(), 1);
   assert_eq!(result[0].get("name"), Some(&"group1".to_owned()));
@@ -50,7 +60,7 @@ pub async fn should_xinfo_streams(client: RedisClient, _: RedisConfig) -> Result
   let result: Result<(), RedisError> = client.xinfo_stream("foo{1}", true, None).await;
   assert!(result.is_err());
 
-  let _ = create_fake_group_and_stream(&client).await?;
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let mut result: HashMap<String, RedisValue> = client.xinfo_stream("foo{1}", true, None).await?;
   assert_eq!(result.len(), 6);
   assert_eq!(result.get("length"), Some(&RedisValue::Integer(0)));
@@ -83,10 +93,9 @@ pub async fn should_xadd_manual_id_to_a_stream(client: RedisClient, _: RedisConf
 
 pub async fn should_xadd_with_cap_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo{1}");
-  let result: String = client
-    .xadd("foo{1}", false, ("MAXLEN", "=", "1"), "*", ("a", "b"))
+  let _: () = client
+    .xadd("foo{1}", false, ("MAXLEN", "=", 1), "*", ("a", "b"))
     .await?;
-  assert_eq!(result, "1-0");
 
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 1);
@@ -95,10 +104,10 @@ pub async fn should_xadd_with_cap_to_a_stream(client: RedisClient, _: RedisConfi
 
 pub async fn should_xadd_nomkstream_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo{1}");
-  let result: Result<(), RedisError> = client.xadd("foo{1}", true, None, "*", ("a", "b")).await;
-  assert!(result.is_err());
+  let result: Option<String> = client.xadd("foo{1}", true, None, "*", ("a", "b")).await?;
+  assert!(result.is_none());
 
-  let _ = create_fake_group_and_stream(&client).await?;
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let _: () = client.xadd("foo{1}", true, None, "*", ("a", "b")).await?;
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 1);
@@ -106,10 +115,46 @@ pub async fn should_xadd_nomkstream_to_a_stream(client: RedisClient, _: RedisCon
 }
 
 pub async fn should_xtrim_a_stream_approx_cap(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let _ = add_stream_entries(&client, "foo{1}", 3).await?;
+
+  let deleted: usize = client.xtrim("foo{1}", ("MAXLEN", "~", 1)).await?;
+  assert!(deleted < 3);
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 3 - deleted);
+
+  let _ = client.del("foo{1}").await?;
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let _ = add_stream_entries(&client, "foo{1}", 3).await?;
+  let deleted: usize = client
+    .xtrim("foo{1}", (XCapKind::MaxLen, XCapTrim::AlmostExact, 1))
+    .await?;
+  assert!(deleted < 3);
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 3 - deleted);
+
   Ok(())
 }
 
 pub async fn should_xtrim_a_stream_eq_cap(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let _ = add_stream_entries(&client, "foo{1}", 3).await?;
+
+  let deleted: usize = client.xtrim("foo{1}", ("MAXLEN", "=", 1)).await?;
+  assert_eq!(deleted, 2);
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 1);
+
+  let _ = client.del("foo{1}").await?;
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let _ = add_stream_entries(&client, "foo{1}", 3).await?;
+  let deleted: usize = client.xtrim("foo{1}", (XCapKind::MaxLen, XCapTrim::Exact, 1)).await?;
+  assert_eq!(deleted, 2);
+  let len: usize = client.xlen("foo{1}").await?;
+  assert_eq!(len, 1);
+
   Ok(())
 }
 

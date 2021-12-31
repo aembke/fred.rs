@@ -27,7 +27,7 @@ fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
   if let Some((kind, trim, threshold, limit)) = cap.into_parts() {
     args.push(kind.to_str().into());
     args.push(trim.to_str().into());
-    args.push(threshold.into());
+    args.push(threshold.into_arg());
     if let Some(count) = limit {
       args.push(LIMIT.into());
       args.push(count.into());

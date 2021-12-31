@@ -1,6 +1,6 @@
 use crate::commands::{MAXLEN, MINID};
 use crate::error::{RedisError, RedisErrorKind};
-use crate::types::{LimitCount, RedisKey, RedisValue};
+use crate::types::{LimitCount, RedisKey, RedisValue, StringOrNumber};
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 
@@ -191,11 +191,11 @@ impl<'a> TryFrom<&'a str> for XCapKind {
 /// Equivalent to `[MAXLEN|MINID [=|~] threshold [LIMIT count]]`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct XCap {
-  inner: Option<(XCapKind, XCapTrim, String, LimitCount)>,
+  inner: Option<(XCapKind, XCapTrim, StringOrNumber, LimitCount)>,
 }
 
 impl XCap {
-  pub(crate) fn into_parts(self) -> Option<(XCapKind, XCapTrim, String, LimitCount)> {
+  pub(crate) fn into_parts(self) -> Option<(XCapKind, XCapTrim, StringOrNumber, LimitCount)> {
     self.inner
   }
 }
@@ -212,7 +212,7 @@ where
   K::Error: Into<RedisError>,
   T: TryInto<XCapTrim>,
   T::Error: Into<RedisError>,
-  S: Into<String>,
+  S: Into<StringOrNumber>,
 {
   type Error = RedisError;
 
@@ -230,7 +230,7 @@ where
   K::Error: Into<RedisError>,
   T: TryInto<XCapTrim>,
   T::Error: Into<RedisError>,
-  S: Into<String>,
+  S: Into<StringOrNumber>,
 {
   type Error = RedisError;
 
@@ -246,7 +246,7 @@ impl<K, S> TryFrom<(K, S)> for XCap
 where
   K: TryInto<XCapKind>,
   K::Error: Into<RedisError>,
-  S: Into<String>,
+  S: Into<StringOrNumber>,
 {
   type Error = RedisError;
 

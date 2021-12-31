@@ -15,6 +15,61 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::{fmt, mem, str};
 
+macro_rules! impl_string_or_number(
+  ($t:ty) => {
+    impl From<$t> for StringOrNumber {
+      fn from(val: $t) -> Self {
+        StringOrNumber::Number(val as i64)
+      }
+    }
+  }
+);
+
+/// An argument representing a string or number.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StringOrNumber {
+  String(String),
+  Number(i64),
+}
+
+impl StringOrNumber {
+  pub(crate) fn into_arg(self) -> RedisValue {
+    match self {
+      StringOrNumber::String(s) => RedisValue::String(s),
+      StringOrNumber::Number(n) => RedisValue::Integer(n),
+    }
+  }
+}
+
+impl From<String> for StringOrNumber {
+  fn from(s: String) -> Self {
+    StringOrNumber::String(s)
+  }
+}
+
+impl<'a> From<&'a str> for StringOrNumber {
+  fn from(s: &'a str) -> Self {
+    StringOrNumber::String(s.into())
+  }
+}
+
+impl<'a> From<&'a String> for StringOrNumber {
+  fn from(s: &'a String) -> Self {
+    StringOrNumber::String(s.clone())
+  }
+}
+
+impl_string_or_number!(i8);
+impl_string_or_number!(i16);
+impl_string_or_number!(i32);
+impl_string_or_number!(i64);
+impl_string_or_number!(isize);
+impl_string_or_number!(u8);
+impl_string_or_number!(u16);
+impl_string_or_number!(u32);
+impl_string_or_number!(u64);
+impl_string_or_number!(usize);
+
 /// A key in Redis.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RedisKey {
