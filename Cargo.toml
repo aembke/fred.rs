@@ -61,6 +61,14 @@ required-features = ["partial-tracing"]
 name = "monitor"
 required-features = ["monitor"]
 
+[[example]]
+name = "prometheus"
+required-features = ["metrics"]
+
+[[example]]
+name = "pubsub"
+required-features = ["subscriber-client"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
 subscriber-client = []

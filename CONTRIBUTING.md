@@ -16,9 +16,9 @@ This document gives some background on how the library is structured and how to 
 * Support custom DNS resolvers on the client.
 * Any missing commands.
 * Switch to `ArcStr` instead of `Arc<String>` for string identifiers in maps.
-* General cleanup and refactoring. A lot of the lower level logic was written before async/await, before `impl Trait`, and before NLLs. It could certainly be more generic.
+* General cleanup and refactoring. A lot of the lower level logic was written before async/await, before `impl Trait`, and before NLLs. It could certainly be more modern and generic.
 
-If you'd like to contribute to any of the above features feel free to reach out
+If you'd like to contribute to any of the above features feel free to reach out.
 
 ## Design 
 
@@ -45,7 +45,7 @@ to create a [Framed](https://docs.rs/tokio-util/0.6.7/tokio_util/codec/struct.Fr
 * If TLS features are disabled the TLS type aliases become references to the TCP types. 
 * The writer half exposes 2 functions for sending frames to the socket: [feed](https://docs.rs/futures/0.3.16/futures/sink/trait.SinkExt.html#method.feed) and [send](https://docs.rs/futures/0.3.16/futures/sink/trait.SinkExt.html#method.send). `send` flushes the socket and `feed` does not. The client will use `send` under any of the following conditions:
   1. There are no queued commands following the current command.
-  2. The [global max number of fed commands](src/globals.rs) was reached. In this case the client will use `send` once and reset the feed counter.
+  2. The max number of fed commands (`max_feed_count`) was reached. In this case the client will use `send` once and reset the feed counter.
   3. The current command is QUIT or SHUTDOWN.
   4. The current command ends a transaction.
   5. The client has pipelining disabled.

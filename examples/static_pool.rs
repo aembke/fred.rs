@@ -1,10 +1,10 @@
-use fred::pool::StaticRedisPool;
+use fred::pool::RedisPool;
 use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
-  let pool = StaticRedisPool::new(config, 5)?;
+  let pool = RedisPool::new(config, 5)?;
 
   let jhs = pool.connect(None);
   let _ = pool.wait_for_connect().await?;
