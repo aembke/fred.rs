@@ -6,6 +6,9 @@ use std::cmp;
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
 pub use crate::protocol::tls::TlsConfig;
 
+/// The default amount of jitter when waiting to reconnect.
+pub const DEFAULT_JITTER_MS: u32 = 100;
+
 /// The type of reconnection policy to use. This will apply to every connection used by the client.
 ///
 /// Use a `max_attempts` value of `0` to retry forever.
@@ -16,6 +19,7 @@ pub enum ReconnectPolicy {
     attempts: u32,
     max_attempts: u32,
     delay: u32,
+    jitter: u32,
   },
   /// Backoff reconnection attempts linearly, adding `delay` each time.
   Linear {
@@ -23,6 +27,7 @@ pub enum ReconnectPolicy {
     max_attempts: u32,
     max_delay: u32,
     delay: u32,
+    jitter: u32,
   },
   /// Backoff reconnection attempts exponentially, multiplying the last delay by `mult` each time.
   Exponential {
@@ -31,6 +36,7 @@ pub enum ReconnectPolicy {
     min_delay: u32,
     max_delay: u32,
     mult: u32,
+    jitter: u32,
   },
 }
 
@@ -40,6 +46,7 @@ impl Default for ReconnectPolicy {
       attempts: 0,
       max_attempts: 0,
       delay: 1000,
+      jitter: DEFAULT_JITTER_MS,
     }
   }
 }
@@ -51,6 +58,7 @@ impl ReconnectPolicy {
       max_attempts,
       delay,
       attempts: 0,
+      jitter: DEFAULT_JITTER_MS,
     }
   }
 
@@ -61,6 +69,7 @@ impl ReconnectPolicy {
       max_delay,
       delay,
       attempts: 0,
+      jitter: DEFAULT_JITTER_MS,
     }
   }
 
@@ -72,6 +81,7 @@ impl ReconnectPolicy {
       min_delay,
       mult,
       attempts: 0,
+      jitter: DEFAULT_JITTER_MS,
     }
   }
 
@@ -106,29 +116,29 @@ impl ReconnectPolicy {
         ref mut attempts,
         delay,
         max_attempts,
+        jitter,
       } => {
         *attempts = match utils::incr_with_max(*attempts, max_attempts) {
           Some(a) => a,
           None => return None,
         };
 
-        Some(delay as u64)
+        Some(utils::add_jitter(delay as u64, jitter))
       }
       ReconnectPolicy::Linear {
         ref mut attempts,
         max_delay,
         max_attempts,
         delay,
+        jitter,
       } => {
         *attempts = match utils::incr_with_max(*attempts, max_attempts) {
           Some(a) => a,
           None => return None,
         };
+        let delay = (delay as u64).saturating_mul(*attempts as u64);
 
-        Some(cmp::min(
-          max_delay as u64,
-          (delay as u64).saturating_mul(*attempts as u64),
-        ))
+        Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
       }
       ReconnectPolicy::Exponential {
         ref mut attempts,
@@ -136,16 +146,15 @@ impl ReconnectPolicy {
         max_delay,
         max_attempts,
         mult,
+        jitter,
       } => {
         *attempts = match utils::incr_with_max(*attempts, max_attempts) {
           Some(a) => a,
           None => return None,
         };
+        let delay = (mult as u64).pow(*attempts - 1).saturating_mul(min_delay as u64);
 
-        Some(cmp::min(
-          max_delay as u64,
-          (mult as u64).pow(*attempts - 1).saturating_mul(min_delay as u64),
-        ))
+        Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
       }
     }
   }

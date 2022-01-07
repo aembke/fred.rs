@@ -105,7 +105,6 @@ pub trait ClientInterface: ClientLike + Sized {
   {
     into!(name);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::client::client_setname(&inner, name).await
     })
   }
@@ -115,7 +114,6 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-pause>
   fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::client::client_pause(&inner, timeout, mode).await
     })
   }
@@ -124,10 +122,10 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/client-unpause>
   fn client_unpause(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::client::client_unpause(&inner).await
-    })
+    async_spawn(
+      self,
+      |inner| async move { commands::client::client_unpause(&inner).await },
+    )
   }
 
   /// The CLIENT REPLY command controls whether the server will reply the client's commands. The following modes are available:
@@ -135,7 +133,6 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-reply>
   fn client_reply(&self, flag: ClientReplyFlag) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::client::client_reply(&inner, flag).await
     })
   }

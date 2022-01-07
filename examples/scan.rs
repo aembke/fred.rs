@@ -1,6 +1,5 @@
 use fred::prelude::*;
-use futures::stream::{StreamExt};
-
+use futures::stream::StreamExt;
 
 static COUNT: u32 = 50;
 
@@ -53,6 +52,7 @@ async fn main() -> Result<(), RedisError> {
   let _ = delete_fake_data(&client).await?;
 
   let _ = client.quit().await?;
+  // optionally wait for the task driving the connection to finish
   let _ = jh.await;
   Ok(())
 }

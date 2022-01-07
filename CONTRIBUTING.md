@@ -15,10 +15,28 @@ This document gives some background on how the library is structured and how to 
 * Gate commands unique to a particular Redis version behind build time features.
 * Support custom DNS resolvers on the client.
 * Any missing commands.
-* Switch to `ArcStr` instead of `Arc<String>` for string identifiers in maps.
 * General cleanup and refactoring. A lot of the lower level logic was written before async/await, before `impl Trait`, and before NLLs. It could certainly be more modern and generic.
 
-If you'd like to contribute to any of the above features feel free to reach out.
+### Performance Improvements
+
+As of version 5.0.0 this library can do about 2MM req/sec in one client process (with a multi-thread tokio scheduler) running against a single centralized Redis server. When I try to configure the client to do more the memory usage on the client tends to increase dramatically. 
+
+I suspect there are a few things that could be changed to increase performance and decrease memory usage. 
+
+* Switch to `ArcStr` instead of `Arc<String>` for string identifiers in maps.
+* Remove some locks on the Connections struct. I don't think everything needs to be `Sync` there anymore. The command queue should be the only thing that needs to be `Sync`. This may require reworking the task that handles reconnection logic since that task also mutates the `Framed` writers map.
+* Change the locked `RedisConfig` to use `ArcSwap` instead.
+* Change the inner locked `ClusterKeyCache` to use `ArcSwap`. 
+
+In addition, there some big improvements that could likely come from some changes in `redis-protocol`. The Redis interface involves using a lot of `&'static str` types, and yet `redis-protocol` still uses a `Vec<u8>` under the hood, so we end up cloning this data. Adding a lifetime to the `Frame` types in `redis-protocol` would require some pretty invasive changes in this library, but I'm guessing it would improve performance quite a bit.
+
+Finally, if/when `async` functions are supported in traits it will be possible to remove the trait object in `AsyncResult`. Prior to version 5.0.0 all of the redis commands were implemented on one struct, so the client could use the `pub async fn` interface directly. However, the Redis interface is pretty large and this proved to be unsustainable. 
+
+In version 5.0.0 I switched to an interface based on different traits for each section of the Redis interface. While this is much easier to manage and allowed for a lot of code reuse in higher level clients, it also required using trait objects to wrap all command responses. When comparing the pipeline test results between versions 4 and 5 I noticed about a 5-10% throughput decrease in version 5. More specifically, it dropped the throughput from about 205MM req/sec to 193MM req/sec on my desktop (12 CPUs, Debian 10). 
+
+Unfortunately I'm not sure how to remove that trait object until `async` functions are supported in traits.
+
+If you'd like to contribute to any of the above features or changes feel free to reach out.
 
 ## Design 
 
@@ -28,7 +46,7 @@ This section covers some useful design considerations and assumptions that went 
 * Any client struct needs to be `Send + Sync` to work effectively with Tokio.
 * Any client struct should be fast and cheap to `Clone`.
 * The primary command interfaces should be as flexible as possible via use of `Into` and `TryInto` for arguments.
-* Assume nearly any command might be used in the context of a transaction, and so it could return a `QUEUED` response even if the docs only mention bulk strings, arrays, etc. There are some exceptions to this (blocking commands, etc) where return values could be typed to exactly match the rust-equivalent type of the return value, but generally speaking every command should return a `RedisValue`. 
+* Assume nearly any command might be used in the context of a transaction, and so it could return a `QUEUED` response even if the docs only mention bulk strings, arrays, etc. There are some exceptions to this where return values could be typed to exactly match the rust-equivalent type of the return value, but generally speaking every command should return a `RedisValue`. 
 
 There are other Redis libraries for Rust that have different goals, but the main goal of this library is to provide callers with a high level interface that abstracts away everything to do with safe and reliable connection management. This also includes some optional features to automatically handle common use cases around error handling, reconnection & backoff, retry, metrics, etc.
 

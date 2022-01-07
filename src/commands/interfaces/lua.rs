@@ -1,7 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleStrings, MultipleValues, FromRedis, ScriptDebugFlag};
+use crate::types::{FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag};
 use crate::utils;
 use std::convert::TryInto;
 
@@ -76,7 +76,6 @@ pub trait LuaInterface: ClientLike + Sized {
   {
     into!(hashes);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::lua::script_exists(&inner, hashes).await
     })
   }

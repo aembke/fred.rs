@@ -222,7 +222,7 @@ pub async fn xread(
     for (idx, key) in keys.inner().into_iter().enumerate() {
       // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say something
       if is_clustered && idx == 0 {
-        hash_slot = Some(redis_keyslot(&key.as_str_lossy()));
+        hash_slot = Some(redis_keyslot(key.as_bytes()));
       }
 
       args.push(key.into());
@@ -360,7 +360,7 @@ pub async fn xreadgroup(
     args.push(STREAMS.into());
     for (idx, key) in keys.inner().into_iter().enumerate() {
       if is_clustered && idx == 0 {
-        hash_slot = Some(redis_keyslot(&key.as_str_lossy()));
+        hash_slot = Some(redis_keyslot(key.as_bytes()));
       }
 
       args.push(key.into());

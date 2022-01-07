@@ -372,7 +372,7 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
   if let Err(mut e) = inner.command_tx.send(command) {
     if let Some(tx) = e.0.tx.take() {
       if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
-        _error!(inner, "Failed to send command {:?}.", e.0.extract_key());
+        _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
       }
     }
   }
@@ -816,4 +816,8 @@ where
   }
 
   Ok(out)
+}
+
+pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
+  delay + rand::thread_rng().gen_range(0..jitter as u64)
 }

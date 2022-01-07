@@ -1,10 +1,10 @@
+use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{
-  AggregateOptions, Limit, MultipleKeys, MultipleValues, MultipleWeights, MultipleZaddValues, Ordering, RedisKey,
-  FromRedis, RedisValue, SetOptions, ZRange, ZSort,
+  AggregateOptions, FromRedis, Limit, MultipleKeys, MultipleValues, MultipleWeights, MultipleZaddValues, Ordering,
+  RedisKey, RedisValue, SetOptions, ZRange, ZSort,
 };
-use crate::{commands, utils};
 use std::convert::TryInto;
 
 /// Functions that implement the [Sorted Sets](https://redis.io/commands#sorted_set) interface.
@@ -18,7 +18,6 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(keys);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::sorted_sets::bzpopmin(&inner, keys, timeout).await
     })
   }
@@ -32,7 +31,6 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(keys);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::sorted_sets::bzpopmax(&inner, keys, timeout).await
     })
   }

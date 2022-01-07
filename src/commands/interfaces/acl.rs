@@ -14,7 +14,6 @@ pub trait AclInterface: ClientLike + Sized {
   {
     into!(username);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_setuser(&inner, username, rules).await
     })
   }
@@ -35,10 +34,7 @@ pub trait AclInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/acl-save>
   fn acl_save(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::acl::acl_save(&inner).await
-    })
+    async_spawn(self, |inner| async move { commands::acl::acl_save(&inner).await })
   }
 
   /// The command shows the currently active ACL rules in the Redis server.
@@ -48,10 +44,10 @@ pub trait AclInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::acl::acl_list(&inner).await?.convert()
-    })
+    async_spawn(
+      self,
+      |inner| async move { commands::acl::acl_list(&inner).await?.convert() },
+    )
   }
 
   /// The command shows a list of all the usernames of the currently configured users in the Redis ACL system.
@@ -62,7 +58,6 @@ pub trait AclInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
   {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_users(&inner).await?.convert()
     })
   }
@@ -76,7 +71,6 @@ pub trait AclInterface: ClientLike + Sized {
   {
     into!(username);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_getuser(&inner, username).await
     })
   }
@@ -91,7 +85,6 @@ pub trait AclInterface: ClientLike + Sized {
   {
     into!(usernames);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_deluser(&inner, usernames).await?.convert()
     })
   }
@@ -102,7 +95,6 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-cat>
   fn acl_cat(&self, category: Option<String>) -> AsyncResult<Vec<String>> {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_cat(&inner, category).await?.convert()
     })
   }
@@ -112,7 +104,6 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-genpass>
   fn acl_genpass(&self, bits: Option<u16>) -> AsyncResult<String> {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_genpass(&inner, bits).await?.convert()
     })
   }
@@ -123,7 +114,6 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-whoami>
   fn acl_whoami(&self) -> AsyncResult<String> {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_whoami(&inner).await?.convert()
     })
   }
@@ -133,7 +123,6 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-log>
   fn acl_log_count(&self, count: Option<u32>) -> AsyncResult<RedisValue> {
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::acl::acl_log_count(&inner, count).await
     })
   }
@@ -142,9 +131,6 @@ pub trait AclInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/acl-log>
   fn acl_log_reset(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::acl::acl_log_reset(&inner).await
-    })
+    async_spawn(self, |inner| async move { commands::acl::acl_log_reset(&inner).await })
   }
 }

@@ -11,7 +11,6 @@ use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp2_frame_to_resp3;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -1680,7 +1679,7 @@ impl RedisCommand {
   }
 
   /// Read the first key in the command, if any.
-  pub fn extract_key(&self) -> Option<Cow<str>> {
+  pub fn extract_key(&self) -> Option<&[u8]> {
     let has_custom_key_location = match self.kind {
       RedisCommandKind::Xread(_) => true,
       RedisCommandKind::Xreadgroup(_) => true,
@@ -1691,12 +1690,12 @@ impl RedisCommand {
     }
 
     match self.args.first() {
-      Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
-      Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
+      Some(RedisValue::String(ref s)) => Some(s.as_bytes()),
+      Some(RedisValue::Bytes(ref b)) => Some(b),
       Some(_) => match self.args.get(1) {
         // some commands take a `num_keys` argument first, followed by keys
-        Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
-        Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
+        Some(RedisValue::String(ref s)) => Some(s.as_bytes()),
+        Some(RedisValue::Bytes(ref b)) => Some(b),
         _ => None,
       },
       None => None,
@@ -1826,7 +1825,7 @@ impl ClusterKeyCache {
   }
 
   /// Calculate the cluster hash slot for the provided key.
-  pub fn hash_key(key: &str) -> u16 {
+  pub fn hash_key(key: &[u8]) -> u16 {
     redis_protocol::redis_keyslot(key)
   }
 

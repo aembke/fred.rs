@@ -112,8 +112,7 @@ impl RedisKey {
 
   /// Hash the key to find the associated cluster [hash slot](https://redis.io/topics/cluster-spec#keys-distribution-model).
   pub fn cluster_hash(&self) -> u16 {
-    let as_str = String::from_utf8_lossy(&self.key);
-    redis_protocol::redis_keyslot(&as_str)
+    redis_protocol::redis_keyslot(&self.key)
   }
 
   /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is known.

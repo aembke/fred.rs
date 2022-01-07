@@ -501,7 +501,7 @@ pub async fn write_clustered_command(
   {
     let hash_slot = match hash_slot {
       Some(slot) => Some(slot),
-      None => command.extract_key().map(|key| redis_keyslot(&key)),
+      None => command.extract_key().map(|key| redis_keyslot(key)),
     };
     let server = match hash_slot {
       Some(hash_slot) => match cache.read().get_server(hash_slot) {
@@ -547,7 +547,7 @@ pub async fn write_clustered_command(
           "Using server {} with hash slot {:?} from key {}",
           server,
           hash_slot,
-          key
+          String::from_utf8_lossy(key)
         );
       }
     }
@@ -988,18 +988,18 @@ pub fn check_mget_cluster_keys(multiplexer: &Multiplexer, keys: &Vec<RedisValue>
     let mut nodes = BTreeSet::new();
 
     for key in keys.iter() {
-      let key_str = match key.as_str() {
+      let key_bytes = match key.as_bytes() {
         Some(s) => s,
-        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key string.")),
+        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key bytes.")),
       };
-      let hash_slot = redis_protocol::redis_keyslot(&key_str);
+      let hash_slot = redis_protocol::redis_keyslot(key_bytes);
       let server = match cache.read().get_server(hash_slot) {
         Some(s) => s.id.clone(),
         None => {
           return Err(RedisError::new(
             RedisErrorKind::InvalidArgument,
-            format!("Failed to find cluster node for {}", key_str),
-          ))
+            "Failed to find cluster node",
+          ));
         }
       };
 
@@ -1031,18 +1031,18 @@ pub fn check_mset_cluster_keys(multiplexer: &Multiplexer, args: &Vec<RedisValue>
     let mut nodes = BTreeSet::new();
 
     for chunk in args.chunks(2) {
-      let key = match chunk[0].as_str() {
+      let key = match chunk[0].as_bytes() {
         Some(s) => s,
-        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key string.")),
+        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key bytes.")),
       };
-      let hash_slot = redis_protocol::redis_keyslot(&key);
+      let hash_slot = redis_protocol::redis_keyslot(key);
       let server = match cache.read().get_server(hash_slot) {
         Some(s) => s.id.clone(),
         None => {
           return Err(RedisError::new(
             RedisErrorKind::InvalidArgument,
-            format!("Failed to find cluster node for {}", key),
-          ))
+            "Failed to find cluster node.",
+          ));
         }
       };
 

@@ -54,7 +54,7 @@ where
   let pattern = pattern.into();
   let key_slot = if utils::is_clustered(&inner.config) {
     if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
-      Some(redis_keyslot(&pattern))
+      Some(redis_keyslot(pattern.as_bytes()))
     } else {
       None
     }

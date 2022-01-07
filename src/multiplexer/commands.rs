@@ -221,6 +221,7 @@ fn handle_connection_closed(
     attempts: 0,
     max_attempts: 0,
     delay: inner.perf_config.cluster_cache_update_delay_ms() as u32,
+    jitter: 0,
   });
 
   let reconnect_inner = inner.clone();
@@ -383,7 +384,7 @@ fn check_transaction_hash_slot(inner: &Arc<RedisClientInner>, command: &RedisCom
   if client_utils::is_clustered(&inner.config) && client_utils::is_locked_some(&inner.multi_block) {
     if let Some(key) = command.extract_key() {
       if let Some(policy) = inner.multi_block.write().deref_mut() {
-        let _ = policy.check_and_set_hash_slot(redis_keyslot(&key))?;
+        let _ = policy.check_and_set_hash_slot(redis_keyslot(key))?;
       }
     }
   }
@@ -852,6 +853,9 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
       ))
     }
   };
+  if let Some(ref mut policy) = policy {
+    policy.reset_attempts();
+  }
   client_utils::set_locked(&inner.policy, policy.clone());
   let multiplexer = Multiplexer::new(inner);
 

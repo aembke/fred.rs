@@ -1,8 +1,7 @@
 use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, FromRedis, RedisValue};
-use crate::utils;
+use crate::types::{FromRedis, LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, RedisValue};
 use std::convert::TryInto;
 
 /// Functions that implement the [Lists](https://redis.io/commands#lists) interface.
@@ -18,7 +17,6 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(keys);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::lists::blpop(&inner, keys, timeout).await?.convert()
     })
   }
@@ -34,7 +32,6 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(keys);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::lists::brpop(&inner, keys, timeout).await?.convert()
     })
   }
@@ -50,7 +47,6 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(source, destination);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
       commands::lists::brpoplpush(&inner, source, destination, timeout)
         .await?
         .convert()
@@ -75,8 +71,6 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(source, destination);
     async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-
       commands::lists::blmove(
         &inner,
         source,
