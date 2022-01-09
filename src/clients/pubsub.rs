@@ -122,7 +122,11 @@ pub struct SubscriberClient {
 
 impl fmt::Debug for SubscriberClient {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "[Pubsub Client]")
+    f.debug_struct("SubscriberClient")
+      .field("id", &self.inner.id)
+      .field("channels", &self.tracked_channels())
+      .field("patterns", &self.tracked_patterns())
+      .finish()
   }
 }
 

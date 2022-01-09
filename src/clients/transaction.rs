@@ -16,14 +16,12 @@ pub struct TransactionClient {
   finished: Arc<RwLock<bool>>,
 }
 
-impl fmt::Display for TransactionClient {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(
-      f,
-      "[TransactionClient {}: {}]",
-      self.inner.id,
-      self.inner().state.read()
-    )
+impl fmt::Debug for TransactionClient {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("TransactionClient")
+      .field("id", &self.inner.id)
+      .field("state", &self.inner.state.read())
+      .finish()
   }
 }
 

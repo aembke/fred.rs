@@ -105,8 +105,11 @@ impl ClientLike for SentinelClient {
 }
 
 impl fmt::Display for SentinelClient {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[SentinelClient {}: {}]", self.inner.id, self.state())
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("SentinelClient")
+      .field("id", &self.inner.id)
+      .field("state", &self.state())
+      .finish()
   }
 }
 

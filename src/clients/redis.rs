@@ -23,8 +23,11 @@ pub struct RedisClient {
 }
 
 impl fmt::Display for RedisClient {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[RedisClient {}: {}]", self.inner.id, self.state())
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("RedisClient")
+      .field("id", &self.inner.id)
+      .field("state", &self.state())
+      .finish()
   }
 }
 
