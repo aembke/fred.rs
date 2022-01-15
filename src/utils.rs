@@ -404,7 +404,9 @@ pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), Redis
 }
 
 pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Result<(), RedisError> {
+  incr_atomic(&inner.cmd_buffer_len);
   if let Err(mut e) = inner.command_tx.send(command) {
+    decr_atomic(&inner.cmd_buffer_len);
     if let Some(tx) = e.0.tx.take() {
       if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
         _error!(inner, "Failed to send command {:?}.", e.0.extract_key());
@@ -412,7 +414,6 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
     }
   }
 
-  incr_atomic(&inner.cmd_buffer_len);
   Ok(())
 }
 

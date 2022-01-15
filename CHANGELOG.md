@@ -1,3 +1,8 @@
+## 4.3.2
+
+* Fix https://github.com/aembke/fred.rs/issues/27
+* Fix https://github.com/aembke/fred.rs/issues/26
+
 ## 4.3.1
 
 * Fix authentication bug with `sentinel-auth` tests
