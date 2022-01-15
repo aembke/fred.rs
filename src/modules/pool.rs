@@ -76,6 +76,7 @@ impl DynamicRedisPool {
 
   /// Wait for all the clients to connect to the server.
   pub async fn wait_for_connect(&self) -> Result<(), RedisError> {
+    debug!("Connecting via dynamic pool...");
     let clients = self.clients();
     let futures = clients.iter().map(|client| client.wait_for_connect());
     let _ = try_join_all(futures).await?;
