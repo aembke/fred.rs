@@ -14,6 +14,7 @@ use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
 use std::net::SocketAddr;
+use std::str;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -415,7 +416,7 @@ async fn read_cluster_state(
     );
     return None;
   }
-  let cluster_state = match response.to_string() {
+  let cluster_state = match response.as_str() {
     Some(response) => response,
     None => return None,
   };
@@ -439,7 +440,7 @@ where
   let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
   let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
   let result = match result.into_resp3() {
-    Resp3Frame::BlobString { data, .. } => String::from_utf8(data)?,
+    Resp3Frame::BlobString { data, .. } => str::from_utf8(&data)?,
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
     Resp3Frame::BlobError { data, .. } => {
       let parsed = String::from_utf8_lossy(&data);

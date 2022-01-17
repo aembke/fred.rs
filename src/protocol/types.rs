@@ -1774,7 +1774,7 @@ impl From<Vec<Arc<SlotRange>>> for ClusterKeyCache {
 
 impl ClusterKeyCache {
   /// Create a new cache from the output of CLUSTER NODES, if available.
-  pub fn new(status: Option<String>) -> Result<ClusterKeyCache, RedisError> {
+  pub fn new(status: Option<&str>) -> Result<ClusterKeyCache, RedisError> {
     let mut cache = ClusterKeyCache { data: Vec::new() };
 
     if let Some(status) = status {
@@ -1801,7 +1801,7 @@ impl ClusterKeyCache {
   }
 
   /// Rebuild the cache in place with the output of a CLUSTER NODES command.
-  pub fn rebuild(&mut self, status: String) -> Result<(), RedisError> {
+  pub fn rebuild(&mut self, status: &str) -> Result<(), RedisError> {
     if status.trim().is_empty() {
       error!("Invalid empty CLUSTER NODES response.");
       return Err(RedisError::new(

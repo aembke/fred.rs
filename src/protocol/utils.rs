@@ -143,7 +143,7 @@ pub fn binary_search(slots: &Vec<Arc<SlotRange>>, slot: u16) -> Option<Arc<SlotR
   None
 }
 
-pub fn parse_cluster_nodes(status: String) -> Result<HashMap<Arc<String>, Vec<SlotRange>>, RedisError> {
+pub fn parse_cluster_nodes(status: &str) -> Result<HashMap<Arc<String>, Vec<SlotRange>>, RedisError> {
   let mut out: HashMap<Arc<String>, Vec<SlotRange>> = HashMap::new();
 
   // build out the slot ranges for the primary nodes
@@ -1888,7 +1888,7 @@ cluster_stats_messages_received:1483968";
     };
 
     let actual = parse_cluster_info(Resp3Frame::BlobString {
-      data: input.as_bytes().to_vec(),
+      data: input.as_bytes().into(),
       attributes: None,
     })
     .unwrap();
@@ -2194,13 +2194,13 @@ b8553a4fae8ae99fca716d423b14875ebb10fefe quux.use2.cache.amazonaws.com:6379@1122
       ],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status) {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };
     assert_eq!(actual, expected);
 
-    let cache = ClusterKeyCache::new(Some(status.to_owned())).expect("Failed to build cluster cache");
+    let cache = ClusterKeyCache::new(Some(status)).expect("Failed to build cluster cache");
     let slot = cache.get_server(8246).unwrap();
     assert_eq!(slot.server.as_str(), "quux.use2.cache.amazonaws.com:6379");
     let slot = cache.get_server(1697).unwrap();
@@ -2249,7 +2249,7 @@ e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 127.0.0.1:30001 myself,master - 0 0 1 c
       }],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status) {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };
@@ -2292,7 +2292,7 @@ b4fa5337b58e02673f961e22c9557e81dda4b559 bar.cache.amazonaws.com:6379@1122 mysel
       }],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status) {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };
@@ -2342,7 +2342,7 @@ b4fa5337b58e02673f961e22c9557e81dda4b559 bar.cache.amazonaws.com:6379@1122 mysel
       }],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status) {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };

@@ -25,10 +25,15 @@ macro_rules! impl_string_or_number(
   }
 );
 
+/// Alias to an owned or borrowed string used in a Redis request or response.
+///
+/// Arguments may cross thread boundaries with a multi-thread tokio runtime so the str lifetime must be 'static.
+pub type RedisString = Cow<'static, str>;
+
 /// An argument representing a string or number.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StringOrNumber {
-  String(String),
+  String(RedisString),
   Number(i64),
 }
 
@@ -317,8 +322,8 @@ pub enum RedisValue {
   /// A double floating point number.
   Double(f64),
   /// A string value.
-  String(String),
-  /// A binary value to represent non-UTF8 strings or byte arrays.
+  String(RedisString),
+  /// A value to represent non-UTF8 strings or byte arrays.
   Bytes(Vec<u8>),
   /// A `nil` value.
   Null,
@@ -606,7 +611,7 @@ impl<'a> RedisValue {
     match self {
       RedisValue::Boolean(ref b) => Some(b.to_string()),
       RedisValue::Double(f) => Some(f.to_string()),
-      RedisValue::String(s) => Some(s),
+      RedisValue::String(s) => Some(s.into_string()),
       RedisValue::Bytes(b) => String::from_utf8(b).ok(),
       RedisValue::Integer(i) => Some(i.to_string()),
       RedisValue::Queued => Some(QUEUED.to_owned()),
@@ -628,7 +633,7 @@ impl<'a> RedisValue {
     match self {
       RedisValue::Boolean(ref b) => Some(b.to_string()),
       RedisValue::Double(ref f) => Some(f.to_string()),
-      RedisValue::String(ref s) => Some(s.to_owned()),
+      RedisValue::String(ref s) => Some(s.to_string()),
       RedisValue::Bytes(ref b) => str::from_utf8(b).ok().map(|s| s.to_owned()),
       RedisValue::Integer(ref i) => Some(i.to_string()),
       RedisValue::Queued => Some(QUEUED.to_owned()),
@@ -1002,19 +1007,19 @@ impl TryFrom<usize> for RedisValue {
 
 impl From<String> for RedisValue {
   fn from(d: String) -> Self {
-    RedisValue::String(d)
+    RedisValue::String(Cow::Owned(d))
   }
 }
 
-impl<'a> From<&'a str> for RedisValue {
-  fn from(d: &'a str) -> Self {
-    RedisValue::String(d.to_owned())
+impl From<&'static str> for RedisValue {
+  fn from(d: &'static str) -> Self {
+    RedisValue::String(Cow::Borrowed(d))
   }
 }
 
 impl<'a> From<&'a String> for RedisValue {
   fn from(s: &'a String) -> Self {
-    RedisValue::String(s.clone())
+    RedisValue::String(Cow::Owned(s.clone()))
   }
 }
 

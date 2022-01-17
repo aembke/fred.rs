@@ -18,12 +18,11 @@ use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::cmp;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::mem;
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, mem, str};
 use tokio;
 use tokio::sync::broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver};
 use tokio::sync::mpsc::UnboundedSender;
@@ -1191,7 +1190,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     };
 
     if let Resp3Frame::BlobString { data, .. } = frame {
-      let response = String::from_utf8(data)?;
+      let response = str::from_utf8(&data)?;
       let state = match ClusterKeyCache::new(Some(response)) {
         Ok(state) => state,
         Err(e) => {
