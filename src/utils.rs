@@ -5,6 +5,8 @@ use crate::multiplexer::utils as multiplexer_utils;
 use crate::multiplexer::{sentinel, ConnectionIDs};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
+use bytes::Bytes;
+use bytes_utils::Str;
 use float_cmp::approx_eq;
 use futures::future::{select, Either};
 use futures::{pin_mut, Future};
@@ -31,6 +33,10 @@ use crate::trace;
 use futures::TryFutureExt;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
+
+pub fn static_str(s: &'static str) -> Str {
+  unsafe { Str::from_inner_unchecked(Bytes::from_static(s.as_bytes())) }
+}
 
 pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
   config.read().server.is_clustered()

@@ -3,10 +3,10 @@ use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::utils as protocol_utils;
 use bytes::BytesMut;
-use redis_protocol::resp2::decode::decode as resp2_decode;
+use redis_protocol::resp2::decode::decode_mut as resp2_decode;
 use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::decode::streaming::decode as resp3_decode;
+use redis_protocol::resp3::decode::streaming::decode_mut as resp3_decode;
 use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
 use redis_protocol::resp3::types::RespVersion;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, StreamedFrame};
@@ -72,12 +72,11 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
     return Ok(None);
   }
 
-  if let Some((frame, amt)) = resp2_decode(src)? {
+  if let Some((frame, amt, _)) = resp2_decode(src)? {
     trace!("{}: Parsed {} bytes from {}", codec.name, amt, codec.server);
     log_resp2_frame(&codec.name, &frame, false);
     sample_stats(&codec, true, amt as i64);
 
-    let _ = src.split_to(amt);
     Ok(Some(protocol_utils::check_resp2_auth_error(frame)))
   } else {
     Ok(None)
@@ -114,8 +113,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
     return Ok(None);
   }
 
-  if let Some((frame, amt)) = resp3_decode(&src)? {
-    let _ = src.split_to(amt);
+  if let Some((frame, amt, _)) = resp3_decode(src)? {
     sample_stats(&codec, true, amt as i64);
 
     if codec.streaming_state.is_some() && frame.is_streaming() {

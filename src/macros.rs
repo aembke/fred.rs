@@ -72,6 +72,16 @@ macro_rules! atry (
   }
 );
 
+macro_rules! static_str(
+  ($name:ident, $val:expr) => {
+    lazy_static::lazy_static! {
+      pub static ref $name: Str = {
+        crate::utils::static_str($val)
+      };
+    }
+  }
+);
+
 macro_rules! into (
   ($val:ident) => (let $val = $val.into(););
   ($v1:ident, $v2:ident) => (

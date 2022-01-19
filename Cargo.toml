@@ -20,11 +20,12 @@ arcstr = "1.1"
 arc-swap = "1.5"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.6", features = ["codec"] }
-bytes = "1.0"
+bytes = "1.1"
+bytes-utils = "0.1"
 futures = "0.3"
 parking_lot = "0.11"
 lazy_static = "1.4"
-redis-protocol = "4"
+redis-protocol = { version = "4.0", features = ["decode-mut"] }
 log = "0.4"
 pretty_env_logger = "0.4"
 float-cmp = "0.8"

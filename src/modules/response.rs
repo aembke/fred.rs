@@ -1,5 +1,7 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::types::{RedisValue, QUEUED};
+use crate::types::{RedisValue, NIL, QUEUED};
+use bytes::Bytes;
+use bytes_utils::Str;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
 use std::str::FromStr;
@@ -81,6 +83,8 @@ macro_rules! impl_unsigned_number (
 );
 
 /// A trait used to [convert](crate::types::RedisValue::convert) various forms of [RedisValue](crate::types::RedisValue) into different types.
+///
+/// Note: if callers use [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html) the underlying data will not be copied or moved, if possible.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -91,7 +95,7 @@ pub trait FromRedis: Sized {
 
   #[doc(hidden)]
   // FIXME if/when specialization is stable
-  fn from_bytes(_: Vec<u8>) -> Option<Vec<Self>> {
+  fn from_owned_bytes(_: Vec<u8>) -> Option<Vec<Self>> {
     None
   }
   #[doc(hidden)]
@@ -124,8 +128,8 @@ impl FromRedis for u8 {
     to_unsigned_number!(u8, value)
   }
 
-  fn from_bytes(v: Vec<u8>) -> Option<Vec<u8>> {
-    Some(v)
+  fn from_owned_bytes(d: Vec<u8>) -> Option<Vec<Self>> {
+    Some(d)
   }
 }
 
@@ -145,6 +149,21 @@ impl FromRedis for String {
     } else {
       value
         .into_string()
+        .ok_or(RedisError::new_parse("Could not convert to string."))
+    }
+  }
+}
+
+impl FromRedis for Str {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    if value.is_null() {
+      Err(RedisError::new(
+        RedisErrorKind::NotFound,
+        "Cannot convert nil response to string.",
+      ))
+    } else {
+      value
+        .into_bytes_str()
         .ok_or(RedisError::new_parse("Could not convert to string."))
     }
   }
@@ -209,17 +228,27 @@ where
   }
 }
 
+impl FromRedis for Bytes {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    value
+      .into_bytes()
+      .ok_or(RedisError::new_parse("Cannot parse into bytes."))
+  }
+}
+
 impl<T> FromRedis for Vec<T>
 where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
     match value {
-      RedisValue::Bytes(bytes) => T::from_bytes(bytes).ok_or(RedisError::new_parse("Cannot convert from bytes")),
+      RedisValue::Bytes(bytes) => {
+        T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
+      }
       RedisValue::String(string) => {
         // hacky way to check if T is bytes without consuming `string`
-        if T::from_bytes(vec![]).is_some() {
-          T::from_bytes(string.into_bytes()).ok_or(RedisError::new_parse("Could not convert string to bytes."))
+        if T::from_owned_bytes(vec![]).is_some() {
+          T::from_owned_bytes(string.into_bytes()).ok_or(RedisError::new_parse("Could not convert string to bytes."))
         } else {
           Ok(vec![T::from_value(RedisValue::String(string))?])
         }
@@ -258,6 +287,10 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    if value.is_null() {
+      return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to map."));
+    }
+
     let as_map = if value.is_array() || value.is_map() {
       value
         .into_map()
@@ -516,7 +549,7 @@ mod tests {
 
   #[test]
   fn should_convert_bytes() {
-    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec()).convert().unwrap();
+    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into()).convert().unwrap();
     assert_eq!(_foo, "foo".as_bytes().to_vec());
     let _foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
     assert_eq!(_foo, "foo".as_bytes().to_vec());
