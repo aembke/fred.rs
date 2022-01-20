@@ -31,6 +31,16 @@ macro_rules! impl_string_or_number(
   }
 );
 
+macro_rules! impl_from_str_for_redis_key(
+  ($t:ty) => {
+    impl From<$t> for RedisKey {
+      fn from(val: $t) -> Self {
+        RedisKey { key: val.to_string().into() }
+      }
+    }
+  }
+);
+
 /// An argument representing a string or number.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StringOrNumber {
@@ -62,7 +72,7 @@ impl TryFrom<RedisValue> for StringOrNumber {
       RedisValue::String(s) => StringOrNumber::String(s),
       RedisValue::Integer(i) => StringOrNumber::Number(i),
       RedisValue::Double(f) => StringOrNumber::Double(f),
-      RedisValue::Bytes(b) => Str::from_inner(b)?,
+      RedisValue::Bytes(b) => StringOrNumber::String(Str::from_inner(b)?),
       _ => {
         return Err(RedisError::new(
           RedisErrorKind::InvalidArgument,
@@ -142,6 +152,11 @@ impl RedisKey {
     &self.key
   }
 
+  /// Read the inner `Bytes` struct.
+  pub fn inner(&self) -> &Bytes {
+    &self.key
+  }
+
   /// Read the key as a lossy UTF8 string with `String::from_utf8_lossy`.
   pub fn as_str_lossy(&self) -> Cow<str> {
     String::from_utf8_lossy(&self.key)
@@ -180,7 +195,7 @@ impl RedisKey {
     }
   }
 
-  /// Replace this key with an empty string, returning the bytes from the original key.
+  /// Replace this key with an empty byte array, returning the bytes from the original key.
   pub fn take(&mut self) -> Bytes {
     self.key.split_to(self.key.len())
   }
@@ -234,6 +249,13 @@ impl<'a> From<&'a RedisKey> for RedisKey {
     k.clone()
   }
 }
+
+impl_from_str_for_redis_key!(u8);
+impl_from_str_for_redis_key!(u16);
+impl_from_str_for_redis_key!(u32);
+impl_from_str_for_redis_key!(u64);
+impl_from_str_for_redis_key!(u128);
+impl_from_str_for_redis_key!(usize);
 
 /// A map of `(String, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
