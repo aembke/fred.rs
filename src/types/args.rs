@@ -256,6 +256,14 @@ impl_from_str_for_redis_key!(u32);
 impl_from_str_for_redis_key!(u64);
 impl_from_str_for_redis_key!(u128);
 impl_from_str_for_redis_key!(usize);
+impl_from_str_for_redis_key!(i8);
+impl_from_str_for_redis_key!(i16);
+impl_from_str_for_redis_key!(i32);
+impl_from_str_for_redis_key!(i64);
+impl_from_str_for_redis_key!(i128);
+impl_from_str_for_redis_key!(isize);
+impl_from_str_for_redis_key!(f32);
+impl_from_str_for_redis_key!(f64);
 
 /// A map of `(String, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -305,24 +313,45 @@ impl<'a> From<&'a RedisMap> for RedisMap {
   }
 }
 
-impl From<HashMap<Str, RedisValue>> for RedisMap {
-  fn from(d: HashMap<Str, RedisValue>) -> Self {
-    RedisMap {
-      inner: d.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-    }
+impl<K, V> TryFrom<HashMap<K, V>> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: HashMap<K, V>) -> Result<Self, Self::Error> {
+    Ok(RedisMap {
+      inner: value
+        .into_iter()
+        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
+        .collect()?,
+    })
   }
 }
 
-impl From<BTreeMap<Str, RedisValue>> for RedisMap {
-  fn from(d: BTreeMap<Str, RedisValue>) -> Self {
-    let mut inner = HashMap::with_capacity(d.len());
-    for (key, value) in d.into_iter() {
-      inner.insert(key.into(), value);
-    }
-    RedisMap { inner }
+impl<K, V> TryFrom<BTreeMap<K, V>> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: BTreeMap<K, V>) -> Result<Self, Self::Error> {
+    Ok(RedisMap {
+      inner: value
+        .into_iter()
+        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
+        .collect()?,
+    })
   }
 }
 
+/*
 impl<S: Into<Str>> From<(S, RedisValue)> for RedisMap {
   fn from(d: (S, RedisValue)) -> Self {
     let mut inner = HashMap::with_capacity(1);
@@ -350,6 +379,7 @@ impl<S: Into<Str>> From<VecDeque<(S, RedisValue)>> for RedisMap {
     RedisMap { inner }
   }
 }
+*/
 
 /// The kind of value from Redis.
 #[derive(Clone, Debug, Eq, PartialEq)]
