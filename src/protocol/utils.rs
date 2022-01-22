@@ -8,6 +8,8 @@ use crate::types::*;
 use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
 use crate::utils::redis_string_to_f64;
+use bytes::Bytes;
+use bytes_utils::Str;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp3::types::{Auth, PUBSUB_PUSH_PREFIX};
@@ -234,13 +236,13 @@ pub fn pretty_error(resp: &str) -> RedisError {
 /// Parse the frame as a string, without support for error frames.
 pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
   match frame {
-    Resp3Frame::SimpleString { data, .. } => Ok(data),
-    Resp3Frame::BlobString { data, .. } => Ok(String::from_utf8(data)?),
+    Resp3Frame::SimpleString { data, .. } => Ok(String::from_utf8(data.to_vec())?),
+    Resp3Frame::BlobString { data, .. } => Ok(String::from_utf8(data.to_vec())?),
     Resp3Frame::Double { data, .. } => Ok(data.to_string()),
     Resp3Frame::Number { data, .. } => Ok(data.to_string()),
     Resp3Frame::Boolean { data, .. } => Ok(data.to_string()),
-    Resp3Frame::VerbatimString { data, .. } => Ok(String::from_utf8(data)?),
-    Resp3Frame::BigNumber { data, .. } => Ok(String::from_utf8(data)?),
+    Resp3Frame::VerbatimString { data, .. } => Ok(String::from_utf8(data.to_vec())?),
+    Resp3Frame::BigNumber { data, .. } => Ok(String::from_utf8(data.to_vec())?),
     _ => Err(RedisError::new(
       RedisErrorKind::ProtocolError,
       "Expected protocol string.",
@@ -302,7 +304,7 @@ pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
 #[cfg(feature = "ignore-auth-error")]
 pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
   let is_auth_error = match frame {
-    Resp2Frame::Error(ref data) => data == "ERR Client sent AUTH, but no password is set",
+    Resp2Frame::Error(ref data) => *data == "ERR Client sent AUTH, but no password is set",
     _ => false,
   };
 
@@ -321,7 +323,7 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 #[cfg(feature = "ignore-auth-error")]
 pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
   let is_auth_error = match frame {
-    Resp3Frame::SimpleError { ref data, .. } => data == "ERR Client sent AUTH, but no password is set",
+    Resp3Frame::SimpleError { ref data, .. } => *data == "ERR Client sent AUTH, but no password is set",
     _ => false,
   };
 
@@ -336,8 +338,8 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 }
 
 /// Try to parse the data as a string, and failing that return a byte slice.
-pub fn string_or_bytes(data: Vec<u8>) -> RedisValue {
-  if let Some(s) = str::from_utf8(&data).ok() {
+pub fn string_or_bytes(data: Bytes) -> RedisValue {
+  if let Some(s) = Str(&data).ok() {
     RedisValue::String(s.to_owned())
   } else {
     RedisValue::Bytes(data)

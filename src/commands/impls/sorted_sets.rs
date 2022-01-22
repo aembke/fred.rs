@@ -67,7 +67,7 @@ fn frames_to_bzpop_result(mut frames: Vec<Frame>) -> Result<Option<(RedisKey, Re
   let key_frame = frames.pop().unwrap();
 
   let score = match score_frame {
-    Frame::SimpleString { data, .. } => data.parse::<f64>()?,
+    Frame::SimpleString { data, .. } => bytes_to_f64(&data)?,
     Frame::BlobString { data, .. } => bytes_to_f64(&data)?,
     Frame::Double { data, .. } => data,
     _ => {
@@ -80,7 +80,7 @@ fn frames_to_bzpop_result(mut frames: Vec<Frame>) -> Result<Option<(RedisKey, Re
   let value = protocol_utils::frame_to_results(value_frame)?;
   let key = match key_frame {
     Frame::SimpleString { data, .. } => data.into(),
-    Frame::BlobString { data, .. } => String::from_utf8(data)?.into(),
+    Frame::BlobString { data, .. } => data.into(),
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,

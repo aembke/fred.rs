@@ -235,12 +235,42 @@ impl TryFrom<RedisValue> for RedisKey {
   }
 }
 
-impl<B> From<B> for RedisKey
-where
-  B: Into<Bytes>,
-{
-  fn from(b: B) -> Self {
+impl From<Bytes> for RedisKey {
+  fn from(b: Bytes) -> Self {
+    RedisKey { key: b }
+  }
+}
+
+impl<'a> From<&'a [u8]> for RedisKey {
+  fn from(b: &'a [u8]) -> Self {
     RedisKey { key: b.into() }
+  }
+}
+
+/*
+// doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what to do with `Vec<u8>`.
+impl From<Vec<u8>> for RedisKey {
+  fn from(b: Vec<u8>) -> Self {
+    RedisKey { key: b.into() }
+  }
+}
+*/
+
+impl From<String> for RedisKey {
+  fn from(s: String) -> Self {
+    RedisKey { key: s.into() }
+  }
+}
+
+impl<'a> From<&'a str> for RedisKey {
+  fn from(s: &'a str) -> Self {
+    RedisKey { key: s.into() }
+  }
+}
+
+impl From<Str> for RedisKey {
+  fn from(s: Str) -> Self {
+    RedisKey { key: s.into_inner() }
   }
 }
 
@@ -351,35 +381,57 @@ where
   }
 }
 
-/*
-impl<S: Into<Str>> From<(S, RedisValue)> for RedisMap {
-  fn from(d: (S, RedisValue)) -> Self {
+impl<K, V> TryFrom<(K, V)> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from((key, value): (K, V)) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(1);
-    inner.insert(d.0.into().into(), d.1);
-    RedisMap { inner }
+    inner.insert(key.try_into()?, value.try_into()?);
+    Ok(RedisMap { inner })
   }
 }
 
-impl<S: Into<Str>> From<Vec<(S, RedisValue)>> for RedisMap {
-  fn from(d: Vec<(S, RedisValue)>) -> Self {
-    let mut inner = HashMap::with_capacity(d.len());
-    for (key, value) in d.into_iter() {
-      inner.insert(key.into().into(), value);
+impl<K, V> TryFrom<Vec<(K, V)>> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(values: Vec<(K, V)>) -> Result<Self, Self::Error> {
+    let mut inner = HashMap::with_capacity(values.len());
+    for (key, value) in values.into_iter() {
+      inner.insert(key.try_into()?, value.try_into()?);
     }
-    RedisMap { inner }
+    Ok(RedisMap { inner })
   }
 }
 
-impl<S: Into<Str>> From<VecDeque<(S, RedisValue)>> for RedisMap {
-  fn from(d: VecDeque<(S, RedisValue)>) -> Self {
-    let mut inner = HashMap::with_capacity(d.len());
-    for (key, value) in d.into_iter() {
-      inner.insert(key.into().into(), value);
+impl<K, V> TryFrom<VecDeque<(K, V)>> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(values: VecDeque<(K, V)>) -> Result<Self, Self::Error> {
+    let mut inner = HashMap::with_capacity(values.len());
+    for (key, value) in values.into_iter() {
+      inner.insert(key.try_into()?, value.try_into()?);
     }
-    RedisMap { inner }
+    Ok(RedisMap { inner })
   }
 }
-*/
 
 /// The kind of value from Redis.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1018,15 +1070,15 @@ impl Hash for RedisValue {
   fn hash<H: Hasher>(&self, state: &mut H) {
     // used to prevent collisions between different types
     let prefix = match self.kind() {
-      RedisValueKind::Boolean => 'B',
-      RedisValueKind::Double => 'd',
-      RedisValueKind::Integer => 'i',
-      RedisValueKind::String => 's',
-      RedisValueKind::Null => 'n',
-      RedisValueKind::Queued => 'q',
-      RedisValueKind::Array => 'a',
-      RedisValueKind::Map => 'm',
-      RedisValueKind::Bytes => 'b',
+      RedisValueKind::Boolean => b'B',
+      RedisValueKind::Double => b'd',
+      RedisValueKind::Integer => b'i',
+      RedisValueKind::String => b's',
+      RedisValueKind::Null => b'n',
+      RedisValueKind::Queued => b'q',
+      RedisValueKind::Array => b'a',
+      RedisValueKind::Map => b'm',
+      RedisValueKind::Bytes => b'b',
     };
     prefix.hash(state);
 
@@ -1218,7 +1270,9 @@ where
 
   fn try_from(d: HashMap<K, V>) -> Result<Self, Self::Error> {
     Ok(RedisValue::Map(
-      d.into_iter().map(|(k, v)| (k.try_into()?, v.try_into()?)).collect()?,
+      d.into_iter()
+        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
+        .collect()?,
     ))
   }
 }
@@ -1234,7 +1288,9 @@ where
 
   fn try_from(d: BTreeMap<K, V>) -> Result<Self, Self::Error> {
     Ok(RedisValue::Map(
-      d.into_iter().map(|(k, v)| (k.try_into()?, v.try_into()?)).collect()?,
+      d.into_iter()
+        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
+        .collect()?,
     ))
   }
 }

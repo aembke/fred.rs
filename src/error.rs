@@ -1,4 +1,5 @@
 use crate::protocol::types::RedisCommand;
+use bytes_utils:::String::Utf8Error as BytesUtf8Error;
 use futures::channel::oneshot::Canceled;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::types::RedisProtocolError;
@@ -174,13 +175,19 @@ impl From<ParseIntError> for RedisError {
 
 impl From<FromUtf8Error> for RedisError {
   fn from(_: FromUtf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid UTF8 string.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }
 
 impl From<Utf8Error> for RedisError {
-  fn from(_: Utf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid UTF8 string.")
+  fn from(e: Utf8Error) -> Self {
+    RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
+  }
+}
+
+impl From<BytesUtf8Error> for RedisError {
+  fn from(e: BytesUtf8Error) -> Self {
+    e.utf8_error().into()
   }
 }
 

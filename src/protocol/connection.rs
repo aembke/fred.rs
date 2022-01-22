@@ -440,7 +440,7 @@ where
   let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
   let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
   let result = match result.into_resp3() {
-    Resp3Frame::BlobString { data, .. } => str::from_utf8(&data)?,
+    Resp3Frame::BlobString { data, .. } => String::from_utf8(data.to_vec())?,
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
     Resp3Frame::BlobError { data, .. } => {
       let parsed = String::from_utf8_lossy(&data);
