@@ -42,12 +42,33 @@ macro_rules! impl_from_str_for_redis_key(
 );
 
 /// An argument representing a string or number.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum StringOrNumber {
   String(Str),
   Number(i64),
   Double(f64),
 }
+
+impl PartialEq for StringOrNumber {
+  fn eq(&self, other: &Self) -> bool {
+    match *self {
+      StringOrNumber::String(ref s) => match *other {
+        StringOrNumber::String(ref _s) => s == _s,
+        _ => false,
+      },
+      StringOrNumber::Number(ref i) => match *other {
+        StringOrNumber::Number(ref _i) => *i == *_i,
+        _ => false,
+      },
+      StringOrNumber::Double(ref d) => match *other {
+        StringOrNumber::Double(ref _d) => utils::f64_eq(*d, *_d),
+        _ => false,
+      },
+    }
+  }
+}
+
+impl Eq for StringOrNumber {}
 
 impl StringOrNumber {
   /// An optimized way to convert from `&'static str` that avoids copying or moving the underlying bytes.
@@ -73,12 +94,7 @@ impl TryFrom<RedisValue> for StringOrNumber {
       RedisValue::Integer(i) => StringOrNumber::Number(i),
       RedisValue::Double(f) => StringOrNumber::Double(f),
       RedisValue::Bytes(b) => StringOrNumber::String(Str::from_inner(b)?),
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Cannot convert to string or number.",
-        ))
-      }
+      _ => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "")),
     };
 
     Ok(val)

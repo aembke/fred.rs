@@ -8,6 +8,7 @@ use crate::protocol::utils::{frame_to_error, frame_to_single_result};
 use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
+use bytes_utils::Str;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -104,10 +105,10 @@ fn update_scan_cursor(inner: &Arc<RedisClientInner>, last_command: &mut SentComm
 }
 
 /// Parse the output of a command that scans keys.
-fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), RedisError> {
+fn handle_key_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), RedisError> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match data[0].to_string() {
+      let cursor = match protocol_utils::frame_to_str(data[0]) {
         Some(s) => s,
         None => {
           return Err(RedisError::new(
@@ -121,7 +122,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), 
         let mut keys = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
-          let key = match frame.to_string() {
+          let key = match protocol_utils::frame_to_bytes(frame) {
             Some(s) => s,
             None => {
               return Err(RedisError::new(
@@ -131,7 +132,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), 
             }
           };
 
-          keys.push(RedisKey::new(key));
+          keys.push(key.into());
         }
 
         Ok((cursor, keys))
@@ -159,7 +160,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisKey>), 
 fn handle_value_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisValue>), RedisError> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match data[0].to_string() {
+      let cursor = match protocol_utils::frame_to_str(data[0]) {
         Some(s) => s,
         None => {
           return Err(RedisError::new(

@@ -16,6 +16,7 @@ use redis_protocol::resp3::types::{Auth, PUBSUB_PUSH_PREFIX};
 use redis_protocol::resp3::types::{Frame as Resp3Frame, FrameMap};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::str;
 use std::sync::Arc;
@@ -339,10 +340,34 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 
 /// Try to parse the data as a string, and failing that return a byte slice.
 pub fn string_or_bytes(data: Bytes) -> RedisValue {
-  if let Some(s) = Str(&data).ok() {
-    RedisValue::String(s.to_owned())
+  if let Some(s) = Str::from_inner(data).ok() {
+    RedisValue::String(s)
   } else {
     RedisValue::Bytes(data)
+  }
+}
+
+pub fn frame_to_bytes(frame: Resp3Frame) -> Option<Bytes> {
+  match frame {
+    Resp3Frame::BigNumber { data, .. } => Some(data),
+    Resp3Frame::VerbatimString { data, .. } => Some(data),
+    Resp3Frame::BlobString { data, .. } => Some(data),
+    Resp3Frame::SimpleString { data, .. } => Some(data),
+    Resp3Frame::BlobError { data, .. } => Some(data),
+    Resp3Frame::SimpleError { data, .. } => Some(data.into_inner()),
+    _ => None,
+  }
+}
+
+pub fn frame_to_str(frame: Resp3Frame) -> Option<Str> {
+  match frame {
+    Resp3Frame::BigNumber { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::VerbatimString { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::BlobString { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::SimpleString { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::BlobError { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::SimpleError { data, .. } => Some(data),
+    _ => None,
   }
 }
 
@@ -365,10 +390,7 @@ fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
 
   // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types as keys...
   for (key, value) in data.into_iter() {
-    let key = match frame_to_single_result(key)?.into_string() {
-      Some(s) => s,
-      None => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid map key type.")),
-    };
+    let key: RedisKey = frame_to_single_result(key)?.try_into()?;
     let value = frame_to_results(value)?;
 
     out.insert(key, value);
@@ -384,10 +406,10 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   let value = match frame {
     Resp3Frame::Null => RedisValue::Null,
     Resp3Frame::SimpleString { data, .. } => {
-      if data.as_str() == QUEUED {
+      if str::from_utf8(&data) == QUEUED {
         RedisValue::Queued
       } else {
-        data.into()
+        string_or_bytes(data)
       }
     }
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
@@ -400,7 +422,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
     Resp3Frame::VerbatimString { data, .. } => string_or_bytes(data),
     Resp3Frame::Number { data, .. } => data.into(),
     Resp3Frame::Double { data, .. } => data.into(),
-    Resp3Frame::BigNumber { data, .. } => String::from_utf8(data)?.into(),
+    Resp3Frame::BigNumber { data, .. } => string_or_bytes(data),
     Resp3Frame::Boolean { data, .. } => data.into(),
     Resp3Frame::Array { data, .. } => parse_nested_array(data)?,
     Resp3Frame::Push { data, .. } => parse_nested_array(data)?,
