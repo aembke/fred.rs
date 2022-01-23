@@ -80,9 +80,9 @@ pub fn redis_string_to_f64(s: &str) -> Result<f64, RedisError> {
 /// Convert an `f64` to a redis string, supporting "+inf" and "-inf".
 pub fn f64_to_redis_string(d: f64) -> Result<RedisValue, RedisError> {
   if d.is_infinite() && d.is_sign_negative() {
-    Ok("-inf".into())
+    Ok(RedisValue::from_static_str("-inf"))
   } else if d.is_infinite() {
-    Ok("+inf".into())
+    Ok(RedisValue::from_static_str("+inf"))
   } else if d.is_nan() {
     Err(RedisError::new(
       RedisErrorKind::InvalidArgument,
@@ -375,7 +375,9 @@ pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), Redis
 }
 
 pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Result<(), RedisError> {
+  incr_atomic(&inner.cmd_buffer_len);
   if let Err(mut e) = inner.command_tx.send(command) {
+    decr_atomic(&inner.cmd_buffer_len);
     if let Some(tx) = e.0.tx.take() {
       if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
         _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
@@ -383,7 +385,6 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
     }
   }
 
-  incr_atomic(&inner.cmd_buffer_len);
   Ok(())
 }
 
@@ -826,4 +827,22 @@ where
 
 pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   delay + rand::thread_rng().gen_range(0..jitter as u64)
+}
+
+pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
+where
+  I: Iterator<Item = (K, V)>,
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  let (lower, upper) = iter.size_hint();
+  let capacity = if let Some(upper) = upper { upper } else { lower };
+  let mut out = HashMap::with_capacity(capacity);
+
+  while let Some((key, value)) = iter.next() {
+    out.insert(to!(key)?, to!(value)?);
+  }
+  Ok(out)
 }

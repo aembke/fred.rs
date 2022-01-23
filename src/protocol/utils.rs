@@ -18,6 +18,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::net::SocketAddr;
+use std::ops::Deref;
 use std::str;
 use std::sync::Arc;
 
@@ -340,33 +341,33 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 
 /// Try to parse the data as a string, and failing that return a byte slice.
 pub fn string_or_bytes(data: Bytes) -> RedisValue {
-  if let Some(s) = Str::from_inner(data).ok() {
+  if let Some(s) = Str::from_inner(data.clone()).ok() {
     RedisValue::String(s)
   } else {
     RedisValue::Bytes(data)
   }
 }
 
-pub fn frame_to_bytes(frame: Resp3Frame) -> Option<Bytes> {
+pub fn frame_to_bytes(frame: &Resp3Frame) -> Option<Bytes> {
   match frame {
-    Resp3Frame::BigNumber { data, .. } => Some(data),
-    Resp3Frame::VerbatimString { data, .. } => Some(data),
-    Resp3Frame::BlobString { data, .. } => Some(data),
-    Resp3Frame::SimpleString { data, .. } => Some(data),
-    Resp3Frame::BlobError { data, .. } => Some(data),
-    Resp3Frame::SimpleError { data, .. } => Some(data.into_inner()),
+    Resp3Frame::BigNumber { data, .. } => Some(data.clone()),
+    Resp3Frame::VerbatimString { data, .. } => Some(data.clone()),
+    Resp3Frame::BlobString { data, .. } => Some(data.clone()),
+    Resp3Frame::SimpleString { data, .. } => Some(data.clone()),
+    Resp3Frame::BlobError { data, .. } => Some(data.clone()),
+    Resp3Frame::SimpleError { data, .. } => Some(data.inner().clone()),
     _ => None,
   }
 }
 
-pub fn frame_to_str(frame: Resp3Frame) -> Option<Str> {
+pub fn frame_to_str(frame: &Resp3Frame) -> Option<Str> {
   match frame {
-    Resp3Frame::BigNumber { data, .. } => Str::from_inner(data).ok(),
-    Resp3Frame::VerbatimString { data, .. } => Str::from_inner(data).ok(),
-    Resp3Frame::BlobString { data, .. } => Str::from_inner(data).ok(),
-    Resp3Frame::SimpleString { data, .. } => Str::from_inner(data).ok(),
-    Resp3Frame::BlobError { data, .. } => Str::from_inner(data).ok(),
-    Resp3Frame::SimpleError { data, .. } => Some(data),
+    Resp3Frame::BigNumber { data, .. } => Str::from_inner(data.clone()).ok(),
+    Resp3Frame::VerbatimString { data, .. } => Str::from_inner(data.clone()).ok(),
+    Resp3Frame::BlobString { data, .. } => Str::from_inner(data.clone()).ok(),
+    Resp3Frame::SimpleString { data, .. } => Str::from_inner(data.clone()).ok(),
+    Resp3Frame::BlobError { data, .. } => Str::from_inner(data.clone()).ok(),
+    Resp3Frame::SimpleError { data, .. } => Some(data.clone()),
     _ => None,
   }
 }
@@ -396,7 +397,7 @@ fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
     out.insert(key, value);
   }
 
-  Ok(out.into())
+  Ok(RedisMap { inner: out })
 }
 
 /// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
@@ -406,10 +407,12 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   let value = match frame {
     Resp3Frame::Null => RedisValue::Null,
     Resp3Frame::SimpleString { data, .. } => {
-      if str::from_utf8(&data) == QUEUED {
+      let value = string_or_bytes(data);
+
+      if value.as_str().map(|s| s == QUEUED).unwrap_or(false) {
         RedisValue::Queued
       } else {
-        string_or_bytes(data)
+        value
       }
     }
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
@@ -454,16 +457,18 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
 pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   match frame {
     Resp3Frame::SimpleString { data, .. } => {
-      if data.as_str() == QUEUED {
+      let value = string_or_bytes(data);
+
+      if value.as_str().map(|s| s == QUEUED).unwrap_or(false) {
         Ok(RedisValue::Queued)
       } else {
-        Ok(data.into())
+        Ok(value)
       }
     }
     Resp3Frame::SimpleError { data, .. } => Err(pretty_error(&data)),
     Resp3Frame::Number { data, .. } => Ok(data.into()),
     Resp3Frame::Double { data, .. } => Ok(data.into()),
-    Resp3Frame::BigNumber { data, .. } => Ok(String::from_utf8(data)?.into()),
+    Resp3Frame::BigNumber { data, .. } => Ok(string_or_bytes(data)),
     Resp3Frame::Boolean { data, .. } => Ok(data.into()),
     Resp3Frame::VerbatimString { data, .. } => Ok(string_or_bytes(data)),
     Resp3Frame::BlobString { data, .. } => Ok(string_or_bytes(data)),
@@ -508,6 +513,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
     Resp3Frame::Array { data, .. } => {
       let count = data.iter().fold(0, |c, f| {
         c + match f {
+          Resp3Frame::Push { ref data, .. } => data.len(),
           Resp3Frame::Array { ref data, .. } => data.len(),
           Resp3Frame::Set { ref data, .. } => data.len(),
           _ => 1,
@@ -517,6 +523,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
       let mut out = Vec::with_capacity(count);
       for frame in data.into_iter() {
         match frame {
+          Resp3Frame::Push { data, .. } => out.extend(data),
           Resp3Frame::Array { data, .. } => out.extend(data),
           Resp3Frame::Set { data, .. } => out.extend(data),
           _ => out.push(frame),
@@ -571,12 +578,8 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
 
       let mut inner = HashMap::with_capacity(data.len() / 2);
       while data.len() >= 2 {
-        let value = data.pop().unwrap();
-        let key = match data.pop().unwrap().as_str() {
-          Some(k) => k.to_owned(),
-          None => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected string key.")),
-        };
-        let value = frame_to_single_result(value)?;
+        let value = frame_to_results(data.pop().unwrap())?;
+        let key = frame_to_single_result(data.pop().unwrap())?.try_into()?;
 
         inner.insert(key, value);
       }
@@ -588,40 +591,6 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
       RedisErrorKind::ProtocolError,
       "Expected array or map frames.",
     )),
-  }
-}
-
-/// Convert a redis array value to a redis map.
-#[allow(dead_code)]
-pub fn array_to_map(data: RedisValue) -> Result<RedisMap, RedisError> {
-  if let RedisValue::Array(mut values) = data {
-    if values.is_empty() {
-      return Ok(RedisMap::new());
-    }
-    if values.len() % 2 != 0 {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected an even number of array frames.",
-      ));
-    }
-
-    let mut inner = HashMap::with_capacity(values.len() / 2);
-    while values.len() >= 2 {
-      let value = values.pop().unwrap();
-      let key = match values.pop().unwrap().into_string() {
-        Some(k) => k,
-        None => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected string key.")),
-      };
-
-      inner.insert(key, value);
-    }
-
-    Ok(RedisMap { inner })
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected array of frames.",
-    ))
   }
 }
 
@@ -638,12 +607,12 @@ pub fn frame_to_error(frame: &Resp3Frame) -> Option<RedisError> {
 
 pub fn value_to_outgoing_resp2_frame(value: &RedisValue) -> Result<Resp2Frame, RedisError> {
   let frame = match value {
-    RedisValue::Double(ref f) => Resp2Frame::BulkString(f.to_string().into_bytes()),
-    RedisValue::Boolean(ref b) => Resp2Frame::BulkString(b.to_string().into_bytes()),
-    RedisValue::Integer(ref i) => Resp2Frame::BulkString(i.to_string().into_bytes()),
-    RedisValue::String(ref s) => Resp2Frame::BulkString(s.as_bytes().to_vec()),
-    RedisValue::Bytes(ref b) => Resp2Frame::BulkString(b.to_vec()),
-    RedisValue::Queued => Resp2Frame::BulkString(QUEUED.as_bytes().to_vec()),
+    RedisValue::Double(ref f) => Resp2Frame::BulkString(f.to_string().into()),
+    RedisValue::Boolean(ref b) => Resp2Frame::BulkString(b.to_string().into()),
+    RedisValue::Integer(ref i) => Resp2Frame::BulkString(i.to_string().into()),
+    RedisValue::String(ref s) => Resp2Frame::BulkString(s.inner().clone()),
+    RedisValue::Bytes(ref b) => Resp2Frame::BulkString(b.clone()),
+    RedisValue::Queued => Resp2Frame::BulkString(Bytes::from_static(QUEUED.as_bytes())),
     RedisValue::Null => Resp2Frame::Null,
     _ => {
       return Err(RedisError::new(
@@ -657,34 +626,29 @@ pub fn value_to_outgoing_resp2_frame(value: &RedisValue) -> Result<Resp2Frame, R
 }
 
 pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, RedisError> {
-  // FIXME make sure this works correctly...
-  // the docs are unclear on whether a RESP3 client should use Bulk/BlobStrings for outgoing frames like RESP2,
-  // or whether it should use use the newer types (https://redis.io/topics/protocol#sending-commands-to-a-redis-server)
-  // for now we'll assume it's the same as RESP2...
-
   let frame = match value {
     RedisValue::Double(ref f) => Resp3Frame::BlobString {
-      data: f.to_string().into_bytes(),
+      data: f.to_string().into(),
       attributes: None,
     },
     RedisValue::Boolean(ref b) => Resp3Frame::BlobString {
-      data: b.to_string().into_bytes(),
+      data: b.to_string().into(),
       attributes: None,
     },
     RedisValue::Integer(ref i) => Resp3Frame::BlobString {
-      data: i.to_string().into_bytes(),
+      data: i.to_string().into(),
       attributes: None,
     },
     RedisValue::String(ref s) => Resp3Frame::BlobString {
-      data: s.as_bytes().to_vec(),
+      data: s.inner().clone(),
       attributes: None,
     },
     RedisValue::Bytes(ref b) => Resp3Frame::BlobString {
-      data: b.to_vec(),
+      data: b.clone(),
       attributes: None,
     },
     RedisValue::Queued => Resp3Frame::BlobString {
-      data: QUEUED.as_bytes().to_vec(),
+      data: Bytes::from_static(QUEUED.as_bytes()),
       attributes: None,
     },
     RedisValue::Null => Resp3Frame::Null,
@@ -702,7 +666,7 @@ pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, R
 pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {
   match *value {
     RedisValue::String(ref resp) => {
-      if resp == OK {
+      if resp.deref() == OK {
         Ok(())
       } else {
         Err(RedisError::new(
@@ -728,8 +692,7 @@ fn parse_u64(val: &Resp3Frame) -> u64 {
       }
     }
     Resp3Frame::Double { ref data, .. } => *data as u64,
-    Resp3Frame::SimpleString { ref data, .. } => data.parse::<u64>().ok().unwrap_or(0),
-    Resp3Frame::BlobString { ref data, .. } => str::from_utf8(data)
+    Resp3Frame::BlobString { ref data, .. } | Resp3Frame::SimpleString { ref data, .. } => str::from_utf8(data)
       .ok()
       .and_then(|s| s.parse::<u64>().ok())
       .unwrap_or(0),
@@ -741,8 +704,7 @@ fn parse_f64(val: &Resp3Frame) -> f64 {
   match *val {
     Resp3Frame::Number { ref data, .. } => *data as f64,
     Resp3Frame::Double { ref data, .. } => *data,
-    Resp3Frame::SimpleString { ref data, .. } => redis_string_to_f64(data).unwrap_or(0.0),
-    Resp3Frame::BlobString { ref data, .. } => str::from_utf8(data)
+    Resp3Frame::BlobString { ref data, .. } | Resp3Frame::SimpleString { ref data, .. } => str::from_utf8(data)
       .ok()
       .and_then(|s| redis_string_to_f64(s).ok())
       .unwrap_or(0.0),
@@ -1409,7 +1371,7 @@ pub fn args_size(args: &Vec<RedisValue>) -> usize {
 fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp3Frame, RedisError> {
   let auth = if command.args.len() == 2 {
     // has username and password
-    let username = match command.args[0].as_string() {
+    let username = match command.args[0].as_bytes_str() {
       Some(username) => username,
       None => {
         return Err(RedisError::new(
@@ -1418,7 +1380,7 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
         ));
       }
     };
-    let password = match command.args[1].as_string() {
+    let password = match command.args[1].as_bytes_str() {
       Some(password) => password,
       None => {
         return Err(RedisError::new(
@@ -1428,13 +1390,10 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
       }
     };
 
-    Some(Auth {
-      username: Cow::Owned(username),
-      password: Cow::Owned(password),
-    })
+    Some(Auth { username, password })
   } else if command.args.len() == 1 {
     // just has a password (assume the default user)
-    let password = match command.args[0].as_string() {
+    let password = match command.args[0].as_bytes_str() {
       Some(password) => password,
       None => {
         return Err(RedisError::new(
@@ -1463,7 +1422,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 
       for part in parts.into_iter() {
         bulk_strings.push(Resp3Frame::BlobString {
-          data: part.as_bytes().to_vec(),
+          data: part.as_bytes().into(),
           attributes: None,
         });
       }
@@ -1480,15 +1439,14 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
     _ => {
       let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
-      let cmd = command.kind.cmd_str().as_bytes();
       bulk_strings.push(Resp3Frame::BlobString {
-        data: cmd.to_vec(),
+        data: Bytes::from_static(command.kind.cmd_str().as_bytes()),
         attributes: None,
       });
 
       if let Some(subcommand) = command.kind.subcommand_str() {
         bulk_strings.push(Resp3Frame::BlobString {
-          data: subcommand.as_bytes().to_vec(),
+          data: Bytes::from_static(subcommand.as_bytes()),
           attributes: None,
         });
       }
@@ -1511,7 +1469,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
       let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
 
       for part in parts.into_iter() {
-        bulk_strings.push(Resp2Frame::BulkString(part.as_bytes().to_vec()));
+        bulk_strings.push(Resp2Frame::BulkString(part.as_bytes().into()));
       }
       for value in command.args.iter() {
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
@@ -1522,11 +1480,12 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
     _ => {
       let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
-      let cmd = command.kind.cmd_str().as_bytes();
-      bulk_strings.push(Resp2Frame::BulkString(cmd.to_vec()));
+      bulk_strings.push(Resp2Frame::BulkString(Bytes::from_static(
+        command.kind.cmd_str().as_bytes(),
+      )));
 
       if let Some(subcommand) = command.kind.subcommand_str() {
-        bulk_strings.push(Resp2Frame::BulkString(subcommand.as_bytes().to_vec()));
+        bulk_strings.push(Resp2Frame::BulkString(Bytes::from_static(subcommand.as_bytes())));
       }
       for value in command.args.iter() {
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
@@ -1553,14 +1512,14 @@ mod tests {
 
   fn str_to_f(s: &str) -> Resp3Frame {
     Resp3Frame::SimpleString {
-      data: s.to_owned(),
+      data: s.to_owned().into(),
       attributes: None,
     }
   }
 
   fn str_to_bs(s: &str) -> Resp3Frame {
     Resp3Frame::BlobString {
-      data: s.as_bytes().to_vec(),
+      data: s.to_owned().into(),
       attributes: None,
     }
   }

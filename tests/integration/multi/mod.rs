@@ -33,14 +33,6 @@ pub async fn should_fail_with_hashslot_error(client: RedisClient, _config: Redis
   Ok(())
 }
 
-pub async fn should_fail_with_blocking_cmd(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let trx = client.multi(true).await?;
-  let _: () = client.blpop("foo", 100.0).await?;
-  let _: () = trx.exec().await?;
-
-  Ok(())
-}
-
 pub async fn should_use_cluster_slot_with_publish(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let trx = client.multi(true).await?;
 

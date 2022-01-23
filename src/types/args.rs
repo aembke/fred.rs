@@ -16,7 +16,6 @@ use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::{fmt, mem, str};
-use tokio_stream::StreamExt;
 
 static_str!(TRUE_STR, "true");
 static_str!(FALSE_STR, "false");
@@ -152,9 +151,16 @@ pub struct RedisKey {
 
 impl RedisKey {
   /// Create a new `RedisKey` from static bytes without copying.
-  pub fn from_static(b: &'static &[u8]) -> Self {
+  pub fn from_static(b: &'static [u8]) -> Self {
     RedisKey {
       key: Bytes::from_static(b),
+    }
+  }
+
+  /// Create a new `RedisKey` from a `&'static str` without copying.
+  pub fn from_static_str(b: &'static str) -> Self {
+    RedisKey {
+      key: Bytes::from_static(b.as_bytes()),
     }
   }
 
@@ -232,13 +238,13 @@ impl TryFrom<RedisValue> for RedisKey {
       RedisValue::Bytes(b) => RedisKey { key: b },
       RedisValue::Boolean(b) => match b {
         true => RedisKey {
-          key: TRUE_STR.clone().into_inner(),
+          key: TRUE_STR.clone().into_inner().into(),
         },
         false => RedisKey {
-          key: FALSE_STR.clone().into_inner(),
+          key: FALSE_STR.clone().into_inner().into(),
         },
       },
-      RedisValue::Queued => utils::static_str(QUEUED),
+      RedisValue::Queued => utils::static_str(QUEUED).into(),
       _ => {
         return Err(RedisError::new(
           RedisErrorKind::InvalidArgument,
@@ -259,7 +265,7 @@ impl From<Bytes> for RedisKey {
 
 impl<'a> From<&'a [u8]> for RedisKey {
   fn from(b: &'a [u8]) -> Self {
-    RedisKey { key: b.into() }
+    RedisKey { key: b.to_vec().into() }
   }
 }
 
@@ -280,7 +286,15 @@ impl From<String> for RedisKey {
 
 impl<'a> From<&'a str> for RedisKey {
   fn from(s: &'a str) -> Self {
-    RedisKey { key: s.into() }
+    RedisKey {
+      key: s.as_bytes().to_vec().into(),
+    }
+  }
+}
+
+impl<'a> From<&'a String> for RedisKey {
+  fn from(s: &'a String) -> Self {
+    RedisKey { key: s.clone().into() }
   }
 }
 
@@ -311,7 +325,7 @@ impl_from_str_for_redis_key!(isize);
 impl_from_str_for_redis_key!(f32);
 impl_from_str_for_redis_key!(f64);
 
-/// A map of `(String, RedisValue)` pairs.
+/// A map of `(RedisKey, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisMap {
   pub(crate) inner: HashMap<RedisKey, RedisValue>,
@@ -325,7 +339,9 @@ impl RedisMap {
 
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
-    mem::replace(&mut self.inner, HashMap::new()).into()
+    RedisMap {
+      inner: mem::replace(&mut self.inner, HashMap::new()),
+    }
   }
 
   /// Read the number of (key, value) pairs in the map.
@@ -370,10 +386,7 @@ where
 
   fn try_from(value: HashMap<K, V>) -> Result<Self, Self::Error> {
     Ok(RedisMap {
-      inner: value
-        .into_iter()
-        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
-        .collect()?,
+      inner: utils::into_redis_map(value.into_iter())?,
     })
   }
 }
@@ -389,10 +402,7 @@ where
 
   fn try_from(value: BTreeMap<K, V>) -> Result<Self, Self::Error> {
     Ok(RedisMap {
-      inner: value
-        .into_iter()
-        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
-        .collect()?,
+      inner: utils::into_redis_map(value.into_iter())?,
     })
   }
 }
@@ -408,7 +418,7 @@ where
 
   fn try_from((key, value): (K, V)) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(1);
-    inner.insert(key.try_into()?, value.try_into()?);
+    inner.insert(to!(key)?, to!(value)?);
     Ok(RedisMap { inner })
   }
 }
@@ -425,7 +435,7 @@ where
   fn try_from(values: Vec<(K, V)>) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(values.len());
     for (key, value) in values.into_iter() {
-      inner.insert(key.try_into()?, value.try_into()?);
+      inner.insert(to!(key)?, to!(value)?);
     }
     Ok(RedisMap { inner })
   }
@@ -443,7 +453,7 @@ where
   fn try_from(values: VecDeque<(K, V)>) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(values.len());
     for (key, value) in values.into_iter() {
-      inner.insert(key.try_into()?, value.try_into()?);
+      inner.insert(to!(key)?, to!(value)?);
     }
     Ok(RedisMap { inner })
   }
@@ -570,7 +580,7 @@ impl<'a> RedisValue {
   /// Whether or not the value is a simple string OK value.
   pub fn is_ok(&self) -> bool {
     match *self {
-      RedisValue::String(ref s) => s == OK,
+      RedisValue::String(ref s) => *s == OK,
       _ => false,
     }
   }
@@ -642,8 +652,8 @@ impl<'a> RedisValue {
         0 | 1 => true,
         _ => false,
       },
-      RedisValue::String(ref s) => match s.as_ref() {
-        "true" | "false" | "t" | "f" | "TRUE" | "FALSE" | "T" | "F" | "1" | "0" => true,
+      RedisValue::String(ref s) => match s.as_bytes() {
+        b"true" | b"false" | b"t" | b"f" | b"TRUE" | b"FALSE" | b"T" | b"F" | b"1" | b"0" => true,
         _ => false,
       },
       _ => false,
@@ -790,7 +800,7 @@ impl<'a> RedisValue {
     match self {
       RedisValue::Boolean(b) => Some(b.to_string()),
       RedisValue::Double(f) => Some(f.to_string()),
-      RedisValue::String(s) => Some(s.into_string()),
+      RedisValue::String(s) => Some(s.to_string()),
       RedisValue::Bytes(b) => String::from_utf8(b.to_vec()).ok(),
       RedisValue::Integer(i) => Some(i.to_string()),
       RedisValue::Queued => Some(QUEUED.to_owned()),
@@ -828,6 +838,29 @@ impl<'a> RedisValue {
     }
   }
 
+  /// Read the inner value as a `Str`.
+  pub fn as_bytes_str(&self) -> Option<Str> {
+    match self {
+      RedisValue::Boolean(ref b) => match *b {
+        true => Some(TRUE_STR.clone()),
+        false => Some(FALSE_STR.clone()),
+      },
+      RedisValue::Double(ref f) => Some(f.to_string().into()),
+      RedisValue::String(ref s) => Some(s.clone()),
+      RedisValue::Bytes(ref b) => Str::from_inner(b.clone()).ok(),
+      RedisValue::Integer(ref i) => Some(i.to_string().into()),
+      RedisValue::Queued => Some(utils::static_str(QUEUED)),
+      RedisValue::Array(ref inner) => {
+        if inner.len() == 1 {
+          inner[0].as_bytes_str()
+        } else {
+          None
+        }
+      }
+      _ => None,
+    }
+  }
+
   /// Read and return the inner `String` if the value is a string or scalar value.
   ///
   /// Note: this will cast integers and doubles to strings.
@@ -845,12 +878,12 @@ impl<'a> RedisValue {
 
   /// Read the inner value as a string slice.
   ///
-  /// Null is returned as "nil" and scalar values are cast to a string.
-  pub fn as_str(&'a self) -> Option<Cow<'a, str>> {
-    let s = match *self {
+  /// Null is returned as `"nil"` and scalar values are cast to a string.
+  pub fn as_str(&self) -> Option<Cow<str>> {
+    let s: Cow<str> = match *self {
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
+      RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
@@ -863,10 +896,10 @@ impl<'a> RedisValue {
 
   /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
   pub fn as_str_lossy(&self) -> Option<Cow<str>> {
-    let s = match *self {
+    let s: Cow<str> = match *self {
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.as_str()),
+      RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
@@ -896,9 +929,9 @@ impl<'a> RedisValue {
         1 => Some(true),
         _ => None,
       },
-      RedisValue::String(ref s) => match s.as_ref() {
-        "true" | "TRUE" | "t" | "T" | "1" => Some(true),
-        "false" | "FALSE" | "f" | "F" | "0" => Some(false),
+      RedisValue::String(ref s) => match s.as_bytes() {
+        b"true" | b"TRUE" | b"t" | b"T" | b"1" => Some(true),
+        b"false" | b"FALSE" | b"f" | b"F" | b"0" => Some(false),
         _ => None,
       },
       RedisValue::Null => Some(false),
@@ -981,7 +1014,7 @@ impl<'a> RedisValue {
   /// Convert the value to an array of bytes, if possible.
   pub fn into_owned_bytes(self) -> Option<Vec<u8>> {
     let v = match self {
-      RedisValue::String(s) => s.into_bytes(),
+      RedisValue::String(s) => s.to_string().into_bytes(),
       RedisValue::Bytes(b) => b.to_vec(),
       RedisValue::Null => NULL.as_bytes().to_vec(),
       RedisValue::Queued => QUEUED.as_bytes().to_vec(),
@@ -1285,11 +1318,9 @@ where
   type Error = RedisError;
 
   fn try_from(d: HashMap<K, V>) -> Result<Self, Self::Error> {
-    Ok(RedisValue::Map(
-      d.into_iter()
-        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
-        .collect()?,
-    ))
+    Ok(RedisValue::Map(RedisMap {
+      inner: utils::into_redis_map(d.into_iter())?,
+    }))
   }
 }
 
@@ -1303,11 +1334,9 @@ where
   type Error = RedisError;
 
   fn try_from(d: BTreeMap<K, V>) -> Result<Self, Self::Error> {
-    Ok(RedisValue::Map(
-      d.into_iter()
-        .map(|(k, v)| Ok((k.try_into()?, v.try_into()?)))
-        .collect()?,
-    ))
+    Ok(RedisValue::Map(RedisMap {
+      inner: utils::into_redis_map(d.into_iter())?,
+    }))
   }
 }
 

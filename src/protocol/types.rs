@@ -5,6 +5,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
+use bytes_utils::Str;
 use parking_lot::RwLock;
 use rand::Rng;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
@@ -12,6 +13,7 @@ use redis_protocol::resp2_frame_to_resp3;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::convert::TryInto;
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
@@ -168,7 +170,7 @@ impl Eq for ResponseKind {}
 
 pub struct KeyScanInner {
   pub key_slot: Option<u16>,
-  pub cursor: String,
+  pub cursor: Str,
   pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
@@ -187,7 +189,7 @@ pub enum ValueScanResult {
 }
 
 pub struct ValueScanInner {
-  pub cursor: String,
+  pub cursor: Str,
   pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
@@ -214,8 +216,8 @@ impl ValueScanInner {
     let mut out = HashMap::with_capacity(data.len() / 2);
     while data.len() >= 2 {
       let value = data.pop().unwrap();
-      let key = match data.pop().unwrap() {
-        RedisValue::String(s) => s,
+      let key: RedisKey = match data.pop().unwrap() {
+        RedisValue::String(s) => s.into(),
         _ => {
           return Err(RedisError::new(
             RedisErrorKind::ProtocolError,
@@ -227,7 +229,7 @@ impl ValueScanInner {
       out.insert(key, value);
     }
 
-    Ok(out.into())
+    Ok(out.try_into()?)
   }
 
   pub fn transform_zscan_result(mut data: Vec<RedisValue>) -> Result<Vec<(RedisValue, f64)>, RedisError> {

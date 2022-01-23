@@ -443,6 +443,18 @@ impl_from_str_from_redis_key!(isize);
 impl_from_str_from_redis_key!(f32);
 impl_from_str_from_redis_key!(f64);
 
+impl FromRedisKey for () {
+  fn from_key(_: RedisKey) -> Result<Self, RedisError> {
+    Ok(())
+  }
+}
+
+impl FromRedisKey for RedisKey {
+  fn from_key(value: RedisKey) -> Result<Self, RedisError> {
+    Ok(value)
+  }
+}
+
 impl FromRedisKey for String {
   fn from_key(value: RedisKey) -> Result<Self, RedisError> {
     value

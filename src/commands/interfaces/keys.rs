@@ -225,9 +225,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/mset>
   fn mset<V>(&self, values: V) -> AsyncResult<()>
   where
-    V: Into<RedisMap>,
+    V: TryInto<RedisMap>,
+    V::Error: Into<RedisError>,
   {
-    into!(values);
+    try_into!(values);
     async_spawn(self, |inner| async move {
       commands::keys::mset(&inner, values).await?.convert()
     })
@@ -239,9 +240,10 @@ pub trait KeysInterface: ClientLike + Sized {
   fn msetnx<R, V>(&self, values: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    V: Into<RedisMap>,
+    V: TryInto<RedisMap>,
+    V::Error: Into<RedisError>,
   {
-    into!(values);
+    try_into!(values);
     async_spawn(self, |inner| async move {
       commands::keys::msetnx(&inner, values).await?.convert()
     })

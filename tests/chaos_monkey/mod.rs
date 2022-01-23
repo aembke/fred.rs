@@ -90,7 +90,7 @@ async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
   let _ = client.connect(None);
   let _ = client.wait_for_connect().await?;
 
-  let foo = RedisKey::new("foo");
+  let foo = RedisKey::from_static_str("foo");
   let owner = match foo.cluster_owner(&client) {
     Some(server) => server.split(":").skip(1).next().unwrap().parse::<u16>()?,
     None => return Err(RedisError::new(RedisErrorKind::Unknown, "Failed to find owner")),

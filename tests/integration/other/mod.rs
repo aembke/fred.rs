@@ -2,17 +2,18 @@ use fred::clients::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
 use fred::interfaces::*;
 use fred::prelude::{Blocking, RedisValue};
-use fred::types::{ClientUnblockFlag, RedisConfig, RedisMap, ServerConfig};
+use fred::types::{ClientUnblockFlag, RedisConfig, RedisKey, RedisMap, ServerConfig};
 use parking_lot::RwLock;
 use redis_protocol::resp3::types::RespVersion;
 use std::collections::HashMap;
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::TryInto;
 use std::mem;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 
-fn hash_to_btree(vals: &RedisMap) -> BTreeMap<String, u16> {
+fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
     .iter()
     .map(|(key, value)| (key.clone(), value.as_u64().unwrap() as u16))
@@ -24,7 +25,7 @@ fn array_to_set<T: Ord>(vals: Vec<T>) -> BTreeSet<T> {
 }
 
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let nested_values: RedisMap = vec![("a", 1.into()), ("b", 2.into())].into();
+  let nested_values: RedisMap = vec![("a", 1), ("b", 2)].try_into()?;
   let _ = client.set("foo", "123", None, None, false).await?;
   let _ = client.set("baz", "456", None, None, false).await?;
   let _ = client.hset("bar", &nested_values).await?;
@@ -43,7 +44,7 @@ pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConf
   assert_eq!(foo, array_to_set(vec!["1".to_owned(), "2".to_owned()]));
   let foo: HashMap<String, u16> = client.hgetall("bar").await?;
   assert_eq!(foo, RedisValue::Map(nested_values.clone()).convert()?);
-  let foo: BTreeMap<String, u16> = client.hgetall("bar").await?;
+  let foo: BTreeMap<RedisKey, u16> = client.hgetall("bar").await?;
   assert_eq!(foo, hash_to_btree(&nested_values));
   let foo: (String, i64) = client.mget(vec!["foo", "baz"]).await?;
   assert_eq!(foo, ("123".into(), 456));

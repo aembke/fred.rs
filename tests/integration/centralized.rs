@@ -27,7 +27,6 @@ mod multi {
 
   centralized_test!(multi, should_run_get_set_trx);
   centralized_test_panic!(multi, should_run_error_get_set_trx);
-  centralized_test_panic!(multi, should_fail_with_blocking_cmd);
 }
 
 mod other {

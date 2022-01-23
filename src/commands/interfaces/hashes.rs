@@ -149,9 +149,11 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    V: Into<RedisMap>,
+    V: TryInto<RedisMap>,
+    V::Error: Into<RedisError>,
   {
-    into!(key, values);
+    into!(key);
+    try_into!(values);
     async_spawn(self, |inner| async move {
       commands::hashes::hmset(&inner, key, values).await?.convert()
     })
@@ -164,9 +166,11 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    V: Into<RedisMap>,
+    V: TryInto<RedisMap>,
+    V::Error: Into<RedisError>,
   {
-    into!(key, values);
+    into!(key);
+    try_into!(values);
     async_spawn(self, |inner| async move {
       commands::hashes::hset(&inner, key, values).await?.convert()
     })

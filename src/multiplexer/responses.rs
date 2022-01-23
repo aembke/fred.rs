@@ -83,7 +83,7 @@ fn merge_multiple_frames(frames: &mut VecDeque<Resp3Frame>) -> Resp3Frame {
 }
 
 /// Update the SCAN cursor on a command, changing the internal cursor and the arguments array for the next call to SCAN.
-fn update_scan_cursor(inner: &Arc<RedisClientInner>, last_command: &mut SentCommand, cursor: String) {
+fn update_scan_cursor(inner: &Arc<RedisClientInner>, last_command: &mut SentCommand, cursor: Str) {
   if last_command.command.kind.is_scan() {
     last_command.command.args[0] = cursor.clone().into();
   } else if last_command.command.kind.is_value_scan() {
@@ -108,7 +108,7 @@ fn update_scan_cursor(inner: &Arc<RedisClientInner>, last_command: &mut SentComm
 fn handle_key_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), RedisError> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match protocol_utils::frame_to_str(data[0]) {
+      let cursor = match protocol_utils::frame_to_str(&data[0]) {
         Some(s) => s,
         None => {
           return Err(RedisError::new(
@@ -122,7 +122,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), Red
         let mut keys = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
-          let key = match protocol_utils::frame_to_bytes(frame) {
+          let key = match protocol_utils::frame_to_bytes(&frame) {
             Some(s) => s,
             None => {
               return Err(RedisError::new(
@@ -157,10 +157,10 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), Red
 }
 
 /// Parse the output of a command that scans values.
-fn handle_value_scan_result(frame: Resp3Frame) -> Result<(String, Vec<RedisValue>), RedisError> {
+fn handle_value_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), RedisError> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match protocol_utils::frame_to_str(data[0]) {
+      let cursor = match protocol_utils::frame_to_str(&data[0]) {
         Some(s) => s,
         None => {
           return Err(RedisError::new(
@@ -588,7 +588,7 @@ async fn process_response(
         return Ok(None);
       }
     };
-    let should_stop = next_cursor.as_str() == LAST_CURSOR;
+    let should_stop = next_cursor == LAST_CURSOR;
     update_scan_cursor(inner, &mut last_command, next_cursor);
     check_command_resp_tx(inner, &last_command).await;
 
@@ -607,7 +607,7 @@ async fn process_response(
         return Ok(None);
       }
     };
-    let should_stop = next_cursor.as_str() == LAST_CURSOR;
+    let should_stop = next_cursor == LAST_CURSOR;
     update_scan_cursor(inner, &mut last_command, next_cursor);
     check_command_resp_tx(inner, &last_command).await;
 

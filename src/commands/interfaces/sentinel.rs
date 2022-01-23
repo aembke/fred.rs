@@ -161,6 +161,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     })
   }
 
+  // TODO change the Into<String> types to use a newtype that switches the 'static req on Into<Str>
+
   /// Set Sentinel's monitoring configuration.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
@@ -168,9 +170,11 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     N: Into<String>,
-    V: Into<RedisMap>,
+    V: TryInto<RedisMap>,
+    V::Error: Into<RedisError>,
   {
-    into!(name, args);
+    into!(name);
+    try_into!(args);
     async_spawn(self, |inner| async move {
       commands::sentinel::set(&inner, name, args.into()).await?.convert()
     })
