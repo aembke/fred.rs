@@ -112,6 +112,7 @@ impl From<Option<RedisValue>> for MultipleValues {
 
 /*
 // https://github.com/rust-lang/rust/issues/50133
+// FIXME there has to be a way around this issue?
 impl<T> TryFrom<T> for MultipleValues
 where
   T: TryInto<RedisValue>,
@@ -124,6 +125,8 @@ where
   }
 }
 */
+
+// TODO consider supporting conversion from tuples with a reasonable size
 
 impl<T> From<T> for MultipleValues
 where

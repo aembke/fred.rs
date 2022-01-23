@@ -1,6 +1,7 @@
 use crate::error::RedisError;
 use crate::types::RedisValue;
 use crate::utils;
+use bytes_utils::Str;
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 
@@ -38,13 +39,13 @@ pub enum GeoUnit {
 }
 
 impl GeoUnit {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       GeoUnit::Meters => "m",
       GeoUnit::Kilometers => "km",
       GeoUnit::Feet => "ft",
       GeoUnit::Miles => "mi",
-    }
+    })
   }
 }
 

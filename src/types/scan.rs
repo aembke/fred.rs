@@ -4,6 +4,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::types::{RedisKey, RedisMap, RedisValue};
 use crate::utils;
+use bytes_utils::Str;
 use std::sync::Arc;
 
 /// The types of values supported by the [type](https://redis.io/commands/type) command.
@@ -18,15 +19,15 @@ pub enum ScanType {
 }
 
 impl ScanType {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ScanType::Set => "set",
       ScanType::String => "string",
       ScanType::List => "list",
       ScanType::ZSet => "zset",
       ScanType::Hash => "hash",
       ScanType::Stream => "stream",
-    }
+    })
   }
 }
 

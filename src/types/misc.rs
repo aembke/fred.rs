@@ -1,4 +1,5 @@
 use crate::utils;
+use bytes_utils::Str;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -12,11 +13,11 @@ pub enum ShutdownFlags {
 }
 
 impl ShutdownFlags {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ShutdownFlags::Save => "SAVE",
       ShutdownFlags::NoSave => "NOSAVE",
-    }
+    })
   }
 }
 
@@ -38,12 +39,12 @@ pub enum AggregateOptions {
 }
 
 impl AggregateOptions {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       AggregateOptions::Sum => "SUM",
       AggregateOptions::Min => "MIN",
       AggregateOptions::Max => "MAX",
-    }
+    })
   }
 }
 
@@ -65,8 +66,8 @@ pub enum InfoKind {
 }
 
 impl InfoKind {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       InfoKind::Default => "default",
       InfoKind::All => "all",
       InfoKind::Keyspace => "keyspace",
@@ -79,7 +80,7 @@ impl InfoKind {
       InfoKind::Memory => "memory",
       InfoKind::Clients => "clients",
       InfoKind::Server => "server",
-    }
+    })
   }
 }
 
@@ -121,11 +122,11 @@ pub enum SetOptions {
 }
 
 impl SetOptions {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       SetOptions::NX => "NX",
       SetOptions::XX => "XX",
-    }
+    })
   }
 }
 
@@ -145,14 +146,16 @@ pub enum Expiration {
 }
 
 impl Expiration {
-  pub(crate) fn into_args(self) -> (&'static str, Option<i64>) {
-    match self {
+  pub(crate) fn into_args(self) -> (Str, Option<i64>) {
+    let (prefix, value) = match self {
       Expiration::EX(i) => ("EX", Some(i)),
       Expiration::PX(i) => ("PX", Some(i)),
       Expiration::EXAT(i) => ("EXAT", Some(i)),
       Expiration::PXAT(i) => ("PXAT", Some(i)),
       Expiration::KEEPTTL => ("KEEPTTL", None),
-    }
+    };
+
+    (utils::static_str(prefix), value)
   }
 }
 
@@ -166,13 +169,13 @@ pub enum ClientState {
 }
 
 impl ClientState {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClientState::Connecting => "Connecting",
       ClientState::Connected => "Connected",
       ClientState::Disconnecting => "Disconnecting",
       ClientState::Disconnected => "Disconnected",
-    }
+    })
   }
 }
 
@@ -321,12 +324,12 @@ pub enum ScriptDebugFlag {
 }
 
 impl ScriptDebugFlag {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ScriptDebugFlag::Yes => "YES",
       ScriptDebugFlag::No => "NO",
       ScriptDebugFlag::Sync => "SYNC",
-    }
+    })
   }
 }
 
@@ -342,12 +345,12 @@ pub enum SentinelFailureKind {
 
 #[cfg(feature = "sentinel-client")]
 impl SentinelFailureKind {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match self {
       SentinelFailureKind::CrashAfterElection => "crash-after-election",
       SentinelFailureKind::CrashAfterPromotion => "crash-after-promotion",
       SentinelFailureKind::Help => "help",
-    }
+    })
   }
 }
 
@@ -359,10 +362,10 @@ pub enum SortOrder {
 }
 
 impl SortOrder {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       SortOrder::Asc => "ASC",
       SortOrder::Desc => "DESC",
-    }
+    })
   }
 }

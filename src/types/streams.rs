@@ -1,6 +1,8 @@
 use crate::commands::{MAXLEN, MINID};
 use crate::error::{RedisError, RedisErrorKind};
 use crate::types::{LimitCount, RedisKey, RedisValue, StringOrNumber};
+use crate::utils;
+use bytes_utils::Str;
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 
@@ -12,11 +14,11 @@ pub enum XCapTrim {
 }
 
 impl XCapTrim {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       XCapTrim::Exact => "=",
       XCapTrim::AlmostExact => "~",
-    }
+    })
   }
 }
 
@@ -161,11 +163,11 @@ pub enum XCapKind {
 }
 
 impl XCapKind {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       XCapKind::MaxLen => MAXLEN,
       XCapKind::MinID => MINID,
-    }
+    })
   }
 }
 
@@ -270,11 +272,11 @@ pub enum XID {
 }
 
 impl XID {
-  pub(crate) fn into_string(self) -> String {
+  pub(crate) fn into_str(self) -> Str {
     match self {
-      XID::Auto => "*".to_owned(),
-      XID::Max => "$".to_owned(),
-      XID::Manual(s) => s,
+      XID::Auto => utils::static_str("*"),
+      XID::Max => utils::static_str("$"),
+      XID::Manual(s) => s.into(),
     }
   }
 }

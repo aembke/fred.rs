@@ -1,3 +1,6 @@
+use crate::utils;
+use bytes_utils::Str;
+
 /// The state of the cluster from the CLUSTER INFO command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterState {
@@ -37,11 +40,11 @@ pub enum ClusterFailoverFlag {
 }
 
 impl ClusterFailoverFlag {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClusterFailoverFlag::Force => "FORCE",
       ClusterFailoverFlag::Takeover => "TAKEOVER",
-    }
+    })
   }
 }
 
@@ -55,11 +58,11 @@ pub enum ClusterResetFlag {
 }
 
 impl ClusterResetFlag {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClusterResetFlag::Hard => "HARD",
       ClusterResetFlag::Soft => "SOFT",
-    }
+    })
   }
 }
 
@@ -75,12 +78,14 @@ pub enum ClusterSetSlotState {
 }
 
 impl ClusterSetSlotState {
-  pub(crate) fn to_str(&self) -> (&'static str, Option<&str>) {
-    match *self {
+  pub(crate) fn to_str(&self) -> (Str, Option<Str>) {
+    let (prefix, value) = match *self {
       ClusterSetSlotState::Importing => ("IMPORTING", None),
       ClusterSetSlotState::Migrating => ("MIGRATING", None),
       ClusterSetSlotState::Stable => ("STABLE", None),
-      ClusterSetSlotState::Node(ref n) => ("NODE", Some(n)),
-    }
+      ClusterSetSlotState::Node(ref n) => ("NODE", Some(n.into())),
+    };
+
+    (utils::static_str(prefix), value)
   }
 }

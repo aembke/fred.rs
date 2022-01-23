@@ -1,3 +1,6 @@
+use crate::utils;
+use bytes_utils::Str;
+
 /// The direction to move elements in a *LMOVE command.
 ///
 /// <https://redis.io/commands/blmove>
@@ -8,11 +11,11 @@ pub enum LMoveDirection {
 }
 
 impl LMoveDirection {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       LMoveDirection::Left => "LEFT",
       LMoveDirection::Right => "RIGHT",
-    }
+    })
   }
 }
 
@@ -24,10 +27,10 @@ pub enum ListLocation {
 }
 
 impl ListLocation {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ListLocation::Before => "BEFORE",
       ListLocation::After => "AFTER",
-    }
+    })
   }
 }

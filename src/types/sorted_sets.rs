@@ -1,6 +1,7 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::types::RedisValue;
 use crate::utils;
+use bytes_utils::Str;
 use std::collections::VecDeque;
 use std::convert::{TryFrom, TryInto};
 use std::iter::FromIterator;
@@ -147,11 +148,11 @@ pub enum Ordering {
 }
 
 impl Ordering {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       Ordering::GreaterThan => "GT",
       Ordering::LessThan => "LT",
-    }
+    })
   }
 }
 
@@ -163,11 +164,11 @@ pub enum ZSort {
 }
 
 impl ZSort {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ZSort::ByScore => "BYSCORE",
       ZSort::ByLex => "BYLEX",
-    }
+    })
   }
 }
 
@@ -274,20 +275,20 @@ impl ZRange {
         ZRangeBound::Index(i) => format!("({}", i).into(),
         ZRangeBound::Score(f) => utils::f64_to_zrange_bound(f, &self.kind)?.into(),
         ZRangeBound::Lex(s) => utils::check_lex_str(s, &self.kind).into(),
-        ZRangeBound::InfiniteLex => "+".into(),
-        ZRangeBound::NegInfinityLex => "-".into(),
-        ZRangeBound::InfiniteScore => "+inf".into(),
-        ZRangeBound::NegInfiniteScore => "-inf".into(),
+        ZRangeBound::InfiniteLex => RedisValue::from_static_str("+"),
+        ZRangeBound::NegInfinityLex => RedisValue::from_static_str("-"),
+        ZRangeBound::InfiniteScore => RedisValue::from_static_str("+inf"),
+        ZRangeBound::NegInfiniteScore => RedisValue::from_static_str("-inf"),
       }
     } else {
       match self.range {
         ZRangeBound::Index(i) => i.into(),
         ZRangeBound::Score(f) => f.try_into()?,
         ZRangeBound::Lex(s) => utils::check_lex_str(s, &self.kind).into(),
-        ZRangeBound::InfiniteLex => "+".into(),
-        ZRangeBound::NegInfinityLex => "-".into(),
-        ZRangeBound::InfiniteScore => "+inf".into(),
-        ZRangeBound::NegInfiniteScore => "-inf".into(),
+        ZRangeBound::InfiniteLex => RedisValue::from_static_str("+"),
+        ZRangeBound::NegInfinityLex => RedisValue::from_static_str("-"),
+        ZRangeBound::InfiniteScore => RedisValue::from_static_str("+inf"),
+        ZRangeBound::NegInfiniteScore => RedisValue::from_static_str("-inf"),
       }
     };
 

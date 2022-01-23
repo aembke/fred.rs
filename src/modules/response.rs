@@ -81,9 +81,9 @@ macro_rules! impl_unsigned_number (
   }
 );
 
-/// A trait used to [convert](crate::types::RedisValue::convert) various forms of [RedisValue](crate::types::RedisValue) into different types.
+/// A trait used to convert various forms of [RedisValue](crate::types::RedisValue) into different types.
 ///
-/// Note: if callers use [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html) the underlying data will not be copied or moved, if possible.
+/// See the [convert](crate::types::RedisValue::convert) documentation for important information regarding performance considerations and examples.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -422,7 +422,9 @@ macro_rules! impl_from_str_from_redis_key (
   }
 );
 
-/// A trait used to convert `RedisKey` values to various types.
+/// A trait used to convert [RedisKey](crate::types::RedisKey) values to various types.
+///
+/// See the [convert](crate::types::RedisKey::convert) documentation for more information.
 pub trait FromRedisKey: Sized {
   fn from_key(value: RedisKey) -> Result<Self, RedisError>;
 }

@@ -1,3 +1,6 @@
+use crate::utils;
+use bytes_utils::Str;
+
 /// The type of clients to close.
 ///
 /// <https://redis.io/commands/client-kill>
@@ -10,13 +13,13 @@ pub enum ClientKillType {
 }
 
 impl ClientKillType {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClientKillType::Normal => "normal",
       ClientKillType::Master => "master",
       ClientKillType::Replica => "replica",
       ClientKillType::Pubsub => "pubsub",
-    }
+    })
   }
 }
 
@@ -34,21 +37,23 @@ pub enum ClientKillFilter {
 }
 
 impl ClientKillFilter {
-  pub(crate) fn to_str(&self) -> (&'static str, &str) {
-    match *self {
-      ClientKillFilter::ID(ref id) => ("ID", id),
+  pub(crate) fn to_str(&self) -> (Str, Str) {
+    let (prefix, value) = match *self {
+      ClientKillFilter::ID(ref id) => ("ID", id.into()),
       ClientKillFilter::Type(ref kind) => ("TYPE", kind.to_str()),
-      ClientKillFilter::User(ref user) => ("USER", user),
-      ClientKillFilter::Addr(ref addr) => ("ADDR", addr),
-      ClientKillFilter::LAddr(ref addr) => ("LADDR", addr),
+      ClientKillFilter::User(ref user) => ("USER", user.into()),
+      ClientKillFilter::Addr(ref addr) => ("ADDR", addr.into()),
+      ClientKillFilter::LAddr(ref addr) => ("LADDR", addr.into()),
       ClientKillFilter::SkipMe(ref b) => (
         "SKIPME",
         match *b {
-          true => "yes",
-          false => "no",
+          true => utils::static_str("yes"),
+          false => utils::static_str("no"),
         },
       ),
-    }
+    };
+
+    (utils::static_str(prefix), value)
   }
 }
 
@@ -62,11 +67,11 @@ pub enum ClientPauseKind {
 }
 
 impl ClientPauseKind {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClientPauseKind::Write => "WRITE",
       ClientPauseKind::All => "ALL",
-    }
+    })
   }
 }
 
@@ -81,12 +86,12 @@ pub enum ClientReplyFlag {
 }
 
 impl ClientReplyFlag {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClientReplyFlag::On => "ON",
       ClientReplyFlag::Off => "OFF",
       ClientReplyFlag::Skip => "SKIP",
-    }
+    })
   }
 }
 
@@ -98,10 +103,10 @@ pub enum ClientUnblockFlag {
 }
 
 impl ClientUnblockFlag {
-  pub(crate) fn to_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
       ClientUnblockFlag::Timeout => "TIMEOUT",
       ClientUnblockFlag::Error => "ERROR",
-    }
+    })
   }
 }

@@ -96,7 +96,7 @@ pub async fn xadd(
     }
     encode_cap(&mut args, cap);
 
-    args.push(id.into_string().into());
+    args.push(id.into_str().into());
     for (key, value) in fields.inner().into_iter() {
       args.push(key.into());
       args.push(value);
