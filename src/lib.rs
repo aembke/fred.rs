@@ -45,6 +45,9 @@
 //!
 //! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 //!
+pub extern crate bytes;
+pub extern crate bytes_utils;
+
 #[macro_use]
 extern crate async_trait;
 #[macro_use]

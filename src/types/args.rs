@@ -4,7 +4,7 @@ use crate::protocol::connection::OK;
 use crate::protocol::utils as protocol_utils;
 use crate::types::{FromRedis, GeoPosition, NIL, QUEUED};
 use crate::utils;
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
 use redis_protocol::resp2::types::NULL;

@@ -1,10 +1,9 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::types::{RedisKey, RedisValue, NIL, QUEUED};
+use crate::types::{RedisKey, RedisValue, QUEUED};
 use bytes::Bytes;
 use bytes_utils::Str;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
-use std::str::FromStr;
 
 macro_rules! to_signed_number(
   ($t:ty, $v:expr) => {

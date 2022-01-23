@@ -75,7 +75,7 @@ macro_rules! atry (
 macro_rules! static_str(
   ($name:ident, $val:expr) => {
     lazy_static::lazy_static! {
-      pub static ref $name: Str = {
+      pub(crate) static ref $name: Str = {
         crate::utils::static_str($val)
       };
     }

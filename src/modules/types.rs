@@ -2011,6 +2011,16 @@ impl<'a> RedisValue {
   /// .convert()?;
   /// // ...
   /// ```
+  ///
+  /// **Performance Considerations**
+  ///
+  /// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html).
+  ///
+  /// These values represent views into the buffer that receives data from the Redis server. As a result it is possible for callers to utilize `RedisValue` types in such a way that the underlying data is never moved or copied.
+  ///
+  /// These types are somewhat limited in their uses in that they are inherently immutable (for the most part). If you are unfamiliar with the `Bytes` ecosystem types you can broadly think about these types as being immutable reference counted slices in that they exhibit `Arc`-like characteristics. Therefore if callers need to modify these types it is first necessary to copy the underlying data.
+  ///
+  /// However, if performance is a concern and callers do not need to modify the underlying data it is recommended that callers convert to `Str` or `Bytes` whenever possible. If callers do not want to take a dependency on the `Bytes` ecosystem types, or the values need to be mutated, then callers should use other types such as `String`, `Vec<u8>`, etc. It should be noted however that conversion to these other types will result in at least a move, if not a copy, of the underlying data.
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
     R: FromRedis,

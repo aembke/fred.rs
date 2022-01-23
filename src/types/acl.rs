@@ -1,3 +1,5 @@
+use crate::types::RedisValue;
+
 /// ACL rules describing the keys a user can access.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AclKeyPattern {
@@ -6,10 +8,10 @@ pub enum AclKeyPattern {
 }
 
 impl AclKeyPattern {
-  pub(crate) fn to_string(&self) -> String {
+  pub(crate) fn to_value(&self) -> RedisValue {
     match *self {
-      AclKeyPattern::AllKeys => "allkeys".into(),
-      AclKeyPattern::Custom(ref pat) => format!("~{}", pat),
+      AclKeyPattern::AllKeys => RedisValue::from_static_str("allkeys"),
+      AclKeyPattern::Custom(ref pat) => format!("~{}", pat).into(),
     }
   }
 }
@@ -22,10 +24,10 @@ pub enum AclChannelPattern {
 }
 
 impl AclChannelPattern {
-  pub(crate) fn to_string(&self) -> String {
+  pub(crate) fn to_value(&self) -> RedisValue {
     match *self {
-      AclChannelPattern::AllChannels => "allchannels".into(),
-      AclChannelPattern::Custom(ref pat) => format!("&{}", pat),
+      AclChannelPattern::AllChannels => RedisValue::from_static_str("allchannels"),
+      AclChannelPattern::Custom(ref pat) => format!("&{}", pat).into(),
     }
   }
 }
@@ -42,18 +44,18 @@ pub enum AclCommandPattern {
 }
 
 impl AclCommandPattern {
-  pub(crate) fn to_string(&self, prefix: &'static str) -> String {
+  pub(crate) fn to_value(&self, prefix: &'static str) -> RedisValue {
     match *self {
-      AclCommandPattern::AllCommands => "allcommands".into(),
-      AclCommandPattern::NoCommands => "nocommands".into(),
+      AclCommandPattern::AllCommands => RedisValue::from_static_str("allcommands"),
+      AclCommandPattern::NoCommands => RedisValue::from_static_str("nocommands"),
       AclCommandPattern::Custom {
         ref command,
         ref subcommand,
       } => {
         if let Some(subcommand) = subcommand {
-          format!("{}{}|{}", prefix, command, subcommand)
+          format!("{}{}|{}", prefix, command, subcommand).into()
         } else {
-          format!("{}{}", prefix, command)
+          format!("{}{}", prefix, command).into()
         }
       }
     }
@@ -84,24 +86,24 @@ pub enum AclRule {
 }
 
 impl AclRule {
-  pub(crate) fn to_string(&self) -> String {
+  pub(crate) fn to_value(&self) -> RedisValue {
     match self {
-      AclRule::On => "on".into(),
-      AclRule::Off => "off".into(),
-      AclRule::Reset => "reset".into(),
-      AclRule::ResetChannels => "resetchannels".into(),
-      AclRule::ResetKeys => "resetkeys".into(),
-      AclRule::NoPass => "nopass".into(),
-      AclRule::AddPassword(ref pass) => format!(">{}", pass),
-      AclRule::RemovePassword(ref pass) => format!("<{}", pass),
-      AclRule::AddHashedPassword(ref pass) => format!("#{}", pass),
-      AclRule::RemoveHashedPassword(ref pass) => format!("!{}", pass),
-      AclRule::AddCategory(ref cat) => format!("+@{}", cat),
-      AclRule::RemoveCategory(ref cat) => format!("-@{}", cat),
-      AclRule::AddKeys(ref pat) => pat.to_string(),
-      AclRule::AddChannels(ref pat) => pat.to_string(),
-      AclRule::AddCommands(ref pat) => pat.to_string("+"),
-      AclRule::RemoveCommands(ref pat) => pat.to_string("-"),
+      AclRule::On => RedisValue::from_static_str("on"),
+      AclRule::Off => RedisValue::from_static_str("off"),
+      AclRule::Reset => RedisValue::from_static_str("reset"),
+      AclRule::ResetChannels => RedisValue::from_static_str("resetchannels"),
+      AclRule::ResetKeys => RedisValue::from_static_str("resetkeys"),
+      AclRule::NoPass => RedisValue::from_static_str("nopass"),
+      AclRule::AddPassword(ref pass) => format!(">{}", pass).into(),
+      AclRule::RemovePassword(ref pass) => format!("<{}", pass).into(),
+      AclRule::AddHashedPassword(ref pass) => format!("#{}", pass).into(),
+      AclRule::RemoveHashedPassword(ref pass) => format!("!{}", pass).into(),
+      AclRule::AddCategory(ref cat) => format!("+@{}", cat).into(),
+      AclRule::RemoveCategory(ref cat) => format!("-@{}", cat).into(),
+      AclRule::AddKeys(ref pat) => pat.to_value(),
+      AclRule::AddChannels(ref pat) => pat.to_value(),
+      AclRule::AddCommands(ref pat) => pat.to_value("+"),
+      AclRule::RemoveCommands(ref pat) => pat.to_value("-"),
     }
   }
 }

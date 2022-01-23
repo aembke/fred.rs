@@ -35,7 +35,7 @@ pub use crate::modules::metrics::Stats;
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";
 
-pub use crate::modules::response::FromRedis;
+pub use crate::modules::response::{FromRedis, FromRedisKey};
 pub use crate::protocol::types::ClusterKeyCache;
 pub use redis_protocol::resp3::types::{Frame, RespVersion};
 

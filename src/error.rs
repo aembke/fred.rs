@@ -181,7 +181,7 @@ impl From<FromUtf8Error> for RedisError {
 }
 
 impl From<Utf8Error> for RedisError {
-  fn from(e: Utf8Error) -> Self {
+  fn from(_: Utf8Error) -> Self {
     RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }

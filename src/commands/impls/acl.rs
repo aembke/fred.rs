@@ -25,7 +25,7 @@ where
     args.push(username.into());
 
     for rule in rules.into_iter() {
-      args.push(rule.to_string().into());
+      args.push(rule.to_value());
     }
 
     Ok((RedisCommandKind::AclSetUser, args))
