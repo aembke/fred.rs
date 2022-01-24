@@ -29,9 +29,9 @@ fn to_u8(s: &str) -> Result<u8, RedisParseError<&[u8]>> {
 fn to_redis_value(s: &[u8]) -> Result<RedisValue, RedisParseError<&[u8]>> {
   // TODO make this smarter in the future
   if let Ok(value) = str::from_utf8(s) {
-    Ok(RedisValue::String(value.to_owned()))
+    Ok(RedisValue::String(value.into()))
   } else {
-    Ok(RedisValue::Bytes(s.to_vec()))
+    Ok(RedisValue::Bytes(s.to_vec().into()))
   }
 }
 
@@ -122,7 +122,7 @@ fn log_frame(_: &Arc<RedisClientInner>, _: &[u8]) {}
 
 pub fn parse(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Command> {
   let frame_bytes = match frame {
-    Resp3Frame::SimpleString { ref data, .. } => data.as_bytes(),
+    Resp3Frame::SimpleString { ref data, .. } => data,
     Resp3Frame::BlobString { ref data, .. } => data,
     Resp3Frame::VerbatimString { ref data, .. } => data,
     _ => {

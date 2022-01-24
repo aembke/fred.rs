@@ -88,8 +88,8 @@ pub async fn script_kill_cluster(inner: &Arc<RedisClientInner>) -> Result<(), Re
 
 pub async fn script_flush(inner: &Arc<RedisClientInner>, r#async: bool) -> Result<(), RedisError> {
   let frame = utils::request_response(inner, move || {
-    let arg = if r#async { ASYNC } else { SYNC };
-    Ok((RedisCommandKind::ScriptFlush, vec![arg.into()]))
+    let arg = static_val!(if r#async { ASYNC } else { SYNC });
+    Ok((RedisCommandKind::ScriptFlush, vec![arg]))
   })
   .await?;
 
@@ -102,8 +102,8 @@ pub async fn script_flush_cluster(inner: &Arc<RedisClientInner>, r#async: bool) 
 
   let (tx, rx) = oneshot_channel();
   let kind = RedisCommandKind::_ScriptFlushCluster(AllNodesResponse::new(tx));
-  let arg = if r#async { ASYNC } else { SYNC };
-  let command = RedisCommand::new(kind, vec![arg.into()], None);
+  let arg = static_val!(if r#async { ASYNC } else { SYNC });
+  let command = RedisCommand::new(kind, vec![arg], None);
   let _ = utils::send_command(inner, command)?;
   let _ = rx.await??;
 

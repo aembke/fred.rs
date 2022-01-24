@@ -53,7 +53,8 @@ fn bytes_or_string(b: &[u8]) -> DebugFrame {
 impl<'a> From<&'a Resp2Frame> for DebugFrame {
   fn from(f: &'a Resp2Frame) -> Self {
     match f {
-      Resp2Frame::Error(s) | Resp2Frame::SimpleString(s) => DebugFrame::String(s.to_owned()),
+      Resp2Frame::Error(s) => DebugFrame::String(s.to_string()),
+      Resp2Frame::SimpleString(s) => bytes_or_string(s),
       Resp2Frame::Integer(i) => DebugFrame::Integer(*i),
       Resp2Frame::BulkString(b) => bytes_or_string(b),
       Resp2Frame::Null => DebugFrame::String("nil".into()),
@@ -74,8 +75,8 @@ impl<'a> From<&'a Resp3Frame> for DebugFrame {
       Resp3Frame::Array { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
       Resp3Frame::BlobError { ref data, .. } => bytes_or_string(data),
       Resp3Frame::BlobString { ref data, .. } => bytes_or_string(data),
-      Resp3Frame::SimpleString { ref data, .. } => DebugFrame::String(data.clone()),
-      Resp3Frame::SimpleError { ref data, .. } => DebugFrame::String(data.clone()),
+      Resp3Frame::SimpleString { ref data, .. } => bytes_or_string(data),
+      Resp3Frame::SimpleError { ref data, .. } => DebugFrame::String(data.to_string()),
       Resp3Frame::Double { ref data, .. } => DebugFrame::Double(*data),
       Resp3Frame::BigNumber { ref data, .. } => bytes_or_string(data),
       Resp3Frame::Number { ref data, .. } => DebugFrame::Integer(*data),

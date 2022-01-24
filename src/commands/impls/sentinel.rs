@@ -14,10 +14,8 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec!["CONFIG".into(), "GET".into(), name.into()],
-    ))
+    let args = vec![static_val!("CONFIG"), static_val!(GET), name.into()];
+    Ok((RedisCommandKind::Sentinel, args))
   })
   .await?;
 
@@ -36,7 +34,7 @@ where
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
-      vec!["CONFIG".into(), "SET".into(), name.into(), value],
+      vec![static_val!("CONFIG"), static_val!("SET"), name.into(), value],
     ))
   })
   .await?;
@@ -50,7 +48,7 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["CKQUORUM".into(), name.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("CKQUORUM"), name.into()]))
   })
   .await?;
 
@@ -58,7 +56,7 @@ where
 }
 
 pub async fn flushconfig(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
-  args_values_cmd(inner, RedisCommandKind::Sentinel, vec!["FLUSHCONFIG".into()]).await
+  args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("FLUSHCONFIG")]).await
 }
 
 pub async fn failover<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
@@ -67,7 +65,7 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["FAILOVER".into(), name.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("FAILOVER"), name.into()]))
   })
   .await?;
 
@@ -82,7 +80,7 @@ where
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
-      vec!["GET-MASTER-ADDR-BY-NAME".into(), name.into()],
+      vec![static_val!("GET-MASTER-ADDR-BY-NAME"), name.into()],
     ))
   })
   .await?;
@@ -91,11 +89,11 @@ where
 }
 
 pub async fn info_cache(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
-  args_values_cmd(inner, RedisCommandKind::Sentinel, vec!["INFO-CACHE".into()]).await
+  args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("INFO-CACHE")]).await
 }
 
 pub async fn masters(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
-  args_values_cmd(inner, RedisCommandKind::Sentinel, vec!["MASTERS".into()]).await
+  args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("MASTERS")]).await
 }
 
 pub async fn master<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
@@ -104,7 +102,7 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["MASTER".into(), name.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("MASTER"), name.into()]))
   })
   .await?;
 
@@ -125,7 +123,13 @@ where
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
-      vec!["MONITOR".into(), name.into(), ip.into(), port.into(), quorum.into()],
+      vec![
+        static_val!("MONITOR"),
+        name.into(),
+        ip.into(),
+        port.into(),
+        quorum.into(),
+      ],
     ))
   })
   .await?;
@@ -134,11 +138,11 @@ where
 }
 
 pub async fn myid(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
-  args_values_cmd(inner, RedisCommandKind::Sentinel, vec!["MYID".into()]).await
+  args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("MYID")]).await
 }
 
 pub async fn pending_scripts(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
-  args_values_cmd(inner, RedisCommandKind::Sentinel, vec!["PENDING-SCRIPTS".into()]).await
+  args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("PENDING-SCRIPTS")]).await
 }
 
 pub async fn remove<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
@@ -147,7 +151,7 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["REMOVE".into(), name.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("REMOVE"), name.into()]))
   })
   .await?;
 
@@ -160,7 +164,7 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["REPLICAS".into(), name.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("REPLICAS"), name.into()]))
   })
   .await?;
 
@@ -173,7 +177,7 @@ where
 {
   let name = name.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["SENTINELS".into(), name.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("SENTINELS"), name.into()]))
   })
   .await?;
 
@@ -187,7 +191,7 @@ where
   let name = name.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(2 + options.len());
-    args.push("SET".into());
+    args.push(static_val!("SET"));
     args.push(name.into());
 
     for (key, value) in options.inner().into_iter() {
@@ -208,7 +212,7 @@ pub async fn simulate_failure(
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
-      vec!["SIMULATE-FAILURE".into(), kind.to_str().into()],
+      vec![static_val!("SIMULATE-FAILURE"), kind.to_str().into()],
     ))
   })
   .await?;
@@ -222,7 +226,7 @@ where
 {
   let pattern = pattern.into();
   let frame = utils::request_response(inner, move || {
-    Ok((RedisCommandKind::Sentinel, vec!["RESET".into(), pattern.into()]))
+    Ok((RedisCommandKind::Sentinel, vec![static_val!("RESET"), pattern.into()]))
   })
   .await?;
 

@@ -14,12 +14,12 @@ static STARTING_CURSOR: &'static str = "0";
 fn values_args(key: RedisKey, pattern: String, count: Option<u32>) -> Vec<RedisValue> {
   let mut args = Vec::with_capacity(6);
   args.push(key.into());
-  args.push(STARTING_CURSOR.into());
-  args.push(MATCH.into());
+  args.push(static_val!(STARTING_CURSOR));
+  args.push(static_val!(MATCH));
   args.push(pattern.into());
 
   if let Some(count) = count {
-    args.push(COUNT.into());
+    args.push(static_val!(COUNT));
     args.push(count.into());
   }
 
@@ -63,16 +63,16 @@ where
   };
 
   let mut args = Vec::with_capacity(7);
-  args.push(STARTING_CURSOR.into());
-  args.push(MATCH.into());
+  args.push(static_val!(STARTING_CURSOR));
+  args.push(static_val!(MATCH));
   args.push(pattern.into());
 
   if let Some(count) = count {
-    args.push(COUNT.into());
+    args.push(static_val!(COUNT));
     args.push(count.into());
   }
   if let Some(r#type) = r#type {
-    args.push(TYPE.into());
+    args.push(static_val!(TYPE));
     args.push(r#type.to_str().into());
   }
 
@@ -80,7 +80,7 @@ where
   let scan = KeyScanInner {
     key_slot,
     tx,
-    cursor: STARTING_CURSOR.into(),
+    cursor: utils::static_str(STARTING_CURSOR),
   };
 
   let cmd = RedisCommand::new(RedisCommandKind::Scan(scan), args, None);
@@ -117,7 +117,7 @@ where
     let err_tx = tx.clone();
     let scan = ValueScanInner {
       tx,
-      cursor: STARTING_CURSOR.into(),
+      cursor: utils::static_str(STARTING_CURSOR),
     };
 
     let cmd = RedisCommand::new(RedisCommandKind::Hscan(scan), args, None);
@@ -160,7 +160,7 @@ where
     let err_tx = tx.clone();
     let scan = ValueScanInner {
       tx,
-      cursor: STARTING_CURSOR.into(),
+      cursor: utils::static_str(STARTING_CURSOR),
     };
 
     let cmd = RedisCommand::new(RedisCommandKind::Sscan(scan), args, None);
@@ -203,7 +203,7 @@ where
     let err_tx = tx.clone();
     let scan = ValueScanInner {
       tx,
-      cursor: STARTING_CURSOR.into(),
+      cursor: utils::static_str(STARTING_CURSOR),
     };
 
     let cmd = RedisCommand::new(RedisCommandKind::Zscan(scan), args, None);

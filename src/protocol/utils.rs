@@ -1322,12 +1322,12 @@ pub fn arg_size(value: &RedisValue) -> usize {
     // use the RESP2 size
     RedisValue::Boolean(_) => 5,
     // FIXME make this more accurate by casting to an i64 and using `digits_in_number`
-    // the tricky part is doing so without allocating and without any loss in precision
-    // luckily this is only used for logging and tracing
+    // the tricky part is doing so without allocating and without any loss in precision, but
+    // this is only used for logging and tracing
     RedisValue::Double(_) => 10,
     RedisValue::Null => 3,
     RedisValue::Integer(ref i) => i64_size(*i),
-    RedisValue::String(ref s) => s.as_bytes().len(),
+    RedisValue::String(ref s) => s.inner().len(),
     RedisValue::Bytes(ref b) => b.len(),
     RedisValue::Array(ref arr) => args_size(arr),
     RedisValue::Map(ref map) => map
@@ -1344,7 +1344,7 @@ pub fn resp2_frame_size(frame: &Resp2Frame) -> usize {
     Resp2Frame::Integer(ref i) => i64_size(*i),
     Resp2Frame::Null => 3,
     Resp2Frame::Error(ref s) => s.as_bytes().len(),
-    Resp2Frame::SimpleString(ref s) => s.as_bytes().len(),
+    Resp2Frame::SimpleString(ref s) => s.len(),
     Resp2Frame::BulkString(ref b) => b.len(),
     Resp2Frame::Array(ref a) => a.iter().fold(0, |c, f| c + resp2_frame_size(f)),
   }

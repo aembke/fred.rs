@@ -41,7 +41,7 @@ pub async fn set(
       args.push(options.to_str().into());
     }
     if get {
-      args.push(GET.into());
+      args.push(static_val!(GET));
     }
 
     Ok((RedisCommandKind::Set, args))
@@ -212,17 +212,17 @@ where
     args.push(serialized);
 
     if replace {
-      args.push(REPLACE.into());
+      args.push(static_val!(REPLACE));
     }
     if absttl {
-      args.push(ABSTTL.into());
+      args.push(static_val!(ABSTTL));
     }
     if let Some(idletime) = idletime {
-      args.push(IDLE_TIME.into());
+      args.push(static_val!(IDLE_TIME));
       args.push(idletime.into());
     }
     if let Some(frequency) = frequency {
-      args.push(FREQ.into());
+      args.push(static_val!(FREQ));
       args.push(frequency.into());
     }
 
@@ -384,11 +384,11 @@ where
     args.push(destination.into());
 
     if let Some(db) = db {
-      args.push(DB.into());
+      args.push(static_val!(DB));
       args.push(db.into());
     }
     if replace {
-      args.push(REPLACE.into());
+      args.push(static_val!(REPLACE));
     }
 
     Ok((RedisCommandKind::Copy, args))

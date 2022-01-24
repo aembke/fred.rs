@@ -34,7 +34,6 @@ This table shows the spans emitted by the client. The `Partial Trace` column des
 |------------------|---------------------------------------------------------------------|
 | client_id        | The ID of the client instance (`client.id()`).                      |
 | cmd              | The redis command name.                                             |
-| key              | The first key used by the command.                                  |
 | req_size         | The size (in bytes) of the command's arguments.                     |
 | res_size         | The size (in bytes) of the command's response.                      |
 | num_args         | The number of arguments being sent to the server.                   |

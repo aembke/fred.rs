@@ -14,12 +14,11 @@ values_cmd!(acl_list, AclList);
 values_cmd!(acl_users, AclUsers);
 value_cmd!(acl_whoami, AclWhoAmI);
 
-pub async fn acl_setuser<S>(inner: &Arc<RedisClientInner>, username: S, rules: Vec<AclRule>) -> Result<(), RedisError>
-where
-  S: Into<String>,
-{
-  let username = username.into();
-
+pub async fn acl_setuser(
+  inner: &Arc<RedisClientInner>,
+  username: String,
+  rules: Vec<AclRule>,
+) -> Result<(), RedisError> {
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(rules.len() + 1);
     args.push(username.into());
@@ -36,11 +35,7 @@ where
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn acl_getuser<S>(inner: &Arc<RedisClientInner>, username: S) -> Result<Option<AclUser>, RedisError>
-where
-  S: Into<String>,
-{
-  let username = username.into();
+pub async fn acl_getuser(inner: &Arc<RedisClientInner>, username: String) -> Result<Option<AclUser>, RedisError> {
   let frame =
     utils::request_response(inner, move || Ok((RedisCommandKind::AclGetUser, vec![username.into()]))).await?;
 
@@ -59,21 +54,15 @@ where
   }
 }
 
-pub async fn acl_deluser<S>(inner: &Arc<RedisClientInner>, usernames: S) -> Result<RedisValue, RedisError>
-where
-  S: Into<MultipleKeys>,
-{
-  let args: Vec<RedisValue> = usernames.into().inner().into_iter().map(|k| k.into()).collect();
+pub async fn acl_deluser(inner: &Arc<RedisClientInner>, usernames: MultipleKeys) -> Result<RedisValue, RedisError> {
+  let args: Vec<RedisValue> = usernames.inner().into_iter().map(|k| k.into()).collect();
   let frame = utils::request_response(inner, move || Ok((RedisCommandKind::AclDelUser, args))).await?;
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn acl_cat<S>(inner: &Arc<RedisClientInner>, category: Option<S>) -> Result<RedisValue, RedisError>
-where
-  S: Into<String>,
-{
+pub async fn acl_cat(inner: &Arc<RedisClientInner>, category: Option<String>) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = if let Some(cat) = category {
-    vec![cat.into().into()]
+    vec![cat.into()]
   } else {
     Vec::new()
   };
@@ -94,7 +83,7 @@ pub async fn acl_genpass(inner: &Arc<RedisClientInner>, bits: Option<u16>) -> Re
 }
 
 pub async fn acl_log_reset(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let frame = utils::request_response(inner, || Ok((RedisCommandKind::AclLog, vec![RESET.into()]))).await?;
+  let frame = utils::request_response(inner, || Ok((RedisCommandKind::AclLog, vec![static_val!(RESET)]))).await?;
   let response = protocol_utils::frame_to_single_result(frame)?;
   protocol_utils::expect_ok(&response)
 }

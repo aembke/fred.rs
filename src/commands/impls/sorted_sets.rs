@@ -181,10 +181,10 @@ where
       args.push(ordering.to_str().into());
     }
     if changed {
-      args.push(CHANGED.into());
+      args.push(static_val!(CHANGED));
     }
     if incr {
-      args.push(INCR.into());
+      args.push(static_val!(INCR));
     }
 
     for (score, value) in values.inner().into_iter() {
@@ -227,7 +227,7 @@ where
       args.push(key.into());
     }
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
 
     Ok((RedisCommandKind::Zdiff, args))
@@ -293,17 +293,17 @@ where
       args.push(key.into());
     }
     if weights.len() > 0 {
-      args.push(WEIGHTS.into());
+      args.push(static_val!(WEIGHTS));
       for weight in weights.inner().into_iter() {
         args.push(weight.try_into()?);
       }
     }
     if let Some(options) = aggregate {
-      args.push(AGGREGATE.into());
+      args.push(static_val!(AGGREGATE));
       args.push(options.to_str().into());
     }
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
 
     Ok((RedisCommandKind::Zinter, args))
@@ -336,13 +336,13 @@ where
       args.push(key.into());
     }
     if weights.len() > 0 {
-      args.push(WEIGHTS.into());
+      args.push(static_val!(WEIGHTS));
       for weight in weights.inner().into_iter() {
         args.push(weight.try_into()?);
       }
     }
     if let Some(options) = aggregate {
-      args.push(AGGREGATE.into());
+      args.push(static_val!(AGGREGATE));
       args.push(options.to_str().into());
     }
 
@@ -411,7 +411,7 @@ where
     if let Some((count, withscores)) = count {
       args.push(count.into());
       if withscores {
-        args.push(WITH_SCORES.into());
+        args.push(static_val!(WITH_SCORES));
       }
     }
 
@@ -450,10 +450,10 @@ where
       args.push(sort.to_str().into());
     }
     if rev {
-      args.push(REV.into());
+      args.push(static_val!(REV));
     }
     if let Some((offset, count)) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(offset.into());
       args.push(count.into());
     }
@@ -491,15 +491,15 @@ where
       args.push(sort.to_str().into());
     }
     if rev {
-      args.push(REV.into());
+      args.push(static_val!(REV));
     }
     if let Some((offset, count)) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(offset.into());
       args.push(count.into());
     }
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
 
     Ok((RedisCommandKind::Zrange, args))
@@ -529,7 +529,7 @@ where
     args.push(max.into_value()?);
 
     if let Some((offset, count)) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(offset.into());
       args.push(count.into());
     }
@@ -561,7 +561,7 @@ where
     args.push(min.into_value()?);
 
     if let Some((offset, count)) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(offset.into());
       args.push(count.into());
     }
@@ -592,10 +592,10 @@ where
     args.push(max.into_value()?);
 
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
     if let Some((offset, count)) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(offset.into());
       args.push(count.into());
     }
@@ -626,10 +626,10 @@ where
     args.push(min.into_value()?);
 
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
     if let Some((offset, count)) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(offset.into());
       args.push(count.into());
     }
@@ -745,7 +745,7 @@ where
     args.push(stop);
 
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
 
     Ok((RedisCommandKind::Zrevrange, args))
@@ -790,18 +790,18 @@ where
       args.push(key.into());
     }
     if weights.len() > 0 {
-      args.push(WEIGHTS.into());
+      args.push(static_val!(WEIGHTS));
       for weight in weights.inner().into_iter() {
         args.push(weight.try_into()?);
       }
     }
 
     if let Some(aggregate) = aggregate {
-      args.push(AGGREGATE.into());
+      args.push(static_val!(AGGREGATE));
       args.push(aggregate.to_str().into());
     }
     if withscores {
-      args.push(WITH_SCORES.into());
+      args.push(static_val!(WITH_SCORES));
     }
 
     Ok((RedisCommandKind::Zunion, args))
@@ -834,14 +834,14 @@ where
       args.push(key.into());
     }
     if weights.len() > 0 {
-      args.push(WEIGHTS.into());
+      args.push(static_val!(WEIGHTS));
       for weight in weights.inner().into_iter() {
         args.push(weight.try_into()?);
       }
     }
 
     if let Some(aggregate) = aggregate {
-      args.push(AGGREGATE.into());
+      args.push(static_val!(AGGREGATE));
       args.push(aggregate.to_str().into());
     }
 

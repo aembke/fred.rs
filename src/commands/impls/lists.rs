@@ -179,15 +179,15 @@ where
     args.push(element);
 
     if let Some(rank) = rank {
-      args.push(RANK.into());
+      args.push(static_val!(RANK));
       args.push(rank.into());
     }
     if let Some(count) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.into());
     }
     if let Some(maxlen) = maxlen {
-      args.push(MAXLEN.into());
+      args.push(static_val!(MAXLEN));
       args.push(maxlen.into());
     }
 

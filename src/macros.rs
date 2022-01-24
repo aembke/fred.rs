@@ -82,6 +82,12 @@ macro_rules! static_str(
   }
 );
 
+macro_rules! static_val(
+  ($val:expr) => {
+    RedisValue::from_static_str($val)
+  }
+);
+
 macro_rules! into (
   ($val:ident) => (let $val = $val.into(););
   ($v1:ident, $v2:ident) => (

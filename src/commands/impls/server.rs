@@ -69,7 +69,7 @@ pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, Re
 }
 
 pub async fn flushall(inner: &Arc<RedisClientInner>, r#async: bool) -> Result<RedisValue, RedisError> {
-  let args = if r#async { vec![ASYNC.into()] } else { Vec::new() };
+  let args = if r#async { vec![static_val!(ASYNC)] } else { Vec::new() };
   let frame = utils::request_response(inner, move || Ok((RedisCommandKind::FlushAll, args))).await?;
 
   protocol_utils::frame_to_single_result(frame)
@@ -103,7 +103,7 @@ pub async fn select(inner: &Arc<RedisClientInner>, db: u8) -> Result<RedisValue,
 
 pub async fn info(inner: &Arc<RedisClientInner>, section: Option<InfoKind>) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    let mut args = Vec::new();
+    let mut args = Vec::with_capacity(1);
     if let Some(section) = section {
       args.push(section.to_str().into());
     }
@@ -225,18 +225,18 @@ pub async fn failover(
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(7);
     if let Some((host, port)) = to {
-      args.push(TO.into());
+      args.push(static_val!(TO));
       args.push(host.into());
       args.push(port.into());
     }
     if force {
-      args.push(FORCE.into());
+      args.push(static_val!(FORCE));
     }
     if abort {
-      args.push(ABORT.into());
+      args.push(static_val!(ABORT));
     }
     if let Some(timeout) = timeout {
-      args.push(TIMEOUT.into());
+      args.push(static_val!(TIMEOUT));
       args.push(timeout.into());
     }
 

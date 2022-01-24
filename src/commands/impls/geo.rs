@@ -38,7 +38,7 @@ where
       args.push(options.to_str().into());
     }
     if changed {
-      args.push(CHANGED.into());
+      args.push(static_val!(CHANGED));
     }
 
     for value in values.inner().into_iter() {
@@ -160,30 +160,30 @@ where
     args.push(unit.to_str().into());
 
     if withcoord {
-      args.push(WITH_COORD.into());
+      args.push(static_val!(WITH_COORD));
     }
     if withdist {
-      args.push(WITH_DIST.into());
+      args.push(static_val!(WITH_DIST));
     }
     if withhash {
-      args.push(WITH_HASH.into());
+      args.push(static_val!(WITH_HASH));
     }
     if let Some((count, any)) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
       if any {
-        args.push(ANY.into());
+        args.push(static_val!(ANY));
       }
     }
     if let Some(ord) = ord {
       args.push(ord.to_str().into());
     }
     if let Some(store) = store {
-      args.push(STORE.into());
+      args.push(static_val!(STORE));
       args.push(store.into());
     }
     if let Some(store_dist) = storedist {
-      args.push(STORE_DIST.into());
+      args.push(static_val!(STORE_DIST));
       args.push(store_dist.into());
     }
 
@@ -221,30 +221,30 @@ where
     args.push(unit.to_str().into());
 
     if withcoord {
-      args.push(WITH_COORD.into());
+      args.push(static_val!(WITH_COORD));
     }
     if withdist {
-      args.push(WITH_DIST.into());
+      args.push(static_val!(WITH_DIST));
     }
     if withhash {
-      args.push(WITH_HASH.into());
+      args.push(static_val!(WITH_HASH));
     }
     if let Some((count, any)) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
       if any {
-        args.push(ANY.into());
+        args.push(static_val!(ANY));
       }
     }
     if let Some(ord) = ord {
       args.push(ord.to_str().into());
     }
     if let Some(store) = store {
-      args.push(STORE.into());
+      args.push(static_val!(STORE));
       args.push(store.into());
     }
     if let Some(store_dist) = storedist {
-      args.push(STORE_DIST.into());
+      args.push(static_val!(STORE_DIST));
       args.push(store_dist.into());
     }
 
@@ -278,22 +278,22 @@ where
     args.push(key.into());
 
     if let Some(member) = from_member {
-      args.push(FROM_MEMBER.into());
+      args.push(static_val!(FROM_MEMBER));
       args.push(member);
     }
     if let Some(position) = from_lonlat {
-      args.push(FROM_LONLAT.into());
+      args.push(static_val!(FROM_LONLAT));
       args.push(position.longitude.try_into()?);
       args.push(position.latitude.try_into()?);
     }
 
     if let Some((radius, unit)) = by_radius {
-      args.push(BY_RADIUS.into());
+      args.push(static_val!(BY_RADIUS));
       args.push(radius.try_into()?);
       args.push(unit.to_str().into());
     }
     if let Some((width, height, unit)) = by_box {
-      args.push(BY_BOX.into());
+      args.push(static_val!(BY_BOX));
       args.push(width.try_into()?);
       args.push(height.try_into()?);
       args.push(unit.to_str().into());
@@ -302,20 +302,20 @@ where
       args.push(ord.to_str().into());
     }
     if let Some((count, any)) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
       if any {
-        args.push(ANY.into());
+        args.push(static_val!(ANY));
       }
     }
     if withcoord {
-      args.push(WITH_COORD.into());
+      args.push(static_val!(WITH_COORD));
     }
     if withdist {
-      args.push(WITH_DIST.into());
+      args.push(static_val!(WITH_DIST));
     }
     if withhash {
-      args.push(WITH_HASH.into());
+      args.push(static_val!(WITH_HASH));
     }
 
     Ok((RedisCommandKind::GeoSearch, args))
@@ -348,21 +348,21 @@ where
     args.push(source.into());
 
     if let Some(member) = from_member {
-      args.push(FROM_MEMBER.into());
+      args.push(static_val!(FROM_MEMBER));
       args.push(member);
     }
     if let Some(position) = from_lonlat {
-      args.push(FROM_LONLAT.into());
+      args.push(static_val!(FROM_LONLAT));
       args.push(position.longitude.try_into()?);
       args.push(position.latitude.try_into()?);
     }
     if let Some((radius, unit)) = by_radius {
-      args.push(BY_RADIUS.into());
+      args.push(static_val!(BY_RADIUS));
       args.push(radius.try_into()?);
       args.push(unit.to_str().into());
     }
     if let Some((width, height, unit)) = by_box {
-      args.push(BY_BOX.into());
+      args.push(static_val!(BY_BOX));
       args.push(width.try_into()?);
       args.push(height.try_into()?);
       args.push(unit.to_str().into());
@@ -371,14 +371,14 @@ where
       args.push(ord.to_str().into());
     }
     if let Some((count, any)) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
       if any {
-        args.push(ANY.into());
+        args.push(static_val!(ANY));
       }
     }
     if storedist {
-      args.push(STORE_DIST.into());
+      args.push(static_val!(STORE_DIST));
     }
 
     Ok((RedisCommandKind::GeoSearchStore, args))

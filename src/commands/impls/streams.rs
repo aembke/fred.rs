@@ -29,7 +29,7 @@ fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
     args.push(trim.to_str().into());
     args.push(threshold.into_arg());
     if let Some(count) = limit {
-      args.push(LIMIT.into());
+      args.push(static_val!(LIMIT));
       args.push(count.into());
     }
   }
@@ -65,9 +65,9 @@ pub async fn xinfo_stream(
     args.push(key.into());
 
     if full {
-      args.push(FULL.into());
+      args.push(static_val!(FULL));
       if let Some(count) = count {
-        args.push(COUNT.into());
+        args.push(static_val!(COUNT));
         args.push(count.try_into()?);
       }
     }
@@ -92,7 +92,7 @@ pub async fn xadd(
     args.push(key.into());
 
     if nomkstream {
-      args.push(NOMKSTREAM.into());
+      args.push(static_val!(NOMKSTREAM));
     }
     encode_cap(&mut args, cap);
 
@@ -155,7 +155,7 @@ pub async fn xrange(
     args.push(end);
 
     if let Some(count) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
     }
 
@@ -180,7 +180,7 @@ pub async fn xrevrange(
     args.push(start);
 
     if let Some(count) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
     }
 
@@ -206,19 +206,18 @@ pub async fn xread(
   let frame = utils::request_response(inner, move || {
     let is_blocking = block.is_some();
     let mut hash_slot = None;
-
     let mut args = Vec::with_capacity(5 + keys.len() + ids.len());
 
     if let Some(count) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
     }
     if let Some(block) = block {
-      args.push(BLOCK.into());
+      args.push(static_val!(BLOCK));
       args.push(block.try_into()?);
     }
 
-    args.push(STREAMS.into());
+    args.push(static_val!(STREAMS));
     for (idx, key) in keys.inner().into_iter().enumerate() {
       // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say something
       if is_clustered && idx == 0 {
@@ -228,7 +227,7 @@ pub async fn xread(
       args.push(key.into());
     }
     for id in ids.inner().into_iter() {
-      args.push(id.into_string().into());
+      args.push(id.into_str().into());
     }
 
     Ok((RedisCommandKind::Xread((is_blocking, hash_slot)), args))
@@ -249,9 +248,9 @@ pub async fn xgroup_create(
     let mut args = Vec::with_capacity(4);
     args.push(key.into());
     args.push(groupname.into());
-    args.push(id.into_string().into());
+    args.push(id.into_str().into());
     if mkstream {
-      args.push(MKSTREAM.into());
+      args.push(static_val!(MKSTREAM));
     }
 
     Ok((RedisCommandKind::Xgroupcreate, args))
@@ -317,7 +316,7 @@ pub async fn xgroup_setid(
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::XgroupSetId,
-      vec![key.into(), groupname.into(), id.into_string().into()],
+      vec![key.into(), groupname.into(), id.into_str().into()],
     ))
   })
   .await?;
@@ -341,23 +340,23 @@ pub async fn xreadgroup(
     let mut hash_slot = None;
 
     let mut args = Vec::with_capacity(9 + keys.len() + ids.len());
-    args.push(GROUP.into());
+    args.push(static_val!(GROUP));
     args.push(group.into());
     args.push(consumer.into());
 
     if let Some(count) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
     }
     if let Some(block) = block {
-      args.push(BLOCK.into());
+      args.push(static_val!(BLOCK));
       args.push(block.try_into()?);
     }
     if noack {
-      args.push(NOACK.into());
+      args.push(static_val!(NOACK));
     }
 
-    args.push(STREAMS.into());
+    args.push(static_val!(STREAMS));
     for (idx, key) in keys.inner().into_iter().enumerate() {
       if is_clustered && idx == 0 {
         hash_slot = Some(redis_keyslot(key.as_bytes()));
@@ -366,7 +365,7 @@ pub async fn xreadgroup(
       args.push(key.into());
     }
     for id in ids.inner().into_iter() {
-      args.push(id.into_string().into());
+      args.push(id.into_str().into());
     }
 
     Ok((RedisCommandKind::Xreadgroup((is_blocking, hash_slot)), args))
@@ -388,7 +387,7 @@ pub async fn xack(
     args.push(group.into());
 
     for id in ids.inner().into_iter() {
-      args.push(id.into_string().into());
+      args.push(id.into_str().into());
     }
     Ok((RedisCommandKind::Xack, args))
   })
@@ -418,25 +417,25 @@ pub async fn xclaim(
     args.push(min_idle_time.try_into()?);
 
     for id in ids.inner().into_iter() {
-      args.push(id.into_string().into());
+      args.push(id.into_str().into());
     }
     if let Some(idle) = idle {
-      args.push(IDLE.into());
+      args.push(static_val!(IDLE));
       args.push(idle.try_into()?);
     }
     if let Some(time) = time {
-      args.push(TIME.into());
+      args.push(static_val!(TIME));
       args.push(time.try_into()?);
     }
     if let Some(retry_count) = retry_count {
-      args.push(RETRYCOUNT.into());
+      args.push(static_val!(RETRYCOUNT));
       args.push(retry_count.try_into()?);
     }
     if force {
-      args.push(FORCE.into());
+      args.push(static_val!(FORCE));
     }
     if justid {
-      args.push(JUSTID.into());
+      args.push(static_val!(JUSTID));
     }
 
     Ok((RedisCommandKind::Xclaim, args))
@@ -462,14 +461,14 @@ pub async fn xautoclaim(
     args.push(group.into());
     args.push(consumer.into());
     args.push(min_idle_time.try_into()?);
-    args.push(start.into_string().into());
+    args.push(start.into_str().into());
 
     if let Some(count) = count {
-      args.push(COUNT.into());
+      args.push(static_val!(COUNT));
       args.push(count.try_into()?);
     }
     if justid {
-      args.push(JUSTID.into());
+      args.push(static_val!(JUSTID));
     }
 
     Ok((RedisCommandKind::Xautoclaim, args))
@@ -492,11 +491,11 @@ pub async fn xpending(
 
     if let Some((idle, start, end, count, consumer)) = cmd_args {
       if let Some(idle) = idle {
-        args.push(IDLE.into());
+        args.push(static_val!(IDLE));
         args.push(idle.try_into()?);
       }
-      args.push(start.into_string().into());
-      args.push(end.into_string().into());
+      args.push(start.into_str().into());
+      args.push(end.into_str().into());
       args.push(count.try_into()?);
       if let Some(consumer) = consumer {
         args.push(consumer.into());

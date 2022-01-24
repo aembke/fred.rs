@@ -518,9 +518,6 @@ where
     let _ = disallow_nested_values(&command)?;
     (command, rx, req_size)
   };
-  if let Some(key) = command.extract_key() {
-    cmd_span.record("key", &&*key);
-  }
   cmd_span.record("cmd", &command.kind.to_str_debug());
   cmd_span.record("req_size", &req_size);
 

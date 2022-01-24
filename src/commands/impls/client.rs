@@ -43,12 +43,12 @@ where
     let mut args = Vec::with_capacity(max_args);
 
     if let Some(kind) = r#type {
-      args.push(TYPE.into());
+      args.push(static_val!(TYPE));
       args.push(kind.to_str().into());
     }
     if let Some(ids) = ids {
       if !ids.is_empty() {
-        args.push(ID.into());
+        args.push(static_val!(ID));
 
         for id in ids.into_iter() {
           args.push(id.into());

@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub async fn slowlog_get(inner: &Arc<RedisClientInner>, count: Option<i64>) -> Result<Vec<SlowlogEntry>, RedisError> {
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(2);
-    args.push(GET.into());
+    args.push(static_val!(GET));
 
     if let Some(count) = count {
       args.push(count.into());
@@ -46,5 +46,5 @@ pub async fn slowlog_length(inner: &Arc<RedisClientInner>) -> Result<u64, RedisE
 }
 
 pub async fn slowlog_reset(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  args_ok_cmd(inner, RedisCommandKind::Slowlog, vec![RESET.into()]).await
+  args_ok_cmd(inner, RedisCommandKind::Slowlog, vec![static_val!(RESET)]).await
 }

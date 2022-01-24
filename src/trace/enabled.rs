@@ -65,7 +65,6 @@ pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
     module = "fred",
     client_id = inner.id.as_str(),
     cmd = Empty,
-    key = Empty,
     req_size = Empty,
     res_size = Empty
   )

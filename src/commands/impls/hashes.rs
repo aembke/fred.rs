@@ -201,7 +201,7 @@ where
     if let Some((count, with_values)) = count {
       args.push(count.into());
       if with_values {
-        args.push(WITH_VALUES.into());
+        args.push(static_val!(WITH_VALUES));
       }
     }
 
