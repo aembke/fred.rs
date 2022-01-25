@@ -5,6 +5,9 @@ use bytes_utils::Str;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
 
+#[cfg(feature = "serde-json")]
+use serde_json::{Map, Value};
+
 macro_rules! to_signed_number(
   ($t:ty, $v:expr) => {
     match $v {
@@ -421,6 +424,43 @@ macro_rules! impl_from_str_from_redis_key (
     }
   }
 );
+
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+impl FromRedis for Value {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    let value = match value {
+      RedisValue::Null => Value::Null,
+      RedisValue::Queued => QUEUED.into(),
+      RedisValue::String(s) => s.to_string().into(),
+      RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
+      RedisValue::Integer(i) => i.into(),
+      RedisValue::Double(f) => f.into(),
+      RedisValue::Boolean(b) => b.into(),
+      RedisValue::Array(v) => {
+        let mut out = Vec::with_capacity(v.len());
+        for value in v.into_iter() {
+          out.push(Self::from_value(value)?);
+        }
+        Value::Array(out)
+      }
+      RedisValue::Map(v) => {
+        let mut out = Map::with_capacity(v.len());
+        for (key, value) in v.inner().into_iter() {
+          let key = key
+            .into_string()
+            .ok_or(RedisError::new_parse("Cannot convert key to string."))?;
+          let value = Self::from_value(value)?;
+
+          out.insert(key, value);
+        }
+        Value::Object(out)
+      }
+    };
+
+    Ok(value)
+  }
+}
 
 /// A trait used to convert [RedisKey](crate::types::RedisKey) values to various types.
 ///

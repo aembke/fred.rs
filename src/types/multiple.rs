@@ -209,6 +209,12 @@ impl From<Vec<u16>> for MultipleHashSlots {
   }
 }
 
+impl<'a> From<&'a [u16]> for MultipleHashSlots {
+  fn from(d: &'a [u16]) -> Self {
+    MultipleHashSlots { inner: d.to_vec() }
+  }
+}
+
 impl From<VecDeque<u16>> for MultipleHashSlots {
   fn from(d: VecDeque<u16>) -> Self {
     MultipleHashSlots {

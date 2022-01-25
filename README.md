@@ -106,6 +106,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | sentinel-client             |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                                                                                           |
 | sentinel-auth               |         | Enable an interface for using different authentication credentials to sentinel nodes.                                                                                                                                                    |
 | subscriber-client           |         | Enable a higher level subscriber client that manages channel subscription state for callers.                                                                                                                                             |
+| serde-json                  |         | Enable an interface to automatically convert Redis types to JSON.                                                                                                                                            |
 
 ## Environment Variables
 

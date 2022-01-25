@@ -17,6 +17,9 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::{fmt, mem, str};
 
+#[cfg(feature = "serde-json")]
+use serde_json::Value;
+
 static_str!(TRUE_STR, "true");
 static_str!(FALSE_STR, "false");
 
@@ -705,12 +708,12 @@ impl<'a> RedisValue {
 
   /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered element is not an aggregate type.
   ///
-  /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps.
-  pub fn is_probably_map(&self) -> bool {
+  /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps across protocol versions.
+  pub fn is_maybe_map(&self) -> bool {
     match *self {
       RedisValue::Map(_) => true,
       RedisValue::Array(ref arr) => {
-        if arr.len() % 2 == 0 {
+        if arr.len() > 0 && arr.len() % 2 == 0 {
           arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
         } else {
           false
@@ -1374,5 +1377,43 @@ impl From<RedisMap> for RedisValue {
 impl From<()> for RedisValue {
   fn from(_: ()) -> Self {
     RedisValue::Null
+  }
+}
+
+#[cfg(feature = "serde-json")]
+impl TryFrom<Value> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(v: Value) -> Result<Self, Self::Error> {
+    let value = match v {
+      Value::Null => RedisValue::Null,
+      Value::String(s) => RedisValue::String(s.into()),
+      Value::Bool(b) => RedisValue::Boolean(b),
+      Value::Number(n) => {
+        if n.is_i64() {
+          RedisValue::Integer(n.as_i64().unwrap())
+        } else if n.is_f64() {
+          RedisValue::Double(n.as_f64().unwrap())
+        } else {
+          return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Invalid JSON number."));
+        }
+      }
+      Value::Array(a) => {
+        let mut out = Vec::with_capacity(a.len());
+        for value in a.into_iter() {
+          out.push(value.try_into()?);
+        }
+        RedisValue::Array(out)
+      }
+      Value::Object(m) => {
+        let mut out: HashMap<RedisKey, RedisValue> = HashMap::with_capacity(m.len());
+        for (key, value) in m.into_iter() {
+          out.insert(key.into(), value.try_into()?);
+        }
+        RedisValue::Map(RedisMap { inner: out })
+      }
+    };
+
+    Ok(value)
   }
 }

@@ -240,7 +240,7 @@ pub async fn should_lrange_values(client: RedisClient, _: RedisConfig) -> Result
 
   for idx in 0..COUNT {
     let result: i64 = client.lrange("foo", idx, idx).await?;
-    assert_eq!(result, idx.into());
+    assert_eq!(result, idx);
   }
 
   Ok(())

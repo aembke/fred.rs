@@ -47,6 +47,9 @@
 //!
 pub extern crate bytes;
 pub extern crate bytes_utils;
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+pub extern crate serde_json;
 
 #[macro_use]
 extern crate async_trait;

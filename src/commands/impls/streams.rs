@@ -16,7 +16,7 @@ fn check_map_array_wrapper(value: RedisValue) -> RedisValue {
   // in commands like XINFO_* if the result only has one consumer you get a map, if it mas more than one you get
   // an array of maps. ideally we'd get an array regardless, hence this added check...
 
-  if value.is_probably_map() {
+  if value.is_maybe_map() {
     RedisValue::Array(vec![value])
   } else {
     value
