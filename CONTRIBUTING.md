@@ -17,27 +17,6 @@ This document gives some background on how the library is structured and how to 
 * Any missing commands.
 * General cleanup and refactoring. A lot of the lower level logic was written before async/await, before `impl Trait`, and before NLLs. It could certainly be more modern and generic.
 
-### Performance Improvements
-
-As of version 5.0.0 this library can do about 2MM req/sec in one client process (with a multi-thread tokio scheduler) running against a single centralized Redis server. When I try to configure the client to do more the memory usage on the client tends to increase dramatically. 
-
-I suspect there are a few things that could be changed to increase performance and decrease memory usage. 
-
-* Switch to `ArcStr` instead of `Arc<String>` for string identifiers in maps.
-* Remove some locks on the Connections struct. I don't think everything needs to be `Sync` there anymore. The command queue should be the only thing that needs to be `Sync`. This may require reworking the task that handles reconnection logic since that task also mutates the `Framed` writers map.
-* Change the locked `RedisConfig` to use `ArcSwap` instead.
-* Change the inner locked `ClusterKeyCache` to use `ArcSwap`. 
-
-In addition, there some big improvements that could likely come from some changes in `redis-protocol`. The Redis interface involves using a lot of `&'static str` types, and yet `redis-protocol` still uses a `Vec<u8>` under the hood, so we end up cloning this data. Adding a lifetime to the `Frame` types in `redis-protocol` would require some pretty invasive changes in this library, but I'm guessing it would improve performance quite a bit.
-
-Finally, if/when `async` functions are supported in traits it will be possible to remove the trait object in `AsyncResult`. Prior to version 5.0.0 all of the redis commands were implemented on one struct, so the client could use the `pub async fn` interface directly. However, the Redis interface is pretty large and this proved to be unsustainable. 
-
-In version 5.0.0 I switched to an interface based on different traits for each section of the Redis interface. While this is much easier to manage and allowed for a lot of code reuse in higher level clients, it also required using trait objects to wrap all command responses. When comparing the pipeline test results between versions 4 and 5 I noticed about a 5-10% throughput decrease in version 5. More specifically, it dropped the throughput from about 205MM req/sec to 193MM req/sec on my desktop (12 CPUs, Debian 10). 
-
-Unfortunately I'm not sure how to remove that trait object until `async` functions are supported in traits.
-
-If you'd like to contribute to any of the above features or changes feel free to reach out.
-
 ## Design 
 
 This section covers some useful design considerations and assumptions that went into this module. 
@@ -68,7 +47,7 @@ to create a [Framed](https://docs.rs/tokio-util/0.6.7/tokio_util/codec/struct.Fr
   4. The current command ends a transaction.
   5. The client has pipelining disabled.
 
-**All frames are automatically converted to RESP3 frames, even in RESP2 mode, to provide a single interface for callers to parse responses.** This works because RESP3 is a superset of RESP2. 
+**All frames are automatically converted to RESP3 frames, even in RESP2 mode, to provide a single interface for callers to parse responses.** This works because RESP3 is a superset of RESP2 and the type conversion logic accounts for the different possible representations of most data types.
   
 #### Clustered Connections
 
@@ -354,12 +333,7 @@ pub async fn mget(inner: &Arc<RedisClientInner>, keys: MultipleKeys) -> Result<R
 
   let frame = utils::request_response(inner, move || {
     // time spent here will show up in traces
-    let mut args = Vec::with_capacity(keys.len());
-
-    for key in keys.inner().into_iter() {
-      args.push(key.into());
-    }
-
+    let args = keys.inner().into_iter().map(|k| k.into()).collect();
     Ok((RedisCommandKind::Mget, args))
   })
   .await?;

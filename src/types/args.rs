@@ -1381,6 +1381,7 @@ impl From<()> for RedisValue {
 }
 
 #[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
 impl TryFrom<Value> for RedisValue {
   type Error = RedisError;
 

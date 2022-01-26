@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasher, Hash};
 
 #[cfg(feature = "serde-json")]
+use crate::utils;
+#[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
 macro_rules! to_signed_number(
@@ -432,7 +434,13 @@ impl FromRedis for Value {
     let value = match value {
       RedisValue::Null => Value::Null,
       RedisValue::Queued => QUEUED.into(),
-      RedisValue::String(s) => s.to_string().into(),
+      RedisValue::String(s) => {
+        if let Some(parsed) = utils::parse_nested_json(&s) {
+          parsed
+        } else {
+          s.to_string().into()
+        }
+      }
       RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
       RedisValue::Integer(i) => i.into(),
       RedisValue::Double(f) => f.into(),

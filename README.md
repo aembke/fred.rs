@@ -123,49 +123,6 @@ The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags
 
 This module also contains a [separate test application](bin/pipeline_test) that can be used to demonstrate the effects of pipelining. This test application also contains some helpful information on how to use the tracing features.
 
-This library takes a different approach to pipelining than many other clients. Instead of relying on callers to specify specific sequences of commands to be pipelined this library will instead automatically pipeline commands whenever possible. This makes pipelining an implementation detail for the client instead of something the caller needs to consider. This can also drastically improve performance since the client can pipeline commands that do not depend on each other automatically. Callers are then free to manage command ordering with the async, tokio, or futures ecosystem interface (`await`, `join`, `select`, `join_all`, etc), and the client will automatically associate responses with the correct command.
-
-The following commands will **never** be pipelined:
-
-* HELLO or AUTH
-* QUIT or SHUTDOWN
-* Blocking commands
-* MULTI, EXEC, WATCH, UNWATCH, or DISCARD
-* EVAL or EVALSHA
-* CLIENT UNBLOCK
-
-### Backpressure & Throttling
-
-If callers enable automatic pipelining features there are two ways to manage potential backpressure situations. This can be necessary to avoid using too much memory on the server while buffering commands.
-
-If callers are using the tracing features the backpressure durations will have a special notation in traces.
-
-#### Automatic Backpressure
-
-The client can automatically throttle requests via some flags on the `RedisConfig` and `globals` interface. 
-
-The client's `RedisConfig` struct contains a struct dedicated for performance tuning - the `PerformanceConfig`. Within this struct is another struct dedicated to tuning backpressure settings - the `BackpressureConfig` struct. 
-
-This struct contains 2 relevant settings that can control this: `max_in_flight_commands` and `min_backpressure_time_ms`. 
-
-These functions control the maximum number of in-flight requests and the minimum duration to wait when the max number of in-flight requests is reached, respectively. 
-
-When the max number of in-flight requests is reached the client will inject an async `sleep` call before the next request. The formula for calculating the duration of the `sleep` call is as follows:
-
-```
-duration_ms = max(min_backpressure_time_ms, number_of_in_flight_commands)
-```
-
-However, this formula can be modified by callers. The `disable_backpressure_scaling` flag will change the backpressure formula to always wait for a constant duration defined by `min_backpressure_time_ms`.
-
-#### Manual Backpressure
-
-Alternatively, callers can disable the automatic backpressure logic via the `disable_auto_backpressure` flag on the `BackpressureConfig`.
-
-If this flag is enabled the client will return a special `RedisErrorKind::Backpressure` enum variant whenever the max in-flight request count is reached. Callers are then responsible for backing off and retrying commands as needed.
-
-Although not recommended, callers can entirely disable backpressure by setting `min_backpressure_time_ms` to 0. This can also be accomplished simply by setting the `set_backpressure_count` value to a very large number. 
-
 ## ACL & Authentication
 
 Prior to the introduction of ACL commands in Redis version 6 clients would authenticate with a single password. If callers are not using the ACL interface, or using Redis version <=5.x, they should configure the client to automatically authenticate by using the `password` field on the `RedisConfig` and leaving the `username` field as `None`. 
@@ -193,28 +150,6 @@ The `custom-reconnect-errors` feature enables an interface on the [globals](src/
 In many cases applications respond to Redis errors by logging the error, maybe waiting and reconnecting, and then trying again. Whether to do this often depends on [the prefix](https://github.com/redis/redis/blob/66002530466a45bce85e4930364f1b153c44840b/src/server.c#L2998-L3031) in the error message, and this interface allows callers to specify which errors should be handled this way.
 
 Errors that trigger this can be seen with the [on_error](https://docs.rs/fred/*/fred/client/struct.RedisClient.html#method.on_error) function. 
-
-## Protocol Versions
-
-This module supports both [RESP2](https://redis.io/topics/protocol#resp-protocol-description) and [RESP3](https://github.com/antirez/RESP3/blob/master/spec.md). However, only Redis versions >=6.0.0 contain support for RESP3.
-
-RESP3 has certain advantages over RESP2. It supports various new data types such as sets, maps, floating point values, big numbers, etc. Additionally, it has cleaner semantics for handling out-of-band data such as publish-subscribe messages. However, these are largely implementation details for the client and will not affect callers.
-
-That being said, perhaps the most compelling reason to use RESP3 is for streaming support. When in RESP3 mode the server can chunk large values into smaller frames to reduce the memory footprint on the server while sending commands. 
-
-This module supports streaming values in this manner (largely in the interest of future-proofing the interface), but it is unclear if or when the Redis server will do this, or what effect it can have on server performance.
-
-### Upgrade Considerations
-
-In most cases this library will pass Redis response values directly to callers with minimal parsing. However, RESP3 is semantically different from RESP2, and in some cases callers need to account for this.
-
-Callers should take special care when handling aggregate types like arrays and maps in particular. For example, your code may take a dependency on a value being an array of key/value pairs in RESP2, but after upgrading to RESP3 it may now be a map. 
-
-Additionally, the added support for floating point values in RESP3 can result in different `RedisValue` enum variants, particularly with sorted set commands. 
-
-In some cases RESP3 will nest aggregate types differently as well. For example, in RESP2 `HRANDFIELD` (with values) will return a flat array, but in RESP3 it will return a nested array. **Keep in mind that nearly every example on the Redis docs website only shows RESP2 responses.**
-
-In general this is only an issue for callers that use the lower level `RedisValue` enum directly. Callers that leverage the `FromRedis` trait to do type conversions are unlikely to notice any difference between RESP2 and RESP3. However, in some isolated cases (like the latter example in the paragraph above) callers will need to account for the different return types in RESP3 mode.
 
 ## Tests
 

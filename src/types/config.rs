@@ -299,6 +299,8 @@ pub struct RedisConfig {
   /// command fails this will prevent the client from connecting. Callers should set this to RESP2 and use `HELLO` manually to fall back
   /// to RESP2 if needed.
   ///
+  /// Note: upgrading an existing codebase from RESP2 to RESP3 may require changing certain type signatures. RESP3 has a slightly different type system than RESP2.
+  ///
   /// Default: `RESP2`
   pub version: RespVersion,
   /// Configuration options that can affect the performance of the client.

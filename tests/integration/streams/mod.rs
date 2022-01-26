@@ -4,7 +4,7 @@ use maplit::hashmap;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-type FakeExpectedValues = HashMap<String, HashMap<String, usize>>;
+type FakeExpectedValues = Vec<HashMap<String, HashMap<String, usize>>>;
 
 async fn create_fake_group_and_stream(client: &RedisClient, key: &str) -> Result<(), RedisError> {
   client.xgroup_create(key, "group1", "$", true).await
@@ -16,27 +16,23 @@ async fn add_stream_entries(
   count: usize,
 ) -> Result<(Vec<String>, FakeExpectedValues), RedisError> {
   let mut ids = Vec::with_capacity(count);
-  let mut expected = HashMap::with_capacity(count);
+  let mut expected = Vec::with_capacity(count);
   for idx in 0..count {
     let id: String = client.xadd(key, false, None, "*", ("count", idx)).await?;
     ids.push(id.clone());
 
+    let mut outer = HashMap::with_capacity(1);
     let mut inner = HashMap::with_capacity(1);
     inner.insert("count".into(), idx);
-    expected.insert(id, inner);
+    outer.insert(id, inner);
+    expected.push(outer);
   }
 
   Ok((ids, expected))
 }
 
 fn has_expected_value(expected: &FakeExpectedValues, actual: &FakeExpectedValues) -> bool {
-  actual.iter().fold(true, |b, (k, v)| {
-    if let Some(expected) = expected.get(k) {
-      b && expected == v
-    } else {
-      false
-    }
-  })
+  actual.iter().enumerate().fold(true, |b, (i, v)| b && v == &expected[i])
 }
 
 pub async fn should_xinfo_consumers(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
