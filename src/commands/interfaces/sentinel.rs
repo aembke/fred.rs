@@ -2,6 +2,7 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{FromRedis, RedisMap, RedisValue, SentinelFailureKind};
+use bytes_utils::Str;
 use std::convert::TryInto;
 use std::net::IpAddr;
 
@@ -11,7 +12,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn ckquorum<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -33,7 +34,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn failover<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -45,7 +46,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn get_master_addr_by_name<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -69,7 +70,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn master<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -93,7 +94,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn monitor<R, N>(&self, name: N, ip: IpAddr, port: u16, quorum: u32) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -129,7 +130,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn remove<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -141,7 +142,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn replicas<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -153,7 +154,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn sentinels<R, N>(&self, name: N) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -167,7 +168,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn set<R, N, V>(&self, name: N, args: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    N: Into<String>,
+    N: Into<Str>,
     V: TryInto<RedisMap>,
     V::Error: Into<RedisError>,
   {
@@ -192,7 +193,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn reset<R, P>(&self, pattern: P) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    P: Into<String>,
+    P: Into<Str>,
   {
     into!(pattern);
     async_spawn(self, |inner| async move {
@@ -204,7 +205,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn config_get<R, K>(&self, name: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<String>,
+    K: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {
@@ -216,7 +217,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   fn config_set<R, K, V>(&self, name: K, value: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<String>,
+    K: Into<Str>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
   {

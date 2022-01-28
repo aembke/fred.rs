@@ -3,6 +3,7 @@ use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag};
 use crate::utils;
+use bytes_utils::Str;
 use std::convert::TryInto;
 
 /// Functions that implement the [lua](https://redis.io/commands#lua) interface.
@@ -12,7 +13,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// <https://redis.io/commands/script-load>
   fn script_load<S>(&self, script: S) -> AsyncResult<String>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(script);
     async_spawn(self, |inner| async move {
@@ -23,7 +24,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// A clustered variant of [script_load](Self::script_load) that loads the script on all primary nodes in a cluster.
   fn script_load_cluster<S>(&self, script: S) -> AsyncResult<String>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(script);
     async_spawn(self, |inner| async move {
@@ -94,11 +95,11 @@ pub trait LuaInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/evalsha>
   ///
-  /// **Note: Use `None` to represent an empty set of keys or args instead of `()`.**
+  /// **Note: Use `None` to represent an empty set of keys or args.**
   fn evalsha<R, S, K, V>(&self, hash: S, keys: K, args: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<String>,
+    S: Into<Str>,
     K: Into<MultipleKeys>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,
@@ -115,11 +116,11 @@ pub trait LuaInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/eval>
   ///
-  /// **Note: Use `None` to represent an empty set of keys or args instead of `()`.**
+  /// **Note: Use `None` to represent an empty set of keys or args.**
   fn eval<R, S, K, V>(&self, script: S, keys: K, args: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<String>,
+    S: Into<Str>,
     K: Into<MultipleKeys>,
     V: TryInto<MultipleValues>,
     V::Error: Into<RedisError>,

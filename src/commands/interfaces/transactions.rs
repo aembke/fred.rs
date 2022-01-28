@@ -22,6 +22,7 @@ pub trait TransactionInterface: ClientLike + Sized {
   ///
   /// When used against a cluster the client will wait to send the `MULTI` command until the hash slot is known from a subsequent command. If no hash slot
   /// is provided the transaction will run against a random cluster node.
+  // TODO make sure this works with multiple commands that don't have a hash slot
   fn multi(&self, abort_on_error: bool) -> AsyncResult<TransactionClient> {
     async_spawn(self, |inner| async move {
       if utils::is_clustered(&inner.config) {

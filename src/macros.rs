@@ -98,7 +98,7 @@ macro_rules! s(
 /// Public macro to create a `Bytes` from a static byte slice without copying.
 ///
 /// ```rust no_run
-/// // use "foo" without copying or parsing the underlying data. this uses the `Bytes::from_static` interface under the hood.
+/// // use "bar" without copying or parsing the underlying data. this uses the `Bytes::from_static` interface under the hood.
 /// let _ = client.set(s!("foo"), b!(b"bar")).await?;
 /// ```
 #[macro_export]

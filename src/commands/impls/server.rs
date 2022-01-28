@@ -7,6 +7,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
@@ -158,12 +159,7 @@ pub async fn hello(
   }
 }
 
-pub async fn auth<V>(inner: &Arc<RedisClientInner>, username: Option<String>, password: V) -> Result<(), RedisError>
-where
-  V: Into<String>,
-{
-  let password = password.into();
-
+pub async fn auth(inner: &Arc<RedisClientInner>, username: Option<String>, password: Str) -> Result<(), RedisError> {
   if utils::is_clustered(&inner.config) {
     let mut args = Vec::with_capacity(2);
     if let Some(username) = username {

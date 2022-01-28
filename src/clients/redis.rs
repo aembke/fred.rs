@@ -10,6 +10,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::prelude::{ClientLike, StreamsInterface};
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use futures::Stream;
 use std::fmt;
 use std::sync::Arc;
@@ -146,9 +147,9 @@ impl RedisClient {
     r#type: Option<ScanType>,
   ) -> impl Stream<Item = Result<ScanResult, RedisError>>
   where
-    P: Into<String>,
+    P: Into<Str>,
   {
-    commands::scan::scan(&self.inner, pattern, count, r#type)
+    commands::scan::scan(&self.inner, pattern.into(), count, r#type)
   }
 
   /// Run the `SCAN` command on each primary/main node in a cluster concurrently.
@@ -164,7 +165,7 @@ impl RedisClient {
     r#type: Option<ScanType>,
   ) -> impl Stream<Item = Result<ScanResult, RedisError>>
   where
-    P: Into<String>,
+    P: Into<Str>,
   {
     commands::scan::scan_cluster(&self.inner, pattern.into(), count, r#type)
   }
@@ -180,9 +181,9 @@ impl RedisClient {
   ) -> impl Stream<Item = Result<HScanResult, RedisError>>
   where
     K: Into<RedisKey>,
-    P: Into<String>,
+    P: Into<Str>,
   {
-    commands::scan::hscan(&self.inner, key, pattern, count)
+    commands::scan::hscan(&self.inner, key, pattern.into(), count)
   }
 
   /// Incrementally iterate over pages of the set stored at `key`, returning `count` results per page, if specified.
@@ -196,9 +197,9 @@ impl RedisClient {
   ) -> impl Stream<Item = Result<SScanResult, RedisError>>
   where
     K: Into<RedisKey>,
-    P: Into<String>,
+    P: Into<Str>,
   {
-    commands::scan::sscan(&self.inner, key, pattern, count)
+    commands::scan::sscan(&self.inner, key, pattern.into(), count)
   }
 
   /// Incrementally iterate over pages of the sorted set stored at `key`, returning `count` results per page, if specified.
@@ -212,9 +213,9 @@ impl RedisClient {
   ) -> impl Stream<Item = Result<ZScanResult, RedisError>>
   where
     K: Into<RedisKey>,
-    P: Into<String>,
+    P: Into<Str>,
   {
-    commands::scan::zscan(&self.inner, key, pattern, count)
+    commands::scan::zscan(&self.inner, key, pattern.into(), count)
   }
 }
 

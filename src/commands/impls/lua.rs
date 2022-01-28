@@ -6,6 +6,7 @@ use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::util::sha1_hash;
 use crate::utils;
+use bytes_utils::Str;
 use std::convert::TryInto;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
@@ -48,19 +49,12 @@ pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Re
   }
 }
 
-pub async fn script_load<S>(inner: &Arc<RedisClientInner>, script: S) -> Result<RedisValue, RedisError>
-where
-  S: Into<String>,
-{
-  one_arg_value_cmd(inner, RedisCommandKind::ScriptLoad, script.into().into()).await
+pub async fn script_load(inner: &Arc<RedisClientInner>, script: Str) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(inner, RedisCommandKind::ScriptLoad, script.into()).await
 }
 
-pub async fn script_load_cluster<S>(inner: &Arc<RedisClientInner>, script: S) -> Result<RedisValue, RedisError>
-where
-  S: Into<String>,
-{
+pub async fn script_load_cluster(inner: &Arc<RedisClientInner>, script: Str) -> Result<RedisValue, RedisError> {
   let _ = utils::check_clustered(inner)?;
-  let script = script.into();
   let hash = sha1_hash(&script);
 
   let (tx, rx) = oneshot_channel();
@@ -154,17 +148,13 @@ pub async fn script_debug(inner: &Arc<RedisClientInner>, flag: ScriptDebugFlag) 
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn evalsha<S, K>(
+pub async fn evalsha(
   inner: &Arc<RedisClientInner>,
-  hash: S,
-  keys: K,
+  hash: Str,
+  keys: MultipleKeys,
   cmd_args: MultipleValues,
-) -> Result<RedisValue, RedisError>
-where
-  S: Into<String>,
-  K: Into<MultipleKeys>,
-{
-  let (hash, keys) = (hash.into(), keys.into().inner());
+) -> Result<RedisValue, RedisError> {
+  let keys = keys.inner();
   let custom_key_slot = check_key_slot(inner, &keys)?;
 
   let frame = utils::request_response(inner, move || {
@@ -186,17 +176,13 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn eval<S, K>(
+pub async fn eval(
   inner: &Arc<RedisClientInner>,
-  script: S,
-  keys: K,
+  script: Str,
+  keys: MultipleKeys,
   cmd_args: MultipleValues,
-) -> Result<RedisValue, RedisError>
-where
-  S: Into<String>,
-  K: Into<MultipleKeys>,
-{
-  let (script, keys) = (script.into(), keys.into().inner());
+) -> Result<RedisValue, RedisError> {
+  let keys = keys.inner();
   let custom_key_slot = check_key_slot(inner, &keys)?;
 
   let frame = utils::request_response(inner, move || {

@@ -4,6 +4,7 @@ use crate::prelude::RedisError;
 use crate::types::{
   FromRedis, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XID,
 };
+use bytes_utils::Str;
 use std::convert::TryInto;
 
 /// A trait that implements the [streams](https://redis.io/commands#stream) interface.
@@ -15,7 +16,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(key, groupname);
     async_spawn(self, |inner| async move {
@@ -194,7 +195,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<String>,
+    S: Into<Str>,
     I: Into<XID>,
   {
     into!(key, groupname, id);
@@ -212,8 +213,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    G: Into<String>,
-    C: Into<String>,
+    G: Into<Str>,
+    C: Into<Str>,
   {
     into!(key, groupname, consumername);
     async_spawn(self, |inner| async move {
@@ -230,8 +231,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    G: Into<String>,
-    C: Into<String>,
+    G: Into<Str>,
+    C: Into<Str>,
   {
     into!(key, groupname, consumername);
     async_spawn(self, |inner| async move {
@@ -248,7 +249,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(key, groupname);
     async_spawn(self, |inner| async move {
@@ -265,7 +266,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<String>,
+    S: Into<Str>,
     I: Into<XID>,
   {
     into!(key, groupname, id);
@@ -291,8 +292,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   ) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    G: Into<String>,
-    C: Into<String>,
+    G: Into<Str>,
+    C: Into<Str>,
     K: Into<MultipleKeys>,
     I: Into<MultipleIDs>,
   {
@@ -311,7 +312,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    G: Into<String>,
+    G: Into<Str>,
     I: Into<MultipleIDs>,
   {
     into!(key, group, ids);
@@ -340,8 +341,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    G: Into<String>,
-    C: Into<String>,
+    G: Into<Str>,
+    C: Into<Str>,
     I: Into<MultipleIDs>,
   {
     into!(key, group, consumer, ids);
@@ -380,8 +381,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    G: Into<String>,
-    C: Into<String>,
+    G: Into<Str>,
+    C: Into<Str>,
     I: Into<XID>,
   {
     into!(key, group, consumer, start);
@@ -397,16 +398,17 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// The `args` argument has the form `[[IDLE min-idle-time] start end count [consumer]]`.
   ///
   /// <https://redis.io/commands/xpending>
+  // TODO make the args params easier to express
   fn xpending<R, K, G>(
     &self,
     key: K,
     group: G,
-    args: Option<(Option<u64>, XID, XID, u64, Option<String>)>,
+    args: Option<(Option<u64>, XID, XID, u64, Option<Str>)>,
   ) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    G: Into<String>,
+    G: Into<Str>,
   {
     into!(key, group);
     async_spawn(self, |inner| async move {

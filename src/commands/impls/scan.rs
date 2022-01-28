@@ -4,6 +4,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::*;
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -11,7 +12,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 static STARTING_CURSOR: &'static str = "0";
 
-fn values_args(key: RedisKey, pattern: String, count: Option<u32>) -> Vec<RedisValue> {
+fn values_args(key: RedisKey, pattern: Str, count: Option<u32>) -> Vec<RedisValue> {
   let mut args = Vec::with_capacity(6);
   args.push(key.into());
   args.push(static_val!(STARTING_CURSOR));
@@ -35,7 +36,7 @@ fn early_error<T: Send + 'static>(tx: &UnboundedSender<Result<T, RedisError>>, e
 
 pub fn scan_cluster(
   inner: &Arc<RedisClientInner>,
-  pattern: String,
+  pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
@@ -89,15 +90,12 @@ pub fn scan_cluster(
   UnboundedReceiverStream::new(rx)
 }
 
-pub fn scan<S>(
+pub fn scan(
   inner: &Arc<RedisClientInner>,
-  pattern: S,
+  pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
-) -> impl Stream<Item = Result<ScanResult, RedisError>>
-where
-  S: Into<String>,
-{
+) -> impl Stream<Item = Result<ScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
   let err_tx = tx.clone();
   if let Err(e) = utils::disallow_during_transaction(inner) {
@@ -107,7 +105,6 @@ where
     return UnboundedReceiverStream::new(rx);
   }
 
-  let pattern = pattern.into();
   let key_slot = if utils::is_clustered(&inner.config) {
     if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
       Some(redis_keyslot(pattern.as_bytes()))
@@ -149,15 +146,14 @@ where
   UnboundedReceiverStream::new(rx)
 }
 
-pub fn hscan<K, P>(
+pub fn hscan<K>(
   inner: &Arc<RedisClientInner>,
   key: K,
-  pattern: P,
+  pattern: Str,
   count: Option<u32>,
 ) -> impl Stream<Item = Result<HScanResult, RedisError>>
 where
   K: Into<RedisKey>,
-  P: Into<String>,
 {
   let (tx, rx) = unbounded_channel();
   let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
@@ -168,8 +164,7 @@ where
   };
 
   if should_send {
-    let (key, pattern) = (key.into(), pattern.into());
-    let args = values_args(key, pattern, count);
+    let args = values_args(key.into(), pattern, count);
     let err_tx = tx.clone();
     let scan = ValueScanInner {
       tx,
@@ -192,15 +187,14 @@ where
   })
 }
 
-pub fn sscan<K, P>(
+pub fn sscan<K>(
   inner: &Arc<RedisClientInner>,
   key: K,
-  pattern: P,
+  pattern: Str,
   count: Option<u32>,
 ) -> impl Stream<Item = Result<SScanResult, RedisError>>
 where
   K: Into<RedisKey>,
-  P: Into<String>,
 {
   let (tx, rx) = unbounded_channel();
   let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
@@ -211,8 +205,7 @@ where
   };
 
   if should_send {
-    let (key, pattern) = (key.into(), pattern.into());
-    let args = values_args(key, pattern, count);
+    let args = values_args(key.into(), pattern, count);
     let err_tx = tx.clone();
     let scan = ValueScanInner {
       tx,
@@ -235,15 +228,14 @@ where
   })
 }
 
-pub fn zscan<K, P>(
+pub fn zscan<K>(
   inner: &Arc<RedisClientInner>,
   key: K,
-  pattern: P,
+  pattern: Str,
   count: Option<u32>,
 ) -> impl Stream<Item = Result<ZScanResult, RedisError>>
 where
   K: Into<RedisKey>,
-  P: Into<String>,
 {
   let (tx, rx) = unbounded_channel();
   let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
@@ -254,8 +246,7 @@ where
   };
 
   if should_send {
-    let (key, pattern) = (key.into(), pattern.into());
-    let args = values_args(key, pattern, count);
+    let args = values_args(key.into(), pattern, count);
     let err_tx = tx.clone();
     let scan = ValueScanInner {
       tx,

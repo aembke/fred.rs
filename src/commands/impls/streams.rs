@@ -7,6 +7,7 @@ use crate::types::{
   MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XID,
 };
 use crate::utils;
+use bytes_utils::Str;
 use redis_protocol::redis_keyslot;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -38,7 +39,7 @@ fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
 pub async fn xinfo_consumers(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  groupname: String,
+  groupname: Str,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     let args = vec![key.into(), groupname.into()];
@@ -240,7 +241,7 @@ pub async fn xread(
 pub async fn xgroup_create(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  groupname: String,
+  groupname: Str,
   id: XID,
   mkstream: bool,
 ) -> Result<RedisValue, RedisError> {
@@ -263,8 +264,8 @@ pub async fn xgroup_create(
 pub async fn xgroup_createconsumer(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  groupname: String,
-  consumername: String,
+  groupname: Str,
+  consumername: Str,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((
@@ -280,8 +281,8 @@ pub async fn xgroup_createconsumer(
 pub async fn xgroup_delconsumer(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  groupname: String,
-  consumername: String,
+  groupname: Str,
+  consumername: Str,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((
@@ -297,7 +298,7 @@ pub async fn xgroup_delconsumer(
 pub async fn xgroup_destroy(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  groupname: String,
+  groupname: Str,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::XgroupDestroy, vec![key.into(), groupname.into()]))
@@ -310,7 +311,7 @@ pub async fn xgroup_destroy(
 pub async fn xgroup_setid(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  groupname: String,
+  groupname: Str,
   id: XID,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
@@ -326,8 +327,8 @@ pub async fn xgroup_setid(
 
 pub async fn xreadgroup(
   inner: &Arc<RedisClientInner>,
-  group: String,
-  consumer: String,
+  group: Str,
+  consumer: Str,
   count: Option<u64>,
   block: Option<u64>,
   noack: bool,
@@ -378,7 +379,7 @@ pub async fn xreadgroup(
 pub async fn xack(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  group: String,
+  group: Str,
   ids: MultipleIDs,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
@@ -399,8 +400,8 @@ pub async fn xack(
 pub async fn xclaim(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  group: String,
-  consumer: String,
+  group: Str,
+  consumer: Str,
   min_idle_time: u64,
   ids: MultipleIDs,
   idle: Option<u64>,
@@ -448,8 +449,8 @@ pub async fn xclaim(
 pub async fn xautoclaim(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  group: String,
-  consumer: String,
+  group: Str,
+  consumer: Str,
   min_idle_time: u64,
   start: XID,
   count: Option<u64>,
@@ -481,8 +482,8 @@ pub async fn xautoclaim(
 pub async fn xpending(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
-  group: String,
-  cmd_args: Option<(Option<u64>, XID, XID, u64, Option<String>)>,
+  group: Str,
+  cmd_args: Option<(Option<u64>, XID, XID, u64, Option<Str>)>,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(8);

@@ -5,14 +5,11 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-pub async fn config_get<K>(inner: &Arc<RedisClientInner>, name: K) -> Result<RedisValue, RedisError>
-where
-  K: Into<String>,
-{
-  let name = name.into();
+pub async fn config_get(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     let args = vec![static_val!("CONFIG"), static_val!(GET), name.into()];
     Ok((RedisCommandKind::Sentinel, args))
@@ -22,15 +19,11 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn config_set<K>(
+pub async fn config_set(
   inner: &Arc<RedisClientInner>,
-  name: K,
+  name: Str,
   value: RedisValue,
-) -> Result<RedisValue, RedisError>
-where
-  K: Into<String>,
-{
-  let name = name.into();
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
@@ -42,11 +35,7 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ckquorum<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn ckquorum(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("CKQUORUM"), name.into()]))
   })
@@ -59,11 +48,7 @@ pub async fn flushconfig(inner: &Arc<RedisClientInner>) -> Result<RedisValue, Re
   args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("FLUSHCONFIG")]).await
 }
 
-pub async fn failover<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn failover(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("FAILOVER"), name.into()]))
   })
@@ -72,11 +57,7 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn get_master_addr_by_name<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn get_master_addr_by_name(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
@@ -96,11 +77,7 @@ pub async fn masters(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisE
   args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("MASTERS")]).await
 }
 
-pub async fn master<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn master(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("MASTER"), name.into()]))
   })
@@ -109,17 +86,14 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn monitor<N>(
+pub async fn monitor(
   inner: &Arc<RedisClientInner>,
-  name: N,
+  name: Str,
   ip: IpAddr,
   port: u16,
   quorum: u32,
-) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let (name, ip) = (name.into(), ip.to_string());
+) -> Result<RedisValue, RedisError> {
+  let ip = ip.to_string();
   let frame = utils::request_response(inner, move || {
     Ok((
       RedisCommandKind::Sentinel,
@@ -145,11 +119,7 @@ pub async fn pending_scripts(inner: &Arc<RedisClientInner>) -> Result<RedisValue
   args_values_cmd(inner, RedisCommandKind::Sentinel, vec![static_val!("PENDING-SCRIPTS")]).await
 }
 
-pub async fn remove<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn remove(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("REMOVE"), name.into()]))
   })
@@ -158,11 +128,7 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn replicas<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn replicas(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("REPLICAS"), name.into()]))
   })
@@ -171,11 +137,7 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn sentinels<N>(inner: &Arc<RedisClientInner>, name: N) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn sentinels(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("SENTINELS"), name.into()]))
   })
@@ -184,11 +146,7 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn set<N>(inner: &Arc<RedisClientInner>, name: N, options: RedisMap) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let name = name.into();
+pub async fn set(inner: &Arc<RedisClientInner>, name: Str, options: RedisMap) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(2 + options.len());
     args.push(static_val!("SET"));
@@ -220,11 +178,7 @@ pub async fn simulate_failure(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn reset<P>(inner: &Arc<RedisClientInner>, pattern: P) -> Result<RedisValue, RedisError>
-where
-  P: Into<String>,
-{
-  let pattern = pattern.into();
+pub async fn reset(inner: &Arc<RedisClientInner>, pattern: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!("RESET"), pattern.into()]))
   })

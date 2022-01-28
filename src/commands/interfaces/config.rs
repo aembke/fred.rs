@@ -3,6 +3,7 @@ use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{FromRedis, RedisValue};
 use crate::utils;
+use bytes_utils::Str;
 use std::convert::TryInto;
 
 /// Functions that implement the [CONFIG](https://redis.io/commands#server) interface.
@@ -35,7 +36,7 @@ pub trait ConfigInterface: ClientLike + Sized {
   fn config_get<R, S>(&self, parameter: S) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(parameter);
     async_spawn(self, |inner| async move {
@@ -49,7 +50,7 @@ pub trait ConfigInterface: ClientLike + Sized {
   /// <https://redis.io/commands/config-set>
   fn config_set<P, V>(&self, parameter: P, value: V) -> AsyncResult<()>
   where
-    P: Into<String>,
+    P: Into<Str>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
   {

@@ -4,6 +4,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use std::convert::TryInto;
 use std::sync::Arc;
 
@@ -39,15 +40,10 @@ where
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn cluster_count_failure_reports<N>(
+pub async fn cluster_count_failure_reports(
   inner: &Arc<RedisClientInner>,
-  node_id: N,
-) -> Result<RedisValue, RedisError>
-where
-  N: Into<String>,
-{
-  let node_id = node_id.into();
-
+  node_id: Str,
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     Ok((RedisCommandKind::ClusterCountFailureReports, vec![node_id.into()]))
   })
@@ -104,11 +100,8 @@ pub async fn cluster_failover(
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn cluster_forget<S>(inner: &Arc<RedisClientInner>, node_id: S) -> Result<(), RedisError>
-where
-  S: Into<String>,
-{
-  one_arg_ok_cmd(inner, RedisCommandKind::ClusterForget, node_id.into().into()).await
+pub async fn cluster_forget(inner: &Arc<RedisClientInner>, node_id: Str) -> Result<(), RedisError> {
+  one_arg_ok_cmd(inner, RedisCommandKind::ClusterForget, node_id.into()).await
 }
 
 pub async fn cluster_get_keys_in_slot(
@@ -134,30 +127,16 @@ where
   one_arg_value_cmd(inner, RedisCommandKind::ClusterKeySlot, key.into().into()).await
 }
 
-pub async fn cluster_meet<S>(inner: &Arc<RedisClientInner>, ip: S, port: u16) -> Result<(), RedisError>
-where
-  S: Into<String>,
-{
-  args_ok_cmd(
-    inner,
-    RedisCommandKind::ClusterMeet,
-    vec![ip.into().into(), port.into()],
-  )
-  .await
+pub async fn cluster_meet(inner: &Arc<RedisClientInner>, ip: Str, port: u16) -> Result<(), RedisError> {
+  args_ok_cmd(inner, RedisCommandKind::ClusterMeet, vec![ip.into(), port.into()]).await
 }
 
-pub async fn cluster_replicate<S>(inner: &Arc<RedisClientInner>, node_id: S) -> Result<(), RedisError>
-where
-  S: Into<String>,
-{
-  one_arg_ok_cmd(inner, RedisCommandKind::ClusterReplicate, node_id.into().into()).await
+pub async fn cluster_replicate(inner: &Arc<RedisClientInner>, node_id: Str) -> Result<(), RedisError> {
+  one_arg_ok_cmd(inner, RedisCommandKind::ClusterReplicate, node_id.into()).await
 }
 
-pub async fn cluster_replicas<S>(inner: &Arc<RedisClientInner>, node_id: S) -> Result<RedisValue, RedisError>
-where
-  S: Into<String>,
-{
-  one_arg_value_cmd(inner, RedisCommandKind::ClusterReplicas, node_id.into().into()).await
+pub async fn cluster_replicas(inner: &Arc<RedisClientInner>, node_id: Str) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(inner, RedisCommandKind::ClusterReplicas, node_id.into()).await
 }
 
 pub async fn cluster_reset(inner: &Arc<RedisClientInner>, mode: Option<ClusterResetFlag>) -> Result<(), RedisError> {

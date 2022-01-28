@@ -2,6 +2,7 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, AsyncStream, ClientLike};
 use crate::types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue};
+use bytes_utils::Str;
 use std::convert::TryInto;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -40,7 +41,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// <https://redis.io/commands/subscribe>
   fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(channel);
     async_spawn(self, |inner| async move {
@@ -53,7 +54,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// <https://redis.io/commands/unsubscribe>
   fn unsubscribe<S>(&self, channel: S) -> AsyncResult<usize>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(channel);
     async_spawn(self, |inner| async move {
@@ -93,7 +94,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   fn publish<R, S, V>(&self, channel: S, message: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<String>,
+    S: Into<Str>,
     V: TryInto<RedisValue>,
     V::Error: Into<RedisError>,
   {

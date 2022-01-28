@@ -3,6 +3,7 @@ use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::FromRedis;
 use crate::types::RespVersion;
 use crate::utils;
+use bytes_utils::Str;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
 
@@ -17,7 +18,7 @@ pub trait AuthInterface: ClientLike + Sized {
   /// <https://redis.io/commands/auth>
   fn auth<S>(&self, username: Option<String>, password: S) -> AsyncResult<()>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(password);
     async_spawn(self, |inner| async move {

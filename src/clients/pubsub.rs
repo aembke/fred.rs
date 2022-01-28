@@ -7,6 +7,7 @@ use crate::interfaces::{
 use crate::modules::inner::RedisClientInner;
 use crate::types::{MultipleStrings, RedisConfig};
 use crate::utils;
+use bytes_utils::Str;
 use futures::future::join_all;
 use futures::Stream;
 use parking_lot::RwLock;
@@ -20,7 +21,7 @@ use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 
-type ChannelSet = Arc<RwLock<BTreeSet<String>>>;
+type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 
 fn from_redis_client(client: RedisClient, channels: &ChannelSet, patterns: &ChannelSet) -> SubscriberClient {
   SubscriberClient {
@@ -34,7 +35,7 @@ fn result_of_vec(vec: Vec<Result<(), RedisError>>) -> Result<(), RedisError> {
   vec.into_iter().collect()
 }
 
-fn add_to_channels(channels: &ChannelSet, channel: String) {
+fn add_to_channels(channels: &ChannelSet, channel: Str) {
   channels.write().insert(channel);
 }
 
@@ -52,7 +53,7 @@ enum ReconnectOperation {
 
 fn concurrent_op(
   client: &SubscriberClient,
-  channels: BTreeSet<String>,
+  channels: BTreeSet<Str>,
   operation: ReconnectOperation,
 ) -> Vec<AsyncResult<()>> {
   let client = client.clone();
@@ -143,12 +144,12 @@ impl MetricsInterface for SubscriberClient {}
 impl PubsubInterface for SubscriberClient {
   fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(channel);
     let cached_channels = self.channels.clone();
     async_spawn(self, |inner| async move {
-      let result = commands::pubsub::subscribe(&inner, &channel).await;
+      let result = commands::pubsub::subscribe(&inner, channel.clone()).await;
       if result.is_ok() {
         add_to_channels(&cached_channels, channel);
       }
@@ -166,7 +167,7 @@ impl PubsubInterface for SubscriberClient {
       let result = commands::pubsub::psubscribe(&inner, patterns.clone()).await;
       if result.is_ok() {
         for pattern in patterns.inner().into_iter() {
-          if let Some(pattern) = pattern.into_string() {
+          if let Some(pattern) = pattern.as_bytes_str() {
             add_to_channels(&cached_patterns, pattern)
           }
         }
@@ -177,12 +178,12 @@ impl PubsubInterface for SubscriberClient {
 
   fn unsubscribe<S>(&self, channel: S) -> AsyncResult<usize>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(channel);
     let cached_channels = self.channels.clone();
     async_spawn(self, |inner| async move {
-      let result = commands::pubsub::unsubscribe(&inner, &channel).await;
+      let result = commands::pubsub::unsubscribe(&inner, channel.clone()).await;
       if result.is_ok() {
         remove_from_channels(&cached_channels, &channel);
       }
@@ -200,7 +201,7 @@ impl PubsubInterface for SubscriberClient {
       let result = commands::pubsub::punsubscribe(&inner, patterns.clone()).await;
       if result.is_ok() {
         for pattern in patterns.inner().into_iter() {
-          if let Some(pattern) = pattern.into_string() {
+          if let Some(pattern) = pattern.as_bytes_str() {
             remove_from_channels(&cached_patterns, &pattern)
           }
         }
@@ -266,12 +267,12 @@ impl SubscriberClient {
   }
 
   /// Read the set of channels that this client will manage.
-  pub fn tracked_channels(&self) -> BTreeSet<String> {
+  pub fn tracked_channels(&self) -> BTreeSet<Str> {
     self.channels.read().clone()
   }
 
   /// Read the set of channel patterns that this client will manage.
-  pub fn tracked_patterns(&self) -> BTreeSet<String> {
+  pub fn tracked_patterns(&self) -> BTreeSet<Str> {
     self.patterns.read().clone()
   }
 

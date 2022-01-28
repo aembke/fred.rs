@@ -5,6 +5,7 @@ use crate::types::{
   MultipleHashSlots, RedisKey, RedisValue,
 };
 use crate::utils;
+use bytes_utils::Str;
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
 pub trait ClusterInterface: ClientLike + Sized {
@@ -113,7 +114,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   fn cluster_count_failure_reports<R, S>(&self, node_id: S) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(node_id);
     async_spawn(self, |inner| async move {
@@ -167,7 +168,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-forget>
   fn cluster_forget<S>(&self, node_id: S) -> AsyncResult<()>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(node_id);
     async_spawn(self, |inner| async move {
@@ -210,7 +211,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-meet>
   fn cluster_meet<S>(&self, ip: S, port: u16) -> AsyncResult<()>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(ip);
     async_spawn(self, |inner| async move {
@@ -225,7 +226,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-replicate>
   fn cluster_replicate<S>(&self, node_id: S) -> AsyncResult<()>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(node_id);
     async_spawn(self, |inner| async move {
@@ -239,7 +240,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-replicas>
   fn cluster_replicas<S>(&self, node_id: S) -> AsyncResult<String>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(node_id);
     async_spawn(self, |inner| async move {
