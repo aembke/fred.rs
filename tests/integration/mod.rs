@@ -24,3 +24,17 @@ mod streams;
 
 pub mod centralized;
 pub mod clustered;
+
+mod macro_tests {
+  use fred::{b, s};
+
+  #[test]
+  fn should_use_static_str_macro() {
+    let _s = s!("foo");
+  }
+
+  #[test]
+  fn should_use_static_bytes_macro() {
+    let _b = b!(b"foo");
+  }
+}

@@ -5,6 +5,7 @@ use crate::types::{
   ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, FromRedis, RedisValue,
 };
 use crate::utils;
+use bytes_utils::Str;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -101,7 +102,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-setname>
   fn client_setname<S>(&self, name: S) -> AsyncResult<()>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(name);
     async_spawn(self, |inner| async move {

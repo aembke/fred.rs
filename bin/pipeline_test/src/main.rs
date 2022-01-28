@@ -14,10 +14,13 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::{App, ArgMatches};
+use fred::globals;
 use fred::pool::RedisPool;
 use fred::prelude::*;
+use fred::types::{BackpressureConfig, PerformanceConfig};
 use opentelemetry::global;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler};
+use std::default::Default;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle as ThreadJoinHandle};
@@ -34,9 +37,6 @@ static DEFAULT_PORT: u16 = 6379;
 static TEST_KEY: &'static str = "foo";
 
 mod utils;
-use fred::globals;
-use fred::types::InfoKind::Default;
-use fred::types::{BackpressureConfig, PerformanceConfig};
 
 #[derive(Debug)]
 struct Argv {
@@ -169,7 +169,7 @@ fn main() {
       performance: PerformanceConfig {
         pipeline: argv.pipeline,
         backpressure: BackpressureConfig {
-          max_in_flight_commands: 10_000_000,
+          max_in_flight_commands: 100_000_000,
           ..Default::default()
         },
         ..Default::default()

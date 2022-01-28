@@ -33,6 +33,62 @@ fn early_error<T: Send + 'static>(tx: &UnboundedSender<Result<T, RedisError>>, e
   });
 }
 
+pub fn scan_cluster(
+  inner: &Arc<RedisClientInner>,
+  pattern: String,
+  count: Option<u32>,
+  r#type: Option<ScanType>,
+) -> impl Stream<Item = Result<ScanResult, RedisError>> {
+  let (tx, rx) = unbounded_channel();
+  let err_tx = tx.clone();
+  if let Err(e) = utils::disallow_during_transaction(inner) {
+    let _ = tokio::spawn(async move {
+      let _ = err_tx.send(Err(e));
+    });
+    return UnboundedReceiverStream::new(rx);
+  }
+
+  let hash_slots: Vec<u16> = if let Some(ref state) = *inner.cluster_state.read() {
+    state.unique_hash_slots()
+  } else {
+    early_error(
+      &tx,
+      RedisError::new(RedisErrorKind::Cluster, "Invalid or missing cluster state."),
+    );
+    return UnboundedReceiverStream::new(rx);
+  };
+
+  let mut args = Vec::with_capacity(7);
+  args.push(static_val!(STARTING_CURSOR));
+  args.push(static_val!(MATCH));
+  args.push(pattern.into());
+
+  if let Some(count) = count {
+    args.push(static_val!(COUNT));
+    args.push(count.into());
+  }
+  if let Some(r#type) = r#type {
+    args.push(static_val!(TYPE));
+    args.push(r#type.to_str().into());
+  }
+
+  for slot in hash_slots.into_iter() {
+    let scan_inner = KeyScanInner {
+      key_slot: Some(slot),
+      tx: tx.clone(),
+      cursor: utils::static_str(STARTING_CURSOR),
+    };
+    let cmd = RedisCommand::new(RedisCommandKind::Scan(scan_inner), args.clone(), None);
+
+    if let Err(e) = utils::send_command(inner, cmd) {
+      early_error(&tx, e);
+      break;
+    }
+  }
+
+  UnboundedReceiverStream::new(rx)
+}
+
 pub fn scan<S>(
   inner: &Arc<RedisClientInner>,
   pattern: S,

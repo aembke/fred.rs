@@ -151,6 +151,24 @@ impl RedisClient {
     commands::scan::scan(&self.inner, pattern, count, r#type)
   }
 
+  /// Run the `SCAN` command on each primary/main node in a cluster concurrently.
+  ///
+  /// In order for this function to work reliably the cluster state must not change while scanning. If nodes are added or removed, or hash slots are rebalanced, it may result
+  /// in missing keys or duplicate keys in the result stream. If callers need to support cluster scanning while the cluster state may change please see [split_cluster](Self::split_cluster).
+  ///
+  /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
+  pub fn scan_cluster<P>(
+    &self,
+    pattern: P,
+    count: Option<u32>,
+    r#type: Option<ScanType>,
+  ) -> impl Stream<Item = Result<ScanResult, RedisError>>
+  where
+    P: Into<String>,
+  {
+    commands::scan::scan_cluster(&self.inner, pattern.into(), count, r#type)
+  }
+
   /// Incrementally iterate over pages of the hash map stored at `key`, returning `count` results per page, if specified.
   ///
   /// <https://redis.io/commands/hscan>

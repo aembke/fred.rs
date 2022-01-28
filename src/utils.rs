@@ -36,8 +36,15 @@ use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
+/// Create a `Str` from a static str slice without copying.
 pub fn static_str(s: &'static str) -> Str {
+  // it's already parsed as a string
   unsafe { Str::from_inner_unchecked(Bytes::from_static(s.as_bytes())) }
+}
+
+/// Create a `Bytes` from static bytes without copying.
+pub fn static_bytes(b: &'static [u8]) -> Bytes {
+  Bytes::from_static(b)
 }
 
 pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
@@ -689,7 +696,6 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
     })
 }
 
-// TODO clean this up in the next major version
 pub fn read_sentinel_host(inner: &Arc<RedisClientInner>) -> Result<(Vec<(String, u16)>, String), RedisError> {
   match inner.config.read().server {
     #[cfg(not(feature = "sentinel-auth"))]

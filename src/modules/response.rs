@@ -529,7 +529,6 @@ impl FromRedisKey for Bytes {
     Ok(value.into_bytes())
   }
 }
-// TODO write tests for this ^^
 
 #[cfg(test)]
 mod tests {

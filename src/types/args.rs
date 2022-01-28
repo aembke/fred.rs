@@ -144,8 +144,6 @@ impl From<f64> for StringOrNumber {
   }
 }
 
-// TODO rewrite all the to_str() functions on args types to return Str
-
 /// A key in Redis.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RedisKey {

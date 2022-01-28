@@ -2,6 +2,7 @@ use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue};
 use crate::utils;
+use bytes_utils::Str;
 
 /// Functions that implement the [ACL](https://redis.io/commands#server) interface.
 pub trait AclInterface: ClientLike + Sized {
@@ -10,7 +11,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-setuser>
   fn acl_setuser<S>(&self, username: S, rules: Vec<AclRule>) -> AsyncResult<()>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(username);
     async_spawn(self, |inner| async move {
@@ -67,7 +68,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-getuser>
   fn acl_getuser<S>(&self, username: S) -> AsyncResult<Option<AclUser>>
   where
-    S: Into<String>,
+    S: Into<Str>,
   {
     into!(username);
     async_spawn(self, |inner| async move {
@@ -93,7 +94,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// the command shows all the Redis commands in the specified category.
   ///
   /// <https://redis.io/commands/acl-cat>
-  fn acl_cat(&self, category: Option<String>) -> AsyncResult<Vec<String>> {
+  fn acl_cat(&self, category: Option<Str>) -> AsyncResult<Vec<String>> {
     async_spawn(self, |inner| async move {
       commands::acl::acl_cat(&inner, category).await?.convert()
     })

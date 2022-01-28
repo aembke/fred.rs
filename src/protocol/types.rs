@@ -12,7 +12,7 @@ use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp2_frame_to_resp3;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::convert::TryInto;
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -1765,6 +1765,7 @@ pub struct SlotRange {
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
 pub struct ClusterKeyCache {
+  // TODO use arcswap here
   data: Vec<Arc<SlotRange>>,
 }
 
@@ -1784,6 +1785,17 @@ impl ClusterKeyCache {
     }
 
     Ok(cache)
+  }
+
+  /// Read a set of unique hash slots that each map to a primary/main node in the cluster.
+  pub fn unique_hash_slots(&self) -> Vec<u16> {
+    let mut out = BTreeMap::new();
+
+    for slot in self.data.iter() {
+      out.insert(&slot.server, slot.start);
+    }
+
+    out.into_iter().map(|(_, v)| v).collect()
   }
 
   /// Read the set of unique primary/main nodes in the cluster.

@@ -5,6 +5,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
@@ -16,7 +17,7 @@ value_cmd!(acl_whoami, AclWhoAmI);
 
 pub async fn acl_setuser(
   inner: &Arc<RedisClientInner>,
-  username: String,
+  username: Str,
   rules: Vec<AclRule>,
 ) -> Result<(), RedisError> {
   let frame = utils::request_response(inner, move || {
@@ -35,7 +36,7 @@ pub async fn acl_setuser(
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn acl_getuser(inner: &Arc<RedisClientInner>, username: String) -> Result<Option<AclUser>, RedisError> {
+pub async fn acl_getuser(inner: &Arc<RedisClientInner>, username: Str) -> Result<Option<AclUser>, RedisError> {
   let frame =
     utils::request_response(inner, move || Ok((RedisCommandKind::AclGetUser, vec![username.into()]))).await?;
 
@@ -60,7 +61,7 @@ pub async fn acl_deluser(inner: &Arc<RedisClientInner>, usernames: MultipleKeys)
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn acl_cat(inner: &Arc<RedisClientInner>, category: Option<String>) -> Result<RedisValue, RedisError> {
+pub async fn acl_cat(inner: &Arc<RedisClientInner>, category: Option<Str>) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = if let Some(cat) = category {
     vec![cat.into()]
   } else {

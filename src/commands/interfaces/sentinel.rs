@@ -161,8 +161,6 @@ pub trait SentinelInterface: ClientLike + Sized {
     })
   }
 
-  // TODO change the Into<String> types to use a newtype that switches the 'static req on Into<Str>
-
   /// Set Sentinel's monitoring configuration.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>

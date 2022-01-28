@@ -54,7 +54,6 @@ cargo add fred
 
 ## Features
 
-* Flexible and generic client interfaces.
 * Supports RESP2 and RESP3 protocol modes.
 * Supports clustered, centralized, and sentinel Redis deployments.
 * Optional built-in reconnection logic with multiple backoff policies.
@@ -64,16 +63,13 @@ cargo add fred
 * Supports streaming results from the `MONITOR` command. 
 * Supports custom commands provided by third party modules. 
 * Supports TLS connections.
-* Handles cluster rebalancing operations without downtime or errors.
 * Supports streaming interfaces for scanning functions.
 * Options to automatically [pipeline](https://redis.io/topics/pipelining) requests when possible.
 * Automatically retry requests under bad network conditions.
-* Support for configuring performance settings that can affect performance under different network conditions. Callers can configure backpressure settings, when and how the underlying socket is flushed, and how many times requests are attempted. 
 * Built-in tracking for network latency and payload size metrics.
 * An optional client pooling interface to round-robin requests among a pool of clients.
 * An optional sentinel client for interacting directly with sentinel nodes to manually fail over servers, etc.
 * An optional pubsub subscriber client that will automatically manage channel subscriptions.
-* Built in support for [tracing](https://crates.io/crates/tracing).
 
 ## Tracing
 

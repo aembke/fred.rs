@@ -4,6 +4,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
+use bytes_utils::Str;
 use std::sync::Arc;
 
 value_cmd!(client_id, ClientID);
@@ -86,11 +87,7 @@ pub async fn client_pause(
 
 value_cmd!(client_getname, ClientGetName);
 
-pub async fn client_setname<S>(inner: &Arc<RedisClientInner>, name: S) -> Result<(), RedisError>
-where
-  S: Into<String>,
-{
-  let name = name.into();
+pub async fn client_setname(inner: &Arc<RedisClientInner>, name: Str) -> Result<(), RedisError> {
   _warn!(inner, "Changing client name from {} to {}", inner.id.as_str(), name);
 
   let frame =
