@@ -264,12 +264,14 @@ These files contain the actual implementation details for each command. They are
 
 There are 2 functions in the [protocol utils](src/protocol/utils.rs) for converting response frames into `RedisValue` enums. 
 
-* `frame_to_results` - Converts an arbitrarily nested response frame into an arbitrarily nested `RedisValue`, including support for `QUEUED` responses during a transaction. 
+* `frame_to_results` - Converts an arbitrarily nested response frame into an arbitrarily nested `RedisValue`, including support for `QUEUED` responses during a transaction.
 * `frame_to_single_result` - The same as `frame_to_results`, but with an added validation layer that only allows for non-nested `RedisValue` variants. This is useful to detect unexpected protocol errors if a command should only return a `BulkString` but receives an `Array` instead, for example.
 
 Both of these functions will automatically check for error frames and will generate the appropriate `RedisError`, if necessary.
 
 **Both of these functions will automatically convert single-element response arrays to the first element in the array.** This is done because RESP2 sends all responses as an array of bulk strings, even when the response only contains one element in the array. It's up to the developer to consider when an array is an appropriate return type for a command.
+
+Additionally, if callers need to avoid the logic that automatically unwraps single-element arrays they can use the `frame_to_results_raw` function, which will not modify responses in any way.
 
 There are also some utility functions for converting to other data types:
 

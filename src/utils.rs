@@ -864,3 +864,96 @@ pub fn parse_nested_json(s: &str) -> Option<Value> {
     None
   }
 }
+
+pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValue {
+  if depth == 0 {
+    return value;
+  }
+
+  match value {
+    RedisValue::Array(values) => {
+      let inner_size = values.iter().fold(0, |s, v| s + v.array_len().unwrap_or(1));
+      let mut out = Vec::with_capacity(inner_size);
+
+      for value in values.into_iter() {
+        match value {
+          RedisValue::Array(inner) => {
+            for value in inner.into_iter() {
+              out.push(flatten_nested_array_values(value, depth - 1));
+            }
+          }
+          _ => out.push(value),
+        }
+      }
+      RedisValue::Array(out)
+    }
+    _ => value,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::error::RedisError;
+  use crate::types::RedisValue;
+  use std::convert::TryInto;
+  use std::fmt::Debug;
+
+  fn m<V>(v: V) -> RedisValue
+  where
+    V: TryInto<RedisValue> + Debug,
+    V::Error: Into<RedisError> + Debug,
+  {
+    v.try_into().unwrap()
+  }
+
+  fn a(v: Vec<RedisValue>) -> RedisValue {
+    RedisValue::Array(v)
+  }
+
+  #[test]
+  fn should_flatten_xread_example() {
+    // 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
+    // 1) 1) "foo"
+    //    2) 1) 1) "1643479650336-0"
+    //          2) 1) "count"
+    //             2) "3"
+    // 2) 1) "bar"
+    //    2) 1) 1) "1643479837746-0"
+    //          2) 1) "count"
+    //             2) "5"
+    //       2) 1) "1643479925582-0"
+    //          2) 1) "count"
+    //             2) "6"
+    let actual: RedisValue = vec![
+      a(vec![
+        m("foo"),
+        a(vec![a(vec![m("1643479650336-0"), a(vec![m("count"), m(3)])])]),
+      ]),
+      a(vec![
+        m("bar"),
+        a(vec![
+          a(vec![m("1643479837746-0"), a(vec![m("count"), m(5)])]),
+          a(vec![m("1643479925582-0"), a(vec![m("count"), m(6)])]),
+        ]),
+      ]),
+    ]
+    .into_iter()
+    .collect();
+
+    // flatten the top level nested array into something that can be cast to a map
+    let expected: RedisValue = vec![
+      m("foo"),
+      a(vec![a(vec![m("1643479650336-0"), a(vec![m("count"), m(3)])])]),
+      m("bar"),
+      a(vec![
+        a(vec![m("1643479837746-0"), a(vec![m("count"), m(5)])]),
+        a(vec![m("1643479925582-0"), a(vec![m("count"), m(6)])]),
+      ]),
+    ]
+    .into_iter()
+    .collect();
+
+    assert_eq!(flatten_nested_array_values(actual, 1), expected);
+  }
+}

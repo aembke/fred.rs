@@ -72,8 +72,13 @@ required-features = ["metrics"]
 name = "pubsub"
 required-features = ["subscriber-client"]
 
+[[example]]
+name = "serde"
+required-features = ["serde-json"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
+fallback = []
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []

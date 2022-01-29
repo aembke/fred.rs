@@ -6,6 +6,24 @@ By default, most tests run 8 times based on the following configuration paramete
 
 **The tests require Redis version >=6.2**
 
+## Makefile
+
+The easiest way to set up the tests is to use the [Makefile](../Makefile):
+
+```
+# setup
+make clean
+make install
+
+# run tests
+make test-default-features
+make test-all-features
+make test-no-features
+make test-sentinel-features
+```
+
+The make commands are thin wrappers around scripts in the [scripts](scripts) and [runners](runners) folders. The rest of this document will cover how to use those scripts by hand.
+
 ## Installation
 
 The [environ](environ) file contains any environment variables that might be needed. **This should be loaded before installing or running any tests, unless otherwise set manually.**

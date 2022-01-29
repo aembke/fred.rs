@@ -341,6 +341,28 @@ impl_from_str_for_redis_key!(isize);
 impl_from_str_for_redis_key!(f32);
 impl_from_str_for_redis_key!(f64);
 
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+impl TryFrom<Value> for RedisKey {
+  type Error = RedisError;
+
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    let value: RedisKey = match value {
+      Value::String(s) => s.into(),
+      Value::Bool(b) => b.to_string().into(),
+      Value::Number(n) => n.to_string().into(),
+      _ => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Cannot convert to key from JSON.",
+        ))
+      }
+    };
+
+    Ok(value)
+  }
+}
+
 /// A map of `(RedisKey, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisMap {
@@ -472,6 +494,31 @@ where
       inner.insert(to!(key)?, to!(value)?);
     }
     Ok(RedisMap { inner })
+  }
+}
+
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+impl TryFrom<Value> for RedisMap {
+  type Error = RedisError;
+
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    if let Value::Object(map) = value {
+      let mut inner = HashMap::with_capacity(map.len());
+      for (key, value) in map.into_iter() {
+        let key: RedisKey = key.into();
+        let value: RedisValue = value.try_into()?;
+
+        inner.insert(key, value);
+      }
+
+      Ok(RedisMap { inner })
+    } else {
+      Err(RedisError::new(
+        RedisErrorKind::InvalidArgument,
+        "Cannot convert non-object JSON value to map.",
+      ))
+    }
   }
 }
 
@@ -1067,6 +1114,21 @@ impl<'a> RedisValue {
     };
 
     Some(v)
+  }
+
+  /// Return the length of the inner array if the value is an array.
+  pub fn array_len(&self) -> Option<usize> {
+    match self {
+      RedisValue::Array(ref a) => Some(a.len()),
+      _ => None,
+    }
+  }
+
+  /// Flatten adjacent nested arrays to the provided depth.
+  ///
+  /// See the [XREAD](crate::interfaces::StreamsInterface::xread) documentation for an example of when this might be useful.
+  pub fn flatten_array_values(self, depth: usize) -> Self {
+    utils::flatten_nested_array_values(self, depth)
   }
 
   /// Convert the value into a `GeoPosition`, if possible.

@@ -1,7 +1,8 @@
 use fred::prelude::*;
-use fred::types::{XCap, XCapKind, XCapTrim};
+use fred::types::{RedisMap, XCap, XCapKind, XCapTrim};
 use maplit::hashmap;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::hash::Hash;
 
 type FakeExpectedValues = Vec<HashMap<String, HashMap<String, usize>>>;
@@ -211,6 +212,7 @@ pub async fn should_xrange_no_count(client: RedisClient, _: RedisConfig) -> Resu
     client.xrange::<RedisValue, _, _, _>("foo{1}", "-", "+", None).await?
   );
   let result: FakeExpectedValues = client.xrange("foo{1}", "-", "+", None).await?;
+  println!("Comparing {:?} => {:?}", result, expected);
   assert_eq!(result, expected);
   Ok(())
 }
@@ -220,7 +222,11 @@ pub async fn should_xrange_with_count(client: RedisClient, _: RedisConfig) -> Re
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let (_, expected) = add_stream_entries(&client, "foo{1}", 3).await?;
 
+  let result: RedisValue = client.xrange("foo{1}", "-", "+", Some(1)).await?;
+  println!("RESULT VALUE {:?}", result);
+
   let result: FakeExpectedValues = client.xrange("foo{1}", "-", "+", Some(1)).await?;
+  println!("Comparing {:?} => {:?}", result, expected);
   assert!(has_expected_value(&expected, &result));
   Ok(())
 }
@@ -228,7 +234,8 @@ pub async fn should_xrange_with_count(client: RedisClient, _: RedisConfig) -> Re
 pub async fn should_xrevrange_no_count(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo{1}");
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
-  let (_, expected) = add_stream_entries(&client, "foo{1}", 3).await?;
+  let (_, mut expected) = add_stream_entries(&client, "foo{1}", 3).await?;
+  expected.reverse();
 
   let result: FakeExpectedValues = client.xrevrange("foo{1}", "+", "-", None).await?;
   assert_eq!(result, expected);
@@ -238,7 +245,8 @@ pub async fn should_xrevrange_no_count(client: RedisClient, _: RedisConfig) -> R
 pub async fn should_xrevrange_with_count(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo{1}");
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
-  let (_, expected) = add_stream_entries(&client, "foo{1}", 3).await?;
+  let (_, mut expected) = add_stream_entries(&client, "foo{1}", 3).await?;
+  expected.reverse();
 
   let result: FakeExpectedValues = client.xrevrange("foo{1}", "-", "+", Some(1)).await?;
   assert!(has_expected_value(&expected, &result));
@@ -258,6 +266,22 @@ pub async fn should_run_xlen_on_stream(client: RedisClient, _: RedisConfig) -> R
 }
 
 pub async fn should_xread_one_key_latest_id(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let (mut ids, mut expected) = add_stream_entries(&client, "foo{1}", 3).await?;
+  let _ = ids.pop().unwrap();
+  let most_recent_expected = expected.pop().unwrap();
+  let second_recent_id = ids.pop().unwrap();
+
+  let mut expected = HashMap::new();
+  expected.insert("foo{1}".into(), vec![most_recent_expected]);
+
+  let result: HashMap<String, Vec<HashMap<String, HashMap<String, usize>>>> = client
+    .xread::<RedisValue, _, _>(Some(1), None, "foo{1}", second_recent_id)
+    .await?
+    .flatten_array_values(1)
+    .convert()?;
+  assert_eq!(result, expected);
+
   Ok(())
 }
 

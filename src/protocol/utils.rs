@@ -449,6 +449,71 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   Ok(value)
 }
 
+/// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
+///
+/// Unlike `frame_to_results` this will not unwrap single-element arrays.
+pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
+  let value = match frame {
+    Resp3Frame::Null => RedisValue::Null,
+    Resp3Frame::SimpleString { data, .. } => {
+      let value = string_or_bytes(data);
+
+      if value.as_str().map(|s| s == QUEUED).unwrap_or(false) {
+        RedisValue::Queued
+      } else {
+        value
+      }
+    }
+    Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
+    Resp3Frame::BlobString { data, .. } => string_or_bytes(data),
+    Resp3Frame::BlobError { data, .. } => {
+      // errors don't have a great way to represent non-utf8 strings...
+      let parsed = String::from_utf8_lossy(&data);
+      return Err(pretty_error(&parsed));
+    }
+    Resp3Frame::VerbatimString { data, .. } => string_or_bytes(data),
+    Resp3Frame::Number { data, .. } => data.into(),
+    Resp3Frame::Double { data, .. } => data.into(),
+    Resp3Frame::BigNumber { data, .. } => string_or_bytes(data),
+    Resp3Frame::Boolean { data, .. } => data.into(),
+    Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
+      let mut out = Vec::with_capacity(data.len());
+      for frame in data.into_iter() {
+        out.push(frame_to_results_raw(frame)?);
+      }
+
+      RedisValue::Array(out)
+    }
+    Resp3Frame::Set { data, .. } => {
+      let mut out = Vec::with_capacity(data.len());
+      for frame in data.into_iter() {
+        out.push(frame_to_results_raw(frame)?);
+      }
+
+      RedisValue::Array(out)
+    }
+    Resp3Frame::Map { data, .. } => {
+      let mut out = HashMap::with_capacity(data.len());
+      for (key, value) in data.into_iter() {
+        let key: RedisKey = frame_to_single_result(key)?.try_into()?;
+        let value = frame_to_results_raw(value)?;
+
+        out.insert(key, value);
+      }
+
+      RedisValue::Map(RedisMap { inner: out })
+    }
+    _ => {
+      return Err(RedisError::new(
+        RedisErrorKind::ProtocolError,
+        "Invalid response frame type.",
+      ))
+    }
+  };
+
+  Ok(value)
+}
+
 /// Parse the protocol frame into a single redis value, returning an error if the result contains nested arrays, an array with more than one value, or any other aggregate type.
 ///
 /// If the array only contains one value then that value will be returned.

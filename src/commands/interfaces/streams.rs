@@ -170,10 +170,66 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
-  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received
-  /// ID reported by the caller.
+  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID reported by the caller.
   ///
   /// <https://redis.io/commands/xread>
+  ///
+  /// **Important Note**
+  ///
+  /// In RESP3 mode this function returns a map, but in RESP2 mode it returns an array around an inner map.
+  ///
+  /// This can make type declarations difficult to declare in applications where the caller wants a top-level map, or the caller plans on upgrading to RESP3 in the future.
+  ///
+  /// For example, using `redis-cli`:
+  ///
+  /// ```no_compile ignore
+  /// // RESP3
+  /// 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
+  /// 1# "foo" => 1) 1) "1643479650336-0"
+  ///       2) 1) "count"
+  ///          2) "3"
+  /// 2# "bar" => 1) 1) "1643479837746-0"
+  ///       2) 1) "count"
+  ///          2) "5"
+  ///    2) 1) "1643479925582-0"
+  ///       2) 1) "count"
+  ///          2) "6"
+  ///
+  /// // RESP2
+  /// 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
+  /// 1) 1) "foo"
+  ///    2) 1) 1) "1643479650336-0"
+  ///          2) 1) "count"
+  ///             2) "3"
+  /// 2) 1) "bar"
+  ///    2) 1) 1) "1643479837746-0"
+  ///          2) 1) "count"
+  ///             2) "5"
+  ///       2) 1) "1643479925582-0"
+  ///          2) 1) "count"
+  ///             2) "6"
+  /// ```
+  ///
+  /// This is unfortunate because the RESP3 format is more intuitive to type than the RESP2 format, yet most callers will likely use RESP2.
+  ///
+  /// In order to support this class of formatting issues without forcing callers to depend on automatic array flattening logic this library provides an [optional utility](crate::types::RedisValue::flatten_array_values) to make this easier.
+  ///
+  /// ```rust no_run
+  /// # use std::collections::HashMap;
+  /// # use fred::prelude::*;
+  /// // it's still not pretty, but this will work for both RESP2 and RESP3
+  /// let result: HashMap<String, Vec<HashMap<String, HashMap<String, usize>>>> = client
+  ///     .xread::<RedisValue, _, _>(Some(2), None, "foo", "myid")
+  ///     .await?
+  ///     .flatten_array_values(1)
+  ///     .convert()?;
+  /// ```
+  ///
+  /// If callers do not want to use this utility they must add a `Vec` wrapper around the outer type for RESP2, but not when using RESP3.
+  ///
+  /// However, this is annoying because it leaks Redis protocol semantics into application code, hence the addition of the [flatten_array_values](crate::types::RedisValue::flatten_array_values) function. Or callers can simply declare response values as `RedisValue` to manually parse result types as needed.
+  ///
+  /// This type of issue can manifest with a few different commands in addition to `XREAD`, but `XREAD` is likely the most popular one.
   fn xread<R, K, I>(&self, count: Option<u64>, block: Option<u64>, keys: K, ids: I) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
