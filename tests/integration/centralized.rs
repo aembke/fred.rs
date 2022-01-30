@@ -240,12 +240,9 @@ mod streams {
   centralized_test!(streams, should_xrevrange_no_count);
   centralized_test!(streams, should_xrevrange_with_count);
   centralized_test!(streams, should_run_xlen_on_stream);
-  centralized_test!(streams, should_xread_one_key_latest_id);
-  centralized_test!(streams, should_xread_multiple_keys_latest_id);
-  centralized_test!(streams, should_xread_manual_id);
+  centralized_test!(streams, should_xread_one_key_count_1);
+  centralized_test!(streams, should_xread_multiple_keys_count_2);
   centralized_test!(streams, should_xread_with_blocking);
-  centralized_test!(streams, should_xread_with_count);
-  centralized_test!(streams, should_xread_with_blocking_and_count);
   centralized_test!(streams, should_xgroup_create_no_mkstream);
   centralized_test!(streams, should_xgroup_create_mkstream);
   centralized_test!(streams, should_xgroup_createconsumer);
@@ -257,7 +254,6 @@ mod streams {
   centralized_test!(streams, should_xreadgroup_noack);
   centralized_test!(streams, should_xreadgroup_block);
   centralized_test!(streams, should_xreadgroup_count);
-  centralized_test!(streams, should_xreadgroup_block_and_count);
   centralized_test!(streams, should_xack_one_id);
   centralized_test!(streams, should_xack_multiple_ids);
   centralized_test!(streams, should_xclaim_one_id);

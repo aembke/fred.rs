@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: clean install test-all-features test-default-features test-no-features test-sentinel test-all
+.PHONY: clean install test-all-features test-default-features test-no-features test-sentinel test-all test
 
 clean:
 	rm -rf tests/tmp/redis* && cargo clean
@@ -22,3 +22,5 @@ test-sentinel:
 
 test-all:
 	source tests/environ && tests/runners/everything.sh
+
+test: test-default-features

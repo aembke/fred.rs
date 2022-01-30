@@ -244,12 +244,9 @@ mod streams {
   cluster_test!(streams, should_xrevrange_no_count);
   cluster_test!(streams, should_xrevrange_with_count);
   cluster_test!(streams, should_run_xlen_on_stream);
-  cluster_test!(streams, should_xread_one_key_latest_id);
-  cluster_test!(streams, should_xread_multiple_keys_latest_id);
-  cluster_test!(streams, should_xread_manual_id);
+  cluster_test!(streams, should_xread_one_key_count_1);
+  cluster_test!(streams, should_xread_multiple_keys_count_2);
   cluster_test!(streams, should_xread_with_blocking);
-  cluster_test!(streams, should_xread_with_count);
-  cluster_test!(streams, should_xread_with_blocking_and_count);
   cluster_test!(streams, should_xgroup_create_no_mkstream);
   cluster_test!(streams, should_xgroup_create_mkstream);
   cluster_test!(streams, should_xgroup_createconsumer);
@@ -261,7 +258,6 @@ mod streams {
   cluster_test!(streams, should_xreadgroup_noack);
   cluster_test!(streams, should_xreadgroup_block);
   cluster_test!(streams, should_xreadgroup_count);
-  cluster_test!(streams, should_xreadgroup_block_and_count);
   cluster_test!(streams, should_xack_one_id);
   cluster_test!(streams, should_xack_multiple_ids);
   cluster_test!(streams, should_xclaim_one_id);

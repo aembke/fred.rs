@@ -55,6 +55,12 @@ impl MultipleOrderedPairs {
   }
 }
 
+impl From<()> for MultipleOrderedPairs {
+  fn from(_: ()) -> Self {
+    MultipleOrderedPairs { values: Vec::new() }
+  }
+}
+
 impl<K, V> TryFrom<(K, V)> for MultipleOrderedPairs
 where
   K: Into<RedisKey>,
@@ -266,9 +272,11 @@ pub enum XID {
   /// The auto-generated key symbol "*".
   Auto,
   /// An ID specified by the user such as "12345-0".
-  Manual(String),
+  Manual(Str),
   /// The highest ID in a stream ("$").
   Max,
+  /// For `XREADGROUP`, only return new IDs (">").
+  NewInGroup,
 }
 
 impl XID {
@@ -276,6 +284,7 @@ impl XID {
     match self {
       XID::Auto => utils::static_str("*"),
       XID::Max => utils::static_str("$"),
+      XID::NewInGroup => utils::static_str(">"),
       XID::Manual(s) => s.into(),
     }
   }
@@ -286,7 +295,8 @@ impl<'a> From<&'a str> for XID {
     match value.as_ref() {
       "*" => XID::Auto,
       "$" => XID::Max,
-      _ => XID::Manual(value.to_owned()),
+      ">" => XID::NewInGroup,
+      _ => XID::Manual(value.into()),
     }
   }
 }
@@ -296,6 +306,18 @@ impl From<String> for XID {
     match value.as_ref() {
       "*" => XID::Auto,
       "$" => XID::Max,
+      ">" => XID::NewInGroup,
+      _ => XID::Manual(value.into()),
+    }
+  }
+}
+
+impl From<Str> for XID {
+  fn from(value: Str) -> Self {
+    match value.as_ref() {
+      "*" => XID::Auto,
+      "$" => XID::Max,
+      ">" => XID::NewInGroup,
       _ => XID::Manual(value),
     }
   }

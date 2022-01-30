@@ -571,9 +571,11 @@ pub enum RedisValue {
   Null,
   /// A special value used to indicate a MULTI block command was received by the server.
   Queued,
-  /// A map of key/value pairs.
+  /// A map of key/value pairs, primarily used in RESP3 mode.
   Map(RedisMap),
   /// An ordered list of values.
+  ///
+  /// In RESP2 mode the server may send map structures as an array of key/value pairs.
   Array(Vec<RedisValue>),
 }
 
@@ -749,6 +751,8 @@ impl<'a> RedisValue {
   }
 
   /// Whether or not the value is a `RedisMap`.
+  ///
+  /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in RESP2 mode.
   pub fn is_map(&self) -> bool {
     match *self {
       RedisValue::Map(_) => true,
@@ -1173,9 +1177,7 @@ impl<'a> RedisValue {
   ///
   /// These values represent views into the buffer that receives data from the Redis server. As a result it is possible for callers to utilize `RedisValue` types in such a way that the underlying data is never moved or copied.
   ///
-  /// If you are unfamiliar with the `Bytes` ecosystem types you can broadly think about these types as being immutable reference counted slices in that they exhibit `Arc`-like characteristics. Therefore if callers need to modify these types it is often first necessary to copy the underlying data.
-  ///
-  /// However, if performance is a concern and callers do not need to modify the underlying data it is recommended that callers convert to `Str` or `Bytes` whenever possible. If callers do not want to take a dependency on the `Bytes` ecosystem types, or the values need to be mutated, then callers should use other types such as `String`, `Vec<u8>`, etc. It should be noted however that conversion to these other types will result in at least a move, if not a copy, of the underlying data.
+  /// If performance is a concern and callers do not need to modify the underlying data it is recommended that callers convert to `Str` or `Bytes` whenever possible. If callers do not want to take a dependency on the `Bytes` ecosystem types, or the values need to be mutated, then callers should use other types such as `String`, `Vec<u8>`, etc. It should be noted however that conversion to these other types will result in at least a move, if not a copy, of the underlying data.
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
     R: FromRedis,
@@ -1199,6 +1201,13 @@ impl<'a> RedisValue {
       | RedisValueKind::Queued => true,
       _ => false,
     }
+  }
+
+  /// Convert the value to JSON.
+  #[cfg(feature = "serde-json")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+  pub fn into_json(self) -> Result<Value, RedisError> {
+    Value::from_value(self)
   }
 }
 
@@ -1352,6 +1361,12 @@ impl From<Bytes> for RedisValue {
 
 impl From<String> for RedisValue {
   fn from(d: String) -> Self {
+    RedisValue::String(Str::from(d))
+  }
+}
+
+impl<'a> From<&'a String> for RedisValue {
+  fn from(d: &'a String) -> Self {
     RedisValue::String(Str::from(d))
   }
 }
