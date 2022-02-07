@@ -469,7 +469,7 @@ pub async fn write_clustered_command(
           ));
         }
       },
-      None => match cache.read().random_slot() {
+      None => match cache.read().random_master_slot() {
         Some(slot) => slot.server.clone(),
         None => {
           return Err(RedisError::new_context(
@@ -558,7 +558,7 @@ pub fn zip_cluster_commands(
 ) -> VecDeque<SentCommand> {
   let num_connections = {
     let mut out = BTreeSet::new();
-    for slot_range in cache.read().slots() {
+    for slot_range in cache.read().master_slots() {
       out.insert(slot_range.server.clone());
     }
     out.len()
@@ -757,8 +757,10 @@ pub async fn connect_clustered(
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
     let uses_tls = protocol_utils::uses_tls(inner);
     let cluster_state = connection::read_cluster_nodes(inner).await?;
+
     let main_nodes = cluster_state.unique_main_nodes();
     client_utils::set_locked(cache, cluster_state);
+
     connection_ids.write().clear();
 
     let tx = get_or_create_close_tx(inner, close_tx);
@@ -1107,14 +1109,7 @@ async fn existing_backchannel_connection(inner: &Arc<RedisClientInner>, servers:
 }
 
 async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
-  let mut servers: Vec<Arc<String>> = inner
-    .config
-    .read()
-    .server
-    .hosts()
-    .iter()
-    .map(|(h, p)| Arc::new(format!("{}:{}", h, p)))
-    .collect();
+  let mut servers: Vec<Arc<String>> = inner.cluster_state.read().clone().unwrap().unique_nodes();
 
   if let Some(swap) = existing_backchannel_connection(inner, &servers).await {
     servers.swap(0, swap);

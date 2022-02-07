@@ -93,7 +93,7 @@ async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
   };
   // find dest node from the other nodes
   let destination = client.cached_cluster_state().and_then(|state| loop {
-    let server = state.random_slot().unwrap().server.clone();
+    let server = state.random_master_slot().unwrap().server.clone();
 
     let port = server
       .split(":")

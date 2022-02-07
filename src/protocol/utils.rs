@@ -131,7 +131,10 @@ pub fn binary_search(slots: &Vec<Arc<SlotRange>>, slot: u16) -> Option<Arc<SlotR
   None
 }
 
-pub fn parse_cluster_nodes(status: String) -> Result<HashMap<Arc<String>, Vec<SlotRange>>, RedisError> {
+pub fn parse_cluster_nodes(
+  status: String,
+  node_type: &str,
+) -> Result<HashMap<Arc<String>, Vec<SlotRange>>, RedisError> {
   let mut out: HashMap<Arc<String>, Vec<SlotRange>> = HashMap::new();
 
   // build out the slot ranges for the primary nodes
@@ -147,7 +150,7 @@ pub fn parse_cluster_nodes(status: String) -> Result<HashMap<Arc<String>, Vec<Sl
 
     let id = Arc::new(parts[0].to_owned());
 
-    if parts[2].contains("master") {
+    if parts[2].contains(node_type) {
       let mut slots: Vec<SlotRange> = Vec::new();
 
       let server = Arc::new(remove_cport_suffix(parts[1].to_owned()));
@@ -1698,7 +1701,7 @@ b8553a4fae8ae99fca716d423b14875ebb10fefe quux.use2.cache.amazonaws.com:6379@1122
       ],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status.to_owned(), "master") {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };
@@ -1753,7 +1756,7 @@ e7d1eecce10fd6bb5eb35b9f99a514335d9ba9ca 127.0.0.1:30001 myself,master - 0 0 1 c
       }],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status.to_owned(), "master") {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };
@@ -1796,7 +1799,7 @@ b4fa5337b58e02673f961e22c9557e81dda4b559 bar.cache.amazonaws.com:6379@1122 mysel
       }],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status.to_owned(), "master") {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };
@@ -1846,7 +1849,7 @@ b4fa5337b58e02673f961e22c9557e81dda4b559 bar.cache.amazonaws.com:6379@1122 mysel
       }],
     );
 
-    let actual = match parse_cluster_nodes(status.to_owned()) {
+    let actual = match parse_cluster_nodes(status.to_owned(), "master") {
       Ok(h) => h,
       Err(e) => panic!("{}", e),
     };

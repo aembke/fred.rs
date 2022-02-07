@@ -620,7 +620,7 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
       } else {
         // read a random node from the cluster
         let server = match &*inner.cluster_state.read() {
-          Some(ref state) => match state.random_slot() {
+          Some(ref state) => match state.random_master_slot() {
             Some(slot) => slot.server.clone(),
             None => {
               return Err(RedisError::new(

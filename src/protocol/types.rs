@@ -1598,19 +1598,26 @@ pub struct SlotRange {
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
 pub struct ClusterKeyCache {
-  data: Vec<Arc<SlotRange>>,
+  masters: Vec<Arc<SlotRange>>,
+  slaves: Vec<Arc<SlotRange>>,
 }
 
 impl From<Vec<Arc<SlotRange>>> for ClusterKeyCache {
-  fn from(data: Vec<Arc<SlotRange>>) -> Self {
-    ClusterKeyCache { data }
+  fn from(masters: Vec<Arc<SlotRange>>) -> Self {
+    ClusterKeyCache {
+      masters,
+      slaves: vec![],
+    }
   }
 }
 
 impl ClusterKeyCache {
   /// Create a new cache from the output of CLUSTER NODES, if available.
   pub fn new(status: Option<String>) -> Result<ClusterKeyCache, RedisError> {
-    let mut cache = ClusterKeyCache { data: Vec::new() };
+    let mut cache = ClusterKeyCache {
+      masters: Vec::new(),
+      slaves: Vec::new(),
+    };
 
     if let Some(status) = status {
       cache.rebuild(status)?;
@@ -1623,7 +1630,22 @@ impl ClusterKeyCache {
   pub fn unique_main_nodes(&self) -> Vec<Arc<String>> {
     let mut out = BTreeSet::new();
 
-    for slot in self.data.iter() {
+    for slot in self.masters.iter() {
+      out.insert(slot.server.clone());
+    }
+
+    out.into_iter().collect()
+  }
+
+  /// Read the set of unique primary/main nodes in the cluster.
+  pub fn unique_nodes(&self) -> Vec<Arc<String>> {
+    let mut out = BTreeSet::new();
+
+    for slot in self.masters.iter() {
+      out.insert(slot.server.clone());
+    }
+
+    for slot in self.slaves.iter() {
       out.insert(slot.server.clone());
     }
 
@@ -1632,7 +1654,8 @@ impl ClusterKeyCache {
 
   /// Clear the cached state of the cluster.
   pub fn clear(&mut self) {
-    self.data.clear();
+    self.masters.clear();
+    self.slaves.clear();
   }
 
   /// Rebuild the cache in place with the output of a CLUSTER NODES command.
@@ -1645,17 +1668,30 @@ impl ClusterKeyCache {
       ));
     }
 
-    let mut parsed = protocol_utils::parse_cluster_nodes(status)?;
-    self.data.clear();
+    let mut parsed = protocol_utils::parse_cluster_nodes(status.clone(), "master")?;
+    self.masters.clear();
 
     for (_, ranges) in parsed.drain() {
       for slot in ranges {
-        self.data.push(Arc::new(slot));
+        self.masters.push(Arc::new(slot));
       }
     }
-    self.data.sort_by(|lhs, rhs| lhs.start.cmp(&rhs.start));
+    self.masters.sort_by(|lhs, rhs| lhs.start.cmp(&rhs.start));
 
-    self.data.shrink_to_fit();
+    self.masters.shrink_to_fit();
+
+    let mut parsed = protocol_utils::parse_cluster_nodes(status, "slave")?;
+    self.slaves.clear();
+
+    for (_, ranges) in parsed.drain() {
+      for slot in ranges {
+        self.slaves.push(Arc::new(slot));
+      }
+    }
+    self.slaves.sort_by(|lhs, rhs| lhs.start.cmp(&rhs.start));
+
+    self.slaves.shrink_to_fit();
+
     Ok(())
   }
 
@@ -1666,28 +1702,32 @@ impl ClusterKeyCache {
 
   /// Find the server that owns the provided hash slot.
   pub fn get_server(&self, slot: u16) -> Option<Arc<SlotRange>> {
-    if self.data.is_empty() {
+    if self.masters.is_empty() && self.slaves.is_empty() {
       return None;
     }
 
-    protocol_utils::binary_search(&self.data, slot)
+    if let Some(slot_range) = protocol_utils::binary_search(&self.masters, slot) {
+      return Some(slot_range);
+    }
+
+    protocol_utils::binary_search(&self.slaves, slot)
   }
 
   /// Read the number of hash slot ranges in the cluster.
-  pub fn len(&self) -> usize {
-    self.data.len()
+  pub fn master_len(&self) -> usize {
+    self.masters.len()
   }
 
   /// Read the hash slot ranges in the cluster.
-  pub fn slots(&self) -> &Vec<Arc<SlotRange>> {
-    &self.data
+  pub fn master_slots(&self) -> &Vec<Arc<SlotRange>> {
+    &self.masters
   }
 
   /// Read a random primary node hash slot range from the cluster cache.
-  pub fn random_slot(&self) -> Option<Arc<SlotRange>> {
-    if self.data.len() > 0 {
-      let idx = rand::thread_rng().gen_range(0..self.data.len());
-      Some(self.data[idx].clone())
+  pub fn random_master_slot(&self) -> Option<Arc<SlotRange>> {
+    if self.masters.len() > 0 {
+      let idx = rand::thread_rng().gen_range(0..self.masters.len());
+      Some(self.masters[idx].clone())
     } else {
       None
     }
