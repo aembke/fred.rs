@@ -2,10 +2,12 @@ use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::prelude::RedisError;
 use crate::types::{
-  FromRedis, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XID,
+  FromRedis, FromRedisKey, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue,
+  XCap, XReadResponse, XID,
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
+use std::hash::Hash;
 
 /// A trait that implements the [streams](https://redis.io/commands#stream) interface.
 pub trait StreamsInterface: ClientLike + Sized {
@@ -174,62 +176,117 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/xread>
   ///
-  /// **Important Note**
+  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode. In many cases it is also easier to operate on the
+  /// return values of these functions as a `HashMap`, but manually declaring this type can be very verbose. This function will automatically convert the response to the
+  /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences between RESP2 and RESP3.
+  // The underlying issue here isn't so much a semantic difference between RESP2 and RESP3, but rather an assumption that went into the logic behind the `FromRedis` trait.
+  //
+  // In all other Redis commands that return "maps" in RESP2 (or responses that should be interpreted as maps) a map is encoded as an array with an even number of elements
+  // representing `(key, value)` pairs.
+  //
+  // As a result the `FromRedis` implementation for `HashMap`, `BTreeMap`, etc, took a dependency on this behavior. For example: https://redis.io/commands/hgetall#return-value
+  //
+  // ```
+  // 127.0.0.1:6379> hset foo bar 0
+  // (integer) 1
+  // 127.0.0.1:6379> hset foo baz 1
+  // (integer) 1
+  // 127.0.0.1:6379> hgetall foo
+  // 1) "bar"
+  // 2) "0"
+  // 3) "baz"
+  // 4) "1"
+  // // now switch to RESP3 which has a specific type for maps on the wire
+  // 127.0.0.1:6379> hello 3
+  // ...
+  // 127.0.0.1:6379> hgetall foo
+  // 1# "bar" => "0"
+  // 2# "baz" => "1"
+  // ```
+  //
+  // However, with XREAD/XREADGROUP there's an extra array wrapper in RESP2:
+  //
+  // ```
+  // // RESP3
+  // 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
+  // 1# "foo" => 1) 1) "1643479650336-0"
+  //       2) 1) "count"
+  //          2) "3"
+  // 2# "bar" => 1) 1) "1643479837746-0"
+  //       2) 1) "count"
+  //          2) "5"
+  //    2) 1) "1643479925582-0"
+  //       2) 1) "count"
+  //          2) "6"
+  //
+  // // RESP2
+  // 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
+  // 1) 1) "foo"
+  //    2) 1) 1) "1643479650336-0"
+  //          2) 1) "count"
+  //             2) "3"
+  // 2) 1) "bar"
+  //    2) 1) 1) "1643479837746-0"
+  //          2) 1) "count"
+  //             2) "5"
+  //       2) 1) "1643479925582-0"
+  //          2) 1) "count"
+  //             2) "6"
+  // ```
+  //
+  // In pseudo-Rust types: we expect `Vec<K1, V1, K2, V2, ...>` but instead get `Vec<Vec<K1, V1>, Vec<K2, V2>, ...>`.
+  //
+  // This left two choices: either make this specific use case (XREAD/XREADGROUP) easier with some utility functions and/or types, or try to add custom type conversion logic in `FromRedis`
+  // for this type of map encoding.
+  //
+  // There is a downside with the second approach outside of this use case though. It is possible for callers to write lua scripts that return pretty much anything. If we were to build in
+  // generic logic that modified response values in all cases when they matched this format then we could risk unexpected behavior for callers that just happen to write a lua script that
+  // returns this format. This is not likely to happen, but is still probably worth considering.
+  //
+  // Actually implementing that logic could also be pretty complicated and brittle. It's certainly possible, but seems like more trouble than it's worth when the issue only shows up with
+  // 2 commands out of hundreds. Additionally, we don't want to take away the ability for callers to manually declare the RESP2 structure as-is.
+  //
+  // This function (and `xreadgroup_map`) provide an easier but optional way to handle the encoding differences with the streams interface.
+  //
+  // The underlying functions that do the RESP2 vs RESP3 conversion are public for callers as well, so one could use a `BTreeMap` instead of a `HashMap` like so:
+  //
+  // ```
+  // let value: BTreeMap<String, Vec<BTreeMap<String, BTreeMap<String, i64>>>> = client
+  //   .xread::<RedisValue, _, _>(None, None, "foo", "0")
+  //   .await?
+  //   .flatten_array_values(1)
+  //   .convert()?;
+  // ```
+  //
+  // Thanks for attending my TED talk.
+  fn xread_map<Rk1, Rk2, Rk3, Rv, K, I>(
+    &self,
+    count: Option<u64>,
+    block: Option<u64>,
+    keys: K,
+    ids: I,
+  ) -> AsyncResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>
+  where
+    Rk1: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rk2: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rk3: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rv: FromRedis + Unpin + Send,
+    K: Into<MultipleKeys>,
+    I: Into<MultipleIDs>,
+  {
+    into!(keys, ids);
+    async_spawn(self, |inner| async move {
+      commands::streams::xread(&inner, count, block, keys, ids)
+        .await?
+        .into_xread_response()
+    })
+  }
+
+  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID reported by the caller.
   ///
-  /// In RESP3 mode this function returns a map, but in RESP2 mode it returns an array around an inner map.
+  /// <https://redis.io/commands/xread>
   ///
-  /// This can make type declarations difficult to declare in applications where the caller wants a top-level map, or the caller plans on upgrading to RESP3 in the future.
-  ///
-  /// For example, using `redis-cli`:
-  ///
-  /// ```no_compile ignore
-  /// // RESP3
-  /// 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
-  /// 1# "foo" => 1) 1) "1643479650336-0"
-  ///       2) 1) "count"
-  ///          2) "3"
-  /// 2# "bar" => 1) 1) "1643479837746-0"
-  ///       2) 1) "count"
-  ///          2) "5"
-  ///    2) 1) "1643479925582-0"
-  ///       2) 1) "count"
-  ///          2) "6"
-  ///
-  /// // RESP2
-  /// 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
-  /// 1) 1) "foo"
-  ///    2) 1) 1) "1643479650336-0"
-  ///          2) 1) "count"
-  ///             2) "3"
-  /// 2) 1) "bar"
-  ///    2) 1) 1) "1643479837746-0"
-  ///          2) 1) "count"
-  ///             2) "5"
-  ///       2) 1) "1643479925582-0"
-  ///          2) 1) "count"
-  ///             2) "6"
-  /// ```
-  ///
-  /// This is unfortunate because the RESP3 format is more intuitive to type than the RESP2 format, yet most callers will likely use RESP2.
-  ///
-  /// In order to support this class of formatting issues without forcing callers to depend on automatic array flattening logic this library provides an [optional utility](crate::types::RedisValue::flatten_array_values) to make this easier.
-  ///
-  /// ```rust no_run
-  /// # use std::collections::HashMap;
-  /// # use fred::prelude::*;
-  /// // it's still not pretty, but this will work for both RESP2 and RESP3
-  /// let result: HashMap<String, Vec<HashMap<String, HashMap<String, usize>>>> = client
-  ///     .xread::<RedisValue, _, _>(Some(2), None, "foo", "myid")
-  ///     .await?
-  ///     .flatten_array_values(1)
-  ///     .convert()?;
-  /// ```
-  ///
-  /// If callers do not want to use this utility they must add a `Vec` wrapper around the outer type for RESP2, but not when using RESP3.
-  ///
-  /// However, this is annoying because it leaks Redis protocol semantics into application code, hence the addition of the [flatten_array_values](crate::types::RedisValue::flatten_array_values) function. Or callers can simply declare response values as `RedisValue` to manually parse result types as needed.
-  ///
-  /// This type of issue can manifest with a few different commands in addition to `XREAD`, but `XREAD` is likely the most popular one.
+  /// **See [xread_map](Self::xread_map) for more information on a variation of this function that might be more useful.**
   fn xread<R, K, I>(&self, count: Option<u64>, block: Option<u64>, keys: K, ids: I) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
@@ -335,7 +392,49 @@ pub trait StreamsInterface: ClientLike + Sized {
 
   /// A special version of the `XREAD` command with support for consumer groups.
   ///
+  /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more information.
+  ///
   /// <https://redis.io/commands/xreadgroup>
+  ///
+  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode. In many cases it is also easier to operate on the
+  /// return values of these functions as a `HashMap`, but manually declaring this type can be very verbose. This function will automatically convert the response to the
+  /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences between RESP2 and RESP3.
+  // See the `xread_map` source docs for more information.
+  fn xreadgroup_map<Rk1, Rk2, Rk3, Rv, G, C, K, I>(
+    &self,
+    group: G,
+    consumer: C,
+    count: Option<u64>,
+    block: Option<u64>,
+    noack: bool,
+    keys: K,
+    ids: I,
+  ) -> AsyncResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>
+  where
+    Rk1: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rk2: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rk3: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rv: FromRedis + Unpin + Send,
+    G: Into<Str>,
+    C: Into<Str>,
+    K: Into<MultipleKeys>,
+    I: Into<MultipleIDs>,
+  {
+    into!(group, consumer, keys, ids);
+    async_spawn(self, |inner| async move {
+      commands::streams::xreadgroup(&inner, group, consumer, count, block, noack, keys, ids)
+        .await?
+        .into_xread_response()
+    })
+  }
+
+  /// A special version of the `XREAD` command with support for consumer groups.
+  ///
+  /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more information.
+  ///
+  /// <https://redis.io/commands/xreadgroup>
+  ///
+  /// **See [xreadgroup_map](Self::xreadgroup_map) for a variation of this function that might be more useful.**
   fn xreadgroup<R, G, C, K, I>(
     &self,
     group: G,

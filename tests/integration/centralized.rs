@@ -251,9 +251,7 @@ mod streams {
   centralized_test!(streams, should_xgroup_setid);
   centralized_test!(streams, should_xreadgroup_one_stream);
   centralized_test!(streams, should_xreadgroup_multiple_stream);
-  centralized_test!(streams, should_xreadgroup_noack);
   centralized_test!(streams, should_xreadgroup_block);
-  centralized_test!(streams, should_xreadgroup_count);
   centralized_test!(streams, should_xack_one_id);
   centralized_test!(streams, should_xack_multiple_ids);
   centralized_test!(streams, should_xclaim_one_id);

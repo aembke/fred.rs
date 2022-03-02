@@ -470,6 +470,25 @@ impl FromRedis for Value {
   }
 }
 
+impl FromRedis for RedisKey {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    let key = match value {
+      RedisValue::Boolean(b) => b.into(),
+      RedisValue::Integer(i) => i.into(),
+      RedisValue::Double(f) => f.into(),
+      RedisValue::String(s) => s.into(),
+      RedisValue::Bytes(b) => b.into(),
+      RedisValue::Queued => RedisKey::from_static_str(QUEUED),
+      RedisValue::Map(_) | RedisValue::Array(_) => {
+        return Err(RedisError::new_parse("Cannot convert aggregate type to key."))
+      }
+      RedisValue::Null => return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to key.")),
+    };
+
+    Ok(key)
+  }
+}
+
 /// A trait used to convert [RedisKey](crate::types::RedisKey) values to various types.
 ///
 /// See the [convert](crate::types::RedisKey::convert) documentation for more information.
@@ -495,6 +514,12 @@ impl_from_str_from_redis_key!(f64);
 impl FromRedisKey for () {
   fn from_key(_: RedisKey) -> Result<Self, RedisError> {
     Ok(())
+  }
+}
+
+impl FromRedisKey for RedisValue {
+  fn from_key(value: RedisKey) -> Result<Self, RedisError> {
+    Ok(RedisValue::Bytes(value.into_bytes()))
   }
 }
 

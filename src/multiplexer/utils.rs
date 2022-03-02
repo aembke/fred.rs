@@ -1163,15 +1163,24 @@ async fn existing_backchannel_connection(inner: &Arc<RedisClientInner>, servers:
 }
 
 async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
-  let mut servers: Vec<Arc<String>> = inner
-    .config
-    .read()
-    .server
-    .hosts()
-    .iter()
-    .map(|(h, p)| Arc::new(format!("{}:{}", h, p)))
-    .collect();
+  let mut servers = if let Some(ref state) = *inner.cluster_state.read() {
+    state.unique_main_nodes()
+  } else {
+    _debug!(
+      inner,
+      "Falling back to hosts from config in cluster backchannel due to missing cluster state."
+    );
+    inner
+      .config
+      .read()
+      .server
+      .hosts()
+      .iter()
+      .map(|(h, p)| Arc::new(format!("{}:{}", h, p)))
+      .collect()
+  };
 
+  _debug!(inner, "Creating or using backchannel from {:?}", servers);
   if let Some(swap) = existing_backchannel_connection(inner, &servers).await {
     servers.swap(0, swap);
   }

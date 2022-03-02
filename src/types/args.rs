@@ -2,7 +2,7 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::ClientLike;
 use crate::protocol::connection::OK;
 use crate::protocol::utils as protocol_utils;
-use crate::types::{FromRedis, FromRedisKey, GeoPosition, NIL, QUEUED};
+use crate::types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, NIL, QUEUED};
 use crate::utils;
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -323,6 +323,15 @@ impl From<Str> for RedisKey {
 impl<'a> From<&'a RedisKey> for RedisKey {
   fn from(k: &'a RedisKey) -> RedisKey {
     k.clone()
+  }
+}
+
+impl From<bool> for RedisKey {
+  fn from(b: bool) -> Self {
+    match b {
+      true => RedisKey::from_static_str("true"),
+      false => RedisKey::from_static_str("false"),
+    }
   }
 }
 
@@ -766,13 +775,7 @@ impl<'a> RedisValue {
   pub fn is_maybe_map(&self) -> bool {
     match *self {
       RedisValue::Map(_) => true,
-      RedisValue::Array(ref arr) => {
-        if arr.len() > 0 && arr.len() % 2 == 0 {
-          arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
-        } else {
-          false
-        }
-      }
+      RedisValue::Array(ref arr) => utils::is_maybe_array_map(arr),
       _ => false,
     }
   }
@@ -1133,6 +1136,21 @@ impl<'a> RedisValue {
   /// See the [XREAD](crate::interfaces::StreamsInterface::xread) documentation for an example of when this might be useful.
   pub fn flatten_array_values(self, depth: usize) -> Self {
     utils::flatten_nested_array_values(self, depth)
+  }
+
+  /// A utility function to convert the response from `XREAD` or `XREADGROUP` into a type with a less verbose type declaration.
+  ///
+  /// This function supports responses in both RESP2 and RESP3 formats.
+  ///
+  /// See the [XREAD](crate::interfaces::StreamsInterface::xread) (or `XREADGROUP`) documentation for more information.
+  pub fn into_xread_response<K1, I, K2, V>(self) -> Result<XReadResponse<K1, I, K2, V>, RedisError>
+  where
+    K1: FromRedisKey + Hash + Eq,
+    K2: FromRedisKey + Hash + Eq,
+    I: FromRedisKey + Hash + Eq,
+    V: FromRedis,
+  {
+    self.flatten_array_values(1).convert()
   }
 
   /// Convert the value into a `GeoPosition`, if possible.

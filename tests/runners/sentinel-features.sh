@@ -10,4 +10,10 @@ do
   fi
 done
 
-cargo test --release --features "network-logs sentinel-tests sentinel-auth" --lib --tests -- --test-threads=1 "$@"
+FEATURES="network-logs sentinel-tests sentinel-auth"
+
+if [ -z "$FRED_CI_NEXTEST" ]; then
+  cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"
+else
+  cargo nextest run --release --lib --tests --features "$FEATURES" --test-threads=1 "$@"
+fi

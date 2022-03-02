@@ -13,6 +13,7 @@ ARG REDIS_VERSION
 ARG REDIS_USERNAME
 ARG REDIS_PASSWORD
 ARG REDIS_SENTINEL_PASSWORD
+ARG FRED_CI_NEXTEST
 
 # try to make the new container look like the host
 WORKDIR /home/circleci/project
@@ -25,5 +26,6 @@ RUN .circleci/install_redis_cli.sh
 
 # For debugging
 RUN cargo --version && rustc --version
+RUN cargo install cargo-nextest
 
 CMD tests/runners/sentinel-features.sh

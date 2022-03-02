@@ -3,7 +3,7 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::types::{LimitCount, RedisKey, RedisValue, StringOrNumber};
 use crate::utils;
 use bytes_utils::Str;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::convert::{TryFrom, TryInto};
 
 /// Representation for the "=" or "~" operator in `XADD`, etc.
@@ -314,7 +314,7 @@ impl From<String> for XID {
 
 impl From<Str> for XID {
   fn from(value: Str) -> Self {
-    match value.as_ref() {
+    match &*value {
       "*" => XID::Auto,
       "$" => XID::Max,
       ">" => XID::NewInGroup,
@@ -322,3 +322,20 @@ impl From<Str> for XID {
     }
   }
 }
+
+/// A generic helper type describing the ID and associated map for each record in a stream.
+///
+/// See the [XReadResponse](crate::types::XReadResponse) type for more information.
+pub type XReadValue<I, K, V> = HashMap<I, HashMap<K, V>>;
+/// A generic helper type describing the top level response from `XREAD` or `XREADGROUP`.
+///
+/// See the [xread](crate::interfaces::StreamsInterface::xread) documentation for more information.
+///
+/// The inner type declarations refer to the following:
+/// * K1 - The type of the outer Redis key for the stream. Usually a `String` or `RedisKey`.
+/// * I - The type of the ID for a stream record ("abc-123"). This is usually a `String`.
+/// * K2 - The type of key in the map associated with each stream record.
+/// * V - The type of value in the map associated with each stream record.
+///
+/// To support heterogeneous values in the map describing each stream element it is recommended to declare the last type as `RedisValue` and [convert](crate::types::RedisValue::convert) as needed.
+pub type XReadResponse<K1, I, K2, V> = HashMap<K1, Vec<XReadValue<I, K2, V>>>;

@@ -255,9 +255,7 @@ mod streams {
   cluster_test!(streams, should_xgroup_setid);
   cluster_test!(streams, should_xreadgroup_one_stream);
   cluster_test!(streams, should_xreadgroup_multiple_stream);
-  cluster_test!(streams, should_xreadgroup_noack);
   cluster_test!(streams, should_xreadgroup_block);
-  cluster_test!(streams, should_xreadgroup_count);
   cluster_test!(streams, should_xack_one_id);
   cluster_test!(streams, should_xack_multiple_ids);
   cluster_test!(streams, should_xclaim_one_id);

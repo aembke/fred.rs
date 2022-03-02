@@ -10,3 +10,7 @@ export RUST_BACKTRACE=full \
   FRED_REDIS_CENTRALIZED_PORT=6379
 
 alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
+
+if [ -z "$FRED_CI_NEXTEST" ]; then
+  echo "Set FRED_CI_NEXTEST=1 to use cargo nextest as the test runner."
+fi

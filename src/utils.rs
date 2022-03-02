@@ -891,6 +891,14 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
   }
 }
 
+pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
+  if arr.len() > 0 && arr.len() % 2 == 0 {
+    arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
+  } else {
+    false
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

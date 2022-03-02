@@ -1,5 +1,5 @@
 use fred::prelude::*;
-use fred::types::{RedisMap, XCap, XCapKind, XCapTrim, XID};
+use fred::types::{RedisKey, RedisMap, XCap, XCapKind, XCapTrim, XReadResponse, XID};
 use maplit::hashmap;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -402,9 +402,19 @@ pub async fn should_xgroup_setid(client: RedisClient, _: RedisConfig) -> Result<
 pub async fn should_xreadgroup_one_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  let _: () = client.xgroup_createconsumer("group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
 
-  // TODO
+  let result: XReadResponse<String, String, String, usize> = client
+    .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
+    .await?;
+
+  assert_eq!(result.len(), 1);
+  for (idx, record) in result.get("foo{1}").unwrap().into_iter().enumerate() {
+    let (_id, record) = record.into_iter().next().unwrap();
+    let value = record.get("count").expect("Failed to read count.");
+    assert_eq!(idx, *value)
+  }
+
   Ok(())
 }
 
