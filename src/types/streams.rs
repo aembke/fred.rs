@@ -326,7 +326,7 @@ impl From<Str> for XID {
 /// A generic helper type describing the ID and associated map for each record in a stream.
 ///
 /// See the [XReadResponse](crate::types::XReadResponse) type for more information.
-pub type XReadValue<I, K, V> = HashMap<I, HashMap<K, V>>;
+pub type XReadValue<I, K, V> = (I, HashMap<K, V>);
 /// A generic helper type describing the top level response from `XREAD` or `XREADGROUP`.
 ///
 /// See the [xread](crate::interfaces::StreamsInterface::xread) documentation for more information.

@@ -179,6 +179,22 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode. In many cases it is also easier to operate on the
   /// return values of these functions as a `HashMap`, but manually declaring this type can be very verbose. This function will automatically convert the response to the
   /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences between RESP2 and RESP3.
+  ///
+  /// ```rust no_run
+  /// # use fred::types::XReadResponse;
+  /// // borrowed from the tests. XREAD and XREADGROUP are very similar.
+  /// let result: XReadResponse<String, String, String, usize> = client  
+  ///   .xreadgroup_map("group1", "consumer1", None, None, false, "foo", ">")
+  ///   .await?;
+  /// println!("Result: {:?}", result);
+  /// // Result: {"foo": [("1646240801081-0", {"count": 0}), ("1646240801082-0", {"count": 1}), ("1646240801082-1", {"count": 2})]}
+  ///
+  /// assert_eq!(result.len(), 1);
+  /// for (idx, (id, record)) in result.get("foo").unwrap().into_iter().enumerate() {
+  ///   let value = record.get("count").expect("Failed to read count");
+  ///   assert_eq!(idx, *value);
+  /// }
+  /// ```
   // The underlying issue here isn't so much a semantic difference between RESP2 and RESP3, but rather an assumption that went into the logic behind the `FromRedis` trait.
   //
   // In all other Redis commands that return "maps" in RESP2 (or responses that should be interpreted as maps) a map is encoded as an array with an even number of elements
@@ -251,10 +267,10 @@ pub trait StreamsInterface: ClientLike + Sized {
   // The underlying functions that do the RESP2 vs RESP3 conversion are public for callers as well, so one could use a `BTreeMap` instead of a `HashMap` like so:
   //
   // ```
-  // let value: BTreeMap<String, Vec<BTreeMap<String, BTreeMap<String, i64>>>> = client
+  // let value: BTreeMap<String, Vec<(String, BTreeMap<String, usize>)>> = client
   //   .xread::<RedisValue, _, _>(None, None, "foo", "0")
   //   .await?
-  //   .flatten_array_values(1)
+  //   .flatten_array_values(2)
   //   .convert()?;
   // ```
   //
@@ -268,7 +284,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   ) -> AsyncResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>
   where
     Rk1: FromRedisKey + Hash + Eq + Unpin + Send,
-    Rk2: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rk2: FromRedis + Unpin + Send,
     Rk3: FromRedisKey + Hash + Eq + Unpin + Send,
     Rv: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
@@ -399,6 +415,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode. In many cases it is also easier to operate on the
   /// return values of these functions as a `HashMap`, but manually declaring this type can be very verbose. This function will automatically convert the response to the
   /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences between RESP2 and RESP3.
+  ///
+  /// See the [xread_map](Self::xread_map) documentation for more information.
   // See the `xread_map` source docs for more information.
   fn xreadgroup_map<Rk1, Rk2, Rk3, Rv, G, C, K, I>(
     &self,
@@ -412,7 +430,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   ) -> AsyncResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>
   where
     Rk1: FromRedisKey + Hash + Eq + Unpin + Send,
-    Rk2: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rk2: FromRedis + Unpin + Send,
     Rk3: FromRedisKey + Hash + Eq + Unpin + Send,
     Rv: FromRedis + Unpin + Send,
     G: Into<Str>,

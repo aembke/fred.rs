@@ -1147,10 +1147,10 @@ impl<'a> RedisValue {
   where
     K1: FromRedisKey + Hash + Eq,
     K2: FromRedisKey + Hash + Eq,
-    I: FromRedisKey + Hash + Eq,
+    I: FromRedis,
     V: FromRedis,
   {
-    self.flatten_array_values(1).convert()
+    self.flatten_array_values(2).convert()
   }
 
   /// Convert the value into a `GeoPosition`, if possible.

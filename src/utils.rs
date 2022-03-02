@@ -887,6 +887,20 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
       }
       RedisValue::Array(out)
     }
+    RedisValue::Map(values) => {
+      let mut out = HashMap::with_capacity(values.len());
+
+      for (key, value) in values.inner().into_iter() {
+        let value = if value.is_array() {
+          flatten_nested_array_values(value, depth - 1)
+        } else {
+          value
+        };
+
+        out.insert(key, value);
+      }
+      RedisValue::Map(RedisMap { inner: out })
+    }
     _ => value,
   }
 }

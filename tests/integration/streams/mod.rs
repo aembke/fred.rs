@@ -409,10 +409,9 @@ pub async fn should_xreadgroup_one_stream(client: RedisClient, _: RedisConfig) -
     .await?;
 
   assert_eq!(result.len(), 1);
-  for (idx, record) in result.get("foo{1}").unwrap().into_iter().enumerate() {
-    let (_id, record) = record.into_iter().next().unwrap();
-    let value = record.get("count").expect("Failed to read count.");
-    assert_eq!(idx, *value)
+  for (idx, (_, record)) in result.get("foo{1}").unwrap().into_iter().enumerate() {
+    let value = record.get("count").expect("Failed to read count");
+    assert_eq!(idx, *value);
   }
 
   Ok(())
