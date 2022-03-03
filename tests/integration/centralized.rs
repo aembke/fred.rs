@@ -241,6 +241,7 @@ mod streams {
   centralized_test!(streams, should_xrevrange_with_count);
   centralized_test!(streams, should_run_xlen_on_stream);
   centralized_test!(streams, should_xread_one_key_count_1);
+  centralized_test!(streams, should_xread_map_one_key);
   centralized_test!(streams, should_xread_multiple_keys_count_2);
   centralized_test!(streams, should_xread_with_blocking);
   centralized_test!(streams, should_xgroup_create_no_mkstream);

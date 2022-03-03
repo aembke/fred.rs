@@ -247,6 +247,7 @@ mod streams {
   cluster_test!(streams, should_xread_one_key_count_1);
   cluster_test!(streams, should_xread_multiple_keys_count_2);
   cluster_test!(streams, should_xread_with_blocking);
+  cluster_test!(streams, should_xread_map_one_key);
   cluster_test!(streams, should_xgroup_create_no_mkstream);
   cluster_test!(streams, should_xgroup_create_mkstream);
   cluster_test!(streams, should_xgroup_createconsumer);

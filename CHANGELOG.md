@@ -16,23 +16,8 @@ TLDR
 * Offer callers an interface to "jump the queue" when sending commands in response to a reconnection event.
 * Support Unix domain sockets
 * Redis 7.x commands
-* Switch to `cargo-nextest`
 * Move the custom `MONITOR` parser to `redis-protocol`.
 * Any other features I've forgotten.
-
-## 6.0.0
-
-This will be more of an exploratory release that may or may not help performance for callers depending on how they're running the Redis server(s).
-
-* Create additional thread-local client structs that trade `Send` or `Sync` types for the ability to remove (hopefully) all containers that add synchronization overhead.
-* Offer callers the option to use fixed-size command channel buffers to reduce the number of allocations.
-* Change the command retry interface so retried commands only need one allocation the first time they're encoded.
-* Offer callers an interface to change TCP settings when initializing connections.
-* Offer callers an interface to override DNS lookup logic.
-* Switch to `ArcStr` from `Arc<String>` everywhere it matters.
-* Switch from `Arc<RwLock/Mutex<T>>` to `ArcSwap` wherever possible.
-* Add benchmarks to CircleCI.
-* Hope and pray that somebody implements support for async functions in traits. 
 
 # Past Releases
 

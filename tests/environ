@@ -1,3 +1,4 @@
+#!/bin/bash
 
 export RUST_BACKTRACE=full \
   REDIS_VERSION=6.2.2 \
@@ -11,6 +12,11 @@ export RUST_BACKTRACE=full \
 
 alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
 
-if [ -z "$FRED_CI_NEXTEST" ]; then
-  echo "Set FRED_CI_NEXTEST=1 to use cargo nextest as the test runner."
+if [ -z "$CIRCLECI_TESTS" ]; then
+  read -p "Use cargo nextest? [y/n]: " NEXTEST
+  if [ "$NEXTEST" = "y" ]; then
+    export FRED_CI_NEXTEST=1
+  else
+    unset FRED_CI_NEXTEST
+  fi
 fi
