@@ -3,7 +3,7 @@ use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::prelude::RedisError;
 use crate::types::{
   FromRedis, FromRedisKey, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue,
-  XCap, XReadResponse, XID,
+  XCap, XPendingArgs, XReadResponse, XReadValue, XID,
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
@@ -220,7 +220,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   // 2# "baz" => "1"
   // ```
   //
-  // However, with XREAD/XREADGROUP there's an extra array wrapper in RESP2:
+  // However, with XREAD/XREADGROUP there's an extra array wrapper in RESP2 around both the "outer" map and "inner" map(s):
   //
   // ```
   // // RESP3
@@ -494,10 +494,55 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
-  /// n the context of a stream consumer group, this command changes the ownership of a pending message,
+  /// A variation of [xclaim](Self::xclaim) with a less verbose return type.
+  fn xclaim_values<Ri, Rk, Rv, K, G, C, I>(
+    &self,
+    key: K,
+    group: G,
+    consumer: C,
+    min_idle_time: u64,
+    ids: I,
+    idle: Option<u64>,
+    time: Option<u64>,
+    retry_count: Option<u64>,
+    force: bool,
+    justid: bool,
+  ) -> AsyncResult<Vec<XReadValue<Ri, Rk, Rv>>>
+  where
+    Ri: FromRedis + Unpin + Send,
+    Rk: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rv: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    G: Into<Str>,
+    C: Into<Str>,
+    I: Into<MultipleIDs>,
+  {
+    into!(key, group, consumer, ids);
+    async_spawn(self, |inner| async move {
+      commands::streams::xclaim(
+        &inner,
+        key,
+        group,
+        consumer,
+        min_idle_time,
+        ids,
+        idle,
+        time,
+        retry_count,
+        force,
+        justid,
+      )
+      .await?
+      .into_xread_value()
+    })
+  }
+
+  /// In the context of a stream consumer group, this command changes the ownership of a pending message,
   /// so that the new owner is the consumer specified as the command argument.
   ///
   /// <https://redis.io/commands/xclaim>
+  ///
+  /// **See [xclaim_values](Self::xclaim_values) for a variation of this function that might be more useful.**
   fn xclaim<R, K, G, C, I>(
     &self,
     key: K,
@@ -568,22 +613,15 @@ pub trait StreamsInterface: ClientLike + Sized {
 
   /// Inspect the list of pending messages in a consumer group.
   ///
-  /// The `args` argument has the form `[[IDLE min-idle-time] start end count [consumer]]`.
-  ///
   /// <https://redis.io/commands/xpending>
-  // TODO make the args params easier to express
-  fn xpending<R, K, G>(
-    &self,
-    key: K,
-    group: G,
-    args: Option<(Option<u64>, XID, XID, u64, Option<Str>)>,
-  ) -> AsyncResult<R>
+  fn xpending<R, K, G, A>(&self, key: K, group: G, args: A) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     G: Into<Str>,
+    A: Into<XPendingArgs>,
   {
-    into!(key, group);
+    into!(key, group, args);
     async_spawn(self, |inner| async move {
       commands::streams::xpending(&inner, key, group, args).await?.convert()
     })

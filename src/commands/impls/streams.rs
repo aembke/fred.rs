@@ -4,7 +4,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::RedisCommandKind;
 use crate::protocol::utils as protocol_utils;
 use crate::types::{
-  MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XID,
+  MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XPendingArgs, XID,
 };
 use crate::utils;
 use bytes_utils::Str;
@@ -431,7 +431,7 @@ pub async fn xclaim(
   })
   .await?;
 
-  protocol_utils::frame_to_results(frame)
+  protocol_utils::frame_to_results_raw(frame)
 }
 
 pub async fn xautoclaim(
@@ -471,14 +471,14 @@ pub async fn xpending(
   inner: &Arc<RedisClientInner>,
   key: RedisKey,
   group: Str,
-  cmd_args: Option<(Option<u64>, XID, XID, u64, Option<Str>)>,
+  cmd_args: XPendingArgs,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(8);
     args.push(key.into());
     args.push(group.into());
 
-    if let Some((idle, start, end, count, consumer)) = cmd_args {
+    if let Some((idle, start, end, count, consumer)) = cmd_args.into_parts()? {
       if let Some(idle) = idle {
         args.push(static_val!(IDLE));
         args.push(idle.try_into()?);

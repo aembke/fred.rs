@@ -301,6 +301,17 @@ impl<'a> From<&'a str> for XID {
   }
 }
 
+impl<'a> From<&'a String> for XID {
+  fn from(value: &'a String) -> Self {
+    match value.as_ref() {
+      "*" => XID::Auto,
+      "$" => XID::Max,
+      ">" => XID::NewInGroup,
+      _ => XID::Manual(value.into()),
+    }
+  }
+}
+
 impl From<String> for XID {
   fn from(value: String) -> Self {
     match value.as_ref() {
@@ -319,6 +330,140 @@ impl From<Str> for XID {
       "$" => XID::Max,
       ">" => XID::NewInGroup,
       _ => XID::Manual(value),
+    }
+  }
+}
+
+/// A struct representing the trailing optional arguments to [XPENDING](https://redis.io/commands/xpending).
+///
+/// See the `From` implementations for various shorthand representations of these arguments. Callers should use `()` to represent no arguments.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XPendingArgs {
+  pub idle: Option<u64>,
+  pub start: Option<XID>,
+  pub end: Option<XID>,
+  pub count: Option<u64>,
+  pub consumer: Option<Str>,
+}
+
+impl XPendingArgs {
+  pub(crate) fn into_parts(self) -> Result<Option<(Option<u64>, XID, XID, u64, Option<Str>)>, RedisError> {
+    let is_empty = self.idle.is_none()
+      && self.start.is_none()
+      && self.end.is_none()
+      && self.count.is_none()
+      && self.consumer.is_none();
+
+    if is_empty {
+      Ok(None)
+    } else {
+      let start = match self.start {
+        Some(s) => s,
+        None => {
+          return Err(RedisError::new(
+            RedisErrorKind::InvalidArgument,
+            "The `start` argument is required in this context.",
+          ))
+        }
+      };
+      let end = match self.end {
+        Some(s) => s,
+        None => {
+          return Err(RedisError::new(
+            RedisErrorKind::InvalidArgument,
+            "The `end` argument is required in this context.",
+          ))
+        }
+      };
+      let count = match self.count {
+        Some(s) => s,
+        None => {
+          return Err(RedisError::new(
+            RedisErrorKind::InvalidArgument,
+            "The `count` argument is required in this context.",
+          ))
+        }
+      };
+
+      Ok(Some((self.idle, start, end, count, self.consumer)))
+    }
+  }
+}
+
+impl From<()> for XPendingArgs {
+  fn from(_: ()) -> Self {
+    XPendingArgs {
+      idle: None,
+      start: None,
+      end: None,
+      count: None,
+      consumer: None,
+    }
+  }
+}
+
+impl<S, E> From<(S, E, u64)> for XPendingArgs
+where
+  S: Into<XID>,
+  E: Into<XID>,
+{
+  fn from((start, end, count): (S, E, u64)) -> Self {
+    XPendingArgs {
+      idle: None,
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
+      consumer: None,
+    }
+  }
+}
+
+impl<S, E, C> From<(S, E, u64, C)> for XPendingArgs
+where
+  S: Into<XID>,
+  E: Into<XID>,
+  C: Into<Str>,
+{
+  fn from((start, end, count, consumer): (S, E, u64, C)) -> Self {
+    XPendingArgs {
+      idle: None,
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
+      consumer: Some(consumer.into()),
+    }
+  }
+}
+
+impl<S, E> From<(u64, S, E, u64)> for XPendingArgs
+where
+  S: Into<XID>,
+  E: Into<XID>,
+{
+  fn from((idle, start, end, count): (u64, S, E, u64)) -> Self {
+    XPendingArgs {
+      idle: Some(idle),
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
+      consumer: None,
+    }
+  }
+}
+
+impl<S, E, C> From<(u64, S, E, u64, C)> for XPendingArgs
+where
+  S: Into<XID>,
+  E: Into<XID>,
+  C: Into<Str>,
+{
+  fn from((idle, start, end, count, consumer): (u64, S, E, u64, C)) -> Self {
+    XPendingArgs {
+      idle: Some(idle),
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
+      consumer: Some(consumer.into()),
     }
   }
 }

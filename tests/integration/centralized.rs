@@ -257,15 +257,9 @@ mod streams {
   centralized_test!(streams, should_xack_multiple_ids);
   centralized_test!(streams, should_xclaim_one_id);
   centralized_test!(streams, should_xclaim_multiple_ids);
-  centralized_test!(streams, should_xclaim_with_idle);
-  centralized_test!(streams, should_xclaim_with_time);
-  centralized_test!(streams, should_xclaim_with_retrycount);
-  centralized_test!(streams, should_xclaim_with_force);
   centralized_test!(streams, should_xclaim_with_justid);
   centralized_test!(streams, should_xautoclaim_default);
   centralized_test!(streams, should_xautoclaim_with_count);
   centralized_test!(streams, should_xautoclaim_with_justid);
-  centralized_test!(streams, should_xpending_default);
-  centralized_test!(streams, should_xpending_with_idle_no_consumer);
   centralized_test!(streams, should_xautoclaim_with_idle_and_consumer);
 }

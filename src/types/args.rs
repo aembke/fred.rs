@@ -1,8 +1,8 @@
 use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::ClientLike;
+use crate::interfaces::{ClientLike, Resp3Frame};
 use crate::protocol::connection::OK;
 use crate::protocol::utils as protocol_utils;
-use crate::types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, NIL, QUEUED};
+use crate::types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED};
 use crate::utils;
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -1153,6 +1153,18 @@ impl<'a> RedisValue {
     self.flatten_array_values(2).convert()
   }
 
+  /// A utility function to convert the response from `XCLAIM`, etc into a type with a less verbose type declaration.
+  ///
+  /// This function supports responses in both RESP2 and RESP3 formats.
+  pub fn into_xread_value<I, K, V>(self) -> Result<Vec<XReadValue<I, K, V>>, RedisError>
+  where
+    K: FromRedisKey + Hash + Eq,
+    I: FromRedis,
+    V: FromRedis,
+  {
+    self.flatten_array_values(1).convert()
+  }
+
   /// Convert the value into a `GeoPosition`, if possible.
   ///
   /// Null values are returned as `None` to work more easily with the result of the `GEOPOS` command.
@@ -1514,5 +1526,13 @@ impl TryFrom<Value> for RedisValue {
     };
 
     Ok(value)
+  }
+}
+
+impl TryFrom<Resp3Frame> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(value: Resp3Frame) -> Result<Self, Self::Error> {
+    protocol_utils::frame_to_results(value)
   }
 }

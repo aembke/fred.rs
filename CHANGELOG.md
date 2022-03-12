@@ -6,21 +6,6 @@ TLDR
 * Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
 * Versions 6.x will be focused on performance. 
 
-# Upcoming Releases
-
-## 5.1.0
-
-* Make transactions easier to use. This includes support for concurrent transactions where commands are buffered in memory until the caller calls EXEC/DISCARD.
-* Rewrite parts of the connection layer to improve code reuse between sentinel and non-sentinel clients.
-* Consider making the `sentinel-auth` logic a required feature, and remove the feature flag.
-* Offer callers an interface to "jump the queue" when sending commands in response to a reconnection event.
-* Support Unix domain sockets
-* Redis 7.x commands
-* Move the custom `MONITOR` parser to `redis-protocol`.
-* Any other features I've forgotten.
-
-# Past Releases
-
 ## 5.0.0
 
 * Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs) so it can decode frames without moving or copying the underlying bytes
@@ -33,7 +18,7 @@ TLDR
 * Minor perf regressions from workarounds required to use [async functions with traits](https://smallcultfollowing.com/babysteps/blog/2019/10/26/async-fn-in-traits-are-hard/). In the end it's a wash.
 * Move most perf configuration options from `globals` to client-specific config structs
 * Add backpressure configuration options to the client config struct
-* Fix bugs that can occur when using non-UTF8 strings as keys
+* Fix bugs that can occur when using non-UTF8 byte arrays as keys
 * Add the `serde-json` feature
 * Handle more complicated failure modes with Redis clusters
 * Add a more robust and specialized pubsub subscriber client

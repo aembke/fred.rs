@@ -1487,7 +1487,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 
       for part in parts.into_iter() {
         bulk_strings.push(Resp3Frame::BlobString {
-          data: part.as_bytes().into(),
+          data: part.as_bytes().to_vec().into(),
           attributes: None,
         });
       }
@@ -1505,7 +1505,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
       let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
       bulk_strings.push(Resp3Frame::BlobString {
-        data: Bytes::from_static(command.kind.cmd_str().as_bytes()),
+        data: command.kind.cmd_str().into_inner(),
         attributes: None,
       });
 
@@ -1534,7 +1534,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
       let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
 
       for part in parts.into_iter() {
-        bulk_strings.push(Resp2Frame::BulkString(part.as_bytes().into()));
+        bulk_strings.push(Resp2Frame::BulkString(part.as_bytes().to_vec().into()));
       }
       for value in command.args.iter() {
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
@@ -1545,10 +1545,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
     _ => {
       let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
-      bulk_strings.push(Resp2Frame::BulkString(Bytes::from_static(
-        command.kind.cmd_str().as_bytes(),
-      )));
-
+      bulk_strings.push(Resp2Frame::BulkString(command.kind.cmd_str().into_inner()));
       if let Some(subcommand) = command.kind.subcommand_str() {
         bulk_strings.push(Resp2Frame::BulkString(Bytes::from_static(subcommand.as_bytes())));
       }

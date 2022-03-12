@@ -56,7 +56,6 @@ async fn main() -> Result<(), RedisError> {
 #[allow(dead_code)]
 // requires the `subscriber-client` feature
 async fn subscriber_example() -> Result<(), RedisError> {
-  // or use the higher-level subscriber client to manage subscription state
   let subscriber = SubscriberClient::new(RedisConfig::default());
   let _ = subscriber.connect(Some(ReconnectPolicy::default()));
   let _ = subscriber.wait_for_connect().await?;
@@ -70,15 +69,15 @@ async fn subscriber_example() -> Result<(), RedisError> {
 
   let _ = subscriber.subscribe("foo").await?;
   let _ = subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
-  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo", "bar*", and "baz*"
+  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo", "bar*", and "baz*" after reconnecting
 
   println!("Subscriber channels: {:?}", subscriber.tracked_channels()); // "foo"
   println!("Subscriber patterns: {:?}", subscriber.tracked_patterns()); // "bar*", "baz*"
 
   let _ = subscriber.unsubscribe("foo").await?;
-  // now it will only automatically re-subscribe to "bar*" and "baz*"
+  // now it will only automatically re-subscribe to "bar*" and "baz*" after reconnecting
 
-  // force a re-subscription call at any time
+  // force a re-subscription call to all channels or patterns
   let _ = subscriber.resubscribe_all().await?;
   // unsubscribe from all channels and patterns
   let _ = subscriber.unsubscribe_all().await?;

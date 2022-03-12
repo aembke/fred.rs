@@ -88,11 +88,36 @@ impl InfoKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CustomCommand {
   /// The command name, sent directly to the server.
-  pub cmd: &'static str,
+  pub cmd: Str,
   /// The hash slot to use for the provided command when running against a cluster. If a hash slot is not provided the command will run against a random node in the cluster.
   pub hash_slot: Option<u16>,
   /// Whether or not the command should block the connection while waiting on a response.
   pub is_blocking: bool,
+}
+
+impl CustomCommand {
+  /// create a new custom command.
+  ///
+  /// see the [custom](client::interfaces::clientlike::custom) command for more information.
+  pub fn new<C>(cmd: C, hash_slot: Option<u16>, is_blocking: bool) -> Self
+  where
+    C: Into<Str>,
+  {
+    CustomCommand {
+      cmd: cmd.into(),
+      hash_slot,
+      is_blocking,
+    }
+  }
+
+  /// Create a new custom command specified by a `&'static str`.
+  pub fn new_static(cmd: &'static str, hash_slot: Option<u16>, is_blocking: bool) -> Self {
+    CustomCommand {
+      cmd: utils::static_str(cmd),
+      hash_slot,
+      is_blocking,
+    }
+  }
 }
 
 /// An enum describing the possible ways in which a Redis cluster can change state.

@@ -696,7 +696,7 @@ impl RedisCommandKind {
   }
 
   /// Read the command's protocol string without panicking.
-  pub fn to_str_debug(&self) -> &'static str {
+  pub fn to_str_debug(&self) -> &str {
     match *self {
       RedisCommandKind::AclLoad => "ACL LOAD",
       RedisCommandKind::AclSave => "ACL SAVE",
@@ -969,13 +969,13 @@ impl RedisCommandKind {
       RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT FLUSH CLUSTER",
       RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT LOAD CLUSTER",
       RedisCommandKind::_ScriptKillCluster(_) => "SCRIPT Kill CLUSTER",
-      RedisCommandKind::_Custom(ref kind) => kind.cmd,
+      RedisCommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
 
   /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis command.
-  pub(crate) fn cmd_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn cmd_str(&self) -> Str {
+    let s = match *self {
       RedisCommandKind::AclLoad => "ACL",
       RedisCommandKind::AclSave => "ACL",
       RedisCommandKind::AclList => "ACL",
@@ -1245,11 +1245,13 @@ impl RedisCommandKind {
       RedisCommandKind::Zscan(_) => "ZSCAN",
       RedisCommandKind::_AuthAllCluster(_) => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
-      RedisCommandKind::_Custom(ref kind) => kind.cmd,
+      RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
       RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
         panic!("unreachable (redis command)")
       }
-    }
+    };
+
+    utils::static_str(s)
   }
 
   /// Read the optional subcommand string for a command.
