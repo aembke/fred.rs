@@ -89,6 +89,9 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Install nightly
+          command: rustup install nightly
+      - run:
           name: Build documentation
           command: tests/doc.sh
 
