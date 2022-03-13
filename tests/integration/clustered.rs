@@ -241,8 +241,10 @@ mod streams {
   cluster_test!(streams, should_xdel_multiple_ids_in_a_stream);
   cluster_test!(streams, should_xrange_no_count);
   cluster_test!(streams, should_xrange_with_count);
+  cluster_test!(streams, should_xrange_values_no_count);
   cluster_test!(streams, should_xrevrange_no_count);
   cluster_test!(streams, should_xrevrange_with_count);
+  cluster_test!(streams, should_xrevrange_values_no_count);
   cluster_test!(streams, should_run_xlen_on_stream);
   cluster_test!(streams, should_xread_one_key_count_1);
   cluster_test!(streams, should_xread_multiple_keys_count_2);

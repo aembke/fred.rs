@@ -151,7 +151,6 @@ impl FromRedis for String {
         "Cannot convert nil response to string.",
       ))
     } else {
-      println!("VALUE TO STRING: {:?}", value);
       value
         .into_string()
         .ok_or(RedisError::new_parse("Could not convert to string."))
@@ -370,7 +369,6 @@ macro_rules! impl_from_redis_tuple {
           let mut n = 0;
           $(let $name = (); n += 1;)*
           if values.len() != n {
-            println!("ERR 1 - {:?}", values);
             return Err(RedisError::new_parse("Invalid tuple dimension."));
           }
 
@@ -390,7 +388,6 @@ macro_rules! impl_from_redis_tuple {
       fn from_values(mut values: Vec<RedisValue>) -> Result<Vec<($($name,)*)>, RedisError> {
         let mut n = 0;
         $(let $name = (); n += 1;)*
-        println!("FROM VALUES TUPLE 2 - {:?}", values);
         if values.len() % n != 0 {
           return Err(RedisError::new_parse("Invalid tuple dimension."))
         }

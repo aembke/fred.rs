@@ -114,11 +114,42 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
+  /// Return the stream entries matching the provided range of IDs, automatically converting to a less verbose type definition.
+  ///
+  /// <https://redis.io/commands/xrange>
+  fn xrange_values<Ri, Rk, Rv, K, S, E>(
+    &self,
+    key: K,
+    start: S,
+    end: E,
+    count: Option<u64>,
+  ) -> AsyncResult<Vec<XReadValue<Ri, Rk, Rv>>>
+  where
+    Ri: FromRedis + Unpin + Send,
+    Rk: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rv: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    S: TryInto<RedisValue>,
+    S::Error: Into<RedisError>,
+    E: TryInto<RedisValue>,
+    E::Error: Into<RedisError>,
+  {
+    into!(key);
+    try_into!(start, end);
+    async_spawn(self, |inner| async move {
+      commands::streams::xrange(&inner, key, start, end, count)
+        .await?
+        .into_xread_value()
+    })
+  }
+
   /// The command returns the stream entries matching a given range of IDs. The range is specified by a minimum
   /// and maximum ID. All the entries having an ID between the two specified or exactly one of the two IDs specified
   /// (closed interval) are returned.
   ///
   /// <https://redis.io/commands/xrange>
+  ///
+  /// **See [xrange_values](Self::xrange_values) for a variation of this function that may be more useful.**
   fn xrange<R, K, S, E>(&self, key: K, start: S, end: E, count: Option<u64>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
@@ -137,9 +168,40 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
+  /// Similar to `XRANGE`, but with the results returned in reverse order. The results will be automatically converted to a less verbose type definition.
+  ///
+  /// <https://redis.io/commands/xrevrange>
+  fn xrevrange_values<Ri, Rk, Rv, K, E, S>(
+    &self,
+    key: K,
+    end: E,
+    start: S,
+    count: Option<u64>,
+  ) -> AsyncResult<Vec<XReadValue<Ri, Rk, Rv>>>
+  where
+    Ri: FromRedis + Unpin + Send,
+    Rk: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rv: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    S: TryInto<RedisValue>,
+    S::Error: Into<RedisError>,
+    E: TryInto<RedisValue>,
+    E::Error: Into<RedisError>,
+  {
+    into!(key);
+    try_into!(start, end);
+    async_spawn(self, |inner| async move {
+      commands::streams::xrevrange(&inner, key, end, start, count)
+        .await?
+        .into_xread_value()
+    })
+  }
+
   /// Similar to `XRANGE`, but with the results returned in reverse order.
   ///
   /// <https://redis.io/commands/xrevrange>
+  ///
+  /// **See the [xrevrange_values](Self::xrevrange_values) for a variation of this function that may be more useful.**
   fn xrevrange<R, K, S, E>(&self, key: K, end: E, start: S, count: Option<u64>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,

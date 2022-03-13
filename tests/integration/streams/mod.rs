@@ -1,5 +1,5 @@
 use fred::prelude::*;
-use fred::types::{RedisKey, RedisMap, XCap, XCapKind, XCapTrim, XReadResponse, XID};
+use fred::types::{RedisKey, RedisMap, XCap, XCapKind, XCapTrim, XReadResponse, XReadValue, XID};
 use maplit::hashmap;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -209,12 +209,31 @@ pub async fn should_xrange_no_count(client: RedisClient, _: RedisConfig) -> Resu
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let (_, expected) = add_stream_entries(&client, "foo{1}", 3).await?;
 
-  println!(
-    "{:?}",
-    client.xrange::<RedisValue, _, _, _>("foo{1}", "-", "+", None).await?
-  );
   let result: FakeExpectedValues = client.xrange("foo{1}", "-", "+", None).await?;
   assert_eq!(result, expected);
+  Ok(())
+}
+
+pub async fn should_xrange_values_no_count(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let (ids, _) = add_stream_entries(&client, "foo{1}", 3).await?;
+
+  let result: Vec<XReadValue<String, String, usize>> = client.xrange_values("foo{1}", "-", "+", None).await?;
+  let actual_ids: Vec<String> = result.iter().map(|(id, _)| id.clone()).collect();
+  assert_eq!(ids, actual_ids);
+  Ok(())
+}
+
+pub async fn should_xrevrange_values_no_count(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo{1}");
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let (mut ids, _) = add_stream_entries(&client, "foo{1}", 3).await?;
+  ids.reverse();
+
+  let result: Vec<XReadValue<String, String, usize>> = client.xrevrange_values("foo{1}", "+", "-", None).await?;
+  let actual_ids: Vec<String> = result.iter().map(|(id, _)| id.clone()).collect();
+  assert_eq!(ids, actual_ids);
   Ok(())
 }
 
@@ -618,7 +637,6 @@ pub async fn should_xclaim_multiple_ids(client: RedisClient, _: RedisConfig) -> 
   Ok(())
 }
 
-// TODO does xrange need to change to use XReadValue too?
 pub async fn should_xclaim_with_justid(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   Ok(())
 }
