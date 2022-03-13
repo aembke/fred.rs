@@ -265,7 +265,4 @@ mod streams {
   cluster_test!(streams, should_xclaim_multiple_ids);
   cluster_test!(streams, should_xclaim_with_justid);
   cluster_test!(streams, should_xautoclaim_default);
-  cluster_test!(streams, should_xautoclaim_with_count);
-  cluster_test!(streams, should_xautoclaim_with_justid);
-  cluster_test!(streams, should_xautoclaim_with_idle_and_consumer);
 }

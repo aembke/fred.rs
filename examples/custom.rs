@@ -24,7 +24,7 @@ async fn main() -> Result<(), RedisError> {
   let _ = client.wait_for_connect().await?;
 
   let (key, hash_slot) = get_hash_slot(&client, "ts:carbon_monoxide");
-  let args = vec![key.into(), 1112596200.into(), 1112603400.into()];
+  let args: Vec<RedisValue> = vec![key.into(), 1112596200.into(), 1112603400.into()];
   let cmd = CustomCommand::new_static("TS.RANGE", hash_slot, false);
   /*
   >> TS.RANGE ts:carbon_monoxide 1112596200 1112603400
@@ -38,10 +38,11 @@ async fn main() -> Result<(), RedisError> {
   let values: Vec<(i64, f64)> = client.custom(cmd, args).await?;
   println!("TS.RANGE Values: {:?}", values);
 
+  let _: () = client.lpush("foo", vec![1, 2, 3]).await?;
   let (key, hash_slot) = get_hash_slot(&client, "foo");
   let cmd = CustomCommand::new_static("LRANGE", hash_slot, false);
   // some types require TryInto
-  let args = vec![key.into(), 0.into(), 3_u64.try_into()?];
+  let args: Vec<RedisValue> = vec![key.into(), 0.into(), 3_u64.try_into()?];
   // returns a frame (https://docs.rs/redis-protocol/latest/redis_protocol/resp3/types/enum.Frame.html)
   let frame = client.custom_raw(cmd, args).await?;
   // or convert back to client types

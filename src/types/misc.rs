@@ -98,7 +98,7 @@ pub struct CustomCommand {
 impl CustomCommand {
   /// create a new custom command.
   ///
-  /// see the [custom](client::interfaces::clientlike::custom) command for more information.
+  /// see the [custom](crate::interfaces::ClientLike::custom) command for more information.
   pub fn new<C>(cmd: C, hash_slot: Option<u16>, is_blocking: bool) -> Self
   where
     C: Into<Str>,

@@ -1,8 +1,6 @@
 use fred::prelude::*;
-use fred::types::{RedisKey, RedisMap, XCap, XCapKind, XCapTrim, XReadResponse, XReadValue, XID};
-use maplit::hashmap;
+use fred::types::{XCapKind, XCapTrim, XReadResponse, XReadValue, XID};
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::hash::Hash;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -318,8 +316,8 @@ pub async fn should_xread_one_key_count_1(client: RedisClient, _: RedisConfig) -
 pub async fn should_xread_multiple_keys_count_2(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = create_fake_group_and_stream(&client, "bar{1}").await?;
-  let (mut foo_ids, mut foo_inner) = add_stream_entries(&client, "foo{1}", 3).await?;
-  let (mut bar_ids, mut bar_inner) = add_stream_entries(&client, "bar{1}", 3).await?;
+  let (foo_ids, foo_inner) = add_stream_entries(&client, "foo{1}", 3).await?;
+  let (bar_ids, bar_inner) = add_stream_entries(&client, "bar{1}", 3).await?;
 
   let mut expected = HashMap::new();
   expected.insert("foo{1}".into(), foo_inner[1..].to_vec());
@@ -638,21 +636,85 @@ pub async fn should_xclaim_multiple_ids(client: RedisClient, _: RedisConfig) -> 
 }
 
 pub async fn should_xclaim_with_justid(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let _ = add_stream_entries(&client, "foo{1}", 3).await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+
+  let mut result: XReadResponse<String, String, String, usize> = client
+    .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
+    .await?;
+  assert_eq!(result.len(), 1);
+  assert_eq!(result.get("foo{1}").unwrap().len(), 2);
+  let second_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
+  let first_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
+  sleep(Duration::from_secs(1)).await;
+
+  let (total_count, min_id, max_id, consumers): (u64, String, String, Vec<(String, u64)>) =
+    client.xpending("foo{1}", "group1", ()).await?;
+  assert_eq!(total_count, 2);
+  assert_eq!(min_id, first_read_id);
+  assert_eq!(max_id, second_read_id);
+  assert_eq!(consumers[0], ("consumer1".into(), 2));
+
+  let result: Vec<String> = client
+    .xclaim(
+      "foo{1}",
+      "group1",
+      "consumer2",
+      1000,
+      vec![&first_read_id, &second_read_id],
+      None,
+      None,
+      None,
+      false,
+      true,
+    )
+    .await?;
+  assert_eq!(result, vec![first_read_id.clone(), second_read_id.clone()]);
+
+  let acked: i64 = client
+    .xack("foo{1}", "group1", vec![first_read_id, second_read_id])
+    .await?;
+  assert_eq!(acked, 2);
   Ok(())
 }
 
 pub async fn should_xautoclaim_default(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  Ok(())
-}
+  let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
+  let _ = add_stream_entries(&client, "foo{1}", 3).await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
 
-pub async fn should_xautoclaim_with_count(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  Ok(())
-}
+  let mut result: XReadResponse<String, String, String, usize> = client
+    .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
+    .await?;
+  assert_eq!(result.len(), 1);
+  assert_eq!(result.get("foo{1}").unwrap().len(), 2);
+  let second_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
+  let first_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
+  sleep(Duration::from_secs(1)).await;
 
-pub async fn should_xautoclaim_with_justid(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  Ok(())
-}
+  let (total_count, min_id, max_id, consumers): (u64, String, String, Vec<(String, u64)>) =
+    client.xpending("foo{1}", "group1", ()).await?;
+  assert_eq!(total_count, 2);
+  assert_eq!(min_id, first_read_id);
+  assert_eq!(max_id, second_read_id);
+  assert_eq!(consumers[0], ("consumer1".into(), 2));
 
-pub async fn should_xautoclaim_with_idle_and_consumer(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let (cursor, values): (String, Vec<XReadValue<String, String, usize>>) = client
+    .xautoclaim_values("foo{1}", "group1", "consumer2", 1000, "0-0", None, false)
+    .await?;
+
+  assert_eq!(cursor, "0-0");
+  assert_eq!(values.len(), 2);
+
+  let mut first_expected: HashMap<String, usize> = HashMap::new();
+  first_expected.insert("count".into(), 0);
+  let mut second_expected: HashMap<String, usize> = HashMap::new();
+  second_expected.insert("count".into(), 1);
+  assert_eq!(values[0], (first_read_id, first_expected));
+  assert_eq!(values[1], (second_read_id, second_expected));
+
   Ok(())
 }

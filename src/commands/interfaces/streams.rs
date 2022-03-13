@@ -10,6 +10,11 @@ use std::convert::TryInto;
 use std::hash::Hash;
 
 /// A trait that implements the [streams](https://redis.io/commands#stream) interface.
+///
+/// **Note:** Several of the stream commands can return types with verbose type declarations. Additionally, certain commands can be parsed differently in RESP2 and RESP3 modes.
+/// As a result this interface provides some utility functions that can make this easier. Functions such as [xread_map](Self::xread_map), [xreadgroup_map](Self::xreadgroup_map),
+/// [xrange_values](Self::xrange_values), etc exist to make this easier on callers. These functions apply an additional layer of parsing logic that can make declaring response
+/// types easier, as well as automatically handling the differences between RESP2 and RESP3 return value types.
 pub trait StreamsInterface: ClientLike + Sized {
   /// This command returns the list of consumers that belong to the `groupname` consumer group of the stream stored at `key`.
   ///
@@ -645,9 +650,42 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
+  /// This command transfers ownership of pending stream entries that match the specified criteria. It also converts the response type to a less verbose type declaration and handles potential differences between RESP2 and RESP3.
+  ///
+  /// <https://redis.io/commands/xautoclaim>
+  // FIXME: this type declaration wont work for Redis v7. Probably need a new FF for this...
+  fn xautoclaim_values<Ri, Rk, Rv, K, G, C, I>(
+    &self,
+    key: K,
+    group: G,
+    consumer: C,
+    min_idle_time: u64,
+    start: I,
+    count: Option<u64>,
+    justid: bool,
+  ) -> AsyncResult<(String, Vec<XReadValue<Ri, Rk, Rv>>)>
+  where
+    Ri: FromRedis + Unpin + Send,
+    Rk: FromRedisKey + Hash + Eq + Unpin + Send,
+    Rv: FromRedis + Unpin + Send,
+    K: Into<RedisKey>,
+    G: Into<Str>,
+    C: Into<Str>,
+    I: Into<XID>,
+  {
+    into!(key, group, consumer, start);
+    async_spawn(self, |inner| async move {
+      commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
+        .await?
+        .into_xautoclaim_values()
+    })
+  }
+
   /// This command transfers ownership of pending stream entries that match the specified criteria.
   ///
   /// <https://redis.io/commands/xautoclaim>
+  ///
+  /// **Note: See [xautoclaim_values](Self::xautoclaim_values) for a variation of this function that may be more useful.**
   fn xautoclaim<R, K, G, C, I>(
     &self,
     key: K,

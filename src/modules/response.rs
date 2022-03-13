@@ -10,6 +10,16 @@ use crate::utils;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
+macro_rules! debug_type(
+  ($($arg:tt)*) => {
+    cfg_if::cfg_if! {
+      if #[cfg(feature="network-logs")] {
+        log::trace!($($arg)*);
+      }
+    }
+  }
+);
+
 macro_rules! to_signed_number(
   ($t:ty, $v:expr) => {
     match $v {
@@ -145,6 +155,7 @@ impl_unsigned_number!(usize);
 
 impl FromRedis for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(String): {:?}", value);
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -160,6 +171,7 @@ impl FromRedis for String {
 
 impl FromRedis for Str {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(Str): {:?}", value);
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -175,6 +187,7 @@ impl FromRedis for Str {
 
 impl FromRedis for f64 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(f64): {:?}", value);
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -190,6 +203,7 @@ impl FromRedis for f64 {
 
 impl FromRedis for f32 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(f32): {:?}", value);
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -206,6 +220,7 @@ impl FromRedis for f32 {
 
 impl FromRedis for bool {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(bool): {:?}", value);
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -224,6 +239,7 @@ where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Option<T>, RedisError> {
+    debug_type!("FromRedis(Option<T>): {:?}", value);
     if value.is_null() {
       Ok(None)
     } else {
@@ -234,6 +250,7 @@ where
 
 impl FromRedis for Bytes {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(Bytes): {:?}", value);
     value
       .into_bytes()
       .ok_or(RedisError::new_parse("Cannot parse into bytes."))
@@ -245,6 +262,7 @@ where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
+    debug_type!("FromRedis(Vec<T>): {:?}", value);
     match value {
       RedisValue::Bytes(bytes) => {
         T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
@@ -292,6 +310,7 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(HashMap<K,V>): {:?}", value);
     if value.is_null() {
       return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to map."));
     }
@@ -318,6 +337,7 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(HashSet<V>): {:?}", value);
     value.into_array().into_iter().map(|v| V::from_value(v)).collect()
   }
 }
@@ -328,6 +348,7 @@ where
   V: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(BTreeMap<K,V>): {:?}", value);
     let as_map = if value.is_array() || value.is_map() {
       value
         .into_map()
@@ -349,6 +370,7 @@ where
   V: FromRedis + Ord,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    debug_type!("FromRedis(BTreeSet<V>): {:?}", value);
     value.into_array().into_iter().map(|v| V::from_value(v)).collect()
   }
 }
@@ -368,6 +390,7 @@ macro_rules! impl_from_redis_tuple {
         if let RedisValue::Array(mut values) = v {
           let mut n = 0;
           $(let $name = (); n += 1;)*
+          debug_type!("FromRedis({}-tuple): {:?}", n, values);
           if values.len() != n {
             return Err(RedisError::new_parse("Invalid tuple dimension."));
           }
@@ -388,6 +411,7 @@ macro_rules! impl_from_redis_tuple {
       fn from_values(mut values: Vec<RedisValue>) -> Result<Vec<($($name,)*)>, RedisError> {
         let mut n = 0;
         $(let $name = (); n += 1;)*
+        debug_type!("FromRedis({}-tuple): {:?}", n, values);
         if values.len() % n != 0 {
           return Err(RedisError::new_parse("Invalid tuple dimension."))
         }

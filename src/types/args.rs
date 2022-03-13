@@ -1165,6 +1165,32 @@ impl<'a> RedisValue {
     self.flatten_array_values(1).convert()
   }
 
+  /// A utility function to convert the response from `XAUTOCLAIM` into a type with a less verbose type declaration.
+  ///
+  /// This function supports responses in both RESP2 and RESP3 formats.
+  // FIXME: this function also needs changes to support the Redis v7 format.
+  pub fn into_xautoclaim_values<I, K, V>(self) -> Result<(String, Vec<XReadValue<I, K, V>>), RedisError>
+  where
+    K: FromRedisKey + Hash + Eq,
+    I: FromRedis,
+    V: FromRedis,
+  {
+    if let RedisValue::Array(mut values) = self {
+      if values.len() != 2 {
+        warn!("Invalid XAUTOCLAIM response. If you're using Redis 7.x you may need to use xautoclaim instead of xautoclaim_values.");
+        Err(RedisError::new_parse("Expected 2-element array response."))
+      } else {
+        // unwrap checked above
+        let entries = values.pop().unwrap();
+        let cursor: String = values.pop().unwrap().convert()?;
+
+        Ok((cursor, entries.flatten_array_values(1).convert()?))
+      }
+    } else {
+      Err(RedisError::new_parse("Expected array response."))
+    }
+  }
+
   /// Convert the value into a `GeoPosition`, if possible.
   ///
   /// Null values are returned as `None` to work more easily with the result of the `GEOPOS` command.

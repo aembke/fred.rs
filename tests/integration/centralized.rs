@@ -261,7 +261,4 @@ mod streams {
   centralized_test!(streams, should_xclaim_multiple_ids);
   centralized_test!(streams, should_xclaim_with_justid);
   centralized_test!(streams, should_xautoclaim_default);
-  centralized_test!(streams, should_xautoclaim_with_count);
-  centralized_test!(streams, should_xautoclaim_with_justid);
-  centralized_test!(streams, should_xautoclaim_with_idle_and_consumer);
 }
