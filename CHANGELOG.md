@@ -6,7 +6,7 @@ TLDR
 * Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
 * Versions 6.x will be focused on performance. 
 
-## 5.0.0
+## 5.0.0-beta.1
 
 * Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs) so it can decode frames without moving or copying the underlying bytes
 * Change most command implementations to avoid unnecessary allocations when using static str slices 
