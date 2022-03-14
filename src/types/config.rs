@@ -85,6 +85,23 @@ impl ReconnectPolicy {
     }
   }
 
+  /// Set the amount of jitter to add to each reconnect delay.
+  ///
+  /// Default: 100 ms
+  pub fn set_jitter(&mut self, jitter_ms: u32) {
+    match self {
+      ReconnectPolicy::Constant { ref mut jitter, .. } => {
+        *jitter = jitter_ms;
+      }
+      ReconnectPolicy::Linear { ref mut jitter, .. } => {
+        *jitter = jitter_ms;
+      }
+      ReconnectPolicy::Exponential { ref mut jitter, .. } => {
+        *jitter = jitter_ms;
+      }
+    }
+  }
+
   /// Reset the number of reconnection attempts. It's unlikely users will need to call this.
   pub fn reset_attempts(&mut self) {
     match *self {
@@ -152,7 +169,9 @@ impl ReconnectPolicy {
           Some(a) => a,
           None => return None,
         };
-        let delay = (mult as u64).pow(*attempts - 1).saturating_mul(min_delay as u64);
+        let delay = (mult as u64)
+          .saturating_pow(*attempts - 1)
+          .saturating_mul(min_delay as u64);
 
         Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
       }
@@ -480,6 +499,24 @@ impl ServerConfig {
       ServerConfig::Centralized { ref host, port } => vec![(host.as_str(), port)],
       ServerConfig::Clustered { ref hosts } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
       ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::ReconnectPolicy;
+
+  #[test]
+  fn should_get_next_delay_repeatedly() {
+    let mut policy = ReconnectPolicy::new_exponential(0, 100, 999999999, 2);
+    let mut last_delay = 1;
+    for _ in 0..9_999_999 {
+      let delay = policy.next_delay().unwrap();
+      if delay < last_delay {
+        panic!("Invalid next delay: {:?}", delay);
+      }
+      last_delay = delay;
     }
   }
 }

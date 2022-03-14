@@ -70,6 +70,7 @@ cargo add fred
 * An optional client pooling interface to round-robin requests among a pool of clients.
 * An optional sentinel client for interacting directly with sentinel nodes to manually fail over servers, etc.
 * An optional pubsub subscriber client that will automatically manage channel subscriptions.
+* Optional built in support for JSON values.
 
 **Note: Fred requires Tokio 1.x or above. Actix users must be using 4.x or above as a result.**
 
@@ -112,8 +113,6 @@ When a client is initialized it will generate a unique client name with a prefix
 |-----------------------------------|---------|------------------------------------------------------------------------------------------|
 | FRED_DISABLE_CERT_VERIFICATION    | `false` | Disable certificate verification when using TLS features.                                |
 | FRED_DISABLE_HOST_VERIFICATION    | `false` | Disable host verification when using TLS features.                                       |
-
-These are environment variables because they're dangerous in production and callers should be forced to surface them in a loud and obvious way.
 
 ## Pipelining
 

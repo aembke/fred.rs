@@ -37,7 +37,7 @@ async fn main() -> Result<(), RedisError> {
       // a default timeout to apply to all commands (0 means no timeout)
       default_command_timeout_ms: 0,
       // the amount of time to wait before syncing cluster state after a MOVED or ASK error
-      cluster_cache_update_delay_ms: 50,
+      cluster_cache_update_delay_ms: 10,
       // the maximum number of times to retry commands when connections close unexpectedly
       max_command_attempts: 3,
       // backpressure config options
@@ -48,7 +48,7 @@ async fn main() -> Result<(), RedisError> {
         disable_backpressure_scaling: false,
         // the minimum amount of time to `sleep` when applying automatic backpressure
         min_sleep_duration_ms: 100,
-        // the max number of in-flight commands before applying backpressure
+        // the max number of in-flight commands before applying backpressure or returning backpressure errors
         max_in_flight_commands: 5000,
       },
     },

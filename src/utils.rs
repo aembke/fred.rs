@@ -124,7 +124,7 @@ pub fn incr_with_max(curr: u32, max: u32) -> Option<u32> {
   if max != 0 && curr >= max {
     None
   } else {
-    Some(curr + 1)
+    Some(curr.saturating_add(1))
   }
 }
 
@@ -831,7 +831,7 @@ where
 }
 
 pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
-  delay + rand::thread_rng().gen_range(0..jitter as u64)
+  delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
 }
 
 pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>

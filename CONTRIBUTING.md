@@ -11,10 +11,11 @@ This document gives some background on how the library is structured and how to 
 
 ## TODO List
 
-* Redis version 7.x commands
-* Gate commands unique to a particular Redis version behind build time features.
 * Support custom DNS resolvers on the client.
+* Add a FF that uses rustls instead of tokio-native-tls
+* Add a FF for redis v7 changes (GET, XAUTOCLAIM, etc)
 * Any missing commands.
+* Support unix domain sockets
 * Switch to `ArcStr` from `Arc<String>` for map identifiers in the multiplexer.
 * General cleanup and refactoring. A lot of the lower level logic was written before async/await, before `impl Trait`, and before NLLs. It could certainly be more modern and generic.
 
