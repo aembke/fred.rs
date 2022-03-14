@@ -6,5 +6,3 @@ pub mod metrics;
 /// Client pooling structs.
 pub mod pool;
 pub mod response;
-/// The structs and enums used by the Redis client.
-pub mod types;

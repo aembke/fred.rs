@@ -1,6 +1,5 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
 use crate::modules::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::types::ClusterChange;
 use crate::multiplexer::{responses, Multiplexer};
@@ -8,6 +7,7 @@ use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentComma
 use crate::protocol::connection::{self, RedisSink, RedisStream};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
+use crate::protocol::utils::server_to_parts;
 use crate::trace;
 use crate::types::*;
 use crate::utils as client_utils;
@@ -17,12 +17,12 @@ use futures::select;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
-use std::cmp;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::mem;
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{cmp, mem, str};
 use tokio;
 use tokio::sync::broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver};
 use tokio::sync::mpsc::UnboundedSender;
@@ -188,7 +188,7 @@ pub async fn insert_locked_map_async<K: Ord, V>(locked: &AsyncRwLock<BTreeMap<K,
 
 /// Check whether the command has reached the max number of write attempts, and if so emit an error to the caller.
 pub fn max_attempts_reached(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) -> bool {
-  if command.max_attempts_exceeded() {
+  if command.max_attempts_exceeded(inner) {
     _warn!(
       inner,
       "Exceeded max write attempts for command: {}",
@@ -215,7 +215,11 @@ pub fn max_attempts_reached(inner: &Arc<RedisClientInner>, command: &mut RedisCo
   }
 }
 
-pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<String>>) -> Option<u64> {
+pub fn should_apply_backpressure(
+  inner: &Arc<RedisClientInner>,
+  connections: &Connections,
+  server: Option<&Arc<String>>,
+) -> Result<Option<u64>, RedisError> {
   let in_flight = match connections {
     Connections::Centralized { ref counters, .. } => client_utils::read_atomic(&counters.in_flight),
     Connections::Clustered { ref counters, .. } => server
@@ -227,14 +231,28 @@ pub fn should_apply_backpressure(connections: &Connections, server: Option<&Arc<
       })
       .unwrap_or(0),
   };
-  let min_backpressure_time_ms = globals().min_backpressure_time_ms();
-  let backpressure_command_count = globals().backpressure_count();
+  let min_backpressure_time_ms = inner.perf_config.min_sleep_duration();
+  let backpressure_command_count = inner.perf_config.max_in_flight_commands();
+  let disable_backpressure_scaling = inner.perf_config.disable_backpressure_scaling();
 
-  if in_flight > backpressure_command_count {
-    Some(cmp::max(in_flight - backpressure_command_count, min_backpressure_time_ms) as u64)
+  let amt = if in_flight > backpressure_command_count {
+    if inner.perf_config.disable_auto_backpressure() {
+      return Err(RedisError::new(
+        RedisErrorKind::Backpressure,
+        "Max number of in-flight commands reached.",
+      ));
+    }
+
+    if disable_backpressure_scaling {
+      Some(min_backpressure_time_ms as u64)
+    } else {
+      Some(cmp::max(min_backpressure_time_ms as u64, in_flight as u64))
+    }
   } else {
     None
-  }
+  };
+
+  Ok(amt)
 }
 
 pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> String {
@@ -319,8 +337,8 @@ pub fn prepare_command(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
   command: RedisCommand,
-) -> Result<(SentCommand, Frame, bool), RedisError> {
-  let frame = command.to_frame()?;
+) -> Result<(SentCommand, ProtocolFrame, bool), RedisError> {
+  let frame = command.to_frame(inner.is_resp3())?;
   let mut sent_command: SentCommand = command.into();
   sent_command.command.incr_attempted();
   sent_command.network_start = Some(Instant::now());
@@ -332,10 +350,13 @@ pub fn prepare_command(
   // * we've fed up to the global max feed count commands already
   // * the command closes the connection
   // * the command ends a transaction
+  // * the command does some form of authentication
   // * the command blocks the multiplexer command loop
-  let should_flush = counters.should_send()
+  let should_flush = counters.should_send(inner)
     || sent_command.command.is_quit()
     || sent_command.command.kind.ends_transaction()
+    || sent_command.command.kind.is_hello()
+    || sent_command.command.kind.is_auth()
     || client_utils::is_locked_some(&sent_command.command.resp_tx);
 
   Ok((sent_command, frame, should_flush))
@@ -396,6 +417,21 @@ pub async fn send_clustered_command(
   connection::write_command(inner, writer, counters, frame, should_flush).await
 }
 
+fn respond_early_to_caller_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, error: RedisError) {
+  _debug!(inner, "Responding early to caller with error {:?}", error);
+
+  if let Some(tx) = command.tx.take() {
+    if let Err(e) = tx.send(Err(error)) {
+      _warn!(inner, "Error sending response to caller: {:?}", e);
+    }
+  }
+
+  // check for a multiplexer response sender too
+  if let Some(tx) = command.resp_tx.write().take() {
+    let _ = tx.send(());
+  }
+}
+
 pub async fn write_centralized_command(
   inner: &Arc<RedisClientInner>,
   connections: &Connections,
@@ -403,7 +439,15 @@ pub async fn write_centralized_command(
   no_backpressure: bool,
 ) -> Result<Backpressure, RedisError> {
   if !no_backpressure {
-    if let Some(backpressure) = should_apply_backpressure(connections, None) {
+    let backpressure = match should_apply_backpressure(inner, connections, None) {
+      Ok(backpressure) => backpressure,
+      Err(e) => {
+        respond_early_to_caller_error(inner, command, e);
+        return Ok(Backpressure::Skipped);
+      }
+    };
+
+    if let Some(backpressure) = backpressure {
       _warn!(inner, "Applying backpressure for {} ms", backpressure);
       return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
     }
@@ -456,7 +500,7 @@ pub async fn write_clustered_command(
   {
     let hash_slot = match hash_slot {
       Some(slot) => Some(slot),
-      None => command.extract_key().map(|key| redis_keyslot(&key)),
+      None => command.extract_key().map(|key| redis_keyslot(key)),
     };
     let server = match hash_slot {
       Some(hash_slot) => match cache.read().get_server(hash_slot) {
@@ -482,7 +526,15 @@ pub async fn write_clustered_command(
     };
 
     if !no_backpressure {
-      if let Some(backpressure) = should_apply_backpressure(connections, Some(&server)) {
+      let backpressure = match should_apply_backpressure(inner, connections, Some(&server)) {
+        Ok(backpressure) => backpressure,
+        Err(e) => {
+          respond_early_to_caller_error(inner, command, e);
+          return Ok(Backpressure::Skipped);
+        }
+      };
+
+      if let Some(backpressure) = backpressure {
         _warn!(inner, "Applying backpressure for {} ms", backpressure);
         return Ok(Backpressure::Wait((Duration::from_millis(backpressure), command)));
       }
@@ -494,7 +546,7 @@ pub async fn write_clustered_command(
           "Using server {} with hash slot {:?} from key {}",
           server,
           hash_slot,
-          key
+          String::from_utf8_lossy(key)
         );
       }
     }
@@ -633,6 +685,7 @@ pub fn spawn_clustered_listener(
       RedisStream::Tls(stream) => Either::Left(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_clustered_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -641,6 +694,7 @@ pub fn spawn_clustered_listener(
       RedisStream::Tcp(stream) => Either::Right(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_clustered_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -804,6 +858,7 @@ pub fn spawn_centralized_listener(
       RedisStream::Tls(stream) => Either::Left(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_centralized_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -812,6 +867,7 @@ pub fn spawn_centralized_listener(
       RedisStream::Tcp(stream) => Either::Right(
         stream
           .try_fold(memo, |(inner, server, counters, commands), frame| async {
+            let frame = frame.into_resp3();
             responses::process_centralized_frame(&inner, &server, &counters, &commands, frame).await?;
             Ok((inner, server, counters, commands))
           })
@@ -931,18 +987,18 @@ pub fn check_mget_cluster_keys(multiplexer: &Multiplexer, keys: &Vec<RedisValue>
     let mut nodes = BTreeSet::new();
 
     for key in keys.iter() {
-      let key_str = match key.as_str() {
+      let key_bytes = match key.as_bytes() {
         Some(s) => s,
-        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key string.")),
+        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key bytes.")),
       };
-      let hash_slot = redis_protocol::redis_keyslot(&key_str);
+      let hash_slot = redis_protocol::redis_keyslot(key_bytes);
       let server = match cache.read().get_server(hash_slot) {
         Some(s) => s.id.clone(),
         None => {
           return Err(RedisError::new(
             RedisErrorKind::InvalidArgument,
-            format!("Failed to find cluster node for {}", key_str),
-          ))
+            "Failed to find cluster node",
+          ));
         }
       };
 
@@ -974,18 +1030,18 @@ pub fn check_mset_cluster_keys(multiplexer: &Multiplexer, args: &Vec<RedisValue>
     let mut nodes = BTreeSet::new();
 
     for chunk in args.chunks(2) {
-      let key = match chunk[0].as_str() {
+      let key = match chunk[0].as_bytes() {
         Some(s) => s,
-        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key string.")),
+        None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Expected key bytes.")),
       };
-      let hash_slot = redis_protocol::redis_keyslot(&key);
+      let hash_slot = redis_protocol::redis_keyslot(key);
       let server = match cache.read().get_server(hash_slot) {
         Some(s) => s.id.clone(),
         None => {
           return Err(RedisError::new(
             RedisErrorKind::InvalidArgument,
-            format!("Failed to find cluster node for {}", key),
-          ))
+            "Failed to find cluster node.",
+          ));
         }
       };
 
@@ -1107,15 +1163,24 @@ async fn existing_backchannel_connection(inner: &Arc<RedisClientInner>, servers:
 }
 
 async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
-  let mut servers: Vec<Arc<String>> = inner
-    .config
-    .read()
-    .server
-    .hosts()
-    .iter()
-    .map(|(h, p)| Arc::new(format!("{}:{}", h, p)))
-    .collect();
+  let mut servers = if let Some(ref state) = *inner.cluster_state.read() {
+    state.unique_main_nodes()
+  } else {
+    _debug!(
+      inner,
+      "Falling back to hosts from config in cluster backchannel due to missing cluster state."
+    );
+    inner
+      .config
+      .read()
+      .server
+      .hosts()
+      .iter()
+      .map(|(h, p)| Arc::new(format!("{}:{}", h, p)))
+      .collect()
+  };
 
+  _debug!(inner, "Creating or using backchannel from {:?}", servers);
   if let Some(swap) = existing_backchannel_connection(inner, &servers).await {
     servers.swap(0, swap);
   }
@@ -1125,7 +1190,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     let mut backchannel = inner.backchannel.write().await;
 
     _debug!(inner, "Reading cluster nodes on backchannel: {}", server);
-    let frame = match backchannel.request_response(inner, &server, cmd).await {
+    let frame = match backchannel.request_response(inner, &server, cmd, true).await {
       Ok(frame) => frame,
       Err(e) => {
         _warn!(inner, "Error creating or using backchannel for cluster nodes: {:?}", e);
@@ -1133,8 +1198,8 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
       }
     };
 
-    if let Frame::BulkString(bytes) = frame {
-      let response = String::from_utf8(bytes)?;
+    if let Resp3Frame::BlobString { data, .. } = frame {
+      let response = str::from_utf8(&data)?;
       let state = match ClusterKeyCache::new(Some(response)) {
         Ok(state) => state,
         Err(e) => {
@@ -1156,6 +1221,78 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     RedisErrorKind::Cluster,
     "Failed to read cluster nodes on all possible backchannel servers.",
   ))
+}
+
+/// Emit cluster state change events to listeners, dropping any there were closed.
+fn emit_cluster_changes(inner: &Arc<RedisClientInner>, changes: Vec<ClusterStateChange>) {
+  let mut to_remove = BTreeSet::new();
+
+  // check for closed senders as we emit messages, and drop them at the end
+  {
+    for (idx, tx) in inner.cluster_change_tx.read().iter().enumerate() {
+      if let Err(_) = tx.send(changes.clone()) {
+        to_remove.insert(idx);
+      }
+    }
+  }
+
+  if !to_remove.is_empty() {
+    _trace!(inner, "Removing {} closed cluster change listeners", to_remove.len());
+    let mut message_tx_guard = inner.cluster_change_tx.write();
+    let message_tx_ref = &mut *message_tx_guard;
+
+    let mut new_listeners = VecDeque::with_capacity(message_tx_ref.len() - to_remove.len());
+
+    for (idx, tx) in message_tx_ref.drain(..).enumerate() {
+      if !to_remove.contains(&idx) {
+        new_listeners.push_back(tx);
+      }
+    }
+    *message_tx_ref = new_listeners;
+  }
+}
+
+fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterChange) {
+  let has_listeners = { inner.cluster_change_tx.read().len() > 0 };
+
+  if has_listeners {
+    let (added, removed) = {
+      let mut added = Vec::with_capacity(changes.add.len());
+      let mut removed = Vec::with_capacity(changes.remove.len());
+
+      for server in changes.add.iter() {
+        let parts = match server_to_parts(server) {
+          Ok((host, port)) => (host.to_owned(), port),
+          Err(_) => continue,
+        };
+
+        added.push(parts);
+      }
+      for server in changes.remove.iter() {
+        let parts = match server_to_parts(server) {
+          Ok((host, port)) => (host.to_owned(), port),
+          Err(_) => continue,
+        };
+
+        removed.push(parts);
+      }
+
+      (added, removed)
+    };
+    let mut changes = Vec::with_capacity(added.len() + removed.len() + 1);
+    if added.is_empty() && removed.is_empty() {
+      changes.push(ClusterStateChange::Rebalance);
+    } else {
+      for parts in added.into_iter() {
+        changes.push(ClusterStateChange::Add(parts))
+      }
+      for parts in removed.into_iter() {
+        changes.push(ClusterStateChange::Remove(parts));
+      }
+    }
+
+    emit_cluster_changes(inner, changes);
+  }
 }
 
 pub async fn sync_cluster(
@@ -1182,6 +1319,7 @@ pub async fn sync_cluster(
     };
     let changes = create_cluster_change(&cluster_state, &writers).await;
     _debug!(inner, "Changing cluster connections: {:?}", changes);
+    broadcast_cluster_changes(inner, &changes);
 
     for removed_server in changes.remove.into_iter() {
       remove_server(inner, counters, writers, commands, connection_ids, &removed_server).await?;

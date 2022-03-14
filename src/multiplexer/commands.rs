@@ -1,6 +1,5 @@
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{utils, SentCommand};
 use crate::multiplexer::{Backpressure, Multiplexer};
@@ -11,7 +10,7 @@ use crate::trace;
 use crate::types::{ClientState, ReconnectPolicy, ServerConfig};
 use crate::utils as client_utils;
 use redis_protocol::redis_keyslot;
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::VecDeque;
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -197,8 +196,12 @@ fn next_reconnect_delay(
   error: &RedisError,
 ) -> Option<u64> {
   if error.is_cluster_error() {
-    let amt = globals().cluster_error_cache_delay();
-    _debug!(inner, "Waiting {} ms to reconnect due to cluster error", amt);
+    let amt = inner.perf_config.cluster_cache_update_delay_ms();
+    _debug!(
+      inner,
+      "Waiting {} ms to rebuild cluster state due to cluster error",
+      amt
+    );
     Some(amt as u64)
   } else {
     policy.next_delay()
@@ -217,7 +220,8 @@ fn handle_connection_closed(
   let mut policy = policy.unwrap_or(ReconnectPolicy::Constant {
     attempts: 0,
     max_attempts: 0,
-    delay: globals().cluster_error_cache_delay() as u32,
+    delay: inner.perf_config.cluster_cache_update_delay_ms() as u32,
+    jitter: 0,
   });
 
   let reconnect_inner = inner.clone();
@@ -258,8 +262,10 @@ fn handle_connection_closed(
           }
         };
 
-        _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
-        sleep(Duration::from_millis(next_delay)).await;
+        if next_delay > 0 {
+          _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
+          sleep(Duration::from_millis(next_delay)).await;
+        }
 
         let result = if client_utils::is_clustered(&inner.config) {
           multiplexer.sync_cluster().await
@@ -363,7 +369,9 @@ fn should_disable_pipeline(inner: &Arc<RedisClientInner>, command: &RedisCommand
     // when the final response to EXEC or DISCARD arrives the command buffer will only contain commands that were
     // a part of the transaction. this makes reconnection logic much easier to reason about in the context of transactions
     || command.kind == RedisCommandKind::Multi
-    || command.kind.ends_transaction();
+    || command.kind.ends_transaction()
+    // we also disable pipelining on the HELLO command so that we don't try to decode any in-flight responses with the wrong codec logic
+    || command.kind.is_hello();
 
   // prefer pipelining for all commands not in a multi block (unless specified above), unless the command is blocking.
   // but, in the context of a transaction blocking commands can be pipelined since the server responds immediately.
@@ -376,7 +384,7 @@ fn check_transaction_hash_slot(inner: &Arc<RedisClientInner>, command: &RedisCom
   if client_utils::is_clustered(&inner.config) && client_utils::is_locked_some(&inner.multi_block) {
     if let Some(key) = command.extract_key() {
       if let Some(policy) = inner.multi_block.write().deref_mut() {
-        let _ = policy.check_and_set_hash_slot(redis_keyslot(&key))?;
+        let _ = policy.check_and_set_hash_slot(redis_keyslot(key))?;
       }
     }
   }
@@ -411,14 +419,14 @@ async fn handle_write_error(
 /// Handle the response to the MULTI command, forwarding any errors onto the caller of the next command and returning whether the multiplexers should skip the next command.
 async fn handle_deferred_multi_response(
   inner: &Arc<RedisClientInner>,
-  rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
+  rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
   command: &mut RedisCommand,
 ) -> bool {
   match rx.await {
     Ok(Ok(frame)) => {
-      if let ProtocolFrame::Error(s) = frame {
+      if let Resp3Frame::SimpleError { data, .. } = frame {
         if let Some(tx) = command.tx.take() {
-          let _ = tx.send(Err(pretty_error(&s)));
+          let _ = tx.send(Err(pretty_error(&data)));
         }
         true
       } else {
@@ -845,6 +853,9 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
       ))
     }
   };
+  if let Some(ref mut policy) = policy {
+    policy.reset_attempts();
+  }
   client_utils::set_locked(&inner.policy, policy.clone());
   let multiplexer = Multiplexer::new(inner);
 
@@ -864,11 +875,11 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
   utils::emit_reconnect(inner);
 
   let has_policy = policy.is_some();
-  let disable_pipeline = !inner.is_pipelined();
   handle_connection_closed(inner, &multiplexer, policy);
 
   _debug!(inner, "Starting command stream...");
   while let Some(command) = rx.recv().await {
+    let disable_pipeline = !inner.perf_config.pipeline();
     if let Err(e) = handle_command_t(inner, &multiplexer, command, has_policy, disable_pipeline).await {
       if e.is_canceled() {
         break;

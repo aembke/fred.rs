@@ -1,5 +1,4 @@
 use fred::prelude::*;
-use futures::stream::StreamExt;
 use prometheus::{register_int_gauge_vec, IntGaugeVec};
 
 fn sample_metrics(

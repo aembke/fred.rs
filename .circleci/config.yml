@@ -15,6 +15,9 @@ jobs:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
       - run:
+          name: Install cargo-nextest
+          command: tests/scripts/install_cargo_nextest.sh
+      - run:
           name: Clear the cargo git cache
           command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
       - run:
@@ -35,6 +38,9 @@ jobs:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
       - run:
+          name: Install cargo-nextest
+          command: tests/scripts/install_cargo_nextest.sh
+      - run:
           name: Clear the cargo git cache
           command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
       - run:
@@ -51,6 +57,9 @@ jobs:
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
+      - run:
+          name: Install cargo-nextest
+          command: tests/scripts/install_cargo_nextest.sh
       - run:
           name: Clear the cargo git cache
           command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
@@ -74,6 +83,17 @@ jobs:
       - run:
           name: Install and run sentinel tests
           command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
+  test-docs:
+    docker:
+      - image: cimg/rust:1.57.0
+    steps:
+      - checkout
+      - run:
+          name: Install nightly
+          command: rustup install nightly
+      - run:
+          name: Build documentation
+          command: tests/doc.sh
 
 workflows:
   version: 2
@@ -83,3 +103,4 @@ workflows:
       - test-all-features
       - test-no-features
       - test-sentinel
+      - test-docs

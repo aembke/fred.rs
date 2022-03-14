@@ -45,12 +45,16 @@
 //!
 //! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 //!
+pub extern crate bytes;
+pub extern crate bytes_utils;
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+pub extern crate serde_json;
+
 #[macro_use]
 extern crate async_trait;
 #[macro_use]
 extern crate log;
-#[cfg(feature = "index-map")]
-extern crate indexmap;
 #[cfg(feature = "enable-tls")]
 extern crate native_tls;
 #[cfg(feature = "enable-tls")]
@@ -70,24 +74,47 @@ mod protocol;
 mod trace;
 mod utils;
 
-/// The primary interface for communicating with the Redis server.
-pub mod client;
+/// Redis client implementations.
+pub mod clients;
 /// Error structs returned by Redis commands.
 pub mod error;
+/// Traits that implement portions of the Redis interface.
+pub mod interfaces;
 /// An interface to run the `MONITOR` command.
 #[cfg(feature = "monitor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "monitor")))]
 pub mod monitor;
+/// The structs and enums used by the Redis client.
+pub mod types;
 /// An interface for interacting directly with sentinel nodes.
-#[cfg(feature = "sentinel-client")]
-#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-pub mod sentinel;
 
-pub use crate::modules::{globals, pool, types};
+/// Utility functions used by the client that may also be useful to callers.
+pub mod util {
+  pub use crate::s;
+  pub use crate::utils::f64_to_redis_string;
+  pub use crate::utils::redis_string_to_f64;
+  pub use crate::utils::{static_bytes, static_str};
+  pub use redis_protocol::redis_keyslot;
 
-/// Convenience module to `use` a `RedisClient`, `RedisError`, and any argument types.
+  /// Calculate the SHA1 hash output as a hex string. This is provided for clients that use the Lua interface to manage their own script caches.
+  pub fn sha1_hash(input: &str) -> String {
+    use sha1::Digest;
+
+    let mut hasher = sha1::Sha1::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+  }
+}
+
+pub use crate::modules::{globals, pool};
+
+/// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or return value types.
 pub mod prelude {
-  pub use crate::client::RedisClient;
-  pub use crate::error::RedisError;
-  pub use crate::types::*;
+  pub use crate::clients::RedisClient;
+  pub use crate::error::{RedisError, RedisErrorKind};
+  pub use crate::interfaces::*;
+  pub use crate::types::{
+    Blocking, Expiration, FromRedis, ReconnectPolicy, RedisConfig, RedisValue, RedisValueKind, ServerConfig,
+    SetOptions,
+  };
 }

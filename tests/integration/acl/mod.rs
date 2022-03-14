@@ -1,7 +1,8 @@
-use fred::client::RedisClient;
-use fred::error::RedisError;
-use fred::types::RedisConfig;
 use super::utils::read_env_var;
+use fred::clients::RedisClient;
+use fred::error::RedisError;
+use fred::interfaces::*;
+use fred::types::{AclUserFlag, RedisConfig};
 
 // the docker image we use for sentinel tests doesn't allow for configuring users, just passwords,
 // so for the tests here we just use an empty username so it uses the `default` user
@@ -41,6 +42,13 @@ pub async fn should_auth_as_test_user_via_config(_: RedisClient, mut config: Red
     let _ = client.wait_for_connect().await?;
     let _: () = client.get("foo").await?;
   }
+
+  Ok(())
+}
+
+pub async fn should_run_acl_getuser(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let user = client.acl_getuser("default").await?.unwrap();
+  assert!(user.flags.contains(&AclUserFlag::On));
 
   Ok(())
 }

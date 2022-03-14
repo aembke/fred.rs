@@ -28,7 +28,6 @@ mod multi {
   cluster_test!(multi, should_run_get_set_trx);
   cluster_test_panic!(multi, should_fail_with_hashslot_error);
   cluster_test_panic!(multi, should_run_error_get_set_trx);
-  cluster_test_panic!(multi, should_fail_with_blocking_cmd);
   cluster_test!(multi, should_use_cluster_slot_with_publish);
 }
 
@@ -42,12 +41,12 @@ mod other {
   cluster_test!(other, should_automatically_unblock);
   cluster_test!(other, should_manually_unblock);
   cluster_test!(other, should_error_when_blocked);
+  cluster_test!(other, should_safely_change_protocols_repeatedly);
 }
 
 mod pool {
   cluster_test!(pool, should_connect_and_ping_static_pool_single_conn);
   cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
-  cluster_test!(pool, should_connect_and_ping_dynamic_pool);
   #[cfg(feature = "fd-tests")]
   cluster_test!(pool, should_connect_and_ping_static_pool_many_conn);
   #[cfg(feature = "fd-tests")]
@@ -222,4 +221,48 @@ pub mod geo {
   cluster_test!(geo, should_georadius_values);
   cluster_test!(geo, should_georadiusbymember_values);
   cluster_test!(geo, should_geosearch_values);
+}
+
+pub mod acl {
+  cluster_test!(acl, should_run_acl_getuser);
+}
+
+mod streams {
+  cluster_test!(streams, should_xinfo_consumers);
+  cluster_test!(streams, should_xinfo_groups);
+  cluster_test!(streams, should_xinfo_streams);
+  cluster_test!(streams, should_xadd_auto_id_to_a_stream);
+  cluster_test!(streams, should_xadd_manual_id_to_a_stream);
+  cluster_test!(streams, should_xadd_with_cap_to_a_stream);
+  cluster_test!(streams, should_xadd_nomkstream_to_a_stream);
+  cluster_test!(streams, should_xtrim_a_stream_approx_cap);
+  cluster_test!(streams, should_xtrim_a_stream_eq_cap);
+  cluster_test!(streams, should_xdel_one_id_in_a_stream);
+  cluster_test!(streams, should_xdel_multiple_ids_in_a_stream);
+  cluster_test!(streams, should_xrange_no_count);
+  cluster_test!(streams, should_xrange_with_count);
+  cluster_test!(streams, should_xrange_values_no_count);
+  cluster_test!(streams, should_xrevrange_no_count);
+  cluster_test!(streams, should_xrevrange_with_count);
+  cluster_test!(streams, should_xrevrange_values_no_count);
+  cluster_test!(streams, should_run_xlen_on_stream);
+  cluster_test!(streams, should_xread_one_key_count_1);
+  cluster_test!(streams, should_xread_multiple_keys_count_2);
+  cluster_test!(streams, should_xread_with_blocking);
+  cluster_test!(streams, should_xread_map_one_key);
+  cluster_test!(streams, should_xgroup_create_no_mkstream);
+  cluster_test!(streams, should_xgroup_create_mkstream);
+  cluster_test!(streams, should_xgroup_createconsumer);
+  cluster_test!(streams, should_xgroup_delconsumer);
+  cluster_test!(streams, should_xgroup_destroy);
+  cluster_test!(streams, should_xgroup_setid);
+  cluster_test!(streams, should_xreadgroup_one_stream);
+  cluster_test!(streams, should_xreadgroup_multiple_stream);
+  cluster_test!(streams, should_xreadgroup_block);
+  cluster_test!(streams, should_xack_one_id);
+  cluster_test!(streams, should_xack_multiple_ids);
+  cluster_test!(streams, should_xclaim_one_id);
+  cluster_test!(streams, should_xclaim_multiple_ids);
+  cluster_test!(streams, should_xclaim_with_justid);
+  cluster_test!(streams, should_xautoclaim_default);
 }

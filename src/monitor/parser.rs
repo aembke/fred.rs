@@ -7,7 +7,7 @@ use nom::combinator::{map_res as nom_map_res, opt as nom_opt};
 use nom::multi::many0 as nom_many0;
 use nom::sequence::{delimited as nom_delimited, preceded as nom_preceded, terminated as nom_terminated};
 use nom::IResult;
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use redis_protocol::types::RedisParseError;
 use std::str;
 use std::sync::Arc;
@@ -29,9 +29,9 @@ fn to_u8(s: &str) -> Result<u8, RedisParseError<&[u8]>> {
 fn to_redis_value(s: &[u8]) -> Result<RedisValue, RedisParseError<&[u8]>> {
   // TODO make this smarter in the future
   if let Ok(value) = str::from_utf8(s) {
-    Ok(RedisValue::String(value.to_owned()))
+    Ok(RedisValue::String(value.into()))
   } else {
-    Ok(RedisValue::Bytes(s.to_vec()))
+    Ok(RedisValue::Bytes(s.to_vec().into()))
   }
 }
 
@@ -120,10 +120,11 @@ fn log_frame(inner: &Arc<RedisClientInner>, frame: &[u8]) {
 #[cfg(not(feature = "network-logs"))]
 fn log_frame(_: &Arc<RedisClientInner>, _: &[u8]) {}
 
-pub fn parse(inner: &Arc<RedisClientInner>, frame: ProtocolFrame) -> Option<Command> {
+pub fn parse(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Command> {
   let frame_bytes = match frame {
-    ProtocolFrame::SimpleString(ref s) => s.as_bytes(),
-    ProtocolFrame::BulkString(ref b) => b,
+    Resp3Frame::SimpleString { ref data, .. } => data,
+    Resp3Frame::BlobString { ref data, .. } => data,
+    Resp3Frame::VerbatimString { ref data, .. } => data,
     _ => {
       _warn!(inner, "Unexpected frame type on monitor stream: {:?}", frame.kind());
       return None;

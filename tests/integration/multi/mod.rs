@@ -1,5 +1,6 @@
-use fred::client::RedisClient;
+use fred::clients::RedisClient;
 use fred::error::RedisError;
+use fred::interfaces::*;
 use fred::types::{RedisConfig, RedisValue};
 
 pub async fn should_run_get_set_trx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
@@ -27,14 +28,6 @@ pub async fn should_fail_with_hashslot_error(client: RedisClient, _config: Redis
   let trx = client.multi(true).await?;
   let _: () = client.set("foo", "bar", None, None, false).await?;
   let _: () = client.set("bar", "baz", None, None, false).await?;
-  let _: () = trx.exec().await?;
-
-  Ok(())
-}
-
-pub async fn should_fail_with_blocking_cmd(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let trx = client.multi(true).await?;
-  let _: () = client.blpop("foo", 100.0).await?;
   let _: () = trx.exec().await?;
 
   Ok(())

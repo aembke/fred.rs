@@ -1,10 +1,58 @@
-use fred::client::RedisClient;
+use fred::clients::RedisClient;
 use fred::error::{RedisError, RedisErrorKind};
-use fred::prelude::Blocking;
-use fred::types::{ClientUnblockFlag, RedisConfig, ServerConfig};
-use std::collections::BTreeSet;
+use fred::interfaces::*;
+use fred::prelude::{Blocking, RedisValue};
+use fred::types::{ClientUnblockFlag, RedisConfig, RedisKey, RedisMap, ServerConfig};
+use parking_lot::RwLock;
+use redis_protocol::resp3::types::RespVersion;
+use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::convert::TryInto;
+use std::mem;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
+
+fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
+  vals
+    .iter()
+    .map(|(key, value)| (key.clone(), value.as_u64().unwrap() as u16))
+    .collect()
+}
+
+fn array_to_set<T: Ord>(vals: Vec<T>) -> BTreeSet<T> {
+  vals.into_iter().collect()
+}
+
+pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let nested_values: RedisMap = vec![("a", 1), ("b", 2)].try_into()?;
+  let _ = client.set("foo", "123", None, None, false).await?;
+  let _ = client.set("baz", "456", None, None, false).await?;
+  let _ = client.hset("bar", &nested_values).await?;
+
+  let foo: usize = client.get("foo").await?;
+  assert_eq!(foo, 123);
+  let foo: i64 = client.get("foo").await?;
+  assert_eq!(foo, 123);
+  let foo: String = client.get("foo").await?;
+  assert_eq!(foo, "123");
+  let foo: Vec<u8> = client.get("foo").await?;
+  assert_eq!(foo, "123".as_bytes());
+  let foo: Vec<String> = client.hvals("bar").await?;
+  assert_eq!(array_to_set(foo), array_to_set(vec!["1".to_owned(), "2".to_owned()]));
+  let foo: BTreeSet<String> = client.hvals("bar").await?;
+  assert_eq!(foo, array_to_set(vec!["1".to_owned(), "2".to_owned()]));
+  let foo: HashMap<String, u16> = client.hgetall("bar").await?;
+  assert_eq!(foo, RedisValue::Map(nested_values.clone()).convert()?);
+  let foo: BTreeMap<RedisKey, u16> = client.hgetall("bar").await?;
+  assert_eq!(foo, hash_to_btree(&nested_values));
+  let foo: (String, i64) = client.mget(vec!["foo", "baz"]).await?;
+  assert_eq!(foo, ("123".into(), 456));
+  let foo: Vec<(String, i64)> = client.hgetall("bar").await?;
+  assert_eq!(array_to_set(foo), array_to_set(vec![("a".into(), 1), ("b".into(), 2)]));
+
+  Ok(())
+}
 
 pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Interrupt;
@@ -128,5 +176,40 @@ pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) ->
     assert!(value.is_none());
   }
 
+  Ok(())
+}
+
+pub async fn should_safely_change_protocols_repeatedly(
+  client: RedisClient,
+  _: RedisConfig,
+) -> Result<(), RedisError> {
+  let done = Arc::new(RwLock::new(false));
+  let other = client.clone();
+  let other_done = done.clone();
+
+  let jh = tokio::spawn(async move {
+    loop {
+      if *other_done.read() {
+        return Ok::<_, RedisError>(());
+      }
+
+      let _ = other.incr("foo").await?;
+      sleep(Duration::from_millis(10)).await;
+    }
+  });
+
+  // switch protocols every half second
+  for idx in 0..20 {
+    let version = if idx % 2 == 0 {
+      RespVersion::RESP2
+    } else {
+      RespVersion::RESP3
+    };
+    let _ = client.hello(version, None).await?;
+    sleep(Duration::from_millis(500)).await;
+  }
+  let _ = mem::replace(&mut *done.write(), true);
+
+  let _ = jh.await?;
   Ok(())
 }

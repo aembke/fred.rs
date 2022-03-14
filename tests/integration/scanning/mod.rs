@@ -36,7 +36,7 @@ pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result
 
 pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   for idx in 0..SCAN_KEYS {
-    let value = (format!("bar-{}", idx), idx.into());
+    let value = (format!("bar-{}", idx), idx);
     let _ = client.hset("foo", value).await?;
   }
 
@@ -48,7 +48,7 @@ pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<()
 
         // scanning wont return results in any particular order, so we just check the format of the key
         for (key, _) in results.iter() {
-          let parts: Vec<&str> = key.as_str().split("-").collect();
+          let parts: Vec<&str> = key.as_str().unwrap().split("-").collect();
           assert!(parts[1].parse::<i64>().is_ok());
         }
       } else {

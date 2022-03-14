@@ -14,10 +14,13 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::{App, ArgMatches};
-use fred::pool::StaticRedisPool;
+use fred::globals;
+use fred::pool::RedisPool;
 use fred::prelude::*;
+use fred::types::{BackpressureConfig, PerformanceConfig};
 use opentelemetry::global;
 use opentelemetry::sdk::trace::{self, IdGenerator, Sampler};
+use std::default::Default;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle as ThreadJoinHandle};
@@ -34,7 +37,6 @@ static DEFAULT_PORT: u16 = 6379;
 static TEST_KEY: &'static str = "foo";
 
 mod utils;
-use fred::globals;
 
 #[derive(Debug)]
 struct Argv {
@@ -154,7 +156,6 @@ fn spawn_client_task(
 
 fn main() {
   pretty_env_logger::init();
-  globals::set_backpressure_count(1000000);
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
@@ -165,9 +166,17 @@ fn main() {
     let counter = Arc::new(AtomicUsize::new(0));
     let config = RedisConfig {
       server: ServerConfig::new_centralized(&argv.host, argv.port),
+      performance: PerformanceConfig {
+        pipeline: argv.pipeline,
+        backpressure: BackpressureConfig {
+          max_in_flight_commands: 100_000_000,
+          ..Default::default()
+        },
+        ..Default::default()
+      },
       ..Default::default()
     };
-    let pool = StaticRedisPool::new(config, argv.pool)?;
+    let pool = RedisPool::new(config, argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
     let _ = pool.connect(None);

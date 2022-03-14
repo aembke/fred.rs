@@ -1,12 +1,12 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
-use crate::modules::types::ClientState;
 use crate::multiplexer::{utils, CloseTx, Connections, Counters, SentCommand};
 use crate::protocol::codec::RedisCodec;
-use crate::protocol::connection::{self, authenticate, FramedTcp, FramedTls, RedisTransport};
+use crate::protocol::connection::{self, authenticate, select_database, FramedTcp, FramedTls, RedisTransport};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
+use crate::types::ClientState;
 use crate::types::Resolve;
 use crate::types::{RedisValue, ServerConfig};
 use crate::utils as client_utils;
@@ -88,16 +88,26 @@ pub async fn create_authenticated_connection_tls(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let (username, password) = if is_sentinel {
-    read_sentinel_auth(inner)?
+  let ((username, password), is_resp3) = if is_sentinel {
+    (read_sentinel_auth(inner)?, false)
   } else {
-    read_redis_auth(inner)
+    (read_redis_auth(inner), inner.is_resp3())
   };
 
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
-  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
+  let framed = if is_sentinel {
+    Framed::new(socket, codec)
+  } else {
+    connection::switch_protocols(inner, Framed::new(socket, codec)).await?
+  };
+  let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = if is_sentinel {
+    framed
+  } else {
+    select_database(inner, framed).await?
+  };
 
   Ok(framed)
 }
@@ -120,14 +130,24 @@ pub async fn create_authenticated_connection(
   let server = format!("{}:{}", addr.ip().to_string(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
-  let (username, password) = if is_sentinel {
-    read_sentinel_auth(inner)?
+  let ((username, password), is_resp3) = if is_sentinel {
+    (read_sentinel_auth(inner)?, false)
   } else {
-    read_redis_auth(inner)
+    (read_redis_auth(inner), inner.is_resp3())
   };
 
   let socket = TcpStream::connect(addr).await?;
-  let framed = authenticate(Framed::new(socket, codec), &client_name, username, password).await?;
+  let framed = if is_sentinel {
+    Framed::new(socket, codec)
+  } else {
+    connection::switch_protocols(inner, Framed::new(socket, codec)).await?
+  };
+  let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = if is_sentinel {
+    framed
+  } else {
+    select_database(inner, framed).await?
+  };
 
   Ok(framed)
 }
@@ -166,8 +186,8 @@ async fn read_primary_node_address(
     vec!["get-master-addr-by-name".into(), server_name.into()],
     None,
   );
-  let (frame, transport) = stry!(connection::transport_request_response(transport, &request).await);
-  let result = stry!(protocol_utils::frame_to_results(frame));
+  let (frame, transport) = stry!(connection::transport_request_response(transport, &request, false).await);
+  let result = stry!(protocol_utils::frame_to_results(frame.into_resp3()));
   let (host, port): (String, u16) = stry!(result.convert());
   let addr = stry!(inner.resolver.resolve(host.clone(), port).await);
 
@@ -230,8 +250,9 @@ async fn connect_and_check_primary_role(
   let transport = stry!(connect_to_server(inner, host, addr, DEFAULT_CONNECTION_TIMEOUT_MS, false).await);
 
   _debug!(inner, "Checking role for redis server at {}:{}", host, addr.port());
-  let (frame, transport) = stry!(connection::transport_request_response(transport, &request).await);
-  let result = stry!(protocol_utils::frame_to_results(frame));
+  let is_resp3 = inner.is_resp3();
+  let (frame, transport) = stry!(connection::transport_request_response(transport, &request, is_resp3).await);
+  let result = stry!(protocol_utils::frame_to_results(frame.into_resp3()));
 
   if let RedisValue::Array(values) = result {
     if let Some(first) = values.first() {
@@ -407,8 +428,8 @@ pub async fn update_sentinel_nodes(
 ) -> Result<(), RedisError> {
   _debug!(inner, "Reading sentinel nodes...");
   let command = RedisCommand::new(RedisCommandKind::Sentinel, vec!["sentinels".into(), name.into()], None);
-  let (frame, _) = stry!(connection::transport_request_response(transport, &command).await);
-  let response = stry!(protocol_utils::frame_to_results(frame));
+  let (frame, _) = stry!(connection::transport_request_response(transport, &command, false).await);
+  let response = stry!(protocol_utils::frame_to_results(frame.into_resp3()));
   _trace!(inner, "Read sentinel response: {:?}", response);
   let sentinel_nodes = stry!(parse_sentinel_nodes_response(inner, response));
 

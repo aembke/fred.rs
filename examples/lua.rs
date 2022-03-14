@@ -1,5 +1,5 @@
-use fred::client::util as fred_utils;
 use fred::prelude::*;
+use fred::util as fred_utils;
 
 static SCRIPTS: &'static [&'static str] = &[
   "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",
@@ -13,7 +13,7 @@ async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
   let client = RedisClient::new(config);
 
-  let jh = client.connect(None);
+  let _jh = client.connect(None);
   let _ = client.wait_for_connect().await?;
 
   for script in SCRIPTS.iter() {

@@ -1,4 +1,5 @@
 use crate::protocol::types::RedisCommand;
+use bytes_utils::string::Utf8Error as BytesUtf8Error;
 use futures::channel::oneshot::Canceled;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::types::RedisProtocolError;
@@ -11,6 +12,7 @@ use std::fmt::Display;
 use std::io::Error as IoError;
 use std::num::ParseFloatError;
 use std::num::ParseIntError;
+use std::str;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use tokio::task::JoinError;
@@ -49,6 +51,8 @@ pub enum RedisErrorKind {
   Sentinel,
   /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a non-nullable type.
   NotFound,
+  /// An error indicating that the caller should apply backpressure and retry the command.
+  Backpressure,
 }
 
 impl RedisErrorKind {
@@ -69,6 +73,7 @@ impl RedisErrorKind {
       RedisErrorKind::Parse => "Parse Error",
       RedisErrorKind::Sentinel => "Sentinel Error",
       RedisErrorKind::NotFound => "Not Found",
+      RedisErrorKind::Backpressure => "Backpressure",
     }
   }
 }
@@ -171,13 +176,19 @@ impl From<ParseIntError> for RedisError {
 
 impl From<FromUtf8Error> for RedisError {
   fn from(_: FromUtf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid UTF8 string.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }
 
 impl From<Utf8Error> for RedisError {
   fn from(_: Utf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid UTF8 string.")
+    RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
+  }
+}
+
+impl<S> From<BytesUtf8Error<S>> for RedisError {
+  fn from(e: BytesUtf8Error<S>) -> Self {
+    e.utf8_error().into()
   }
 }
 
@@ -215,8 +226,8 @@ impl From<Infallible> for RedisError {
 impl From<Resp2Frame> for RedisError {
   fn from(e: Resp2Frame) -> Self {
     match e {
-      Resp2Frame::SimpleString(s) => match s.as_ref() {
-        "Canceled" => RedisError::new_canceled(),
+      Resp2Frame::SimpleString(s) => match str::from_utf8(&s).ok() {
+        Some("Canceled") => RedisError::new_canceled(),
         _ => RedisError::new(RedisErrorKind::Unknown, "Unknown frame error."),
       },
       _ => RedisError::new(RedisErrorKind::Unknown, "Unknown frame error."),

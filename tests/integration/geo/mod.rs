@@ -1,4 +1,5 @@
 use fred::prelude::*;
+use fred::types::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, SortOrder};
 use std::convert::TryInto;
 
 fn loose_eq(lhs: f64, rhs: f64, precision: u32) -> bool {

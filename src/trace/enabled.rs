@@ -2,7 +2,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::protocol::types::RedisCommand;
 use crate::protocol::utils as protocol_utils;
 use crate::utils;
-use redis_protocol::resp2::types::Frame;
+use redis_protocol::resp3::types::Frame;
 use std::fmt;
 use std::sync::Arc;
 use tracing::event;
@@ -55,7 +55,7 @@ pub fn set_network_span(command: &mut RedisCommand, flush: bool) {
 }
 
 pub fn record_response_size(span: &Span, frame: &Frame) {
-  span.record("res_size", &protocol_utils::frame_size(frame));
+  span.record("res_size", &protocol_utils::resp3_frame_size(frame));
 }
 
 pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
@@ -65,7 +65,6 @@ pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
     module = "fred",
     client_id = inner.id.as_str(),
     cmd = Empty,
-    key = Empty,
     req_size = Empty,
     res_size = Empty
   )
@@ -100,7 +99,7 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Span 
     "parse_pubsub",
     module = "fred",
     client_id = &inner.id.as_str(),
-    res_size = &protocol_utils::frame_size(frame),
+    res_size = &protocol_utils::resp3_frame_size(frame),
     channel = Empty
   )
 }

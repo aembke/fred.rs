@@ -27,7 +27,6 @@ mod multi {
 
   centralized_test!(multi, should_run_get_set_trx);
   centralized_test_panic!(multi, should_run_error_get_set_trx);
-  centralized_test_panic!(multi, should_fail_with_blocking_cmd);
 }
 
 mod other {
@@ -38,12 +37,13 @@ mod other {
   centralized_test!(other, should_automatically_unblock);
   centralized_test!(other, should_manually_unblock);
   centralized_test!(other, should_error_when_blocked);
+  centralized_test!(other, should_smoke_test_from_redis_impl);
+  centralized_test!(other, should_safely_change_protocols_repeatedly);
 }
 
 mod pool {
   centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
-  centralized_test!(pool, should_connect_and_ping_dynamic_pool);
   #[cfg(feature = "fd-tests")]
   centralized_test!(pool, should_connect_and_ping_static_pool_many_conn);
   #[cfg(feature = "fd-tests")]
@@ -220,4 +220,45 @@ pub mod geo {
 pub mod acl {
   centralized_test!(acl, should_auth_as_test_user);
   centralized_test!(acl, should_auth_as_test_user_via_config);
+  centralized_test!(acl, should_run_acl_getuser);
+}
+
+mod streams {
+  centralized_test!(streams, should_xinfo_consumers);
+  centralized_test!(streams, should_xinfo_groups);
+  centralized_test!(streams, should_xinfo_streams);
+  centralized_test!(streams, should_xadd_auto_id_to_a_stream);
+  centralized_test!(streams, should_xadd_manual_id_to_a_stream);
+  centralized_test!(streams, should_xadd_with_cap_to_a_stream);
+  centralized_test!(streams, should_xadd_nomkstream_to_a_stream);
+  centralized_test!(streams, should_xtrim_a_stream_approx_cap);
+  centralized_test!(streams, should_xtrim_a_stream_eq_cap);
+  centralized_test!(streams, should_xdel_one_id_in_a_stream);
+  centralized_test!(streams, should_xdel_multiple_ids_in_a_stream);
+  centralized_test!(streams, should_xrange_no_count);
+  centralized_test!(streams, should_xrange_with_count);
+  centralized_test!(streams, should_xrange_values_no_count);
+  centralized_test!(streams, should_xrevrange_no_count);
+  centralized_test!(streams, should_xrevrange_with_count);
+  centralized_test!(streams, should_xrevrange_values_no_count);
+  centralized_test!(streams, should_run_xlen_on_stream);
+  centralized_test!(streams, should_xread_one_key_count_1);
+  centralized_test!(streams, should_xread_map_one_key);
+  centralized_test!(streams, should_xread_multiple_keys_count_2);
+  centralized_test!(streams, should_xread_with_blocking);
+  centralized_test!(streams, should_xgroup_create_no_mkstream);
+  centralized_test!(streams, should_xgroup_create_mkstream);
+  centralized_test!(streams, should_xgroup_createconsumer);
+  centralized_test!(streams, should_xgroup_delconsumer);
+  centralized_test!(streams, should_xgroup_destroy);
+  centralized_test!(streams, should_xgroup_setid);
+  centralized_test!(streams, should_xreadgroup_one_stream);
+  centralized_test!(streams, should_xreadgroup_multiple_stream);
+  centralized_test!(streams, should_xreadgroup_block);
+  centralized_test!(streams, should_xack_one_id);
+  centralized_test!(streams, should_xack_multiple_ids);
+  centralized_test!(streams, should_xclaim_one_id);
+  centralized_test!(streams, should_xclaim_multiple_ids);
+  centralized_test!(streams, should_xclaim_with_justid);
+  centralized_test!(streams, should_xautoclaim_default);
 }

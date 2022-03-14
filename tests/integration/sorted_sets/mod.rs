@@ -1,5 +1,6 @@
 use float_cmp::approx_eq;
 use fred::prelude::*;
+use fred::types::{Ordering, ZRange, ZRangeKind, ZSort};
 use std::cmp::Ordering as CmpOrdering;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -455,14 +456,14 @@ pub async fn should_zrangebylex(client: RedisClient, _: RedisConfig) -> Result<(
   let expected = create_lex_data(&client, "foo").await?;
   let expected_values: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
 
-  let old_result = client.zrangebylex("foo", "-", "+", None).await?;
+  let old_result: RedisValue = client.zrangebylex("foo", "-", "+", None).await?;
   let new_result = client
     .zrange("foo", "-", "+", Some(ZSort::ByLex), false, None, false)
     .await?;
   assert_eq!(old_result, new_result);
   assert_eq!(old_result.into_array(), expected_values);
 
-  let old_result = client.zrangebylex("foo", "a", "[c", None).await?;
+  let old_result: RedisValue = client.zrangebylex("foo", "a", "[c", None).await?;
   let new_result = client
     .zrange("foo", "a", "[c", Some(ZSort::ByLex), false, None, false)
     .await?;
@@ -477,14 +478,14 @@ pub async fn should_zrevrangebylex(client: RedisClient, _: RedisConfig) -> Resul
   let mut expected_values: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
   expected_values.reverse();
 
-  let old_result = client.zrevrangebylex("foo", "+", "-", None).await?;
+  let old_result: RedisValue = client.zrevrangebylex("foo", "+", "-", None).await?;
   let new_result = client
     .zrange("foo", "+", "-", Some(ZSort::ByLex), true, None, false)
     .await?;
   assert_eq!(old_result, new_result);
   assert_eq!(old_result.into_array(), expected_values);
 
-  let old_result = client.zrevrangebylex("foo", "c", "[a", None).await?;
+  let old_result: RedisValue = client.zrevrangebylex("foo", "c", "[a", None).await?;
   let new_result = client
     .zrange("foo", "[c", "a", Some(ZSort::ByLex), true, None, false)
     .await?;
@@ -498,14 +499,14 @@ pub async fn should_zrangebyscore(client: RedisClient, _: RedisConfig) -> Result
   let expected = create_count_data(&client, "foo").await?;
   let expected_values: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
 
-  let old_result = client.zrangebyscore("foo", "-inf", "+inf", false, None).await?;
+  let old_result: RedisValue = client.zrangebyscore("foo", "-inf", "+inf", false, None).await?;
   let new_result = client
     .zrange("foo", "-inf", "+inf", Some(ZSort::ByScore), false, None, false)
     .await?;
   assert_eq!(old_result, new_result);
   assert_eq!(old_result.into_array(), expected_values);
 
-  let old_result = client
+  let old_result: RedisValue = client
     .zrangebyscore("foo", (COUNT / 2) as f64, COUNT as f64, false, None)
     .await?;
   let new_result = client
@@ -530,7 +531,7 @@ pub async fn should_zrangebyscore(client: RedisClient, _: RedisConfig) -> Result
     kind: ZRangeKind::Inclusive,
     range: (COUNT as f64).try_into()?,
   };
-  let old_result = client.zrangebyscore("foo", &lower, &upper, false, None).await?;
+  let old_result: RedisValue = client.zrangebyscore("foo", &lower, &upper, false, None).await?;
   let new_result = client
     .zrange("foo", &lower, &upper, Some(ZSort::ByScore), false, None, false)
     .await?;
@@ -545,14 +546,14 @@ pub async fn should_zrevrangebyscore(client: RedisClient, _: RedisConfig) -> Res
   let mut expected_values: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
   expected_values.reverse();
 
-  let old_result = client.zrevrangebyscore("foo", "+inf", "-inf", false, None).await?;
+  let old_result: RedisValue = client.zrevrangebyscore("foo", "+inf", "-inf", false, None).await?;
   let new_result = client
     .zrange("foo", "+inf", "-inf", Some(ZSort::ByScore), true, None, false)
     .await?;
   assert_eq!(old_result, new_result);
   assert_eq!(old_result.into_array(), expected_values);
 
-  let old_result = client
+  let old_result: RedisValue = client
     .zrevrangebyscore("foo", COUNT as f64, (COUNT / 2) as f64, false, None)
     .await?;
   let new_result = client
@@ -577,7 +578,7 @@ pub async fn should_zrevrangebyscore(client: RedisClient, _: RedisConfig) -> Res
     kind: ZRangeKind::Inclusive,
     range: (COUNT as f64).try_into()?,
   };
-  let old_result = client.zrevrangebyscore("foo", &upper, &lower, false, None).await?;
+  let old_result: RedisValue = client.zrevrangebyscore("foo", &upper, &lower, false, None).await?;
   let new_result = client
     .zrange("foo", &upper, &lower, Some(ZSort::ByScore), true, None, false)
     .await?;
@@ -793,8 +794,8 @@ pub async fn should_zmscore_values(client: RedisClient, _: RedisConfig) -> Resul
     let _: () = client.zadd("foo", None, None, false, false, (idx as f64, idx)).await?;
   }
 
-  let result: Vec<RedisValue> = client.zmscore("foo", vec![0, 1]).await?;
-  assert_eq!(result, vec!["0".into(), "1".into()]);
+  let result: Vec<f64> = client.zmscore("foo", vec![0, 1]).await?;
+  assert_eq!(result, vec![0.0, 1.0]);
   let result: Option<f64> = client.zmscore("foo", vec![11]).await?;
   assert!(result.is_none());
 

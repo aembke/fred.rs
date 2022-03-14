@@ -2,9 +2,27 @@
 
 Tests are organized by category, similar to the [commands](../src/commands) folder.
 
-By default, most tests run 4 times based on the following configuration parameters: clustered vs centralized servers and pipelined vs non-pipelined clients. Helper macros exist to make this easy so each test only has to be written once.
+By default, most tests run 8 times based on the following configuration parameters: clustered vs centralized servers, pipelined vs non-pipelined clients, and RESP2 vs RESP3 mode. Helper macros exist to make this easy so each test only has to be written once.
 
 **The tests require Redis version >=6.2**
+
+## Makefile
+
+The easiest way to set up the tests is to use the [Makefile](../Makefile):
+
+```
+# setup
+make clean
+make install
+
+# run tests
+make test-default-features
+make test-all-features
+make test-no-features
+make test-sentinel-features
+```
+
+The make commands are thin wrappers around scripts in the [scripts](scripts) and [runners](runners) folders. The rest of this document will cover how to use those scripts by hand.
 
 ## Installation
 
@@ -17,7 +35,6 @@ In order to run the installation scripts the following must be installed:
 * OpenSSL (`libssl-dev`) for testing TLS features without vendored OpenSSL dependencies
 * `docker`
 * `docker-compose` (this may come with `docker` depending on the version you use)
-* `expect`
 
 ### Fresh Installation
 
@@ -54,6 +71,15 @@ See the [CI configuration](../.circleci/config.yml) for more information.
 
 Note: the [stop redis script](scripts/stop_all_redis.sh) can stop all local Redis servers, including those started via docker.
 
+There are 4 environment variables that can be used to control the host/port for the centralized or clustered servers used for the tests. The default values can be found in the [environ](./environ) file.
+
+* FRED_REDIS_CLUSTER_HOST
+* FRED_REDIS_CLUSTER_PORT
+* FRED_REDIS_CENTRALIZED_HOST
+* FRED_REDIS_CENTRALIZED_PORT
+
+Callers can change these, but need to ensure the ACL rules are properly configured on the servers. A user with the name `$REDIS_USERNAME` and password `$REDIS_PASSWORD` needs full access to run any command. The installation scripts will automatically set these rules, but if callers use a different server they may need to manually create this user.
+
 ## Adding Tests
 
 Adding tests is straightforward with the help of some macros and utility functions.
@@ -66,7 +92,7 @@ Note: When writing tests that operate on multiple keys be sure to use a [hash_ta
 4. Call the test from the appropriate [integration/cluster.rs](integration/cluster.rs) or [integration/centralized.rs](integration/centralized.rs) files, or both. Create a wrapping `mod` block with the same name as the test's folder if necessary.
 5. Use `centralized_test!` or `cluster_test!` to generate tests in the appropriate module. Centralized tests will be automatically converted to sentinel tests if using the sentinel testing features.
 
-Tests that use this pattern will run 4 times to check the functionality against a clustered and centralized redis servers using both pipelined and non-pipelined clients.
+Tests that use this pattern will run 8 times to check the functionality against clustered and centralized redis servers with using both pipelined and non-pipelined clients in RESP2 and RESP3 mode.
 
 ## Chaos Monkey
 
@@ -93,4 +119,3 @@ The following modules still need better test coverage:
 
 * ACL commands
 * Cluster commands. This one is more complicated though since many of these modify the cluster.
-* Client commands

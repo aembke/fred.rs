@@ -1,9 +1,12 @@
 use fred::globals;
 use fred::prelude::*;
-use futures::stream::StreamExt;
+
+#[cfg(feature = "custom-reconnect-errors")]
+use globals::ReconnectError;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
+  // note: in fred v5 the majority of the performance options were moved from the globals to the `RedisConfig`
   let config = RedisConfig::default();
   let client = RedisClient::new(config);
 
@@ -12,15 +15,15 @@ async fn main() -> Result<(), RedisError> {
     println!("Client failed to connect with error: {:?}", error);
   }
 
-  globals::set_feed_count(500);
-  globals::set_cluster_error_cache_delay_ms(100);
-  globals::set_min_backpressure_time_ms(20);
-  globals::set_default_command_timeout(30_000);
-  globals::set_max_command_attempts(5);
-  globals::set_backpressure_count(100);
-
+  globals::set_sentinel_connection_timeout_ms(10_000);
   #[cfg(feature = "blocking-encoding")]
   globals::set_blocking_encode_threshold(10_000_000);
+  #[cfg(feature = "custom-reconnect-errors")]
+  globals::set_custom_reconnect_errors(vec![
+    ReconnectError::ClusterDown,
+    ReconnectError::MasterDown,
+    ReconnectError::ReadOnly,
+  ]);
 
   // do stuff...
 

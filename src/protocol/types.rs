@@ -1,13 +1,19 @@
 use super::utils as protocol_utils;
-use crate::client::RedisClient;
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
+use crate::modules::inner::RedisClientInner;
 use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
+use bytes_utils::Str;
 use parking_lot::RwLock;
+use rand::Rng;
+use redis_protocol::resp2::types::Frame as Resp2Frame;
+use redis_protocol::resp2_frame_to_resp3;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::convert::TryInto;
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
@@ -15,19 +21,51 @@ use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
+#[cfg(feature = "blocking-encoding")]
+use crate::globals::globals;
+
 #[cfg(not(feature = "full-tracing"))]
 use crate::trace::disabled::Span as FakeSpan;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::Span;
-use rand::Rng;
-use std::borrow::Cow;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
+#[derive(Debug)]
+pub enum ProtocolFrame {
+  Resp2(Resp2Frame),
+  Resp3(Resp3Frame),
+}
+
+impl ProtocolFrame {
+  pub fn into_resp3(self) -> Resp3Frame {
+    // since the `RedisValue::convert` logic already accounts for different encodings of maps and sets we can just
+    // change everything to RESP3 above the protocol layer. resp2->resp3 is lossless so this is safe.
+    match self {
+      ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
+      ProtocolFrame::Resp3(frame) => frame,
+    }
+  }
+}
+
+impl From<Resp2Frame> for ProtocolFrame {
+  fn from(frame: Resp2Frame) -> Self {
+    ProtocolFrame::Resp2(frame)
+  }
+}
+
+impl From<Resp3Frame> for ProtocolFrame {
+  fn from(frame: Resp3Frame) -> Self {
+    ProtocolFrame::Resp3(frame)
+  }
+}
+
 #[derive(Clone)]
 pub struct AllNodesResponse {
+  // this state can shared across tasks scheduled in different threads on multi-thread runtimes when we
+  // send commands to all servers at once and wait for all the responses
   num_nodes: Arc<RwLock<usize>>,
   resp_tx: Arc<RwLock<Option<OneshotSender<Result<(), RedisError>>>>>,
 }
@@ -82,6 +120,7 @@ pub struct CustomKeySlot {
 
 #[derive(Clone)]
 pub struct SplitCommand {
+  // TODO change to mutex
   pub tx: Arc<RwLock<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
   pub config: Option<RedisConfig>,
 }
@@ -102,8 +141,8 @@ impl Eq for SplitCommand {}
 
 #[derive(Clone)]
 pub enum ResponseKind {
-  Blocking { tx: Option<UnboundedSender<Frame>> },
-  Multiple { count: usize, buffer: VecDeque<Frame> },
+  Blocking { tx: Option<UnboundedSender<Resp3Frame>> },
+  Multiple { count: usize, buffer: VecDeque<Resp3Frame> },
 }
 
 impl fmt::Debug for ResponseKind {
@@ -131,7 +170,7 @@ impl Eq for ResponseKind {}
 
 pub struct KeyScanInner {
   pub key_slot: Option<u16>,
-  pub cursor: String,
+  pub cursor: Str,
   pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
@@ -150,7 +189,7 @@ pub enum ValueScanResult {
 }
 
 pub struct ValueScanInner {
-  pub cursor: String,
+  pub cursor: Str,
   pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
@@ -174,11 +213,11 @@ impl ValueScanInner {
       ));
     }
 
-    let mut out = utils::new_map(data.len() / 2);
+    let mut out = HashMap::with_capacity(data.len() / 2);
     while data.len() >= 2 {
       let value = data.pop().unwrap();
-      let key = match data.pop().unwrap() {
-        RedisValue::String(s) => s,
+      let key: RedisKey = match data.pop().unwrap() {
+        RedisValue::String(s) => s.into(),
         _ => {
           return Err(RedisError::new(
             RedisErrorKind::ProtocolError,
@@ -190,7 +229,7 @@ impl ValueScanInner {
       out.insert(key, value);
     }
 
-    Ok(out.into())
+    Ok(out.try_into()?)
   }
 
   pub fn transform_zscan_result(mut data: Vec<RedisValue>) -> Result<Vec<(RedisValue, f64)>, RedisError> {
@@ -321,6 +360,7 @@ pub enum RedisCommandKind {
   GetRange,
   GetSet,
   HDel,
+  Hello(RespVersion),
   HExists,
   HGet,
   HGetAll,
@@ -432,6 +472,26 @@ pub enum RedisCommandKind {
   Unwatch,
   Wait,
   Watch,
+  XinfoConsumers,
+  XinfoGroups,
+  XinfoStream,
+  Xadd,
+  Xtrim,
+  Xdel,
+  Xrange,
+  Xrevrange,
+  Xlen,
+  Xread((bool, Option<u16>)),
+  Xgroupcreate,
+  XgroupCreateConsumer,
+  XgroupDelConsumer,
+  XgroupDestroy,
+  XgroupSetId,
+  Xreadgroup((bool, Option<u16>)),
+  Xack,
+  Xclaim,
+  Xautoclaim,
+  Xpending,
   Zadd,
   Zcard,
   Zcount,
@@ -473,6 +533,7 @@ pub enum RedisCommandKind {
   _Close,
   _Split(SplitCommand),
   _AuthAllCluster(AllNodesResponse),
+  _HelloAllCluster((AllNodesResponse, RespVersion)),
   _FlushAllCluster(AllNodesResponse),
   _ScriptFlushCluster(AllNodesResponse),
   _ScriptLoadCluster(AllNodesResponse),
@@ -511,6 +572,20 @@ impl RedisCommandKind {
   pub fn is_zscan(&self) -> bool {
     match *self {
       RedisCommandKind::Zscan(_) => true,
+      _ => false,
+    }
+  }
+
+  pub fn is_hello(&self) -> bool {
+    match *self {
+      RedisCommandKind::Hello(_) | RedisCommandKind::_HelloAllCluster(_) => true,
+      _ => false,
+    }
+  }
+
+  pub fn is_auth(&self) -> bool {
+    match *self {
+      RedisCommandKind::Auth => true,
       _ => false,
     }
   }
@@ -621,7 +696,7 @@ impl RedisCommandKind {
   }
 
   /// Read the command's protocol string without panicking.
-  pub fn to_str_debug(&self) -> &'static str {
+  pub fn to_str_debug(&self) -> &str {
     match *self {
       RedisCommandKind::AclLoad => "ACL LOAD",
       RedisCommandKind::AclSave => "ACL SAVE",
@@ -716,6 +791,7 @@ impl RedisCommandKind {
       RedisCommandKind::GetRange => "GETRANGE",
       RedisCommandKind::GetSet => "GETSET",
       RedisCommandKind::HDel => "HDEL",
+      RedisCommandKind::Hello(_) => "HELLO",
       RedisCommandKind::HExists => "HEXISTS",
       RedisCommandKind::HGet => "HGET",
       RedisCommandKind::HGetAll => "HGETALL",
@@ -827,6 +903,26 @@ impl RedisCommandKind {
       RedisCommandKind::Unwatch => "UNWATCH",
       RedisCommandKind::Wait => "WAIT",
       RedisCommandKind::Watch => "WATCH",
+      RedisCommandKind::XinfoConsumers => "XINFO CONSUMERS",
+      RedisCommandKind::XinfoGroups => "XINFO GROUPS",
+      RedisCommandKind::XinfoStream => "XINFO STREAM",
+      RedisCommandKind::Xadd => "XADD",
+      RedisCommandKind::Xtrim => "XTRIM",
+      RedisCommandKind::Xdel => "XDEL",
+      RedisCommandKind::Xrange => "XRANGE",
+      RedisCommandKind::Xrevrange => "XREVRANGE",
+      RedisCommandKind::Xlen => "XLEN",
+      RedisCommandKind::Xread(_) => "XREAD",
+      RedisCommandKind::Xgroupcreate => "XGROUP CREATE",
+      RedisCommandKind::XgroupCreateConsumer => "XGROUP CREATECONSUMER",
+      RedisCommandKind::XgroupDelConsumer => "XGROUP DELCONSUMER",
+      RedisCommandKind::XgroupDestroy => "XGROUP DESTROY",
+      RedisCommandKind::XgroupSetId => "XGROUP SETID",
+      RedisCommandKind::Xreadgroup(_) => "XREADGROUP",
+      RedisCommandKind::Xack => "XACK",
+      RedisCommandKind::Xclaim => "XCLAIM",
+      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
+      RedisCommandKind::Xpending => "XPENDING",
       RedisCommandKind::Zadd => "ZADD",
       RedisCommandKind::Zcard => "ZCARD",
       RedisCommandKind::Zcount => "ZCOUNT",
@@ -868,17 +964,18 @@ impl RedisCommandKind {
       RedisCommandKind::_Close => "CLOSE",
       RedisCommandKind::_Split(_) => "SPLIT",
       RedisCommandKind::_AuthAllCluster(_) => "AUTH ALL CLUSTER",
+      RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
       RedisCommandKind::_FlushAllCluster(_) => "FLUSHALL CLUSTER",
       RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT FLUSH CLUSTER",
       RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT LOAD CLUSTER",
       RedisCommandKind::_ScriptKillCluster(_) => "SCRIPT Kill CLUSTER",
-      RedisCommandKind::_Custom(ref kind) => kind.cmd,
+      RedisCommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
 
   /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis command.
-  pub(crate) fn cmd_str(&self) -> &'static str {
-    match *self {
+  pub(crate) fn cmd_str(&self) -> Str {
+    let s = match *self {
       RedisCommandKind::AclLoad => "ACL",
       RedisCommandKind::AclSave => "ACL",
       RedisCommandKind::AclList => "ACL",
@@ -973,6 +1070,7 @@ impl RedisCommandKind {
       RedisCommandKind::GetRange => "GETRANGE",
       RedisCommandKind::GetSet => "GETSET",
       RedisCommandKind::HDel => "HDEL",
+      RedisCommandKind::Hello(_) => "HELLO",
       RedisCommandKind::HExists => "HEXISTS",
       RedisCommandKind::HGet => "HGET",
       RedisCommandKind::HGetAll => "HGETALL",
@@ -1084,6 +1182,26 @@ impl RedisCommandKind {
       RedisCommandKind::Unwatch => "UNWATCH",
       RedisCommandKind::Wait => "WAIT",
       RedisCommandKind::Watch => "WATCH",
+      RedisCommandKind::XinfoConsumers => "XINFO",
+      RedisCommandKind::XinfoGroups => "XINFO",
+      RedisCommandKind::XinfoStream => "XINFO",
+      RedisCommandKind::Xadd => "XADD",
+      RedisCommandKind::Xtrim => "XTRIM",
+      RedisCommandKind::Xdel => "XDEL",
+      RedisCommandKind::Xrange => "XRANGE",
+      RedisCommandKind::Xrevrange => "XREVRANGE",
+      RedisCommandKind::Xlen => "XLEN",
+      RedisCommandKind::Xread(_) => "XREAD",
+      RedisCommandKind::Xgroupcreate => "XGROUP",
+      RedisCommandKind::XgroupCreateConsumer => "XGROUP",
+      RedisCommandKind::XgroupDelConsumer => "XGROUP",
+      RedisCommandKind::XgroupDestroy => "XGROUP",
+      RedisCommandKind::XgroupSetId => "XGROUP",
+      RedisCommandKind::Xreadgroup(_) => "XREADGROUP",
+      RedisCommandKind::Xack => "XACK",
+      RedisCommandKind::Xclaim => "XCLAIM",
+      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
+      RedisCommandKind::Xpending => "XPENDING",
       RedisCommandKind::Zadd => "ZADD",
       RedisCommandKind::Zcard => "ZCARD",
       RedisCommandKind::Zcount => "ZCOUNT",
@@ -1126,11 +1244,14 @@ impl RedisCommandKind {
       RedisCommandKind::Hscan(_) => "HSCAN",
       RedisCommandKind::Zscan(_) => "ZSCAN",
       RedisCommandKind::_AuthAllCluster(_) => "AUTH",
-      RedisCommandKind::_Custom(ref kind) => kind.cmd,
+      RedisCommandKind::_HelloAllCluster(_) => "HELLO",
+      RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
       RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
         panic!("unreachable (redis command)")
       }
-    }
+    };
+
+    utils::static_str(s)
   }
 
   /// Read the optional subcommand string for a command.
@@ -1198,6 +1319,14 @@ impl RedisCommandKind {
       RedisCommandKind::MemoryMallocStats => "MALLOC-STATS",
       RedisCommandKind::MemoryStats => "STATS",
       RedisCommandKind::MemoryPurge => "PURGE",
+      RedisCommandKind::XinfoConsumers => "CONSUMERS",
+      RedisCommandKind::XinfoGroups => "GROUPS",
+      RedisCommandKind::XinfoStream => "STREAM",
+      RedisCommandKind::Xgroupcreate => "CREATE",
+      RedisCommandKind::XgroupCreateConsumer => "CREATECONSUMER",
+      RedisCommandKind::XgroupDelConsumer => "DELCONSUMER",
+      RedisCommandKind::XgroupDestroy => "DESTROY",
+      RedisCommandKind::XgroupSetId => "SETID",
       _ => return None,
     };
 
@@ -1302,6 +1431,32 @@ impl RedisCommandKind {
     }
   }
 
+  pub fn is_stream_command(&self) -> bool {
+    match *self {
+      RedisCommandKind::XinfoConsumers
+      | RedisCommandKind::XinfoGroups
+      | RedisCommandKind::XinfoStream
+      | RedisCommandKind::Xadd
+      | RedisCommandKind::Xtrim
+      | RedisCommandKind::Xdel
+      | RedisCommandKind::Xrange
+      | RedisCommandKind::Xrevrange
+      | RedisCommandKind::Xlen
+      | RedisCommandKind::Xread(_)
+      | RedisCommandKind::Xgroupcreate
+      | RedisCommandKind::XgroupCreateConsumer
+      | RedisCommandKind::XgroupDelConsumer
+      | RedisCommandKind::XgroupDestroy
+      | RedisCommandKind::XgroupSetId
+      | RedisCommandKind::Xreadgroup(_)
+      | RedisCommandKind::Xack
+      | RedisCommandKind::Xclaim
+      | RedisCommandKind::Xautoclaim
+      | RedisCommandKind::Xpending => true,
+      _ => false,
+    }
+  }
+
   pub fn is_blocking(&self) -> bool {
     match *self {
       RedisCommandKind::BlPop
@@ -1311,6 +1466,8 @@ impl RedisCommandKind {
       | RedisCommandKind::BzPopMin
       | RedisCommandKind::BzPopMax
       | RedisCommandKind::Wait => true,
+      RedisCommandKind::Xread((ref blocking, _)) => *blocking,
+      RedisCommandKind::Xreadgroup((ref blocking, _)) => *blocking,
       RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
       _ => false,
     }
@@ -1322,6 +1479,8 @@ impl RedisCommandKind {
       RedisCommandKind::_Custom(ref kind) => kind.hash_slot.clone(),
       RedisCommandKind::EvalSha(ref slot) => slot.key_slot.clone(),
       RedisCommandKind::Eval(ref slot) => slot.key_slot.clone(),
+      RedisCommandKind::Xread((_, ref slot)) => slot.clone(),
+      RedisCommandKind::Xreadgroup((_, ref slot)) => slot.clone(),
       _ => None,
     }
   }
@@ -1332,6 +1491,7 @@ impl RedisCommandKind {
       | RedisCommandKind::_AuthAllCluster(_)
       | RedisCommandKind::_ScriptFlushCluster(_)
       | RedisCommandKind::_ScriptKillCluster(_)
+      | RedisCommandKind::_HelloAllCluster(_)
       | RedisCommandKind::_ScriptLoadCluster(_) => true,
       _ => false,
     }
@@ -1346,6 +1506,7 @@ impl RedisCommandKind {
 
   pub fn all_nodes_response(&self) -> Option<&AllNodesResponse> {
     match *self {
+      RedisCommandKind::_HelloAllCluster((ref inner, _)) => Some(inner),
       RedisCommandKind::_AuthAllCluster(ref inner) => Some(inner),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(inner),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(inner),
@@ -1357,6 +1518,9 @@ impl RedisCommandKind {
 
   pub fn clone_all_nodes(&self) -> Option<Self> {
     match *self {
+      RedisCommandKind::_HelloAllCluster((ref inner, ref version)) => {
+        Some(RedisCommandKind::_HelloAllCluster((inner.clone(), version.clone())))
+      }
       RedisCommandKind::_AuthAllCluster(ref inner) => Some(RedisCommandKind::_AuthAllCluster(inner.clone())),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(RedisCommandKind::_FlushAllCluster(inner.clone())),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(RedisCommandKind::_ScriptFlushCluster(inner.clone())),
@@ -1375,7 +1539,7 @@ impl RedisCommandKind {
 }
 
 /// Alias for a sender to notify the caller that a response was received.
-pub type ResponseSender = Option<OneshotSender<Result<Frame, RedisError>>>;
+pub type ResponseSender = Option<OneshotSender<Result<Resp3Frame, RedisError>>>;
 
 /// An arbitrary Redis command.
 pub struct RedisCommand {
@@ -1478,26 +1642,26 @@ impl RedisCommand {
     self.attempted += 1;
   }
 
-  pub fn max_attempts_exceeded(&self) -> bool {
-    self.attempted >= globals().max_command_attempts()
+  pub fn max_attempts_exceeded(&self, inner: &Arc<RedisClientInner>) -> bool {
+    self.attempted >= inner.perf_config.max_command_attempts()
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
   #[cfg(not(feature = "blocking-encoding"))]
-  pub fn to_frame(&self) -> Result<Frame, RedisError> {
-    protocol_utils::command_to_frame(self)
+  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+    protocol_utils::command_to_frame(self, is_resp3)
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(feature = "blocking-encoding")]
-  pub fn to_frame(&self) -> Result<Frame, RedisError> {
+  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(&self.args);
 
     if cmd_size >= globals().blocking_encode_threshold() {
       trace!("Using blocking task to convert command to frame with size {}", cmd_size);
-      tokio::task::block_in_place(|| protocol_utils::command_to_frame(self))
+      tokio::task::block_in_place(|| protocol_utils::command_to_frame(self, is_resp3))
     } else {
-      protocol_utils::command_to_frame(self)
+      protocol_utils::command_to_frame(self, is_resp3)
     }
   }
 
@@ -1519,18 +1683,23 @@ impl RedisCommand {
   }
 
   /// Read the first key in the command, if any.
-  pub fn extract_key(&self) -> Option<Cow<str>> {
-    if self.no_cluster() {
+  pub fn extract_key(&self) -> Option<&[u8]> {
+    let has_custom_key_location = match self.kind {
+      RedisCommandKind::Xread(_) => true,
+      RedisCommandKind::Xreadgroup(_) => true,
+      _ => false,
+    };
+    if self.no_cluster() || has_custom_key_location {
       return None;
     }
 
     match self.args.first() {
-      Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
-      Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
+      Some(RedisValue::String(ref s)) => Some(s.as_bytes()),
+      Some(RedisValue::Bytes(ref b)) => Some(b),
       Some(_) => match self.args.get(1) {
         // some commands take a `num_keys` argument first, followed by keys
-        Some(RedisValue::String(ref s)) => Some(Cow::Borrowed(s)),
-        Some(RedisValue::Bytes(ref b)) => Some(String::from_utf8_lossy(b)),
+        Some(RedisValue::String(ref s)) => Some(s.as_bytes()),
+        Some(RedisValue::Bytes(ref b)) => Some(b),
         _ => None,
       },
       None => None,
@@ -1598,6 +1767,7 @@ pub struct SlotRange {
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
 pub struct ClusterKeyCache {
+  // TODO use arcswap here
   data: Vec<Arc<SlotRange>>,
 }
 
@@ -1609,7 +1779,7 @@ impl From<Vec<Arc<SlotRange>>> for ClusterKeyCache {
 
 impl ClusterKeyCache {
   /// Create a new cache from the output of CLUSTER NODES, if available.
-  pub fn new(status: Option<String>) -> Result<ClusterKeyCache, RedisError> {
+  pub fn new(status: Option<&str>) -> Result<ClusterKeyCache, RedisError> {
     let mut cache = ClusterKeyCache { data: Vec::new() };
 
     if let Some(status) = status {
@@ -1617,6 +1787,17 @@ impl ClusterKeyCache {
     }
 
     Ok(cache)
+  }
+
+  /// Read a set of unique hash slots that each map to a primary/main node in the cluster.
+  pub fn unique_hash_slots(&self) -> Vec<u16> {
+    let mut out = BTreeMap::new();
+
+    for slot in self.data.iter() {
+      out.insert(&slot.server, slot.start);
+    }
+
+    out.into_iter().map(|(_, v)| v).collect()
   }
 
   /// Read the set of unique primary/main nodes in the cluster.
@@ -1636,7 +1817,7 @@ impl ClusterKeyCache {
   }
 
   /// Rebuild the cache in place with the output of a CLUSTER NODES command.
-  pub fn rebuild(&mut self, status: String) -> Result<(), RedisError> {
+  pub fn rebuild(&mut self, status: &str) -> Result<(), RedisError> {
     if status.trim().is_empty() {
       error!("Invalid empty CLUSTER NODES response.");
       return Err(RedisError::new(
@@ -1660,7 +1841,7 @@ impl ClusterKeyCache {
   }
 
   /// Calculate the cluster hash slot for the provided key.
-  pub fn hash_key(key: &str) -> u16 {
+  pub fn hash_key(key: &[u8]) -> u16 {
     redis_protocol::redis_keyslot(key)
   }
 

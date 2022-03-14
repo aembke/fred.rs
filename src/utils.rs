@@ -5,16 +5,17 @@ use crate::multiplexer::utils as multiplexer_utils;
 use crate::multiplexer::{sentinel, ConnectionIDs};
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
+use bytes::Bytes;
+use bytes_utils::Str;
 use float_cmp::approx_eq;
 use futures::future::{select, Either};
 use futures::{pin_mut, Future};
 use parking_lot::RwLock;
 use rand::distributions::Alphanumeric;
 use rand::{self, Rng};
-use redis_protocol::resp2::types::Frame as ProtocolFrame;
+use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::hash::Hasher;
 use std::ops::DerefMut;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -24,19 +25,27 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::time::sleep;
 
-#[cfg(feature = "index-map")]
-use indexmap::map::IndexMap;
-#[cfg(feature = "index-map")]
-use std::hash::Hash;
-
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::protocol::utils as protocol_utils;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use futures::TryFutureExt;
+#[cfg(feature = "serde-json")]
+use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
+
+/// Create a `Str` from a static str slice without copying.
+pub fn static_str(s: &'static str) -> Str {
+  // it's already parsed as a string
+  unsafe { Str::from_inner_unchecked(Bytes::from_static(s.as_bytes())) }
+}
+
+/// Create a `Bytes` from static bytes without copying.
+pub fn static_bytes(b: &'static [u8]) -> Bytes {
+  Bytes::from_static(b)
+}
 
 pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
   config.read().server.is_clustered()
@@ -80,9 +89,9 @@ pub fn redis_string_to_f64(s: &str) -> Result<f64, RedisError> {
 /// Convert an `f64` to a redis string, supporting "+inf" and "-inf".
 pub fn f64_to_redis_string(d: f64) -> Result<RedisValue, RedisError> {
   if d.is_infinite() && d.is_sign_negative() {
-    Ok("-inf".into())
+    Ok(RedisValue::from_static_str("-inf"))
   } else if d.is_infinite() {
-    Ok("+inf".into())
+    Ok(RedisValue::from_static_str("+inf"))
   } else if d.is_nan() {
     Err(RedisError::new(
       RedisErrorKind::InvalidArgument,
@@ -115,7 +124,7 @@ pub fn incr_with_max(curr: u32, max: u32) -> Option<u32> {
   if max != 0 && curr >= max {
     None
   } else {
-    Some(curr + 1)
+    Some(curr.saturating_add(1))
   }
 }
 
@@ -194,49 +203,20 @@ pub fn check_and_set_client_state(
   }
 }
 
+/// Check and set the inner locked value by updating `locked` with `new_value`, returning the old value.
+pub fn check_and_set_bool(locked: &RwLock<bool>, new_value: bool) -> bool {
+  let mut guard = locked.write();
+  let old_value = *guard;
+  *guard = new_value;
+  old_value
+}
+
 pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<String>> {
   match inner.config.read().server {
     ServerConfig::Centralized { ref host, ref port } => Some(Arc::new(format!("{}:{}", host, port))),
     ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().clone(),
     _ => None,
   }
-}
-
-#[cfg(feature = "index-map")]
-pub fn new_map(capacity: usize) -> IndexMap<String, RedisValue> {
-  if capacity == 0 {
-    IndexMap::new()
-  } else {
-    IndexMap::with_capacity(capacity)
-  }
-}
-
-#[cfg(not(feature = "index-map"))]
-pub fn new_map(capacity: usize) -> HashMap<String, RedisValue> {
-  if capacity == 0 {
-    HashMap::new()
-  } else {
-    HashMap::with_capacity(capacity)
-  }
-}
-
-#[cfg(feature = "index-map")]
-pub fn hash_map<H>(data: &IndexMap<String, RedisValue>, state: &mut H)
-where
-  H: Hasher,
-{
-  for (key, value) in data.iter() {
-    key.hash(state);
-    value.hash(state);
-  }
-}
-
-#[cfg(not(feature = "index-map"))]
-pub fn hash_map<H>(_data: &HashMap<String, RedisValue>, _state: &mut H)
-where
-  H: Hasher,
-{
-  panic!("Cannot use HashMap as hash key.");
 }
 
 pub fn decr_atomic(size: &Arc<AtomicUsize>) -> usize {
@@ -409,7 +389,7 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
     decr_atomic(&inner.cmd_buffer_len);
     if let Some(tx) = e.0.tx.take() {
       if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
-        _error!(inner, "Failed to send command {:?}.", e.0.extract_key());
+        _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
       }
     }
   }
@@ -437,10 +417,10 @@ where
 }
 
 async fn wait_for_response(
-  rx: OneshotReceiver<Result<ProtocolFrame, RedisError>>,
-) -> Result<ProtocolFrame, RedisError> {
-  let sleep_duration = globals().default_command_timeout();
-  apply_timeout(rx, sleep_duration as u64).await?
+  rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
+  timeout: u64,
+) -> Result<Resp3Frame, RedisError> {
+  apply_timeout(rx, timeout).await?
 }
 
 fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
@@ -473,7 +453,7 @@ pub async fn interrupt_blocked_connection(
     }
   };
 
-  backchannel_request_response(inner, move || {
+  backchannel_request_response(inner, true, move || {
     Ok((
       RedisCommandKind::ClientUnblock,
       vec![connection_id.into(), flag.to_str().into()],
@@ -506,7 +486,7 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
   Ok(())
 }
 
-pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -518,11 +498,11 @@ where
   let _ = disallow_nested_values(&command)?;
   let _ = send_command(&inner, command)?;
 
-  wait_for_response(rx).await
+  wait_for_response(rx, inner.perf_config.default_command_timeout() as u64).await
 }
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -547,9 +527,6 @@ where
     let _ = disallow_nested_values(&command)?;
     (command, rx, req_size)
   };
-  if let Some(key) = command.extract_key() {
-    cmd_span.record("key", &&*key);
-  }
   cmd_span.record("cmd", &command.kind.to_str_debug());
   cmd_span.record("req_size", &req_size);
 
@@ -559,7 +536,7 @@ where
 
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = send_command(&inner, command)?;
-  wait_for_response(rx)
+  wait_for_response(rx, inner.perf_config.default_command_timeout() as u64)
     .and_then(|frame| async move {
       trace::record_response_size(&end_cmd_span, &frame);
       Ok::<_, RedisError>(frame)
@@ -569,7 +546,7 @@ where
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<ProtocolFrame, RedisError>
+pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -645,8 +622,9 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
 
 pub async fn backchannel_request_response<F>(
   inner: &Arc<RedisClientInner>,
+  use_blocked: bool,
   func: F,
-) -> Result<ProtocolFrame, RedisError>
+) -> Result<Resp3Frame, RedisError>
 where
   F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
 {
@@ -669,7 +647,7 @@ where
       .backchannel
       .write()
       .await
-      .request_response(inner, blocked_server, command)
+      .request_response(inner, blocked_server, command, use_blocked)
       .await
   } else {
     // otherwise no connections are blocked
@@ -685,7 +663,7 @@ where
       .backchannel
       .write()
       .await
-      .request_response(inner, &server, command)
+      .request_response(inner, &server, command, use_blocked)
       .await
   }
 }
@@ -718,7 +696,6 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
     })
 }
 
-// TODO clean this up in the next major version
 pub fn read_sentinel_host(inner: &Arc<RedisClientInner>) -> Result<(Vec<(String, u16)>, String), RedisError> {
   match inner.config.read().server {
     #[cfg(not(feature = "sentinel-auth"))]
@@ -851,4 +828,154 @@ where
   }
 
   Ok(out)
+}
+
+pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
+  delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
+}
+
+pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
+where
+  I: Iterator<Item = (K, V)>,
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  let (lower, upper) = iter.size_hint();
+  let capacity = if let Some(upper) = upper { upper } else { lower };
+  let mut out = HashMap::with_capacity(capacity);
+
+  while let Some((key, value)) = iter.next() {
+    out.insert(to!(key)?, to!(value)?);
+  }
+  Ok(out)
+}
+
+#[cfg(feature = "serde-json")]
+pub fn parse_nested_json(s: &str) -> Option<Value> {
+  let trimmed = s.trim();
+  let is_maybe_json =
+    (trimmed.starts_with("{") && trimmed.ends_with("}")) || (trimmed.starts_with("[") && trimmed.ends_with("]"));
+
+  if is_maybe_json {
+    serde_json::from_str(s).ok()
+  } else {
+    None
+  }
+}
+
+pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValue {
+  if depth == 0 {
+    return value;
+  }
+
+  match value {
+    RedisValue::Array(values) => {
+      let inner_size = values.iter().fold(0, |s, v| s + v.array_len().unwrap_or(1));
+      let mut out = Vec::with_capacity(inner_size);
+
+      for value in values.into_iter() {
+        match value {
+          RedisValue::Array(inner) => {
+            for value in inner.into_iter() {
+              out.push(flatten_nested_array_values(value, depth - 1));
+            }
+          }
+          _ => out.push(value),
+        }
+      }
+      RedisValue::Array(out)
+    }
+    RedisValue::Map(values) => {
+      let mut out = HashMap::with_capacity(values.len());
+
+      for (key, value) in values.inner().into_iter() {
+        let value = if value.is_array() {
+          flatten_nested_array_values(value, depth - 1)
+        } else {
+          value
+        };
+
+        out.insert(key, value);
+      }
+      RedisValue::Map(RedisMap { inner: out })
+    }
+    _ => value,
+  }
+}
+
+pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
+  if arr.len() > 0 && arr.len() % 2 == 0 {
+    arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
+  } else {
+    false
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::error::RedisError;
+  use crate::types::RedisValue;
+  use std::convert::TryInto;
+  use std::fmt::Debug;
+
+  fn m<V>(v: V) -> RedisValue
+  where
+    V: TryInto<RedisValue> + Debug,
+    V::Error: Into<RedisError> + Debug,
+  {
+    v.try_into().unwrap()
+  }
+
+  fn a(v: Vec<RedisValue>) -> RedisValue {
+    RedisValue::Array(v)
+  }
+
+  #[test]
+  fn should_flatten_xread_example() {
+    // 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
+    // 1) 1) "foo"
+    //    2) 1) 1) "1643479650336-0"
+    //          2) 1) "count"
+    //             2) "3"
+    // 2) 1) "bar"
+    //    2) 1) 1) "1643479837746-0"
+    //          2) 1) "count"
+    //             2) "5"
+    //       2) 1) "1643479925582-0"
+    //          2) 1) "count"
+    //             2) "6"
+    let actual: RedisValue = vec![
+      a(vec![
+        m("foo"),
+        a(vec![a(vec![m("1643479650336-0"), a(vec![m("count"), m(3)])])]),
+      ]),
+      a(vec![
+        m("bar"),
+        a(vec![
+          a(vec![m("1643479837746-0"), a(vec![m("count"), m(5)])]),
+          a(vec![m("1643479925582-0"), a(vec![m("count"), m(6)])]),
+        ]),
+      ]),
+    ]
+    .into_iter()
+    .collect();
+
+    // flatten the top level nested array into something that can be cast to a map
+    let expected: RedisValue = vec![
+      m("foo"),
+      a(vec![a(vec![m("1643479650336-0"), a(vec![m("count"), m(3)])])]),
+      m("bar"),
+      a(vec![
+        a(vec![m("1643479837746-0"), a(vec![m("count"), m(5)])]),
+        a(vec![m("1643479925582-0"), a(vec![m("count"), m(6)])]),
+      ]),
+    ]
+    .into_iter()
+    .collect();
+
+    assert_eq!(flatten_nested_array_values(actual, 1), expected);
+  }
 }

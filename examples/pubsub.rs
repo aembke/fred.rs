@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use fred::clients::SubscriberClient;
 use fred::prelude::*;
 use futures::stream::StreamExt;
 use std::time::Duration;
@@ -49,4 +51,37 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = subscribe_task.abort();
   Ok(())
+}
+
+#[allow(dead_code)]
+// requires the `subscriber-client` feature
+async fn subscriber_example() -> Result<(), RedisError> {
+  let subscriber = SubscriberClient::new(RedisConfig::default());
+  let _ = subscriber.connect(Some(ReconnectPolicy::default()));
+  let _ = subscriber.wait_for_connect().await?;
+
+  let jh = tokio::spawn(subscriber.on_message().for_each(|(channel, message)| {
+    println!("Recv {:?} on channel {}", message, channel);
+    Ok(())
+  }));
+  // spawn a task to manage subscription state automatically whenever the client reconnects
+  let _ = subscriber.manage_subscriptions();
+
+  let _ = subscriber.subscribe("foo").await?;
+  let _ = subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
+  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo", "bar*", and "baz*" after reconnecting
+
+  println!("Subscriber channels: {:?}", subscriber.tracked_channels()); // "foo"
+  println!("Subscriber patterns: {:?}", subscriber.tracked_patterns()); // "bar*", "baz*"
+
+  let _ = subscriber.unsubscribe("foo").await?;
+  // now it will only automatically re-subscribe to "bar*" and "baz*" after reconnecting
+
+  // force a re-subscription call to all channels or patterns
+  let _ = subscriber.resubscribe_all().await?;
+  // unsubscribe from all channels and patterns
+  let _ = subscriber.unsubscribe_all().await?;
+  // the subscriber client also supports all the basic redis commands
+  let _ = subscriber.quit().await;
+  let _ = jh.await;
 }

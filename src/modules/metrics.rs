@@ -4,6 +4,8 @@
 use std::cmp;
 
 /// Stats describing a distribution of samples.
+///
+/// Time units are in milliseconds, data size units are in bytes.
 pub struct Stats {
   pub min: i64,
   pub max: i64,
@@ -14,6 +16,8 @@ pub struct Stats {
 }
 
 /// Struct for tracking moving stats about network latency or request/response sizes.
+///
+/// Time units are in milliseconds, data size units are in bytes.
 pub struct MovingStats {
   pub min: i64,
   pub max: i64,

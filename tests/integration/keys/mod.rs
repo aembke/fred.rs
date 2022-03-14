@@ -1,8 +1,8 @@
-use fred::client::RedisClient;
+use fred::clients::RedisClient;
 use fred::error::RedisError;
-use fred::pool::StaticRedisPool;
-use fred::prelude::Expiration;
-use fred::types::{ReconnectPolicy, RedisConfig, RedisMap, RedisValue};
+use fred::interfaces::*;
+use fred::pool::RedisPool;
+use fred::types::{Expiration, ReconnectPolicy, RedisConfig, RedisMap, RedisValue};
 use futures::pin_mut;
 use futures::StreamExt;
 use std::collections::HashMap;
@@ -294,7 +294,7 @@ pub async fn should_get_keys_from_pool_in_a_stream(
 ) -> Result<(), RedisError> {
   let _ = client.set("foo", "bar", None, None, false).await?;
 
-  let pool = StaticRedisPool::new(config, 5)?;
+  let pool = RedisPool::new(config, 5)?;
   let _ = pool.connect(Some(ReconnectPolicy::default()));
   let _ = pool.wait_for_connect().await?;
 

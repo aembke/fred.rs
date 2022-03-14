@@ -10,4 +10,8 @@ do
   fi
 done
 
-cargo test --release --lib --tests --no-default-features -- --test-threads=1 "$@"
+if [ -z "$FRED_CI_NEXTEST" ]; then
+  cargo test --release --lib --tests --no-default-features -- --test-threads=1 "$@"
+else
+  cargo nextest run --release --lib --tests --no-default-features --test-threads=1 "$@"
+fi
