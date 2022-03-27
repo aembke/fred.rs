@@ -5,9 +5,7 @@ use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
 use crate::utils;
-use redis_protocol::resp3::types::Frame;
 use std::convert::TryInto;
-use std::str;
 use std::sync::Arc;
 
 fn new_range_error(kind: &Option<ZSort>) -> Result<(), RedisError> {
@@ -49,54 +47,7 @@ fn check_range_types(min: &ZRange, max: &ZRange, kind: &Option<ZSort>) -> Result
   Ok(())
 }
 
-fn bytes_to_f64(b: &[u8]) -> Result<f64, RedisError> {
-  str::from_utf8(b)
-    .map_err(|e| e.into())
-    .and_then(|s| s.parse::<f64>().map_err(|e| e.into()))
-}
-
-fn frames_to_bzpop_result(mut frames: Vec<Frame>) -> Result<Option<(RedisKey, RedisValue, f64)>, RedisError> {
-  if frames.len() != 3 {
-    return Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected 3 element array.",
-    ));
-  }
-  let score_frame = frames.pop().unwrap();
-  let value_frame = frames.pop().unwrap();
-  let key_frame = frames.pop().unwrap();
-
-  let score = match score_frame {
-    Frame::SimpleString { data, .. } => bytes_to_f64(&data)?,
-    Frame::BlobString { data, .. } => bytes_to_f64(&data)?,
-    Frame::Double { data, .. } => data,
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected bulk string score.",
-      ))
-    }
-  };
-  let value = protocol_utils::frame_to_results(value_frame)?;
-  let key = match key_frame {
-    Frame::SimpleString { data, .. } => data.into(),
-    Frame::BlobString { data, .. } => data.into(),
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected bulk string key,",
-      ))
-    }
-  };
-
-  Ok(Some((key, value, score)))
-}
-
-pub async fn bzpopmin<K>(
-  inner: &Arc<RedisClientInner>,
-  keys: K,
-  timeout: f64,
-) -> Result<Option<(RedisKey, RedisValue, f64)>, RedisError>
+pub async fn bzpopmin<K>(inner: &Arc<RedisClientInner>, keys: K, timeout: f64) -> Result<RedisValue, RedisError>
 where
   K: Into<MultipleKeys>,
 {
@@ -113,22 +64,10 @@ where
   })
   .await?;
 
-  if let Frame::Array { data, .. } = frame {
-    frames_to_bzpop_result(data)
-  } else {
-    if protocol_utils::is_null(&frame) {
-      Ok(None)
-    } else {
-      Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected nil or array."))
-    }
-  }
+  protocol_utils::frame_to_results(frame)
 }
 
-pub async fn bzpopmax<K>(
-  inner: &Arc<RedisClientInner>,
-  keys: K,
-  timeout: f64,
-) -> Result<Option<(RedisKey, RedisValue, f64)>, RedisError>
+pub async fn bzpopmax<K>(inner: &Arc<RedisClientInner>, keys: K, timeout: f64) -> Result<RedisValue, RedisError>
 where
   K: Into<MultipleKeys>,
 {
@@ -145,15 +84,7 @@ where
   })
   .await?;
 
-  if let Frame::Array { data, .. } = frame {
-    frames_to_bzpop_result(data)
-  } else {
-    if protocol_utils::is_null(&frame) {
-      Ok(None)
-    } else {
-      Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected nil or array."))
-    }
-  }
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zadd<K>(

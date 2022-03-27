@@ -46,8 +46,8 @@ pub async fn should_bzpopmin(client: RedisClient, _: RedisConfig) -> Result<(), 
 
   let jh = tokio::task::spawn(async move {
     for idx in 0..COUNT {
-      let result = client.bzpopmin("foo", 60.0).await?;
-      assert_eq!(result.unwrap(), ("foo".into(), idx.to_string().into(), idx as f64));
+      let result: (String, i64, f64) = client.bzpopmin("foo", 60.0).await?;
+      assert_eq!(result, ("foo".into(), idx, idx as f64));
     }
 
     Ok::<(), RedisError>(())
@@ -72,8 +72,8 @@ pub async fn should_bzpopmax(client: RedisClient, _: RedisConfig) -> Result<(), 
 
   let jh = tokio::task::spawn(async move {
     for idx in 0..COUNT {
-      let result = client.bzpopmax("foo", 60.0).await?;
-      assert_eq!(result.unwrap(), ("foo".into(), idx.to_string().into(), idx as f64));
+      let result: (String, i64, f64) = client.bzpopmax("foo", 60.0).await?;
+      assert_eq!(result, ("foo".into(), idx, idx as f64));
     }
 
     Ok::<(), RedisError>(())
