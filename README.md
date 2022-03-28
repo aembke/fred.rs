@@ -23,6 +23,7 @@ async fn main() -> Result<(), RedisError> {
   // connect to the server, returning a handle to the task that drives the connection
   let _ = client.connect(Some(policy));
   let _ = client.wait_for_connect().await?;
+  // attention: delete the keys in all databases
   let _ = client.flushall(false).await?;
  
   // convert responses to many common Rust types
