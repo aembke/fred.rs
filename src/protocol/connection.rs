@@ -52,6 +52,15 @@ pub enum RedisSink {
   Tcp(TcpRedisWriter),
 }
 
+impl RedisSink {
+  pub async fn flush(&mut self) -> Result<(), RedisError> {
+    match self {
+      RedisSink::Tls(ref mut inner) => inner.flush().await,
+      RedisSink::Tcp(ref mut inner) => inner.flush().await,
+    }
+  }
+}
+
 pub enum RedisTransport {
   Tls(FramedTls),
   Tcp(FramedTcp),

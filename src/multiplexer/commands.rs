@@ -372,7 +372,6 @@ fn should_disable_pipeline(inner: &Arc<RedisClientInner>, command: &RedisCommand
     || command.kind.ends_transaction()
     // we also disable pipelining on the HELLO command so that we don't try to decode any in-flight responses with the wrong codec logic
     || command.kind.is_hello();
-  // TODO need flag on scan struct for cluster, dont pipeline in that case
 
   // prefer pipelining for all commands not in a multi block (unless specified above), unless the command is blocking.
   // but, in the context of a transaction blocking commands can be pipelined since the server responds immediately.
@@ -690,6 +689,11 @@ async fn handle_command(
     command.add_resp_tx(tx);
     Some(rx)
   } else {
+    _debug!(
+      inner,
+      "Skip blocking multiplexer after sending {}",
+      command.kind.to_str_debug()
+    );
     None
   };
 

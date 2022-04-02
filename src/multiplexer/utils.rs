@@ -327,7 +327,12 @@ pub async fn write_all_nodes(
     };
     let _command = command.duplicate(kind);
 
-    send_clustered_command(inner, &server, &counter, writer, commands, _command).await?;
+    let was_flushed = send_clustered_command(inner, &server, &counter, writer, commands, _command).await?;
+    if !was_flushed {
+      if let Err(e) = writer.flush().await {
+        _warn!(inner, "Failed to flush socket: {:?}", e);
+      }
+    }
   }
 
   Ok(Backpressure::Skipped)
@@ -351,15 +356,36 @@ pub fn prepare_command(
   // * the command closes the connection
   // * the command ends a transaction
   // * the command does some form of authentication
+  // * the command goes to multiple sockets at once
   // * the command blocks the multiplexer command loop
   let should_flush = counters.should_send(inner)
     || sent_command.command.is_quit()
     || sent_command.command.kind.ends_transaction()
     || sent_command.command.kind.is_hello()
     || sent_command.command.kind.is_auth()
+    || sent_command.command.kind.is_all_cluster_nodes()
     || client_utils::is_locked_some(&sent_command.command.resp_tx);
 
   Ok((sent_command, frame, should_flush))
+}
+
+pub async fn flush_sinks(
+  inner: &Arc<RedisClientInner>,
+  connections: &mut BTreeMap<Arc<String>, RedisSink>,
+  skip: Option<&Arc<String>>,
+) {
+  for (server, sink) in connections.iter_mut() {
+    if let Some(skip) = skip {
+      if skip == server {
+        continue;
+      }
+    }
+
+    _debug!(inner, "Flushing socket to {}", server);
+    if let Err(e) = sink.flush().await {
+      _warn!(inner, "Error flushing sink: {:?}", e);
+    }
+  }
 }
 
 pub async fn send_centralized_command(
@@ -392,7 +418,7 @@ pub async fn send_clustered_command(
   writer: &mut RedisSink,
   commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
   command: RedisCommand,
-) -> Result<(), RedisError> {
+) -> Result<bool, RedisError> {
   let (command, frame, should_flush) = prepare_command(inner, counters, command)?;
   _debug!(
     inner,
@@ -414,7 +440,9 @@ pub async fn send_clustered_command(
     }
   }
   // if writing the command fails it will be retried from this point forward since it has been added to the commands queue
-  connection::write_command(inner, writer, counters, frame, should_flush).await
+  let _ = connection::write_command(inner, writer, counters, frame, should_flush).await?;
+  // return whether the socket was flushed so the caller can flush the other sockets if needed
+  Ok(should_flush)
 }
 
 fn respond_early_to_caller_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, error: RedisError) {
@@ -555,17 +583,22 @@ pub async fn write_clustered_command(
     if let Some(counters) = counters_opt {
       let mut writers_guard = writers.write().await;
 
-      if let Some(writer) = writers_guard.get_mut(&server) {
-        send_clustered_command(inner, &server, &counters, writer, commands, command)
-          .await
-          .map(|_| Backpressure::Ok(server.clone()))
+      let was_flushed = if let Some(writer) = writers_guard.get_mut(&server) {
+        send_clustered_command(inner, &server, &counters, writer, commands, command).await?
       } else {
         return Err(RedisError::new_context(
           RedisErrorKind::Cluster,
           format!("Unable to find server connection for {}", server),
           command,
         ));
+      };
+
+      if was_flushed {
+        // flush the other connections to other nodes to be safe, skipping the socket that was already flushed
+        // TODO improve this by checking in-flight counters on each server. if zero then dont flush.
+        flush_sinks(inner, &mut *writers_guard, Some(&server)).await;
       }
+      Ok(Backpressure::Ok(server.clone()))
     } else {
       return Err(RedisError::new_context(
         RedisErrorKind::Unknown,
