@@ -35,6 +35,9 @@ use futures::TryFutureExt;
 use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
+use url::Url;
+
+const REDIS_TLS_SCHEME: &'static str = "rediss";
 
 /// Create a `Str` from a static str slice without copying.
 pub fn static_str(s: &'static str) -> Str {
@@ -163,13 +166,13 @@ pub fn pattern_pubsub_counts(result: Vec<RedisValue>) -> Result<Vec<usize>, Redi
           } else {
             *i as usize
           }
-        }
+        },
         _ => {
           return Err(RedisError::new(
             RedisErrorKind::Unknown,
             "Invalid pattern pubsub response.",
           ))
-        }
+        },
       });
 
       idx += 3;
@@ -450,7 +453,7 @@ pub async fn interrupt_blocked_connection(
         RedisErrorKind::Unknown,
         "Failed to find blocked connection ID.",
       ))
-    }
+    },
   };
 
   backchannel_request_response(inner, true, move || {
@@ -569,7 +572,7 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
           RedisErrorKind::Sentinel,
           "Failed to read sentinel primary server",
         ))
-    }
+    },
     ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
     ServerConfig::Clustered { .. } => {
       if let Some(key) = command.extract_key() {
@@ -583,14 +586,14 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
                 RedisErrorKind::Cluster,
                 "Failed to find cluster node at hash slot.",
               ))
-            }
+            },
           },
           None => {
             return Err(RedisError::new(
               RedisErrorKind::Cluster,
               "Failed to find cluster state.",
             ))
-          }
+          },
         };
 
         Ok(server)
@@ -604,19 +607,19 @@ fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand
                 RedisErrorKind::Cluster,
                 "Failed to find read random cluster node.",
               ))
-            }
+            },
           },
           None => {
             return Err(RedisError::new(
               RedisErrorKind::Cluster,
               "Failed to find cluster state.",
             ))
-          }
+          },
         };
 
         Ok(server)
       }
-    }
+    },
   }
 }
 
@@ -678,7 +681,7 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
     .and_then(|connection_ids| match connection_ids {
       ConnectionIDs::Clustered(ref connection_ids) => {
         Some(connection_ids.read().iter().map(|(k, v)| (k.clone(), *v)).collect())
-      }
+      },
       ConnectionIDs::Centralized(connection_id) => {
         if let Some(id) = connection_id.read().as_ref() {
           let mut out = HashMap::with_capacity(1);
@@ -692,7 +695,7 @@ pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMa
         } else {
           None
         }
-      }
+      },
     })
 }
 
@@ -731,7 +734,7 @@ pub async fn update_sentinel_nodes(inner: &Arc<RedisClientInner>) -> Result<(), 
           e
         );
         continue;
-      }
+      },
     };
     if let Err(e) = sentinel::update_sentinel_nodes(inner, transport, &service_name).await {
       _warn!(
@@ -881,12 +884,12 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
             for value in inner.into_iter() {
               out.push(flatten_nested_array_values(value, depth - 1));
             }
-          }
+          },
           _ => out.push(value),
         }
       }
       RedisValue::Array(out)
-    }
+    },
     RedisValue::Map(values) => {
       let mut out = HashMap::with_capacity(values.len());
 
@@ -900,7 +903,7 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
         out.insert(key, value);
       }
       RedisValue::Map(RedisMap { inner: out })
-    }
+    },
     _ => value,
   }
 }
@@ -911,6 +914,37 @@ pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
   } else {
     false
   }
+}
+
+#[cfg(feature = "enable-tls")]
+pub fn check_tls_features() {}
+
+#[cfg(not(feature = "enable-tls"))]
+pub fn check_tls_features() {
+  warn!("TLS features are not enabled, but a TLS feature may have been used.");
+}
+
+pub fn parse_url(url: &str, default_port: u16) -> Result<(Url, String, u16, bool), RedisError> {
+  let url = Url::parse(url)?;
+  let host = if let Some(host) = url.host_str() {
+    host.to_owned()
+  } else {
+    return Err(RedisError::new(RedisErrorKind::Config, "Invalid host."));
+  };
+  let port = url.port().unwrap_or(default_port);
+
+  let tls = url.scheme() == REDIS_TLS_SCHEME;
+  if tls {
+    check_tls_features();
+  }
+
+  Ok((url, host, port, tls))
+}
+
+pub fn parse_url_db(url: &Url) -> Option<u8> {
+  url.path_segments().and_then(|parts| {
+    let parts: Vec<&str> = parts.collect();
+  })
 }
 
 #[cfg(test)]

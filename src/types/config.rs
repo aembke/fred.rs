@@ -1,6 +1,8 @@
+use crate::error::{RedisError, RedisErrorKind};
 use crate::types::RespVersion;
 use crate::utils;
 use std::cmp;
+use url::Url;
 
 #[cfg(feature = "enable-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
@@ -92,13 +94,13 @@ impl ReconnectPolicy {
     match self {
       ReconnectPolicy::Constant { ref mut jitter, .. } => {
         *jitter = jitter_ms;
-      }
+      },
       ReconnectPolicy::Linear { ref mut jitter, .. } => {
         *jitter = jitter_ms;
-      }
+      },
       ReconnectPolicy::Exponential { ref mut jitter, .. } => {
         *jitter = jitter_ms;
-      }
+      },
     }
   }
 
@@ -107,13 +109,13 @@ impl ReconnectPolicy {
     match *self {
       ReconnectPolicy::Constant { ref mut attempts, .. } => {
         *attempts = 0;
-      }
+      },
       ReconnectPolicy::Linear { ref mut attempts, .. } => {
         *attempts = 0;
-      }
+      },
       ReconnectPolicy::Exponential { ref mut attempts, .. } => {
         *attempts = 0;
-      }
+      },
     }
   }
 
@@ -141,7 +143,7 @@ impl ReconnectPolicy {
         };
 
         Some(utils::add_jitter(delay as u64, jitter))
-      }
+      },
       ReconnectPolicy::Linear {
         ref mut attempts,
         max_delay,
@@ -156,7 +158,7 @@ impl ReconnectPolicy {
         let delay = (delay as u64).saturating_mul(*attempts as u64);
 
         Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
-      }
+      },
       ReconnectPolicy::Exponential {
         ref mut attempts,
         min_delay,
@@ -174,7 +176,7 @@ impl ReconnectPolicy {
           .saturating_mul(min_delay as u64);
 
         Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
-      }
+      },
     }
   }
 }
@@ -376,6 +378,11 @@ impl RedisConfig {
   #[cfg(not(feature = "enable-tls"))]
   pub fn uses_tls(&self) -> bool {
     false
+  }
+
+  pub fn from_url_centralized(url: &str) -> Result<RedisConfig, RedisError> {
+    let (url, host, port, tls) = utils::parse_url(url, 6379)?;
+    let server = ServerConfig::new_centralized(host, port);
   }
 }
 
