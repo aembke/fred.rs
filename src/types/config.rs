@@ -1,4 +1,4 @@
-use crate::error::{RedisError, RedisErrorKind};
+use crate::error::RedisError;
 use crate::types::RespVersion;
 use crate::utils;
 use std::cmp;
@@ -380,9 +380,186 @@ impl RedisConfig {
     false
   }
 
+  /// Parse a URL string into a `RedisConfig`.
+  ///
+  /// # URL Syntax
+  ///
+  /// **Centralized**
+  ///
+  /// ```text
+  /// redis|rediss :// [[username:]password@] host [:port][/database]
+  /// ```
+  ///
+  /// **Clustered**
+  ///
+  /// ```text
+  /// redis|rediss[-cluster] :// [[username:]password@] host [:port][?[node=host1:port1][&node=host2:port2][&node=hostN:portN]]
+  /// ```
+  ///
+  /// **Sentinel**
+  ///
+  /// ```text
+  /// redis|rediss[-sentinel] :// [[username1:]password1@] host [:port][/database][?[node=host1:port1][&node=host2:port2][&node=hostN:portN]
+  ///                             [&sentinelServiceName=myservice][&sentinelUsername=username2][&sentinelPassword=password2]]
+  /// ```
+  ///
+  /// # Schemes
+  ///
+  /// This function will use the URL scheme to determine which server type the caller is using. Valid schemes include:
+  ///
+  /// * `redis` - TCP connected to a centralized server.
+  /// * `rediss` - TLS connected to a centralized server.
+  /// * `redis-cluster` - TCP connected to a cluster.
+  /// * `rediss-cluster` - TLS connected to a cluster.
+  /// * `redis-sentinel` - TCP connected to a centralized server behind a sentinel layer.
+  /// * `rediss-sentinel` - TLS connected to a centralized server behind a sentinel layer.
+  ///
+  /// **Note: The `rediss` scheme prefix requires the `enable-tls` feature.**
+  ///
+  /// # Query Parameters
+  ///
+  /// In some cases it's necessary to specify multiple node hostname/port tuples (with a cluster or sentinel layer for example). The following query parameters may also be used in their respective contexts:
+  ///
+  /// * `node` - Specify another node in the topology. In a cluster this would refer to any other known cluster node. In the context of a Redis sentinel layer this refers to a known **sentinel** node. Multiple `node` parameters may be used in a URL.
+  /// * `sentinelServiceName` - Specify the name of the sentinel service. This is required when using the `redis-sentinel` scheme.
+  /// * `sentinelUsername` - Specify the username to use when connecting to a **sentinel** node. This requires the `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual Redis server. The `username` part of the URL immediately following the scheme will refer to the username used when connecting to the backing Redis server.
+  /// * `sentinelPassword` - Specify the password to use when connecting to a **sentinel** node. This requires the `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual Redis server. The `password` part of the URL immediately following the scheme will refer to the password used when connecting to the backing Redis server.
+  ///
+  /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered), and [from_url_sentinel](Self::from_url_sentinel) for more information. Or see the [RedisConfig](Self) unit tests for examples.
+  pub fn from_url(url: &str) -> Result<RedisConfig, RedisError> {
+    let parsed_url = Url::parse(url)?;
+    if utils::url_is_clustered(&parsed_url) {
+      RedisConfig::from_url_clustered(url)
+    } else if utils::url_is_sentinel(&parsed_url) {
+      RedisConfig::from_url_sentinel(url)
+    } else {
+      RedisConfig::from_url_centralized(url)
+    }
+  }
+
+  /// Create a centralized `RedisConfig` struct from a URL.
+  ///
+  /// ```text
+  /// redis://username:password@foo.com:6379/1
+  /// rediss://username:password@foo.com:6379/1
+  /// redis://foo.com:6379/1
+  /// redis://foo.com
+  /// // ... etc
+  /// ```
+  ///
+  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration parameters that are only relevant to a centralized server.
+  ///
+  /// For example:
+  ///
+  /// * A database can be defined in the `path` section.
+  /// * The `port` field is optional in this context. If it is not specified then `6379` will be used.
+  /// * Any `node` or sentinel query parameters will be ignored.
   pub fn from_url_centralized(url: &str) -> Result<RedisConfig, RedisError> {
-    let (url, host, port, tls) = utils::parse_url(url, 6379)?;
+    let (url, host, port, tls) = utils::parse_url(url, Some(6379))?;
     let server = ServerConfig::new_centralized(host, port);
+    let database = utils::parse_url_db(&url)?;
+    let (username, password) = utils::parse_url_credentials(&url);
+
+    Ok(RedisConfig {
+      server,
+      username,
+      password,
+      database,
+      #[cfg(feature = "enable-tls")]
+      tls: utils::tls_config_from_url(tls),
+      ..RedisConfig::default()
+    })
+  }
+
+  /// Create a clustered `RedisConfig` struct from a URL.
+  ///
+  /// ```text
+  /// redis-cluster://username:password@foo.com:30001?node=bar.com:30002&node=baz.com:30003
+  /// rediss-cluster://username:password@foo.com:30001?node=bar.com:30002&node=baz.com:30003
+  /// rediss://foo.com:30001?node=bar.com:30002&node=baz.com:30003
+  /// redis://foo.com:30001
+  /// // ... etc
+  /// ```
+  ///
+  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration parameters that are only relevant to a clustered deployment.
+  ///
+  /// For example:
+  ///
+  /// * The `-cluster` suffix in the scheme is optional when using this function directly.
+  /// * Any database defined in the `path` section will be ignored.
+  /// * The `port` field is required in this context alongside any hostname.
+  /// * Any `node` query parameters will be used to find other known cluster nodes.
+  /// * Any sentinel query parameters will be ignored.
+  pub fn from_url_clustered(url: &str) -> Result<RedisConfig, RedisError> {
+    let (url, host, port, tls) = utils::parse_url(url, None)?;
+    let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
+    cluster_nodes.push((host, port));
+    let server = ServerConfig::new_clustered(cluster_nodes);
+    let (username, password) = utils::parse_url_credentials(&url);
+
+    Ok(RedisConfig {
+      server,
+      username,
+      password,
+      #[cfg(feature = "enable-tls")]
+      tls: utils::tls_config_from_url(tls),
+      ..RedisConfig::default()
+    })
+  }
+
+  /// Create a sentinel `RedisConfig` struct from a URL.
+  ///
+  /// ```text
+  /// redis-sentinel://username:password@foo.com:6379/1?sentinelServiceName=fakename&node=foo.com:30001&node=bar.com:30002
+  /// rediss-sentinel://username:password@foo.com:6379/0?sentinelServiceName=fakename&node=foo.com:30001&node=bar.com:30002
+  /// redis://foo.com:6379?sentinelServiceName=fakename
+  /// rediss://foo.com:6379/1?sentinelServiceName=fakename
+  /// // ... etc
+  /// ```
+  ///
+  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration parameters that are only relevant to a sentinel deployment.
+  ///
+  /// For example:
+  ///
+  /// * The `-sentinel` suffix in the scheme is optional when using this function directly.
+  /// * A database can be defined in the `path` section.
+  /// * The `port` field is optional following the first hostname (`26379` will be used if undefined), but required within any `node` query parameters.
+  /// * Any `node` query parameters will be used to find other known sentinel nodes.
+  /// * The `sentinelServiceName` query parameter is required.
+  /// * Depending on the cargo features used other sentinel query parameters may be used.
+  ///
+  /// This particular function is more complex than the others when the `sentinel-auth` feature is used. For example, to declare a config that uses different credentials for the sentinel nodes vs the backing Redis servers:
+  ///
+  /// ```text
+  /// redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&sentinelUsername=username2&sentinelPassword=password2&node=bar.com:26379&node=baz.com:26380
+  /// ```
+  ///
+  /// The above example will use `("username1", "password1")` when authenticating to the backing Redis servers, and `("username2", "password2")` when initially connecting to the sentinel nodes. Additionally, all 3 addresses (`foo.com:26379`, `bar.com:26379`, `baz.com:26380`) specify known **sentinel** nodes.
+  pub fn from_url_sentinel(url: &str) -> Result<RedisConfig, RedisError> {
+    let (url, host, port, tls) = utils::parse_url(url, Some(26379))?;
+    let mut other_nodes = utils::parse_url_other_nodes(&url)?;
+    other_nodes.push((host, port));
+    let service_name = utils::parse_url_sentinel_service_name(&url)?;
+    let (username, password) = utils::parse_url_credentials(&url);
+    let database = utils::parse_url_db(&url)?;
+    let server = ServerConfig::Sentinel {
+      hosts: other_nodes,
+      service_name,
+      #[cfg(feature = "sentinel-auth")]
+      username: utils::parse_url_sentinel_username(&url),
+      #[cfg(feature = "sentinel-auth")]
+      password: utils::parse_url_sentinel_password(&url),
+    };
+
+    Ok(RedisConfig {
+      server,
+      username,
+      password,
+      database,
+      #[cfg(feature = "enable-tls")]
+      tls: utils::tls_config_from_url(tls),
+      ..RedisConfig::default()
+    })
   }
 }
 
@@ -513,6 +690,9 @@ impl ServerConfig {
 #[cfg(test)]
 mod tests {
   use super::ReconnectPolicy;
+  use crate::prelude::ServerConfig;
+  use crate::types::RedisConfig;
+  use crate::utils;
 
   #[test]
   fn should_get_next_delay_repeatedly() {
@@ -525,5 +705,217 @@ mod tests {
       }
       last_delay = delay;
     }
+  }
+
+  #[test]
+  fn should_parse_centralized_url() {
+    let url = "redis://username:password@foo.com:6379/1";
+    let expected = RedisConfig {
+      server: ServerConfig::new_centralized("foo.com", 6379),
+      database: Some(1),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_centralized_url_without_creds() {
+    let url = "redis://foo.com:6379/1";
+    let expected = RedisConfig {
+      server: ServerConfig::new_centralized("foo.com", 6379),
+      database: Some(1),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_centralized_url_without_db() {
+    let url = "redis://username:password@foo.com:6379";
+    let expected = RedisConfig {
+      server: ServerConfig::new_centralized("foo.com", 6379),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  #[cfg(feature = "enable-tls")]
+  fn should_parse_centralized_url_with_tls() {
+    let url = "rediss://username:password@foo.com:6379/1";
+    let expected = RedisConfig {
+      server: ServerConfig::new_centralized("foo.com", 6379),
+      database: Some(1),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      tls: utils::tls_config_from_url(true),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_clustered_url() {
+    let url = "redis-cluster://username:password@foo.com:30000";
+    let expected = RedisConfig {
+      server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_clustered_url_without_creds() {
+    let url = "redis-cluster://foo.com:30000";
+    let expected = RedisConfig {
+      server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_clustered_url_with_other_nodes() {
+    let url = "redis-cluster://username:password@foo.com:30000?node=bar.com:30001&node=baz.com:30002";
+    let expected = RedisConfig {
+      // need to be careful with the array ordering here
+      server: ServerConfig::new_clustered(vec![("bar.com", 30001), ("baz.com", 30002), ("foo.com", 30000)]),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  #[cfg(feature = "enable-tls")]
+  fn should_parse_clustered_url_with_tls() {
+    let url = "rediss-cluster://username:password@foo.com:30000";
+    let expected = RedisConfig {
+      server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      tls: utils::tls_config_from_url(true),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_sentinel_url() {
+    let url = "redis-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename";
+    let expected = RedisConfig {
+      server: ServerConfig::new_sentinel(vec![("foo.com", 26379)], "fakename"),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      database: Some(1),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_sentinel_url_with_other_nodes() {
+    let url = "redis-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename&node=bar.com:26380&node=baz.com:26381";
+    let expected = RedisConfig {
+      // also need to be careful with array ordering here
+      server: ServerConfig::new_sentinel(
+        vec![("bar.com", 26380), ("baz.com", 26381), ("foo.com", 26379)],
+        "fakename",
+      ),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      database: Some(1),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  #[cfg(feature = "enable-tls")]
+  fn should_parse_sentinel_url_with_tls() {
+    let url = "rediss-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename";
+    let expected = RedisConfig {
+      server: ServerConfig::new_sentinel(vec![("foo.com", 26379)], "fakename"),
+      username: Some("username".into()),
+      password: Some("password".into()),
+      database: Some(1),
+      tls: utils::tls_config_from_url(true),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  #[cfg(feature = "sentinel-auth")]
+  fn should_parse_sentinel_url_with_sentinel_auth() {
+    let url = "redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&sentinelUsername=username2&sentinelPassword=password2";
+    let expected = RedisConfig {
+      server: ServerConfig::Sentinel {
+        hosts: vec![("foo.com".into(), 26379)],
+        service_name: "fakename".into(),
+        username: Some("username2".into()),
+        password: Some("password2".into()),
+      },
+      username: Some("username1".into()),
+      password: Some("password1".into()),
+      database: Some(1),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    assert_eq!(actual, expected);
   }
 }

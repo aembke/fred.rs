@@ -24,6 +24,7 @@ use std::{f64, mem};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::time::sleep;
+use url::Url;
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::protocol::utils as protocol_utils;
@@ -35,9 +36,16 @@ use futures::TryFutureExt;
 use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
-use url::Url;
 
 const REDIS_TLS_SCHEME: &'static str = "rediss";
+const REDIS_CLUSTER_SCHEME_SUFFIX: &'static str = "-cluster";
+const REDIS_SENTINEL_SCHEME_SUFFIX: &'static str = "-sentinel";
+const SENTINEL_NAME_QUERY: &'static str = "sentinelServiceName";
+const CLUSTER_NODE_QUERY: &'static str = "node";
+#[cfg(feature = "sentinel-auth")]
+const SENTINEL_USERNAME_QUERY: &'static str = "sentinelUsername";
+#[cfg(feature = "sentinel-auth")]
+const SENTINEL_PASSWORD_QUERY: &'static str = "sentinelPassword";
 
 /// Create a `Str` from a static str slice without copying.
 pub fn static_str(s: &'static str) -> Str {
@@ -924,16 +932,49 @@ pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }
 
-pub fn parse_url(url: &str, default_port: u16) -> Result<(Url, String, u16, bool), RedisError> {
+#[cfg(feature = "enable-tls")]
+pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
+  if tls {
+    Some(TlsConfig::default())
+  } else {
+    None
+  }
+}
+
+#[cfg(not(feature = "enable-tls"))]
+pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
+  if tls {
+    check_tls_features();
+  }
+  None
+}
+
+pub fn url_uses_tls(url: &Url) -> bool {
+  url.scheme().starts_with(REDIS_TLS_SCHEME)
+}
+
+pub fn url_is_clustered(url: &Url) -> bool {
+  url.scheme().ends_with(REDIS_CLUSTER_SCHEME_SUFFIX)
+}
+
+pub fn url_is_sentinel(url: &Url) -> bool {
+  url.scheme().ends_with(REDIS_SENTINEL_SCHEME_SUFFIX)
+}
+
+pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u16, bool), RedisError> {
   let url = Url::parse(url)?;
   let host = if let Some(host) = url.host_str() {
     host.to_owned()
   } else {
-    return Err(RedisError::new(RedisErrorKind::Config, "Invalid host."));
+    return Err(RedisError::new(RedisErrorKind::Config, "Invalid or missing host."));
   };
-  let port = url.port().unwrap_or(default_port);
+  let port = if let Some(port) = url.port().or(default_port) {
+    port
+  } else {
+    return Err(RedisError::new(RedisErrorKind::Config, "Invalid or missing port."));
+  };
 
-  let tls = url.scheme() == REDIS_TLS_SCHEME;
+  let tls = url_uses_tls(&url);
   if tls {
     check_tls_features();
   }
@@ -941,9 +982,91 @@ pub fn parse_url(url: &str, default_port: u16) -> Result<(Url, String, u16, bool
   Ok((url, host, port, tls))
 }
 
-pub fn parse_url_db(url: &Url) -> Option<u8> {
-  url.path_segments().and_then(|parts| {
-    let parts: Vec<&str> = parts.collect();
+pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {
+  let parts: Vec<&str> = if let Some(parts) = url.path_segments() {
+    parts.collect()
+  } else {
+    return Ok(None);
+  };
+
+  if parts.len() > 1 {
+    return Err(RedisError::new(RedisErrorKind::Config, "Invalid database path."));
+  } else if parts.is_empty() {
+    return Ok(None);
+  }
+  // gracefully handle empty paths with a / prefix
+  if parts[0].trim() == "" {
+    return Ok(None);
+  }
+
+  Ok(Some(parts[0].parse()?))
+}
+
+pub fn parse_url_credentials(url: &Url) -> (Option<String>, Option<String>) {
+  let username = if url.username().is_empty() {
+    None
+  } else {
+    Some(url.username().to_owned())
+  };
+  let password = url.password().map(|s| s.to_owned());
+
+  (username, password)
+}
+
+pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<(String, u16)>, RedisError> {
+  let mut out = Vec::new();
+
+  for (key, value) in url.query_pairs().into_iter() {
+    if key == CLUSTER_NODE_QUERY {
+      let parts: Vec<&str> = value.split(":").collect();
+      if parts.len() != 2 {
+        return Err(RedisError::new(
+          RedisErrorKind::Config,
+          format!("Invalid host:port for cluster node: {}", value),
+        ));
+      }
+
+      let host = parts[0].to_owned();
+      let port = parts[1].parse::<u16>()?;
+      out.push((host, port));
+    }
+  }
+
+  Ok(out)
+}
+
+pub fn parse_url_sentinel_service_name(url: &Url) -> Result<String, RedisError> {
+  for (key, value) in url.query_pairs().into_iter() {
+    if key == SENTINEL_NAME_QUERY {
+      return Ok(value.to_string());
+    }
+  }
+
+  Err(RedisError::new(
+    RedisErrorKind::Config,
+    "Invalid or missing sentinel service name query parameter.",
+  ))
+}
+
+#[cfg(feature = "sentinel-auth")]
+pub fn parse_url_sentinel_username(url: &Url) -> Option<String> {
+  url.query_pairs().find_map(|(key, value)| {
+    if key == SENTINEL_USERNAME_QUERY {
+      Some(value.to_string())
+    } else {
+      None
+    }
+  })
+}
+
+#[cfg(feature = "sentinel-auth")]
+pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
+  url.query_pairs().find_map(|(key, value)| {
+    if key == SENTINEL_PASSWORD_QUERY {
+      Some(value.to_string())
+    } else {
+      None
+    }
   })
 }
 

@@ -18,56 +18,8 @@ use std::task::{Context, Poll};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-// The motivation for these abstractions comes from the fact that the Redis interface is huge, and managing it all
-// in one `RedisClient` struck is becoming unwieldy and unsustainable. Additionally, there are now use cases for
-// supporting different client structs that implement subsets of the Redis interface where some of the underlying
-// command implementations should be shared across multiple different client structs.
-//
-// For example, `SentinelClient` supports ACL commands and pubsub commands like a `RedisClient`, but also implements
-// its own unique interface for sentinel nodes. However, it does *not* support zset commands, cluster commands, etc.
-// In the future I would like the flexibility to add a `PubsubClient` for example, where it can share the same pubsub
-// command interface as a `RedisClient`, but with some added features to manage subscriptions across reconnections
-// automatically for callers.
-//
-// In an ideal world we could implement this with a trait for each section of the Redis interface. For example we
-// could have an `AclInterface`, `ZsetInterface`, `HashInterface`, etc, where each interface implemented the command
-// functions for that portion of the Redis interface. Since everything in this module revolves around a
-// `RedisClientInner` this would be easy to do with a super trait that implemented a function to return this inner
-// struct (`fn inner(&self) -> &Arc<RedisClientInner>`).
-//
-// However, async functions are not supported in traits, which makes this much more difficult, and if we don't find
-// some way to use traits to reuse portions of the Redis interface then we'll end up duplicating a lot of code, or
-// relying on `Deref`, which has downsides in that it doesn't let you remove certain sections of the underlying interface.
-//
-// The abstractions implemented here are necessary because of this lack of async functions in traits. The
-// `async-trait` crate exists, but it reverts to using trait objects (a la futures 0.1 pre `impl Trait`) and I'm
-// not a fan of how it obfuscates your function signatures and uses boxes as often as it does.
-//
-// That being said, originally when I implemented this file I tried using a new tokio task for each call to `async_spawn`. This
-// worked and provided a relatively clean implementation for `AsyncResult` and `AsyncInner` that didn't require relying on trait
-// objects, but it dramatically reduced performance. Prior to the introduction of the new tokio task for each command the pipeline
-// test benchmark could do ~2MM req/sec, but after adding the tokio task it could only do around 540k req/sec.
-//
-// After noticing this I went back and re-implemented this with trait objects to fix the performance issue. This ended up making the
-// implementation very similar to `async-trait`, largely contradicting the paragraph above about boxes. However, the `AsyncResult`
-// abstraction does have the benefit of being quite a bit more readable than the `Pin<Box<...>>` return type from `async-trait`, so
-// I'm going to keep the `AsyncResult` abstraction in place for the time being for that reason alone.
-//
-// After switching from a new `tokio::spawn` call to trait objects the performance went back to about 1.85MM req/sec, which seems to be
-// about as good as we can hope for without support for async functions in traits. While it would be nice to remove the overhead of the
-// new trait object to get performance back to 2MM req/sec I think there's lower hanging fruit elsewhere in the code to tackle first that
-// would have an even greater impact on performance.
-//
-// The `Send` requirement exists because the underlying future must be marked as `Send` for commands to work inside a `tokio::spawn` call.
-// Some of the tests and examples do this for various reasons, and I don't want to prevent callers from implementing similar patterns. The
-// only use case I can think of where this might be problematic is one where callers are using a custom, probably-too-clever hashing
-// implementation with a `HashMap`, since all other `FromRedis` implementations are already for `Send` types. Aside from that I don't think
-// the `Send` requirement should be an issue (especially since a lot of the tokio interface already requires it anyways).
-//
-// That being said, if anybody has issues with the `Send` requirement I'd be very interested to hear more about the use case.
-
 /// An enum used to represent the return value from a function that does some fallible synchronous work,
-/// followed by some more fallible async logic inside a new tokio task.
+/// followed by some more fallible async logic inside a tokio task.
 enum AsyncInner<T: Unpin + Send + 'static> {
   Result(Option<Result<T, RedisError>>),
   Task(Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>),
@@ -118,7 +70,7 @@ where
           error!("Tried calling poll on an AsyncResult::Result more than once.");
           Poll::Ready(Err(RedisError::new_canceled()))
         }
-      }
+      },
       AsyncInner::Task(ref mut fut) => Pin::new(fut).poll(cx),
     }
   }
