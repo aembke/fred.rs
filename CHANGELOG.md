@@ -6,6 +6,13 @@ TLDR
 * Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
 * Versions 6.x will be focused on performance. 
 
+## 5.0.0
+
+* Bug fixes
+* Support URL parsing into a `RedisConfig`
+* Update `bzpopmin` and `bzpopmax` return type
+* Remove unimplemented `mocks` feature
+
 ## 5.0.0-beta.1
 
 * Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs) so it can decode frames without moving or copying the underlying bytes
@@ -14,8 +21,6 @@ TLDR
 * Relax some restrictions on certain commands being used in a transaction
 * Implement the Streams interface (XADD, XREAD, etc)
 * RESP3 support
-* Minor perf improvements via the removal of some locks...
-* Minor perf regressions from workarounds required to use [async functions with traits](https://smallcultfollowing.com/babysteps/blog/2019/10/26/async-fn-in-traits-are-hard/). In the end it's a wash.
 * Move most perf configuration options from `globals` to client-specific config structs
 * Add backpressure configuration options to the client config struct
 * Fix bugs that can occur when using non-UTF8 byte arrays as keys
