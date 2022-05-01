@@ -941,14 +941,6 @@ pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
   }
 }
 
-#[cfg(not(feature = "enable-tls"))]
-pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
-  if tls {
-    check_tls_features();
-  }
-  None
-}
-
 pub fn url_uses_tls(url: &Url) -> bool {
   url.scheme().starts_with(REDIS_TLS_SCHEME)
 }

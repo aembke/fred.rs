@@ -455,7 +455,7 @@ impl RedisConfig {
   /// * The `port` field is optional in this context. If it is not specified then `6379` will be used.
   /// * Any `node` or sentinel query parameters will be ignored.
   pub fn from_url_centralized(url: &str) -> Result<RedisConfig, RedisError> {
-    let (url, host, port, tls) = utils::parse_url(url, Some(6379))?;
+    let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let server = ServerConfig::new_centralized(host, port);
     let database = utils::parse_url_db(&url)?;
     let (username, password) = utils::parse_url_credentials(&url);
@@ -466,7 +466,7 @@ impl RedisConfig {
       password,
       database,
       #[cfg(feature = "enable-tls")]
-      tls: utils::tls_config_from_url(tls),
+      tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })
   }
@@ -491,7 +491,7 @@ impl RedisConfig {
   /// * Any `node` query parameters will be used to find other known cluster nodes.
   /// * Any sentinel query parameters will be ignored.
   pub fn from_url_clustered(url: &str) -> Result<RedisConfig, RedisError> {
-    let (url, host, port, tls) = utils::parse_url(url, None)?;
+    let (url, host, port, _tls) = utils::parse_url(url, None)?;
     let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
     cluster_nodes.push((host, port));
     let server = ServerConfig::new_clustered(cluster_nodes);
@@ -502,7 +502,7 @@ impl RedisConfig {
       username,
       password,
       #[cfg(feature = "enable-tls")]
-      tls: utils::tls_config_from_url(tls),
+      tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })
   }
@@ -536,7 +536,7 @@ impl RedisConfig {
   ///
   /// The above example will use `("username1", "password1")` when authenticating to the backing Redis servers, and `("username2", "password2")` when initially connecting to the sentinel nodes. Additionally, all 3 addresses (`foo.com:26379`, `bar.com:26379`, `baz.com:26380`) specify known **sentinel** nodes.
   pub fn from_url_sentinel(url: &str) -> Result<RedisConfig, RedisError> {
-    let (url, host, port, tls) = utils::parse_url(url, Some(26379))?;
+    let (url, host, port, _tls) = utils::parse_url(url, Some(26379))?;
     let mut other_nodes = utils::parse_url_other_nodes(&url)?;
     other_nodes.push((host, port));
     let service_name = utils::parse_url_sentinel_service_name(&url)?;
@@ -557,7 +557,7 @@ impl RedisConfig {
       password,
       database,
       #[cfg(feature = "enable-tls")]
-      tls: utils::tls_config_from_url(tls),
+      tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })
   }
@@ -689,10 +689,9 @@ impl ServerConfig {
 
 #[cfg(test)]
 mod tests {
-  use super::ReconnectPolicy;
+  use super::*;
   use crate::prelude::ServerConfig;
   use crate::types::RedisConfig;
-  use crate::utils;
 
   #[test]
   fn should_get_next_delay_repeatedly() {
