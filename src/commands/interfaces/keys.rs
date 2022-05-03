@@ -70,7 +70,7 @@ pub trait KeysInterface: ClientLike + Sized {
 
   /// Set a value with optional NX|XX, EX|PX|EXAT|PXAT|KEEPTTL, and GET arguments.
   ///
-  /// Note: the `get` flag was added in 6.2.0.
+  /// Note: the `get` flag was added in 6.2.0. Setting it as `false` works with Redis versions <=6.2.0.
   ///
   /// <https://redis.io/commands/set>
   fn set<R, K, V>(

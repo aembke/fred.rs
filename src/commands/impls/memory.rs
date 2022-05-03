@@ -52,10 +52,11 @@ where
 {
   let key = key.into();
   let frame = utils::request_response(inner, move || {
-    let mut args = Vec::with_capacity(2);
+    let mut args = Vec::with_capacity(3);
     args.push(key.into());
 
     if let Some(samples) = samples {
+      args.push(static_val!(SAMPLES));
       args.push(samples.into());
     }
 

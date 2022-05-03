@@ -689,6 +689,11 @@ async fn handle_command(
     command.add_resp_tx(tx);
     Some(rx)
   } else {
+    _debug!(
+      inner,
+      "Skip blocking multiplexer after sending {}",
+      command.kind.to_str_debug()
+    );
     None
   };
 

@@ -48,6 +48,7 @@ pub static IDLE: &'static str = "IDLE";
 pub static TIME: &'static str = "TIME";
 pub static RETRYCOUNT: &'static str = "RETRYCOUNT";
 pub static JUSTID: &'static str = "JUSTID";
+pub static SAMPLES: &'static str = "SAMPLES";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the caller.
 macro_rules! ok_cmd(

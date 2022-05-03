@@ -12,26 +12,28 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// The blocking variant of the ZPOPMIN command.
   ///
   /// <https://redis.io/commands/bzpopmin>
-  fn bzpopmin<K>(&self, keys: K, timeout: f64) -> AsyncResult<Option<(RedisKey, RedisValue, f64)>>
+  fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
     async_spawn(self, |inner| async move {
-      commands::sorted_sets::bzpopmin(&inner, keys, timeout).await
+      commands::sorted_sets::bzpopmin(&inner, keys, timeout).await?.convert()
     })
   }
 
   /// The blocking variant of the ZPOPMAX command.
   ///
   /// <https://redis.io/commands/bzpopmax>
-  fn bzpopmax<K>(&self, keys: K, timeout: f64) -> AsyncResult<Option<(RedisKey, RedisValue, f64)>>
+  fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
+    R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
   {
     into!(keys);
     async_spawn(self, |inner| async move {
-      commands::sorted_sets::bzpopmax(&inner, keys, timeout).await
+      commands::sorted_sets::bzpopmax(&inner, keys, timeout).await?.convert()
     })
   }
 

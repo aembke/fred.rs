@@ -90,6 +90,7 @@ mod scanning {
   cluster_test!(scanning, should_hscan_hash);
   cluster_test!(scanning, should_sscan_set);
   cluster_test!(scanning, should_zscan_sorted_set);
+  cluster_test!(scanning, should_scan_cluster);
 }
 
 mod slowlog {

@@ -8,6 +8,7 @@ This document gives some background on how the library is structured and how to 
 * Use 2 spaces instead of tabs.
 * Run rustfmt before submitting any changes.
 * Clean up any compiler warnings.
+* Submit PRs against the `develop` branch.
 
 ## TODO List
 

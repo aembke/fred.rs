@@ -74,6 +74,7 @@ pub fn scan_cluster(
   }
 
   for slot in hash_slots.into_iter() {
+    _trace!(inner, "Scan cluster hash slot server: {}", slot);
     let scan_inner = KeyScanInner {
       key_slot: Some(slot),
       tx: tx.clone(),

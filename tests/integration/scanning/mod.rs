@@ -1,5 +1,6 @@
 use fred::prelude::*;
 use futures::TryStreamExt;
+use tokio_stream::StreamExt;
 
 const SCAN_KEYS: i64 = 100;
 
@@ -120,5 +121,22 @@ pub async fn should_zscan_sorted_set(client: RedisClient, _: RedisConfig) -> Res
     .await?;
 
   assert_eq!(count, SCAN_KEYS);
+  Ok(())
+}
+
+pub async fn should_scan_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0..2000 {
+    let _: () = client.set(idx, idx, None, None, false).await?;
+  }
+
+  let mut count = 0;
+  let mut scan_stream = client.scan_cluster("*", Some(10), None);
+  while let Some(Ok(mut page)) = scan_stream.next().await {
+    let results = page.take_results();
+    count += results.unwrap().len();
+    let _ = page.next();
+  }
+
+  assert_eq!(count, 2000);
   Ok(())
 }
