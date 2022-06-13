@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "5.0.0"
+version = "5.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -26,7 +26,7 @@ bytes-utils = "0.1"
 futures = "0.3"
 parking_lot = "0.11"
 lazy_static = "1.4"
-redis-protocol = { version = "4.0", features = ["decode-mut"] }
+redis-protocol = { version = "4.1", features = ["decode-mut"] }
 log = "0.4"
 pretty_env_logger = "0.4"
 float-cmp = "0.8"
@@ -40,7 +40,7 @@ native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
-nom = { version = "6.1", optional = true }
+nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
@@ -96,6 +96,7 @@ custom-reconnect-errors = []
 monitor = ["nom"]
 sentinel-client = []
 sentinel-auth = []
+no-client-setname = []
 # Testing Features
 sentinel-tests = []
 # a testing feature to randomly stop, restart, and rebalance the cluster while tests are running

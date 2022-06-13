@@ -12,7 +12,8 @@ done
 
 # cant use all-features here or it'll run chaos monkey and then the tests will take forever
 FEATURES="network-logs pool-prefer-active enable-tls vendored-tls custom-reconnect-errors ignore-auth-error serde-json
-          blocking-encoding full-tracing reconnect-on-auth-error monitor metrics sentinel-client subscriber-client"
+          blocking-encoding full-tracing reconnect-on-auth-error monitor metrics sentinel-client subscriber-client
+          no-client-setname"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"
