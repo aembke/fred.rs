@@ -74,6 +74,7 @@ pub fn null_frame(is_resp3: bool) -> ProtocolFrame {
   }
 }
 
+#[cfg(not(feature = "no-client-setname"))]
 pub fn is_ok(frame: &ProtocolFrame) -> bool {
   match frame {
     ProtocolFrame::Resp3(ref frame) => match frame {
@@ -92,11 +93,11 @@ pub fn split_transport(transport: RedisTransport) -> (RedisSink, RedisStream) {
     RedisTransport::Tcp(framed) => {
       let (sink, stream) = framed.split();
       (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
-    }
+    },
     RedisTransport::Tls(framed) => {
       let (sink, stream) = framed.split();
       (RedisSink::Tls(sink), RedisStream::Tls(stream))
-    }
+    },
   }
 }
 
@@ -159,15 +160,53 @@ pub async fn transport_request_response(
         Err((e, _)) => return Err(e),
       };
       Ok((frame, RedisTransport::Tcp(transport)))
-    }
+    },
     RedisTransport::Tls(transport) => {
       let (frame, transport) = match request_response_safe(transport, request, is_resp3).await {
         Ok(result) => result,
         Err((e, _)) => return Err(e),
       };
       Ok((frame, RedisTransport::Tls(transport)))
-    }
+    },
   }
+}
+
+#[cfg(not(feature = "no-client-setname"))]
+pub async fn set_client_name<T>(
+  transport: Framed<T, RedisCodec>,
+  name: &str,
+  is_resp3: bool,
+) -> Result<Framed<T, RedisCodec>, RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  debug!("{}: Changing client name to {}", name, name);
+  let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
+  let (response, transport) = request_response(transport, &command, is_resp3).await?;
+
+  if is_ok(&response) {
+    debug!("{}: Successfully set Redis client name.", name);
+    Ok(transport)
+  } else {
+    error!("{} Failed to set client name with error {:?}", name, response);
+    Err(RedisError::new(
+      RedisErrorKind::ProtocolError,
+      "Failed to set client name.",
+    ))
+  }
+}
+
+#[cfg(feature = "no-client-setname")]
+pub async fn set_client_name<T>(
+  transport: Framed<T, RedisCodec>,
+  name: &str,
+  _: bool,
+) -> Result<Framed<T, RedisCodec>, RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  debug!("{}: Skip setting client name.", name);
+  Ok(transport)
 }
 
 pub async fn authenticate<T>(
@@ -198,32 +237,19 @@ where
         } else {
           return Err(RedisError::new(RedisErrorKind::Auth, inner));
         }
-      }
+      },
       Err(_) => {
         return Err(RedisError::new(
           RedisErrorKind::Auth,
           "Invalid auth response. Expected string.",
         ))
-      }
+      },
     }
   } else {
     transport
   };
 
-  debug!("{}: Changing client name to {}", name, name);
-  let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
-  let (response, transport) = request_response(transport, &command, is_resp3).await?;
-
-  if is_ok(&response) {
-    debug!("{}: Successfully set Redis client name.", name);
-    Ok(transport)
-  } else {
-    error!("{} Failed to set client name with error {:?}", name, response);
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Failed to set client name.",
-    ))
-  }
+  set_client_name(transport, name, is_resp3).await
 }
 
 pub async fn switch_protocols<T>(
@@ -378,7 +404,7 @@ async fn read_cluster_state(
     Err(e) => {
       _debug!(inner, "Resolver error: {:?}", e);
       return None;
-    }
+    },
   };
 
   let response = if uses_tls {
@@ -387,7 +413,7 @@ async fn read_cluster_state(
       Err(e) => {
         _debug!(inner, "Error creating tls connection to {}:{} => {:?}", host, port, e);
         return None;
-      }
+      },
     };
 
     match request_response(connection, &command, inner.is_resp3()).await {
@@ -395,7 +421,7 @@ async fn read_cluster_state(
       Err(e) => {
         _trace!(inner, "Failed to read cluster state from {}:{} => {:?}", host, port, e);
         return None;
-      }
+      },
     }
   } else {
     let connection = match create_authenticated_connection(&addr, &inner).await {
@@ -403,7 +429,7 @@ async fn read_cluster_state(
       Err(e) => {
         _debug!(inner, "Error creating connection to {}:{} => {:?}", host, port, e);
         return None;
-      }
+      },
     };
 
     match request_response(connection, &command, inner.is_resp3()).await {
@@ -411,7 +437,7 @@ async fn read_cluster_state(
       Err(e) => {
         _trace!(inner, "Failed to read cluster state from {}:{} => {:?}", host, port, e);
         return None;
-      }
+      },
     }
   };
 
@@ -454,13 +480,13 @@ where
     Resp3Frame::BlobError { data, .. } => {
       let parsed = String::from_utf8_lossy(&data);
       return Err(pretty_error(&parsed));
-    }
+    },
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,
         "Invalid server info response.",
       ))
-    }
+    },
   };
 
   let version = result.lines().find_map(|line| {
@@ -501,7 +527,7 @@ pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version
         Err(e) => {
           _debug!(inner, "Resolver error: {:?}", e);
           continue;
-        }
+        },
       };
 
       if uses_tls {
@@ -510,14 +536,14 @@ pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version
           Err(e) => {
             _warn!(inner, "Error creating connection to {}: {:?}", host, e);
             continue;
-          }
+          },
         };
         let version = match read_server_version(inner, transport).await {
           Ok((v, _)) => v,
           Err(e) => {
             _warn!(inner, "Error reading server version from {}: {:?}", host, e);
             continue;
-          }
+          },
         };
 
         return Ok(version);
@@ -527,14 +553,14 @@ pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version
           Err(e) => {
             _warn!(inner, "Error creating connection to {}: {:?}", host, e);
             continue;
-          }
+          },
         };
         let version = match read_server_version(inner, transport).await {
           Ok((v, _)) => v,
           Err(e) => {
             _warn!(inner, "Error reading server version from {}: {:?}", host, e);
             continue;
-          }
+          },
         };
 
         return Ok(version);
