@@ -6,6 +6,11 @@ TLDR
 * Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
 * Versions 6.x will be focused on performance. 
 
+## 5.1.0
+
+* Update `redis-protocol` and `nom`
+* Add `no-client-setname` feature flag
+
 ## 5.0.0
 
 * Bug fixes
