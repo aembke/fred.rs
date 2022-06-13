@@ -26,6 +26,7 @@ RUN .circleci/install_redis_cli.sh
 
 # For debugging
 RUN cargo --version && rustc --version
-RUN cargo install cargo-nextest
+# TODO figure out if this is still worth the added hassle and build time...
+# RUN cargo install cargo-nextest
 
 CMD tests/runners/sentinel-features.sh
