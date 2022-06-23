@@ -1,76 +1,44 @@
 version: 2
-jobs:
-  test-default:
-    docker:
-      - image: cimg/rust:1.57.0
+
+commands:
+  install_openssl:
     steps:
-      - checkout
       - run:
           name: Install OpenSSL
           command: sudo apt-get update && sudo apt-get install -y libssl-dev
+  install_redis:
+    steps:
+      - restore_cache:
+          keys:
+            - redis-build-cache-{{ .Branch }}
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
+      - save_cache:
+          key: redis-build-cache-{{ .Branch }}
+          paths:
+            - tests/tmp
+  install_cargo_nextest:
+    steps:
       - run:
           name: Install cargo-nextest
           command: tests/scripts/install_cargo_nextest.sh
+  clear_git_cache:
+    steps:
       - run:
           name: Clear the cargo git cache
           command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-      - run:
-          name: Run tests with default features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
-  test-no-features:
-    docker:
-      - image: cimg/rust:1.57.0
+  setup_host:
     steps:
-      - checkout
-      - run:
-          name: Install OpenSSL
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev
-      - run:
-          name: Install redis centralized
-          command: tests/scripts/install_redis_centralized.sh
-      - run:
-          name: Install redis cluster
-          command: tests/scripts/install_redis_clustered.sh
-      - run:
-          name: Install cargo-nextest
-          command: tests/scripts/install_cargo_nextest.sh
-      - run:
-          name: Clear the cargo git cache
-          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-      - run:
-          name: Run tests with no features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
-  test-all-features:
-    docker:
-      - image: cimg/rust:1.57.0
+      - install_openssl
+      - install_redis
+      - install_cargo_nextest
+      - clear_git_cache
+  setup_docker_compose:
     steps:
-      - checkout
-      - run:
-          name: Install redis centralized
-          command: tests/scripts/install_redis_centralized.sh
-      - run:
-          name: Install redis cluster
-          command: tests/scripts/install_redis_clustered.sh
-      - run:
-          name: Install cargo-nextest
-          command: tests/scripts/install_cargo_nextest.sh
-      - run:
-          name: Clear the cargo git cache
-          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-      - run:
-          name: Run tests with all features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
-  test-sentinel:
-    docker:
-      - image: cimg/rust:1.57.0
-    steps:
-      - checkout
       - run:
           name: Install Docker Compose
           environment:
@@ -80,27 +48,119 @@ jobs:
             chmod +x ~/docker-compose
             sudo mv ~/docker-compose /usr/local/bin/docker-compose
       - setup_remote_docker
-      - run:
-          name: Install and run sentinel tests
-          command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
-  test-docs:
-    docker:
-      - image: cimg/rust:1.57.0
+  build_docs:
     steps:
-      - checkout
       - run:
           name: Install nightly
           command: rustup install nightly
       - run:
           name: Build documentation
           command: tests/doc.sh
+  test_default_features:
+    steps:
+      - checkout
+      - setup_host
+      - run:
+          name: Run tests with default features
+          command: tests/runners/default-features.sh
+  test_all_features:
+    steps:
+      - checkout
+      - setup_host
+      - run:
+          name: Run tests with all features
+          command: tests/runners/all-features.sh
+  test_no_features:
+    steps:
+      - checkout
+      - setup_host
+      - run:
+          name: Run tests with no features
+          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
+  test_sentinel:
+    steps:
+      - checkout
+      - setup_docker_compose
+      - run:
+          name: Install and run sentinel tests
+          command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
+
+
+jobs:
+  test-default-7.0:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 7.0.2
+    steps:
+      - test_default_features
+    test-no-features-7.0:
+      docker:
+        - image: cimg/rust:1.61.0
+      environment:
+        REDIS_VERSION: 7.0.2
+      steps:
+        - test_no_features
+    test-all-features-7.0:
+      docker:
+        - image: cimg/rust:1.61.0
+      environment:
+        REDIS_VERSION: 7.0.2
+      steps:
+        - test_all_features
+  test-default-6.2:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_default_features
+  test-no-features-6.2:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_no_features
+  test-all-features-6.2:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_all_features
+  test-sentinel-6.2:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_sentinel
+  test-sentinel-7.0:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 7.0.2
+    steps:
+      - test_sentinel
+  test-docs:
+    docker:
+      - image: cimg/rust:1.61.0
+    steps:
+      - checkout
+      - build_docs
 
 workflows:
   version: 2
   build:
     jobs:
-      - test-default
-      - test-all-features
-      - test-no-features
-      - test-sentinel
+      # it'd be nice if we could pass parameters or something here
+      - test-default-6.2
+      - test-all-features-6.2
+      - test-no-features-6.2
+      - test-sentinel-6.2
+      - test-default-7.0
+      - test-all-features-7.0
+      - test-no-features-7.0
+      - test-sentinel-7.0
       - test-docs
