@@ -5,7 +5,7 @@ use crate::error::{RedisError, RedisErrorKind};
 #[cfg(feature = "enable-tls")]
 use crate::types::RedisConfig;
 #[cfg(feature = "enable-tls")]
-use native_tls::{Certificate, Protocol, TlsConnector as NativeTlsConnector};
+use native_tls::{Certificate, Protocol, TlsConnector as NativeTlsConnector, Identity};
 #[cfg(feature = "enable-tls")]
 use parking_lot::RwLock;
 #[cfg(feature = "enable-tls")]
@@ -52,6 +52,7 @@ pub struct TlsConfig {
   pub max_protocol_version: Option<Protocol>,
   pub disable_built_in_roots: bool,
   pub use_sni: bool,
+  pub identity: Option<Identity>
 }
 
 #[cfg(feature = "enable-tls")]
@@ -61,6 +62,7 @@ impl Default for TlsConfig {
       root_certs: None,
       min_protocol_version: None,
       max_protocol_version: None,
+      identity: None,
       disable_built_in_roots: false,
       use_sni: true,
     }
@@ -123,6 +125,9 @@ pub fn create_tls_connector(config: &RwLock<RedisConfig>) -> Result<TlsConnector
     }
     if let Some(ref protocol) = config.max_protocol_version {
       builder.max_protocol_version(Some(protocol.clone()));
+    }
+    if let Some(ref identity) = config.identity {
+      builder.identity(identity.clone());
     }
   }
 
