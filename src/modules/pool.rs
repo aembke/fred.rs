@@ -18,9 +18,20 @@ pub(crate) struct RedisPoolInner {
 
 /// A struct to pool multiple Redis clients together into one interface that will round-robin requests among clients,
 /// preferring clients with an active connection if specified.
-#[derive(Clone)]
+///
+/// Cloning `RedisPool` is cheap as it only clones the pointer of the atomic reference-counted inner pool
+/// inside of the struct, this means that when you `Clone` you get a new reference of the same pool effectively
+/// keeping the same clients and connections.
 pub struct RedisPool {
   inner: Arc<RedisPoolInner>,
+}
+
+impl Clone for RedisPool {
+  fn clone(&self) -> Self {
+    Self {
+      inner: Arc::clone(&self.inner),
+    }
+  }
 }
 
 impl fmt::Display for RedisPool {
