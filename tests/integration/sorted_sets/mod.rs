@@ -18,7 +18,7 @@ fn f64_cmp(lhs: f64, rhs: f64) -> CmpOrdering {
   }
 }
 
-async fn create_lex_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, RedisValue)>, RedisError> {
+async fn create_lex_data(client: &RedisClient, key: &'static str) -> Result<Vec<(f64, RedisValue)>, RedisError> {
   let values: Vec<(f64, String)> = "abcdefghijklmnopqrstuvwxyz"
     .chars()
     .map(|c| (0.0, c.to_string()))
@@ -28,7 +28,7 @@ async fn create_lex_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, Re
   Ok(values.into_iter().map(|(f, v)| (f, v.into())).collect())
 }
 
-async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, RedisValue)>, RedisError> {
+async fn create_count_data(client: &RedisClient, key: &'static str) -> Result<Vec<(f64, RedisValue)>, RedisError> {
   let values: Vec<(f64, RedisValue)> = (0..COUNT)
     .into_iter()
     .map(|idx| (idx as f64, idx.to_string().into()))

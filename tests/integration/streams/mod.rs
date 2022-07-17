@@ -7,13 +7,13 @@ use tokio::time::sleep;
 
 type FakeExpectedValues = Vec<HashMap<String, HashMap<String, usize>>>;
 
-async fn create_fake_group_and_stream(client: &RedisClient, key: &str) -> Result<(), RedisError> {
+async fn create_fake_group_and_stream(client: &RedisClient, key: &'static str) -> Result<(), RedisError> {
   client.xgroup_create(key, "group1", "$", true).await
 }
 
 async fn add_stream_entries(
   client: &RedisClient,
-  key: &str,
+  key: &'static str,
   count: usize,
 ) -> Result<(Vec<String>, FakeExpectedValues), RedisError> {
   let mut ids = Vec::with_capacity(count);
