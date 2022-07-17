@@ -279,9 +279,9 @@ impl From<Bytes> for RedisKey {
   }
 }
 
-impl<'a> From<&'a [u8]> for RedisKey {
-  fn from(b: &'a [u8]) -> Self {
-    RedisKey { key: b.to_vec().into() }
+impl From<&'static [u8]> for RedisKey {
+  fn from(b: &'static [u8]) -> Self {
+    Self::from_static(b)
   }
 }
 
@@ -300,11 +300,9 @@ impl From<String> for RedisKey {
   }
 }
 
-impl<'a> From<&'a str> for RedisKey {
-  fn from(s: &'a str) -> Self {
-    RedisKey {
-      key: s.as_bytes().to_vec().into(),
-    }
+impl From<&'static str> for RedisKey {
+  fn from(s: &'static str) -> Self {
+    Self::from_static_str(s)
   }
 }
 

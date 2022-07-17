@@ -6,7 +6,7 @@ use tokio::time::sleep;
 
 const COUNT: i64 = 10;
 
-async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<RedisValue>, RedisError> {
+async fn create_count_data(client: &RedisClient, key: &'static str) -> Result<Vec<RedisValue>, RedisError> {
   let mut values = Vec::with_capacity(COUNT as usize);
   for idx in 0..COUNT {
     let _: () = client.rpush(key, idx).await?;

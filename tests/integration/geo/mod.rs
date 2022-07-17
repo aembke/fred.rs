@@ -12,7 +12,7 @@ fn loose_eq_pos(lhs: &GeoPosition, rhs: &GeoPosition) -> bool {
   loose_eq(lhs.longitude, rhs.longitude, 5) && loose_eq(lhs.latitude, rhs.latitude, 5)
 }
 
-async fn create_fake_data(client: &RedisClient, key: &str) -> Result<Vec<GeoPosition>, RedisError> {
+async fn create_fake_data(client: &RedisClient, key: &'static str) -> Result<Vec<GeoPosition>, RedisError> {
   // GEOADD key 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
 
   let values = vec![
