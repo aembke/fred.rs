@@ -20,3 +20,8 @@ rm -rf ./tests/tmp/redis*
 ./tests/scripts/install_redis_centralized.sh
 ./tests/scripts/install_redis_clustered.sh
 ./tests/scripts/docker-install-redis-sentinel.sh
+
+read -p "Install cluster with TLS? [y/n]: " INSTALL_TLS
+if [ "$INSTALL_TLS" = "y" ]; then
+  ./tests/scripts/install_tls_cluster.sh
+fi

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# there must be a 6 port buffer between this and the non-tls starting cluster port
+TLS_CLUSTER_PORT=40000
+
 function check_root_dir {
   if [ ! -d "./tests/tmp" ]; then
     echo "Must be in application root for redis installation scripts to work."
@@ -41,7 +44,7 @@ function install_redis {
   tar xf redis-$REDIS_VERSION.tar.gz -C redis_$REDIS_VERSION
   rm redis-$REDIS_VERSION.tar.gz
   cd redis_$REDIS_VERSION/redis-$REDIS_VERSION
-  make -j"${PARALLEL_JOBS}"
+  make BUILD_TLS=yes -j"${PARALLEL_JOBS}"
   mv redis.conf redis.conf.bk
   popd > /dev/null
 }
@@ -96,10 +99,38 @@ function start_cluster {
   popd > /dev/null
 }
 
+function start_cluster_tls {
+  echo "Creating and starting TLS cluster..."
+  pushd $ROOT > /dev/null
+  cd $ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/utils/create-cluster-tls
+  ./create-cluster stop
+  ./create-cluster clean
+  ./create-cluster start
+  ./create-cluster create -f
+  popd > /dev/null
+
+  echo "Cluster with TLS started on ports $((TLS_CLUSTER_PORT+1))-$((TLS_CLUSTER_PORT+6))"
+}
+
 # Modify the /etc/hosts file to map the node-<index>.example.com domains to localhost.
 function modify_etc_hosts {
-  # check the hosts file and ask if it can be modified only if needed
-  echo "Unimplemented"
+  if [ -z "$CIRCLECI_TESTS" ]; then
+    read -p "Modify /etc/hosts with TLS hostnames? [y/n]: " DNS_INPUT
+    if [ "$DNS_INPUT" = "y" ]; then
+      echo "Using sudo to modify /etc/hosts..."
+    else
+      return
+    fi
+  fi
+
+  TLS_HOSTS="127.0.0.1 example.com client.example.com"
+  CERT_PORT=$TLS_CLUSTER_PORT
+  for i in `seq 1 6`; do
+    CERT_PORT=$((CERT_PORT+1))
+    TLS_HOSTS="$TLS_HOSTS node-$CERT_PORT.example.com"
+  done
+
+  echo $TLS_HOSTS | sudo tee -a /etc/hosts
 }
 
 # Generate creds for a CA, a cert/key for the client, a cert/key for each node in the cluster, and sign the certs with the CA creds.
@@ -107,7 +138,9 @@ function modify_etc_hosts {
 # Note: it's also necessary to modify DNS mappings so the CN in each cert can be used as a hostname. See `modify_etc_hosts`.
 function generate_cluster_credentials {
   echo "Generating keys..."
-  mkdir $ROOT/tests/tmp/creds
+  if [ ! -d "$ROOT/tests/tmp/creds" ]; then
+    mkdir -p $ROOT/tests/tmp/creds
+  fi
   pushd $ROOT > /dev/null
   cd $ROOT/tests/tmp/creds
   rm -rf ./*
@@ -115,6 +148,8 @@ function generate_cluster_credentials {
   echo "Generating CA key pair..."
   openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=*.example.com'
   openssl x509 -trustout -signkey ca.key -days 90 -req -in ca.csr -out ca.pem
+  # need the CA cert in DER format too
+  openssl x509 -outform der -in ca.pem -out ca.crt
 
   echo "Generating client key pair..."
   openssl genrsa -out client.key 2048
@@ -122,10 +157,12 @@ function generate_cluster_credentials {
   openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem
 
   echo "Generating key pairs for each cluster node..."
+  CERT_PORT=$TLS_CLUSTER_PORT
   for i in `seq 1 6`; do
-    openssl genrsa -out "node-$i.key" 2048
-    openssl req -new -key "node-$i.key" -out "node-$i.csr" -subj "/CN=node-$i.example.com"
-    openssl x509 -req -days 90 -sha256 -in "node-$i.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$i.pem"
+    CERT_PORT=$((CERT_PORT+1))
+    openssl genrsa -out "node-$CERT_PORT.key" 2048
+    openssl req -new -key "node-$CERT_PORT.key" -out "node-$CERT_PORT.csr" -subj "/CN=node-$CERT_PORT.example.com"
+    openssl x509 -req -days 90 -sha256 -in "node-$CERT_PORT.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$CERT_PORT.pem"
   done
 
   echo "Printing subject for each cert..."
@@ -138,36 +175,16 @@ function generate_cluster_credentials {
   popd > /dev/null
 }
 
-# Set up TLS on the Redis server nodes according to the following rules:
-# * Clients must authenticate with a valid cert.
-# * Each server node will have its own FQDN (node-<idx>.example.com), resolvable by the client and other nodes, that matches the CN in each node's cert.
-# * The fake "root" CA creds will be used by the client and server nodes. The "root" cert is a star cert for example.com (*.example.com).
-# * The client will use a cert with CN of client.example.com.
-function configure_tls_config {
-  echo "Configuring TLS settings..."
+function create_tls_cluster_config {
+  echo "Creating cluster configuration file..."
   pushd $ROOT > /dev/null
   cd $ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION
-  cp redis.conf.bk redis.conf.tls
-  local escaped_path=`echo $TLS_CREDS_PATH | sed 's_/_\\/_g'`
-
-  sed -i "s/^# port 0$/port 0/" redis.conf.tls
-  sed -i "s/^# tls-port 6379$/tls-port 6379/" redis.conf.tls
-  sed -i 's/^# tls-ca-cert-file ca.crt$/tls-ca-cert-file $escaped_path\/ca.pem/' redis.conf.tls
-  sed -i "s/^# tls-cluster yes$/tls-cluster yes/" redis.conf.tls
-
-  echo "Configuring each cluster node's TLS settings..."
-  for i in `seq 1 6`; do
-    # for each server, create a new conf file
-    # # tls-cert-file redis.crt
-      # tls-key-file redis.key
-
-
-  done
+  rm -rf utils/create-cluster-tls
+  cp -rf utils/create-cluster utils/create-cluster-tls
+  cp $ROOT/tests/scripts/create-cluster-tls.sh utils/create-cluster-tls/create-cluster
+  cd utils/create-cluster-tls
+  chmod +x ./create-cluster
+  echo "" > config.sh
 
   popd > /dev/null
-}
-
-function configure_cluster_hostname_config {
-  # change the redis.conf to use the new cluster hostname features
-  echo "Unimplemented"
 }

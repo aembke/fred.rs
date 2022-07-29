@@ -76,7 +76,7 @@ commands:
       - setup_host
       - run:
           name: Run tests with no features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
+          command: tests/runners/no-features.sh
   test_sentinel:
     steps:
       - checkout
@@ -84,6 +84,16 @@ commands:
       - run:
           name: Install and run sentinel tests
           command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
+  test_tls_cluster:
+    steps:
+      - checkout
+      - setup_host
+      - run:
+          name: Install cluster with TLS
+          command: tests/scripts/install_tls_cluster.sh
+      - run:
+          name: Run cluster tests with TLS features
+          command: tests/runners/tls-cluster.sh
 
 
 jobs:
@@ -94,20 +104,27 @@ jobs:
       REDIS_VERSION: 7.0.2
     steps:
       - test_default_features
-    test-no-features-7.0:
-      docker:
-        - image: cimg/rust:1.61.0
-      environment:
-        REDIS_VERSION: 7.0.2
-      steps:
-        - test_no_features
-    test-all-features-7.0:
-      docker:
-        - image: cimg/rust:1.61.0
-      environment:
-        REDIS_VERSION: 7.0.2
-      steps:
-        - test_all_features
+  test-no-features-7.0:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 7.0.2
+    steps:
+      - test_no_features
+  test-all-features-7.0:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 7.0.2
+    steps:
+      - test_all_features
+  test-cluster-tls-features-7.0:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 7.0.2
+    steps:
+      - test_tls_cluster
   test-default-6.2:
     docker:
       - image: cimg/rust:1.61.0
