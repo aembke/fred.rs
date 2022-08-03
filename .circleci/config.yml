@@ -92,8 +92,18 @@ commands:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh
       - run:
-          name: Run cluster tests with TLS features
-          command: tests/runners/tls-cluster.sh
+          name: Run cluster tests with native-tls features
+          command: tests/runners/cluster-tls.sh
+  test_rustls_cluster:
+    steps:
+      - checkout
+      - setup_host
+      - run:
+          name: Install cluster with TLS
+          command: tests/scripts/install_tls_cluster.sh
+      - run:
+          name: Run cluster tests with rustls features
+          command: tests/runners/cluster-rustls.sh
 
 
 jobs:
@@ -125,6 +135,13 @@ jobs:
       REDIS_VERSION: 7.0.2
     steps:
       - test_tls_cluster
+  test-cluster-rustls-features-7.0:
+    docker:
+      - image: cimg/rust:1.61.0
+    environment:
+      REDIS_VERSION: 7.0.2
+    steps:
+      - test_rustls_cluster
   test-default-6.2:
     docker:
       - image: cimg/rust:1.61.0

@@ -26,6 +26,8 @@ use crate::protocol::tls;
 use crate::types::ServerConfig;
 #[cfg(feature = "enable-tls")]
 use tokio_native_tls::TlsStream;
+#[cfg(feature = "enable-rustls")]
+use tokio_rustls::TlsStream as RustlsStream;
 
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";
@@ -33,7 +35,9 @@ pub const OK: &'static str = "OK";
 pub type FramedTcp = Framed<TcpStream, RedisCodec>;
 #[cfg(feature = "enable-tls")]
 pub type FramedTls = Framed<TlsStream<TcpStream>, RedisCodec>;
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(feature = "enable-rustls")]
+pub type FramedTls = Framed<RustlsStream<TcpStream>, RedisCodec>;
+#[cfg(not(any(feature = "enable-tls", feature = "enable-rustls")))]
 pub type FramedTls = FramedTcp;
 
 pub type TcpRedisReader = SplitStream<FramedTcp>;
@@ -317,7 +321,7 @@ where
   }
 }
 
-#[cfg(feature = "enable-tls")]
+#[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
 pub async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
   domain: &str,

@@ -44,7 +44,11 @@
 //! ```
 //!
 //! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
-//!
+
+// TODO change the name of `enable-tls` in the next major version
+#[cfg(all(feature = "enable-tls", feature = "enable-rustls"))]
+compile_error!("features `enable-tls` and `enable-rustls` are mutually exclusive");
+
 pub extern crate bytes;
 pub extern crate bytes_utils;
 #[cfg(feature = "serde-json")]

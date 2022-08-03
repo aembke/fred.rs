@@ -4,8 +4,8 @@ use crate::utils;
 use std::cmp;
 use url::Url;
 
-#[cfg(feature = "enable-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+#[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-tls", feature = "enable-rustls"))))]
 pub use crate::protocol::tls::TlsConfig;
 
 /// The default amount of jitter when waiting to reconnect.
@@ -335,8 +335,8 @@ pub struct RedisConfig {
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
   /// Default: `None`
-  #[cfg(feature = "enable-tls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+  #[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-tls", feature = "enable-rustls"))))]
   pub tls: Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
@@ -357,8 +357,8 @@ impl Default for RedisConfig {
       version: RespVersion::RESP2,
       performance: PerformanceConfig::default(),
       database: None,
-      #[cfg(feature = "enable-tls")]
-      #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+      #[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
+      #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-tls", feature = "enable-rustls"))))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
@@ -375,7 +375,7 @@ impl RedisConfig {
   }
 
   /// Whether or not the client uses TLS.
-  #[cfg(not(feature = "enable-tls"))]
+  #[cfg(not(any(feature = "enable-tls", feature = "enable-rustls")))]
   pub fn uses_tls(&self) -> bool {
     false
   }
@@ -414,7 +414,7 @@ impl RedisConfig {
   /// * `redis-sentinel` - TCP connected to a centralized server behind a sentinel layer.
   /// * `rediss-sentinel` - TLS connected to a centralized server behind a sentinel layer.
   ///
-  /// **Note: The `rediss` scheme prefix requires the `enable-tls` feature.**
+  /// **Note: The `rediss` scheme prefix requires the `enable-tls` or `enable-rustls` feature.**
   ///
   /// # Query Parameters
   ///
@@ -556,7 +556,7 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(feature = "enable-tls")] // TODO change
       tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })

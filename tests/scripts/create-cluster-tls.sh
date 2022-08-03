@@ -62,6 +62,7 @@ then
     if [ "$2" == "-f" ]; then
         OPT_ARG="--cluster-yes"
     fi
+    echo "$BIN_PATH/redis-cli $CLIENT_TLS_ARGS --cluster create $HOSTS --cluster-replicas $REPLICAS $OPT_ARG"
     $BIN_PATH/redis-cli $CLIENT_TLS_ARGS --cluster create $HOSTS --cluster-replicas $REPLICAS $OPT_ARG
     exit 0
 fi

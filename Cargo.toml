@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "5.1.0"
+version = "6.0.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
 description = "An async Redis client for Rust built on Futures and Tokio."
@@ -12,7 +12,7 @@ categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
 
 [package.metadata.docs.rs]
-all-features = true
+features = [""]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
@@ -42,6 +42,7 @@ tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
+tokio-rustls = { version = "0.23", optional = true }
 
 [dev-dependencies]
 prometheus = "0.12"
@@ -78,14 +79,15 @@ name = "serde"
 required-features = ["serde-json"]
 
 [features]
-default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
+default = ["ignore-auth-error", "pool-prefer-active"]
 fallback = []
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []
 ignore-auth-error = []
-enable-tls = ["native-tls", "tokio-native-tls"]
-vendored-tls = ["enable-tls", "native-tls/vendored"]
+enable-rustls = ["tokio-rustls"]
+enable-openssl = ["native-tls", "tokio-native-tls"]
+vendored-openssl = ["enable-openssl", "native-tls/vendored"]
 reconnect-on-auth-error = []
 pool-prefer-active = []
 full-tracing = ["partial-tracing", "tracing", "tracing-futures"]

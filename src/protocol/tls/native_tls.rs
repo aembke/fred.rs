@@ -1,50 +1,17 @@
 use std::fmt;
-
-#[cfg(feature = "enable-tls")]
 use crate::error::{RedisError, RedisErrorKind};
-#[cfg(feature = "enable-tls")]
 use crate::types::RedisConfig;
-#[cfg(feature = "enable-tls")]
-use native_tls::{Certificate, Protocol, TlsConnector as NativeTlsConnector, Identity};
-#[cfg(feature = "enable-tls")]
+use native_tls::TlsConnector as NativeTlsConnector;
 use parking_lot::RwLock;
-#[cfg(feature = "enable-tls")]
-use std::env;
-#[cfg(feature = "enable-tls")]
 use tokio_native_tls::TlsConnector;
+use std::net::SocketAddr;
+use crate::protocol::tls::{should_disable_cert_verification, should_disable_host_verification};
+pub use native_tls::{Certificate, Protocol, Identity};
+use crate::protocol::connection::RedisTransport;
 
-#[cfg(feature = "enable-tls")]
-pub fn should_disable_cert_verification() -> bool {
-  match env::var_os("FRED_DISABLE_CERT_VERIFICATION") {
-    Some(s) => match s.into_string() {
-      Ok(s) => match s.as_ref() {
-        "1" | "true" | "TRUE" => true,
-        _ => false,
-      },
-      Err(_) => false,
-    },
-    None => false,
-  }
-}
-
-#[cfg(feature = "enable-tls")]
-pub fn should_disable_host_verification() -> bool {
-  match env::var_os("FRED_DISABLE_HOST_VERIFICATION") {
-    Some(s) => match s.into_string() {
-      Ok(s) => match s.as_ref() {
-        "1" | "true" | "TRUE" => true,
-        _ => false,
-      },
-      Err(_) => false,
-    },
-    None => false,
-  }
-}
-
-/// Configuration for Tls Connections
+/// Configuration for Tls connections with the `native-tls` crate.
 ///
-/// See <https://docs.rs/tokio-native-tls/0.3.0/tokio_native_tls/native_tls/struct.TlsConnectorBuilder.html> for more information.
-#[cfg(feature = "enable-tls")]
+/// See the [native-tls docs](https://docs.rs/tokio-native-tls/*/tokio_native_tls/native_tls/struct.TlsConnectorBuilder.html) for more information.
 #[derive(Clone)]
 pub struct TlsConfig {
   pub root_certs: Option<Vec<Certificate>>,
@@ -55,7 +22,6 @@ pub struct TlsConfig {
   pub identity: Option<Identity>
 }
 
-#[cfg(feature = "enable-tls")]
 impl Default for TlsConfig {
   fn default() -> Self {
     TlsConfig {
@@ -66,20 +32,6 @@ impl Default for TlsConfig {
       disable_built_in_roots: false,
       use_sni: true,
     }
-  }
-}
-
-/// Configuration for Tls Connections
-///
-/// See https://docs.rs/tokio-native-tls/0.3.0/tokio_native_tls/native_tls/struct.TlsConnectorBuilder.html for more information.
-#[cfg(not(feature = "enable-tls"))]
-#[derive(Clone)]
-pub struct TlsConfig;
-
-#[cfg(not(feature = "enable-tls"))]
-impl Default for TlsConfig {
-  fn default() -> Self {
-    TlsConfig
   }
 }
 
@@ -97,7 +49,6 @@ impl fmt::Debug for TlsConfig {
   }
 }
 
-#[cfg(feature = "enable-tls")]
 pub fn create_tls_connector(config: &RwLock<RedisConfig>) -> Result<TlsConnector, RedisError> {
   let mut builder = NativeTlsConnector::builder();
 
@@ -135,4 +86,8 @@ pub fn create_tls_connector(config: &RwLock<RedisConfig>) -> Result<TlsConnector
     .build()
     .map(|t| TlsConnector::from(t))
     .map_err(|e| RedisError::new(RedisErrorKind::Tls, format!("{:?}", e)))
+}
+
+pub async fn create_tls_transport(addr: SocketAddr) -> Result<RedisTransport, RedisError> {
+  unimplemented!()
 }
