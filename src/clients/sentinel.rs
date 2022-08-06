@@ -34,8 +34,8 @@ pub struct SentinelConfig {
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
   /// Default: `None`
-  #[cfg(feature = "enable-tls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+  #[cfg(feature = "enable-native-tls")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
   pub tls: Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
@@ -52,7 +52,7 @@ impl Default for SentinelConfig {
       port: 26379,
       username: None,
       password: None,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(feature = "enable-native-tls")]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: false,
@@ -78,7 +78,7 @@ impl From<SentinelConfig> for RedisConfig {
       username: config.username,
       password: config.password,
       version: RespVersion::RESP2,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(feature = "enable-native-tls")]
       tls: config.tls,
       #[cfg(feature = "partial-tracing")]
       tracing: config.tracing,

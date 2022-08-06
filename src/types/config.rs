@@ -4,9 +4,12 @@ use crate::utils;
 use std::cmp;
 use url::Url;
 
-#[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-tls", feature = "enable-rustls"))))]
-pub use crate::protocol::tls::TlsConfig;
+#[cfg(feature = "enable-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
+pub use tokio_native_tls::native_tls::TlsConnector as NativeTlsConnector;
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+pub use tokio_rustls::TlsConnector as RustlsConnector;
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -267,7 +270,7 @@ pub struct PerformanceConfig {
   ///
   /// If `0` the client will follow `MOVED` or `ASK` redirects as quickly as possible. However, this can result in some unnecessary state synchronization commands when large values are being moved between nodes.
   ///
-  /// Default: 50 ms
+  /// Default: 10 ms
   pub cluster_cache_update_delay_ms: u64,
 }
 
@@ -279,7 +282,7 @@ impl Default for PerformanceConfig {
       max_command_attempts: 3,
       default_command_timeout_ms: 0,
       max_feed_count: 1000,
-      cluster_cache_update_delay_ms: 50,
+      cluster_cache_update_delay_ms: 10,
     }
   }
 }
@@ -332,12 +335,30 @@ pub struct RedisConfig {
   ///
   /// Default: `None`
   pub database: Option<u8>,
-  /// TLS configuration fields. If `None` the connection will not use TLS.
+  /// TLS configuration options.
   ///
-  /// Default: `None`
-  #[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-tls", feature = "enable-rustls"))))]
-  pub tls: Option<TlsConfig>,
+  /// This field can have different types depending on the feature flags used.
+  /// * `enable-native-tls` - (TlsConnector)[tokio_native_tls::native_tls::TlsConnector]
+  /// * `enable-rustls` - (TlsConnector)[tokio_rustls::rustls::TlsConnector]
+  ///
+  /// See the examples for more information.
+  ///
+  /// Default: None
+  #[cfg(feature = "enable-native-tls")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
+  pub tls: Option<NativeTlsConnector>,
+  /// TLS configuration options.
+  ///
+  /// This field can have different types depending on the feature flags used.
+  /// * `enable-native-tls` - (TlsConnector)[tokio_native_tls::native_tls::TlsConnector]
+  /// * `enable-rustls` - (TlsConnector)[tokio_rustls::rustls::TlsConnector]
+  ///
+  /// See the examples for more information.
+  ///
+  /// Default: None
+  #[cfg(feature = "enable-rustls")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+  pub tls: Option<RustlsConnector>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
@@ -357,8 +378,8 @@ impl Default for RedisConfig {
       version: RespVersion::RESP2,
       performance: PerformanceConfig::default(),
       database: None,
-      #[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
-      #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-tls", feature = "enable-rustls"))))]
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
@@ -369,13 +390,13 @@ impl Default for RedisConfig {
 
 impl RedisConfig {
   /// Whether or not the client uses TLS.
-  #[cfg(feature = "enable-tls")]
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   pub fn uses_tls(&self) -> bool {
     self.tls.is_some()
   }
 
   /// Whether or not the client uses TLS.
-  #[cfg(not(any(feature = "enable-tls", feature = "enable-rustls")))]
+  #[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
   pub fn uses_tls(&self) -> bool {
     false
   }
@@ -414,7 +435,7 @@ impl RedisConfig {
   /// * `redis-sentinel` - TCP connected to a centralized server behind a sentinel layer.
   /// * `rediss-sentinel` - TLS connected to a centralized server behind a sentinel layer.
   ///
-  /// **Note: The `rediss` scheme prefix requires the `enable-tls` or `enable-rustls` feature.**
+  /// **Note: The `rediss` scheme prefix requires the `enable-native-tls` or `enable-rustls` feature.**
   ///
   /// # Query Parameters
   ///
@@ -465,7 +486,7 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(feature = "enable-native-tls")]
       tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })
@@ -501,7 +522,7 @@ impl RedisConfig {
       server,
       username,
       password,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(feature = "enable-native-tls")]
       tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })
@@ -556,7 +577,7 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(feature = "enable-tls")] // TODO change
+      #[cfg(feature = "enable-native-tls")]
       tls: utils::tls_config_from_url(_tls),
       ..RedisConfig::default()
     })
@@ -627,13 +648,13 @@ impl ServerConfig {
   /// Create a new sentinel config with the provided set of hosts and the name of the service.
   ///
   /// This library will connect using the details from the [Redis documentation](https://redis.io/topics/sentinel-clients).
-  pub fn new_sentinel<H, N>(mut hosts: Vec<(H, u16)>, service_name: N) -> ServerConfig
+  pub fn new_sentinel<H, N>(hosts: Vec<(H, u16)>, service_name: N) -> ServerConfig
   where
     H: Into<String>,
     N: Into<String>,
   {
     ServerConfig::Sentinel {
-      hosts: hosts.drain(..).map(|(h, p)| (h.into(), p)).collect(),
+      hosts: hosts.into_iter().map(|(h, p)| (h.into(), p)).collect(),
       service_name: service_name.into(),
       #[cfg(feature = "sentinel-auth")]
       username: None,
@@ -661,7 +682,7 @@ impl ServerConfig {
     }
   }
 
-  /// Check if the config is for a clustered Redis deployment.
+  /// Whether or not the config is for a cluster.
   pub fn is_clustered(&self) -> bool {
     match self {
       ServerConfig::Clustered { .. } => true,
@@ -669,11 +690,19 @@ impl ServerConfig {
     }
   }
 
-  /// Check if the config is for a sentinel deployment.
+  /// Whether or not the config is for a centralized server behind a sentinel node(s).
   pub fn is_sentinel(&self) -> bool {
     match self {
       ServerConfig::Sentinel { .. } => true,
       _ => false,
+    }
+  }
+
+  /// Whether or not the config is for a centralized server.
+  pub fn is_centralized(&self) -> bool {
+    match self {
+      ServerConfig::Centralized {..} => true,
+      _ => false
     }
   }
 
@@ -692,19 +721,6 @@ mod tests {
   use super::*;
   use crate::prelude::ServerConfig;
   use crate::types::RedisConfig;
-
-  #[test]
-  fn should_get_next_delay_repeatedly() {
-    let mut policy = ReconnectPolicy::new_exponential(0, 100, 999999999, 2);
-    let mut last_delay = 1;
-    for _ in 0..9_999_999 {
-      let delay = policy.next_delay().unwrap();
-      if delay < last_delay {
-        panic!("Invalid next delay: {:?}", delay);
-      }
-      last_delay = delay;
-    }
-  }
 
   #[test]
   fn should_parse_centralized_url() {
@@ -755,7 +771,7 @@ mod tests {
   }
 
   #[test]
-  #[cfg(feature = "enable-tls")]
+  #[cfg(feature = "enable-native-tls")]
   fn should_parse_centralized_url_with_tls() {
     let url = "rediss://username:password@foo.com:6379/1";
     let expected = RedisConfig {
@@ -821,7 +837,7 @@ mod tests {
   }
 
   #[test]
-  #[cfg(feature = "enable-tls")]
+  #[cfg(feature = "enable-native-tls")]
   fn should_parse_clustered_url_with_tls() {
     let url = "rediss-cluster://username:password@foo.com:30000";
     let expected = RedisConfig {
@@ -877,7 +893,7 @@ mod tests {
   }
 
   #[test]
-  #[cfg(feature = "enable-tls")]
+  #[cfg(feature = "enable-native-tls")]
   fn should_parse_sentinel_url_with_tls() {
     let url = "rediss-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename";
     let expected = RedisConfig {

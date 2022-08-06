@@ -86,8 +86,8 @@ subscriber-client = []
 metrics = []
 ignore-auth-error = []
 enable-rustls = ["tokio-rustls"]
-enable-openssl = ["native-tls", "tokio-native-tls"]
-vendored-openssl = ["enable-openssl", "native-tls/vendored"]
+enable-native-tls = ["native-tls", "tokio-native-tls"]
+vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
 reconnect-on-auth-error = []
 pool-prefer-active = []
 full-tracing = ["partial-tracing", "tracing", "tracing-futures"]
@@ -101,7 +101,4 @@ sentinel-auth = []
 no-client-setname = []
 # Testing Features
 sentinel-tests = []
-# a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
 chaos-monkey = ["custom-reconnect-errors"]
-# tests that may not work on some systems that have low file descriptor limits
-fd-tests = []

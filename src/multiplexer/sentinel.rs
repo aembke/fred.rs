@@ -19,7 +19,7 @@ use tokio::net::TcpStream;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio_util::codec::Framed;
 
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 use crate::protocol::tls;
 
 /// The amount of time to wait when trying to connect to the redis server.
@@ -78,7 +78,7 @@ fn read_redis_auth(inner: &Arc<RedisClientInner>) -> (Option<String>, Option<Str
 }
 
 // TODO clean this up in the next major release by breaking up the connection functions
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 pub async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
   domain: &str,
@@ -112,7 +112,7 @@ pub async fn create_authenticated_connection_tls(
   Ok(framed)
 }
 
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(not(feature = "enable-native-tls"))]
 pub(crate) async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
   _domain: &str,

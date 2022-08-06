@@ -28,7 +28,7 @@ macro_rules! parse_or_zero(
   }
 );
 
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 pub fn uses_tls(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.read().tls.is_some()
 }
@@ -41,7 +41,7 @@ pub fn is_null(frame: &Resp3Frame) -> bool {
   }
 }
 
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(not(feature = "enable-native-tls"))]
 pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
   false
 }

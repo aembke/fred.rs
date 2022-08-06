@@ -2,11 +2,11 @@
 
 # This is required because CircleCI will run the sentinel nodes on a remote docker instance,
 # and these containers cannot be accessed directly over the host container's network. Instead
-# we build an image on the fly and run it in the same network space as the sentinel containers.
+# we build an image on the fly and run it in the same network as the sentinel containers.
 
 # note: the top level target directory must be removed prior to running this
 
-FROM cimg/rust:1.57.0
+FROM cimg/rust:1.62.0
 USER circleci
 
 ARG REDIS_VERSION
@@ -22,11 +22,10 @@ COPY --chown=1001:1001 . /home/circleci/project
 RUN sudo apt-get update && sudo apt-get install -y libssl-dev dnsutils
 RUN rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
 RUN echo "REDIS_VERSION=$REDIS_VERSION"
-RUN .circleci/install_redis_cli.sh
+# RUN .circleci/install_redis_cli.sh
 
 # For debugging
 RUN cargo --version && rustc --version
-# TODO figure out if this is still worth the added hassle and build time...
 # RUN cargo install cargo-nextest
 
 CMD tests/runners/sentinel-features.sh

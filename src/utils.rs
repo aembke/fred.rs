@@ -924,15 +924,15 @@ pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
   }
 }
 
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 pub fn check_tls_features() {}
 
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(not(feature = "enable-native-tls"))]
 pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }
 
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
   if tls {
     Some(TlsConfig::default())

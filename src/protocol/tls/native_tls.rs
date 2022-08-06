@@ -9,45 +9,8 @@ use crate::protocol::tls::{should_disable_cert_verification, should_disable_host
 pub use native_tls::{Certificate, Protocol, Identity};
 use crate::protocol::connection::RedisTransport;
 
-/// Configuration for Tls connections with the `native-tls` crate.
-///
-/// See the [native-tls docs](https://docs.rs/tokio-native-tls/*/tokio_native_tls/native_tls/struct.TlsConnectorBuilder.html) for more information.
-#[derive(Clone)]
-pub struct TlsConfig {
-  pub root_certs: Option<Vec<Certificate>>,
-  pub min_protocol_version: Option<Protocol>,
-  pub max_protocol_version: Option<Protocol>,
-  pub disable_built_in_roots: bool,
-  pub use_sni: bool,
-  pub identity: Option<Identity>
-}
-
-impl Default for TlsConfig {
-  fn default() -> Self {
-    TlsConfig {
-      root_certs: None,
-      min_protocol_version: None,
-      max_protocol_version: None,
-      identity: None,
-      disable_built_in_roots: false,
-      use_sni: true,
-    }
-  }
-}
-
-impl PartialEq for TlsConfig {
-  fn eq(&self, _other: &Self) -> bool {
-    true
-  }
-}
-
-impl Eq for TlsConfig {}
-
-impl fmt::Debug for TlsConfig {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[Tls Config]")
-  }
-}
+pub use native_tls;
+pub type ConfigBuilder = native_tls::TlsConnectorBuilder;
 
 pub fn create_tls_connector(config: &RwLock<RedisConfig>) -> Result<TlsConnector, RedisError> {
   let mut builder = NativeTlsConnector::builder();

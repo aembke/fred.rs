@@ -20,11 +20,11 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 use crate::protocol::tls;
 #[cfg(feature = "monitor")]
 use crate::types::ServerConfig;
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsStream;
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsStream as RustlsStream;
@@ -33,11 +33,11 @@ use tokio_rustls::TlsStream as RustlsStream;
 pub const OK: &'static str = "OK";
 
 pub type FramedTcp = Framed<TcpStream, RedisCodec>;
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 pub type FramedTls = Framed<TlsStream<TcpStream>, RedisCodec>;
 #[cfg(feature = "enable-rustls")]
 pub type FramedTls = Framed<RustlsStream<TcpStream>, RedisCodec>;
-#[cfg(not(any(feature = "enable-tls", feature = "enable-rustls")))]
+#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
 pub type FramedTls = FramedTcp;
 
 pub type TcpRedisReader = SplitStream<FramedTcp>;
@@ -321,7 +321,7 @@ where
   }
 }
 
-#[cfg(any(feature = "enable-tls", feature = "enable-rustls"))]
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 pub async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
   domain: &str,
@@ -344,7 +344,7 @@ pub async fn create_authenticated_connection_tls(
   Ok(framed)
 }
 
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(not(feature = "enable-native-tls"))]
 pub(crate) async fn create_authenticated_connection_tls(
   addr: &SocketAddr,
   _domain: &str,

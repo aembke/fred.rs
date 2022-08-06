@@ -45,9 +45,8 @@
 //!
 //! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 
-// TODO change the name of `enable-tls` in the next major version
-#[cfg(all(feature = "enable-tls", feature = "enable-rustls"))]
-compile_error!("features `enable-tls` and `enable-rustls` are mutually exclusive");
+#[cfg(all(feature = "enable-native-tls", feature = "enable-rustls"))]
+compile_error!("features `enable-native-tls` and `enable-rustls` are mutually exclusive");
 
 pub extern crate bytes;
 pub extern crate bytes_utils;
@@ -59,9 +58,9 @@ pub extern crate serde_json;
 extern crate async_trait;
 #[macro_use]
 extern crate log;
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 extern crate native_tls;
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 extern crate tokio_native_tls;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 extern crate tracing;
@@ -111,8 +110,8 @@ pub mod util {
 }
 
 /// Re-exports for the TLS types used with the TLS interface.
-#[cfg(feature = "enable-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+#[cfg(feature = "enable-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 pub mod tls {
   pub use native_tls::{Certificate, Protocol, Identity};
 }

@@ -35,7 +35,7 @@ pub enum RedisErrorKind {
   UrlError,
   /// A protocol error such as an invalid or unexpected frame from the server.
   ProtocolError,
-  /// A TLS error. The `enable-tls` feature must be enabled for this to be used.
+  /// A TLS error. The `enable-native-tls` feature must be enabled for this to be used.
   Tls,
   /// An error indicating the request was canceled.
   Canceled,
@@ -235,10 +235,18 @@ impl From<Resp2Frame> for RedisError {
   }
 }
 
-#[cfg(feature = "enable-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+#[cfg(feature = "enable-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 impl From<native_tls::Error> for RedisError {
   fn from(e: native_tls::Error) -> Self {
+    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+  }
+}
+
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+impl From<tokio_rustls::rustls::Error> for RedisError {
+  fn from(e: tokio_rustls::rustls::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
   }
 }

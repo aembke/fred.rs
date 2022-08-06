@@ -5,5 +5,5 @@ pub mod debug;
 pub mod types;
 pub mod utils;
 /// TLS configuration types.
-#[cfg(any(feature = "enable-rustls", feature = "enable-tls"))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 pub mod tls;

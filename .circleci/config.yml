@@ -109,77 +109,77 @@ commands:
 jobs:
   test-default-7.0:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 7.0.2
     steps:
       - test_default_features
   test-no-features-7.0:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 7.0.2
     steps:
       - test_no_features
   test-all-features-7.0:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 7.0.2
     steps:
       - test_all_features
   test-cluster-tls-features-7.0:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 7.0.2
     steps:
       - test_tls_cluster
   test-cluster-rustls-features-7.0:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 7.0.2
     steps:
       - test_rustls_cluster
   test-default-6.2:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_default_features
   test-no-features-6.2:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_no_features
   test-all-features-6.2:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_all_features
   test-sentinel-6.2:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_sentinel
   test-sentinel-7.0:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     environment:
       REDIS_VERSION: 7.0.2
     steps:
       - test_sentinel
   test-docs:
     docker:
-      - image: cimg/rust:1.61.0
+      - image: cimg/rust:1.62.0
     steps:
       - checkout
       - build_docs

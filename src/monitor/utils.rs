@@ -65,7 +65,7 @@ async fn handle_monitor_frame(
   parser::parse(inner, frame)
 }
 
-#[cfg(feature = "enable-tls")]
+#[cfg(feature = "enable-native-tls")]
 fn create_client_inner(config: Config) -> Arc<RedisClientInner> {
   let config = RedisConfig {
     username: config.username,
@@ -81,7 +81,7 @@ fn create_client_inner(config: Config) -> Arc<RedisClientInner> {
   RedisClientInner::new(config)
 }
 
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(not(feature = "enable-native-tls"))]
 fn create_client_inner(config: Config) -> Arc<RedisClientInner> {
   let config = RedisConfig {
     username: config.username,

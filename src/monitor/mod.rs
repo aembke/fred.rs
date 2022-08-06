@@ -60,12 +60,12 @@ pub struct Config {
   pub port: u16,
   pub username: Option<String>,
   pub password: Option<String>,
-  #[cfg(feature = "enable-tls")]
+  #[cfg(feature = "enable-native-tls")]
   pub tls: Option<TlsConfig>,
 }
 
 impl Default for Config {
-  #[cfg(feature = "enable-tls")]
+  #[cfg(feature = "enable-native-tls")]
   fn default() -> Self {
     Config {
       host: "127.0.0.1".into(),
@@ -76,7 +76,7 @@ impl Default for Config {
     }
   }
 
-  #[cfg(not(feature = "enable-tls"))]
+  #[cfg(not(feature = "enable-native-tls"))]
   fn default() -> Self {
     Config {
       host: "127.0.0.1".into(),
