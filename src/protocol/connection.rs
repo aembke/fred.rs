@@ -8,393 +8,325 @@ use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::{frame_into_string, pretty_error};
 use crate::types::{ClientState, InfoKind, Resolve};
 use crate::utils as client_utils;
+use arcstr::ArcStr;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
+use futures::{Sink, Stream};
+use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
+use std::collections::VecDeque;
+use std::convert::TryInto;
 use std::net::SocketAddr;
-use std::str;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::{fmt, mem, str};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
 
-#[cfg(feature = "enable-native-tls")]
-use crate::protocol::tls;
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::protocol::tls::{self, TlsConnector};
 #[cfg(feature = "monitor")]
 use crate::types::ServerConfig;
 #[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::TlsStream;
+use tokio_native_tls::{TlsConnector as NativeTlsConnector, TlsStream as NativeTlsStream};
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::TlsStream as RustlsStream;
+use tokio_rustls::{rustls::ServerName, TlsConnector as RustlsConnector, TlsStream as RustlsStream};
 
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";
 
-pub type FramedTcp = Framed<TcpStream, RedisCodec>;
-#[cfg(feature = "enable-native-tls")]
-pub type FramedTls = Framed<TlsStream<TcpStream>, RedisCodec>;
-#[cfg(feature = "enable-rustls")]
-pub type FramedTls = Framed<RustlsStream<TcpStream>, RedisCodec>;
-#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
-pub type FramedTls = FramedTcp;
+pub type CommandBuffer = VecDeque<RedisCommand>;
+pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
+pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
+pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
 
-pub type TcpRedisReader = SplitStream<FramedTcp>;
-pub type TcpRedisWriter = SplitSink<FramedTcp, ProtocolFrame>;
-
-pub type TlsRedisReader = SplitStream<FramedTls>;
-pub type TlsRedisWriter = SplitSink<FramedTls, ProtocolFrame>;
-
-pub enum RedisStream {
-  Tls(TlsRedisReader),
-  Tcp(TcpRedisReader),
-}
-
-pub enum RedisSink {
-  Tls(TlsRedisWriter),
-  Tcp(TcpRedisWriter),
-}
-
-impl RedisSink {
-  pub async fn flush(&mut self) -> Result<(), RedisError> {
-    match self {
-      RedisSink::Tls(ref mut inner) => inner.flush().await,
-      RedisSink::Tcp(ref mut inner) => inner.flush().await,
-    }
-  }
-}
-
-pub enum RedisTransport {
-  Tls(FramedTls),
-  Tcp(FramedTcp),
-}
-
-pub fn null_frame(is_resp3: bool) -> ProtocolFrame {
-  if is_resp3 {
-    ProtocolFrame::Resp2(Resp2Frame::Null)
-  } else {
-    ProtocolFrame::Resp3(Resp3Frame::Null)
-  }
-}
-
-#[cfg(not(feature = "no-client-setname"))]
-pub fn is_ok(frame: &ProtocolFrame) -> bool {
-  match frame {
-    ProtocolFrame::Resp3(ref frame) => match frame {
-      Resp3Frame::SimpleString { ref data, .. } => data == OK,
-      _ => false,
-    },
-    ProtocolFrame::Resp2(ref frame) => match frame {
-      Resp2Frame::SimpleString(ref data) => data == OK,
-      _ => false,
-    },
-  }
-}
-
-pub fn split_transport(transport: RedisTransport) -> (RedisSink, RedisStream) {
-  match transport {
-    RedisTransport::Tcp(framed) => {
-      let (sink, stream) = framed.split();
-      (RedisSink::Tcp(sink), RedisStream::Tcp(stream))
-    },
-    RedisTransport::Tls(framed) => {
-      let (sink, stream) = framed.split();
-      (RedisSink::Tls(sink), RedisStream::Tls(stream))
-    },
-  }
-}
-
-pub async fn request_response<T>(
-  mut transport: Framed<T, RedisCodec>,
-  request: &RedisCommand,
-  is_resp3: bool,
-) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  let frame = request.to_frame(is_resp3)?;
-  let _ = transport.send(frame).await?;
-  let (response, transport) = transport.into_future().await;
-
-  let response = match response {
-    Some(result) => result?,
-    None => null_frame(is_resp3),
-  };
-  Ok((response, transport))
-}
-
-pub async fn request_response_safe<T>(
-  mut transport: Framed<T, RedisCodec>,
-  request: &RedisCommand,
-  is_resp3: bool,
-) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  let frame = match request.to_frame(is_resp3) {
-    Ok(frame) => frame,
-    Err(e) => return Err((e, transport)),
-  };
-  if let Err(e) = transport.send(frame).await {
-    return Err((e, transport));
-  };
-  let (response, transport) = transport.into_future().await;
-
-  let response = match response {
-    Some(result) => match result {
-      Ok(frame) => frame,
-      Err(e) => return Err((e, transport)),
-    },
-    None => null_frame(is_resp3),
-  };
-
-  Ok((response, transport))
-}
-
-pub async fn transport_request_response(
-  transport: RedisTransport,
-  request: &RedisCommand,
-  is_resp3: bool,
-) -> Result<(ProtocolFrame, RedisTransport), RedisError> {
-  match transport {
-    RedisTransport::Tcp(transport) => {
-      let (frame, transport) = match request_response_safe(transport, request, is_resp3).await {
-        Ok(result) => result,
-        Err((e, _)) => return Err(e),
-      };
-      Ok((frame, RedisTransport::Tcp(transport)))
-    },
-    RedisTransport::Tls(transport) => {
-      let (frame, transport) = match request_response_safe(transport, request, is_resp3).await {
-        Ok(result) => result,
-        Err((e, _)) => return Err(e),
-      };
-      Ok((frame, RedisTransport::Tls(transport)))
-    },
-  }
-}
-
-#[cfg(not(feature = "no-client-setname"))]
-pub async fn set_client_name<T>(
+pub struct RedisTransport<T: AsyncRead + AsyncWrite + Unpin + 'static> {
+  server: ArcStr,
+  addr: SocketAddr,
   transport: Framed<T, RedisCodec>,
-  name: &str,
-  is_resp3: bool,
-) -> Result<Framed<T, RedisCodec>, RedisError>
+  buffer: CommandBuffer,
+  id: Option<i64>,
+}
+
+impl<T> RedisTransport<T>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  debug!("{}: Changing client name to {}", name, name);
-  let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
-  let (response, transport) = request_response(transport, &command, is_resp3).await?;
+  pub async fn new_tcp<R>(resolver: R, host: String, port: u16) -> Result<Self<T>, RedisError>
+  where
+    R: Resolve,
+  {
+    let (id, buffer) = (None, VecDeque::new());
+    let server = ArcStr::from(format!("{}:{}", host, port));
+    let codec = RedisCodec::new(inner, &server);
+    let addr = inner.resolver.resolve(host, port).await?;
+    let socket = TcpStream::connect(addr).await?;
+    let transport = Framed::new(socket, codec);
 
-  if is_ok(&response) {
-    debug!("{}: Successfully set Redis client name.", name);
-    Ok(transport)
-  } else {
-    error!("{} Failed to set client name with error {:?}", name, response);
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Failed to set client name.",
-    ))
+    Ok(RedisTransport {
+      server,
+      addr,
+      buffer,
+      id,
+      transport,
+    })
   }
-}
 
-#[cfg(feature = "no-client-setname")]
-pub async fn set_client_name<T>(
-  transport: Framed<T, RedisCodec>,
-  name: &str,
-  _: bool,
-) -> Result<Framed<T, RedisCodec>, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  debug!("{}: Skip setting client name.", name);
-  Ok(transport)
-}
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  pub async fn new_tls<R>(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self<T>, RedisError>
+  where
+    R: Resolve,
+  {
+    let (id, buffer) = (None, VecDeque::with_capacity(256));
+    let server = ArcStr::from(format!("{}:{}", host, port));
+    let codec = RedisCodec::new(inner, &server);
+    let addr = inner.resolver.resolve(host, port).await?;
+    let socket = TcpStream::connect(addr).await?;
 
-pub async fn authenticate<T>(
-  transport: Framed<T, RedisCodec>,
-  name: &str,
-  username: Option<String>,
-  password: Option<String>,
-  is_resp3: bool,
-) -> Result<Framed<T, RedisCodec>, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  let transport = if let Some(password) = password {
-    let args = if let Some(username) = username {
-      vec![username.into(), password.into()]
-    } else {
-      vec![password.into()]
+    // TODO double check this works with both FF's enabled
+    match inner.config.tls {
+      #[cfg(feature = "enable-native-tls")]
+      Some(TlsConnector::Native(ref connector)) => {
+        let socket = connector.clone().connect(&host, socket).await?;
+        let transport = Framed::new(socket, codec);
+
+        Ok(RedisTransport {
+          server,
+          addr,
+          buffer,
+          id,
+          transport,
+        })
+      },
+      #[cfg(feature = "enable-rustls")]
+      Some(TlsConnector::Rustls(ref connector)) => {
+        let server_name: ServerName = host.as_str().try_into()?;
+        let socket = connector.clone().connect(server_name, socket).await?;
+        let transport = Framed::new(socket, codec);
+
+        Ok(RedisTransport {
+          server,
+          addr,
+          buffer,
+          id,
+          transport,
+        })
+      },
+      // TODO should this fall back on TCP?
+      _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
     };
-    let command = RedisCommand::new(RedisCommandKind::Auth, args, None);
 
-    debug!("{}: Authenticating Redis client...", name);
-    let (response, transport) = request_response(transport, &command, is_resp3).await?;
+    Ok(framed)
+  }
 
-    match frame_into_string(response.into_resp3()) {
-      Ok(inner) => {
-        if inner == OK {
-          transport
-        } else {
-          return Err(RedisError::new(RedisErrorKind::Auth, inner));
-        }
-      },
-      Err(_) => {
-        return Err(RedisError::new(
-          RedisErrorKind::Auth,
-          "Invalid auth response. Expected string.",
-        ))
-      },
+  /// Send a command to the server.
+  pub async fn request_response(&mut self, cmd: RedisCommand, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+    let frame = cmd.to_frame(is_resp3)?;
+    let _ = self.transport.send(frame).await?;
+    let response = self.transport.next().await;
+
+    Ok(match response {
+      Some(result) => result?,
+      None => protocol_utils::null_frame(is_resp3),
+    })
+  }
+
+  #[cfg(not(feature = "no-client-setname"))]
+  pub async fn set_client_name(&mut self, name: &str, is_resp3: bool) -> Result<(), RedisError> {
+    debug!("{}: Changing client name to {}", name, name);
+    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
+    let response = self.request_response(command, is_resp3).await?;
+
+    if protocol_utils::is_ok(&response) {
+      debug!("{}: Successfully set Redis client name.", name);
+      Ok(())
+    } else {
+      error!("{} Failed to set client name with error {:?}", name, response);
+      Err(RedisError::new(
+        RedisErrorKind::ProtocolError,
+        "Failed to set client name.",
+      ))
     }
-  } else {
-    transport
-  };
-
-  set_client_name(transport, name, is_resp3).await
-}
-
-pub async fn switch_protocols<T>(
-  inner: &Arc<RedisClientInner>,
-  transport: Framed<T, RedisCodec>,
-) -> Result<Framed<T, RedisCodec>, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  // reset the protocol version to the one specified by the config when we create new connections
-  inner.reset_protocol_version();
-  // this is only used when initializing connections, and if the caller has not specified RESP3 then we can skip this
-  if !inner.is_resp3() {
-    return Ok(transport);
   }
 
-  _debug!(inner, "Switching to RESP3 protocol with HELLO...");
-  let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), vec![], None);
-  let (response, transport) = request_response(transport, &cmd, true).await?;
-  let response = protocol_utils::frame_to_results(response.into_resp3())?;
+  #[cfg(feature = "no-client-setname")]
+  pub async fn set_client_name(&mut self, name: &str, _: bool) -> Result<(), RedisError> {
+    debug!("{}: Skip setting client name.", name);
+    Ok(())
+  }
 
-  _debug!(inner, "Recv HELLO response {:?}", response);
-  Ok(transport)
-}
+  pub async fn authenticate(
+    &mut self,
+    name: &str,
+    username: Option<String>,
+    password: Option<String>,
+    is_resp3: bool,
+  ) -> Result<(), RedisError> {
+    if let Some(password) = password {
+      let args = if let Some(username) = username {
+        vec![username.into(), password.into()]
+      } else {
+        vec![password.into()]
+      };
+      let command = RedisCommand::new(RedisCommandKind::Auth, args, None);
 
-pub async fn read_client_id<T>(
-  inner: &Arc<RedisClientInner>,
-  transport: Framed<T, RedisCodec>,
-) -> Result<(Option<i64>, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
-  let (result, transport) = request_response_safe(transport, &command, inner.is_resp3()).await?;
-  _debug!(inner, "Read client ID: {:?}", result);
-  let id = match result.into_resp3() {
-    Resp3Frame::Number { data, .. } => Some(data),
-    _ => None,
-  };
+      debug!("{}: Authenticating Redis client...", name);
+      let frame = self.request_response(command, is_resp3).await?;
 
-  Ok((id, transport))
-}
+      if !protocol_utils::is_ok(&frame) {
+        let error = match protocol_utils::frame_into_string(frame.into_resp3()) {
+          Ok(error) => error,
+          Err(_) => {
+            return Err(RedisError::new(
+              RedisErrorKind::Auth,
+              "Invalid auth response. Expected string.",
+            ));
+          },
+        };
+        return Err(protocol_utils::pretty_error(&error));
+      }
+    }
 
-pub async fn select_database<T>(
-  inner: &Arc<RedisClientInner>,
-  transport: Framed<T, RedisCodec>,
-) -> Result<Framed<T, RedisCodec>, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  let db = match inner.config.read().database.clone() {
-    Some(db) => db,
-    None => return Ok(transport),
-  };
+    let _ = self.set_client_name(name, is_resp3).await?;
+    Ok(())
+  }
 
-  _trace!(inner, "Selecting database {} after connecting.", db);
-  let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()], None);
-  let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
-  let response = result.into_resp3();
+  pub async fn switch_protocols_and_authenticate(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    // reset the protocol version to the one specified by the config when we create new connections
+    inner.reset_protocol_version();
+    let username = inner.config.username.clone();
+    let password = inner.config.password.clone();
 
-  if let Some(error) = protocol_utils::frame_to_error(&response) {
-    Err(error)
-  } else {
-    Ok(transport)
+    if inner.is_resp3() {
+      _debug!(inner, "Switching to RESP3 protocol with HELLO...");
+      let args = if let Some(password) = password {
+        if let Some(username) = username {
+          vec![username.into(), password.into()]
+        } else {
+          vec!["default".into(), password.into()]
+        }
+      } else {
+        vec![]
+      };
+
+      let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), args, None);
+      let response = self.request_response(cmd, true).await?;
+      let response = protocol_utils::frame_to_results(response.into_resp3())?;
+      _debug!(inner, "Recv HELLO response {:?}", response);
+
+      self.set_client_name(&inner.id, true).await
+    } else {
+      self.authenticate(&inner.id, username, password, false).await
+    }
+  }
+
+  pub async fn cache_connection_id(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
+    let result = self.request_response(command, inner.is_resp3()).await?;
+    _debug!(inner, "Read client ID: {:?}", result);
+    self.id = match result.into_resp3() {
+      Resp3Frame::Number { data, .. } => Some(data),
+      _ => None,
+    };
+
+    Ok(())
+  }
+
+  pub async fn select_database(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    let db = match inner.config.database {
+      Some(db) => db,
+      None => return Ok(()),
+    };
+
+    _trace!(inner, "Selecting database {} after connecting.", db);
+    let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()], None);
+    let (result, transport) = self.request_response(command, inner.is_resp3()).await?;
+    let response = result.into_resp3();
+
+    if let Some(error) = protocol_utils::frame_to_error(&response) {
+      Err(error)
+    } else {
+      Ok(transport)
+    }
+  }
+
+  /// Authenticate, set the protocol version, set the client name, select the provided database, and cache the connection ID.
+  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    let _ = self.switch_protocols_and_authenticate(inner).await?;
+    let _ = self.select_database(inner).await?;
+    let _ = self.cache_connection_id(inner).await?;
+
+    Ok(())
+  }
+
+  /// Split the transport into reader/writer halves.
+  pub fn split(self) -> (RedisWriter<T>, RedisReader<T>) {
+    let buffer = Arc::new(Mutex::new(self.buffer));
+    let (server, addr) = (self.server, self.addr);
+    let (sink, stream) = self.transport.split();
+
+    let writer = RedisWriter {
+      sink,
+      server: server.clone(),
+      addr: addr.clone(),
+      buffer: buffer.clone(),
+    };
+    let reader = RedisReader { stream, server, buffer };
+    (writer, reader)
   }
 }
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-pub async fn create_authenticated_connection_tls(
-  addr: &SocketAddr,
-  domain: &str,
-  inner: &Arc<RedisClientInner>,
-) -> Result<FramedTls, RedisError> {
-  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
-  let codec = RedisCodec::new(inner, server);
-  let client_name = inner.client_name();
-  let password = inner.config.read().password.clone();
-  let username = inner.config.read().username.clone();
-
-  let socket = TcpStream::connect(addr).await?;
-  let tls_stream = tls::create_tls_connector(&inner.config)?;
-  let socket = tls_stream.connect(domain, socket).await?;
-  let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
-  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
-  let framed = select_database(inner, framed).await?;
-
-  client_utils::set_client_state(&inner.state, ClientState::Connected);
-  Ok(framed)
+pub struct RedisReader<T: AsyncRead + AsyncWrite + Unpin + 'static> {
+  stream: SplitRedisStream<T>,
+  server: ArcStr,
+  buffer: SharedBuffer,
 }
 
-#[cfg(not(feature = "enable-native-tls"))]
-pub(crate) async fn create_authenticated_connection_tls(
-  addr: &SocketAddr,
-  _domain: &str,
-  inner: &Arc<RedisClientInner>,
-) -> Result<FramedTls, RedisError> {
-  create_authenticated_connection(addr, inner).await
+impl<T> RedisReader<T>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  pub fn into_inner(self) -> (SplitSt, ArcStr, SharedBuffer) {
+    (self.stream, self.server, self.buffer)
+  }
 }
 
-pub async fn create_authenticated_connection(
-  addr: &SocketAddr,
-  inner: &Arc<RedisClientInner>,
-) -> Result<FramedTcp, RedisError> {
-  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
-  let codec = RedisCodec::new(inner, server);
-  let client_name = inner.client_name();
-  let password = inner.config.read().password.clone();
-  let username = inner.config.read().username.clone();
-
-  let socket = TcpStream::connect(addr).await?;
-  let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
-  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
-  let framed = select_database(inner, framed).await?;
-
-  client_utils::set_client_state(&inner.state, ClientState::Connected);
-  Ok(framed)
+pub struct RedisWriter<T: AsyncRead + AsyncWrite + Unpin + 'static> {
+  sink: SplitRedisSink<T>,
+  server: ArcStr,
+  addr: SocketAddr,
+  buffer: SharedBuffer,
 }
 
-#[cfg(feature = "monitor")]
-pub async fn create_centralized_connection(inner: &Arc<RedisClientInner>) -> Result<RedisTransport, RedisError> {
-  let (host, port) = match inner.config.read().server {
-    ServerConfig::Centralized { ref host, ref port } => (host.clone(), *port),
-    _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
-  };
-
-  let transport = if inner.config.read().uses_tls() {
-    let domain = host.clone();
-    let addr = inner.resolver.resolve(host, port).await?;
-    let framed = create_authenticated_connection_tls(&addr, &domain, inner).await?;
-
-    RedisTransport::Tls(framed)
-  } else {
-    let addr = inner.resolver.resolve(host, port).await?;
-    let framed = create_authenticated_connection(&addr, inner).await?;
-
-    RedisTransport::Tcp(framed)
-  };
-
-  Ok(transport)
+impl<T> fmt::Debug for RedisWriter<T>
+where
+  T: AsyncRead + AsyncWrite + Unpic + 'static,
+{
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("Connection").field("server", &self.server).finish()
+  }
 }
 
+impl<T> RedisWriter<T>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  // TODO write, etc
+
+  pub async fn write_command(&mut self, cmd: RedisCommand, is_resp3: bool) -> Result<(), RedisError> {
+    unimplemented!()
+  }
+
+  pub fn close(self) -> CommandBuffer {
+    self.buffer.lock().drain(..).collect()
+  }
+}
+
+// TODO refactor the cluster logic to another file
 async fn read_cluster_state(
   inner: &Arc<RedisClientInner>,
   host: String,

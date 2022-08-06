@@ -70,9 +70,9 @@ impl StreamsInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
-  pub fn new(config: RedisConfig) -> RedisClient {
+  pub fn new(config: RedisConfig, perf: Option<PerformanceConfig>) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config),
+      inner: RedisClientInner::new(config, perf.unwrap_or_default()),
     }
   }
 
@@ -80,7 +80,10 @@ impl RedisClient {
   ///
   /// The returned client will not be connected to the server, and it will use new connections after connecting.
   pub fn clone_new(&self) -> Self {
-    RedisClient::new(utils::read_locked(&self.inner.config))
+    RedisClient::new(
+      self.inner.config.as_ref().clone(),
+      Some(self.inner.performance_config()),
+    )
   }
 
   /// Listen for reconnection notifications.
@@ -118,7 +121,7 @@ impl RedisClient {
   ///
   /// Note: For this to work reliably this function needs to be called each time nodes are added or removed from the cluster.
   pub async fn split_cluster(&self) -> Result<Vec<RedisClient>, RedisError> {
-    if utils::is_clustered(&self.inner.config) {
+    if self.inner.config.server.is_clustered() {
       commands::server::split(&self.inner).await
     } else {
       Err(RedisError::new(

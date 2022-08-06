@@ -18,6 +18,7 @@ use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 use arc_swap::ArcSwap;
+use arcstr::ArcStr;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
 
@@ -182,8 +183,8 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name: Arc<String>,
-  pub server: String,
+  pub name: ArcStr,
+  pub server: ArcStr,
   pub version: Arc<ArcSwap<RespVersion>>,
   pub streaming_state: Option<StreamedFrame>,
   #[cfg(feature = "metrics")]
@@ -193,9 +194,9 @@ pub struct RedisCodec {
 }
 
 impl RedisCodec {
-  pub fn new(inner: &Arc<RedisClientInner>, server: String) -> Self {
+  pub fn new(inner: &Arc<RedisClientInner>, server: &ArcStr) -> Self {
     RedisCodec {
-      server,
+      server: server.clone(),
       name: inner.id.clone(),
       version: inner.resp_version.clone(),
       streaming_state: None,

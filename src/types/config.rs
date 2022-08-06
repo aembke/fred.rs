@@ -4,12 +4,15 @@ use crate::utils;
 use std::cmp;
 use url::Url;
 
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+pub use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-pub use tokio_native_tls::native_tls::TlsConnector as NativeTlsConnector;
+pub use tokio_native_tls::native_tls;
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-pub use tokio_rustls::TlsConnector as RustlsConnector;
+pub use tokio_rustls::rustls;
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -327,8 +330,6 @@ pub struct RedisConfig {
   ///
   /// Default: `RESP2`
   pub version: RespVersion,
-  /// Configuration options that can affect the performance of the client.
-  pub performance: PerformanceConfig,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
   /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect` block, if possible. Commands that were in-flight when the connection closed will retry before anything inside the `on_reconnect` block.
@@ -337,28 +338,12 @@ pub struct RedisConfig {
   pub database: Option<u8>,
   /// TLS configuration options.
   ///
-  /// This field can have different types depending on the feature flags used.
-  /// * `enable-native-tls` - (TlsConnector)[tokio_native_tls::native_tls::TlsConnector]
-  /// * `enable-rustls` - (TlsConnector)[tokio_rustls::rustls::TlsConnector]
-  ///
-  /// See the examples for more information.
+  /// See the `tls` examples on Github for more information.
   ///
   /// Default: None
-  #[cfg(feature = "enable-native-tls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-  pub tls: Option<NativeTlsConnector>,
-  /// TLS configuration options.
-  ///
-  /// This field can have different types depending on the feature flags used.
-  /// * `enable-native-tls` - (TlsConnector)[tokio_native_tls::native_tls::TlsConnector]
-  /// * `enable-rustls` - (TlsConnector)[tokio_rustls::rustls::TlsConnector]
-  ///
-  /// See the examples for more information.
-  ///
-  /// Default: None
-  #[cfg(feature = "enable-rustls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-  pub tls: Option<RustlsConnector>,
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  pub tls: Option<TlsConnector>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
@@ -376,13 +361,10 @@ impl Default for RedisConfig {
       password: None,
       server: ServerConfig::default(),
       version: RespVersion::RESP2,
-      performance: PerformanceConfig::default(),
       database: None,
       #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
-      #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
       tracing: false,
     }
   }
@@ -701,8 +683,8 @@ impl ServerConfig {
   /// Whether or not the config is for a centralized server.
   pub fn is_centralized(&self) -> bool {
     match self {
-      ServerConfig::Centralized {..} => true,
-      _ => false
+      ServerConfig::Centralized { .. } => true,
+      _ => false,
     }
   }
 

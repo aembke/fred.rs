@@ -1,7 +1,6 @@
 use crate::clients::redis::RedisClient;
 use crate::interfaces::*;
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::tls::TlsConfig;
 use crate::types::{Blocking, PerformanceConfig, RedisConfig, ServerConfig};
 use futures::{Stream, StreamExt};
 use redis_protocol::resp3::prelude::RespVersion;
@@ -10,6 +9,9 @@ use std::fmt;
 use std::sync::Arc;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::protocol::tls::TlsConnector;
 
 /// Configuration options for sentinel clients.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,10 +35,12 @@ pub struct SentinelConfig {
   pub password: Option<String>,
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
+  /// See the `tls` examples on Github for more information.
+  ///
   /// Default: `None`
-  #[cfg(feature = "enable-native-tls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-  pub tls: Option<TlsConfig>,
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  pub tls: Option<TlsConnector>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
@@ -52,7 +56,7 @@ impl Default for SentinelConfig {
       port: 26379,
       username: None,
       password: None,
-      #[cfg(feature = "enable-native-tls")]
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: false,
@@ -69,10 +73,6 @@ impl From<SentinelConfig> for RedisConfig {
         port: config.port,
       },
       fail_fast: true,
-      performance: PerformanceConfig {
-        pipeline: false,
-        ..Default::default()
-      },
       database: None,
       blocking: Blocking::Block,
       username: config.username,
@@ -137,9 +137,9 @@ impl HeartbeatInterface for SentinelClient {}
 
 impl SentinelClient {
   /// Create a new client instance without connecting to the sentinel node.
-  pub fn new(config: SentinelConfig) -> SentinelClient {
+  pub fn new(config: SentinelConfig, perf: Option<PerformanceConfig>) -> SentinelClient {
     SentinelClient {
-      inner: RedisClientInner::new(config.into()),
+      inner: RedisClientInner::new(config.into(), perf.unwrap_or_default()),
     }
   }
 

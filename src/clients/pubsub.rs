@@ -5,7 +5,7 @@ use crate::interfaces::{
   async_spawn, wrap_async, AsyncResult, AuthInterface, ClientLike, MetricsInterface, PubsubInterface,
 };
 use crate::modules::inner::RedisClientInner;
-use crate::types::{MultipleStrings, RedisConfig};
+use crate::types::{MultipleStrings, PerformanceConfig, RedisConfig};
 use crate::utils;
 use bytes_utils::Str;
 use futures::future::join_all;
@@ -213,11 +213,11 @@ impl PubsubInterface for SubscriberClient {
 
 impl SubscriberClient {
   /// Create a new client instance without connecting to the server.
-  pub fn new(config: RedisConfig) -> SubscriberClient {
+  pub fn new(config: RedisConfig, performance: Option<PerformanceConfig>) -> SubscriberClient {
     SubscriberClient {
       channels: Arc::new(RwLock::new(BTreeSet::new())),
       patterns: Arc::new(RwLock::new(BTreeSet::new())),
-      inner: RedisClientInner::new(config),
+      inner: RedisClientInner::new(config, performance.unwrap_or_default()),
     }
   }
 
@@ -225,7 +225,7 @@ impl SubscriberClient {
   ///
   /// The returned client will not be connected to the server, and it will use new connections after connecting. However, it will manage the same channel subscriptions as the original client.
   pub fn clone_new(&self) -> Self {
-    let inner = RedisClientInner::new(utils::read_locked(&self.inner.config));
+    let inner = RedisClientInner::new(self.inner.config.as_ref().clone(), self.inner.performance_config());
 
     SubscriberClient {
       inner,
