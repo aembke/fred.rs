@@ -72,6 +72,16 @@ macro_rules! atry (
   }
 );
 
+/// Similar to `try`/`?`, but `continue` instead of breaking out with an error.  
+macro_rules! try_or_continue (
+  ($expr:expr) => {
+    match $expr {
+      Ok(val) => val,
+      Err(_) => continue
+    }
+  }
+);
+
 macro_rules! static_str(
   ($name:ident, $val:expr) => {
     lazy_static::lazy_static! {

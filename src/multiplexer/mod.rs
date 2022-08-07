@@ -1,15 +1,18 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::connection::RedisSink;
+use crate::protocol::connection::{Counters, RedisSink, RedisWriter};
 use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::RedisCommand;
 use crate::types::ClientState;
 use crate::utils as client_utils;
+use arc_swap::ArcSwap;
+use arcstr::ArcStr;
 use parking_lot::{Mutex, RwLock};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use tokio::sync::RwLock as AsyncRwLock;
@@ -20,173 +23,105 @@ pub mod sentinel;
 pub mod types;
 pub mod utils;
 
-pub type CloseTx = BroadcastSender<RedisError>;
-pub type SentCommands = VecDeque<SentCommand>;
-
 pub enum Backpressure {
   /// The server that received the last command.
-  Ok(Arc<String>),
+  Ok(ArcStr),
   /// The amount of time to wait and the command to retry after waiting.
   Wait((Duration, RedisCommand)),
   /// Indicates the command was skipped.
   Skipped,
 }
 
-#[derive(Debug)]
-pub struct SentCommand {
-  pub command: RedisCommand,
-  pub network_start: Option<Instant>,
-  pub multi_queued: bool,
-}
-
-impl From<RedisCommand> for SentCommand {
-  fn from(cmd: RedisCommand) -> Self {
-    SentCommand {
-      command: cmd,
-      network_start: None,
-      multi_queued: false,
-    }
-  }
-}
-
-#[derive(Clone, Debug)]
-pub struct Counters {
-  pub cmd_buffer_len: Arc<AtomicUsize>,
-  pub in_flight: Arc<AtomicUsize>,
-  pub feed_count: Arc<AtomicUsize>,
-}
-
-impl Counters {
-  pub fn new(cmd_buffer_len: &Arc<AtomicUsize>) -> Self {
-    Counters {
-      cmd_buffer_len: cmd_buffer_len.clone(),
-      in_flight: Arc::new(AtomicUsize::new(0)),
-      feed_count: Arc::new(AtomicUsize::new(0)),
-    }
-  }
-
-  pub fn should_send(&self, inner: &Arc<RedisClientInner>) -> bool {
-    client_utils::read_atomic(&self.feed_count) > inner.perf_config.max_feed_count()
-      || client_utils::read_atomic(&self.cmd_buffer_len) == 0
-  }
-
-  pub fn incr_feed_count(&self) -> usize {
-    client_utils::incr_atomic(&self.feed_count)
-  }
-
-  pub fn incr_in_flight(&self) -> usize {
-    client_utils::incr_atomic(&self.in_flight)
-  }
-
-  pub fn decr_in_flight(&self) -> usize {
-    client_utils::decr_atomic(&self.in_flight)
-  }
-
-  pub fn reset_feed_count(&self) {
-    client_utils::set_atomic(&self.feed_count, 0);
-  }
-
-  pub fn reset_in_flight(&self) {
-    client_utils::set_atomic(&self.in_flight, 0);
-  }
-}
-
-#[derive(Clone, Debug)]
-pub enum ConnectionIDs {
-  Centralized(Arc<RwLock<Option<i64>>>),
-  Clustered(Arc<RwLock<BTreeMap<Arc<String>, i64>>>),
-}
-
 #[derive(Clone)]
-pub enum Connections {
+pub enum Connections<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   Centralized {
-    writer: Arc<AsyncRwLock<Option<RedisSink>>>,
-    commands: Arc<Mutex<SentCommands>>,
-    counters: Counters,
-    // TODO find a better way to do this that works with mutable servers due to sentinel changes, but where server names are cloned a lot
-    server: Arc<AsyncRwLock<Arc<String>>>,
-    connection_id: Arc<RwLock<Option<i64>>>,
+    writer: Option<RedisWriter<T>>,
   },
   Clustered {
-    cache: Arc<RwLock<ClusterKeyCache>>,
-    counters: Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-    writers: Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-    commands: Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
-    connection_ids: Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
+    // shared with `RedisClientInner`
+    cache: ClusterKeyCache,
+    writers: HashMap<ArcStr, RedisWriter<T>>,
+  },
+  Sentinel {
+    writer: Option<RedisWriter<T>>,
+    server_name: Option<ArcStr>,
   },
 }
 
-impl Connections {
-  pub fn new_centralized(inner: &Arc<RedisClientInner>, cmd_buffer_len: &Arc<AtomicUsize>) -> Self {
-    let server = utils::centralized_server_name(inner);
+impl<T> Connections<T>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  pub fn new_centralized() -> Self<T> {
+    Connections::Centralized { writer: None }
+  }
 
-    Connections::Centralized {
-      server: Arc::new(AsyncRwLock::new(Arc::new(server))),
-      counters: Counters::new(cmd_buffer_len),
-      writer: Arc::new(AsyncRwLock::new(None)),
-      commands: Arc::new(Mutex::new(VecDeque::new())),
-      connection_id: Arc::new(RwLock::new(None)),
+  pub fn new_sentinel() -> Self<T> {
+    Connections::Sentinel {
+      writer: None,
+      server_name: None,
     }
   }
 
   pub fn new_clustered() -> Self {
-    let cache = ClusterKeyCache::new(None).expect("Couldn't initialize empty cluster cache.");
-
     Connections::Clustered {
-      cache: Arc::new(RwLock::new(cache)),
-      writers: Arc::new(AsyncRwLock::new(BTreeMap::new())),
-      commands: Arc::new(Mutex::new(BTreeMap::new())),
-      counters: Arc::new(RwLock::new(BTreeMap::new())),
-      connection_ids: Arc::new(RwLock::new(BTreeMap::new())),
+      cache: ClusterKeyCache::new(),
+      writers: HashMap::new(),
     }
   }
 
-  /// Disconnect and clear local state for the connection to a centralized server.
-  pub async fn disconnect_centralized(&self) {
-    if let Connections::Centralized {
-      ref writer,
-      ref connection_id,
-      ..
-    } = self
-    {
-      let _ = writer.write().await.take();
-      let _ = connection_id.write().take();
+  /// Disconnect and clear local state for all connections.
+  pub fn disconnect_all(&mut self) {
+    match self {
+      Connections::Centralized { ref mut writer } => {
+        *writer = None;
+      },
+      Connections::Clustered {
+        ref mut writers,
+        ref mut cache,
+      } => {
+        cache.clear();
+        writers.clear();
+      },
+      Connections::Sentinel {
+        ref mut writer,
+        ref mut server_name,
+      } => {
+        *writer = None;
+        *server_name = None;
+      },
     }
   }
 }
 
 #[derive(Clone)]
-pub struct Multiplexer {
-  pub connections: Connections,
-  inner: Arc<RedisClientInner>,
-  clustered: bool,
-  close_tx: Arc<RwLock<Option<CloseTx>>>,
-  synchronizing_tx: Arc<RwLock<VecDeque<OneshotSender<()>>>>,
-  synchronizing: Arc<RwLock<bool>>,
+pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
+  pub connections: Connections<T>,
+  pub inner: Arc<RedisClientInner>,
 }
 
-impl Multiplexer {
+impl<T> Multiplexer<T>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
   pub fn new(inner: &Arc<RedisClientInner>) -> Self {
-    let clustered = inner.config.read().server.is_clustered();
-    let connections = if clustered {
+    let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
+    } else if inner.config.server.is_sentinel() {
+      Connections::new_sentinel()
     } else {
-      Connections::new_centralized(inner, &inner.cmd_buffer_len)
+      Connections::new_centralized()
     };
 
     Multiplexer {
       inner: inner.clone(),
-      close_tx: Arc::new(RwLock::new(None)),
-      synchronizing_tx: Arc::new(RwLock::new(VecDeque::new())),
-      synchronizing: Arc::new(RwLock::new(false)),
-      clustered,
       connections,
     }
   }
 
-  pub fn cluster_state(&self) -> Option<ClusterKeyCache> {
+  pub fn cluster_state(&self) -> Option<&ClusterKeyCache> {
     if let Connections::Clustered { ref cache, .. } = self.connections {
-      Some(cache.read().clone())
+      Some(cache)
     } else {
       None
     }
@@ -194,20 +129,19 @@ impl Multiplexer {
 
   /// Write a command with a custom hash slot, ignoring any keys in the command and skipping any backpressure.
   pub async fn write_with_hash_slot(
-    &self,
+    &mut self,
     mut command: RedisCommand,
     hash_slot: u16,
   ) -> Result<Backpressure, RedisError> {
-    let _ = self.wait_for_sync().await;
-
     if utils::max_attempts_reached(&self.inner, &mut command) {
+      debug!("{}: Dropping command {}", self.inner.id, command.kind.to_str_debug());
       return Ok(Backpressure::Skipped);
     }
     if command.attempted > 0 {
       client_utils::incr_atomic(&self.inner.redeliver_count);
     }
 
-    if self.clustered {
+    if self.inner.config.server.is_clustered() {
       utils::write_clustered_command(&self.inner, &self.connections, command, Some(hash_slot), true).await
     } else {
       utils::write_centralized_command(&self.inner, &self.connections, command, true).await
@@ -215,13 +149,12 @@ impl Multiplexer {
   }
 
   /// Write a command to the server(s), signaling back to the caller whether they should implement backpressure.
-  pub async fn write(&self, mut command: RedisCommand) -> Result<Backpressure, RedisError> {
-    let _ = self.wait_for_sync().await;
-
+  pub async fn write(&mut self, mut command: RedisCommand) -> Result<Backpressure, RedisError> {
     if command.kind.is_all_cluster_nodes() {
       return self.write_all_cluster(command).await;
     }
     if utils::max_attempts_reached(&self.inner, &mut command) {
+      debug!("{}: Dropping command {}", self.inner.id, command.kind.to_str_debug());
       return Ok(Backpressure::Skipped);
     }
     if command.attempted > 0 {
@@ -287,11 +220,8 @@ impl Multiplexer {
     Ok(())
   }
 
-  pub fn read_connection_ids(&self) -> ConnectionIDs {
-    match self.connections {
-      Connections::Clustered { ref connection_ids, .. } => ConnectionIDs::Clustered(connection_ids.clone()),
-      Connections::Centralized { ref connection_id, .. } => ConnectionIDs::Centralized(connection_id.clone()),
-    }
+  pub fn read_connection_ids(&self) -> HashMap<ArcStr, i64> {
+    unimplemented!()
   }
 
   pub fn is_synchronizing(&self) -> bool {
@@ -304,6 +234,7 @@ impl Multiplexer {
   }
 
   pub fn check_and_set_sync(&self) -> bool {
+    //
     let mut guard = self.synchronizing.write();
     if *guard {
       true

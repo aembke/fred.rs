@@ -2,6 +2,7 @@ use super::utils as protocol_utils;
 use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::cluster;
 use crate::types::*;
 use crate::utils;
 use crate::utils::{set_locked, take_locked};
@@ -1759,8 +1760,8 @@ impl ReplicaNodes {
 pub struct SlotRange {
   pub start: u16,
   pub end: u16,
-  pub server: Arc<String>,
-  pub id: Arc<String>,
+  pub server: ArcStr,
+  pub id: ArcStr,
   // TODO cache replicas for each primary and round-robin reads to the replicas + primary, and only send writes to the primary
   //pub replicas: Option<ReplicaNodes>,
 }
@@ -1768,7 +1769,6 @@ pub struct SlotRange {
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
 pub struct ClusterKeyCache {
-  // TODO use arcswap here
   data: Vec<Arc<SlotRange>>,
 }
 
@@ -1779,15 +1779,9 @@ impl From<Vec<Arc<SlotRange>>> for ClusterKeyCache {
 }
 
 impl ClusterKeyCache {
-  /// Create a new cache from the output of CLUSTER NODES, if available.
-  pub fn new(status: Option<&str>) -> Result<ClusterKeyCache, RedisError> {
-    let mut cache = ClusterKeyCache { data: Vec::new() };
-
-    if let Some(status) = status {
-      cache.rebuild(status)?;
-    }
-
-    Ok(cache)
+  /// Create a new, empty cache.
+  pub fn new() -> ClusterKeyCache {
+    ClusterKeyCache { data: Vec::new() }
   }
 
   /// Read a set of unique hash slots that each map to a primary/main node in the cluster.
@@ -1801,8 +1795,8 @@ impl ClusterKeyCache {
     out.into_iter().map(|(_, v)| v).collect()
   }
 
-  /// Read the set of unique primary/main nodes in the cluster.
-  pub fn unique_main_nodes(&self) -> Vec<Arc<String>> {
+  /// Read the set of unique primary nodes in the cluster.
+  pub fn unique_primary_nodes(&self) -> Vec<Arc<String>> {
     let mut out = BTreeSet::new();
 
     for slot in self.data.iter() {
@@ -1818,26 +1812,11 @@ impl ClusterKeyCache {
   }
 
   /// Rebuild the cache in place with the output of a CLUSTER NODES command.
-  pub fn rebuild(&mut self, status: &str) -> Result<(), RedisError> {
-    if status.trim().is_empty() {
-      error!("Invalid empty CLUSTER NODES response.");
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Invalid empty CLUSTER NODES response.",
-      ));
-    }
+  pub fn rebuild(&mut self, cluster_slots: RedisValue, default_host: &str) -> Result<(), RedisError> {
+    let mut parsed = cluster::parse_cluster_slots(cluster_slots, default_host)?;
 
-    let mut parsed = protocol_utils::parse_cluster_nodes(status)?;
-    self.data.clear();
-
-    for (_, ranges) in parsed.drain() {
-      for slot in ranges {
-        self.data.push(Arc::new(slot));
-      }
-    }
-    self.data.sort_by(|lhs, rhs| lhs.start.cmp(&rhs.start));
-
-    self.data.shrink_to_fit();
+    self.data = parsed.into_iter().map(|s| Arc::new(s)).collect();
+    self.data.sort_by(|a, b| a.start.cmp(&b.start));
     Ok(())
   }
 

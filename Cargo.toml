@@ -7,7 +7,7 @@ description = "An async Redis client for Rust built on Futures and Tokio."
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 homepage = "https://github.com/aembke/fred.rs"
-keywords = ["redis", "futures", "async", "cluster", "tokio"]
+keywords = ["redis", "async", "cluster", "sentinel"]
 categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
 
@@ -18,7 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 arcstr = "1.1"
 arc-swap = "1.5"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["net", "sync", "rt"] }
 tokio-util = { version = "0.6", features = ["codec"] }
 cfg-if = "1.0.0"
 bytes = "1.1"
@@ -47,7 +47,6 @@ tokio-rustls = { version = "0.23", optional = true }
 [dev-dependencies]
 prometheus = "0.12"
 subprocess = "0.2.7"
-maplit = "1.0"
 
 [lib]
 doc = true

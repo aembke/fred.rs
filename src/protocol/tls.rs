@@ -7,20 +7,18 @@ use std::sync::Arc;
 use std::{env, fmt};
 
 #[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::native_tls::TlsConnectorBuilder;
+use tokio_native_tls::native_tls::TlsConnectorBuilder as NativeTlsConnectorBuilder;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as NativeTlsConnector;
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::rustls::{client::WantsClientCert, ClientConfig, ConfigBuilder};
+use tokio_rustls::rustls::{client::WantsClientCert, ClientConfig as RustlsClientConfig, ConfigBuilder};
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;
 
-/// TLS types and reexports from the `native-tls` crate.
-#[cfg(feature = "enable-native-tls")]
-pub mod native_tls;
-/// TLS types and reexports from the `rustls` crate.
 #[cfg(feature = "enable-rustls")]
-pub mod rustls;
+pub use tokio_rustls::rustls;
+#[cfg(feature = "enable-native-tls")]
+pub use tokio_native_tls::native_tls;
 
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
 #[derive(Clone)]
@@ -57,7 +55,7 @@ impl TlsConnector {
   #[cfg(feature = "enable-native-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
   pub fn default_native_tls() -> Result<Self, RedisError> {
-    let mut builder = TlsConnectorBuilder::builder();
+    let mut builder = NativeTlsConnectorBuilder::builder();
 
     if should_disable_cert_verification() {
       builder.danger_accept_invalid_certs(true);
@@ -73,7 +71,7 @@ impl TlsConnector {
   #[cfg(feature = "enable-rustls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
   pub fn default_rustls() -> Result<Self, RedisError> {
-    ClientConfig::builder()
+    RustlsClientConfig::builder()
       .with_safe_defaults()
       .with_no_client_auth()
       .into()
@@ -82,10 +80,10 @@ impl TlsConnector {
 
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-impl TryFrom<TlsConnectorBuilder> for TlsConnector {
+impl TryFrom<NativeTlsConnectorBuilder> for TlsConnector {
   type Error = RedisError;
 
-  fn try_from(builder: TlsConnectorBuilder) -> Result<Self, Self::Error> {
+  fn try_from(builder: NativeTlsConnectorBuilder) -> Result<Self, Self::Error> {
     let connector = builder
       .build()
       .map(|t| NativeTlsConnector::from(t))
@@ -104,8 +102,8 @@ impl From<NativeTlsConnector> for TlsConnector {
 
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-impl From<ClientConfig> for TlsConnector {
-  fn from(config: ClientConfig) -> Self {
+impl From<RustlsClientConfig> for TlsConnector {
+  fn from(config: RustlsClientConfig) -> Self {
     TlsConnector::Rustls(RustlsConnector::from(Arc::new(config)))
   }
 }

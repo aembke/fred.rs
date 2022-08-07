@@ -32,9 +32,9 @@ pub enum RedisErrorKind {
   /// An invalid argument or set of arguments to a command.
   InvalidArgument,
   /// An invalid URL error.
-  UrlError,
+  Url,
   /// A protocol error such as an invalid or unexpected frame from the server.
-  ProtocolError,
+  Protocol,
   /// A TLS error. The `enable-native-tls` feature must be enabled for this to be used.
   Tls,
   /// An error indicating the request was canceled.
@@ -62,8 +62,8 @@ impl RedisErrorKind {
       RedisErrorKind::IO => "IO Error",
       RedisErrorKind::InvalidArgument => "Invalid Argument",
       RedisErrorKind::InvalidCommand => "Invalid Command",
-      RedisErrorKind::UrlError => "Url Error",
-      RedisErrorKind::ProtocolError => "Protocol Error",
+      RedisErrorKind::Url => "Url Error",
+      RedisErrorKind::Protocol => "Protocol Error",
       RedisErrorKind::Unknown => "Unknown Error",
       RedisErrorKind::Canceled => "Canceled",
       RedisErrorKind::Cluster => "Cluster Error",
@@ -85,6 +85,7 @@ pub struct RedisError {
   /// The kind of error.
   kind: RedisErrorKind,
   /// Command context for the error.
+  // TODO get rid of this
   context: Option<RedisCommand>,
 }
 
@@ -158,7 +159,7 @@ impl From<IoError> for RedisError {
 
 impl From<ParseError> for RedisError {
   fn from(e: ParseError) -> Self {
-    RedisError::new(RedisErrorKind::UrlError, format!("{:?}", e))
+    RedisError::new(RedisErrorKind::Url, format!("{:?}", e))
   }
 }
 
@@ -212,7 +213,7 @@ impl From<JoinError> for RedisError {
 
 impl From<SemverError> for RedisError {
   fn from(e: SemverError) -> Self {
-    RedisError::new(RedisErrorKind::ProtocolError, format!("Invalid Redis version: {:?}", e))
+    RedisError::new(RedisErrorKind::Protocol, format!("Invalid Redis version: {:?}", e))
   }
 }
 
