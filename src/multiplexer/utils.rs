@@ -1,16 +1,18 @@
 use crate::clients::RedisClient;
+use crate::commands::cluster::cluster_nodes;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::{ClosedState, RedisClientInner};
 use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::{responses, Multiplexer};
+use crate::multiplexer::{responses, Multiplexer, QueuedCommand};
 use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
-use crate::protocol::connection::{self, RedisSink, RedisStream};
+use crate::protocol::connection::{self, RedisSink, RedisStream, RedisWriter, SentCommand};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::server_to_parts;
 use crate::trace;
 use crate::types::*;
 use crate::utils as client_utils;
+use arcstr::ArcStr;
 use futures::future::Either;
 use futures::pin_mut;
 use futures::select;
@@ -18,12 +20,13 @@ use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{cmp, mem, str};
 use tokio;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot::Sender as OneshotSender;
@@ -1123,36 +1126,23 @@ pub fn finish_synchronizing(inner: &Arc<RedisClientInner>, tx: &Arc<RwLock<VecDe
   }
 }
 
-async fn remove_server(
+async fn remove_server<T>(
   inner: &Arc<RedisClientInner>,
-  counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-  writers: &Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
-  connection_ids: &Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
-  server: &Arc<String>,
-) -> Result<(), RedisError> {
+  writers: &mut HashMap<ArcStr, RedisWriter<T>>,
+  server: &ArcStr,
+) -> Result<Option<VecDeque<SentCommand>>, RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
   _debug!(inner, "Removing clustered connection to server {}", server);
-  let commands = {
-    let _ = { writers.write().await.remove(server) };
-    let _ = { counters.write().remove(server) };
-    let _ = { connection_ids.write().remove(server) };
-    commands.lock().remove(server)
+
+  let mut writer = match writers.remove(server) {
+    Some(writer) => writer,
+    None => return Ok(None),
   };
+  let commands = writer.buffer.lock().drain(..).collect();
 
-  if let Some(commands) = commands {
-    for command in commands.into_iter() {
-      _debug!(
-        inner,
-        "Retrying {} command when removing server {}",
-        command.command.kind.to_str_debug(),
-        server
-      );
-
-      unblock_multiplexer(inner, &command.command);
-      client_utils::send_command(inner, command.command)?;
-    }
-  }
-  Ok(())
+  Ok(commands)
 }
 
 async fn add_server(
@@ -1328,34 +1318,32 @@ fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterCha
   }
 }
 
-pub async fn sync_cluster(
+pub async fn sync_cluster<T>(
   inner: &Arc<RedisClientInner>,
-  connections: &Connections,
-  close_tx: &Arc<RwLock<Option<CloseTx>>>,
-) -> Result<(), RedisError> {
+  connections: &mut Connections<T>,
+) -> Result<(), RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
   _debug!(inner, "Synchronizing cluster state.");
 
-  if let Connections::Clustered {
-    ref cache,
-    ref writers,
-    ref counters,
-    ref commands,
-    ref connection_ids,
-    ..
-  } = connections
-  {
-    let cluster_state = {
-      let state = cluster_nodes_backchannel(inner).await?;
-      let mut old_cache = cache.write();
-      *old_cache = state.clone();
-      state
-    };
-    let changes = create_cluster_change(&cluster_state, &writers).await;
+  if let Connections::Clustered { cache, writers } = connections {
+    let state = cluster_nodes_backchannel(inner).await?;
+    *cache = state.clone();
+
+    let changes = create_cluster_change(&state, &writers).await;
     _debug!(inner, "Changing cluster connections: {:?}", changes);
     broadcast_cluster_changes(inner, &changes);
 
     for removed_server in changes.remove.into_iter() {
-      remove_server(inner, counters, writers, commands, connection_ids, &removed_server).await?;
+      let commands = remove_server(inner, writers, &removed_server).await?;
+      if let Some(commands) = commands {
+        buffer.extend(commands.into_iter().map(|c| QueuedCommand {
+          custom_hash_slot: c.hash_slot,
+          cmd: c.command,
+          no_backpressure: c.no_backpressure,
+        }))
+      }
     }
     for new_server in changes.add.into_iter() {
       add_server(

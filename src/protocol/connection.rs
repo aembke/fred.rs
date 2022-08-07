@@ -50,14 +50,18 @@ pub struct SentCommand {
   pub command: RedisCommand,
   pub network_start: Option<Instant>,
   pub multi_queued: bool,
+  pub hash_slot: Option<u16>,
+  pub no_backpressure: bool,
 }
 
 impl From<RedisCommand> for SentCommand {
   fn from(cmd: RedisCommand) -> Self {
     SentCommand {
       command: cmd,
+      hash_slot: None,
       network_start: None,
       multi_queued: false,
+      no_backpressure: false,
     }
   }
 }

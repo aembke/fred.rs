@@ -1,8 +1,10 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::connection::{Counters, RedisSink, RedisWriter};
+use crate::multiplexer::Backpressure::Queue;
+use crate::protocol::connection::{Counters, RedisSink, RedisWriter, SentCommand};
 use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::RedisCommand;
+use crate::protocol::types::RedisCommandKind::Del;
 use crate::types::ClientState;
 use crate::utils as client_utils;
 use arc_swap::ArcSwap;
@@ -30,6 +32,8 @@ pub enum Backpressure {
   Wait((Duration, RedisCommand)),
   /// Indicates the command was skipped.
   Skipped,
+  /// Queue a command to run later.
+  Queue(RedisCommand),
 }
 
 #[derive(Clone)]
@@ -94,17 +98,17 @@ where
   }
 }
 
-#[derive(Clone)]
 pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub connections: Connections<T>,
   pub inner: Arc<RedisClientInner>,
+  pub buffer: VecDeque<SentCommand>,
 }
 
 impl<T> Multiplexer<T>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  pub fn new(inner: &Arc<RedisClientInner>) -> Self {
+  pub fn new(inner: &Arc<RedisClientInner>) -> Self<T> {
     let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
     } else if inner.config.server.is_sentinel() {
@@ -114,9 +118,22 @@ where
     };
 
     Multiplexer {
+      buffer: VecDeque::new(),
       inner: inner.clone(),
       connections,
     }
+  }
+
+  /// Enqueue a command to run later.
+  ///
+  /// The queue is drained and replayed whenever a `RedisCommandKind::_Sync` or `RedisCommandKind::_Reconnect` message is received.
+  pub fn enqueue(&mut self, cmd: RedisCommand, hash_slot: Option<u16>, no_backpressure: bool) {
+    self.buffer.push_back(SentCommand {
+      command: cmd,
+      hash_slot,
+      no_backpressure,
+      ..Default::default()
+    });
   }
 
   pub fn cluster_state(&self) -> Option<&ClusterKeyCache> {
@@ -220,56 +237,52 @@ where
     Ok(())
   }
 
-  pub fn read_connection_ids(&self) -> HashMap<ArcStr, i64> {
-    unimplemented!()
+  pub async fn sync_cluster(&self) -> Result<(), RedisError> {
+    client_utils::set_client_state(&self.inner.state, ClientState::Connecting);
+    utils::sync_cluster(&self.inner, &self.connections).await?;
+    client_utils::set_client_state(&self.inner.state, ClientState::Connected);
+    Ok(())
   }
 
-  pub fn is_synchronizing(&self) -> bool {
-    *self.synchronizing.read()
-  }
-
-  pub fn set_synchronizing(&self, synchronizing: bool) {
-    let mut guard = self.synchronizing.write();
-    *guard = synchronizing;
-  }
-
-  pub fn check_and_set_sync(&self) -> bool {
-    //
-    let mut guard = self.synchronizing.write();
-    if *guard {
-      true
+  /// Replay a command, running it without backpressure.
+  // TODO make sure ^ actually works and no_backpressure still returns queued, etc
+  pub async fn replay_command(&mut self, cmd: SentCommand) -> Result<(), RedisError> {
+    let backpressure = if self.inner.config.server.is_clustered() {
+      self.write_with_hash_slot(cmd.command, cmd.hash_slot).await?;
+    } else if sent_command.command.kind.is_all_cluster_nodes() {
+      unimplemented!()
     } else {
-      *guard = false;
-      false
-    }
-  }
+      unimplemented!()
+    };
 
-  pub async fn wait_for_sync(&self) -> Result<(), RedisError> {
-    let inner = &self.inner;
-    if !self.is_synchronizing() {
-      _trace!(inner, "Skip waiting on cluster sync.");
-      return Ok(());
-    }
+    // also need to use write function that allows customizing backpressure
 
-    let (tx, rx) = oneshot_channel();
-    self.synchronizing_tx.write().push_back(tx);
-    _debug!(inner, "Waiting on cluster sync to finish.");
-    let _ = rx.await?;
-    _debug!(inner, "Finished waiting on cluster sync.");
+    match backpressure {
+      Backpressure::Queue(cmd) => {
+        warn!(
+          "{}: Failed to replay command: {}. Queueing again to try later...",
+          self.inner.id,
+          cmd.kind.to_str_debug()
+        );
+        self.enqueue(cmd, sent_command.hash_slot, sent_command.no_backpressure)
+      },
+      Backpressure::Wait((dur, cmd)) => {
+        unimplemented!()
+      },
+      _ => {},
+    }
 
     Ok(())
   }
 
-  pub async fn sync_cluster(&self) -> Result<(), RedisError> {
-    if self.check_and_set_sync() {
-      // dont return here. if multiple consecutive repair commands come in while one is running we still want to run them all, but not concurrently.
-      let _ = self.wait_for_sync().await?;
+  /// Replay all queued commands.
+  ///
+  // TODO Any errors returned here should initiate a reconnection.
+  pub async fn replay_buffer(&mut self) -> Result<(), RedisError> {
+    for sent_command in self.buffer.drain(..) {
+      let _ = self.replay_command(sent_command).await?;
     }
-    utils::sync_cluster(&self.inner, &self.connections, &self.close_tx).await?;
 
-    self.set_synchronizing(false);
-    client_utils::set_client_state(&self.inner.state, ClientState::Connected);
-    utils::finish_synchronizing(&self.inner, &self.synchronizing_tx);
     Ok(())
   }
 }

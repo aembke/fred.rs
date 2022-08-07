@@ -45,7 +45,7 @@ async fn backpressure(
       Backpressure::Wait((_duration, _command)) => {
         duration = _duration;
         command = _command;
-      }
+      },
       Backpressure::Ok(s) => return Ok(Backpressure::Ok(s)),
       Backpressure::Skipped => return Ok(Backpressure::Skipped),
     }
@@ -73,7 +73,7 @@ async fn cluster_backpressure(
       Backpressure::Wait((_duration, _command)) => {
         duration = _duration;
         command = _command;
-      }
+      },
       Backpressure::Ok(s) => return Ok(Backpressure::Ok(s)),
       Backpressure::Skipped => return Ok(Backpressure::Skipped),
     }
@@ -96,7 +96,7 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
         ),
       );
       return;
-    }
+    },
   };
   let (tx, config) = (split.tx.write().take(), split.config.take());
   if tx.is_none() || config.is_none() {
@@ -114,7 +114,7 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
       Err(e) => {
         let _ = tx.send(Err(e));
         return;
-      }
+      },
     };
     let main_nodes = cluster_state.unique_main_nodes();
     let mut clients = Vec::with_capacity(main_nodes.len());
@@ -135,7 +135,7 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
         Err(e) => {
           let _ = tx.send(Err(RedisError::from(e)));
           return;
-        }
+        },
       };
 
       let mut new_config = config.clone();
@@ -206,132 +206,6 @@ fn next_reconnect_delay(
   } else {
     policy.next_delay()
   }
-}
-
-/// Handle connection closed events by trying to reconnect and then flushing all pending commands again.
-fn handle_connection_closed(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &Multiplexer,
-  policy: Option<ReconnectPolicy>,
-) {
-  let (inner, multiplexer) = (inner.clone(), multiplexer.clone());
-  let has_reconnect_policy = policy.is_some();
-  // the extra provided policy will kick in when we get a cluster redirection error but no policy is otherwise specified
-  let mut policy = policy.unwrap_or(ReconnectPolicy::Constant {
-    attempts: 0,
-    max_attempts: 0,
-    delay: inner.perf_config.cluster_cache_update_delay_ms() as u32,
-    jitter: 0,
-  });
-
-  let reconnect_inner = inner.clone();
-  let jh = tokio::spawn(async move {
-    let (tx, mut rx) = unbounded_channel();
-    _debug!(inner, "Set inner connection closed sender.");
-    client_utils::set_locked(&inner.connection_closed_tx, Some(tx));
-
-    'recv: while let Some(state) = rx.recv().await {
-      let (mut commands, error) = (state.commands, state.error);
-
-      let client_state = client_utils::read_client_state(&inner.state);
-      _debug!(
-        inner,
-        "Recv reconnect message with {} commands. State: {:?}",
-        commands.len(),
-        client_state
-      );
-
-      if !has_reconnect_policy && !error.is_cluster_error() {
-        _debug!(
-          inner,
-          "Exit early in reconnect loop due to no reconnect policy and non-cluster error."
-        );
-        break;
-      }
-      client_utils::set_client_state(&inner.state, ClientState::Connecting);
-
-      'reconnect: loop {
-        let next_delay = match next_reconnect_delay(&inner, &mut policy, &error) {
-          Some(delay) => delay,
-          None => {
-            _warn!(inner, "Max reconnect attempts reached. Stopping redis client.");
-            let error = RedisError::new(RedisErrorKind::Unknown, "Max reconnection attempts reached.");
-            write_final_error_to_callers(&inner, commands, &error);
-            shutdown_client(&inner, &error);
-            break 'recv;
-          }
-        };
-
-        if next_delay > 0 {
-          _info!(inner, "Sleeping for {} ms before reconnecting", next_delay);
-          sleep(Duration::from_millis(next_delay)).await;
-        }
-
-        let result = if client_utils::is_clustered(&inner.config) {
-          multiplexer.sync_cluster().await
-        } else {
-          multiplexer.connect_and_flush().await
-        };
-        _debug!(
-          inner,
-          "Reconnect task finished reconnecting or syncing with: {:?}",
-          result
-        );
-
-        if let Err(error) = result {
-          _warn!(inner, "Failed to reconnect with error {:?}", error);
-
-          if *error.kind() == RedisErrorKind::Auth {
-            // stop trying to connect if auth is failing
-            _warn!(inner, "Stop trying to reconnect due to auth failure.");
-            write_final_error_to_callers(&inner, commands, &error);
-            shutdown_client(&inner, &error);
-            break 'recv;
-          } else {
-            utils::emit_error(&inner, &error);
-          }
-
-          continue 'reconnect;
-        }
-
-        if client_utils::take_locked(&inner.multi_block).is_some() {
-          // don't retry commands from a transaction, just tell the caller they failed. it's
-          // problematic to pair automatic retry with transactions since the earlier futures
-          // could have already resolved. instead here we just emit an error to the callers of
-          // any commands inside a multi block. the final `EXEC` command always blocks the
-          // multiplexer loop so we can be sure any queued commands here are a part of a multi
-          // block if a policy is set on the inner client struct.
-          clear_multi_block_commands(&inner, &mut commands);
-        }
-
-        _debug!(inner, "Sending {} commands after reconnecting.", commands.len());
-        'retry: for _ in 0..commands.len() {
-          let command = match commands.pop_front() {
-            Some(cmd) => cmd,
-            None => break 'retry,
-          };
-
-          utils::unblock_multiplexer(&inner, &command.command);
-          if let Err(e) = client_utils::send_command(&inner, command.command) {
-            _debug!(inner, "Failed to retry command: {:?}", e);
-            continue 'reconnect;
-          };
-        }
-
-        // break when the connection is established
-        break 'reconnect;
-      }
-
-      policy.reset_attempts();
-      utils::emit_connect(&inner);
-      utils::emit_reconnect(&inner);
-    }
-
-    _debug!(inner, "Exit reconnection task.");
-    Ok::<(), ()>(())
-  });
-
-  reconnect_inner.reconnect_sleep_jh.write().replace(jh);
 }
 
 /// Whether or not the error represents a fatal CONFIG error. CONFIG errors are fatal errors that represent problems with the provided config such that no amount of reconnect or retry will help.
@@ -432,17 +306,17 @@ async fn handle_deferred_multi_response(
       } else {
         false
       }
-    }
+    },
     Ok(Err(e)) => {
       if let Some(tx) = command.tx.take() {
         let _ = tx.send(Err(e));
       }
       true
-    }
+    },
     Err(_e) => {
       _warn!(inner, "Recv error on deferred MULTI command.");
       false
-    }
+    },
   }
 }
 
@@ -466,14 +340,14 @@ async fn handle_backpressure(
           Backpressure::Wait(_) => {
             _warn!(inner, "Failed waiting on backpressure.");
             Ok(None)
-          }
+          },
           Backpressure::Ok(server) => Ok(Some(server)),
           Backpressure::Skipped => Ok(None),
         }
       } else {
         Ok(None)
       }
-    }
+    },
     Backpressure::Ok(server) => Ok(Some(server)),
     Backpressure::Skipped => Ok(None),
   }
@@ -705,7 +579,7 @@ async fn handle_command(
       None => {
         _warn!(inner, "Expected command, found none.");
         return Err(RedisError::new(RedisErrorKind::Unknown, "Invalid empty command."));
-      }
+      },
     };
 
     let result = write_command_t(&inner, &multiplexer, command).await;
@@ -737,7 +611,7 @@ async fn handle_command(
         }
 
         return Ok(());
-      }
+      },
       Err(mut error) => {
         let command = error.take_context();
         _warn!(
@@ -763,7 +637,7 @@ async fn handle_command(
 
           return Ok(());
         }
-      }
+      },
     }
   }
 }
@@ -819,7 +693,7 @@ async fn connect_with_policy(
             utils::emit_connect_error(inner, &error);
             utils::emit_error(inner, &error);
             return Err(error);
-          }
+          },
         };
         _info!(inner, "Sleeping for {} ms before reconnecting", delay);
         sleep(Duration::from_millis(delay)).await;
@@ -856,7 +730,7 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
         RedisErrorKind::Config,
         "Redis client is already initialized.",
       ))
-    }
+    },
   };
   if let Some(ref mut policy) = policy {
     policy.reset_attempts();
