@@ -491,7 +491,7 @@ impl RedisConfig {
   /// * Any `node` query parameters will be used to find other known cluster nodes.
   /// * Any sentinel query parameters will be ignored.
   pub fn from_url_clustered(url: &str) -> Result<RedisConfig, RedisError> {
-    let (url, host, port, _tls) = utils::parse_url(url, None)?;
+    let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
     cluster_nodes.push((host, port));
     let server = ServerConfig::new_clustered(cluster_nodes);
@@ -724,6 +724,20 @@ mod tests {
   }
 
   #[test]
+  fn should_parse_centralized_url_without_port() {
+    let url = "redis://foo.com";
+    let expected = RedisConfig {
+      server: ServerConfig::new_centralized("foo.com", 6379),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
   fn should_parse_centralized_url_without_creds() {
     let url = "redis://foo.com:6379/1";
     let expected = RedisConfig {
@@ -780,6 +794,20 @@ mod tests {
       server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
       username: Some("username".into()),
       password: Some("password".into()),
+      ..RedisConfig::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_clustered_url_without_port() {
+    let url = "redis-cluster://foo.com";
+    let expected = RedisConfig {
+      server: ServerConfig::new_clustered(vec![("foo.com", 6379)]),
       ..RedisConfig::default()
     };
 
