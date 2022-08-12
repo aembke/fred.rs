@@ -1218,7 +1218,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     servers.swap(0, swap);
   }
 
-  for server in servers.into_iter() {
+  for server in &servers {
     let cmd = RedisCommand::new(RedisCommandKind::ClusterNodes, vec![], None);
     let mut backchannel = inner.backchannel.write().await;
 
@@ -1226,7 +1226,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
     let frame = match backchannel.request_response(inner, &server, cmd, true).await {
       Ok(frame) => frame,
       Err(e) => {
-        _warn!(inner, "Error creating or using backchannel for cluster nodes: {:?}", e);
+        _warn!(inner, "Error creating or using backchannel {} for cluster nodes: {:?}", server, e);
         continue;
       }
     };
@@ -1252,7 +1252,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
 
   Err(RedisError::new(
     RedisErrorKind::Cluster,
-    "Failed to read cluster nodes on all possible backchannel servers.",
+    format!("Failed to read cluster nodes on all possible backchannel servers {:?}.", &servers)
   ))
 }
 
