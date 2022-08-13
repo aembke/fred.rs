@@ -15,6 +15,12 @@ values_cmd!(acl_list, AclList);
 values_cmd!(acl_users, AclUsers);
 value_cmd!(acl_whoami, AclWhoAmI);
 
+// TODO
+// make a trait with SendCommand on it (taking command_tx as argument)
+// change all these functions to take that as an argument
+// move send_command logic to the RedisClientInner implementation,
+// change request_response to call that instead
+
 pub async fn acl_setuser(
   inner: &Arc<RedisClientInner>,
   username: Str,

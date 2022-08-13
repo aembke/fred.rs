@@ -6,107 +6,180 @@ use crate::protocol::types::DefaultResolver;
 use crate::protocol::types::RedisCommand;
 use crate::types::*;
 use crate::utils;
-use arc_swap::ArcSwap;
+use arc_swap::access::Access;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use arcstr::ArcStr;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use tokio::sync::broadcast::{self, Sender as BroadcastSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::JoinHandle;
 
+const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
+
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use crate::protocol::command::QueuedCommand;
 
-pub type CommandSender = UnboundedSender<RedisCommand>;
-pub type CommandReceiver = UnboundedReceiver<RedisCommand>;
+pub type CommandSender = UnboundedSender<QueuedCommand>;
+pub type CommandReceiver = UnboundedReceiver<QueuedCommand>;
 
-/// State sent to the task that performs reconnection logic.
-pub struct ClosedState {
-  /// Commands that were in flight that can be retried again after reconnecting.
-  pub commands: VecDeque<SentCommand>,
-  /// The error that closed the last connection.
-  pub error: RedisError,
+#[derive(Clone)]
+pub struct Notifications {
+  pub id: ArcStr,
+  pub errors: BroadcastSender<RedisError>,
+  pub pubsub: BroadcastSender<(String, RedisValue)>,
+  pub keyspace: BroadcastSender<KeyspaceEvent>,
+  pub reconnect: BroadcastSender<()>,
+  pub cluster_change: BroadcastSender<Vec<ClusterStateChange>>,
+  pub connect: BroadcastSender<Result<(), RedisError>>,
+  /// A channel for events that should close all client tasks with `Canceled` errors.
+  ///
+  /// Emitted when QUIT, SHUTDOWN, etc are called.
+  pub close: BroadcastSender<()>,
 }
 
-pub type ConnectionClosedTx = UnboundedSender<ClosedState>;
+impl Notifications {
+  pub fn new(id: &ArcStr) -> Self {
+    let (errors, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let (pubsub, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let (keyspace, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let (reconnect, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let (cluster_change, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let (connect, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let (close, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultiPolicy {
-  /// The hash slot against which the transaction is running.
-  pub hash_slot: Option<u16>,
-  /// Whether or not to abort the transaction on an error.
-  pub abort_on_error: bool,
-  /// Whether or not the MULTI command has been sent. In clustered mode we defer sending the MULTI command until we know the hash slot.
-  pub sent_multi: bool,
-}
-
-impl MultiPolicy {
-  pub fn check_and_set_hash_slot(&mut self, slot: u16) -> Result<(), RedisError> {
-    if let Some(old_slot) = self.hash_slot {
-      if slot != old_slot {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid hash slot. All commands inside a transaction must use the same hash slot.",
-        ));
-      }
-    } else {
-      self.hash_slot = Some(slot);
+    Notifications {
+      id: id.clone(),
+      errors,
+      pubsub,
+      keyspace,
+      reconnect,
+      cluster_change,
+      connect,
+      close,
     }
+  }
 
-    Ok(())
+  pub fn broadcast_error(&self, error: RedisError) {
+    if let Err(e) = self.errors.send(error) {
+      warn!("{}: Error notifying `on_error` listeners: {:?}", self.id, e);
+    }
+  }
+
+  pub fn broadcast_pubsub(&self, channel: String, message: RedisValue) {
+    if let Err(_) = self.pubsub.send((channel, message)) {
+      warn!("{}: Error notifying `on_message` listeners.", self.id);
+    }
+  }
+
+  pub fn broadcast_keyspace(&self, event: KeyspaceEvent) {
+    if let Err(_) = self.keyspace.send(event) {
+      warn!("{}: Error notifying `on_keyspace_event` listeners.", self.id);
+    }
+  }
+
+  pub fn broadcast_reconnect(&self) {
+    if let Err(_) = self.reconnect.send(()) {
+      warn!("{}: Error notifying `on_reconnect` listeners.", self.id);
+    }
+  }
+
+  pub fn broadcast_cluster_change(&self, changes: Vec<ClusterStateChange>) {
+    if let Err(_) = self.cluster_change.send(changes) {
+      warn!("{}: Error notifying `on_cluster_change` listeners.", self.id);
+    }
+  }
+
+  pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
+    if let Err(_) = self.connect.send(result) {
+      warn!("{}: Error notifying `on_connect` listeners.", self.id);
+    }
+  }
+
+  pub fn broadcast_close(&self) {
+    if let Err(_) = self.close.send(()) {
+      warn!("{}: Error notifying `close` listeners.", self.id);
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct ClientCounters {
+  cmd_buffer_len: Arc<AtomicUsize>,
+  redelivery_count: Arc<AtomicUsize>,
+}
+
+impl Default for ClientCounters {
+  fn default() -> Self {
+    ClientCounters {
+      cmd_buffer_len: Arc::new(AtomicUsize::new(0)),
+      redelivery_count: Arc::new(AtomicUsize::new(0)),
+    }
+  }
+}
+
+impl ClientCounters {
+  pub fn incr_cmd_buffer_len(&self) -> usize {
+    utils::incr_atomic(&self.cmd_buffer_len)
+  }
+
+  pub fn decr_cmd_buffer_len(&self) -> usize {
+    utils::decr_atomic(&self.cmd_buffer_len)
+  }
+
+  pub fn incr_redelivery_count(&self) -> usize {
+    utils::incr_atomic(&self.redelivery_count)
+  }
+
+  pub fn cmd_buffer_len(&self) -> usize {
+    utils::read_atomic(&self.cmd_buffer_len)
+  }
+
+  pub fn redelivery_count(&self) -> usize {
+    utils::read_atomic(&self.redelivery_count)
+  }
+
+  pub fn reset(&self) {
+    utils::set_atomic(&self.cmd_buffer_len, 0);
+    utils::set_atomic(&self.redelivery_count, 0);
   }
 }
 
 pub struct RedisClientInner {
-  /// The client ID as seen by the server.
+  /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id: ArcStr,
   /// The RESP version used by the underlying connections.
   pub resp_version: Arc<ArcSwap<RespVersion>>,
-  /// The response policy to apply when the client is in a MULTI block.
-  pub multi_block: RwLock<Option<MultiPolicy>>,
   /// The state of the underlying connection.
   pub state: RwLock<ClientState>,
-  /// The redis config used for initializing connections.
+  /// Client configuration options.
   pub config: Arc<RedisConfig>,
   /// Performance config options for the client.
   pub performance: Arc<ArcSwap<PerformanceConfig>>,
   /// An optional reconnect policy.
   pub policy: RwLock<Option<ReconnectPolicy>>,
-  /// An mpsc sender for errors to `on_error` streams.
-  pub error_tx: RwLock<VecDeque<UnboundedSender<RedisError>>>,
+  ///
+  pub notifications: Notifications,
   /// An mpsc sender for commands to the multiplexer.
   pub command_tx: CommandSender,
   /// Temporary storage for the receiver half of the multiplexer command channel.
   pub command_rx: RwLock<Option<CommandReceiver>>,
-  /// An mpsc sender for pubsub messages to `on_message` streams.
-  pub message_tx: RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>,
-  /// An mpsc sender for pubsub messages to `on_keyspace_event` streams.
-  pub keyspace_tx: RwLock<VecDeque<UnboundedSender<KeyspaceEvent>>>,
-  /// An mpsc sender for reconnection events to `on_reconnect` streams.
-  pub reconnect_tx: RwLock<VecDeque<UnboundedSender<RedisClient>>>,
-  /// An mpsc sender for cluster change notifications.
-  pub cluster_change_tx: RwLock<VecDeque<UnboundedSender<Vec<ClusterStateChange>>>>,
-  /// MPSC senders for `on_connect` futures.
-  pub connect_tx: RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
-  /// A join handle for the task that sleeps waiting to reconnect.
-  pub reconnect_sleep_jh: RwLock<Option<JoinHandle<Result<(), ()>>>>,
-  /// Command queue buffer size.
-  pub cmd_buffer_len: Arc<AtomicUsize>,
-  /// Number of message redeliveries.
-  pub redeliver_count: Arc<AtomicUsize>,
-  /// Channel listening to connection closed events.
-  pub connection_closed_tx: RwLock<Option<ConnectionClosedTx>>,
+  ///
+  pub counters: ClientCounters,
   /// The cached view of the cluster state, if running against a clustered deployment.
-  pub cluster_state: RwLock<Option<ClusterKeyCache>>,
+  pub cluster_state: Arc<ArcSwapOption<ClusterKeyCache>>,
   /// The DNS resolver to use when establishing new connections.
+  // TODO make this generic via the Resolve trait
   pub resolver: DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel: Arc<AsyncRwLock<Backchannel>>,
   /// The server host/port resolved from the sentinel nodes, if known.
-  pub sentinel_primary: RwLock<Option<Arc<String>>>,
+  pub sentinel_primary: RwLock<Option<ArcStr>>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
@@ -122,14 +195,21 @@ pub struct RedisClientInner {
   pub res_size_stats: Arc<RwLock<MovingStats>>,
 }
 
+// TODO reconnect logic needs to select() on a second ft from quit(), shutdown(), etc
+
 impl RedisClientInner {
-  pub fn new(config: RedisConfig, perf: PerformanceConfig) -> Arc<RedisClientInner> {
-    let backchannel = Backchannel::default();
+  pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
     let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
     let resolver = DefaultResolver::new(&id);
     let (command_tx, command_rx) = unbounded_channel();
-    let version = config.version.clone();
-    let perf_config = InternalPerfConfig::from(&config);
+    let notifications = Notifications::new(&id);
+    let (config, policy) = (Arc::new(config), RwLock::new(policy));
+    let performance = Arc::new(ArcSwap::new(Arc::new(perf)));
+    let resp_version = Arc::new(ArcSwap::new(Arc::new(config.version.clone())));
+    let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
+    let (command_rx, policy) = (RwLock::new(Some(command_rx)), RwLock::new(policy));
+    let (cluster_state, sentinel_primary) = (Arc::new(ArcSwapOption::empty()), RwLock::new(None));
+    let backchannel = Arc::new(AsyncRwLock::new(Backchannel::default()));
 
     Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
@@ -141,34 +221,25 @@ impl RedisClientInner {
       #[cfg(feature = "metrics")]
       res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
 
-      resp_version: Arc::new(ArcSwap::from(Arc::new(version))),
-      performance: Arc::new(ArcSwap::new(Arc::new(perf))),
-      config: Arc::new(config),
-      policy: RwLock::new(None),
-      state: RwLock::new(ClientState::Disconnected),
-      error_tx: RwLock::new(VecDeque::new()),
-      message_tx: RwLock::new(VecDeque::new()),
-      keyspace_tx: RwLock::new(VecDeque::new()),
-      reconnect_tx: RwLock::new(VecDeque::new()),
-      cluster_change_tx: RwLock::new(VecDeque::new()),
-      connect_tx: RwLock::new(VecDeque::new()),
-      reconnect_sleep_jh: RwLock::new(None),
-      cmd_buffer_len: Arc::new(AtomicUsize::new(0)),
-      redeliver_count: Arc::new(AtomicUsize::new(0)),
-      connection_closed_tx: RwLock::new(None),
-      multi_block: RwLock::new(None),
-      cluster_state: RwLock::new(None),
-      backchannel: Arc::new(AsyncRwLock::new(backchannel)),
-      sentinel_primary: RwLock::new(None),
-      command_rx: RwLock::new(Some(command_rx)),
+      backchannel,
+      command_rx,
+      cluster_state,
+      sentinel_primary,
       command_tx,
+      state,
+      counters,
+      config,
+      performance,
+      policy,
+      resp_version,
+      notifications,
       resolver,
       id,
     })
   }
 
   pub fn is_pipelined(&self) -> bool {
-    self.perf_config.pipeline()
+    self.performance.as_ref().load().pipeline
   }
 
   pub fn log_client_name_fn<F>(&self, level: log::Level, func: F)
@@ -189,11 +260,10 @@ impl RedisClientInner {
   }
 
   pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {
-    let mut guard = self.cluster_state.write();
-    *guard = state;
+    self.cluster_state.as_ref().store(state.map(|s| Arc::new(s)));
   }
 
-  pub fn update_sentinel_primary(&self, server: &Arc<String>) {
+  pub fn update_sentinel_primary(&self, server: &ArcStr) {
     let mut guard = self.sentinel_primary.write();
     *guard = Some(server.clone());
   }

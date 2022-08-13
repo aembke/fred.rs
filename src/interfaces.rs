@@ -12,6 +12,7 @@ use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::convert::TryInto;
 use std::future::Future;
+use std::ops::Mul;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -104,12 +105,17 @@ where
   }
 }
 
+pub(crate) trait MultiplexerClient {
+  fn send_command(&self, command: RedisCommand) -> Result<(), RedisError>;
+}
+
 /// Run a function in the context of an async block, returning an `AsyncResult` that wraps a trait object.
-pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
+pub(crate) fn async_spawn<C, F, M, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike,
+  M: MultiplexerClient,
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
-  F: FnOnce(Arc<RedisClientInner>) -> Fut,
+  F: FnOnce(Arc<M>) -> Fut,
   T: Unpin + Send + 'static,
 {
   // this is unfortunate but necessary without async functions in traits
@@ -320,3 +326,4 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+use crate::protocol::command::RedisCommand;

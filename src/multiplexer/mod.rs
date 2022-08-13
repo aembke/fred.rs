@@ -249,7 +249,8 @@ where
   pub async fn replay_command(&mut self, cmd: SentCommand) -> Result<(), RedisError> {
     let backpressure = if self.inner.config.server.is_clustered() {
       self.write_with_hash_slot(cmd.command, cmd.hash_slot).await?;
-    } else if sent_command.command.kind.is_all_cluster_nodes() {
+    } else if cmd.command.kind.is_all_cluster_nodes() {
+      // is this necessary? need to trace this logic
       unimplemented!()
     } else {
       unimplemented!()
