@@ -8,6 +8,7 @@ use crate::types::*;
 use crate::types::{RedisConfig, ServerConfig, QUEUED};
 use crate::utils;
 use crate::utils::redis_string_to_f64;
+use arcstr::ArcStr;
 use bytes::Bytes;
 use bytes_utils::Str;
 use parking_lot::RwLock;
@@ -90,7 +91,7 @@ pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
   false
 }
 
-pub fn server_to_parts(server: &Arc<String>) -> Result<(&str, u16), RedisError> {
+pub fn server_to_parts(server: &ArcStr) -> Result<(&str, u16), RedisError> {
   let parts: Vec<&str> = server.split(":").collect();
   if parts.len() < 2 {
     return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));
@@ -117,57 +118,21 @@ pub async fn parse_cluster_server(
   Ok((parts[0].to_owned(), addr))
 }
 
-pub fn read_clustered_hosts(config: &RedisConfig) -> Result<Vec<(String, u16)>, RedisError> {
-  match config.server {
-    ServerConfig::Clustered { ref hosts, .. } => Ok(hosts.clone()),
-    _ => Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Invalid redis config. Clustered config expected.",
-    )),
-  }
-}
-
-pub fn read_centralized_domain(config: &RwLock<RedisConfig>) -> Result<String, RedisError> {
-  if let ServerConfig::Centralized { ref host, .. } = config.read().server {
-    Ok(host.to_owned())
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Expected centralized server config.",
-    ))
-  }
-}
-
-pub async fn read_centralized_addr(inner: &Arc<RedisClientInner>) -> Result<SocketAddr, RedisError> {
-  let (host, port) = match inner.config.read().server {
-    ServerConfig::Centralized { ref host, ref port, .. } => (host.clone(), *port),
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Expected centralized server config.",
-      ));
-    },
-  };
-
-  inner.resolver.resolve(host, port).await
-}
-
 /// Server hostnames/IP addresses can have a cport suffix of the form `@1122` that needs to be removed.
-fn remove_cport_suffix(server: String) -> String {
+fn remove_cport_suffix(server: &str) -> &str {
   if let Some(first) = server.split("@").next() {
-    return first.to_owned();
+    return first;
   }
 
   server
 }
 
-pub fn binary_search(slots: &Vec<Arc<SlotRange>>, slot: u16) -> Option<Arc<SlotRange>> {
+pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<&SlotRange> {
   if slot > REDIS_CLUSTER_SLOTS {
     return None;
   }
 
   let (mut low, mut high) = (0, slots.len() - 1);
-
   while low <= high {
     let mid = (low + high) / 2;
 
@@ -184,7 +149,7 @@ pub fn binary_search(slots: &Vec<Arc<SlotRange>>, slot: u16) -> Option<Arc<SlotR
     } else if slot > curr.end {
       low = mid + 1;
     } else {
-      return Some(curr.clone());
+      return Some(curr);
     }
   }
 

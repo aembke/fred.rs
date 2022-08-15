@@ -1,80 +1,100 @@
-use crate::error::RedisError;
+use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::ConnectionIDs;
+use crate::multiplexer::{ConnectionIDs, Connections};
+use crate::protocol::command::RedisCommand;
+use crate::protocol::command::RedisCommandKind;
 use crate::protocol::connection;
 use crate::protocol::connection::{FramedTcp, FramedTls, RedisTransport};
-use crate::protocol::types::{ProtocolFrame, RedisCommand};
+use crate::protocol::types::ProtocolFrame;
 use crate::protocol::utils as protocol_utils;
 use crate::types::Resolve;
+use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
+use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpStream;
 
-async fn create_transport(
-  inner: &Arc<RedisClientInner>,
-  host: &str,
-  port: u16,
-  tls: bool,
-) -> Result<RedisTransport, RedisError> {
-  let addr = inner.resolver.resolve(host.to_owned(), port).await?;
+#[cfg(feature = "enable-native-tls")]
+use tokio_native_tls::TlsStream as NativeTlsStream;
+#[cfg(feature = "enable-rustls")]
+use tokio_rustls::TlsStream as RustlsStream;
 
-  let transport = if tls {
-    let transport = connection::create_authenticated_connection_tls(&addr, host, inner).await?;
-    RedisTransport::Tls(transport)
-  } else {
-    let transport = connection::create_authenticated_connection(&addr, inner).await?;
-    RedisTransport::Tcp(transport)
-  };
-
-  Ok(transport)
+/// Wrapper type to hide generic connection type parameters.
+pub enum BackchannelTransport {
+  Tcp(RedisTransport<TcpStream>),
+  #[cfg(feature = "enable-native-tls")]
+  NativeTls(RedisTransport<NativeTlsStream<TcpStream>>),
+  #[cfg(feature = "enable-rustls")]
+  Rustls(RedisTransport<RustlsStream<TcpStream>>),
 }
 
-fn map_tcp_response(
-  result: Result<(ProtocolFrame, FramedTcp), (RedisError, FramedTcp)>,
-) -> Result<(Resp3Frame, RedisTransport), (RedisError, RedisTransport)> {
-  result
-    .map(|(f, t)| (f.into_resp3(), RedisTransport::Tcp(t)))
-    .map_err(|(e, t)| (e, RedisTransport::Tcp(t)))
+impl BackchannelTransport {
+  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    match self {
+      BackchannelTransport::Tcp(t) => t.setup(inner).await,
+      #[cfg(feature = "enable-native-tls")]
+      BackchannelTransport::NativeTls(t) => t.setup(inner).await,
+      #[cfg(feature = "enable-rustls")]
+      BackchannelTransport::Rustls(t) => t.setup(inner).await,
+    }
+  }
+
+  pub async fn request_response(&mut self, cmd: RedisCommand, is_resp3: bool) -> Result<Resp3Frame, RedisError> {
+    match self {
+      BackchannelTransport::Tcp(t) => t.request_response(cmd, is_resp3).await.map(|f| f.into_resp3()),
+      #[cfg(feature = "enable-native-tls")]
+      BackchannelTransport::NativeTls(t) => t.request_response(cmd, is_resp3).await.map(|f| f.into_resp3()),
+      #[cfg(feature = "enable-rustls")]
+      BackchannelTransport::Rustls(t) => t.request_response(cmd, is_resp3).await.map(|f| f.into_resp3()),
+    }
+  }
+
+  pub async fn ping(&mut self, is_resp3: bool) -> Result<(), RedisError> {
+    let cmd = RedisCommand::new(RedisCommandKind::Ping, vec![], None);
+    self.request_response(cmd, is_resp3).await.map(|_| ())
+  }
+
+  pub fn server(&self) -> &ArcStr {
+    match self {
+      BackchannelTransport::Tcp(t) => &t.server,
+      #[cfg(feature = "enable-native-tls")]
+      BackchannelTransport::NativeTls(t) => &t.server,
+      #[cfg(feature = "enable-rustls")]
+      BackchannelTransport::Rustls(t) => &t.server,
+    }
+  }
 }
 
-fn map_tls_response(
-  result: Result<(ProtocolFrame, FramedTls), (RedisError, FramedTls)>,
-) -> Result<(Resp3Frame, RedisTransport), (RedisError, RedisTransport)> {
-  result
-    .map(|(f, t)| (f.into_resp3(), RedisTransport::Tls(t)))
-    .map_err(|(e, t)| (e, RedisTransport::Tls(t)))
-}
-
-/// A struct that allows for a backchannel to the server(s) even when the connections are blocked.
+/// A struct wrapping a separate connection to the server or cluster for client or cluster management commands.
 #[derive(Default)]
 pub struct Backchannel {
-  /// A connection to any of the servers, with the associated server name.
-  pub transport: Option<(RedisTransport, Arc<String>)>,
-  /// The server (host/port) that is blocked, if any.
-  pub blocked: Option<Arc<String>>,
-  /// A shared mapping of server IDs to connection IDs.
-  pub connection_ids: Option<ConnectionIDs>,
+  /// A connection to any of the servers.
+  pub transport: Option<BackchannelTransport>,
+  /// An identifier for the blocked connection, if any.
+  pub blocked: Option<ArcStr>,
+  /// A map of server IDs to connection IDs, as managed by the multiplexer.
+  pub connection_ids: HashMap<ArcStr, i64>,
 }
 
 impl Backchannel {
   /// Set the connection IDs from the multiplexer.
-  pub fn set_connection_ids(&mut self, connection_ids: ConnectionIDs) {
-    self.connection_ids = Some(connection_ids);
+  pub fn update_connection_ids<T>(&mut self, connections: Connections<T>)
+  where
+    T: AsyncRead + AsyncWrite + Unpin + 'static,
+  {
+    self.connection_ids = connections.connection_ids();
   }
 
   /// Read the connection ID for the provided server.
-  pub fn connection_id(&self, server: &Arc<String>) -> Option<i64> {
-    self
-      .connection_ids
-      .as_ref()
-      .and_then(|connection_ids| match connection_ids {
-        ConnectionIDs::Centralized(ref inner) => inner.read().clone(),
-        ConnectionIDs::Clustered(ref inner) => inner.read().get(server).map(|i| *i),
-      })
+  pub fn connection_id(&self, server: &ArcStr) -> Option<i64> {
+    self.connection_ids.get(server).cloned()
   }
 
   /// Set the blocked flag to the provided server.
-  pub fn set_blocked(&mut self, server: Arc<String>) {
-    self.blocked = Some(server);
+  pub fn set_blocked(&mut self, server: &ArcStr) {
+    self.blocked = Some(server.clone());
   }
 
   /// Remove the blocked flag.
@@ -87,104 +107,85 @@ impl Backchannel {
     self.blocked.is_some()
   }
 
-  /// Whether or not an open transport exists to the blocked server.
+  /// Whether or not an open connection exists to the blocked server.
   pub fn has_blocked_transport(&self) -> bool {
     match self.blocked {
       Some(ref server) => match self.transport {
-        Some((_, ref _server)) => server == _server,
+        Some(ref transport) => transport.server() == server,
         None => false,
       },
       None => false,
     }
   }
 
-  /// Take the current transport or create a new one, returning the new transport, the server name, and whether a new connection was needed.
-  pub async fn take_or_create_transport(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    host: &str,
-    port: u16,
-    uses_tls: bool,
-    use_blocked: bool,
-  ) -> Result<(RedisTransport, Option<Arc<String>>, bool), RedisError> {
-    if self.has_blocked_transport() && use_blocked {
-      if let Some((transport, server)) = self.transport.take() {
-        Ok((transport, Some(server), false))
-      } else {
-        _debug!(inner, "Creating backchannel to {}:{}", host, port);
-        let transport = create_transport(inner, host, port, uses_tls).await?;
-        Ok((transport, None, true))
-      }
-    } else {
-      let _ = self.transport.take();
-      _debug!(inner, "Creating backchannel to {}:{}", host, port);
-
-      let transport = create_transport(inner, host, port, uses_tls).await?;
-      Ok((transport, None, true))
-    }
+  /// Return the server ID of the blocked client connection, if found.
+  pub fn blocked_server(&self) -> Option<ArcStr> {
+    self.blocked.clone()
   }
 
-  /// Send the provided command to the server at `host:port`.
+  /// Return the server ID of the existing backchannel connection, if found.
+  pub fn server(&self) -> Option<ArcStr> {
+    self.transport.map(|t| t.server().clone())
+  }
+
+  /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.
   ///
-  /// If an existing transport to the provided server is found this function will try to use it, but will automatically retry once if the connection is dead.
-  /// If a new transport has to be created this function will create it, use it, and set it on `self` if the command succeeds.
+  /// Returns whether a new connection was created.
+  pub async fn check_and_create_transport(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    server: &ArcStr,
+  ) -> Result<bool, RedisError> {
+    if let Some(ref mut transport) = self.transport {
+      if transport.server() == server {
+        if transport.ping(inner.is_resp3()).await.is_ok() {
+          _debug!(inner, "Using existing backchannel connection to {}", server);
+          return Ok(false);
+        }
+      }
+    }
+    self.transport = None;
+
+    let (host, port) = protocol_utils::server_to_parts(server)?;
+    if inner.config.uses_native_tls() {
+      _debug!(inner, "Creating backchannel native-tls connection to {}:{}", host, port);
+      let mut transport = RedisTransport::new_native_tls(inner, host.to_owned(), port).await?;
+      let _ = transport.setup(inner).await?;
+      self.transport = Some(BackchannelTransport::NativeTls(transport));
+    } else if inner.config.uses_rustls() {
+      _debug!(inner, "Creating backchannel rustls connection to {}:{}", host, port);
+      let mut transport = RedisTransport::new_rustls(inner, host.to_owned(), port).await?;
+      let _ = transport.setup(inner).await?;
+      self.transport = Some(BackchannelTransport::Rustls(transport));
+    } else {
+      _debug!(inner, "Creating backchannel TCP connection to {}:{}", host, port);
+      let mut transport = RedisTransport::new_tcp(inner, host.to_owned(), port).await?;
+      let _ = transport.setup(inner).await?;
+      self.transport = Some(BackchannelTransport::Tcp(transport));
+    }
+
+    Ok(true)
+  }
+
+  /// Send the provided command to the provided server, creating a new connection if needed.
+  ///
+  /// If a new connection is created this function also sets it on `self` before returning.
   pub async fn request_response(
     &mut self,
     inner: &Arc<RedisClientInner>,
-    server: &Arc<String>,
+    server: &ArcStr,
     command: RedisCommand,
-    use_blocked: bool,
   ) -> Result<Resp3Frame, RedisError> {
-    let is_resp3 = inner.is_resp3();
-    let uses_tls = inner.config.read().uses_tls();
-    let (host, port) = protocol_utils::server_to_parts(server)?;
+    let _ = self.check_and_create_transport(inner, server).await?;
 
-    let (transport, _server, try_once) = self
-      .take_or_create_transport(inner, host, port, uses_tls, use_blocked)
-      .await?;
-    let server = _server.unwrap_or(server.clone());
-    let result = match transport {
-      RedisTransport::Tcp(transport) => {
-        map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
-      }
-      RedisTransport::Tls(transport) => {
-        map_tls_response(connection::request_response_safe(transport, &command, is_resp3).await)
-      }
-    };
-
-    match result {
-      Ok((frame, transport)) => {
-        _debug!(inner, "Created backchannel to {}", server);
-        self.transport = Some((transport, server));
-        Ok(frame)
-      }
-      Err((e, _)) => {
-        if try_once {
-          _warn!(inner, "Failed to create backchannel to {}", server);
-          Err(e)
-        } else {
-          // need to avoid async recursion
-          let (transport, _, _) = self
-            .take_or_create_transport(inner, host, port, uses_tls, use_blocked)
-            .await?;
-          let result = match transport {
-            RedisTransport::Tcp(transport) => {
-              map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
-            }
-            RedisTransport::Tls(transport) => {
-              map_tls_response(connection::request_response_safe(transport, &command, is_resp3).await)
-            }
-          };
-
-          match result {
-            Ok((frame, transport)) => {
-              self.transport = Some((transport, server));
-              Ok(frame)
-            }
-            Err((e, _)) => Err(e),
-          }
-        }
-      }
+    if let Some(ref mut transport) = self.transport {
+      _debug!(inner, "Sending {} on backchannel to {}", command.to_debug_str(), server);
+      transport.request_response(command, inner.is_resp3()).await
+    } else {
+      Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Failed to create backchannel connection.",
+      ))
     }
   }
 }

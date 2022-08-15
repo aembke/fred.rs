@@ -204,6 +204,45 @@ impl Default for Blocking {
   }
 }
 
+/// Backpressure policies to apply when the max number of in-flight commands is reached on a connection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum BackpressurePolicy {
+  /// Sleep for some amount of time before sending the next command.
+  Sleep {
+    /// Disable the backpressure scaling logic used to calculate the `sleep` duration when throttling commands.
+    ///
+    /// If `true` the client will always wait a constant amount of time defined by `min_sleep_duration_ms` when throttling commands. Otherwise
+    /// the sleep duration will scale based on the number of in-flight commands.
+    ///
+    /// Default: `false`
+    disable_backpressure_scaling: bool,
+    /// The minimum amount of time to wait when applying backpressure to a command.
+    ///
+    /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless `disable_auto_backpressure` is `true`.
+    ///
+    /// Default: 50 ms
+    min_sleep_duration_ms: u64,
+  },
+  /// Wait for all in-flight commands to finish before sending the next command.
+  Drain,
+}
+
+impl Default for BackpressurePolicy {
+  fn default() -> Self {
+    BackpressurePolicy::Drain
+  }
+}
+
+impl BackpressurePolicy {
+  /// Create a new `Sleep` policy with the legacy default values.
+  pub fn default_sleep() -> Self {
+    BackpressurePolicy::Sleep {
+      disable_backpressure_scaling: false,
+      min_sleep_duration_ms: 50,
+    }
+  }
+}
+
 /// Configuration options for backpressure features in the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackpressureConfig {
@@ -213,31 +252,22 @@ pub struct BackpressureConfig {
   ///
   /// Default: `false`
   pub disable_auto_backpressure: bool,
-  /// Disable the backpressure scaling logic used to calculate the `sleep` duration when throttling commands.
-  ///
-  /// If `true` then the client will always wait a constant amount of time defined by `min_sleep_duration_ms` when throttling commands.
-  ///
-  /// Default: `false`
-  pub disable_backpressure_scaling: bool,
-  /// The minimum amount of time to wait when applying backpressure to a command.
-  ///
-  /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless `disable_auto_backpressure` is `true`.
-  ///
-  /// Default: 100 ms
-  pub min_sleep_duration_ms: u64,
   /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
   ///
   /// Default: 5000
   pub max_in_flight_commands: u64,
+  /// The backpressure policy to apply when the max number of in-flight commands is reached.
+  ///
+  /// Default: `Drain`
+  pub policy: BackpressurePolicy,
 }
 
 impl Default for BackpressureConfig {
   fn default() -> Self {
     BackpressureConfig {
       disable_auto_backpressure: false,
-      disable_backpressure_scaling: false,
-      min_sleep_duration_ms: 100,
       max_in_flight_commands: 5000,
+      policy: BackpressurePolicy::default(),
     }
   }
 }
@@ -269,9 +299,9 @@ pub struct PerformanceConfig {
   ///
   /// Default: 1000
   pub max_feed_count: u64,
-  /// The amount of time, in milliseconds, to wait after a `MOVED` or `ASK` error is received before the client will update the cached cluster state and try again.
+  /// The amount of time, in milliseconds, to wait after a `MOVED` or `ASK` error is received before the client will update the cached cluster state.
   ///
-  /// If `0` the client will follow `MOVED` or `ASK` redirects as quickly as possible. However, this can result in some unnecessary state synchronization commands when large values are being moved between nodes.
+  /// If `0` the client will follow `MOVED` or `ASK` redirects as quickly as possible. However, this can result in some unnecessary state synchronization overhead when large values are being moved between nodes.
   ///
   /// Default: 10 ms
   pub cluster_cache_update_delay_ms: u64,
@@ -380,6 +410,36 @@ impl RedisConfig {
   /// Whether or not the client uses TLS.
   #[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
   pub fn uses_tls(&self) -> bool {
+    false
+  }
+
+  /// Whether or not the client uses a `native-tls` connector.
+  #[cfg(feature = "enable-native-tls")]
+  pub fn uses_native_tls(&self) -> bool {
+    match self.tls {
+      Some(TlsConnector::Native(_)) => true,
+      _ => false,
+    }
+  }
+
+  /// Whether or not the client uses a `native-tls` connector.
+  #[cfg(not(feature = "enable-native-tls"))]
+  pub fn uses_native_tls(&self) -> bool {
+    false
+  }
+
+  /// Whether or not the client uses a `rustls` connector.
+  #[cfg(feature = "enable-rustls")]
+  pub fn uses_rustls(&self) -> bool {
+    match self.tls {
+      Some(TlsConnector::Rustls(_)) => true,
+      _ => false,
+    }
+  }
+
+  /// Whether or not the client uses a `rustls` connector.
+  #[cfg(not(feature = "enable-rustls"))]
+  pub fn uses_rustls(&self) -> bool {
     false
   }
 

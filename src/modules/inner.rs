@@ -30,12 +30,19 @@ pub type CommandReceiver = UnboundedReceiver<QueuedCommand>;
 
 #[derive(Clone)]
 pub struct Notifications {
+  /// The client ID.
   pub id: ArcStr,
+  /// A broadcast channel for the `on_error` interface.
   pub errors: BroadcastSender<RedisError>,
+  /// A broadcast channel for the `on_message` interface.
   pub pubsub: BroadcastSender<(String, RedisValue)>,
+  /// A broadcast channel for the `on_keyspace_event` interface.
   pub keyspace: BroadcastSender<KeyspaceEvent>,
+  /// A broadcast channel for the `on_reconnect` interface.
   pub reconnect: BroadcastSender<()>,
+  /// A broadcast channel for the `on_cluster_change` interface.
   pub cluster_change: BroadcastSender<Vec<ClusterStateChange>>,
+  /// A broadcast channel for the `on_connect` interface.
   pub connect: BroadcastSender<Result<(), RedisError>>,
   /// A channel for events that should close all client tasks with `Canceled` errors.
   ///
@@ -67,43 +74,43 @@ impl Notifications {
 
   pub fn broadcast_error(&self, error: RedisError) {
     if let Err(e) = self.errors.send(error) {
-      warn!("{}: Error notifying `on_error` listeners: {:?}", self.id, e);
+      debug!("{}: Error notifying `on_error` listeners: {:?}", self.id, e);
     }
   }
 
   pub fn broadcast_pubsub(&self, channel: String, message: RedisValue) {
     if let Err(_) = self.pubsub.send((channel, message)) {
-      warn!("{}: Error notifying `on_message` listeners.", self.id);
+      debug!("{}: Error notifying `on_message` listeners.", self.id);
     }
   }
 
   pub fn broadcast_keyspace(&self, event: KeyspaceEvent) {
     if let Err(_) = self.keyspace.send(event) {
-      warn!("{}: Error notifying `on_keyspace_event` listeners.", self.id);
+      debug!("{}: Error notifying `on_keyspace_event` listeners.", self.id);
     }
   }
 
   pub fn broadcast_reconnect(&self) {
     if let Err(_) = self.reconnect.send(()) {
-      warn!("{}: Error notifying `on_reconnect` listeners.", self.id);
+      debug!("{}: Error notifying `on_reconnect` listeners.", self.id);
     }
   }
 
   pub fn broadcast_cluster_change(&self, changes: Vec<ClusterStateChange>) {
     if let Err(_) = self.cluster_change.send(changes) {
-      warn!("{}: Error notifying `on_cluster_change` listeners.", self.id);
+      debug!("{}: Error notifying `on_cluster_change` listeners.", self.id);
     }
   }
 
   pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
     if let Err(_) = self.connect.send(result) {
-      warn!("{}: Error notifying `on_connect` listeners.", self.id);
+      debug!("{}: Error notifying `on_connect` listeners.", self.id);
     }
   }
 
   pub fn broadcast_close(&self) {
     if let Err(_) = self.close.send(()) {
-      warn!("{}: Error notifying `close` listeners.", self.id);
+      debug!("{}: Error notifying `close` listeners.", self.id);
     }
   }
 }
@@ -163,13 +170,13 @@ pub struct RedisClientInner {
   pub performance: Arc<ArcSwap<PerformanceConfig>>,
   /// An optional reconnect policy.
   pub policy: RwLock<Option<ReconnectPolicy>>,
-  ///
+  /// Notification channels for the event interfaces.
   pub notifications: Notifications,
   /// An mpsc sender for commands to the multiplexer.
   pub command_tx: CommandSender,
   /// Temporary storage for the receiver half of the multiplexer command channel.
   pub command_rx: RwLock<Option<CommandReceiver>>,
-  ///
+  /// Shared counters.
   pub counters: ClientCounters,
   /// The cached view of the cluster state, if running against a clustered deployment.
   pub cluster_state: Arc<ArcSwapOption<ClusterKeyCache>>,
@@ -253,10 +260,6 @@ impl RedisClientInner {
 
   pub fn client_name(&self) -> &str {
     self.id.as_str()
-  }
-
-  pub fn client_name_ref(&self) -> &ArcStr {
-    &self.id
   }
 
   pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {

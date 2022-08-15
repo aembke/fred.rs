@@ -96,6 +96,36 @@ where
       },
     }
   }
+
+  pub fn connection_ids(&self) -> HashMap<ArcStr, i64> {
+    let mut out = HashMap::new();
+
+    match self {
+      Connections::Centralized { writer } => {
+        if let Some(writer) = writer {
+          if let Some(id) = writer.id {
+            out.insert(writer.server.clone(), id);
+          }
+        }
+      },
+      Connections::Sentinel { writer, .. } => {
+        if let Some(writer) = writer {
+          if let Some(id) = writer.id {
+            out.insert(writer.server.clone(), id);
+          }
+        }
+      },
+      Connections::Clustered { writers, .. } => {
+        for (server, writer) in writers.iter() {
+          if let Some(id) = writer.id {
+            out.insert(server.clone(), id);
+          }
+        }
+      },
+    }
+
+    out
+  }
 }
 
 pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {

@@ -1,8 +1,9 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::codec::RedisCodec;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
+use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::ProtocolFrame;
-use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::{frame_into_string, pretty_error};
 use crate::types::{ClientState, InfoKind, Resolve};
@@ -40,31 +41,10 @@ use tokio_rustls::{rustls::ServerName, TlsConnector as RustlsConnector, TlsStrea
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";
 
-pub type CommandBuffer = VecDeque<SentCommand>;
+pub type CommandBuffer = VecDeque<RedisCommand>;
 pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
-
-#[derive(Debug)]
-pub struct SentCommand {
-  pub command: RedisCommand,
-  pub network_start: Option<Instant>,
-  pub multi_queued: bool,
-  pub hash_slot: Option<u16>,
-  pub no_backpressure: bool,
-}
-
-impl From<RedisCommand> for SentCommand {
-  fn from(cmd: RedisCommand) -> Self {
-    SentCommand {
-      command: cmd,
-      hash_slot: None,
-      network_start: None,
-      multi_queued: false,
-      no_backpressure: false,
-    }
-  }
-}
 
 /// Atomic counters stored with connection state.
 #[derive(Clone, Debug)]
@@ -189,6 +169,11 @@ where
     Ok(framed)
   }
 
+  #[cfg(not(feature = "enable-native-tls"))]
+  pub async fn new_native_tls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self<T>, RedisError> {
+    RedisTransport::new_tcp(inner, host, port).await
+  }
+
   #[cfg(feature = "enable-rustls")]
   pub async fn new_rustls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self<T>, RedisError> {
     let buffer_size = protocol_utils::initial_buffer_size(inner);
@@ -221,6 +206,11 @@ where
     };
 
     Ok(framed)
+  }
+
+  #[cfg(not(feature = "enable-rustls"))]
+  pub async fn new_rustls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self<T>, RedisError> {
+    RedisTransport::new_tcp(inner, host, port).await
   }
 
   /// Send a command to the server.
