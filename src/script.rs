@@ -11,6 +11,20 @@ use crate::types::{MultipleKeys, MultipleValues};
 
 /// Wrapper for a Redis Lua script that uses the script cache
 /// to avoid sending the source on every evaluation.
+///
+/// # Example
+///
+/// ```no_run
+/// use fred::util::RedisScript;
+/// # fn main() -> Result<(), fred::error::RedisError> {
+/// #   let client = fred::clients::RedisClient::new(Default::default());
+/// #   async move {
+/// let script = RedisScript::new("return 'Hello world'");
+/// let result: String = script.eval(&client, None, None).await?;
+/// #     Ok(())
+/// #   }
+/// # }
+/// ```
 #[derive(Clone, Debug)]
 pub struct RedisScript {
     source: Str,
@@ -19,14 +33,6 @@ pub struct RedisScript {
 
 impl RedisScript {
     /// Creates a new script from a string.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use fred::util::RedisScript;
-    /// let script1 = RedisScript::new("return 'Hello world'");
-    /// let script2 = RedisScript::new(String::from("return 'Hello world'"));
-    /// ```
     pub fn new(source: impl Into<Str>) -> Self {
         let source = source.into();
         let sha1 = crate::util::sha1_hash(&source);
