@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 
 use bytes_utils::Str;
 
@@ -91,6 +92,26 @@ impl RedisScript {
                 Err(err) => Err(err),
             }
         }
+    }
+}
+
+impl From<Str> for RedisScript {
+    fn from(source: Str) -> Self {
+        RedisScript::new(source)
+    }
+}
+
+impl PartialEq for RedisScript {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+    }
+}
+
+impl Eq for RedisScript {}
+
+impl Hash for RedisScript {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.sha1.as_bytes())
     }
 }
 
