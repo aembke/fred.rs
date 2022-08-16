@@ -127,7 +127,7 @@ fn remove_cport_suffix(server: &str) -> &str {
   server
 }
 
-pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<&SlotRange> {
+pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<usize> {
   if slot > REDIS_CLUSTER_SLOTS {
     return None;
   }
@@ -149,7 +149,7 @@ pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<&SlotRange> {
     } else if slot > curr.end {
       low = mid + 1;
     } else {
-      return Some(curr);
+      return Some(mid);
     }
   }
 

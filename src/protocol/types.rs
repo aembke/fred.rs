@@ -44,8 +44,8 @@ pub enum ProtocolFrame {
 
 impl ProtocolFrame {
   pub fn into_resp3(self) -> Resp3Frame {
-    // since the `RedisValue::convert` logic already accounts for different encodings of maps and sets we can just
-    // change everything to RESP3 above the protocol layer. resp2->resp3 is lossless so this is safe.
+    // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
+    // we can just change everything to RESP3 above the protocol layer
     match self {
       ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
       ProtocolFrame::Resp3(frame) => frame,
@@ -72,7 +72,6 @@ pub struct CustomKeySlot {
 
 #[derive(Clone)]
 pub struct SplitCommand {
-  // TODO change to mutex
   pub tx: Arc<Mutex<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
   pub config: Option<RedisConfig>,
 }
@@ -92,8 +91,13 @@ impl PartialEq for SplitCommand {
 impl Eq for SplitCommand {}
 
 pub struct KeyScanInner {
+  /// The hash slot for the command.
   pub key_slot: Option<u16>,
-  pub cursor: Str,
+  /// The index of the cursor in `args`.
+  pub cursor_idx: usize,
+  /// The arguments sent in each scan command.
+  pub args: Vec<RedisValue>,
+  /// The sender half of the results channel.
   pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
@@ -112,7 +116,11 @@ pub enum ValueScanResult {
 }
 
 pub struct ValueScanInner {
-  pub cursor: Str,
+  /// The index of the cursor argument in `args`.
+  pub cursor_idx: usize,
+  /// The arguments sent in each scan command.
+  pub args: Vec<RedisValue>,
+  /// The sender half of the results channel.
   pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
@@ -141,6 +149,7 @@ impl ValueScanInner {
       let value = data.pop().unwrap();
       let key: RedisKey = match data.pop().unwrap() {
         RedisValue::String(s) => s.into(),
+        RedisValue::Bytes(b) => b.into(),
         _ => {
           return Err(RedisError::new(
             RedisErrorKind::ProtocolError,
@@ -191,6 +200,7 @@ impl ValueScanInner {
 
 /// A container for replica server IDs with some added state for round-robin requests.
 #[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaSet {
   servers: Vec<ArcStr>,
@@ -211,6 +221,7 @@ impl ReplicaSet {
 }
 
 #[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaNodes {
   replicas: HashMap<ArcStr, ReplicaSet>,
@@ -224,6 +235,7 @@ impl From<HashMap<ArcStr, ReplicaSet>> for ReplicaNodes {
 }
 
 #[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 impl ReplicaNodes {
   pub fn add(&mut self, primary: &ArcStr, replica: &ArcStr) {
     self
@@ -251,7 +263,8 @@ pub struct SlotRange {
   pub server: ArcStr,
   pub id: ArcStr,
   #[cfg(feature = "replicas")]
-  pub(crate) replicas: Option<Arc<ReplicaNodes>>,
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub replicas: Option<ReplicaNodes>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
@@ -317,7 +330,25 @@ impl ClusterKeyCache {
       return None;
     }
 
-    protocol_utils::binary_search(&self.data, slot)
+    protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx])
+  }
+
+  /// Read the set of replicas that own the provided hash slot.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub fn read_replicas(&mut self, slot: u16) -> Option<&mut ReplicaSet> {
+    if self.data.is_empty() {
+      return None;
+    }
+
+    protocol_utils::binary_search(&self.data, slot).and_then(|idx| &mut self.data[idx].replicas)
+  }
+
+  /// Read the replica node server ID that should handle the next command.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub fn next_replica(&mut self, slot: u16) -> Option<&ArcStr> {
+    self.read_replicas(slot).map(|r| r.next())
   }
 
   /// Read the number of hash slot ranges in the cluster.

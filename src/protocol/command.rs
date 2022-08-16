@@ -297,11 +297,11 @@ pub enum RedisCommandKind {
   ScriptExists,
   ScriptFlush,
   ScriptKill,
+  Scan,
+  Sscan,
+  Hscan,
+  Zscan,
   // Commands with custom state or commands that don't map directly to the server's command interface.
-  _Scan(KeyScanInner),
-  _Sscan(ValueScanInner),
-  _Hscan(ValueScanInner),
-  _Zscan(ValueScanInner),
   /// Close all connections and reset the client.
   _Close,
   /// Force sync the cluster state.
@@ -328,28 +328,28 @@ impl fmt::Debug for RedisCommandKind {
 impl RedisCommandKind {
   pub fn is_scan(&self) -> bool {
     match *self {
-      RedisCommandKind::_Scan(_) => true,
+      RedisCommandKind::Scan => true,
       _ => false,
     }
   }
 
   pub fn is_hscan(&self) -> bool {
     match *self {
-      RedisCommandKind::_Hscan(_) => true,
+      RedisCommandKind::Hscan => true,
       _ => false,
     }
   }
 
   pub fn is_sscan(&self) -> bool {
     match *self {
-      RedisCommandKind::_Sscan(_) => true,
+      RedisCommandKind::Sscan => true,
       _ => false,
     }
   }
 
   pub fn is_zscan(&self) -> bool {
     match *self {
-      RedisCommandKind::_Zscan(_) => true,
+      RedisCommandKind::Zscan => true,
       _ => false,
     }
   }
@@ -370,7 +370,7 @@ impl RedisCommandKind {
 
   pub fn is_value_scan(&self) -> bool {
     match *self {
-      RedisCommandKind::_Zscan(_) | RedisCommandKind::_Hscan(_) | RedisCommandKind::_Sscan(_) => true,
+      RedisCommandKind::Zscan | RedisCommandKind::Hscan | RedisCommandKind::Sscan => true,
       _ => false,
     }
   }
@@ -695,10 +695,10 @@ impl RedisCommandKind {
       RedisCommandKind::Zunionstore => "ZUNIONSTORE",
       RedisCommandKind::Zpopmax => "ZPOPMAX",
       RedisCommandKind::Zpopmin => "ZPOPMIN",
-      RedisCommandKind::_Scan(_) => "SCAN",
-      RedisCommandKind::_Sscan(_) => "SSCAN",
-      RedisCommandKind::_Hscan(_) => "HSCAN",
-      RedisCommandKind::_Zscan(_) => "ZSCAN",
+      RedisCommandKind::Scan => "SCAN",
+      RedisCommandKind::Sscan => "SSCAN",
+      RedisCommandKind::Hscan => "HSCAN",
+      RedisCommandKind::Zscan => "ZSCAN",
       RedisCommandKind::ScriptDebug => "SCRIPT DEBUG",
       RedisCommandKind::ScriptExists => "SCRIPT EXISTS",
       RedisCommandKind::ScriptFlush => "SCRIPT FLUSH",
@@ -982,10 +982,10 @@ impl RedisCommandKind {
       | RedisCommandKind::_ScriptFlushCluster
       | RedisCommandKind::_ScriptKillCluster
       | RedisCommandKind::_ScriptLoadCluster => "SCRIPT",
-      RedisCommandKind::_Scan(_) => "SCAN",
-      RedisCommandKind::_Sscan(_) => "SSCAN",
-      RedisCommandKind::_Hscan(_) => "HSCAN",
-      RedisCommandKind::_Zscan(_) => "ZSCAN",
+      RedisCommandKind::Scan => "SCAN",
+      RedisCommandKind::Sscan => "SSCAN",
+      RedisCommandKind::Hscan => "HSCAN",
+      RedisCommandKind::Zscan => "ZSCAN",
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
@@ -1186,7 +1186,7 @@ impl RedisCommandKind {
       | RedisCommandKind::Punsubscribe
       | RedisCommandKind::Ping
       | RedisCommandKind::Info
-      | RedisCommandKind::_Scan(_)
+      | RedisCommandKind::Scan
       | RedisCommandKind::FlushAll
       | RedisCommandKind::FlushDB => true,
       _ => false,

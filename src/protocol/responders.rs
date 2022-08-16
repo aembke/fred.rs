@@ -3,6 +3,7 @@ use crate::interfaces::Resp3Frame;
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::command::RedisCommand;
 use crate::protocol::command::ResponseSender;
+use crate::protocol::types::{KeyScanInner, ValueScanInner};
 use crate::utils as client_utils;
 use parking_lot::Mutex;
 use std::collections::vec_deque::VecDeque;
@@ -47,6 +48,15 @@ use std::sync::Arc;
 //   * dont emit message, drop the writer and queue the command
 //   * handle messages in the queue recv after the writer is dropped but before _Reconnect arrives
 
+// TODO reconnect logic needs to select() on a second ft from quit(), shutdown(), etc via the close notifications
+// the command function needs to emit this before sending the command in the queue
+// need to decide how to handle situation where the connection dies, reconnect policy calls sleep(), some
+// commands are queued, then quit is called. should the client wait to reconnect, then try those commands,
+// then quit on the new connection? or should quit() cancel reconnection attempts and all queued messages?
+
+// TODO change on_message to return BroadcastReceiver, move to pubsub interface trait
+// TODO change on_error/reconnect/connect to return BroadcastReceivers, move to ClientLike trait
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseKind {
   /// Throw away the response frame without modifying the command buffer.
@@ -77,6 +87,11 @@ pub enum ResponseKind {
     /// A shared oneshot channel to the caller.
     tx: Arc<Mutex<Option<ResponseSender>>>,
   },
+  /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
+  // TODO add args and any other shared state (like args) to this
+  ValueScan(ValueScanInner),
+  /// Handle the response as a page of keys from a SCAN command.
+  KeyScan(KeyScanInner),
 }
 
 impl ResponseKind {
@@ -102,29 +117,12 @@ impl ResponseKind {
       ResponseKind::Buffer { expected, frames, .. } => expected - frames.lock().len(),
       ResponseKind::Multiple { expected, received, .. } => expected - client_utils::read_atomic(received),
       ResponseKind::Requeue | ResponseKind::Skip => 0,
-      ResponseKind::Respond(_) => 1,
-    }
-  }
-
-  /// Errors returned here close the connection.
-  pub fn handle_response(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    buffer: &Arc<Mutex<VecDeque<RedisCommand>>>,
-  ) -> Result<(), RedisError> {
-    match self {
-      ResponseKind::Respond(tx) => process_respond(inner, buffer, tx),
-      ResponseKind::Multiple { tx, expected, received } => process_multiple(inner, buffer, *expected, received, tx),
-      ResponseKind::Buffer { tx, expected, frames } => process_buffer(inner, buffer, *expected, frames, tx),
-      ResponseKind::Skip => process_skip(inner, buffer),
-      ResponseKind::Requeue => {
-        _debug!(inner, "Skip response without modifying command queue.");
-      },
+      ResponseKind::Respond(_) | ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) => 1,
     }
   }
 
   /// Take the oneshot response sender.
-  pub fn response_tx(&mut self) -> Option<ResponseSender> {
+  pub fn take_response_tx(&mut self) -> Option<ResponseSender> {
     match self {
       ResponseKind::Respond(tx) => tx.take(),
       ResponseKind::Buffer { tx, .. } => tx.lock().take(),
@@ -135,37 +133,43 @@ impl ResponseKind {
 
   /// Respond with an error to the caller.
   pub fn respond_with_error(&mut self, error: RedisError) {
-    if let Some(tx) = self.response_tx() {
+    if let Some(tx) = self.take_response_tx() {
       let _ = tx.send(Err(error));
     }
   }
 }
 
+// TODO change these to take last_command
+// the outer handle_command function should pop off the front
+// these should return Option<RedisCommand> and the outer fn should put it back if needed
+
+// TODO how to figure out which of these to call without taking a lock on the command buffer?
+
 fn process_multiple(
   inner: &Arc<RedisClientInner>,
-  buffer: &Arc<Mutex<VecDeque<RedisCommand>>>,
+  last_command: RedisCommand,
   expected: usize,
   received: &Arc<AtomicUsize>,
   tx: &Arc<Mutex<Option<ResponseSender>>>,
-) -> Result<(), RedisError> {
+) -> Result<Option<RedisCommand>, RedisError> {
   unimplemented!()
 }
 
 fn process_buffer(
   inner: &Arc<RedisClientInner>,
-  buffer: &Arc<Mutex<VecDeque<RedisCommand>>>,
+  last_command: Option<RedisCommand>,
   expected: usize,
   frames: &Arc<Mutex<VecDeque<Resp3Frame>>>,
   tx: &Arc<Mutex<Option<ResponseSender>>>,
-) -> Result<(), RedisError> {
+) -> Result<Option<RedisCommand>, RedisError> {
   unimplemented!()
 }
 
 fn process_respond(
   inner: &Arc<RedisClientInner>,
-  buffer: &Arc<Mutex<VecDeque<RedisCommand>>>,
+  last_command: RedisCommand,
   tx: &mut Option<ResponseSender>,
-) -> Result<(), RedisError> {
+) -> Result<Option<RedisCommand>, RedisError> {
   unimplemented!()
 }
 
@@ -175,3 +179,5 @@ fn process_skip(
 ) -> Result<(), RedisError> {
   unimplemented!()
 }
+
+fn process_value_scan(inner: &Arc<RedisClientInner>, buffer: &Arc<Mutex<VecDeque<RedisCommand>>>, ki)

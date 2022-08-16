@@ -1,7 +1,9 @@
 use crate::clients::RedisClient;
 use crate::error::*;
+use crate::interfaces::MultiplexerClient;
 use crate::modules::backchannel::Backchannel;
 use crate::multiplexer::SentCommand;
+use crate::protocol::command::QueuedCommand;
 use crate::protocol::types::DefaultResolver;
 use crate::protocol::types::RedisCommand;
 use crate::types::*;
@@ -23,7 +25,6 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::command::QueuedCommand;
 
 pub type CommandSender = UnboundedSender<QueuedCommand>;
 pub type CommandReceiver = UnboundedReceiver<QueuedCommand>;
@@ -178,8 +179,6 @@ pub struct RedisClientInner {
   pub command_rx: RwLock<Option<CommandReceiver>>,
   /// Shared counters.
   pub counters: ClientCounters,
-  /// The cached view of the cluster state, if running against a clustered deployment.
-  pub cluster_state: Arc<ArcSwapOption<ClusterKeyCache>>,
   /// The DNS resolver to use when establishing new connections.
   // TODO make this generic via the Resolve trait
   pub resolver: DefaultResolver,
@@ -202,7 +201,12 @@ pub struct RedisClientInner {
   pub res_size_stats: Arc<RwLock<MovingStats>>,
 }
 
-// TODO reconnect logic needs to select() on a second ft from quit(), shutdown(), etc
+impl MultiplexerClient for RedisClientInner {
+  fn send_command(&self) -> Result<(), RedisError> {
+    // TODO
+    unimplemented!()
+  }
+}
 
 impl RedisClientInner {
   pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
@@ -215,7 +219,7 @@ impl RedisClientInner {
     let resp_version = Arc::new(ArcSwap::new(Arc::new(config.version.clone())));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
     let (command_rx, policy) = (RwLock::new(Some(command_rx)), RwLock::new(policy));
-    let (cluster_state, sentinel_primary) = (Arc::new(ArcSwapOption::empty()), RwLock::new(None));
+    let sentinel_primary = RwLock::new(None);
     let backchannel = Arc::new(AsyncRwLock::new(Backchannel::default()));
 
     Arc::new(RedisClientInner {
@@ -230,7 +234,6 @@ impl RedisClientInner {
 
       backchannel,
       command_rx,
-      cluster_state,
       sentinel_primary,
       command_tx,
       state,

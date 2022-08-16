@@ -16,6 +16,7 @@ use std::ops::Mul;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -105,10 +106,6 @@ where
   }
 }
 
-pub(crate) trait MultiplexerClient {
-  fn send_command(&self, command: RedisCommand) -> Result<(), RedisError>;
-}
-
 /// Run a function in the context of an async block, returning an `AsyncResult` that wraps a trait object.
 pub(crate) fn async_spawn<C, F, M, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
@@ -119,7 +116,7 @@ where
   T: Unpin + Send + 'static,
 {
   // this is unfortunate but necessary without async functions in traits
-  let inner = client.inner().clone();
+  let inner = client.multiplexer_client().clone();
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func(inner))),
   }
@@ -138,21 +135,32 @@ where
   }
 }
 
+/// An interface for sending commands to the multiplexer.
+pub(crate) trait MultiplexerClient: Unpin + Send + Sync + Sized {
+  /// Send a command to the in-memory queue shared with the multiplexer.
+  fn send_command(&self) -> Result<(), RedisError>;
+}
+
 /// Any Redis client that implements any part of the Redis interface.
 pub trait ClientLike: Unpin + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
+  #[doc(hidden)]
+  fn multiplexer_client<C: MultiplexerClient>(&self) -> &Arc<C> {
+    self.inner()
+  }
+
   /// The unique ID identifying this client and underlying connections.
   ///
   /// All connections created by this client will use `CLIENT SETNAME` with this value.
-  fn id(&self) -> &Arc<String> {
-    &self.inner().id
+  fn id(&self) -> &str {
+    self.inner().id.as_str()
   }
 
   /// Read the config used to initialize the client.
   fn client_config(&self) -> RedisConfig {
-    utils::read_locked(&self.inner().config)
+    self.inner().config.as_ref().clone()
   }
 
   /// Read the reconnect policy used to initialize the client.
@@ -177,10 +185,7 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
 
   /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) in place with new values.
   fn update_perf_config(&self, config: PerformanceConfig) {
-    self.inner().perf_config.update(&config);
-
-    let mut guard = self.inner().config.write();
-    guard.performance = config;
+    self.inner().update_performance_config(config);
   }
 
   /// Read the state of the underlying connection(s).
@@ -220,7 +225,11 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   ///
   /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the first connection attempt vs subsequent attempts.
   fn wait_for_connect(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move { utils::wait_for_connect(&inner).await })
+    self.inner().notifications.connect.subscribe().recv().await?
+
+    async_spawn(self, |inner| async move {
+      inner
+    })
   }
 
   /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
