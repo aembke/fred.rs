@@ -107,18 +107,16 @@ where
 }
 
 /// Run a function in the context of an async block, returning an `AsyncResult` that wraps a trait object.
-pub(crate) fn async_spawn<C, F, M, Fut, T>(client: &C, func: F) -> AsyncResult<T>
+pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
-  C: ClientLike,
-  M: MultiplexerClient,
+  C: ClientLike + Clone,
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
-  F: FnOnce(Arc<M>) -> Fut,
+  F: FnOnce(C) -> Fut,
   T: Unpin + Send + 'static,
 {
-  // this is unfortunate but necessary without async functions in traits
-  let inner = client.multiplexer_client().clone();
+  let client = client.clone();
   AsyncResult {
-    inner: AsyncInner::Task(Box::pin(func(inner))),
+    inner: AsyncInner::Task(Box::pin(func(client))),
   }
 }
 
@@ -135,11 +133,9 @@ where
   }
 }
 
-/// An interface for sending commands to the multiplexer.
-pub(crate) trait MultiplexerClient: Unpin + Send + Sync + Sized {
-  /// Send a command to the in-memory queue shared with the multiplexer.
-  fn send_command(&self) -> Result<(), RedisError>;
-}
+// TODO
+// change command functions to take C: ClientLike instead of inner
+// change request_response to take C: ClientLike
 
 /// Any Redis client that implements any part of the Redis interface.
 pub trait ClientLike: Unpin + Send + Sync + Sized {
@@ -147,8 +143,22 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   fn inner(&self) -> &Arc<RedisClientInner>;
 
   #[doc(hidden)]
-  fn multiplexer_client<C: MultiplexerClient>(&self) -> &Arc<C> {
-    self.inner()
+  fn send_command<C>(&self, command: C) -> Result<(), RedisError> where C: Into<QueuedCommand> {
+    let inner = self.inner();
+
+    inner.counters.incr_cmd_buffer_len();
+    if let Err(mut e) = inner.command_tx.send(command.into()) {
+      inner.counters.decr_cmd_buffer_len();
+      if let Some(tx) = e.0.tx.take() {
+        // TODO
+        unimplemented!()
+        //if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
+        //  _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
+        //}
+      }
+    }
+
+    Ok(())
   }
 
   /// The unique ID identifying this client and underlying connections.
@@ -335,4 +345,4 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
-use crate::protocol::command::RedisCommand;
+use crate::protocol::command::{QueuedCommand, RedisCommand};

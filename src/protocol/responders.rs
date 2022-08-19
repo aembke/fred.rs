@@ -3,6 +3,7 @@ use crate::interfaces::Resp3Frame;
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::command::RedisCommand;
 use crate::protocol::command::ResponseSender;
+use crate::protocol::connection::SharedBuffer;
 use crate::protocol::types::{KeyScanInner, ValueScanInner};
 use crate::utils as client_utils;
 use parking_lot::Mutex;
@@ -111,16 +112,6 @@ impl ResponseKind {
     }
   }
 
-  /// The expected number of remaining frames to be read from the server.
-  pub fn remaining(&self) -> usize {
-    match self {
-      ResponseKind::Buffer { expected, frames, .. } => expected - frames.lock().len(),
-      ResponseKind::Multiple { expected, received, .. } => expected - client_utils::read_atomic(received),
-      ResponseKind::Requeue | ResponseKind::Skip => 0,
-      ResponseKind::Respond(_) | ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) => 1,
-    }
-  }
-
   /// Take the oneshot response sender.
   pub fn take_response_tx(&mut self) -> Option<ResponseSender> {
     match self {
@@ -142,6 +133,8 @@ impl ResponseKind {
 // TODO change these to take last_command
 // the outer handle_command function should pop off the front
 // these should return Option<RedisCommand> and the outer fn should put it back if needed
+
+// when processing an all_nodes response the command should not be put back in the buffer
 
 // TODO how to figure out which of these to call without taking a lock on the command buffer?
 
@@ -180,4 +173,107 @@ fn process_skip(
   unimplemented!()
 }
 
-fn process_value_scan(inner: &Arc<RedisClientInner>, buffer: &Arc<Mutex<VecDeque<RedisCommand>>>, ki)
+pub mod utils {
+  use super::*;
+  use crate::prelude::Resp3Frame;
+
+  pub fn should_reconnect(inner: &Arc<RedisClientInner>, error: &RedisError) -> bool {
+    inner.policy.read().is_some() && !error.is_canceled()
+  }
+
+  pub fn should_sync(inner: &Arc<RedisClientInner>, error: &RedisError) -> bool {
+    inner.config.server.is_clustered() && error.is_cluster_error()
+  }
+
+  pub async fn take_last_command(buffer: &SharedBuffer) -> Option<RedisCommand> {
+    buffer.lock().await.pop_front()
+  }
+
+  pub async fn replace_last_command(buffer: &SharedBuffer, command: RedisCommand) {
+    buffer.lock().await.push_front(command);
+  }
+
+  pub fn is_pubsub(frame: &Resp3Frame) -> bool {
+    unimplemented!()
+  }
+}
+
+pub mod default {
+  use super::*;
+  use crate::protocol::connection::{Counters, SharedBuffer, SplitRedisStream};
+  use arcstr::ArcStr;
+  use futures::stream::{Stream, StreamExt};
+  use std::sync::atomic::AtomicBool;
+
+  /// Process the frame in the context of the command at the front of the queue.
+  ///
+  /// Returns the command if it should be put back at the front of the queue.
+  async fn process_command(
+    inner: &Arc<RedisClientInner>,
+    server: &ArcStr,
+    counters: &Counters,
+    command: RedisCommand,
+    frame: Resp3Frame,
+  ) -> Result<Option<RedisCommand>, RedisError> {
+    unimplemented!()
+  }
+
+  async fn process_pubsub(
+    inner: &Arc<RedisClientInner>,
+    server: &ArcStr,
+    counters: &Counters,
+    frame: Resp3Frame,
+  ) -> Result<(), RedisError> {
+    unimplemented!()
+  }
+
+  pub async fn run<T>(
+    inner: Arc<RedisClientInner>,
+    mut stream: SplitRedisStream<T>,
+    server: ArcStr,
+    buffer: SharedBuffer,
+    counters: Counters,
+    all_connected: Arc<AtomicBool>,
+  ) -> Result<(), RedisError> {
+    loop {
+      let frame = match stream.next().await {
+        Ok(Some(frame)) => frame.into_resp3(),
+        Ok(None) => {
+          // TODO stream closed
+          unimplemented!()
+        },
+        Err(e) => {
+          // TODO IO error
+          unimplemented!()
+        },
+      };
+
+      // TODO think through how multiple consecutive MOVED/ASK errors should be handled
+
+      if utils::is_pubsub(frame) {
+        if let Err(e) = process_pubsub(&inner, &server, &counters, frame).await {
+          _warn!(inner, "{}: Failed processing pubsub message: {:?}", server, e);
+        }
+      } else {
+        let command = match utils::take_last_command(&buffer).await {
+          Some(command) => command,
+          None => {
+            // TODO need a better error message here
+            unimplemented!()
+          },
+        };
+
+        if let Some(command) = process_command(&inner, &server, &counters, command, frame).await? {
+          utils::replace_last_command(&buffer, command).await;
+        }
+      }
+    }
+
+    // TODO:
+    // set some state on the writer to start queueing messages, if not already
+    // decide whether to reconnect
+    // check error to see if it's canceled, return Ok(())
+
+    unimplemented!()
+  }
+}

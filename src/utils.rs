@@ -17,7 +17,7 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ops::DerefMut;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::{f64, mem};
@@ -36,6 +36,8 @@ use futures::TryFutureExt;
 use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
+use crate::interfaces::ClientLike;
+use crate::protocol::command::RedisCommand;
 
 const REDIS_TLS_SCHEME: &'static str = "rediss";
 const REDIS_CLUSTER_SCHEME_SUFFIX: &'static str = "-cluster";
@@ -228,6 +230,18 @@ pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<Stri
     ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().clone(),
     _ => None,
   }
+}
+
+pub fn read_bool_atomic(val: &Arc<AtomicBool>) -> bool {
+  val.load(Ordering::Acquire)
+}
+
+pub fn set_bool_atomic(val: &Arc<AtomicBool>, new: bool) -> bool {
+  val.swap(new, Ordering::SeqCst)
+}
+
+pub fn cas_bool_atomic(val: &Arc<AtomicBool>, current: bool, new: bool) -> Result<bool, bool> {
+  val.compare_exchange(current, new, Ordering::SeqCst, Ordering::Acquire)
 }
 
 pub fn decr_atomic(size: &Arc<AtomicUsize>) -> usize {
@@ -513,10 +527,13 @@ where
 }
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: C, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
+  C: ClientLike,
+  R: Into<RedisCommand>,
+  F: FnOnce() -> Result<R, RedisError>,
 {
+  let inner = client.inner();
   if !inner.should_trace() {
     return basic_request_response(inner, func).await;
   }
@@ -528,9 +545,11 @@ where
     let args_span = trace::create_args_span(cmd_span.id());
     let _enter = args_span.enter();
 
-    let (kind, args) = func()?;
-    let req_size = protocol_utils::args_size(&args);
-    args_span.record("num_args", &args.len());
+    let command: RedisCommand = func()?.into();
+    let req_size = protocol_utils::args_size(&command.args);
+    args_span.record("num_args", &command.args.len());
+
+    command.
 
     let (tx, rx) = oneshot_channel();
     let command = RedisCommand::new(kind, args, Some(tx));
@@ -546,7 +565,7 @@ where
   command.traces.queued = Some(queued_span);
 
   let _ = check_blocking_policy(inner, &command).await?;
-  let _ = send_command(&inner, command)?;
+  let _ =
   wait_for_response(rx, inner.perf_config.default_command_timeout() as u64)
     .and_then(|frame| async move {
       trace::record_response_size(&end_cmd_span, &frame);

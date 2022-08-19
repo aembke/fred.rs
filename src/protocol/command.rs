@@ -8,7 +8,7 @@ use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::{KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::types::{CustomCommand, RedisValue};
-use crate::utils as client_utils;
+use crate::{trace, utils as client_utils};
 use bytes_utils::Str;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
@@ -1390,14 +1390,14 @@ impl RedisCommand {
   /// Whether or not to pipeline the command.
   pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>) -> bool {
     // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
-    let force_no_pipeline = command.kind.is_eval()
-      // we also disable pipelining on the HELLO command so that we don't try to decode any in-flight responses with the wrong codec logic
-      || command.kind.is_hello()
-      || command.kind.is_blocking();
+    // we also disable pipelining on the HELLO command so that we don't try to decode any in-flight responses with the wrong codec logic
 
     // TODO blocking commands do not block in a transaction
 
-    let should_pipeline = inner.is_pipelined() && self.can_pipeline && !force_no_pipeline;
+    let should_pipeline = inner.is_pipelined()
+      && self.can_pipeline
+      && !(self.kind.is_eval() || self.kind.is_hello() || self.kind.is_blocking());
+
     _trace!(
       inner,
       "Pipeline check {}: {}",
@@ -1411,10 +1411,7 @@ impl RedisCommand {
   pub fn incr_check_attempted(&mut self, max: usize) -> Result<(), RedisError> {
     self.attempted += 1;
     if self.attempted > max {
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Exceeded max failed write attempts.",
-      ))
+      Err(RedisError::new(RedisErrorKind::Unknown, ""))
     } else {
       Ok(())
     }
@@ -1457,12 +1454,12 @@ impl RedisCommand {
   }
 
   #[cfg(feature = "full-tracing")]
-  pub fn take_queued_span(&mut self) -> Option<Span> {
+  pub fn take_queued_span(&mut self) -> Option<trace::Span> {
     self.traces.queued.take()
   }
 
   #[cfg(not(feature = "full-tracing"))]
-  pub fn take_queued_span(&mut self) -> Option<FakeSpan> {
+  pub fn take_queued_span(&mut self) -> Option<trace::disabled::Span> {
     None
   }
 
@@ -1475,6 +1472,16 @@ impl RedisCommand {
       ResponseKind::Multiple { ref mut tx, .. } => tx.lock().take(),
       ResponseKind::Buffer { ref mut tx, .. } => tx.lock().take(),
       _ => None,
+    }
+  }
+
+  /// Whether the command has a channel for sending responses to the caller.
+  pub fn has_response_tx(&self) -> bool {
+    match self.response {
+      ResponseKind::Respond(ref r) => r.is_some(),
+      ResponseKind::Multiple { ref tx, .. } => tx.lock().is_some(),
+      ResponseKind::Buffer { ref tx, .. } => tx.lock().is_some(),
+      _ => false,
     }
   }
 
@@ -1518,4 +1525,16 @@ impl RedisCommand {
 pub enum QueuedCommand {
   Command(RedisCommand),
   Pipeline(Vec<RedisCommand>),
+}
+
+impl From<RedisCommand> for QueuedCommand {
+  fn from(cmd: RedisCommand) -> Self {
+    QueuedCommand::Command(cmd)
+  }
+}
+
+impl From<Vec<RedisCommand>> for QueuedCommand {
+  fn from(cmd: Vec<RedisCommand>) -> Self {
+    QueuedCommand::Pipeline(cmd)
+  }
 }

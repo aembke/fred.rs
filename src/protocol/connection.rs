@@ -2,13 +2,15 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
+use crate::protocol::responders;
 use crate::protocol::types::ClusterKeyCache;
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::{frame_into_string, pretty_error};
 use crate::types::{ClientState, InfoKind, Resolve};
-use crate::utils as client_utils;
+use crate::{utils as client_utils, utils};
 use arcstr::ArcStr;
+use futures::lock::BiLock;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
 use futures::{Sink, Stream};
@@ -20,13 +22,14 @@ use std::collections::VecDeque;
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 use std::{fmt, mem, str};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio::task::JoinHandle;
 use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
@@ -42,7 +45,7 @@ use tokio_rustls::{rustls::ServerName, TlsConnector as RustlsConnector, TlsStrea
 pub const OK: &'static str = "OK";
 
 pub type CommandBuffer = VecDeque<RedisCommand>;
-pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
+pub type SharedBuffer = Arc<BiLock<CommandBuffer>>;
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
 
@@ -121,6 +124,13 @@ where
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
     let addr = inner.resolver.resolve(host, port).await?;
+    _debug!(
+      inner,
+      "Creating TCP connection to {} at {}:{}",
+      server,
+      addr.ip(),
+      addr.port()
+    );
     let socket = TcpStream::connect(addr).await?;
     let transport = Framed::new(socket, codec);
 
@@ -145,6 +155,13 @@ where
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
     let addr = inner.resolver.resolve(host, port).await?;
+    _debug!(
+      inner,
+      "Creating `native-tls` connection to {} at {}:{}",
+      server,
+      addr.ip(),
+      addr.port()
+    );
     let socket = TcpStream::connect(addr).await?;
 
     match inner.config.tls {
@@ -183,6 +200,13 @@ where
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
     let addr = inner.resolver.resolve(host, port).await?;
+    _debug!(
+      inner,
+      "Creating `rustls` connection to {} at {}:{}",
+      server,
+      addr.ip(),
+      addr.port()
+    );
     let socket = TcpStream::connect(addr).await?;
 
     match inner.config.tls {
@@ -412,9 +436,11 @@ where
       server: server.clone(),
       addr: addr.clone(),
       buffer: buffer.clone(),
+      reader: None,
     };
     let reader = RedisReader {
-      stream,
+      stream: Some(stream),
+      task: None,
       server,
       buffer,
       counters,
@@ -424,18 +450,66 @@ where
 }
 
 pub struct RedisReader<T: AsyncRead + AsyncWrite + Unpin + 'static> {
-  stream: SplitRedisStream<T>,
-  server: ArcStr,
-  buffer: SharedBuffer,
-  counters: Counters,
+  pub stream: Option<SplitRedisStream<T>>,
+  pub server: ArcStr,
+  pub buffer: SharedBuffer,
+  pub counters: Counters,
+  pub task: Option<JoinHandle<Result<(), RedisError>>>,
 }
 
 impl<T> RedisReader<T>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
-  pub fn into_inner(self) -> (SplitSt, ArcStr, SharedBuffer, Counters) {
-    (self.stream, self.server, self.buffer, self.counters)
+  pub fn spawn_background_default(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    all_connected: &Arc<AtomicBool>,
+  ) -> Result<(), RedisError> {
+    let stream = match self.stream.take() {
+      Some(stream) => stream,
+      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection not found.")),
+    };
+    let inner = inner.clone();
+    let server = self.server.clone();
+    let buffer = self.buffer.clone();
+    let counters = self.counters.clone();
+    let all_connected = all_connected.clone();
+
+    self.task = Some(tokio::spawn(responders::default::run(
+      inner,
+      stream,
+      server,
+      buffer,
+      counters,
+      all_connected,
+    )));
+    Ok(())
+  }
+
+  pub async fn wait(&mut self) -> Result<(), RedisError> {
+    if let Some(ref mut task) = self.task {
+      task.await?
+    } else {
+      Ok(())
+    }
+  }
+
+  pub fn is_connected(&self) -> bool {
+    self.task.is_some() || self.stream.is_some()
+  }
+
+  pub fn is_running(&self) -> bool {
+    self.task.is_some()
+  }
+
+  pub fn stop(&mut self, abort: bool) {
+    if abort && self.task.is_some() {
+      self.task.take().unwrap().abort();
+    } else {
+      self.task = None;
+    }
+    self.stream = None;
   }
 }
 
@@ -448,6 +522,7 @@ pub struct RedisWriter<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub version: Option<Version>,
   pub id: Option<i64>,
   pub counters: Counters,
+  pub reader: Option<RedisReader<T>>,
 }
 
 impl<T> fmt::Debug for RedisWriter<T>
@@ -463,6 +538,21 @@ impl<T> RedisWriter<T>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
+  /// Flush the sink and reset the feed counter.
+  pub async fn flush(&mut self) -> Result<(), RedisError> {
+    let _ = self.sink.flush().await?;
+    self.counters.reset_feed_count();
+    Ok(())
+  }
+
+  /// Conditionally flush the sink based on the feed count.
+  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
+    if utils::read_atomic(&self.counters.feed_count) > 0 {
+      let _ = self.flush().await?;
+    }
+    Ok(())
+  }
+
   /// Send a command to the server without waiting on the response.
   pub async fn write_command(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
     if should_flush {
@@ -483,7 +573,18 @@ where
     self.buffer.lock().push_back(cmd.into());
   }
 
-  pub fn close(self) -> CommandBuffer {
+  pub fn close(self, abort_reader: bool) -> CommandBuffer {
+    if abort_reader && self.reader.is_some() {
+      self.reader.unwrap().stop(true);
+    }
+    self.buffer.lock().drain(..).collect()
+  }
+
+  pub async fn graceful_close(mut self) -> CommandBuffer {
+    self.sink.close();
+    if let Some(mut reader) = self.reader {
+      reader.wait().await
+    }
     self.buffer.lock().drain(..).collect()
   }
 }
