@@ -143,11 +143,11 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   fn inner(&self) -> &Arc<RedisClientInner>;
 
   #[doc(hidden)]
-  fn send_command<C>(&self, command: C) -> Result<(), RedisError> where C: Into<QueuedCommand> {
+  fn send_command<C>(&self, command: C) -> Result<(), RedisError> where C: Into<RedisCommand> {
     let inner = self.inner();
 
     inner.counters.incr_cmd_buffer_len();
-    if let Err(mut e) = inner.command_tx.send(command.into()) {
+    if let Err(mut e) = inner.command_tx.send(command.into().into()) {
       inner.counters.decr_cmd_buffer_len();
       if let Some(tx) = e.0.tx.take() {
         // TODO

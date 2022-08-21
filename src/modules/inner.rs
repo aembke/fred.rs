@@ -313,4 +313,8 @@ impl RedisClientInner {
     let version = self.config.version.clone();
     self.resp_version.as_ref().store(Arc::new(version));
   }
+
+  pub fn max_command_attempts(&self) -> u32 {
+    self.performance.as_ref().load().max_command_attempts
+  }
 }

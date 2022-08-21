@@ -198,3 +198,5 @@ workflows:
       - test-no-features-7.0
       - test-sentinel-7.0
       - test-docs
+      - test-cluster-tls-features-7.0
+      - test-cluster-rustls-features-7.0

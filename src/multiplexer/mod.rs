@@ -111,6 +111,7 @@ where
     }
   }
 
+  /// Read a map of connection IDs (via `CLIENT ID`) for each inner connection.
   pub fn connection_ids(&self) -> HashMap<ArcStr, i64> {
     let mut out = HashMap::new();
 
@@ -141,11 +142,14 @@ where
     out
   }
 
+  /// Send a command to the server(s).
   pub async fn write_command(&mut self, command: RedisCommand) -> Result<Backpressure, RedisError> {
     unimplemented!()
   }
 
+  /// Send a command to all servers in a cluster.
   pub async fn write_all_cluster(&mut self, command: RedisCommand) -> Result<(), RedisError> {
+    // TODO should this revert to `write_command` when the server is not clustered?
     unimplemented!()
   }
 }
@@ -178,6 +182,11 @@ where
     }
   }
 
+  /// Whether or not all connections are healthy with a functioning reader task.
+  pub fn is_all_connected(&self) -> bool {
+    client_utils::read_bool_atomic(&self.all_connected)
+  }
+
   /// Enqueue a command to run later.
   ///
   /// The queue is drained and replayed whenever a `RedisCommandKind::_Sync` or `RedisCommandKind::_Reconnect` message is received.
@@ -194,9 +203,12 @@ where
     }
   }
 
-  ///
-  pub async fn write_command(&mut self, command: RedisCommand) -> Result<Backpressure, RedisError> {
-    if utils::max_attempts_reached(&self.inner, &mut command) {
+  /// Send a command to the server.
+  pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Backpressure, RedisError> {
+    if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
+      if let Some(tx) = command.take_responder() {
+        let _ = tx.send(Err(e));
+      }
       debug!(
         "{}: Skipping command `{}` after too many failed attempts.",
         self.inner.id,
@@ -227,10 +239,18 @@ where
     client_utils::set_locked(&self.inner.state, ClientState::Disconnected);
   }
 
+  /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self) -> Result<(), RedisError> {
-    unimplemented!()
+    if self.inner.config.server.is_clustered() {
+      unimplemented!()
+    } else {
+      unimplemented!()
+    }
   }
 
+  /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
+  ///
+  /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&self) -> Result<(), RedisError> {
     client_utils::set_client_state(&self.inner.state, ClientState::Connecting);
     utils::sync_cluster(&self.inner, &self.connections).await?;
@@ -240,7 +260,7 @@ where
 
   /// Replay all queued commands.
   pub async fn replay_buffer(&mut self) -> Result<(), RedisError> {
-    for command in self.buffer.drain(..) {
+    for mut command in self.buffer.drain(..) {
       command.skip_backpressure = true;
       match self.write_command(command).await {
         Ok(Backpressure::Queue(command)) => {
@@ -252,6 +272,7 @@ where
           self.disconnect().await;
           break;
         },
+        _ => unimplemented!(),
       }
     }
 

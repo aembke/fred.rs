@@ -8,7 +8,7 @@ use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::{KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
 use crate::types::{CustomCommand, RedisValue};
-use crate::{trace, utils as client_utils};
+use crate::{trace, utils as client_utils, utils};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use lazy_static::lazy_static;
@@ -440,6 +440,8 @@ impl RedisCommandKind {
   }
 
   /// Read the command's protocol string without panicking.
+  ///
+  /// Typically used for logging or debugging.
   pub fn to_str_debug(&self) -> &str {
     match *self {
       RedisCommandKind::AclLoad => "ACL LOAD",
@@ -1002,7 +1004,7 @@ impl RedisCommandKind {
   }
 
   /// Read the optional subcommand string for a command.
-  pub fn subcommand_str(&self) -> Option<&'static str> {
+  pub fn subcommand_str(&self) -> Option<Str> {
     let s = match *self {
       RedisCommandKind::ScriptDebug => "DEBUG",
       RedisCommandKind::ScriptLoad => "LOAD",
@@ -1077,7 +1079,7 @@ impl RedisCommandKind {
       _ => return None,
     };
 
-    Some(s)
+    Some(utils::static_str(s))
   }
 
   pub fn is_script_command(&self) -> bool {
@@ -1300,7 +1302,7 @@ pub struct RedisCommand {
   /// A oneshot sender used to communicate with the multiplexer.
   pub multiplexer_tx: Option<MultiplexerSender>,
   /// The number of times the command was sent to the server.
-  pub attempted: usize,
+  pub attempted: u32,
   /// Whether or not the command can be pipelined.
   ///
   /// Also used for commands like XREAD that block based on an argument.
@@ -1426,10 +1428,13 @@ impl RedisCommand {
   }
 
   /// Increment and check the number of write attempts.
-  pub fn incr_check_attempted(&mut self, max: usize) -> Result<(), RedisError> {
+  pub fn incr_check_attempted(&mut self, max: u32) -> Result<(), RedisError> {
     self.attempted += 1;
     if self.attempted > max {
-      Err(RedisError::new(RedisErrorKind::Unknown, ""))
+      Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Too many failed write attempts.",
+      ))
     } else {
       Ok(())
     }
