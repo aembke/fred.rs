@@ -554,7 +554,7 @@ where
   }
 
   /// Send a command to the server without waiting on the response.
-  pub async fn write_command(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
+  pub async fn write_frame(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
     if should_flush {
       _trace!(inner, "Sending command and flushing the sink.");
       let _ = self.sink.send(frame).await?;
@@ -569,19 +569,26 @@ where
     Ok(())
   }
 
+  /// Put a command at the back of the command queue.
   pub fn push_command(&self, cmd: RedisCommand) {
     self.buffer.lock().push_back(cmd.into());
   }
 
-  pub fn close(self, abort_reader: bool) -> CommandBuffer {
+  /// Force close the connection.
+  ///
+  /// Returns the in-flight commands that had not received a response.
+  pub fn force_close(self, abort_reader: bool) -> CommandBuffer {
     if abort_reader && self.reader.is_some() {
       self.reader.unwrap().stop(true);
     }
     self.buffer.lock().drain(..).collect()
   }
 
+  /// Gracefully close the connection and wait for the reader task to finish.
+  ///
+  /// Returns the in-flight commands that had not received a response.
   pub async fn graceful_close(mut self) -> CommandBuffer {
-    self.sink.close();
+    self.sink.close().await;
     if let Some(mut reader) = self.reader {
       reader.wait().await
     }

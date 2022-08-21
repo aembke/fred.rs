@@ -176,6 +176,7 @@ fn process_skip(
 pub mod utils {
   use super::*;
   use crate::prelude::Resp3Frame;
+  use crate::protocol::command::RedisCommandKind;
 
   pub fn should_reconnect(inner: &Arc<RedisClientInner>, error: &RedisError) -> bool {
     inner.policy.read().is_some() && !error.is_canceled()
@@ -196,7 +197,19 @@ pub mod utils {
   pub fn is_pubsub(frame: &Resp3Frame) -> bool {
     unimplemented!()
   }
+
+  pub fn send_reconnect(inner: &Arc<RedisClientInner>) {
+    inner.command_tx.send(RedisCommandKind::_Reconnect.into());
+  }
 }
+
+// TODO
+// how to handle MOVED/ASK
+// re-queue the command with _Sync((Command, ExpectedServer))
+// in the multiplexer:
+//   check if command hash slot maps to expected server
+//   if not run the sync_cluster logic
+//   retry the command
 
 pub mod default {
   use super::*;
@@ -218,6 +231,7 @@ pub mod default {
     unimplemented!()
   }
 
+  /// Process the frame as an out-of-band pubsub message.
   async fn process_pubsub(
     inner: &Arc<RedisClientInner>,
     server: &ArcStr,
@@ -236,21 +250,21 @@ pub mod default {
     all_connected: Arc<AtomicBool>,
   ) -> Result<(), RedisError> {
     loop {
-      let frame = match stream.next().await {
+      let frame: Resp3Frame = match stream.next().await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
-          // TODO stream closed
-          unimplemented!()
+          _debug!(inner, "{}: Reader stream closed without error.", server);
+          break;
         },
         Err(e) => {
-          // TODO IO error
+          _warn!(inner, "{}: Reader error: {:?}", server, e);
           unimplemented!()
         },
       };
 
-      // TODO think through how multiple consecutive MOVED/ASK errors should be handled
+      // TODO check for MOVED/ASK, custom reconnect errors, etc
 
-      if utils::is_pubsub(frame) {
+      if utils::is_pubsub(&frame) {
         if let Err(e) = process_pubsub(&inner, &server, &counters, frame).await {
           _warn!(inner, "{}: Failed processing pubsub message: {:?}", server, e);
         }
@@ -259,6 +273,7 @@ pub mod default {
           Some(command) => command,
           None => {
             // TODO need a better error message here
+            _warn!(inner, "{}: Unexpected frame: {:?}", server, frame.kind());
             unimplemented!()
           },
         };
@@ -269,11 +284,12 @@ pub mod default {
       }
     }
 
+    client_utils::set_bool_atomic(&all_connected, false);
     // TODO:
     // set some state on the writer to start queueing messages, if not already
     // decide whether to reconnect
     // check error to see if it's canceled, return Ok(())
 
-    unimplemented!()
+    Ok(())
   }
 }

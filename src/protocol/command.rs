@@ -9,6 +9,7 @@ use crate::protocol::types::{KeyScanInner, ProtocolFrame, SplitCommand, ValueSca
 use crate::protocol::utils as protocol_utils;
 use crate::types::{CustomCommand, RedisValue};
 use crate::{trace, utils as client_utils};
+use arcstr::ArcStr;
 use bytes_utils::Str;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
@@ -304,10 +305,10 @@ pub enum RedisCommandKind {
   // Commands with custom state or commands that don't map directly to the server's command interface.
   /// Close all connections and reset the client.
   _Close,
-  /// Force sync the cluster state.
-  _Sync,
-  /// Force a reconnection
-  _Reconnect,
+  /// Sync the cluster state and retry the command.
+  _Sync(Option<RedisCommand>),
+  /// Reconnect to the provided server, or all servers.
+  _Reconnect(Option<ArcStr>),
   _Hello(RespVersion),
   _Split(SplitCommand),
   _AuthAllCluster,
@@ -706,8 +707,8 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
       RedisCommandKind::_Close => "CLOSE",
       RedisCommandKind::_Split(_) => "SPLIT",
-      RedisCommandKind::_Sync => "SYNC",
-      RedisCommandKind::_Reconnect => "RECONNECT",
+      RedisCommandKind::_Sync(_) => "SYNC",
+      RedisCommandKind::_Reconnect(_) => "RECONNECT",
       RedisCommandKind::_AuthAllCluster => "AUTH ALL CLUSTER",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
       RedisCommandKind::_FlushAllCluster => "FLUSHALL CLUSTER",
@@ -991,8 +992,8 @@ impl RedisCommandKind {
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
       RedisCommandKind::_Close
       | RedisCommandKind::_Split(_)
-      | RedisCommandKind::_Reconnect
-      | RedisCommandKind::_Sync => {
+      | RedisCommandKind::_Reconnect(_)
+      | RedisCommandKind::_Sync(_) => {
         panic!("unreachable (redis command)")
       },
     };
@@ -1274,6 +1275,17 @@ impl RedisCommandKind {
       _ => false,
     }
   }
+
+  /// Whether the command is used for internal client communication across tasks.
+  pub fn is_internal(&self) -> bool {
+    match self {
+      RedisCommandKind::_Reconnect(_)
+      | RedisCommandKind::_Sync(_)
+      | RedisCommandKind::_Close
+      | RedisCommandKind::_Split(_) => true,
+      _ => false,
+    }
+  }
 }
 
 pub struct RedisCommand {
@@ -1320,6 +1332,12 @@ impl fmt::Debug for RedisCommand {
 impl fmt::Display for RedisCommand {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "{}", self.kind.to_str_debug())
+  }
+}
+
+impl From<RedisCommandKind> for RedisCommand {
+  fn from(kind: RedisCommandKind) -> Self {
+    (kind, Vec::new()).into()
   }
 }
 
