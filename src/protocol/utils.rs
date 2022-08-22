@@ -127,6 +127,7 @@ fn remove_cport_suffix(server: &str) -> &str {
   server
 }
 
+// TODO if None is returned then sync the cluster before returning an error
 pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<usize> {
   if slot > REDIS_CLUSTER_SLOTS {
     return None;

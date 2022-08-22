@@ -278,7 +278,7 @@ pub struct PerformanceConfig {
   /// Whether or not the client should automatically pipeline commands when possible.
   ///
   /// Default: `true`
-  pub pipeline: bool,
+  pub auto_pipeline: bool,
   /// The maximum number of times the client will attempt to send a command.
   ///
   /// This value be incremented on a command whenever the connection closes while the command is in-flight.
@@ -303,19 +303,19 @@ pub struct PerformanceConfig {
   ///
   /// If `0` the client will follow `MOVED` or `ASK` redirects as quickly as possible. However, this can result in some unnecessary state synchronization overhead when large values are being moved between nodes.
   ///
-  /// Default: 10 ms
-  pub cluster_cache_update_delay_ms: u64,
+  /// Default: 0 ms
+  pub cluster_cache_update_delay_ms: u32,
 }
 
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      pipeline: true,
+      auto_pipeline: true,
       backpressure: BackpressureConfig::default(),
       max_command_attempts: 3,
       default_command_timeout_ms: 0,
       max_feed_count: 1000,
-      cluster_cache_update_delay_ms: 10,
+      cluster_cache_update_delay_ms: 0,
     }
   }
 }

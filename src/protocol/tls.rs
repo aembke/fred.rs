@@ -15,10 +15,10 @@ use tokio_rustls::rustls::{client::WantsClientCert, ClientConfig as RustlsClient
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;
 
-#[cfg(feature = "enable-rustls")]
-pub use tokio_rustls::rustls;
 #[cfg(feature = "enable-native-tls")]
 pub use tokio_native_tls::native_tls;
+#[cfg(feature = "enable-rustls")]
+pub use tokio_rustls::rustls;
 
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl fmt::Debug for TlsConnector {
 impl TlsConnector {
   /// Create a default TLS connector from the `native-tls` module.
   ///
-  /// The `FRED_DISABLE_CERT_VERIFICATION` and `FRED_DISABLE_HOST_VERIFICATION` environment variables are used here.
+  /// The `FRED_DISABLE_CERT_VERIFICATION` and `FRED_DISABLE_HOST_VERIFICATION` environment variables can be used.
   #[cfg(feature = "enable-native-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
   pub fn default_native_tls() -> Result<Self, RedisError> {

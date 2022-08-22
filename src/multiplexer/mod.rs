@@ -154,6 +154,24 @@ where
   }
 }
 
+// TODO
+// how to handle errors that require a reconnect in a cluster (_Sync or _Reconnect):
+// change to Moved((slot, server, Command))
+// need to check for unknown port format in error message (:6379) and re-use the same endpoint but with that port
+// when a moved error is received check if the slot maps to the server, and if not run sync()
+// otherwise run the command again without waiting on sync
+// ASK:
+//   store it as Ask((slot, server, Command))
+//   do not sync the cluster, but check if the connection exists
+//   if not then connect and add it to the connection map
+//   send the ASKING command
+//   replay the command
+
+// TODO
+// in a transaction if an ASKING error is received instead of QUEUED
+// then change the hash slot on the transaction, send ASKING, and send all the commands
+// this implies either no pipelining on transactions, or extra state in transaction response handlers
+
 pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub connections: Connections<T>,
   pub inner: Arc<RedisClientInner>,

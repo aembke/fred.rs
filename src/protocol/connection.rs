@@ -393,6 +393,10 @@ where
 
   /// Select the database provided in the `RedisConfig`.
   pub async fn select_database(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    if inner.config.server.is_clustered() {
+      return Ok(());
+    }
+
     let db = match inner.config.database {
       Some(db) => db,
       None => return Ok(()),
