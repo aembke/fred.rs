@@ -7,6 +7,7 @@ use crate::interfaces::{
   TransactionInterface,
 };
 use crate::modules::inner::RedisClientInner;
+use crate::multiplexer::types::ClusterChange;
 use crate::prelude::{ClientLike, StreamsInterface};
 use crate::types::*;
 use crate::utils;
@@ -14,8 +15,8 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::fmt;
 use std::sync::Arc;
+use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// The primary Redis client struct.
 #[derive(Clone)]
@@ -70,42 +71,26 @@ impl StreamsInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
-  pub fn new(config: RedisConfig, perf: Option<PerformanceConfig>) -> RedisClient {
+  pub fn new(config: RedisConfig, perf: Option<PerformanceConfig>, policy: Option<ReconnectPolicy>) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default()),
+      inner: RedisClientInner::new(config, perf.unwrap_or_default(), policy),
     }
   }
 
   /// Create a new `RedisClient` from the config provided to this client.
   ///
-  /// The returned client will not be connected to the server, and it will use new connections after connecting.
+  /// The returned client will **not** be connected to the server.
   pub fn clone_new(&self) -> Self {
+    let mut policy = self.inner.policy.read().clone();
+    if let Some(policy) = policy.as_mut() {
+      policy.reset_attempts();
+    }
+
     RedisClient::new(
       self.inner.config.as_ref().clone(),
       Some(self.inner.performance_config()),
+      policy,
     )
-  }
-
-  /// Listen for reconnection notifications.
-  ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to select the right database again, re-subscribe to channels, etc.
-  ///
-  /// A reconnection event is also triggered upon first connecting to the server.
-  pub fn on_reconnect(&self) -> impl Stream<Item = Self> {
-    let (tx, rx) = unbounded_channel();
-    self.inner().reconnect_tx.write().push_back(tx);
-
-    UnboundedReceiverStream::new(rx)
-  }
-
-  /// Listen for notifications whenever the cluster state changes.
-  ///
-  /// This is usually triggered in response to a `MOVED` or `ASK` error, but can also happen when connections close unexpectedly.
-  pub fn on_cluster_change(&self) -> impl Stream<Item = Vec<ClusterStateChange>> {
-    let (tx, rx) = unbounded_channel();
-    self.inner().cluster_change_tx.write().push_back(tx);
-
-    UnboundedReceiverStream::new(rx)
   }
 
   /// Split a clustered Redis client into a list of centralized clients - one for each primary node in the cluster.
@@ -132,15 +117,14 @@ impl RedisClient {
   }
 
   // --------------- SCANNING ---------------
-  // if/when `impl Trait` works inside traits we can move this to a trait
 
   /// Incrementally iterate over a set of keys matching the `pattern` argument, returning `count` results per page, if specified.
   ///
   /// The scan operation can be canceled by dropping the returned stream.
   ///
-  /// Note: scanning data in a cluster can be tricky. To make this easier this function supports [hash tags](https://redis.io/topics/cluster-spec#keys-hash-tags) in the
-  /// `pattern` so callers can direct scanning operations to specific nodes in the cluster. Callers can also use [split_cluster](Self::split_cluster) with this function if
-  /// hash tags are not used in the keys that should be scanned.
+  /// Note: This function supports [hash tags](https://redis.io/topics/cluster-spec#keys-hash-tags) in the `pattern` so callers can direct scanning operations to specific
+  /// nodes in the cluster. Callers can also use [split_cluster](Self::split_cluster) with this function if hash tags are not used in the keys that should be scanned. The
+  /// [scan_cluster](Self::scan_cluster) function can also be used to concurrently scan all nodes in a cluster.
   ///
   /// <https://redis.io/commands/scan>
   pub fn scan<P>(

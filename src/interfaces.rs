@@ -3,8 +3,8 @@ use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
 use crate::types::{
-  ClientState, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig, RedisValue,
-  ShutdownFlags,
+  ClientState, ClusterStateChange, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig,
+  RedisValue, ShutdownFlags,
 };
 use crate::types::{PerformanceConfig, RespVersion};
 use crate::utils;
@@ -133,9 +133,36 @@ where
   }
 }
 
+/// Send a single `RedisCommand` to the multiplexer.
+pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
+where
+  C: Into<RedisCommand>,
+{
+  send_to_multiplexer(inner, command.into().into())
+}
+
+/// Send a `MultiplexerCommand` to the multiplexer.
+pub(crate) fn send_to_multiplexer(
+  inner: &Arc<RedisClientInner>,
+  command: MultiplexerCommand,
+) -> Result<(), RedisError> {
+  inner.counters.incr_cmd_buffer_len();
+  if let Err(mut e) = inner.command_tx.send(command) {
+    inner.counters.decr_cmd_buffer_len();
+    if let Some(tx) = e.0.tx.take() {
+      // TODO
+      unimplemented!()
+      //if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
+      //  _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
+      //}
+    }
+  }
+
+  Ok(())
+}
+
 // TODO
 // change command functions to take C: ClientLike instead of inner
-// change request_response to take C: ClientLike
 
 /// Any Redis client that implements any part of the Redis interface.
 pub trait ClientLike: Unpin + Send + Sync + Sized {
@@ -143,22 +170,11 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   fn inner(&self) -> &Arc<RedisClientInner>;
 
   #[doc(hidden)]
-  fn send_command<C>(&self, command: C) -> Result<(), RedisError> where C: Into<RedisCommand> {
-    let inner = self.inner();
-
-    inner.counters.incr_cmd_buffer_len();
-    if let Err(mut e) = inner.command_tx.send(command.into().into()) {
-      inner.counters.decr_cmd_buffer_len();
-      if let Some(tx) = e.0.tx.take() {
-        // TODO
-        unimplemented!()
-        //if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
-        //  _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
-        //}
-      }
-    }
-
-    Ok(())
+  fn send_command<C>(&self, command: C) -> Result<(), RedisError>
+  where
+    C: Into<RedisCommand>,
+  {
+    default_send_command(inner, command)
   }
 
   /// The unique ID identifying this client and underlying connections.
@@ -193,6 +209,11 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
     self.inner().is_pipelined()
   }
 
+  /// Whether or not the client is connected to a cluster.
+  fn is_clustered(&self) -> bool {
+    self.inner().config.server.is_clustered()
+  }
+
   /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) in place with new values.
   fn update_perf_config(&self, config: PerformanceConfig) {
     self.inner().update_performance_config(config);
@@ -200,28 +221,27 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
 
   /// Read the state of the underlying connection(s).
   ///
-  /// If running against a cluster the underlying state will reflect the state of the least healthy connection, if any.
+  /// If running against a cluster the underlying state will reflect the state of the least healthy connection.
   fn state(&self) -> ClientState {
     self.inner().state.read().clone()
   }
 
-  /// Whether or not the client has an active connection to the server(s).
+  /// Whether or not all underlying connections are healthy.
   fn is_connected(&self) -> bool {
     *self.inner().state.read() == ClientState::Connected
   }
 
   /// Connect to the Redis server with an optional reconnection policy.
   ///
-  /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve
-  /// until the connection closes, and if a reconnection policy with unlimited attempts
-  /// is provided then the `JoinHandle` will run forever, or until `QUIT` is called.
+  /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the connection closes, and if a
+  /// reconnection policy with unlimited attempts is provided then the `JoinHandle` will run forever, or until `QUIT` is called.
   ///
   /// **Note:** See the [RedisConfig](crate::types::RedisConfig) documentation for more information on how the `policy` is applied to new connections.
-  fn connect(&self, policy: Option<ReconnectPolicy>) -> ConnectHandle {
+  fn connect(&self) -> ConnectHandle {
     let inner = self.inner().clone();
 
     tokio::spawn(async move {
-      let result = multiplexer_commands::init(&inner, policy).await;
+      let result = multiplexer_commands::init(&inner).await;
       if let Err(ref e) = result {
         multiplexer_utils::emit_connect_error(&inner, e);
       }
@@ -235,22 +255,32 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   ///
   /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the first connection attempt vs subsequent attempts.
   fn wait_for_connect(&self) -> AsyncResult<()> {
-    self.inner().notifications.connect.subscribe().recv().await?
+    let mut rx = self.inner().notifications.connect.subscribe();
+    wrap_async(move || async move { rx.recv().await })
+  }
 
-    async_spawn(self, |inner| async move {
-      inner
-    })
+  /// Listen for reconnection notifications.
+  ///
+  /// This function can be used to receive notifications whenever the client successfully reconnects in order to select the right database again, re-subscribe to channels, etc.
+  ///
+  /// A reconnection event is also triggered upon first connecting to the server.
+  fn on_reconnect(&self) -> BroadcastReceiver<()> {
+    self.inner().notifications.reconnect.subscribe()
+  }
+
+  /// Listen for notifications whenever the cluster state changes.
+  ///
+  /// This is usually triggered in response to a `MOVED` error, but can also happen when connections close unexpectedly.
+  fn on_cluster_change(&self) -> BroadcastReceiver<Vec<ClusterStateChange>> {
+    self.inner().notifications.cluster_change.subscribe()
   }
 
   /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
   /// not appear in the request-response cycle, and so cannot be handled by response futures.
   ///
   /// This function does not need to be called again if the connection closes.
-  fn on_error(&self) -> AsyncStream<RedisError> {
-    let (tx, rx) = unbounded_channel();
-    self.inner().error_tx.write().push_back(tx);
-
-    UnboundedReceiverStream::new(rx).into()
+  fn on_error(&self) -> BroadcastReceiver<RedisError> {
+    self.inner().notifications.errors.subscribe()
   }
 
   /// Close the connection to the Redis server. The returned future resolves when the command has been written to the socket,
@@ -345,4 +375,5 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
-use crate::protocol::command::{QueuedCommand, RedisCommand};
+use crate::protocol::command::{MultiplexerCommand, QueuedCommand, RedisCommand};
+use crate::utils::send_command;

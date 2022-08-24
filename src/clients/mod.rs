@@ -3,7 +3,7 @@ mod redis;
 mod transaction;
 pub use pipeline::Pipeline;
 pub use redis::RedisClient;
-pub use transaction::TransactionClient;
+pub use transaction::Transaction;
 
 #[cfg(feature = "sentinel-client")]
 mod sentinel;

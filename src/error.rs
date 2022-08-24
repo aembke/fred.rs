@@ -84,9 +84,6 @@ pub struct RedisError {
   details: Cow<'static, str>,
   /// The kind of error.
   kind: RedisErrorKind,
-  /// Command context for the error.
-  // TODO get rid of this
-  context: Option<RedisCommand>,
 }
 
 impl Clone for RedisError {
@@ -261,25 +258,7 @@ impl RedisError {
     RedisError {
       kind,
       details: details.into(),
-      context: None,
     }
-  }
-
-  /// Create a new error with the provided command context.
-  pub(crate) fn new_context<T>(kind: RedisErrorKind, details: T, cmd: RedisCommand) -> RedisError
-  where
-    T: Into<Cow<'static, str>>,
-  {
-    RedisError {
-      kind,
-      details: details.into(),
-      context: Some(cmd),
-    }
-  }
-
-  /// Take the command context off the error.
-  pub(crate) fn take_context(&mut self) -> Option<RedisCommand> {
-    self.context.take()
   }
 
   /// Whether or not the error is a Cluster error.

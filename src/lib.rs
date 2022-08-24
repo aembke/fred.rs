@@ -45,9 +45,6 @@
 //!
 //! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 
-#[cfg(all(feature = "enable-native-tls", feature = "enable-rustls"))]
-compile_error!("features `enable-native-tls` and `enable-rustls` are mutually exclusive");
-
 pub extern crate bytes;
 pub extern crate bytes_utils;
 #[cfg(feature = "serde-json")]
@@ -113,7 +110,7 @@ pub mod util {
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 pub mod tls {
-  pub use native_tls::{Certificate, Protocol, Identity};
+  pub use native_tls::{Certificate, Identity, Protocol};
 }
 
 pub use crate::modules::{globals, pool};

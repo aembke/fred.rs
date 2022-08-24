@@ -4,8 +4,8 @@ use crate::interfaces::MultiplexerClient;
 use crate::modules::backchannel::Backchannel;
 use crate::multiplexer::SentCommand;
 use crate::protocol::command::QueuedCommand;
-use crate::protocol::types::DefaultResolver;
 use crate::protocol::types::RedisCommand;
+use crate::protocol::types::{ClusterRouting, DefaultResolver};
 use crate::types::*;
 use crate::utils;
 use arc_swap::access::Access;
@@ -162,13 +162,13 @@ pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id: ArcStr,
   /// The RESP version used by the underlying connections.
-  pub resp_version: Arc<ArcSwap<RespVersion>>,
+  pub resp_version: ArcSwap<RespVersion>,
   /// The state of the underlying connection.
   pub state: RwLock<ClientState>,
   /// Client configuration options.
   pub config: Arc<RedisConfig>,
   /// Performance config options for the client.
-  pub performance: Arc<ArcSwap<PerformanceConfig>>,
+  pub performance: ArcSwap<PerformanceConfig>,
   /// An optional reconnect policy.
   pub policy: RwLock<Option<ReconnectPolicy>>,
   /// Notification channels for the event interfaces.
@@ -186,6 +186,8 @@ pub struct RedisClientInner {
   pub backchannel: Arc<AsyncRwLock<Backchannel>>,
   /// The server host/port resolved from the sentinel nodes, if known.
   pub sentinel_primary: RwLock<Option<ArcStr>>,
+  /// Cached cluster state managed by the multiplexer.
+  pub cluster_state: ArcSwap<Option<ClusterRouting>>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
@@ -201,13 +203,6 @@ pub struct RedisClientInner {
   pub res_size_stats: Arc<RwLock<MovingStats>>,
 }
 
-impl MultiplexerClient for RedisClientInner {
-  fn send_command(&self) -> Result<(), RedisError> {
-    // TODO
-    unimplemented!()
-  }
-}
-
 impl RedisClientInner {
   pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
     let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
@@ -215,8 +210,9 @@ impl RedisClientInner {
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Notifications::new(&id);
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
-    let performance = Arc::new(ArcSwap::new(Arc::new(perf)));
-    let resp_version = Arc::new(ArcSwap::new(Arc::new(config.version.clone())));
+    let cluster_state = ArcSwap::new(Arc::new(None));
+    let performance = ArcSwap::new(Arc::new(perf));
+    let resp_version = ArcSwap::new(Arc::new(config.version.clone()));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
     let (command_rx, policy) = (RwLock::new(Some(command_rx)), RwLock::new(policy));
     let sentinel_primary = RwLock::new(None);
@@ -232,6 +228,7 @@ impl RedisClientInner {
       #[cfg(feature = "metrics")]
       res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
 
+      cluster_state,
       backchannel,
       command_rx,
       sentinel_primary,
@@ -316,5 +313,9 @@ impl RedisClientInner {
 
   pub fn max_command_attempts(&self) -> u32 {
     self.performance.as_ref().load().max_command_attempts
+  }
+
+  pub fn default_command_timeout(&self) -> u64 {
+    self.performance.as_ref().load().default_command_timeout_ms
   }
 }

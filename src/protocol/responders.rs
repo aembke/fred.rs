@@ -5,9 +5,11 @@ use crate::protocol::command::RedisCommand;
 use crate::protocol::command::ResponseSender;
 use crate::protocol::connection::SharedBuffer;
 use crate::protocol::types::{KeyScanInner, ValueScanInner};
+use crate::types::RedisValue;
 use crate::utils as client_utils;
 use parking_lot::Mutex;
 use std::collections::vec_deque::VecDeque;
+use std::iter::repeat;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
@@ -60,9 +62,9 @@ use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseKind {
-  /// Throw away the response frame without modifying the command buffer.
-  Requeue,
   /// Throw away the response frame and last command in the command buffer.
+  ///
+  /// Note: The reader task will still unblock the multiplexer, if specified.
   ///
   /// Equivalent to `Respond(None)`.
   Skip,
@@ -80,13 +82,19 @@ pub enum ResponseKind {
     tx: Arc<Mutex<Option<ResponseSender>>>,
   },
   /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to the caller.
+  ///
+  /// Typically used to handle concurrent responses in a `Pipeline` that may span multiple cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames: Arc<Mutex<VecDeque<Resp3Frame>>>,
+    frames: Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
     expected: usize,
+    /// The number of response frames received.
+    received: Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
     tx: Arc<Mutex<Option<ResponseSender>>>,
+    /// A local field for tracking the expected index of the response in the `frames` array.
+    index: usize,
   },
   /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
   // TODO add args and any other shared state (like args) to this
@@ -96,10 +104,19 @@ pub enum ResponseKind {
 }
 
 impl ResponseKind {
+  pub fn set_expected_index(&mut self, idx: usize) {
+    if let ResponseKind::Buffer { ref mut index, .. } = self {
+      *index = idx;
+    }
+  }
+
   pub fn new_buffer(expected: usize, tx: ResponseSender) -> Self {
+    let frames = repeat(RedisValue::Null).take(expected).collect();
     ResponseKind::Buffer {
-      frames: Arc::new(Mutex::new(VecDeque::new())),
+      frames: Arc::new(Mutex::new(frames)),
       tx: Arc::new(Mutex::new(Some(tx))),
+      received: Arc::new(AtomicUsize::new(0)),
+      index: 0,
       expected,
     }
   }
@@ -128,49 +145,16 @@ impl ResponseKind {
       let _ = tx.send(Err(error));
     }
   }
-}
 
-// TODO change these to take last_command
-// the outer handle_command function should pop off the front
-// these should return Option<RedisCommand> and the outer fn should put it back if needed
-
-// when processing an all_nodes response the command should not be put back in the buffer
-
-// TODO how to figure out which of these to call without taking a lock on the command buffer?
-
-fn process_multiple(
-  inner: &Arc<RedisClientInner>,
-  last_command: RedisCommand,
-  expected: usize,
-  received: &Arc<AtomicUsize>,
-  tx: &Arc<Mutex<Option<ResponseSender>>>,
-) -> Result<Option<RedisCommand>, RedisError> {
-  unimplemented!()
-}
-
-fn process_buffer(
-  inner: &Arc<RedisClientInner>,
-  last_command: Option<RedisCommand>,
-  expected: usize,
-  frames: &Arc<Mutex<VecDeque<Resp3Frame>>>,
-  tx: &Arc<Mutex<Option<ResponseSender>>>,
-) -> Result<Option<RedisCommand>, RedisError> {
-  unimplemented!()
-}
-
-fn process_respond(
-  inner: &Arc<RedisClientInner>,
-  last_command: RedisCommand,
-  tx: &mut Option<ResponseSender>,
-) -> Result<Option<RedisCommand>, RedisError> {
-  unimplemented!()
-}
-
-fn process_skip(
-  inner: &Arc<RedisClientInner>,
-  buffer: &Arc<Mutex<VecDeque<RedisCommand>>>,
-) -> Result<(), RedisError> {
-  unimplemented!()
+  /// Read the number of expected response frames.
+  pub fn expected_response_frames(&self) -> usize {
+    match self {
+      ResponseKind::Skip | ResponseKind::Respond(_) => 1,
+      ResponseKind::Multiple { ref expected, .. } => *expected,
+      ResponseKind::Buffer { ref expected, .. } => *expected,
+      ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) => 1,
+    }
+  }
 }
 
 pub mod utils {
@@ -202,14 +186,6 @@ pub mod utils {
     inner.command_tx.send(RedisCommandKind::_Reconnect.into());
   }
 }
-
-// TODO
-// how to handle MOVED/ASK
-// re-queue the command with _Sync((Command, ExpectedServer))
-// in the multiplexer:
-//   check if command hash slot maps to expected server
-//   if not run the sync_cluster logic
-//   retry the command
 
 pub mod default {
   use super::*;

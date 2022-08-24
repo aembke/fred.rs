@@ -1,22 +1,18 @@
 use crate::commands;
 use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, AsyncStream, ClientLike};
+use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
 use crate::types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue};
 use bytes_utils::Str;
 use std::convert::TryInto;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 /// Functions that implement the [publish-subscribe](https://redis.io/commands#pubsub) interface.
 pub trait PubsubInterface: ClientLike + Sized {
   /// Listen for `(channel, message)` tuples on the publish-subscribe interface. **Keyspace events are not sent on this interface.**
   ///
   /// If the connection to the Redis server closes for any reason this function does not need to be called again. Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
-  fn on_message(&self) -> AsyncStream<(String, RedisValue)> {
-    let (tx, rx) = unbounded_channel();
-    self.inner().message_tx.write().push_back(tx);
-
-    UnboundedReceiverStream::new(rx).into()
+  fn on_message(&self) -> BroadcastReceiver<(String, RedisValue)> {
+    self.inner().notifications.pubsub.subscribe()
   }
 
   /// Listen for keyspace and keyevent notifications on the publish subscribe interface.
@@ -26,17 +22,11 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// If the connection to the Redis server closes for any reason this function does not need to be called again.
   ///
   /// <https://redis.io/topics/notifications>
-  fn on_keyspace_event(&self) -> AsyncStream<KeyspaceEvent> {
-    let (tx, rx) = unbounded_channel();
-    self.inner().keyspace_tx.write().push_back(tx);
-
-    UnboundedReceiverStream::new(rx).into()
+  fn on_keyspace_event(&self) -> BroadcastReceiver<KeyspaceEvent> {
+    self.inner().notifications.keyspace.subscribe()
   }
 
-  /// Subscribe to a channel on the PubSub interface, returning the number of channels to which the client is subscribed.
-  ///
-  /// Any messages received before `on_message` is called will be discarded, so it's usually best to call `on_message`
-  /// before calling `subscribe` for the first time.
+  /// Subscribe to a channel on the publish-subscribe interface, returning the number of channels to which the client is subscribed.
   ///
   /// <https://redis.io/commands/subscribe>
   fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>

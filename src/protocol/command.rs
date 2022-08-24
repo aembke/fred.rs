@@ -1,29 +1,32 @@
+use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::Resp3Frame;
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::ResponseKind::Respond;
 use crate::protocol::connection::{SentCommand, SharedBuffer};
 use crate::protocol::hashers::ClusterHash;
 use crate::protocol::responders::ResponseKind;
-use crate::protocol::types::{KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner};
+use crate::protocol::types::{ClusterRouting, KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
-use crate::types::{CustomCommand, RedisValue};
+use crate::types::{CustomCommand, RedisConfig, RedisValue};
 use crate::{trace, utils as client_utils, utils};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use lazy_static::lazy_static;
+use nom::AsBytes;
 use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
 use semver::Op;
 use std::borrow::Cow;
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::env::args;
-use std::fmt;
 use std::fmt::Formatter;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Instant;
+use std::{fmt, str};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
+use url::quirks::hash;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
@@ -35,8 +38,76 @@ use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::Span;
 
+/// A command interface for communication between connection reader tasks and the multiplexer.
+///
+/// Use of this interface assumes that a command was **not** pipelined. The reader task may instead
+/// choose to communicate with the multiplexer via the shared command queue if no channel exists on
+/// which to send this command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MultiplexerResponse {
+  /// Continue with the next command.
+  Continue,
+  /// Retry the command immediately against the provided server, but with an `ASKING` prefix.
+  ///
+  /// Typically used with transactions to retry the entire transaction against a different node.
+  ///
+  /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
+  /// may fall back to communication via the command channel in the context of pipelined commands.
+  Ask((u16, String, RedisCommand)),
+  /// Retry the command immediately against the provided server, updating the cached routing table first.
+  ///
+  /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
+  /// may fall back to communication via the command channel in the context of pipelined commands.
+  Moved((u16, String, RedisCommand)),
+  /// Indicate to the multiplexer that the provided command failed with the associated error.
+  ///
+  /// The multiplexer is responsible for responding to the caller with the error, if needed.
+  ///
+  /// This interface is typically used for handling errors within a transaction. Normal commands will
+  /// handle errors without communication back to the multiplexer.
+  TransactionError((RedisError, RedisCommand)),
+}
+
+impl MultiplexerResponse {
+  /// Create a cluster error response message to the multiplexer from a response frame.
+  pub fn from_cluster_error(frame: Resp3Frame, command: RedisCommand) -> Result<Self, RedisError> {
+    let (kind, slot, server) = match frame.as_str() {
+      Some(s) => protocol_utils::parse_cluster_error(s)?,
+      None => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected cluster error.")),
+    };
+
+    Ok(match kind {
+      ClusterErrorKind::Ask => MultiplexerResponse::Ask((slot, server, command)),
+      ClusterErrorKind::Moved => MultiplexerResponse::Moved((slot, server, command)),
+    })
+  }
+}
+
+/// A channel for communication between connection reader tasks and futures returned to the caller.
 pub type ResponseSender = OneshotSender<Result<Resp3Frame, RedisError>>;
-pub type MultiplexerSender = OneshotSender<()>;
+/// A channel for communication between connection reader tasks and the multiplexer.
+pub type MultiplexerSender = OneshotSender<MultiplexerResponse>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClusterErrorKind {
+  Moved,
+  Ask,
+}
+
+impl<'a> TryFrom<&'a str> for ClusterErrorKind {
+  type Error = RedisError;
+
+  fn try_from(value: &'a str) -> Result<Self, Self::Error> {
+    match value.as_ref() {
+      "MOVED" => Ok(ClusterErrorKind::Moved),
+      "ASK" => Ok(ClusterErrorKind::Ask),
+      _ => Err(RedisError::new(
+        RedisErrorKind::Protocol,
+        "Expected MOVED or ASK error.",
+      )),
+    }
+  }
+}
 
 #[derive(Clone, Eq, PartialEq)]
 pub enum RedisCommandKind {
@@ -54,6 +125,7 @@ pub enum RedisCommandKind {
   AclHelp,
   Append,
   Auth,
+  Asking,
   BgreWriteAof,
   BgSave,
   BitCount,
@@ -303,14 +375,7 @@ pub enum RedisCommandKind {
   Hscan,
   Zscan,
   // Commands with custom state or commands that don't map directly to the server's command interface.
-  /// Close all connections and reset the client.
-  _Close,
-  /// Sync the cluster state and retry the command.
-  _Sync(Option<RedisCommand>),
-  /// Reconnect to the provided server, or all servers.
-  _Reconnect(Option<ArcStr>),
   _Hello(RespVersion),
-  _Split(SplitCommand),
   _AuthAllCluster,
   _HelloAllCluster(RespVersion),
   _FlushAllCluster,
@@ -458,6 +523,7 @@ impl RedisCommandKind {
       RedisCommandKind::AclHelp => "ACL HELP",
       RedisCommandKind::Append => "APPEND",
       RedisCommandKind::Auth => "AUTH",
+      RedisCommandKind::Asking => "ASKING",
       RedisCommandKind::BgreWriteAof => "BGREWRITEAOF",
       RedisCommandKind::BgSave => "BGSAVE",
       RedisCommandKind::BitCount => "BITCOUNT",
@@ -707,10 +773,6 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptFlush => "SCRIPT FLUSH",
       RedisCommandKind::ScriptKill => "SCRIPT KILL",
       RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
-      RedisCommandKind::_Close => "CLOSE",
-      RedisCommandKind::_Split(_) => "SPLIT",
-      RedisCommandKind::_Sync(_) => "SYNC",
-      RedisCommandKind::_Reconnect(_) => "RECONNECT",
       RedisCommandKind::_AuthAllCluster => "AUTH ALL CLUSTER",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
       RedisCommandKind::_FlushAllCluster => "FLUSHALL CLUSTER",
@@ -738,6 +800,7 @@ impl RedisCommandKind {
       | RedisCommandKind::AclHelp => "ACL",
       RedisCommandKind::Append => "APPEND",
       RedisCommandKind::Auth => "AUTH",
+      RedisCommandKind::Asking => "ASKING",
       RedisCommandKind::BgreWriteAof => "BGREWRITEAOF",
       RedisCommandKind::BgSave => "BGSAVE",
       RedisCommandKind::BitCount => "BITCOUNT",
@@ -992,12 +1055,6 @@ impl RedisCommandKind {
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
-      RedisCommandKind::_Close
-      | RedisCommandKind::_Split(_)
-      | RedisCommandKind::_Reconnect(_)
-      | RedisCommandKind::_Sync(_) => {
-        panic!("unreachable (redis command)")
-      },
     };
 
     client_utils::static_str(s)
@@ -1277,17 +1334,6 @@ impl RedisCommandKind {
       _ => false,
     }
   }
-
-  /// Whether the command is used for internal client communication across tasks.
-  pub fn is_internal(&self) -> bool {
-    match self {
-      RedisCommandKind::_Reconnect(_)
-      | RedisCommandKind::_Sync(_)
-      | RedisCommandKind::_Close
-      | RedisCommandKind::_Split(_) => true,
-      _ => false,
-    }
-  }
 }
 
 pub struct RedisCommand {
@@ -1309,6 +1355,8 @@ pub struct RedisCommand {
   pub can_pipeline: bool,
   /// Whether or not to skip backpressure checks.
   pub skip_backpressure: bool,
+  /// The internal ID of a transaction.
+  pub transaction_id: Option<u64>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
   pub created: Instant,
@@ -1354,6 +1402,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
+      transaction_id: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1375,6 +1424,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
+      transaction_id: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1396,6 +1446,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
+      transaction_id: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1407,15 +1458,35 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
 }
 
 impl RedisCommand {
+  /// Create a new empty `ASKING` command.
+  pub fn new_asking(hash_slot: Option<u16>) -> Self {
+    RedisCommand {
+      kind: RedisCommandKind::Asking,
+      args: Vec::new(),
+      response: ResponseKind::Skip,
+      hasher: ClusterHash::Custom(hash_slot),
+      multiplexer_tx: None,
+      attempted: 0,
+      can_pipeline: false,
+      skip_backpressure: true,
+      transaction_id: None,
+      #[cfg(feature = "metrics")]
+      created: Instant::now(),
+      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+      network_start: None,
+      #[cfg(feature = "partial-tracing")]
+      traces: CommandTraces::default(),
+    }
+  }
+
   /// Whether or not to pipeline the command.
   pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>) -> bool {
-    // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
-    // we also disable pipelining on the HELLO command so that we don't try to decode any in-flight responses with the wrong codec logic
-
-    // TODO blocking commands do not block in a transaction
-
     let should_pipeline = inner.is_pipelined()
       && self.can_pipeline
+      // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
+      && self.transaction_id.is_none()
+      // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
+      // also disable pipelining for HELLO to avoid decoding in-flight responses with the wrong codec logic
       && !(self.kind.is_eval() || self.kind.is_hello() || self.kind.is_blocking());
 
     _trace!(
@@ -1430,7 +1501,7 @@ impl RedisCommand {
   /// Increment and check the number of write attempts.
   pub fn incr_check_attempted(&mut self, max: u32) -> Result<(), RedisError> {
     self.attempted += 1;
-    if self.attempted > max {
+    if max > 0 && self.attempted > max {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Too many failed write attempts.",
@@ -1441,27 +1512,30 @@ impl RedisCommand {
   }
 
   /// Create a channel on which to block the multiplexer, returning the receiver.
-  pub fn create_multiplexer_channel(&mut self) -> OneshotReceiver<()> {
+  pub fn create_multiplexer_channel(&mut self) -> OneshotReceiver<MultiplexerResponse> {
     let (tx, rx) = oneshot_channel();
     self.multiplexer_tx = Some(tx);
     rx
   }
 
   /// Send a message to unblock the multiplexer loop, if necessary.
-  pub fn unblock_multiplexer(&mut self, name: &str) {
+  pub fn respond_to_multiplexer(&mut self, name: &str, cmd: MultiplexerResponse) {
     if let Some(tx) = self.multiplexer_tx.take() {
-      if tx.send(()).is_err() {
+      if tx.send(cmd).is_err() {
         warn!("{}: Failed to unblock multiplexer loop.", name);
       }
     }
   }
 
   /// Clone the command, supporting commands with shared response state.
+  ///
+  /// Note: this will **not** clone the multiplexer channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
       kind: self.kind.clone(),
       args: self.args.clone(),
       hasher: self.hasher.clone(),
+      transaction_id: self.transaction_id.clone(),
       attempted: self.attempted,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
@@ -1476,11 +1550,13 @@ impl RedisCommand {
     }
   }
 
+  /// Take the command tracing state for the `queued` span.
   #[cfg(feature = "full-tracing")]
   pub fn take_queued_span(&mut self) -> Option<trace::Span> {
     self.traces.queued.take()
   }
 
+  /// Take the command tracing state for the `queued` span.
   #[cfg(not(feature = "full-tracing"))]
   pub fn take_queued_span(&mut self) -> Option<trace::disabled::Span> {
     None
@@ -1515,11 +1591,11 @@ impl RedisCommand {
 
   /// Hash the arguments according to the command's cluster hash policy.
   pub fn cluster_hash(&self) -> Option<u16> {
-    self.hasher.hash(&self.args)
+    self.kind.custom_hash_slot().or(self.hasher.hash(&self.args))
   }
 
   /// Return the custom hash slot for custom commands.
-  pub fn custom_hash_slot(&self) -> Option<u16> {
+  pub fn custom_command_hash_slot(&self) -> Option<u16> {
     self.kind.custom_key_slot()
   }
 
@@ -1543,21 +1619,108 @@ impl RedisCommand {
   }
 }
 
-/// A message or pipeline queued in memory before being sent to the server.
+/// A message sent from the front-end client to the multiplexer.
 #[derive(Debug)]
-pub enum QueuedCommand {
+pub enum MultiplexerCommand {
+  /// Send a command to the server.
   Command(RedisCommand),
-  Pipeline(Vec<RedisCommand>),
+  /// Send a pipelined series of commands to the server.
+  ///
+  /// Commands may finish out of order in the following cluster scenario:
+  /// 1. The client sends `GET foo`.
+  /// 2. The client sends `GET bar`.
+  /// 3. The client sends `GET baz`.
+  /// 4. The client receives a successful response from `GET foo`.
+  /// 5. The client receives `MOVED` or `ASK` from `GET bar`.
+  /// 6. The client receives a successful response from `GET baz`.
+  ///
+  /// In this scenario the client will retry `GET bar` against the correct node, but after `GET baz` has already finished.
+  /// Callers should use a transaction if they require commands to always finish in order across arbitrary keys in a cluster.
+  /// Both a `Pipeline` and `Transaction` will run a series of commands without interruption, but only a `Transaction` can
+  /// guarantee in-order execution while accounting for cluster errors.
+  ///
+  /// Note: if the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the commands
+  /// **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands, and the client would
+  /// retry them in the same order.
+  Pipeline { commands: Vec<RedisCommand> },
+  /// Send a transaction to the server.
+  ///
+  /// Notes:
+  /// * The inner command buffer will not contain the initial `MULTI` command.
+  /// * Transactions are never pipelined in order to handle ASK responses.
+  /// * IDs must be unique w/r/t other transactions buffered in memory.
+  ///
+  /// There is one special failure mode that must be considered:
+  /// 1. The client sends `MULTI` and we receive an `OK` response.
+  /// 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
+  /// 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
+  ///
+  /// According to the cluster spec the client should retry the entire transaction against the node in the `ASK` response,
+  /// but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET foo{1}` will have
+  /// already finished at this point. To account for this the client will never pipeline transactions against a cluster,
+  /// and may clone commands before sending them in order to replay them later with a different cluster node mapping.
+  Transaction {
+    id: u64,
+    commands: Vec<RedisCommand>,
+    abort_on_error: bool,
+  },
+  /// Retry a command after a `MOVED` error.
+  ///
+  /// This will trigger a call to `CLUSTER SLOTS` before the command is retried. Additionally,
+  /// the client will **not** increment the command's write attempt counter.
+  Moved {
+    slot: u16,
+    server: String,
+    command: RedisCommand,
+  },
+  /// Retry a command after an `ASK` error.
+  ///
+  /// The client will **not** increment the command's write attempt counter.
+  ///
+  /// This is typically used instead of `MultiplexerResponse::Ask` when a command was pipelined.
+  Ask {
+    slot: u16,
+    server: String,
+    command: RedisCommand,
+  },
+  /// Split a clustered client into a set of centralized clients, one for each primary node.
+  Split {
+    tx: OneshotSender<Result<Vec<RedisClient>, RedisError>>,
+  },
+  /// Initiate a reconnection to the provided server, or all servers.
+  ///
+  /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
+  Reconnect { server: Option<ArcStr>, force: bool },
+  /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
+  SyncCluster,
+  /// Read the latest cached cluster routing state from the multiplexer, updating it via `CLUSTER SLOTS` first if `sync` is `true.
+  ClusterRouting {
+    sync: bool,
+    tx: OneshotSender<Result<ClusterRouting, RedisError>>,
+  },
 }
 
-impl From<RedisCommand> for QueuedCommand {
-  fn from(cmd: RedisCommand) -> Self {
-    QueuedCommand::Command(cmd)
+impl MultiplexerCommand {
+  /// Create a multiplexer command from a cluster error response frame.
+  pub fn from_cluster_error(frame: Resp3Frame, command: RedisCommand) -> Result<Self, RedisError> {
+    let (kind, slot, server) = match frame {
+      Resp3Frame::SimpleError { data, .. } => protocol_utils::parse_cluster_error(&data)?,
+      Resp3Frame::BlobError { data, .. } => {
+        let parsed = str::from_utf8(data.as_bytes())?;
+        protocol_utils::parse_cluster_error(&parsed)?
+      },
+      _ => return Err(RedisError::new(RedisErrorKind::Unknown, "Expected cluster error.")),
+    };
+
+    Ok(match kind {
+      ClusterErrorKind::Moved => MultiplexerCommand::Moved { slot, server, command },
+      ClusterErrorKind::Ask => MultiplexerCommand::Ask { slot, server, command },
+    })
   }
 }
 
-impl From<Vec<RedisCommand>> for QueuedCommand {
-  fn from(cmd: Vec<RedisCommand>) -> Self {
-    QueuedCommand::Pipeline(cmd)
+impl From<RedisCommand> for MultiplexerCommand {
+  fn from(cmd: RedisCommand) -> Self {
+    MultiplexerCommand::Command(cmd)
   }
 }

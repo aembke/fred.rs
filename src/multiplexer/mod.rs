@@ -3,13 +3,14 @@ use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::Backpressure::Queue;
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::connection::{CommandBuffer, Counters, RedisSink, RedisWriter, SentCommand};
-use crate::protocol::types::ClusterKeyCache;
-use crate::types::ClientState;
+use crate::protocol::types::ClusterRouting;
+use crate::types::ServerConfig;
+use crate::types::{ClientState, RedisConfig};
 use crate::utils as client_utils;
 use arc_swap::ArcSwap;
 use arcstr::ArcStr;
 use parking_lot::{Mutex, RwLock};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -40,14 +41,24 @@ pub enum Backpressure {
 #[derive(Clone)]
 pub enum Connections<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   Centralized {
+    /// The connection to the server.
     writer: Option<RedisWriter<T>>,
   },
   Clustered {
-    cache: ClusterKeyCache,
+    /// A list of known nodes in the cluster.
+    ///
+    /// The cluster topology can change such that at some point an entirely new set of nodes may be exposed where none of the
+    /// original endpoints provided in the `RedisConfig` can be reached.
+    known_nodes: BTreeSet<(String, u16)>,
+    /// The cached cluster routing table used for mapping keys to server IDs.
+    cache: ClusterRouting,
+    /// A map of server IDs and connections.
     writers: HashMap<ArcStr, RedisWriter<T>>,
   },
   Sentinel {
+    /// The connection to the primary server.
     writer: Option<RedisWriter<T>>,
+    /// The name of the primary server as provided from the sentinel interface.
     server_name: Option<ArcStr>,
   },
 }
@@ -69,8 +80,25 @@ where
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache: ClusterKeyCache::new(),
+      cache: ClusterRouting::new(),
+      known_nodes: BTreeSet::new(),
       writers: HashMap::new(),
+    }
+  }
+
+  /// Clear the set of known nodes for the server and replace with the initial values in the `RedisConfig`.
+  pub fn reset_known_nodes(&mut self, config: &RedisConfig) {
+    if let Connections::Clustered {
+      ref mut known_nodes, ..
+    } = self
+    {
+      known_nodes.clear();
+
+      if let ServerConfig::Clustered { ref hosts, .. } = config.server {
+        for (host, port) in hosts.iter() {
+          known_nodes.insert((host.to_owned(), *port));
+        }
+      }
     }
   }
 
@@ -87,6 +115,7 @@ where
       Connections::Clustered {
         ref mut writers,
         ref mut cache,
+        ..
       } => {
         cache.clear();
 
@@ -176,7 +205,6 @@ pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub connections: Connections<T>,
   pub inner: Arc<RedisClientInner>,
   pub buffer: VecDeque<RedisCommand>,
-  pub all_connected: Arc<AtomicBool>,
 }
 
 impl<T> Multiplexer<T>
@@ -195,14 +223,8 @@ where
     Multiplexer {
       buffer: VecDeque::new(),
       inner: inner.clone(),
-      all_connected: Arc::new(AtomicBool::new(false)),
       connections,
     }
-  }
-
-  /// Whether or not all connections are healthy with a functioning reader task.
-  pub fn is_all_connected(&self) -> bool {
-    client_utils::read_bool_atomic(&self.all_connected)
   }
 
   /// Enqueue a command to run later.
@@ -213,7 +235,7 @@ where
   }
 
   /// Read the cluster state, if known.
-  pub fn cluster_state(&self) -> Option<&ClusterKeyCache> {
+  pub fn cluster_state(&self) -> Option<&ClusterRouting> {
     if let Connections::Clustered { ref cache, .. } = self.connections {
       Some(cache)
     } else {

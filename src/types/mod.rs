@@ -39,6 +39,7 @@ pub(crate) static NIL: &'static str = "nil";
 
 pub use crate::modules::response::{FromRedis, FromRedisKey};
 pub use crate::protocol::types::ClusterKeyCache;
+pub use arcstr::ArcStr;
 pub use redis_protocol::resp3::types::{Frame, RespVersion};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 

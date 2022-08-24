@@ -1,5 +1,6 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::ClusterErrorKind;
 use crate::protocol::connection::OK;
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::types::*;
@@ -43,11 +44,31 @@ pub fn major_redis_version(version: &Option<Version>) -> u8 {
   version.as_ref().map(|v| v.major as u8).unwrap_or(6)
 }
 
+pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
+  let parts: Vec<&str> = data.split(" ").collect();
+  if parts.len() == 3 {
+    let kind: ClusterErrorKind = parts[0].try_into()?;
+    let slot: u16 = parts[1].parse()?;
+    let server = parts[2].to_string();
+
+    Ok((kind, slot, server))
+  } else {
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected cluster error."))
+  }
+}
+
 pub fn null_frame(is_resp3: bool) -> ProtocolFrame {
   if is_resp3 {
     ProtocolFrame::Resp2(Resp2Frame::Null)
   } else {
     ProtocolFrame::Resp3(Resp3Frame::Null)
+  }
+}
+
+pub fn queued_frame() -> Resp3Frame {
+  Resp3Frame::SimpleString {
+    data: utils::static_bytes(QUEUED.as_bytes()),
+    attributes: None,
   }
 }
 
@@ -367,7 +388,6 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
     Resp3Frame::BlobString { data, .. } => string_or_bytes(data),
     Resp3Frame::BlobError { data, .. } => {
-      // errors don't have a great way to represent non-utf8 strings...
       let parsed = String::from_utf8_lossy(&data);
       return Err(pretty_error(&parsed));
     },
@@ -416,7 +436,6 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
     Resp3Frame::BlobString { data, .. } => string_or_bytes(data),
     Resp3Frame::BlobError { data, .. } => {
-      // errors don't have a great way to represent non-utf8 strings...
       let parsed = String::from_utf8_lossy(&data);
       return Err(pretty_error(&parsed));
     },

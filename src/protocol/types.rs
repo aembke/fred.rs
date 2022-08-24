@@ -70,26 +70,6 @@ pub struct CustomKeySlot {
   pub key_slot: Option<u16>,
 }
 
-#[derive(Clone)]
-pub struct SplitCommand {
-  pub tx: Arc<Mutex<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
-  pub config: Option<RedisConfig>,
-}
-
-impl fmt::Debug for SplitCommand {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[SplitCommand]")
-  }
-}
-
-impl PartialEq for SplitCommand {
-  fn eq(&self, other: &SplitCommand) -> bool {
-    self.config == other.config
-  }
-}
-
-impl Eq for SplitCommand {}
-
 pub struct KeyScanInner {
   /// The hash slot for the command.
   pub key_slot: Option<u16>,
@@ -198,7 +178,7 @@ impl ValueScanInner {
   }
 }
 
-/// A container for replica server IDs with some added state for round-robin requests.
+/// A container for replica server IDs that can also act as an unbounded iterator.
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
@@ -208,84 +188,51 @@ pub struct ReplicaSet {
 }
 
 #[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 impl ReplicaSet {
+  /// Read the replica server ID that should handle the next command.
   pub fn next(&mut self) -> Option<&ArcStr> {
     if self.servers.is_empty() {
       return None;
     }
 
     let val = self.next;
-    self.next += 1;
+    self.next = self.next.wrapping_add(1);
     Some(&self.servers[val % self.servers.len()])
   }
 }
 
-#[cfg(feature = "replicas")]
-#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct ReplicaNodes {
-  replicas: HashMap<ArcStr, ReplicaSet>,
-}
-
-#[cfg(feature = "replicas")]
-impl From<HashMap<ArcStr, ReplicaSet>> for ReplicaNodes {
-  fn from(replicas: HashMap<ArcStr, ReplicaSet>) -> Self {
-    ReplicaNodes { replicas }
-  }
-}
-
-#[cfg(feature = "replicas")]
-#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-impl ReplicaNodes {
-  pub fn add(&mut self, primary: &ArcStr, replica: &ArcStr) {
-    self
-      .replicas
-      .entry(primary.clone())
-      .or_insert(ReplicaSet::default())
-      .servers
-      .push(replica.clone());
-  }
-
-  pub fn clear(&mut self) {
-    self.replicas.clear();
-  }
-
-  pub fn next(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
-    self.replicas.get_mut(primary).and_then(|r| r.next())
-  }
-}
-
-/// A slot range and associated cluster node information from the CLUSTER NODES command.
+/// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   pub start: u16,
   pub end: u16,
-  pub server: ArcStr,
+  pub primary: ArcStr,
   pub id: ArcStr,
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replicas: Option<ReplicaNodes>,
+  pub replicas: Option<ReplicaSet>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
-pub struct ClusterKeyCache {
+pub struct ClusterRouting {
   data: Vec<SlotRange>,
 }
 
-impl From<Vec<SlotRange>> for ClusterKeyCache {
+impl From<Vec<SlotRange>> for ClusterRouting {
   fn from(data: Vec<SlotRange>) -> Self {
-    ClusterKeyCache { data }
+    ClusterRouting { data }
   }
 }
 
-impl ClusterKeyCache {
+impl ClusterRouting {
   /// Create a new, empty cache.
-  pub fn new() -> ClusterKeyCache {
-    ClusterKeyCache { data: Vec::new() }
+  pub fn new() -> Self {
+    ClusterRouting { data: Vec::new() }
   }
 
-  /// Read a set of unique hash slots that each map to a primary/main node in the cluster.
+  /// Read a set of unique hash slots that each map to a different primary/main node in the cluster.
   pub fn unique_hash_slots(&self) -> Vec<u16> {
     let mut out = BTreeMap::new();
 
@@ -325,12 +272,12 @@ impl ClusterKeyCache {
   }
 
   /// Find the server that owns the provided hash slot.
-  pub fn get_server(&self, slot: u16) -> Option<&SlotRange> {
+  pub fn get_server(&self, slot: u16) -> Option<&ArcStr> {
     if self.data.is_empty() {
       return None;
     }
 
-    protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx])
+    protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].server)
   }
 
   /// Read the set of replicas that own the provided hash slot.
@@ -341,14 +288,14 @@ impl ClusterKeyCache {
       return None;
     }
 
-    protocol_utils::binary_search(&self.data, slot).and_then(|idx| &mut self.data[idx].replicas)
+    protocol_utils::binary_search(&self.data, slot).and_then(|idx| self.data[idx].replicas.as_mut())
   }
 
-  /// Read the replica node server ID that should handle the next command.
+  /// Read the replica server ID that should handle the next command.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn next_replica(&mut self, slot: u16) -> Option<&ArcStr> {
-    self.read_replicas(slot).map(|r| r.next())
+    self.read_replicas(slot).and_then(|r| r.next())
   }
 
   /// Read the number of hash slot ranges in the cluster.
