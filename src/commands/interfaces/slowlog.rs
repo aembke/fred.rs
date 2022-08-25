@@ -8,9 +8,8 @@ pub trait SlowlogInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/slowlog#reading-the-slow-log>
   fn slowlog_get(&self, count: Option<i64>) -> AsyncResult<Vec<SlowlogEntry>> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::slowlog::slowlog_get(&inner, count).await
+    async_spawn(self, |_self| async move {
+      commands::slowlog::slowlog_get(_self, count).await
     })
   }
 
@@ -18,19 +17,19 @@ pub trait SlowlogInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/slowlog#obtaining-the-current-length-of-the-slow-log>
   fn slowlog_length(&self) -> AsyncResult<u64> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::slowlog::slowlog_length(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::slowlog::slowlog_length(_self).await },
+    )
   }
 
   /// This command is used to reset the slow queries log.
   ///
   /// <https://redis.io/commands/slowlog#resetting-the-slow-log>
   fn slowlog_reset(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::slowlog::slowlog_reset(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::slowlog::slowlog_reset(_self).await },
+    )
   }
 }

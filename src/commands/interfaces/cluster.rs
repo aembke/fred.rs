@@ -1,22 +1,29 @@
 use crate::commands;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
+use crate::protocol::types::ClusterRouting;
 use crate::types::{
-  ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, FromRedis,
-  MultipleHashSlots, RedisKey, RedisValue,
+  ClusterFailoverFlag, ClusterInfo, ClusterResetFlag, ClusterSetSlotState, FromRedis, MultipleHashSlots, RedisKey,
+  RedisValue,
 };
 use crate::utils;
 use bytes_utils::Str;
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
 pub trait ClusterInterface: ClientLike + Sized {
-  /// Whether or not the client is using a clustered Redis deployment.
-  fn is_clustered(&self) -> bool {
-    utils::is_clustered(&self.inner().config)
+  /// Read the cached cluster state used for routing commands to the correct cluster nodes.
+  fn cached_cluster_state(&self) -> Option<ClusterRouting> {
+    self.inner().cluster_state.load().as_ref().clone()
   }
 
-  /// Read the cached state of the cluster used for routing commands to the correct cluster nodes.
-  fn cached_cluster_state(&self) -> Option<ClusterKeyCache> {
-    self.inner().cluster_state.read().clone()
+  /// Read the number of known primary cluster nodes, or `0` if the cluster state is not known.
+  fn num_primary_cluster_nodes(&self) -> usize {
+    self
+      .inner()
+      .cluster_state
+      .load()
+      .as_ref()
+      .map(|s| s.unique_primary_nodes().len())
+      .unwrap_or(0)
   }
 
   /// Advances the cluster config epoch.
@@ -26,8 +33,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_bumpepoch(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_bumpepoch(_self).await?.convert()
     })
   }
 
@@ -35,9 +42,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-flushslots>
   fn cluster_flushslots(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_flushslots(&inner).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_flushslots(_self).await
     })
   }
 
@@ -48,8 +54,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_myid(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_myid(_self).await?.convert()
     })
   }
 
@@ -59,8 +65,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-nodes>
   fn cluster_nodes(&self) -> AsyncResult<String> {
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_nodes(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_nodes(_self).await?.convert()
     })
   }
 
@@ -68,9 +74,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-saveconfig>
   fn cluster_saveconfig(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_saveconfig(&inner).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_saveconfig(_self).await
     })
   }
 
@@ -78,20 +83,20 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-slots>
   fn cluster_slots(&self) -> AsyncResult<RedisValue> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_slots(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::cluster::cluster_slots(_self).await },
+    )
   }
 
   /// CLUSTER INFO provides INFO style information about Redis Cluster vital parameters.
   ///
   /// <https://redis.io/commands/cluster-info>
   fn cluster_info(&self) -> AsyncResult<ClusterInfo> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_info(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::cluster::cluster_info(_self).await },
+    )
   }
 
   /// This command is useful in order to modify a node's view of the cluster configuration. Specifically it assigns a set of hash slots to the node receiving the command.
@@ -102,9 +107,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<MultipleHashSlots>,
   {
     into!(slots);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_add_slots(&inner, slots).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_add_slots(_self, slots).await
     })
   }
 
@@ -117,8 +121,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(node_id);
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_count_failure_reports(&inner, node_id)
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_count_failure_reports(_self, node_id)
         .await?
         .convert()
     })
@@ -131,8 +135,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_count_keys_in_slot(&inner, slot)
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_count_keys_in_slot(_self, slot)
         .await?
         .convert()
     })
@@ -146,9 +150,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<MultipleHashSlots>,
   {
     into!(slots);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_del_slots(&inner, slots).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_del_slots(_self, slots).await
     })
   }
 
@@ -156,9 +159,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-failover>
   fn cluster_failover(&self, flag: Option<ClusterFailoverFlag>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_failover(&inner, flag).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_failover(_self, flag).await
     })
   }
 
@@ -171,9 +173,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(node_id);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_forget(&inner, node_id).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_forget(_self, node_id).await
     })
   }
 
@@ -184,9 +185,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_get_keys_in_slot(&inner, slot, count)
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_get_keys_in_slot(_self, slot, count)
         .await?
         .convert()
     })
@@ -201,8 +201,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_keyslot(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_keyslot(_self, key).await?.convert()
     })
   }
 
@@ -214,9 +214,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(ip);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_meet(&inner, ip, port).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_meet(_self, ip, port).await
     })
   }
 
@@ -229,9 +228,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(node_id);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_replicate(&inner, node_id).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_replicate(_self, node_id).await
     })
   }
 
@@ -243,8 +241,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(node_id);
-    async_spawn(self, |inner| async move {
-      commands::cluster::cluster_replicas(&inner, node_id).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_replicas(_self, node_id).await?.convert()
     })
   }
 
@@ -254,9 +252,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-reset>
   fn cluster_reset(&self, mode: Option<ClusterResetFlag>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_reset(&inner, mode).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_reset(_self, mode).await
     })
   }
 
@@ -264,9 +261,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-set-config-epoch>
   fn cluster_set_config_epoch(&self, epoch: u64) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_set_config_epoch(&inner, epoch).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_set_config_epoch(_self, epoch).await
     })
   }
 
@@ -274,9 +270,8 @@ pub trait ClusterInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/cluster-setslot>
   fn cluster_setslot(&self, slot: u16, state: ClusterSetSlotState) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::cluster::cluster_setslot(&inner, slot, state).await
+    async_spawn(self, |_self| async move {
+      commands::cluster::cluster_setslot(_self, slot, state).await
     })
   }
 }

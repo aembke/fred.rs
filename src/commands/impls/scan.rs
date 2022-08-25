@@ -1,9 +1,11 @@
 use super::*;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
+use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::*;
 use crate::types::*;
-use crate::utils;
+use crate::{interfaces, utils};
 use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
 use std::sync::Arc;
@@ -41,22 +43,14 @@ pub fn scan_cluster(
   r#type: Option<ScanType>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
-  let err_tx = tx.clone();
-  if let Err(e) = utils::disallow_during_transaction(inner) {
-    let _ = tokio::spawn(async move {
-      let _ = err_tx.send(Err(e));
-    });
-    return UnboundedReceiverStream::new(rx);
-  }
 
-  let hash_slots: Vec<u16> = if let Some(ref state) = *inner.cluster_state.read() {
-    state.unique_hash_slots()
-  } else {
-    early_error(
-      &tx,
-      RedisError::new(RedisErrorKind::Cluster, "Invalid or missing cluster state."),
-    );
-    return UnboundedReceiverStream::new(rx);
+  let hash_slots = inner.with_cluster_state(|state| Ok(state.unique_hash_slots()));
+  let hash_slots = match hash_slots {
+    Ok(slots) => slots,
+    Err(e) => {
+      early_error(&tx, e);
+      return UnboundedReceiverStream::new(rx);
+    },
   };
 
   let mut args = Vec::with_capacity(7);
@@ -75,14 +69,15 @@ pub fn scan_cluster(
 
   for slot in hash_slots.into_iter() {
     _trace!(inner, "Scan cluster hash slot server: {}", slot);
-    let scan_inner = KeyScanInner {
-      key_slot: Some(slot),
+    let response = ResponseKind::KeyScan(KeyScanInner {
+      hash_slot: Some(slot),
+      args: args.clone(),
+      cursor_idx: 0,
       tx: tx.clone(),
-      cursor: utils::static_str(STARTING_CURSOR),
-    };
-    let cmd = RedisCommand::new(RedisCommandKind::Scan(scan_inner), args.clone(), None);
+    });
+    let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-    if let Err(e) = utils::send_command(inner, cmd) {
+    if let Err(e) = interfaces::default_send_command(inner, command) {
       early_error(&tx, e);
       break;
     }
@@ -98,19 +93,22 @@ pub fn scan(
   r#type: Option<ScanType>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
-  let err_tx = tx.clone();
-  if let Err(e) = utils::disallow_during_transaction(inner) {
-    let _ = tokio::spawn(async move {
-      let _ = err_tx.send(Err(e));
-    });
-    return UnboundedReceiverStream::new(rx);
-  }
 
-  let key_slot = if utils::is_clustered(&inner.config) {
-    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
-      Some(redis_keyslot(pattern.as_bytes()))
-    } else {
-      None
+  let hash_slot = if inner.config.server.is_clustered() {
+    let result = inner.with_cluster_state(|state| {
+      Ok(if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
+        Some(redis_keyslot(pattern.as_bytes()))
+      } else {
+        None
+      })
+    });
+
+    match result {
+      Ok(slot) => slot,
+      Err(e) => {
+        early_error(&tx, e);
+        return UnboundedReceiverStream::new(rx);
+      },
     }
   } else {
     None
@@ -130,54 +128,39 @@ pub fn scan(
     args.push(r#type.to_str().into());
   }
 
-  let err_tx = tx.clone();
-  let scan = KeyScanInner {
-    key_slot,
-    tx,
-    cursor: utils::static_str(STARTING_CURSOR),
-  };
+  let response = ResponseKind::KeyScan(KeyScanInner {
+    hash_slot,
+    args,
+    cursor_idx: 0,
+    tx: tx.clone(),
+  });
+  let command = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-  let cmd = RedisCommand::new(RedisCommandKind::Scan(scan), args, None);
-  if let Err(e) = utils::send_command(inner, cmd) {
-    let _ = tokio::spawn(async move {
-      let _ = err_tx.send(Err(e));
-    });
+  if let Err(e) = interfaces::default_send_command(inner, command) {
+    early_error(&tx, e);
   }
 
   UnboundedReceiverStream::new(rx)
 }
 
-pub fn hscan<K>(
+pub fn hscan(
   inner: &Arc<RedisClientInner>,
-  key: K,
+  key: RedisKey,
   pattern: Str,
   count: Option<u32>,
-) -> impl Stream<Item = Result<HScanResult, RedisError>>
-where
-  K: Into<RedisKey>,
-{
+) -> impl Stream<Item = Result<HScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
-  let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
+  let args = values_args(key, pattern, count);
+
+  let response = ResponseKind::ValueScan(ValueScanInner {
+    tx: tx.clone(),
+    cursor_idx: 1,
+    args,
+  });
+  let command: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
+
+  if let Err(e) = interfaces::default_send_command(inner, command) {
     early_error(&tx, e);
-    false
-  } else {
-    true
-  };
-
-  if should_send {
-    let args = values_args(key.into(), pattern, count);
-    let err_tx = tx.clone();
-    let scan = ValueScanInner {
-      tx,
-      cursor: utils::static_str(STARTING_CURSOR),
-    };
-
-    let cmd = RedisCommand::new(RedisCommandKind::Hscan(scan), args, None);
-    if let Err(e) = utils::send_command(inner, cmd) {
-      let _ = tokio::spawn(async move {
-        let _ = err_tx.send(Err(e));
-      });
-    }
   }
 
   UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
@@ -188,37 +171,24 @@ where
   })
 }
 
-pub fn sscan<K>(
+pub fn sscan(
   inner: &Arc<RedisClientInner>,
-  key: K,
+  key: RedisKey,
   pattern: Str,
   count: Option<u32>,
-) -> impl Stream<Item = Result<SScanResult, RedisError>>
-where
-  K: Into<RedisKey>,
-{
+) -> impl Stream<Item = Result<SScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
-  let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
+  let args = values_args(key, pattern, count);
+
+  let response = ResponseKind::ValueScan(ValueScanInner {
+    tx: tx.clone(),
+    cursor_idx: 1,
+    args,
+  });
+  let command: RedisCommand = (RedisCommandKind::Sscan, Vec::new(), response).into();
+
+  if let Err(e) = interfaces::default_send_command(inner, command) {
     early_error(&tx, e);
-    false
-  } else {
-    true
-  };
-
-  if should_send {
-    let args = values_args(key.into(), pattern, count);
-    let err_tx = tx.clone();
-    let scan = ValueScanInner {
-      tx,
-      cursor: utils::static_str(STARTING_CURSOR),
-    };
-
-    let cmd = RedisCommand::new(RedisCommandKind::Sscan(scan), args, None);
-    if let Err(e) = utils::send_command(inner, cmd) {
-      let _ = tokio::spawn(async move {
-        let _ = err_tx.send(Err(e));
-      });
-    }
   }
 
   UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
@@ -229,37 +199,24 @@ where
   })
 }
 
-pub fn zscan<K>(
+pub fn zscan(
   inner: &Arc<RedisClientInner>,
-  key: K,
+  key: RedisKey,
   pattern: Str,
   count: Option<u32>,
-) -> impl Stream<Item = Result<ZScanResult, RedisError>>
-where
-  K: Into<RedisKey>,
-{
+) -> impl Stream<Item = Result<ZScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
-  let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
+  let args = values_args(key.into(), pattern, count);
+
+  let response = ResponseKind::ValueScan(ValueScanInner {
+    tx: tx.clone(),
+    cursor_idx: 1,
+    args,
+  });
+  let command: RedisCommand = (RedisCommandKind::Zscan, Vec::new(), response).into();
+
+  if let Err(e) = interfaces::default_send_command(inner, command) {
     early_error(&tx, e);
-    false
-  } else {
-    true
-  };
-
-  if should_send {
-    let args = values_args(key.into(), pattern, count);
-    let err_tx = tx.clone();
-    let scan = ValueScanInner {
-      tx,
-      cursor: utils::static_str(STARTING_CURSOR),
-    };
-
-    let cmd = RedisCommand::new(RedisCommandKind::Zscan(scan), args, None);
-    if let Err(e) = utils::send_command(inner, cmd) {
-      let _ = tokio::spawn(async move {
-        let _ = err_tx.send(Err(e));
-      });
-    }
   }
 
   UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {

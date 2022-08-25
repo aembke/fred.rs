@@ -18,8 +18,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::bzpopmin(&inner, keys, timeout).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::bzpopmin(_self, keys, timeout).await?.convert()
     })
   }
 
@@ -32,8 +32,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::bzpopmax(&inner, keys, timeout).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::bzpopmax(_self, keys, timeout).await?.convert()
     })
   }
 
@@ -57,8 +57,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(values);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zadd(&inner, key, options, ordering, changed, incr, values)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zadd(_self, key, options, ordering, changed, incr, values)
         .await?
         .convert()
     })
@@ -73,8 +73,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zcard(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zcard(_self, key).await?.convert()
     })
   }
 
@@ -87,8 +87,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zcount(&inner, key, min, max).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zcount(_self, key, min, max).await?.convert()
     })
   }
 
@@ -101,8 +101,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zdiff(&inner, keys, withscores).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zdiff(_self, keys, withscores).await?.convert()
     })
   }
 
@@ -116,8 +116,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(dest, keys);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zdiffstore(&inner, dest, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zdiffstore(_self, dest, keys).await?.convert()
     })
   }
 
@@ -133,8 +133,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zincrby(&inner, key, increment, member)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zincrby(_self, key, increment, member)
         .await?
         .convert()
     })
@@ -156,8 +156,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     W: Into<MultipleWeights>,
   {
     into!(keys, weights);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zinter(&inner, keys, weights, aggregate, withscores)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zinter(_self, keys, weights, aggregate, withscores)
         .await?
         .convert()
     })
@@ -180,8 +180,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     W: Into<MultipleWeights>,
   {
     into!(dest, keys, weights);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zinterstore(&inner, dest, keys, weights, aggregate)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zinterstore(_self, dest, keys, weights, aggregate)
         .await?
         .convert()
     })
@@ -202,8 +202,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zlexcount(&inner, key, min, max).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zlexcount(_self, key, min, max).await?.convert()
     })
   }
 
@@ -216,8 +216,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zpopmax(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zpopmax(_self, key, count).await?.convert()
     })
   }
 
@@ -230,8 +230,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zpopmin(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zpopmin(_self, key, count).await?.convert()
     })
   }
 
@@ -244,8 +244,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrandmember(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrandmember(_self, key, count).await?.convert()
     })
   }
 
@@ -273,8 +273,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(dest, source);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrangestore(&inner, dest, source, min, max, sort, rev, limit)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrangestore(_self, dest, source, min, max, sort, rev, limit)
         .await?
         .convert()
     })
@@ -303,8 +303,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrange(&inner, key, min, max, sort, rev, limit, withscores)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrange(_self, key, min, max, sort, rev, limit, withscores)
         .await?
         .convert()
     })
@@ -325,8 +325,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrangebylex(&inner, key, min, max, limit)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrangebylex(_self, key, min, max, limit)
         .await?
         .convert()
     })
@@ -347,8 +347,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(max, min);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrevrangebylex(&inner, key, max, min, limit)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrevrangebylex(_self, key, max, min, limit)
         .await?
         .convert()
     })
@@ -376,8 +376,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrangebyscore(&inner, key, min, max, withscores, limit)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrangebyscore(_self, key, min, max, withscores, limit)
         .await?
         .convert()
     })
@@ -405,8 +405,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(max, min);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrevrangebyscore(&inner, key, max, min, withscores, limit)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrevrangebyscore(_self, key, max, min, withscores, limit)
         .await?
         .convert()
     })
@@ -424,8 +424,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrank(&inner, key, member).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrank(_self, key, member).await?.convert()
     })
   }
 
@@ -441,8 +441,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrem(&inner, key, members).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrem(_self, key, members).await?.convert()
     })
   }
 
@@ -462,8 +462,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zremrangebylex(&inner, key, min, max)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zremrangebylex(_self, key, min, max)
         .await?
         .convert()
     })
@@ -478,8 +478,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zremrangebyrank(&inner, key, start, stop)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zremrangebyrank(_self, key, start, stop)
         .await?
         .convert()
     })
@@ -499,8 +499,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zremrangebyscore(&inner, key, min, max)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zremrangebyscore(_self, key, min, max)
         .await?
         .convert()
     })
@@ -515,8 +515,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrevrange(&inner, key, start, stop, withscores)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrevrange(_self, key, start, stop, withscores)
         .await?
         .convert()
     })
@@ -534,8 +534,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zrevrank(&inner, key, member).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zrevrank(_self, key, member).await?.convert()
     })
   }
 
@@ -551,8 +551,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zscore(&inner, key, member).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zscore(_self, key, member).await?.convert()
     })
   }
 
@@ -571,8 +571,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     W: Into<MultipleWeights>,
   {
     into!(keys, weights);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zunion(&inner, keys, weights, aggregate, withscores).await
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zunion(_self, keys, weights, aggregate, withscores).await
     })
   }
 
@@ -593,8 +593,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     W: Into<MultipleWeights>,
   {
     into!(dest, keys, weights);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zunionstore(&inner, dest, keys, weights, aggregate)
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zunionstore(_self, dest, keys, weights, aggregate)
         .await?
         .convert()
     })
@@ -612,8 +612,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::sorted_sets::zmscore(&inner, key, members).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sorted_sets::zmscore(_self, key, members).await?.convert()
     })
   }
 }

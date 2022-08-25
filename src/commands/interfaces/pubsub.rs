@@ -34,8 +34,8 @@ pub trait PubsubInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(channel);
-    async_spawn(self, |inner| async move {
-      commands::pubsub::subscribe(&inner, channel).await
+    async_spawn(self, |_self| async move {
+      commands::pubsub::subscribe(_self, channel).await
     })
   }
 
@@ -47,8 +47,8 @@ pub trait PubsubInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(channel);
-    async_spawn(self, |inner| async move {
-      commands::pubsub::unsubscribe(&inner, channel).await
+    async_spawn(self, |_self| async move {
+      commands::pubsub::unsubscribe(_self, channel).await
     })
   }
 
@@ -60,8 +60,8 @@ pub trait PubsubInterface: ClientLike + Sized {
     S: Into<MultipleStrings>,
   {
     into!(patterns);
-    async_spawn(self, |inner| async move {
-      commands::pubsub::psubscribe(&inner, patterns).await
+    async_spawn(self, |_self| async move {
+      commands::pubsub::psubscribe(_self, patterns).await
     })
   }
 
@@ -73,8 +73,8 @@ pub trait PubsubInterface: ClientLike + Sized {
     S: Into<MultipleStrings>,
   {
     into!(patterns);
-    async_spawn(self, |inner| async move {
-      commands::pubsub::punsubscribe(&inner, patterns).await
+    async_spawn(self, |_self| async move {
+      commands::pubsub::punsubscribe(_self, patterns).await
     })
   }
 
@@ -90,8 +90,8 @@ pub trait PubsubInterface: ClientLike + Sized {
   {
     into!(channel);
     try_into!(message);
-    async_spawn(self, |inner| async move {
-      commands::pubsub::publish(&inner, channel, message).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::pubsub::publish(_self, channel, message).await?.convert()
     })
   }
 }

@@ -19,8 +19,8 @@ pub trait GeoInterface: ClientLike + Sized {
     V: Into<MultipleGeoValues>,
   {
     into!(key, values);
-    async_spawn(self, move |inner| async move {
-      commands::geo::geoadd(&inner, key, options, changed, values)
+    async_spawn(self, move |_self| async move {
+      commands::geo::geoadd(_self, key, options, changed, values)
         .await?
         .convert()
     })
@@ -38,8 +38,8 @@ pub trait GeoInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::geo::geohash(&inner, key, members).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::geo::geohash(_self, key, members).await?.convert()
     })
   }
 
@@ -56,9 +56,10 @@ pub trait GeoInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::geo::geopos(&inner, key, members).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::geo::geopos(_self, key, members).await },
+    )
   }
 
   /// Return the distance between two members in the geospatial index represented by the sorted set.
@@ -75,8 +76,8 @@ pub trait GeoInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(src, dest);
-    async_spawn(self, |inner| async move {
-      commands::geo::geodist(&inner, key, src, dest, unit).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::geo::geodist(_self, key, src, dest, unit).await?.convert()
     })
   }
 
@@ -103,9 +104,9 @@ pub trait GeoInterface: ClientLike + Sized {
     P: Into<GeoPosition>,
   {
     into!(key, position);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::geo::georadius(
-        &inner, key, position, radius, unit, withcoord, withdist, withhash, count, ord, store, storedist,
+        _self, key, position, radius, unit, withcoord, withdist, withhash, count, ord, store, storedist,
       )
       .await
     })
@@ -136,9 +137,9 @@ pub trait GeoInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::geo::georadiusbymember(
-        &inner,
+        _self,
         key,
         to!(member)?,
         radius,
@@ -175,9 +176,9 @@ pub trait GeoInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::geo::geosearch(
-        &inner,
+        _self,
         key,
         from_member,
         from_lonlat,
@@ -214,9 +215,9 @@ pub trait GeoInterface: ClientLike + Sized {
     S: Into<RedisKey>,
   {
     into!(dest, source);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::geo::geosearchstore(
-        &inner,
+        _self,
         dest,
         source,
         from_member,

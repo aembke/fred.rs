@@ -26,8 +26,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(key, groupname);
-    async_spawn(self, |inner| async move {
-      commands::streams::xinfo_consumers(&inner, key, groupname)
+    async_spawn(self, |_self| async move {
+      commands::streams::xinfo_consumers(_self, key, groupname)
         .await?
         .convert()
     })
@@ -42,8 +42,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::streams::xinfo_groups(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::streams::xinfo_groups(_self, key).await?.convert()
     })
   }
 
@@ -56,8 +56,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::streams::xinfo_stream(&inner, key, full, count)
+    async_spawn(self, |_self| async move {
+      commands::streams::xinfo_stream(_self, key, full, count)
         .await?
         .convert()
     })
@@ -80,8 +80,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   {
     into!(key, id);
     try_into!(fields, cap);
-    async_spawn(self, |inner| async move {
-      commands::streams::xadd(&inner, key, nomkstream, cap, id, fields)
+    async_spawn(self, |_self| async move {
+      commands::streams::xadd(_self, key, nomkstream, cap, id, fields)
         .await?
         .convert()
     })
@@ -99,8 +99,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(cap);
-    async_spawn(self, |inner| async move {
-      commands::streams::xtrim(&inner, key, cap).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::streams::xtrim(_self, key, cap).await?.convert()
     })
   }
 
@@ -114,8 +114,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: Into<MultipleStrings>,
   {
     into!(key, ids);
-    async_spawn(self, |inner| async move {
-      commands::streams::xdel(&inner, key, ids).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::streams::xdel(_self, key, ids).await?.convert()
     })
   }
 
@@ -141,8 +141,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(start, end);
-    async_spawn(self, |inner| async move {
-      commands::streams::xrange(&inner, key, start, end, count)
+    async_spawn(self, |_self| async move {
+      commands::streams::xrange(_self, key, start, end, count)
         .await?
         .into_xread_value()
     })
@@ -166,8 +166,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(start, end);
-    async_spawn(self, |inner| async move {
-      commands::streams::xrange(&inner, key, start, end, count)
+    async_spawn(self, |_self| async move {
+      commands::streams::xrange(_self, key, start, end, count)
         .await?
         .convert()
     })
@@ -195,8 +195,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(start, end);
-    async_spawn(self, |inner| async move {
-      commands::streams::xrevrange(&inner, key, end, start, count)
+    async_spawn(self, |_self| async move {
+      commands::streams::xrevrange(_self, key, end, start, count)
         .await?
         .into_xread_value()
     })
@@ -218,8 +218,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(start, end);
-    async_spawn(self, |inner| async move {
-      commands::streams::xrevrange(&inner, key, end, start, count)
+    async_spawn(self, |_self| async move {
+      commands::streams::xrevrange(_self, key, end, start, count)
         .await?
         .convert()
     })
@@ -234,8 +234,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::streams::xlen(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::streams::xlen(_self, key).await?.convert()
     })
   }
 
@@ -358,8 +358,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(keys, ids);
-    async_spawn(self, |inner| async move {
-      commands::streams::xread(&inner, count, block, keys, ids)
+    async_spawn(self, |_self| async move {
+      commands::streams::xread(_self, count, block, keys, ids)
         .await?
         .into_xread_response()
     })
@@ -377,8 +377,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(keys, ids);
-    async_spawn(self, |inner| async move {
-      commands::streams::xread(&inner, count, block, keys, ids)
+    async_spawn(self, |_self| async move {
+      commands::streams::xread(_self, count, block, keys, ids)
         .await?
         .convert()
     })
@@ -395,8 +395,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<XID>,
   {
     into!(key, groupname, id);
-    async_spawn(self, |inner| async move {
-      commands::streams::xgroup_create(&inner, key, groupname, id, mkstream)
+    async_spawn(self, |_self| async move {
+      commands::streams::xgroup_create(_self, key, groupname, id, mkstream)
         .await?
         .convert()
     })
@@ -413,8 +413,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<Str>,
   {
     into!(key, groupname, consumername);
-    async_spawn(self, |inner| async move {
-      commands::streams::xgroup_createconsumer(&inner, key, groupname, consumername)
+    async_spawn(self, |_self| async move {
+      commands::streams::xgroup_createconsumer(_self, key, groupname, consumername)
         .await?
         .convert()
     })
@@ -431,8 +431,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<Str>,
   {
     into!(key, groupname, consumername);
-    async_spawn(self, |inner| async move {
-      commands::streams::xgroup_delconsumer(&inner, key, groupname, consumername)
+    async_spawn(self, |_self| async move {
+      commands::streams::xgroup_delconsumer(_self, key, groupname, consumername)
         .await?
         .convert()
     })
@@ -448,8 +448,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(key, groupname);
-    async_spawn(self, |inner| async move {
-      commands::streams::xgroup_destroy(&inner, key, groupname)
+    async_spawn(self, |_self| async move {
+      commands::streams::xgroup_destroy(_self, key, groupname)
         .await?
         .convert()
     })
@@ -466,8 +466,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<XID>,
   {
     into!(key, groupname, id);
-    async_spawn(self, |inner| async move {
-      commands::streams::xgroup_setid(&inner, key, groupname, id)
+    async_spawn(self, |_self| async move {
+      commands::streams::xgroup_setid(_self, key, groupname, id)
         .await?
         .convert()
     })
@@ -506,8 +506,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(group, consumer, keys, ids);
-    async_spawn(self, |inner| async move {
-      commands::streams::xreadgroup(&inner, group, consumer, count, block, noack, keys, ids)
+    async_spawn(self, |_self| async move {
+      commands::streams::xreadgroup(_self, group, consumer, count, block, noack, keys, ids)
         .await?
         .into_xread_response()
     })
@@ -538,8 +538,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(group, consumer, keys, ids);
-    async_spawn(self, |inner| async move {
-      commands::streams::xreadgroup(&inner, group, consumer, count, block, noack, keys, ids)
+    async_spawn(self, |_self| async move {
+      commands::streams::xreadgroup(_self, group, consumer, count, block, noack, keys, ids)
         .await?
         .convert()
     })
@@ -556,8 +556,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(key, group, ids);
-    async_spawn(self, |inner| async move {
-      commands::streams::xack(&inner, key, group, ids).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::streams::xack(_self, key, group, ids).await?.convert()
     })
   }
 
@@ -585,9 +585,9 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(key, group, consumer, ids);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::streams::xclaim(
-        &inner,
+        _self,
         key,
         group,
         consumer,
@@ -631,9 +631,9 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<MultipleIDs>,
   {
     into!(key, group, consumer, ids);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::streams::xclaim(
-        &inner,
+        _self,
         key,
         group,
         consumer,
@@ -674,8 +674,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<XID>,
   {
     into!(key, group, consumer, start);
-    async_spawn(self, |inner| async move {
-      commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
+    async_spawn(self, |_self| async move {
+      commands::streams::xautoclaim(_self, key, group, consumer, min_idle_time, start, count, justid)
         .await?
         .into_xautoclaim_values()
     })
@@ -704,8 +704,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     I: Into<XID>,
   {
     into!(key, group, consumer, start);
-    async_spawn(self, |inner| async move {
-      commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
+    async_spawn(self, |_self| async move {
+      commands::streams::xautoclaim(_self, key, group, consumer, min_idle_time, start, count, justid)
         .await?
         .convert()
     })
@@ -722,8 +722,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     A: Into<XPendingArgs>,
   {
     into!(key, group, args);
-    async_spawn(self, |inner| async move {
-      commands::streams::xpending(&inner, key, group, args).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::streams::xpending(_self, key, group, args).await?.convert()
     })
   }
 }

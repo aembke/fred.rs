@@ -1,7 +1,7 @@
 use super::*;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::RedisCommandKind;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::utils as protocol_utils;
 use crate::types::{
   MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XPendingArgs, XID,

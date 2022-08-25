@@ -3,6 +3,7 @@ use crate::clients::RedisClient;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
 use crate::prelude::Resp3Frame;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -12,7 +13,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-pub async fn quit(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn quit<C: ClientLike>(client: C) -> Result<(), RedisError> {
   _debug!(inner, "Closing Redis connection with Quit command.");
   utils::interrupt_reconnect_sleep(inner);
 
@@ -26,7 +27,7 @@ pub async fn quit(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   Ok(())
 }
 
-pub async fn shutdown(inner: &Arc<RedisClientInner>, flags: Option<ShutdownFlags>) -> Result<(), RedisError> {
+pub async fn shutdown<C: ClientLike>(client: C, flags: Option<ShutdownFlags>) -> Result<(), RedisError> {
   _debug!(inner, "Shutting down server.");
   utils::interrupt_reconnect_sleep(inner);
 
@@ -69,14 +70,14 @@ pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, Re
   rx.await?
 }
 
-pub async fn flushall(inner: &Arc<RedisClientInner>, r#async: bool) -> Result<RedisValue, RedisError> {
+pub async fn flushall<C: ClientLike>(client: C, r#async: bool) -> Result<RedisValue, RedisError> {
   let args = if r#async { vec![static_val!(ASYNC)] } else { Vec::new() };
   let frame = utils::request_response(inner, move || Ok((RedisCommandKind::FlushAll, args))).await?;
 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn flushall_cluster(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn flushall_cluster<C: ClientLike>(client: C) -> Result<(), RedisError> {
   let _ = utils::check_clustered(inner)?;
 
   let (tx, rx) = oneshot_channel();
@@ -88,21 +89,21 @@ pub async fn flushall_cluster(inner: &Arc<RedisClientInner>) -> Result<(), Redis
   Ok(())
 }
 
-pub async fn ping(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
+pub async fn ping<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
   _debug!(inner, "Pinging redis server...");
   let frame = utils::request_response(inner, || Ok((RedisCommandKind::Ping, vec![]))).await?;
   _debug!(inner, "Recv ping response.");
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn select(inner: &Arc<RedisClientInner>, db: u8) -> Result<RedisValue, RedisError> {
+pub async fn select<C: ClientLike>(client: C, db: u8) -> Result<RedisValue, RedisError> {
   _debug!(inner, "Selecting database {}", db);
   let frame = utils::request_response(inner, || Ok((RedisCommandKind::Select, vec![db.into()]))).await?;
 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn info(inner: &Arc<RedisClientInner>, section: Option<InfoKind>) -> Result<RedisValue, RedisError> {
+pub async fn info<C: ClientLike>(client: C, section: Option<InfoKind>) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(1);
     if let Some(section) = section {
@@ -116,25 +117,8 @@ pub async fn info(inner: &Arc<RedisClientInner>, section: Option<InfoKind>) -> R
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn multi(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::Multi, vec![]))).await?;
-  let _ = protocol_utils::frame_to_single_result(frame)?;
-  Ok(())
-}
-
-pub async fn exec(inner: &Arc<RedisClientInner>) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::Exec, vec![]))).await?;
-  protocol_utils::frame_to_results(frame)
-}
-
-pub async fn discard(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::Discard, vec![]))).await?;
-  let _ = protocol_utils::frame_to_single_result(frame)?;
-  Ok(())
-}
-
-pub async fn hello(
-  inner: &Arc<RedisClientInner>,
+pub async fn hello<C: ClientLike>(
+  client: C,
   version: RespVersion,
   auth: Option<(String, String)>,
 ) -> Result<(), RedisError> {
@@ -159,7 +143,7 @@ pub async fn hello(
   }
 }
 
-pub async fn auth(inner: &Arc<RedisClientInner>, username: Option<String>, password: Str) -> Result<(), RedisError> {
+pub async fn auth<C: ClientLike>(client: C, username: Option<String>, password: Str) -> Result<(), RedisError> {
   if utils::is_clustered(&inner.config) {
     let mut args = Vec::with_capacity(2);
     if let Some(username) = username {
@@ -191,16 +175,16 @@ pub async fn auth(inner: &Arc<RedisClientInner>, username: Option<String>, passw
   }
 }
 
-pub async fn custom(
-  inner: &Arc<RedisClientInner>,
+pub async fn custom<C: ClientLike>(
+  client: C,
   cmd: CustomCommand,
   args: Vec<RedisValue>,
 ) -> Result<RedisValue, RedisError> {
   args_values_cmd(inner, RedisCommandKind::_Custom(cmd), args).await
 }
 
-pub async fn custom_raw(
-  inner: &Arc<RedisClientInner>,
+pub async fn custom_raw<C: ClientLike>(
+  client: C,
   cmd: CustomCommand,
   args: Vec<RedisValue>,
 ) -> Result<Resp3Frame, RedisError> {
@@ -211,8 +195,8 @@ value_cmd!(dbsize, DBSize);
 value_cmd!(bgrewriteaof, BgreWriteAof);
 value_cmd!(bgsave, BgSave);
 
-pub async fn failover(
-  inner: &Arc<RedisClientInner>,
+pub async fn failover<C: ClientLike>(
+  client: C,
   to: Option<(String, u16)>,
   force: bool,
   abort: bool,

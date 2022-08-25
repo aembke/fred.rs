@@ -2,12 +2,14 @@ use crate::commands;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
+use crate::protocol::command::{MultiplexerCommand, QueuedCommand, RedisCommand};
 use crate::types::{
   ClientState, ClusterStateChange, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig,
   RedisValue, ShutdownFlags,
 };
 use crate::types::{PerformanceConfig, RespVersion};
 use crate::utils;
+use crate::utils::send_command;
 use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::convert::TryInto;
@@ -165,7 +167,7 @@ pub(crate) fn send_to_multiplexer(
 // change command functions to take C: ClientLike instead of inner
 
 /// Any Redis client that implements any part of the Redis interface.
-pub trait ClientLike: Unpin + Send + Sync + Sized {
+pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
@@ -375,5 +377,3 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
-use crate::protocol::command::{MultiplexerCommand, QueuedCommand, RedisCommand};
-use crate::utils::send_command;

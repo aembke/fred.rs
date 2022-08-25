@@ -18,8 +18,8 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(elements);
-    async_spawn(self, |inner| async move {
-      commands::hyperloglog::pfadd(&inner, key, elements).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hyperloglog::pfadd(_self, key, elements).await?.convert()
     })
   }
 
@@ -36,8 +36,8 @@ pub trait HyperloglogInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::hyperloglog::pfcount(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hyperloglog::pfcount(_self, keys).await?.convert()
     })
   }
 
@@ -52,8 +52,8 @@ pub trait HyperloglogInterface: ClientLike + Sized {
     S: Into<MultipleKeys>,
   {
     into!(dest, sources);
-    async_spawn(self, |inner| async move {
-      commands::hyperloglog::pfmerge(&inner, dest, sources).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hyperloglog::pfmerge(_self, dest, sources).await?.convert()
     })
   }
 }

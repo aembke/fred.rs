@@ -15,8 +15,8 @@ pub trait HashesInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hgetall(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hgetall(_self, key).await?.convert()
     })
   }
 
@@ -30,8 +30,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<MultipleKeys>,
   {
     into!(key, fields);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hdel(&inner, key, fields).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hdel(_self, key, fields).await?.convert()
     })
   }
 
@@ -45,8 +45,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<RedisKey>,
   {
     into!(key, field);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hexists(&inner, key, field).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hexists(_self, key, field).await?.convert()
     })
   }
 
@@ -60,8 +60,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<RedisKey>,
   {
     into!(key, field);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hget(&inner, key, field).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hget(_self, key, field).await?.convert()
     })
   }
 
@@ -75,10 +75,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<RedisKey>,
   {
     into!(key, field);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hincrby(&inner, key, field, increment)
-        .await?
-        .convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hincrby(_self, key, field, increment).await?.convert()
     })
   }
 
@@ -92,8 +90,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<RedisKey>,
   {
     into!(key, field);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hincrbyfloat(&inner, key, field, increment)
+    async_spawn(self, |_self| async move {
+      commands::hashes::hincrbyfloat(_self, key, field, increment)
         .await?
         .convert()
     })
@@ -108,8 +106,8 @@ pub trait HashesInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hkeys(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hkeys(_self, key).await?.convert()
     })
   }
 
@@ -122,8 +120,8 @@ pub trait HashesInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hlen(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hlen(_self, key).await?.convert()
     })
   }
 
@@ -137,8 +135,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<MultipleKeys>,
   {
     into!(key, fields);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hmget(&inner, key, fields).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hmget(_self, key, fields).await?.convert()
     })
   }
 
@@ -154,8 +152,8 @@ pub trait HashesInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(values);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hmset(&inner, key, values).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hmset(_self, key, values).await?.convert()
     })
   }
 
@@ -171,8 +169,8 @@ pub trait HashesInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(values);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hset(&inner, key, values).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hset(_self, key, values).await?.convert()
     })
   }
 
@@ -189,8 +187,8 @@ pub trait HashesInterface: ClientLike + Sized {
   {
     into!(key, field);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hsetnx(&inner, key, field, value).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hsetnx(_self, key, field, value).await?.convert()
     })
   }
 
@@ -205,8 +203,8 @@ pub trait HashesInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hrandfield(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hrandfield(_self, key, count).await?.convert()
     })
   }
 
@@ -220,8 +218,8 @@ pub trait HashesInterface: ClientLike + Sized {
     F: Into<RedisKey>,
   {
     into!(key, field);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hstrlen(&inner, key, field).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hstrlen(_self, key, field).await?.convert()
     })
   }
 
@@ -234,8 +232,8 @@ pub trait HashesInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::hashes::hvals(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::hashes::hvals(_self, key).await?.convert()
     })
   }
 }

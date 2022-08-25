@@ -1,7 +1,7 @@
+use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleValues, RedisKey, FromRedis, RedisValue};
-use crate::{commands};
+use crate::types::{FromRedis, MultipleKeys, MultipleValues, RedisKey, RedisValue};
 use std::convert::TryInto;
 
 /// Functions that implement the [Sets](https://redis.io/commands#set) interface.
@@ -18,8 +18,8 @@ pub trait SetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::sets::sadd(&inner, key, members).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sadd(_self, key, members).await?.convert()
     })
   }
 
@@ -32,8 +32,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sets::scard(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::scard(_self, key).await?.convert()
     })
   }
 
@@ -46,8 +46,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::sets::sdiff(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sdiff(_self, keys).await?.convert()
     })
   }
 
@@ -61,8 +61,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(dest, keys);
-    async_spawn(self, |inner| async move {
-      commands::sets::sdiffstore(&inner, dest, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sdiffstore(_self, dest, keys).await?.convert()
     })
   }
 
@@ -75,8 +75,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::sets::sinter(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sinter(_self, keys).await?.convert()
     })
   }
 
@@ -90,8 +90,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(dest, keys);
-    async_spawn(self, |inner| async move {
-      commands::sets::sinterstore(&inner, dest, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sinterstore(_self, dest, keys).await?.convert()
     })
   }
 
@@ -107,8 +107,8 @@ pub trait SetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |inner| async move {
-      commands::sets::sismember(&inner, key, member).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sismember(_self, key, member).await?.convert()
     })
   }
 
@@ -124,8 +124,8 @@ pub trait SetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::sets::smismember(&inner, key, members).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::smismember(_self, key, members).await?.convert()
     })
   }
 
@@ -138,8 +138,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sets::smembers(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::smembers(_self, key).await?.convert()
     })
   }
 
@@ -156,8 +156,8 @@ pub trait SetsInterface: ClientLike + Sized {
   {
     into!(source, dest);
     try_into!(member);
-    async_spawn(self, |inner| async move {
-      commands::sets::smove(&inner, source, dest, member).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::smove(_self, source, dest, member).await?.convert()
     })
   }
 
@@ -170,8 +170,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sets::spop(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::spop(_self, key, count).await?.convert()
     })
   }
 
@@ -186,8 +186,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::sets::srandmember(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::srandmember(_self, key, count).await?.convert()
     })
   }
 
@@ -203,8 +203,8 @@ pub trait SetsInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |inner| async move {
-      commands::sets::srem(&inner, key, members).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::srem(_self, key, members).await?.convert()
     })
   }
 
@@ -217,8 +217,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::sets::sunion(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sunion(_self, keys).await?.convert()
     })
   }
 
@@ -232,8 +232,8 @@ pub trait SetsInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(dest, keys);
-    async_spawn(self, |inner| async move {
-      commands::sets::sunionstore(&inner, dest, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sets::sunionstore(_self, dest, keys).await?.convert()
     })
   }
 }

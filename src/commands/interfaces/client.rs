@@ -20,8 +20,8 @@ pub trait ClientInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::client::client_id(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::client::client_id(_self).await?.convert()
     })
   }
 
@@ -31,8 +31,8 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// Note: despite being async this function will usually return cached information from the client if possible.
   fn connection_ids(&self) -> AsyncResult<HashMap<Arc<String>, i64>> {
-    async_spawn(self, |inner| async move {
-      utils::read_connection_ids(&inner).await.ok_or(RedisError::new(
+    async_spawn(self, |_self| async move {
+      utils::read_connection_ids(_self).await.ok_or(RedisError::new(
         RedisErrorKind::Unknown,
         "Failed to read connection IDs",
       ))
@@ -43,7 +43,7 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// The client will automatically update this when connections to the primary server close.
   fn update_sentinel_nodes(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move { utils::update_sentinel_nodes(&inner).await })
+    async_spawn(self, |_self| async move { utils::update_sentinel_nodes(_self).await })
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable format.
@@ -53,8 +53,8 @@ pub trait ClientInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::client::client_info(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::client::client_info(_self).await?.convert()
     })
   }
 
@@ -65,8 +65,8 @@ pub trait ClientInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::client::client_kill(&inner, filters).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::client::client_kill(_self, filters).await?.convert()
     })
   }
 
@@ -77,8 +77,8 @@ pub trait ClientInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::client::client_list(&inner, r#type, ids).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::client::client_list(_self, r#type, ids).await?.convert()
     })
   }
 
@@ -89,8 +89,8 @@ pub trait ClientInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::client::client_getname(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::client::client_getname(_self).await?.convert()
     })
   }
 
@@ -105,8 +105,8 @@ pub trait ClientInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::client::client_setname(&inner, name).await
+    async_spawn(self, |_self| async move {
+      commands::client::client_setname(_self, name).await
     })
   }
 
@@ -114,8 +114,8 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/client-pause>
   fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      commands::client::client_pause(&inner, timeout, mode).await
+    async_spawn(self, |_self| async move {
+      commands::client::client_pause(_self, timeout, mode).await
     })
   }
 
@@ -125,7 +125,7 @@ pub trait ClientInterface: ClientLike + Sized {
   fn client_unpause(&self) -> AsyncResult<()> {
     async_spawn(
       self,
-      |inner| async move { commands::client::client_unpause(&inner).await },
+      |_self| async move { commands::client::client_unpause(_self).await },
     )
   }
 
@@ -133,8 +133,8 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/client-reply>
   fn client_reply(&self, flag: ClientReplyFlag) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      commands::client::client_reply(&inner, flag).await
+    async_spawn(self, |_self| async move {
+      commands::client::client_reply(_self, flag).await
     })
   }
 
@@ -149,16 +149,15 @@ pub trait ClientInterface: ClientLike + Sized {
     S: Into<RedisValue>,
   {
     into!(id);
-    async_spawn(self, |inner| async move {
-      commands::client::client_unblock(&inner, id, flag).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::client::client_unblock(_self, id, flag).await?.convert()
     })
   }
 
   /// A convenience function to unblock any blocked connection on this client.
   fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::client::unblock_self(&inner, flag).await
+    async_spawn(self, |_self| async move {
+      commands::client::unblock_self(_self, flag).await
     })
   }
 }

@@ -25,13 +25,13 @@ pub trait TransactionInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move { commands::keys::watch(&inner, keys).await })
+    async_spawn(self, |_self| async move { commands::keys::watch(_self, keys).await })
   }
 
   /// Flushes all the previously watched keys for a transaction.
   ///
   /// <https://redis.io/commands/unwatch>
   fn unwatch(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move { commands::keys::unwatch(&inner).await })
+    async_spawn(self, |_self| async move { commands::keys::unwatch(_self).await })
   }
 }

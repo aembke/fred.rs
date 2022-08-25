@@ -13,8 +13,8 @@ pub trait KeysInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::keys::randomkey(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::randomkey(_self).await?.convert()
     })
   }
 
@@ -28,8 +28,8 @@ pub trait KeysInterface: ClientLike + Sized {
     D: Into<RedisKey>,
   {
     into!(source, destination);
-    async_spawn(self, |inner| async move {
-      commands::keys::copy(&inner, source, destination, db, replace)
+    async_spawn(self, |_self| async move {
+      commands::keys::copy(_self, source, destination, db, replace)
         .await?
         .convert()
     })
@@ -43,7 +43,7 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move { commands::keys::dump(&inner, key).await })
+    async_spawn(self, |_self| async move { commands::keys::dump(_self, key).await })
   }
 
   /// Create a key associated with a value that is obtained by deserializing the provided serialized value
@@ -63,8 +63,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::restore(&inner, key, ttl, serialized, replace, absttl, idletime, frequency).await
+    async_spawn(self, |_self| async move {
+      commands::keys::restore(_self, key, ttl, serialized, replace, absttl, idletime, frequency).await
     })
   }
 
@@ -89,8 +89,8 @@ pub trait KeysInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      commands::keys::set(&inner, key, value, expire, options, get)
+    async_spawn(self, |_self| async move {
+      commands::keys::set(_self, key, value, expire, options, get)
         .await?
         .convert()
     })
@@ -105,9 +105,10 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::get(&inner, key).await?.convert()
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::keys::get(_self, key).await?.convert() },
+    )
   }
 
   /// Returns the substring of the string value stored at `key` with offsets `start` and `end` (both inclusive).
@@ -121,8 +122,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::getrange(&inner, key, start, end).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::getrange(_self, key, start, end).await?.convert()
     })
   }
 
@@ -138,8 +139,8 @@ pub trait KeysInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      commands::keys::setrange(&inner, key, offset, value).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::setrange(_self, key, offset, value).await?.convert()
     })
   }
 
@@ -157,8 +158,8 @@ pub trait KeysInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      commands::keys::getset(&inner, key, value).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::getset(_self, key, value).await?.convert()
     })
   }
 
@@ -171,8 +172,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::getdel(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::getdel(_self, key).await?.convert()
     })
   }
 
@@ -185,8 +186,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::strlen(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::strlen(_self, key).await?.convert()
     })
   }
 
@@ -201,8 +202,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::keys::del(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::del(_self, keys).await?.convert()
     })
   }
 
@@ -215,8 +216,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::keys::mget(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::mget(_self, keys).await?.convert()
     })
   }
 
@@ -229,8 +230,8 @@ pub trait KeysInterface: ClientLike + Sized {
     V::Error: Into<RedisError>,
   {
     try_into!(values);
-    async_spawn(self, |inner| async move {
-      commands::keys::mset(&inner, values).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::mset(_self, values).await?.convert()
     })
   }
 
@@ -244,8 +245,8 @@ pub trait KeysInterface: ClientLike + Sized {
     V::Error: Into<RedisError>,
   {
     try_into!(values);
-    async_spawn(self, |inner| async move {
-      commands::keys::msetnx(&inner, values).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::msetnx(_self, values).await?.convert()
     })
   }
 
@@ -260,8 +261,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::incr(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::incr(_self, key).await?.convert()
     })
   }
 
@@ -276,8 +277,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::incr_by(&inner, key, val).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::incr_by(_self, key, val).await?.convert()
     })
   }
 
@@ -292,8 +293,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::incr_by_float(&inner, key, val).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::incr_by_float(_self, key, val).await?.convert()
     })
   }
 
@@ -308,8 +309,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::decr(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::decr(_self, key).await?.convert()
     })
   }
 
@@ -324,8 +325,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::decr_by(&inner, key, val).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::decr_by(_self, key, val).await?.convert()
     })
   }
 
@@ -338,9 +339,10 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::ttl(&inner, key).await?.convert()
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::keys::ttl(_self, key).await?.convert() },
+    )
   }
 
   /// Returns the remaining time to live of a key that has a timeout, in milliseconds.
@@ -352,8 +354,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::pttl(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::pttl(_self, key).await?.convert()
     })
   }
 
@@ -369,8 +371,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::persist(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::persist(_self, key).await?.convert()
     })
   }
 
@@ -385,8 +387,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::expire(&inner, key, seconds).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::expire(_self, key, seconds).await?.convert()
     })
   }
 
@@ -401,8 +403,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::keys::expire_at(&inner, key, timestamp).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::expire_at(_self, key, timestamp).await?.convert()
     })
   }
 
@@ -415,8 +417,8 @@ pub trait KeysInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::keys::exists(&inner, keys).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::keys::exists(_self, keys).await?.convert()
     })
   }
 }

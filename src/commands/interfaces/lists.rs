@@ -16,8 +16,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::lists::blpop(&inner, keys, timeout).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::blpop(_self, keys, timeout).await?.convert()
     })
   }
 
@@ -31,8 +31,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<MultipleKeys>,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::lists::brpop(&inner, keys, timeout).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::brpop(_self, keys, timeout).await?.convert()
     })
   }
 
@@ -46,8 +46,8 @@ pub trait ListInterface: ClientLike + Sized {
     D: Into<RedisKey>,
   {
     into!(source, destination);
-    async_spawn(self, |inner| async move {
-      commands::lists::brpoplpush(&inner, source, destination, timeout)
+    async_spawn(self, |_self| async move {
+      commands::lists::brpoplpush(_self, source, destination, timeout)
         .await?
         .convert()
     })
@@ -70,9 +70,9 @@ pub trait ListInterface: ClientLike + Sized {
     D: Into<RedisKey>,
   {
     into!(source, destination);
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       commands::lists::blmove(
-        &inner,
+        _self,
         source,
         destination,
         source_direction,
@@ -93,8 +93,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::lists::lindex(&inner, key, index).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lindex(_self, key, index).await?.convert()
     })
   }
 
@@ -112,8 +112,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(pivot, element);
-    async_spawn(self, |inner| async move {
-      commands::lists::linsert(&inner, key, location, pivot, element)
+    async_spawn(self, |_self| async move {
+      commands::lists::linsert(_self, key, location, pivot, element)
         .await?
         .convert()
     })
@@ -128,8 +128,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::lists::llen(&inner, key).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::llen(_self, key).await?.convert()
     })
   }
 
@@ -142,8 +142,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::lists::lpop(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lpop(_self, key, count).await?.convert()
     })
   }
 
@@ -166,8 +166,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(element);
-    async_spawn(self, |inner| async move {
-      commands::lists::lpos(&inner, key, element, rank, count, maxlen)
+    async_spawn(self, |_self| async move {
+      commands::lists::lpos(_self, key, element, rank, count, maxlen)
         .await?
         .convert()
     })
@@ -185,8 +185,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(elements);
-    async_spawn(self, |inner| async move {
-      commands::lists::lpush(&inner, key, elements).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lpush(_self, key, elements).await?.convert()
     })
   }
 
@@ -202,8 +202,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(elements);
-    async_spawn(self, |inner| async move {
-      commands::lists::lpushx(&inner, key, elements).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lpushx(_self, key, elements).await?.convert()
     })
   }
 
@@ -216,8 +216,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::lists::lrange(&inner, key, start, stop).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lrange(_self, key, start, stop).await?.convert()
     })
   }
 
@@ -233,8 +233,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(element);
-    async_spawn(self, |inner| async move {
-      commands::lists::lrem(&inner, key, count, element).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lrem(_self, key, count, element).await?.convert()
     })
   }
 
@@ -250,8 +250,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(element);
-    async_spawn(self, |inner| async move {
-      commands::lists::lset(&inner, key, index, element).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::lset(_self, key, index, element).await?.convert()
     })
   }
 
@@ -264,8 +264,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::lists::ltrim(&inner, key, start, stop).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::ltrim(_self, key, start, stop).await?.convert()
     })
   }
 
@@ -278,8 +278,8 @@ pub trait ListInterface: ClientLike + Sized {
     K: Into<RedisKey>,
   {
     into!(key);
-    async_spawn(self, |inner| async move {
-      commands::lists::rpop(&inner, key, count).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::rpop(_self, key, count).await?.convert()
     })
   }
 
@@ -293,8 +293,8 @@ pub trait ListInterface: ClientLike + Sized {
     D: Into<RedisKey>,
   {
     into!(source, dest);
-    async_spawn(self, |inner| async move {
-      commands::lists::rpoplpush(&inner, source, dest).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::rpoplpush(_self, source, dest).await?.convert()
     })
   }
 
@@ -315,8 +315,8 @@ pub trait ListInterface: ClientLike + Sized {
     D: Into<RedisKey>,
   {
     into!(source, dest);
-    async_spawn(self, |inner| async move {
-      commands::lists::lmove(&inner, source, dest, source_direction, dest_direction)
+    async_spawn(self, |_self| async move {
+      commands::lists::lmove(_self, source, dest, source_direction, dest_direction)
         .await?
         .convert()
     })
@@ -334,8 +334,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(elements);
-    async_spawn(self, |inner| async move {
-      commands::lists::rpush(&inner, key, elements).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::rpush(_self, key, elements).await?.convert()
     })
   }
 
@@ -351,8 +351,8 @@ pub trait ListInterface: ClientLike + Sized {
   {
     into!(key);
     try_into!(elements);
-    async_spawn(self, |inner| async move {
-      commands::lists::rpushx(&inner, key, elements).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lists::rpushx(_self, key, elements).await?.convert()
     })
   }
 }

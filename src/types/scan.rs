@@ -1,6 +1,9 @@
 use crate::clients::RedisClient;
 use crate::error::RedisError;
+use crate::interfaces;
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::RedisCommandKind;
+use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner};
 use crate::types::{RedisKey, RedisMap, RedisValue};
 use crate::utils;
@@ -107,9 +110,9 @@ impl Scanner for ScanResult {
       return Ok(());
     }
 
-    let kind = RedisCommandKind::Scan(self.scan_state);
-    let cmd = RedisCommand::new(kind, self.args, None);
-    utils::send_command(&self.inner, cmd)
+    let response = ResponseKind::KeyScan(self.scan_state);
+    let cmd = (RedisCommandKind::Scan, Vec::new(), response).into();
+    interfaces::default_send_command(&self.inner, cmd)
   }
 }
 
@@ -151,9 +154,9 @@ impl Scanner for HScanResult {
       return Ok(());
     }
 
-    let kind = RedisCommandKind::Hscan(self.scan_state);
-    let cmd = RedisCommand::new(kind, self.args, None);
-    utils::send_command(&self.inner, cmd)
+    let response = ResponseKind::ValueScan(self.scan_state);
+    let cmd = (RedisCommandKind::Hscan, Vec::new(), response).into();
+    interfaces::default_send_command(&self.inner, cmd)
   }
 }
 
@@ -195,9 +198,9 @@ impl Scanner for SScanResult {
       return Ok(());
     }
 
-    let kind = RedisCommandKind::Sscan(self.scan_state);
-    let cmd = RedisCommand::new(kind, self.args, None);
-    utils::send_command(&self.inner, cmd)
+    let response = ResponseKind::ValueScan(self.scan_state);
+    let cmd = (RedisCommandKind::Sscan, Vec::new(), response).into();
+    interfaces::default_send_command(&self.inner, cmd)
   }
 }
 
@@ -239,8 +242,8 @@ impl Scanner for ZScanResult {
       return Ok(());
     }
 
-    let kind = RedisCommandKind::Zscan(self.scan_state);
-    let cmd = RedisCommand::new(kind, self.args, None);
-    utils::send_command(&self.inner, cmd)
+    let response = ResponseKind::ValueScan(self.scan_state);
+    let cmd = (RedisCommandKind::Zscan, Vec::new(), response).into();
+    interfaces::default_send_command(&self.inner, cmd)
   }
 }

@@ -152,6 +152,14 @@ impl ClientCounters {
     utils::read_atomic(&self.redelivery_count)
   }
 
+  pub fn take_cmd_buffer_len(&self) -> usize {
+    utils::set_atomic(&self.cmd_buffer_len, 0)
+  }
+
+  pub fn take_redelivery_count(&self) -> usize {
+    utils::set_atomic(&self.redelivery_count, 0)
+  }
+
   pub fn reset(&self) {
     utils::set_atomic(&self.cmd_buffer_len, 0);
     utils::set_atomic(&self.redelivery_count, 0);
@@ -264,6 +272,31 @@ impl RedisClientInner {
 
   pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {
     self.cluster_state.as_ref().store(state.map(|s| Arc::new(s)));
+  }
+
+  pub fn num_cluster_nodes(&self) -> usize {
+    self
+      .cluster_state
+      .load()
+      .as_ref()
+      .map(|state| state.unique_primary_nodes().len())
+      .unwrap_or(1)
+  }
+
+  pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
+  where
+    F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
+  {
+    let guard = self.cluster_state.load();
+
+    if let Some(state) = guard.as_ref() {
+      func(state)
+    } else {
+      Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Missing cluster routing state.",
+      ))
+    }
   }
 
   pub fn update_sentinel_primary(&self, server: &ArcStr) {

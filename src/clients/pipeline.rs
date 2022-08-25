@@ -54,6 +54,9 @@ impl ClientLike for Pipeline {
   where
     C: Into<RedisCommand>,
   {
+    // TODO consider keeping the response tx here so the post-processing can still work with the real response
+    // and change request_response to respond without waiting
+    // probably need a different success type in the function signature
     let mut command: RedisCommand = command.into();
     if let Some(tx) = command.take_responder() {
       trace!(

@@ -16,8 +16,8 @@ pub trait LuaInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(script);
-    async_spawn(self, |inner| async move {
-      commands::lua::script_load(&inner, script).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lua::script_load(_self, script).await?.convert()
     })
   }
 
@@ -27,8 +27,8 @@ pub trait LuaInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(script);
-    async_spawn(self, |inner| async move {
-      commands::lua::script_load_cluster(&inner, script).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lua::script_load_cluster(_self, script).await?.convert()
     })
   }
 
@@ -36,48 +36,44 @@ pub trait LuaInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/script-kill>
   fn script_kill(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_kill(&inner).await
-    })
+    async_spawn(self, |_self| async move { commands::lua::script_kill(_self).await })
   }
 
   /// A clustered variant of the [script_kill](Self::script_kill) command that issues the command to all primary nodes in the cluster.
   fn script_kill_cluster(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_kill_cluster(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::lua::script_kill_cluster(_self).await },
+    )
   }
 
   /// Flush the Lua scripts cache.
   ///
   /// <https://redis.io/commands/script-flush>
   fn script_flush(&self, r#async: bool) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_flush(&inner, r#async).await
+    async_spawn(self, |_self| async move {
+      commands::lua::script_flush(_self, r#async).await
     })
   }
 
   /// A clustered variant of [script_flush](Self::script_flush) that flushes the script cache on all primary nodes in the cluster.
   fn script_flush_cluster(&self, r#async: bool) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_flush_cluster(&inner, r#async).await
+    async_spawn(self, |_self| async move {
+      commands::lua::script_flush_cluster(_self, r#async).await
     })
   }
 
   /// Returns information about the existence of the scripts in the script cache.
   ///
   /// <https://redis.io/commands/script-exists>
-  fn script_exists<H>(&self, hashes: H) -> AsyncResult<Vec<bool>>
+  fn script_exists<R, H>(&self, hashes: H) -> AsyncResult<R>
   where
+    R: FromRedis + Unpin + Send,
     H: Into<MultipleStrings>,
   {
     into!(hashes);
-    async_spawn(self, |inner| async move {
-      commands::lua::script_exists(&inner, hashes).await
+    async_spawn(self, |_self| async move {
+      commands::lua::script_exists(_self, hashes).await?.convert()
     })
   }
 
@@ -85,10 +81,10 @@ pub trait LuaInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/script-debug>
   fn script_debug(&self, flag: ScriptDebugFlag) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_debug(&inner, flag).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::lua::script_debug(_self, flag).await },
+    )
   }
 
   /// Evaluates a script cached on the server side by its SHA1 digest.
@@ -106,9 +102,8 @@ pub trait LuaInterface: ClientLike + Sized {
   {
     into!(hash, keys);
     try_into!(args);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::evalsha(&inner, hash, keys, args).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lua::evalsha(_self, hash, keys, args).await?.convert()
     })
   }
 
@@ -127,9 +122,8 @@ pub trait LuaInterface: ClientLike + Sized {
   {
     into!(script, keys);
     try_into!(args);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::eval(&inner, script, keys, args).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::lua::eval(_self, script, keys, args).await?.convert()
     })
   }
 }

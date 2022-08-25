@@ -21,9 +21,8 @@ pub trait AuthInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(password);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::auth(&inner, username, password).await
+    async_spawn(self, |_self| async move {
+      commands::server::auth(_self, username, password).await
     })
   }
 
@@ -33,15 +32,14 @@ pub trait AuthInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/hello>
   fn hello(&self, version: RespVersion, auth: Option<(String, String)>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::hello(&inner, version, auth).await
+    async_spawn(self, |_self| async move {
+      commands::server::hello(_self, version, auth).await
     })
   }
 }
 
 /// Functions that provide a connection heartbeat interface.
-pub trait HeartbeatInterface: ClientLike + Sized + Clone + 'static {
+pub trait HeartbeatInterface: ClientLike + Sized + 'static {
   /// Return a future that will ping the server on an interval.
   ///
   /// When running against a cluster this will ping a random node on each interval.
@@ -49,16 +47,11 @@ pub trait HeartbeatInterface: ClientLike + Sized + Clone + 'static {
   fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> AsyncResult<()> {
     let _self = self.clone();
 
-    async_spawn(self, |inner| async move {
+    async_spawn(self, |_self| async move {
       let mut interval = tokio_interval(interval);
 
       loop {
         interval.tick().await;
-
-        if utils::is_locked_some(&inner.multi_block) {
-          _debug!(inner, "Skip heartbeat while inside transaction.");
-          continue;
-        }
 
         if break_on_error {
           let _ = _self.ping().await?;
@@ -83,9 +76,8 @@ pub trait ServerInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::bgrewriteaof(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::server::bgrewriteaof(_self).await?.convert()
     })
   }
 
@@ -96,10 +88,10 @@ pub trait ServerInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::bgsave(&inner).await?.convert()
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::server::bgsave(_self).await?.convert() },
+    )
   }
 
   /// Return the number of keys in the selected database.
@@ -109,9 +101,10 @@ pub trait ServerInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::server::dbsize(&inner).await?.convert()
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::server::dbsize(_self).await?.convert() },
+    )
   }
 
   /// Delete the keys in all databases.
@@ -121,25 +114,25 @@ pub trait ServerInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::server::flushall(&inner, r#async).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::server::flushall(_self, r#async).await?.convert()
     })
   }
 
   /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis interface.
   fn flushall_cluster(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::flushall_cluster(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::server::flushall_cluster(_self).await },
+    )
   }
 
   /// Select the database this client should use.
   ///
   /// <https://redis.io/commands/select>
   fn select(&self, db: u8) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      commands::server::select(&inner, db).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::server::select(_self, db).await?.convert()
     })
   }
 
@@ -147,9 +140,8 @@ pub trait ServerInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/failover>
   fn failover(&self, to: Option<(String, u16)>, force: bool, abort: bool, timeout: Option<u32>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::failover(&inner, to, force, abort, timeout).await
+    async_spawn(self, |_self| async move {
+      commands::server::failover(_self, to, force, abort, timeout).await
     })
   }
 
@@ -160,8 +152,8 @@ pub trait ServerInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::server::lastsave(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::server::lastsave(_self).await?.convert()
     })
   }
 }

@@ -57,9 +57,6 @@ use std::sync::Arc;
 // commands are queued, then quit is called. should the client wait to reconnect, then try those commands,
 // then quit on the new connection? or should quit() cancel reconnection attempts and all queued messages?
 
-// TODO change on_message to return BroadcastReceiver, move to pubsub interface trait
-// TODO change on_error/reconnect/connect to return BroadcastReceivers, move to ClientLike trait
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
@@ -97,7 +94,6 @@ pub enum ResponseKind {
     index: usize,
   },
   /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
-  // TODO add args and any other shared state (like args) to this
   ValueScan(ValueScanInner),
   /// Handle the response as a page of keys from a SCAN command.
   KeyScan(KeyScanInner),

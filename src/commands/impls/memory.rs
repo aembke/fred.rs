@@ -1,6 +1,7 @@
 use super::*;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -8,28 +9,12 @@ use crate::utils;
 use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
-pub async fn memory_doctor(inner: &Arc<RedisClientInner>) -> Result<String, RedisError> {
-  let frame = utils::request_response(inner, || Ok((RedisCommandKind::MemoryDoctor, vec![]))).await?;
-  let response = protocol_utils::frame_to_single_result(frame)?;
-
-  response
-    .into_string()
-    .ok_or(RedisError::new(RedisErrorKind::ProtocolError, "Expected string reply."))
-}
-
-pub async fn memory_malloc_stats(inner: &Arc<RedisClientInner>) -> Result<String, RedisError> {
-  let frame = utils::request_response(inner, || Ok((RedisCommandKind::MemoryMallocStats, vec![]))).await?;
-  let response = protocol_utils::frame_to_single_result(frame)?;
-
-  response
-    .into_string()
-    .ok_or(RedisError::new(RedisErrorKind::ProtocolError, "Expected string reply."))
-}
-
+value_cmd!(memory_doctor, MemoryDoctor);
+value_cmd!(memory_malloc_stats, MemoryMallocStats);
 ok_cmd!(memory_purge, MemoryPurge);
 
-pub async fn memory_stats(inner: &Arc<RedisClientInner>) -> Result<MemoryStats, RedisError> {
-  let response = utils::request_response(inner, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?;
+pub async fn memory_stats<C: ClientLike>(client: C) -> Result<MemoryStats, RedisError> {
+  let response = utils::request_response(client, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?;
 
   let frame = protocol_utils::frame_map_or_set_to_nested_array(response)?;
   if let Frame::Array { data, .. } = frame {
@@ -42,16 +27,12 @@ pub async fn memory_stats(inner: &Arc<RedisClientInner>) -> Result<MemoryStats, 
   }
 }
 
-pub async fn memory_usage<K>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn memory_usage<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   samples: Option<u32>,
-) -> Result<Option<u64>, RedisError>
-where
-  K: Into<RedisKey>,
-{
-  let key = key.into();
-  let frame = utils::request_response(inner, move || {
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(3);
     args.push(key.into());
 
@@ -64,16 +45,5 @@ where
   })
   .await?;
 
-  if let RedisValue::Integer(i) = protocol_utils::frame_to_single_result(frame)? {
-    if i < 0 {
-      Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected positive integer.",
-      ))
-    } else {
-      Ok(Some(i as u64))
-    }
-  } else {
-    Ok(None)
-  }
+  protocol_utils::frame_to_single_result(frame)
 }

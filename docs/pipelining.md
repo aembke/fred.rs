@@ -221,7 +221,7 @@ In this example the client will retry `GET bar` against the correct cluster node
 Contrast this with a more complicated `Transaction` scenario:
 
 ```rust
-let trx = client.multi().await;
+let trx = client.multi();
 let _ = trx.get("foo").await?; // returns immediately with QUEUED
 let _ = trx.get("bar").await?; // returns immediately with QUEUED
 let results: Vec<String> = trx.exec(false).await?;

@@ -15,8 +15,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::ckquorum(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::ckquorum(_self, name).await?.convert()
     })
   }
 
@@ -25,8 +25,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::flushconfig(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::flushconfig(_self).await?.convert()
     })
   }
 
@@ -37,8 +37,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::failover(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::failover(_self, name).await?.convert()
     })
   }
 
@@ -49,8 +49,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::get_master_addr_by_name(&inner, name)
+    async_spawn(self, |_self| async move {
+      commands::sentinel::get_master_addr_by_name(_self, name)
         .await?
         .convert()
     })
@@ -61,8 +61,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::info_cache(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::info_cache(_self).await?.convert()
     })
   }
 
@@ -73,8 +73,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::master(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::master(_self, name).await?.convert()
     })
   }
 
@@ -83,8 +83,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::masters(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::masters(_self).await?.convert()
     })
   }
 
@@ -97,8 +97,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::monitor(&inner, name, ip, port, quorum)
+    async_spawn(self, |_self| async move {
+      commands::sentinel::monitor(_self, name, ip, port, quorum)
         .await?
         .convert()
     })
@@ -109,9 +109,10 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::myid(&inner).await?.convert()
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::sentinel::myid(_self).await?.convert() },
+    )
   }
 
   /// This command returns information about pending scripts.
@@ -119,8 +120,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::pending_scripts(&inner).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::pending_scripts(_self).await?.convert()
     })
   }
 
@@ -133,8 +134,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::remove(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::remove(_self, name).await?.convert()
     })
   }
 
@@ -145,8 +146,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::replicas(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::replicas(_self, name).await?.convert()
     })
   }
 
@@ -157,8 +158,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     N: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::sentinels(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::sentinels(_self, name).await?.convert()
     })
   }
 
@@ -174,8 +175,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   {
     into!(name);
     try_into!(args);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::set(&inner, name, args.into()).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::set(_self, name, args.into()).await?.convert()
     })
   }
 
@@ -184,8 +185,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::simulate_failure(&inner, kind).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::simulate_failure(_self, kind).await?.convert()
     })
   }
 
@@ -196,8 +197,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     P: Into<Str>,
   {
     into!(pattern);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::reset(&inner, pattern).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::reset(_self, pattern).await?.convert()
     })
   }
 
@@ -208,8 +209,8 @@ pub trait SentinelInterface: ClientLike + Sized {
     K: Into<Str>,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::config_get(&inner, name).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::config_get(_self, name).await?.convert()
     })
   }
 
@@ -223,8 +224,8 @@ pub trait SentinelInterface: ClientLike + Sized {
   {
     into!(name);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::config_set(&inner, name, value).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::sentinel::config_set(_self, name, value).await?.convert()
     })
   }
 }

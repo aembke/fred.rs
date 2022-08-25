@@ -699,7 +699,7 @@ pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, R
 pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {
   match *value {
     RedisValue::String(ref resp) => {
-      if resp.deref() == OK {
+      if resp.deref() == OK || resp.deref() == QUEUED {
         Ok(())
       } else {
         Err(RedisError::new(

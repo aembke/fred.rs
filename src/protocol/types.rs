@@ -65,14 +65,9 @@ impl From<Resp3Frame> for ProtocolFrame {
   }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CustomKeySlot {
-  pub key_slot: Option<u16>,
-}
-
 pub struct KeyScanInner {
   /// The hash slot for the command.
-  pub key_slot: Option<u16>,
+  pub hash_slot: Option<u16>,
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
@@ -88,6 +83,13 @@ impl PartialEq for KeyScanInner {
 }
 
 impl Eq for KeyScanInner {}
+
+impl KeyScanInner {
+  /// Update the cursor in place in the arguments.
+  pub fn update_cursor(&mut self, cursor: Str) {
+    self.args[self.cursor_idx] = cursor.into();
+  }
+}
 
 pub enum ValueScanResult {
   SScan(SScanResult),
@@ -113,6 +115,11 @@ impl PartialEq for ValueScanInner {
 impl Eq for ValueScanInner {}
 
 impl ValueScanInner {
+  /// Update the cursor in place in the arguments.
+  pub fn update_cursor(&mut self, cursor: Str) {
+    self.args[self.cursor_idx] = cursor.into();
+  }
+
   pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
     if data.is_empty() {
       return Ok(RedisMap::new());

@@ -1,6 +1,7 @@
 use super::*;
 use crate::error::*;
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -15,18 +16,8 @@ values_cmd!(acl_list, AclList);
 values_cmd!(acl_users, AclUsers);
 value_cmd!(acl_whoami, AclWhoAmI);
 
-// TODO
-// make a trait with SendCommand on it (taking command_tx as argument)
-// change all these functions to take that as an argument
-// move send_command logic to the RedisClientInner implementation,
-// change request_response to call that instead
-
-pub async fn acl_setuser(
-  inner: &Arc<RedisClientInner>,
-  username: Str,
-  rules: Vec<AclRule>,
-) -> Result<(), RedisError> {
-  let frame = utils::request_response(inner, move || {
+pub async fn acl_setuser<C: ClientLike>(client: C, username: Str, rules: Vec<AclRule>) -> Result<(), RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(rules.len() + 1);
     args.push(username.into());
 
@@ -42,9 +33,11 @@ pub async fn acl_setuser(
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn acl_getuser(inner: &Arc<RedisClientInner>, username: Str) -> Result<Option<AclUser>, RedisError> {
-  let frame =
-    utils::request_response(inner, move || Ok((RedisCommandKind::AclGetUser, vec![username.into()]))).await?;
+pub async fn acl_getuser<C: ClientLike>(client: C, username: Str) -> Result<Option<AclUser>, RedisError> {
+  let frame = utils::request_response(client, move || {
+    Ok((RedisCommandKind::AclGetUser, vec![username.into()]))
+  })
+  .await?;
 
   if protocol_utils::is_null(&frame) {
     return Ok(None);
@@ -61,47 +54,47 @@ pub async fn acl_getuser(inner: &Arc<RedisClientInner>, username: Str) -> Result
   }
 }
 
-pub async fn acl_deluser(inner: &Arc<RedisClientInner>, usernames: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn acl_deluser<C: ClientLike>(client: C, usernames: MultipleKeys) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = usernames.inner().into_iter().map(|k| k.into()).collect();
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::AclDelUser, args))).await?;
+  let frame = utils::request_response(client, move || Ok((RedisCommandKind::AclDelUser, args))).await?;
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn acl_cat(inner: &Arc<RedisClientInner>, category: Option<Str>) -> Result<RedisValue, RedisError> {
+pub async fn acl_cat<C: ClientLike>(client: C, category: Option<Str>) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = if let Some(cat) = category {
     vec![cat.into()]
   } else {
     Vec::new()
   };
 
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::AclCat, args))).await?;
+  let frame = utils::request_response(client, move || Ok((RedisCommandKind::AclCat, args))).await?;
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn acl_genpass(inner: &Arc<RedisClientInner>, bits: Option<u16>) -> Result<RedisValue, RedisError> {
+pub async fn acl_genpass<C: ClientLike>(client: C, bits: Option<u16>) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = if let Some(bits) = bits {
     vec![bits.into()]
   } else {
     Vec::new()
   };
 
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::AclGenPass, args))).await?;
+  let frame = utils::request_response(client, move || Ok((RedisCommandKind::AclGenPass, args))).await?;
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn acl_log_reset(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let frame = utils::request_response(inner, || Ok((RedisCommandKind::AclLog, vec![static_val!(RESET)]))).await?;
+pub async fn acl_log_reset<C: ClientLike>(client: C) -> Result<(), RedisError> {
+  let frame = utils::request_response(client, || Ok((RedisCommandKind::AclLog, vec![static_val!(RESET)]))).await?;
   let response = protocol_utils::frame_to_single_result(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn acl_log_count(inner: &Arc<RedisClientInner>, count: Option<u32>) -> Result<RedisValue, RedisError> {
+pub async fn acl_log_count<C: ClientLike>(client: C, count: Option<u32>) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = if let Some(count) = count {
     vec![count.into()]
   } else {
     Vec::new()
   };
 
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::AclLog, args))).await?;
+  let frame = utils::request_response(client, move || Ok((RedisCommandKind::AclLog, args))).await?;
   protocol_utils::frame_to_results(frame)
 }

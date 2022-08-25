@@ -1344,7 +1344,9 @@ pub struct RedisCommand {
   /// The policy to use when hashing the arguments for cluster routing.
   pub hasher: ClusterHash,
   /// The provided arguments.
-  pub args: Vec<RedisValue>,
+  ///
+  /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
+  pub arguments: Vec<RedisValue>,
   /// A oneshot sender used to communicate with the multiplexer.
   pub multiplexer_tx: Option<MultiplexerSender>,
   /// The number of times the command was sent to the server.
@@ -1374,7 +1376,7 @@ impl fmt::Debug for RedisCommand {
       .field("command", self.kind.to_str_debug())
       .field("attempted", &self.attempted)
       .field("can_pipeline", &self.can_pipeline)
-      .field("arguments", &self.args)
+      .field("arguments", &self.args())
       .finish()
   }
 }
@@ -1392,10 +1394,10 @@ impl From<RedisCommandKind> for RedisCommand {
 }
 
 impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
-  fn from((kind, args): (RedisCommandKind, Vec<RedisValue>)) -> Self {
+  fn from((kind, arguments): (RedisCommandKind, Vec<RedisValue>)) -> Self {
     RedisCommand {
       kind,
-      args,
+      arguments,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::FirstKey,
       multiplexer_tx: None,
@@ -1414,10 +1416,10 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
 }
 
 impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand {
-  fn from((kind, args, tx): (RedisCommandKind, Vec<RedisValue>, ResponseSender)) -> Self {
+  fn from((kind, arguments, tx): (RedisCommandKind, Vec<RedisValue>, ResponseSender)) -> Self {
     RedisCommand {
       kind,
-      args,
+      arguments,
       response: ResponseKind::Respond(Some(tx)),
       hasher: ClusterHash::FirstKey,
       multiplexer_tx: None,
@@ -1436,10 +1438,10 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
 }
 
 impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
-  fn from((kind, args, response): (RedisCommandKind, Vec<RedisValue>, ResponseKind)) -> Self {
+  fn from((kind, arguments, response): (RedisCommandKind, Vec<RedisValue>, ResponseKind)) -> Self {
     RedisCommand {
       kind,
-      args,
+      arguments,
       response,
       hasher: ClusterHash::FirstKey,
       multiplexer_tx: None,
@@ -1462,7 +1464,7 @@ impl RedisCommand {
   pub fn new_asking(hash_slot: Option<u16>) -> Self {
     RedisCommand {
       kind: RedisCommandKind::Asking,
-      args: Vec::new(),
+      arguments: Vec::new(),
       response: ResponseKind::Skip,
       hasher: ClusterHash::Custom(hash_slot),
       multiplexer_tx: None,
@@ -1511,6 +1513,15 @@ impl RedisCommand {
     }
   }
 
+  /// Read the arguments associated with the command.
+  pub fn args(&self) -> &Vec<RedisValue> {
+    match self.response {
+      ResponseKind::ValueScan(ref inner) => &inner.args,
+      ResponseKind::KeyScan(ref inner) => &inner.args,
+      _ => &self.arguments,
+    }
+  }
+
   /// Create a channel on which to block the multiplexer, returning the receiver.
   pub fn create_multiplexer_channel(&mut self) -> OneshotReceiver<MultiplexerResponse> {
     let (tx, rx) = oneshot_channel();
@@ -1533,7 +1544,7 @@ impl RedisCommand {
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
       kind: self.kind.clone(),
-      args: self.args.clone(),
+      arguments: self.args.clone(),
       hasher: self.hasher.clone(),
       transaction_id: self.transaction_id.clone(),
       attempted: self.attempted,
@@ -1586,12 +1597,12 @@ impl RedisCommand {
 
   /// Read the first key in the arguments according to the `FirstKey` cluster hash policy.
   pub fn first_key(&self) -> Option<&[u8]> {
-    ClusterHash::FirstKey.find_key(&self.args)
+    ClusterHash::FirstKey.find_key(self.args())
   }
 
   /// Hash the arguments according to the command's cluster hash policy.
   pub fn cluster_hash(&self) -> Option<u16> {
-    self.kind.custom_hash_slot().or(self.hasher.hash(&self.args))
+    self.kind.custom_hash_slot().or(self.hasher.hash(self.args()))
   }
 
   /// Return the custom hash slot for custom commands.
@@ -1608,7 +1619,7 @@ impl RedisCommand {
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(feature = "blocking-encoding")]
   pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
-    let cmd_size = protocol_utils::args_size(&self.args);
+    let cmd_size = protocol_utils::args_size(self.args());
 
     if cmd_size >= globals().blocking_encode_threshold() {
       trace!("Using blocking task to convert command to frame with size {}", cmd_size);
@@ -1693,11 +1704,6 @@ pub enum MultiplexerCommand {
   Reconnect { server: Option<ArcStr>, force: bool },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster,
-  /// Read the latest cached cluster routing state from the multiplexer, updating it via `CLUSTER SLOTS` first if `sync` is `true.
-  ClusterRouting {
-    sync: bool,
-    tx: OneshotSender<Result<ClusterRouting, RedisError>>,
-  },
 }
 
 impl MultiplexerCommand {

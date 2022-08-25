@@ -12,10 +12,10 @@ pub trait ConfigInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/config-resetstat>
   fn config_resetstat(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::config::config_resetstat(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::config::config_resetstat(_self).await },
+    )
   }
 
   /// The CONFIG REWRITE command rewrites the redis.conf file the server was started with, applying the minimal changes needed to make it
@@ -24,10 +24,10 @@ pub trait ConfigInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/config-rewrite>
   fn config_rewrite(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::config::config_rewrite(&inner).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::config::config_rewrite(_self).await },
+    )
   }
 
   /// The CONFIG GET command is used to read the configuration parameters of a running Redis server.
@@ -39,9 +39,8 @@ pub trait ConfigInterface: ClientLike + Sized {
     S: Into<Str>,
   {
     into!(parameter);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::config::config_get(&inner, parameter).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::config::config_get(_self, parameter).await?.convert()
     })
   }
 
@@ -56,9 +55,8 @@ pub trait ConfigInterface: ClientLike + Sized {
   {
     into!(parameter);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::config::config_set(&inner, parameter, value).await
+    async_spawn(self, |_self| async move {
+      commands::config::config_set(_self, parameter, value).await
     })
   }
 }

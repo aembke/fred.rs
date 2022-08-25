@@ -1,6 +1,7 @@
 use super::*;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
 use crate::types::*;
@@ -17,20 +18,14 @@ static FROM_LONLAT: &'static str = "FROMLONLAT";
 static BY_RADIUS: &'static str = "BYRADIUS";
 static BY_BOX: &'static str = "BYBOX";
 
-pub async fn geoadd<K, V>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn geoadd<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   options: Option<SetOptions>,
   changed: bool,
-  values: V,
-) -> Result<RedisValue, RedisError>
-where
-  K: Into<RedisKey>,
-  V: Into<MultipleGeoValues>,
-{
-  let (key, values) = (key.into(), values.into());
-
-  let frame = utils::request_response(inner, move || {
+  values: MultipleGeoValues,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(3 + (values.len() * 3));
     args.push(key.into());
 
@@ -54,17 +49,12 @@ where
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn geohash<K>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn geohash<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   members: MultipleValues,
-) -> Result<RedisValue, RedisError>
-where
-  K: Into<RedisKey>,
-{
-  let key = key.into();
-
-  let frame = utils::request_response(inner, move || {
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
@@ -79,16 +69,12 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn geopos<K>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn geopos<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   members: MultipleValues,
-) -> Result<RedisValue, RedisError>
-where
-  K: Into<RedisKey>,
-{
-  let key = key.into();
-  let frame = utils::request_response(inner, move || {
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
@@ -103,18 +89,14 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn geodist<K>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn geodist<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   src: RedisValue,
   dest: RedisValue,
   unit: Option<GeoUnit>,
-) -> Result<RedisValue, RedisError>
-where
-  K: Into<RedisKey>,
-{
-  let key = key.into();
-  let frame = utils::request_response(inner, move || {
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(4);
     args.push(key.into());
     args.push(src);
@@ -131,10 +113,10 @@ where
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn georadius<K, P>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
-  position: P,
+pub async fn georadius<C: ClientLike>(
+  client: C,
+  key: RedisKey,
+  position: GeoPosition,
   radius: f64,
   unit: GeoUnit,
   withcoord: bool,
@@ -144,14 +126,8 @@ pub async fn georadius<K, P>(
   ord: Option<SortOrder>,
   store: Option<RedisKey>,
   storedist: Option<RedisKey>,
-) -> Result<Vec<GeoRadiusInfo>, RedisError>
-where
-  K: Into<RedisKey>,
-  P: Into<GeoPosition>,
-{
-  let (key, position) = (key.into(), position.into());
-
-  let frame = utils::request_response(inner, move || {
+) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(16);
     args.push(key.into());
     args.push(position.longitude.try_into()?);
@@ -194,9 +170,9 @@ where
   protocol_utils::parse_georadius_result(frame, withcoord, withdist, withhash)
 }
 
-pub async fn georadiusbymember<K>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn georadiusbymember<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   member: RedisValue,
   radius: f64,
   unit: GeoUnit,
@@ -207,13 +183,8 @@ pub async fn georadiusbymember<K>(
   ord: Option<SortOrder>,
   store: Option<RedisKey>,
   storedist: Option<RedisKey>,
-) -> Result<Vec<GeoRadiusInfo>, RedisError>
-where
-  K: Into<RedisKey>,
-{
-  let key = key.into();
-
-  let frame = utils::request_response(inner, move || {
+) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(15);
     args.push(key.into());
     args.push(member);
@@ -255,9 +226,9 @@ where
   protocol_utils::parse_georadius_result(frame, withcoord, withdist, withhash)
 }
 
-pub async fn geosearch<K>(
-  inner: &Arc<RedisClientInner>,
-  key: K,
+pub async fn geosearch<C: ClientLike>(
+  client: C,
+  key: RedisKey,
   from_member: Option<RedisValue>,
   from_lonlat: Option<GeoPosition>,
   by_radius: Option<(f64, GeoUnit)>,
@@ -267,13 +238,8 @@ pub async fn geosearch<K>(
   withcoord: bool,
   withdist: bool,
   withhash: bool,
-) -> Result<Vec<GeoRadiusInfo>, RedisError>
-where
-  K: Into<RedisKey>,
-{
-  let key = key.into();
-
-  let frame = utils::request_response(inner, move || {
+) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(15);
     args.push(key.into());
 
@@ -325,10 +291,10 @@ where
   protocol_utils::parse_georadius_result(frame, withcoord, withdist, withhash)
 }
 
-pub async fn geosearchstore<D, S>(
-  inner: &Arc<RedisClientInner>,
-  dest: D,
-  source: S,
+pub async fn geosearchstore<C: ClientLike>(
+  client: C,
+  dest: RedisKey,
+  source: RedisKey,
   from_member: Option<RedisValue>,
   from_lonlat: Option<GeoPosition>,
   by_radius: Option<(f64, GeoUnit)>,
@@ -336,13 +302,8 @@ pub async fn geosearchstore<D, S>(
   ord: Option<SortOrder>,
   count: Option<(u64, Any)>,
   storedist: bool,
-) -> Result<RedisValue, RedisError>
-where
-  D: Into<RedisKey>,
-  S: Into<RedisKey>,
-{
-  let (dest, source) = (dest.into(), source.into());
-  let frame = utils::request_response(inner, move || {
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(14);
     args.push(dest.into());
     args.push(source.into());
