@@ -124,8 +124,20 @@ impl Backchannel {
   }
 
   /// Return the server ID of the existing backchannel connection, if found.
-  pub fn server(&self) -> Option<ArcStr> {
+  pub fn current_server(&self) -> Option<ArcStr> {
     self.transport.map(|t| t.server().clone())
+  }
+
+  /// Return a server ID, with the following preferences:
+  ///
+  /// 1. The blocked server ID, if any.
+  /// 2. The server ID of the existing connection, if any.
+  /// 3. A random server ID from the multiplexer's connection map.
+  pub fn any_server(&self) -> Option<ArcStr> {
+    self
+      .blocked_server()
+      .or(self.current_server())
+      .or(self.connection_ids.keys().next().cloned())
   }
 
   /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.

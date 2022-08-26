@@ -38,7 +38,7 @@ async fn create_client() -> RedisClient {
   unimplemented!()
 }
 
-async fn index(State(pool): State<RedisClient>) -> Result<String, (StatusCode, String)> {
+async fn index(State(client): State<RedisClient>) -> Result<String, (StatusCode, String)> {
   // will be implemented differently in each example below
   unimplemented!()
 }
@@ -70,7 +70,7 @@ async fn create_client() -> RedisClient {
   unimplemented!()
 }
  
-async fn index(State(pool): State<RedisClient>) -> Result<String, (StatusCode, String)> {
+async fn index(State(client): State<RedisClient>) -> Result<String, (StatusCode, String)> {
   // will be implemented differently in each example below
   unimplemented!()
 }
@@ -90,7 +90,7 @@ async fn create_client() -> RedisClient {
   unimplemented!()
 }
 
-async fn index(State(pool): State<RedisClient>) -> Result<String, (StatusCode, String)> {
+async fn index(State(client): State<RedisClient>) -> Result<String, (StatusCode, String)> {
   // will be implemented differently in each example below
   unimplemented!()
 }
@@ -112,7 +112,7 @@ async fn create_client() -> RedisClient {
   unimplemented!()
 }
 
-async fn index(State(pool): State<RedisClient>) -> Result<String, (StatusCode, String)> {
+async fn index(State(client): State<RedisClient>) -> Result<String, (StatusCode, String)> {
   // will be implemented differently in each example below
   unimplemented!()
 }

@@ -400,15 +400,6 @@ pub fn read_transaction_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> 
   inner.multi_block.read().as_ref().and_then(|p| p.hash_slot.clone())
 }
 
-pub fn shutdown_listeners(inner: &Arc<RedisClientInner>) {
-  multiplexer_utils::close_connect_tx(&inner.connect_tx);
-  multiplexer_utils::close_error_tx(&inner.error_tx);
-  multiplexer_utils::close_messages_tx(&inner.message_tx);
-  multiplexer_utils::close_keyspace_events_tx(&inner.keyspace_tx);
-  multiplexer_utils::close_reconnect_tx(&inner.reconnect_tx);
-  set_locked(&inner.connection_closed_tx, None);
-}
-
 pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   if read_client_state(&inner.state) == ClientState::Connected {
     return Ok(());

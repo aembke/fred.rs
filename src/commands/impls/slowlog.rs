@@ -9,8 +9,8 @@ use crate::utils;
 use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
-pub async fn slowlog_get(inner: &Arc<RedisClientInner>, count: Option<i64>) -> Result<Vec<SlowlogEntry>, RedisError> {
-  let frame = utils::request_response(inner, move || {
+pub async fn slowlog_get<C: ClientLike>(client: C, count: Option<i64>) -> Result<Vec<SlowlogEntry>, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(static_val!(GET));
 
@@ -32,8 +32,8 @@ pub async fn slowlog_get(inner: &Arc<RedisClientInner>, count: Option<i64>) -> R
   }
 }
 
-pub async fn slowlog_length(inner: &Arc<RedisClientInner>) -> Result<u64, RedisError> {
-  let frame = utils::request_response(inner, || Ok((RedisCommandKind::Slowlog, vec![LEN.into()]))).await?;
+pub async fn slowlog_length<C: ClientLike>(client: C) -> Result<u64, RedisError> {
+  let frame = utils::request_response(client, || Ok((RedisCommandKind::Slowlog, vec![LEN.into()]))).await?;
   let response = protocol_utils::frame_to_single_result(frame)?;
 
   if let RedisValue::Integer(len) = response {
@@ -46,6 +46,6 @@ pub async fn slowlog_length(inner: &Arc<RedisClientInner>) -> Result<u64, RedisE
   }
 }
 
-pub async fn slowlog_reset(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn slowlog_reset<C: ClientLike>(client: C) -> Result<(), RedisError> {
   args_ok_cmd(inner, RedisCommandKind::Slowlog, vec![static_val!(RESET)]).await
 }
