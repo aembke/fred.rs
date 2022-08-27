@@ -1502,6 +1502,11 @@ impl RedisCommand {
     should_pipeline
   }
 
+  /// Whether errors writing the command should be returned to the caller.
+  pub fn should_send_write_error(&self, inner: &Arc<RedisClientInner>) -> bool {
+    self.attempted == inner.max_command_attempts() || inner.policy.read().is_none()
+  }
+
   /// Increment and check the number of write attempts.
   pub fn incr_check_attempted(&mut self, max: u32) -> Result<(), RedisError> {
     self.attempted += 1;

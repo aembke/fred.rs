@@ -12,6 +12,7 @@ use crate::utils::redis_string_to_f64;
 use arcstr::ArcStr;
 use bytes::Bytes;
 use bytes_utils::Str;
+use futures::AsyncBufReadExt;
 use parking_lot::RwLock;
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp3::types::{Auth, PUBSUB_PUSH_PREFIX};
@@ -148,7 +149,6 @@ fn remove_cport_suffix(server: &str) -> &str {
   server
 }
 
-// TODO if None is returned then sync the cluster before returning an error
 pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<usize> {
   if slot > REDIS_CLUSTER_SLOTS {
     return None;
@@ -389,7 +389,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
     Resp3Frame::BlobString { data, .. } => string_or_bytes(data),
     Resp3Frame::BlobError { data, .. } => {
       let parsed = String::from_utf8_lossy(&data);
-      return Err(pretty_error(&parsed));
+      return Err(pretty_error(parsed.as_ref()));
     },
     Resp3Frame::VerbatimString { data, .. } => string_or_bytes(data),
     Resp3Frame::Number { data, .. } => data.into(),
@@ -437,7 +437,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
     Resp3Frame::BlobString { data, .. } => string_or_bytes(data),
     Resp3Frame::BlobError { data, .. } => {
       let parsed = String::from_utf8_lossy(&data);
-      return Err(pretty_error(&parsed));
+      return Err(pretty_error(parsed.as_ref()));
     },
     Resp3Frame::VerbatimString { data, .. } => string_or_bytes(data),
     Resp3Frame::Number { data, .. } => data.into(),
@@ -508,7 +508,7 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
     Resp3Frame::BlobError { data, .. } => {
       // errors don't have a great way to represent non-utf8 strings...
       let parsed = String::from_utf8_lossy(&data);
-      Err(pretty_error(&parsed))
+      Err(pretty_error(parsed.as_ref()))
     },
     Resp3Frame::Array { mut data, .. } | Resp3Frame::Push { mut data, .. } => {
       if data.len() > 1 {
@@ -632,7 +632,7 @@ pub fn frame_to_error(frame: &Resp3Frame) -> Option<RedisError> {
     Resp3Frame::SimpleError { ref data, .. } => Some(pretty_error(data)),
     Resp3Frame::BlobError { ref data, .. } => {
       let parsed = String::from_utf8_lossy(data);
-      Some(pretty_error(&parsed))
+      Some(pretty_error(parsed.as_ref()))
     },
     _ => None,
   }

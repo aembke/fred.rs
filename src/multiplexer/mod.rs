@@ -20,6 +20,8 @@ use tokio::sync::broadcast::Sender as BroadcastSender;
 use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
 use tokio::sync::RwLock as AsyncRwLock;
 
+pub mod centralized;
+pub mod clustered;
 pub mod commands;
 pub mod responses;
 pub mod sentinel;
@@ -30,10 +32,12 @@ pub mod utils;
 pub enum Written<'a> {
   /// Apply backpressure to the command before retrying.
   Backpressure((RedisCommand, Backpressure)),
-  /// Indicates that the command was sent to the associated server.
-  Sent(&'a ArcStr),
+  /// Indicates that the command was sent to the associated server and whether the socket was flushed.
+  Sent((&'a ArcStr, bool)),
+  /// Disconnect from the provided server and retry the command later.
+  Disconnect((&'a ArcStr, Option<RedisCommand>)),
   /// Indicates that the result should be ignored since the command will not be retried.
-  Ignore
+  Ignore,
 }
 
 pub enum Backpressure {
@@ -52,11 +56,6 @@ pub enum Connections<T: AsyncRead + AsyncWrite + Unpin + 'static> {
     writer: Option<RedisWriter<T>>,
   },
   Clustered {
-    /// A list of known nodes in the cluster.
-    ///
-    /// The cluster topology can change such that at some point an entirely new set of nodes may be exposed where none of the
-    /// original endpoints provided in the `RedisConfig` can be reached.
-    known_nodes: BTreeSet<(String, u16)>,
     /// The cached cluster routing table used for mapping keys to server IDs.
     cache: ClusterRouting,
     /// A map of server IDs and connections.
@@ -88,7 +87,6 @@ where
   pub fn new_clustered() -> Self {
     Connections::Clustered {
       cache: ClusterRouting::new(),
-      known_nodes: BTreeSet::new(),
       writers: HashMap::new(),
     }
   }
@@ -109,19 +107,42 @@ where
     }
   }
 
-  /// Clear the set of known nodes for the server and replace with the initial values in the `RedisConfig`.
-  pub fn reset_known_nodes(&mut self, config: &RedisConfig) {
-    if let Connections::Clustered {
-      ref mut known_nodes, ..
-    } = self
-    {
-      known_nodes.clear();
-
-      if let ServerConfig::Clustered { ref hosts, .. } = config.server {
-        for (host, port) in hosts.iter() {
-          known_nodes.insert((host.to_owned(), *port));
+  /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
+  pub async fn disconnect(&mut self, server: Option<&ArcStr>) -> CommandBuffer {
+    match self {
+      Connections::Centralized { ref mut writer } => {
+        if let Some(writer) = writer.take() {
+          writer.graceful_close().await
+        } else {
+          VecDeque::new()
         }
-      }
+      },
+      Connections::Clustered {
+        ref mut writers,
+        ref mut cache,
+        ..
+      } => {
+        let mut out = VecDeque::new();
+
+        if let Some(server) = server {
+          if let Some(writer) = writers.remove(server) {
+            let commands = writer.graceful_close().await;
+            out.extend(commands.into_iter());
+          }
+        }
+        out
+      },
+      Connections::Sentinel {
+        ref mut writer,
+        ref mut server_name,
+      } => {
+        *server_name = None;
+        if let Some(writer) = writer.take() {
+          writer.graceful_close().await
+        } else {
+          VecDeque::new()
+        }
+      },
     }
   }
 
@@ -140,8 +161,6 @@ where
         ref mut cache,
         ..
       } => {
-        cache.clear();
-
         let mut out = VecDeque::new();
         for (_, writer) in writers.drain() {
           let commands = writer.graceful_close().await;
@@ -220,25 +239,17 @@ where
   /// Send a command to the server(s).
   pub async fn write_command(
     &mut self,
-    inner: &Arc<RedisClientInner>
+    inner: &Arc<RedisClientInner>,
     command: RedisCommand,
   ) -> Result<Written, (RedisError, RedisCommand)> {
-    // writing a command
-// change Connections::write to return the server ID used to send it
-// try to write it
-// if it fails then drop that connection
-// this should close the stream in the reader task
-// shared buffer usage:
-//   write the command
-//   then put in shared buffer
-//   if write error: return (error, command)
-    // check backpressure once the server ID is known
-
-
-
-
-
-    unimplemented!()
+    match self {
+      Connections::Clustered {
+        ref mut writers,
+        ref mut cache,
+      } => clustered::send_command(inner, writers, cache, command).await,
+      Connections::Centralized { ref mut writer } => centralized::send_command(inner, writer, command).await,
+      Connections::Sentinel { ref mut writer, .. } => centralized::send_command(inner, writer, command).await,
+    }
   }
 
   /// Send a command to all servers in a cluster.
@@ -264,19 +275,6 @@ where
 // TODO
 // in a transaction if an ASKING error is received instead of QUEUED
 // then change the hash slot on the transaction, send ASKING, and send all the commands
-
-// TODO
-// writing a command:
-// change Connections::write to return the server ID used to send it
-// try to write it
-// if it fails then drop that connection
-// this should close the stream in the reader task
-// then queue the command
-// wait for a reconnect message to come in
-// shared buffer usage:
-//   write the command
-//   then put in shared buffer
-//   if write error: return (error, command)
 
 pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub connections: Connections<T>,
@@ -304,13 +302,6 @@ where
     }
   }
 
-  /// Enqueue a command to run later.
-  ///
-  /// The queue is drained and replayed whenever a `RedisCommandKind::_Sync` or `RedisCommandKind::_Reconnect` message is received.
-  pub fn enqueue(&mut self, cmd: RedisCommand) {
-    self.buffer.push_back(cmd);
-  }
-
   /// Read the cluster state, if known.
   pub fn cluster_state(&self) -> Option<&ClusterRouting> {
     if let Connections::Clustered { ref cache, .. } = self.connections {
@@ -326,6 +317,8 @@ where
   ///   * The command will be queued to run later.
   ///   * The associated connection will be dropped.
   ///   * The reader task for that connection will close, sending a `Reconnect` message to the multiplexer.
+  ///
+  /// Any errors returned here assume that a compensating message will be sent to the multiplexer later.
   pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Written, RedisError> {
     if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
       debug!(
@@ -341,7 +334,11 @@ where
     }
 
     if command.kind.is_all_cluster_nodes() {
-      self.connections.write_all_cluster(command).await.map(|_| Written::Ignore)
+      self
+        .connections
+        .write_all_cluster(command)
+        .await
+        .map(|_| Written::Ignore)
     } else {
       self
         .connections
@@ -354,7 +351,7 @@ where
     }
   }
 
-  /// Disconnect from the server(s), moving all in-flight messages to the internal command buffer.
+  /// Disconnect from the server(s), moving all in-flight messages to the internal command buffer and triggering a reconnection, if necessary.
   pub async fn disconnect(&mut self) {
     client_utils::set_locked(&self.inner.state, ClientState::Disconnecting);
     let commands = self.connections.disconnect_all().await;
@@ -388,7 +385,7 @@ where
 
       if let Err(e) = self.write_command(command).await {
         warn!("{}: Error replaying command: {:?}", self.inner.id, e);
-        self.disconnect().await; // triggers a reconnect indirectly if needed
+        self.disconnect().await; // triggers a reconnect if needed
         break;
       }
     }
