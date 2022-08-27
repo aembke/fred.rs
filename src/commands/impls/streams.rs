@@ -202,12 +202,12 @@ pub async fn xread<C: ClientLike>(
       args.push(static_val!(BLOCK));
       args.push(block.try_into()?);
     }
-
     args.push(static_val!(STREAMS));
+
     for (idx, key) in keys.inner().into_iter().enumerate() {
       // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say something
       if is_clustered && idx == 0 {
-        hash_slot = Some(redis_keyslot(key.as_bytes()));
+        hash_slot = Some(ClusterHash::Offset(args.len()));
       }
 
       args.push(key.into());
@@ -218,7 +218,7 @@ pub async fn xread<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::Xread, args).into();
     command.can_pipeline = !is_blocking;
-    command.hasher = ClusterHash::Custom(hash_slot);
+    command.hasher = hash_slot.unwrap_or(ClusterHash::None);
     Ok(command)
   })
   .await?;
@@ -348,7 +348,7 @@ pub async fn xreadgroup<C: ClientLike>(
     args.push(static_val!(STREAMS));
     for (idx, key) in keys.inner().into_iter().enumerate() {
       if is_clustered && idx == 0 {
-        hash_slot = Some(redis_keyslot(key.as_bytes()));
+        hash_slot = Some(ClusterHash::Offset(args.len()));
       }
 
       args.push(key.into());
@@ -359,7 +359,7 @@ pub async fn xreadgroup<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::Xreadgroup, args).into();
     command.can_pipeline = !is_blocking;
-    command.hasher = ClusterHash::Custom(hash_slot);
+    command.hasher = hash_slot.unwrap_or(ClusterHash::None);
     Ok(command)
   })
   .await?;

@@ -1317,13 +1317,15 @@ impl RedisCommandKind {
   pub fn should_flush(&self) -> bool {
     match self {
       RedisCommandKind::Quit
+      | RedisCommandKind::Shutdown
       | RedisCommandKind::Ping
       | RedisCommandKind::Auth
       | RedisCommandKind::_Hello(_)
-      | RedisCommandKind::Shutdown
       | RedisCommandKind::Exec
+      | RedisCommandKind::Discard
       | RedisCommandKind::Eval
-      | RedisCommandKind::EvalSha => true,
+      | RedisCommandKind::EvalSha
+      | RedisCommandKind::_Custom(_) => true,
       _ => false,
     }
   }
@@ -1399,7 +1401,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       kind,
       arguments,
       response: ResponseKind::Respond(None),
-      hasher: ClusterHash::FirstKey,
+      hasher: ClusterHash::default(),
       multiplexer_tx: None,
       attempted: 0,
       can_pipeline: true,
@@ -1421,7 +1423,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       kind,
       arguments,
       response: ResponseKind::Respond(Some(tx)),
-      hasher: ClusterHash::FirstKey,
+      hasher: ClusterHash::default(),
       multiplexer_tx: None,
       attempted: 0,
       can_pipeline: true,
@@ -1443,7 +1445,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       kind,
       arguments,
       response,
-      hasher: ClusterHash::FirstKey,
+      hasher: ClusterHash::default(),
       multiplexer_tx: None,
       attempted: 0,
       can_pipeline: true,
@@ -1461,7 +1463,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
 
 impl RedisCommand {
   /// Create a new empty `ASKING` command.
-  pub fn new_asking(hash_slot: Option<u16>) -> Self {
+  pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
       kind: RedisCommandKind::Asking,
       arguments: Vec::new(),
@@ -1592,6 +1594,13 @@ impl RedisCommand {
       ResponseKind::Multiple { ref tx, .. } => tx.lock().is_some(),
       ResponseKind::Buffer { ref tx, .. } => tx.lock().is_some(),
       _ => false,
+    }
+  }
+
+  /// Respond to the caller, taking the response channel in the process.
+  pub fn respond_to_caller(&mut self, result: Result<Resp3Frame, RedisError>) {
+    if let Some(tx) = self.take_responder() {
+      let _ = tx.send(result);
     }
   }
 

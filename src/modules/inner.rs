@@ -299,6 +299,14 @@ impl RedisClientInner {
     }
   }
 
+  pub fn with_perf_config<F, R>(&self, func: F) -> R
+  where
+    F: FnOnce(&PerformanceConfig) -> R,
+  {
+    let guard = self.performance.load();
+    func(guard.as_ref())
+  }
+
   pub fn update_sentinel_primary(&self, server: &ArcStr) {
     let mut guard = self.sentinel_primary.write();
     *guard = Some(server.clone());
@@ -324,19 +332,19 @@ impl RedisClientInner {
   }
 
   pub fn is_resp3(&self) -> bool {
-    *self.resp_version.as_ref().load().as_ref() == RespVersion::RESP3
+    *self.resp_version.load().as_ref() == RespVersion::RESP3
   }
 
   pub fn switch_protocol_versions(&self, version: RespVersion) {
-    self.resp_version.as_ref().store(Arc::new(version))
+    self.resp_version.store(Arc::new(version))
   }
 
   pub fn update_performance_config(&self, config: PerformanceConfig) {
-    self.performance.as_ref().store(Arc::new(config));
+    self.performance.store(Arc::new(config));
   }
 
   pub fn performance_config(&self) -> PerformanceConfig {
-    self.performance.as_ref().load().as_ref().clone()
+    self.performance.load().as_ref().clone()
   }
 
   pub fn reset_protocol_version(&self) {
@@ -345,10 +353,14 @@ impl RedisClientInner {
   }
 
   pub fn max_command_attempts(&self) -> u32 {
-    self.performance.as_ref().load().max_command_attempts
+    self.performance.load().max_command_attempts
   }
 
   pub fn default_command_timeout(&self) -> u64 {
-    self.performance.as_ref().load().default_command_timeout_ms
+    self.performance.load().default_command_timeout_ms
+  }
+
+  pub async fn set_blocked_server(&self, server: &ArcStr) {
+    self.backchannel.write().await.set_blocked(server);
   }
 }

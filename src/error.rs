@@ -297,21 +297,26 @@ impl RedisError {
   }
 
   /// Create a new empty Canceled error.
-  pub fn new_canceled() -> RedisError {
+  pub(crate) fn new_canceled() -> Self {
     RedisError::new(RedisErrorKind::Canceled, "Canceled.")
   }
 
   /// Create a new empty Timeout error.
-  pub fn new_timeout() -> RedisError {
+  pub(crate) fn new_timeout() -> Self {
     RedisError::new(RedisErrorKind::Timeout, "")
   }
 
   /// Create a new parse error with the provided details.
-  pub(crate) fn new_parse<T>(details: T) -> RedisError
+  pub(crate) fn new_parse<T>(details: T) -> Self
   where
     T: Into<Cow<'static, str>>,
   {
     RedisError::new(RedisErrorKind::Parse, details)
+  }
+
+  /// Create a new default backpressure error.
+  pub(crate) fn new_backpressure() -> Self {
+    RedisError::new(RedisErrorKind::Backpressure, "Max in-flight commands reached.")
   }
 
   /// Whether or not the error is a `Canceled` error.

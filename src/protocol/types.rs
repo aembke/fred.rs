@@ -324,6 +324,11 @@ impl ClusterRouting {
       None
     }
   }
+
+  /// Read a random primary node from the cluster cache.
+  pub fn random_node(&self) -> Option<&ArcStr> {
+    self.random_slot().map(|slot| &slot.id)
+  }
 }
 
 // TODO support custom DNS resolution logic by exposing this in the client.

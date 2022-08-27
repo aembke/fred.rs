@@ -9,6 +9,7 @@ use crate::types::{ClientState, RedisConfig};
 use crate::utils as client_utils;
 use arc_swap::ArcSwap;
 use arcstr::ArcStr;
+use futures::future::{join_all, try_join_all};
 use parking_lot::{Mutex, RwLock};
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize};
@@ -25,17 +26,23 @@ pub mod sentinel;
 pub mod types;
 pub mod utils;
 
+/// The result of an attempt to send a command to the server.
+pub enum Written<'a> {
+  /// Apply backpressure to the command before retrying.
+  Backpressure((RedisCommand, Backpressure)),
+  /// Indicates that the command was sent to the associated server.
+  Sent(&'a ArcStr),
+  /// Indicates that the result should be ignored since the command will not be retried.
+  Ignore
+}
+
 pub enum Backpressure {
-  /// The server ID of the connection used to send the command.
-  Ok(ArcStr),
-  /// The amount of time to wait and the command to retry after waiting.
-  Wait((Duration, RedisCommand)),
+  /// The amount of time to wait.
+  Wait(Duration),
   /// Block the client until the command receives a response.
   Block,
-  /// Indicates the command was skipped.
-  Skipped,
-  /// Queue the command to run later.
-  Queue(RedisCommand),
+  /// Return a backpressure error to the caller of the command.
+  Error(RedisError),
 }
 
 #[derive(Clone)]
@@ -83,6 +90,22 @@ where
       cache: ClusterRouting::new(),
       known_nodes: BTreeSet::new(),
       writers: HashMap::new(),
+    }
+  }
+
+  /// Initialize the underlying connection(s).
+  pub async fn initialize(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    utils::initialize_connections(inner, self).await
+  }
+
+  /// Read the counters associated with a connection to a server.
+  pub fn counters(&self, server: Option<&ArcStr>) -> Option<&Counters> {
+    match self {
+      Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.counters),
+      Connections::Sentinel { ref writer, .. } => writer.as_ref().map(|w| &w.counters),
+      Connections::Clustered { ref writers, .. } => {
+        server.and_then(|server| writers.get(server).map(|w| &w.counters))
+      },
     }
   }
 
@@ -171,8 +194,50 @@ where
     out
   }
 
+  /// Flush the socket(s) associated with each server if they have pending frames.
+  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
+    match self {
+      Connections::Centralized { ref mut writer } => {
+        if let Some(writer) = writer {
+          writer.check_and_flush().await
+        } else {
+          Ok(())
+        }
+      },
+      Connections::Sentinel { ref mut writer, .. } => {
+        if let Some(writer) = writer {
+          writer.check_and_flush().await
+        } else {
+          Ok(())
+        }
+      },
+      Connections::Clustered { ref mut writers, .. } => {
+        try_join_all(writers.values_mut().map(|writer| writer.check_and_flush())).await
+      },
+    }
+  }
+
   /// Send a command to the server(s).
-  pub async fn write_command(&mut self, command: RedisCommand) -> Result<Backpressure, RedisError> {
+  pub async fn write_command(
+    &mut self,
+    inner: &Arc<RedisClientInner>
+    command: RedisCommand,
+  ) -> Result<Written, (RedisError, RedisCommand)> {
+    // writing a command
+// change Connections::write to return the server ID used to send it
+// try to write it
+// if it fails then drop that connection
+// this should close the stream in the reader task
+// shared buffer usage:
+//   write the command
+//   then put in shared buffer
+//   if write error: return (error, command)
+    // check backpressure once the server ID is known
+
+
+
+
+
     unimplemented!()
   }
 
@@ -184,22 +249,34 @@ where
 }
 
 // TODO
-// how to handle errors that require a reconnect in a cluster (_Sync or _Reconnect):
-// change to Moved((slot, server, Command))
-// need to check for unknown port format in error message (:6379) and re-use the same endpoint but with that port
-// when a moved error is received check if the slot maps to the server, and if not run sync()
-// otherwise run the command again without waiting on sync
-// ASK:
-//   store it as Ask((slot, server, Command))
+// Moved((slot, server, command)):
+//   check if the hash slot maps to the provided server, if so then run the command early
+//   sync the cluster state
+//   create or drop connections
+//     need to check for unknown port format in error message (:6379) and re-use the same endpoint but with that port
+//   run the command
+// ASK((slot, server, command)):
 //   do not sync the cluster, but check if the connection exists
-//   if not then connect and add it to the connection map
+//   if not then sync the cluster
 //   send the ASKING command
-//   replay the command
+//   run the command
 
 // TODO
 // in a transaction if an ASKING error is received instead of QUEUED
 // then change the hash slot on the transaction, send ASKING, and send all the commands
-// this implies either no pipelining on transactions, or extra state in transaction response handlers
+
+// TODO
+// writing a command:
+// change Connections::write to return the server ID used to send it
+// try to write it
+// if it fails then drop that connection
+// this should close the stream in the reader task
+// then queue the command
+// wait for a reconnect message to come in
+// shared buffer usage:
+//   write the command
+//   then put in shared buffer
+//   if write error: return (error, command)
 
 pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub connections: Connections<T>,
@@ -244,38 +321,44 @@ where
   }
 
   /// Send a command to the server.
-  pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Backpressure, RedisError> {
+  ///
+  /// If the command cannot be written:
+  ///   * The command will be queued to run later.
+  ///   * The associated connection will be dropped.
+  ///   * The reader task for that connection will close, sending a `Reconnect` message to the multiplexer.
+  pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Written, RedisError> {
     if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
-      if let Some(tx) = command.take_responder() {
-        let _ = tx.send(Err(e));
-      }
       debug!(
         "{}: Skipping command `{}` after too many failed attempts.",
         self.inner.id,
         command.kind.to_str_debug()
       );
-      return Ok(Backpressure::Skipped);
+      command.respond_to_caller(Err(e));
+      return Ok(Written::Ignore);
     }
-    if command.attempted > 0 {
+    if command.attempted > 1 {
       self.inner.counters.incr_redelivery_count();
     }
 
     if command.kind.is_all_cluster_nodes() {
+      self.connections.write_all_cluster(command).await.map(|_| Written::Ignore)
+    } else {
       self
         .connections
-        .write_all_cluster(command)
+        .write_command(&self.inner, command)
         .await
-        .map(Backpressure::Skipped)
-    } else {
-      self.connections.write_command(command).await
+        .map_err(|(error, command)| {
+          self.buffer.push_back(command);
+          error
+        })
     }
   }
 
   /// Disconnect from the server(s), moving all in-flight messages to the internal command buffer.
   pub async fn disconnect(&mut self) {
+    client_utils::set_locked(&self.inner.state, ClientState::Disconnecting);
     let commands = self.connections.disconnect_all().await;
     self.buffer.extend(commands);
-    client_utils::set_bool_atomic(&self.all_connected, false);
     client_utils::set_locked(&self.inner.state, ClientState::Disconnected);
   }
 
@@ -302,17 +385,11 @@ where
   pub async fn replay_buffer(&mut self) -> Result<(), RedisError> {
     for mut command in self.buffer.drain(..) {
       command.skip_backpressure = true;
-      match self.write_command(command).await {
-        Ok(Backpressure::Queue(command)) => {
-          self.buffer.push_back(command);
-          break;
-        },
-        Err(e) => {
-          warn!("{}: Error replaying command: {:?}", self.inner.id, e);
-          self.disconnect().await;
-          break;
-        },
-        _ => unimplemented!(),
+
+      if let Err(e) = self.write_command(command).await {
+        warn!("{}: Error replaying command: {:?}", self.inner.id, e);
+        self.disconnect().await; // triggers a reconnect indirectly if needed
+        break;
       }
     }
 

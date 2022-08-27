@@ -1,22 +1,18 @@
 use crate::clients::RedisClient;
-use crate::commands::cluster::cluster_nodes;
 use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::{ClosedState, RedisClientInner};
+use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::{responses, Multiplexer, QueuedCommand};
-use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
-use crate::protocol::connection::{self, RedisSink, RedisStream, RedisWriter, SentCommand};
+use crate::multiplexer::{utils, Backpressure, Connections, Counters, Written};
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
+use crate::protocol::connection::{self, RedisReader, RedisTransport, RedisWriter};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::server_to_parts;
 use crate::trace;
 use crate::types::*;
 use crate::utils as client_utils;
 use arcstr::ArcStr;
 use futures::future::Either;
-use futures::pin_mut;
-use futures::select;
-use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{pin_mut, select, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -34,433 +30,166 @@ use tokio::sync::RwLock as AsyncRwLock;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 16;
 
-pub fn close_error_tx(error_tx: &RwLock<VecDeque<UnboundedSender<RedisError>>>) {
-  for _ in error_tx.write().drain(..) {
-    trace!("Closing error tx.");
-  }
-}
-
-pub fn close_reconnect_tx(reconnect_tx: &RwLock<VecDeque<UnboundedSender<RedisClient>>>) {
-  for _ in reconnect_tx.write().drain(..) {
-    trace!("Closing reconnect tx.");
-  }
-}
-
-pub fn close_messages_tx(messages_tx: &RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>) {
-  for _ in messages_tx.write().drain(..) {
-    trace!("Closing messages tx.");
-  }
-}
-
-pub fn close_keyspace_events_tx(keyspace_tx: &RwLock<VecDeque<UnboundedSender<KeyspaceEvent>>>) {
-  for _ in keyspace_tx.write().drain(..) {
-    trace!("Closing keyspace tx");
-  }
-}
-
-pub fn close_connect_tx(connect_tx: &RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>) {
-  for tx in connect_tx.write().drain(..) {
-    trace!("Closing connect tx");
-    let _ = tx.send(Err(RedisError::new_canceled()));
-  }
-}
-
-pub fn emit_connect(inner: &Arc<RedisClientInner>) {
-  _debug!(inner, "Emitting connect message.");
-  for tx in inner.connect_tx.write().drain(..) {
-    let _ = tx.send(Ok(()));
-  }
-}
-
-pub fn emit_connect_error(inner: &Arc<RedisClientInner>, error: &RedisError) {
-  _debug!(inner, "Emitting connect error: {:?}", error);
-  for tx in inner.connect_tx.write().drain(..) {
-    let _ = tx.send(Err(error.clone()));
-  }
-}
-
-pub fn emit_error(inner: &Arc<RedisClientInner>, error: &RedisError) {
-  let mut new_tx = VecDeque::new();
-  let mut tx_guard = inner.error_tx.write();
-
-  for tx in tx_guard.drain(..) {
-    if let Err(e) = tx.send(error.clone()) {
-      _debug!(inner, "Error emitting error message: {:?}", e);
-    } else {
-      new_tx.push_back(tx);
-    }
-  }
-
-  *tx_guard = new_tx;
-}
-
-pub fn emit_reconnect(inner: &Arc<RedisClientInner>) {
-  let mut new_tx = VecDeque::new();
-  let mut tx_guard = inner.reconnect_tx.write();
-
-  for tx in tx_guard.drain(..) {
-    if let Err(_e) = tx.send(inner.into()) {
-      _debug!(inner, "Error emitting reconnect message.");
-    } else {
-      new_tx.push_back(tx);
-    }
-  }
-
-  *tx_guard = new_tx;
-}
-
-fn take_commands(
-  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
-  server: &Arc<String>,
-) -> Option<SentCommands> {
-  commands.lock().remove(server)
-}
-
-/// Emit a message to the task monitoring for connection closed events.
-///
-/// If the caller has provided a reconnect policy it will kick in when this message is received.
-pub fn emit_connection_closed(
+pub async fn initialize_connections<T>(
   inner: &Arc<RedisClientInner>,
-  connections: &Connections,
-  server: &Arc<String>,
-  error: RedisError,
-) {
-  _debug!(inner, "Emit connection closed from error: {:?}", error);
-  let closed_tx = { inner.connection_closed_tx.read().clone() };
-  let commands = match connections {
-    Connections::Clustered { ref commands, .. } => take_commands(commands, server),
-    Connections::Centralized { ref commands, .. } => {
-      let commands: SentCommands = commands.lock().drain(..).collect();
-      Some(commands)
+  connections: &mut Connections<T>,
+) -> Result<(), RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  unimplemented!()
+}
+
+/// Check the connection state and command flags to determine the backpressure policy to apply, if any.
+pub fn check_backpressure<T>(
+  inner: &Arc<RedisClientInner>,
+  counters: &Counters,
+) -> Result<Option<Backpressure>, RedisError>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let in_flight = client_utils::read_atomic(&counters.in_flight);
+
+  inner.with_perf_config(|perf_config| {
+    if in_flight as u64 > perf_config.backpressure.max_in_flight_commands {
+      if perf_config.backpressure.disable_auto_backpressure {
+        Err(RedisError::new_backpressure())
+      } else {
+        match perf_config.backpressure.policy {
+          BackpressurePolicy::Drain => Ok(Some(Backpressure::Block)),
+          BackpressurePolicy::Sleep {
+            disable_backpressure_scaling,
+            min_sleep_duration_ms,
+          } => {
+            let duration = if disable_backpressure_scaling {
+              Duration::from_millis(min_sleep_duration_ms)
+            } else {
+              Duration::from_millis(cmp::max(min_sleep_duration_ms, in_flight as u64))
+            };
+
+            Ok(Some(Backpressure::Wait(duration)))
+          },
+        }
+      }
+    } else {
+      Ok(None)
+    }
+  })
+}
+
+// TODO organize these cluster functions better
+
+pub async fn send_clustered_command<'a, T>(
+  inner: &Arc<RedisClientInner>,
+  writers: &mut HashMap<ArcStr, RedisWriter<T>>,
+  state: &'a ClusterRouting,
+  mut command: RedisCommand,
+) -> Result<Written<'a>, (RedisError, RedisCommand)>
+where
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
+  let server = command
+    .cluster_hash()
+    .and_then(|slot| state.get_server(slot))
+    .or_else(|| {
+      let node = state.random_node();
+      _trace!(
+        inner,
+        "Using random cluster node `{:?}` for {}",
+        node,
+        command.kind.to_str_debug()
+      );
+      node
+    });
+  let server = match server {
+    Some(server) => server,
+    None => {
+      // these errors almost always mean the cluster is misconfigured
+      _warn!(
+        inner,
+        "Possible cluster misconfiguration. Missing hash slot owner for {:?}",
+        command.cluster_hash()
+      );
+      command.respond_to_caller(Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Missing cluster hash slot owner.",
+      )));
+      return Ok(Written::Ignore);
     },
   };
 
-  if let Some(tx) = closed_tx {
-    let commands = commands.unwrap_or(VecDeque::new());
-    _trace!(inner, "Emitting connection closed with {} messages", commands.len());
+  let should_remove_connection = if let Some(writer) = writers.get_mut(server) {
+    match utils::check_backpressure(inner, &writer.counters) {
+      Ok(Some(backpressure)) => {
+        _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
+        return Ok(Written::Backpressure((command, backpressure)));
+      },
+      Err(e) => {
+        // return manual backpressure errors directly to the caller
+        command.respond_to_caller(Err(e));
+        return Ok(Written::Ignore);
+      },
+      _ => {},
+    };
 
-    if let Err(_e) = tx.send(ClosedState { commands, error }) {
-      _warn!(
-        inner,
-        "Could not send connection closed event. Reconnection logic will not run."
-      );
-    }
-  } else {
-    _warn!(inner, "Redis client does not have connection closed sender.");
-  }
-}
-
-/// Send a command to the reconnect task to check and sync connections and to refresh cluster state.
-pub fn refresh_cluster_state(inner: &Arc<RedisClientInner>, mut command: SentCommand, error: RedisError) {
-  _debug!(
-    inner,
-    "Refresh cluster state and retry command: {}",
-    command.command.kind.to_str_debug()
-  );
-  let closed_tx = { inner.connection_closed_tx.read().clone() };
-
-  if let Some(tx) = closed_tx {
-    // reset the attempted count since MOVED/ASK errors shouldn't count as failed write attempts
-    command.command.attempted = 0;
-    let mut commands = VecDeque::with_capacity(1);
-    commands.push_back(command);
-    _trace!(inner, "Emitting cluster refresh with {} messages", commands.len());
-
-    if let Err(_e) = tx.send(ClosedState { commands, error }) {
-      _warn!(
-        inner,
-        "Could not send refresh cluster event. Reconnection logic will not run."
-      );
-    }
-  } else {
-    _warn!(inner, "Redis client does not have connection closed sender.");
-  }
-}
-
-pub fn insert_locked_map<K: Ord, V>(locked: &RwLock<BTreeMap<K, V>>, key: K, value: V) -> Option<V> {
-  locked.write().insert(key, value)
-}
-
-pub fn insert_locked_map_mutex<K: Ord, V>(locked: &Mutex<BTreeMap<K, V>>, key: K, value: V) -> Option<V> {
-  locked.lock().insert(key, value)
-}
-
-pub async fn insert_locked_map_async<K: Ord, V>(locked: &AsyncRwLock<BTreeMap<K, V>>, key: K, value: V) -> Option<V> {
-  locked.write().await.insert(key, value)
-}
-
-/// Check whether the command has reached the max number of write attempts, and if so emit an error to the caller.
-pub fn max_attempts_reached(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) -> bool {
-  if command.max_attempts_exceeded(inner) {
-    _warn!(
-      inner,
-      "Exceeded max write attempts for command: {}",
-      command.kind.to_str_debug()
-    );
-
-    if let Some(tx) = command.tx.take() {
-      if let Err(e) = tx.send(Err(RedisError::new(
-        RedisErrorKind::Canceled,
-        "Max write attempts reached.",
-      ))) {
-        _warn!(inner, "Error responding to caller with max attempts error: {:?}", e);
-      }
-    }
-    if let Some(tx) = client_utils::take_locked(&command.resp_tx) {
-      if let Err(e) = tx.send(()) {
-        _warn!(inner, "Error unblocking multiplexer command loop: {:?}", e);
-      }
-    }
-
-    true
-  } else {
-    false
-  }
-}
-
-pub fn should_apply_backpressure(
-  inner: &Arc<RedisClientInner>,
-  connections: &Connections,
-  server: Option<&Arc<String>>,
-) -> Result<Option<u64>, RedisError> {
-  let in_flight = match connections {
-    Connections::Centralized { ref counters, .. } => client_utils::read_atomic(&counters.in_flight),
-    Connections::Clustered { ref counters, .. } => server
-      .and_then(|server| {
-        counters
-          .read()
-          .get(server)
-          .map(|counters| client_utils::read_atomic(&counters.in_flight))
-      })
-      .unwrap_or(0),
-  };
-  let min_backpressure_time_ms = inner.perf_config.min_sleep_duration();
-  let backpressure_command_count = inner.perf_config.max_in_flight_commands();
-  let disable_backpressure_scaling = inner.perf_config.disable_backpressure_scaling();
-
-  let amt = if in_flight > backpressure_command_count {
-    if inner.perf_config.disable_auto_backpressure() {
-      return Err(RedisError::new(
-        RedisErrorKind::Backpressure,
-        "Max number of in-flight commands reached.",
-      ));
-    }
-
-    if disable_backpressure_scaling {
-      Some(min_backpressure_time_ms as u64)
+    let (frame, should_flush) = match prepare_command(inner, &writer.counters, &mut command) {
+      Ok((frame, should_flush)) => (frame, should_flush),
+      Err(e) => {
+        // do not retry commands that trigger frame encoding errors
+        command.respond_to_caller(Err(e));
+        return Ok(Written::Ignore);
+      },
+    };
+    if let Err(e) = writer.write_frame(frame, should_flush).await {
+      // drop the connection, which closes the reader task
+      // remove the connection from the cluster map
+      // return (error, command)
+      // need to return the in-flight commands
+      let in_flight = writer.graceful_close().await;
+      true
     } else {
-      Some(cmp::max(min_backpressure_time_ms as u64, in_flight as u64))
+      // add the command to the shared reader buffer
+      false
     }
   } else {
-    None
+    // a reconnect message should be in-flight from the reader task
+    false
   };
 
-  Ok(amt)
-}
-
-pub fn centralized_server_name(inner: &Arc<RedisClientInner>) -> String {
-  match inner.config.server {
-    ServerConfig::Centralized { ref host, ref port, .. } => format!("{}:{}", host, port),
-    // for sentinel configs this will be replaced later after reading the primary node from the sentinel(s)
-    _ => "unknown".to_owned(),
+  if should_remove_connection {
+    let _ = writers.remove(server);
   }
+
+  Ok(Written::Sent(server))
 }
 
-/// Emit a message that closes the stream portion of the TcpStream if it's not already closed.
+/// Prepare the command, updating flags in place.
 ///
-/// The handler for this message will emit another message that triggers reconnect, if necessary.
-pub fn emit_closed_message(
-  inner: &Arc<RedisClientInner>,
-  close_tx: &Arc<RwLock<Option<CloseTx>>>,
-  error: &RedisError,
-) {
-  if let Some(ref tx) = *close_tx.read() {
-    _debug!(inner, "Emitting close all sockets message: {:?}", error);
-    if let Err(e) = tx.send(error.clone()) {
-      _warn!(inner, "Error sending close message to socket streams: {:?}", e);
-    }
-  }
-}
-
-pub fn unblock_multiplexer(inner: &Arc<RedisClientInner>, command: &RedisCommand) {
-  if let Some(tx) = command.resp_tx.write().take() {
-    _debug!(inner, "Unblocking multiplexer command: {}", command.kind.to_str_debug());
-    let _ = tx.send(());
-  }
-}
-
-/// Write a command to all nodes in the cluster.
-///
-/// The callback will come from the first node to respond to the request.
-pub async fn write_all_nodes(
-  inner: &Arc<RedisClientInner>,
-  writers: &Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
-  counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-  command: RedisCommand,
-) -> Result<Backpressure, RedisError> {
-  if let Some(inner) = command.kind.all_nodes_response() {
-    inner.set_num_nodes(writers.read().await.len());
-  } else {
-    return Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected command with all node response.",
-    ));
-  }
-
-  for (server, writer) in writers.write().await.iter_mut() {
-    let counter = match counters.read().get(server) {
-      Some(counter) => counter.clone(),
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Config,
-          format!("Failed to lookup counter for {}", server),
-        ))
-      },
-    };
-
-    let kind = match command.kind.clone_all_nodes() {
-      Some(k) => k,
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Config,
-          "Invalid redis command kind to send to all nodes.",
-        ));
-      },
-    };
-    let _command = command.duplicate(kind);
-
-    let was_flushed = send_clustered_command(inner, &server, &counter, writer, commands, _command).await?;
-    if !was_flushed {
-      if let Err(e) = writer.flush().await {
-        _warn!(inner, "Failed to flush socket: {:?}", e);
-      }
-    }
-  }
-
-  Ok(Backpressure::Skipped)
-}
-
+/// Returns the RESP frame and whether the socket should be flushed.
 pub fn prepare_command(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
-  command: RedisCommand,
-) -> Result<(SentCommand, ProtocolFrame, bool), RedisError> {
+  command: &mut RedisCommand,
+) -> Result<(ProtocolFrame, bool), RedisError> {
   let frame = command.to_frame(inner.is_resp3())?;
-  let mut sent_command: SentCommand = command.into();
-  sent_command.command.incr_attempted();
-  sent_command.network_start = Some(Instant::now());
   if inner.should_trace() {
-    trace::set_network_span(&mut sent_command.command, true);
+    command.network_start = Some(Instant::now());
+    trace::set_network_span(command, true);
   }
-  // flush the socket under the following conditions:
+  // flush the socket under any of the following conditions:
   // * we don't know of any queued commands following this command
-  // * we've fed up to the global max feed count commands already
+  // * we've fed up to the max feed count commands already
   // * the command closes the connection
   // * the command ends a transaction
   // * the command does some form of authentication
   // * the command goes to multiple sockets at once
   // * the command blocks the multiplexer command loop
   let should_flush = counters.should_send(inner)
-    || sent_command.command.is_quit()
-    || sent_command.command.kind.ends_transaction()
-    || sent_command.command.kind.is_hello()
-    || sent_command.command.kind.is_auth()
-    || sent_command.command.kind.is_all_cluster_nodes()
-    || client_utils::is_locked_some(&sent_command.command.resp_tx);
+    || command.kind.should_flush()
+    || command.kind.is_all_cluster_nodes()
+    || command.multiplexer_tx.is_some();
 
-  Ok((sent_command, frame, should_flush))
-}
-
-pub async fn flush_sinks(
-  inner: &Arc<RedisClientInner>,
-  connections: &mut BTreeMap<Arc<String>, RedisSink>,
-  skip: Option<&Arc<String>>,
-) {
-  for (server, sink) in connections.iter_mut() {
-    if let Some(skip) = skip {
-      if skip == server {
-        continue;
-      }
-    }
-
-    _debug!(inner, "Flushing socket to {}", server);
-    if let Err(e) = sink.flush().await {
-      _warn!(inner, "Error flushing sink: {:?}", e);
-    }
-  }
-}
-
-pub async fn send_centralized_command(
-  inner: &Arc<RedisClientInner>,
-  server: &Arc<String>,
-  counters: &Counters,
-  writer: &mut RedisSink,
-  commands: &Arc<Mutex<SentCommands>>,
-  command: RedisCommand,
-) -> Result<(), RedisError> {
-  let (command, frame, should_flush) = prepare_command(inner, counters, command)?;
-  _debug!(
-    inner,
-    "Writing command {} to {}",
-    command.command.kind.to_str_debug(),
-    server
-  );
-
-  {
-    commands.lock().push_back(command.into());
-  }
-  // if writing the command fails it will be retried from this point forward since it has been added to the commands queue
-  connection::write_command(inner, writer, counters, frame, should_flush).await
-}
-
-pub async fn send_clustered_command(
-  inner: &Arc<RedisClientInner>,
-  server: &Arc<String>,
-  counters: &Counters,
-  writer: &mut RedisSink,
-  commands: &Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
-  command: RedisCommand,
-) -> Result<bool, RedisError> {
-  let (command, frame, should_flush) = prepare_command(inner, counters, command)?;
-  _debug!(
-    inner,
-    "Writing command {} to {}",
-    command.command.kind.to_str_debug(),
-    server
-  );
-
-  {
-    if let Some(commands) = commands.lock().get_mut(server) {
-      commands.push_back(command);
-    } else {
-      _error!(inner, "Failed to lookup command queue for {}", server);
-      return Err(RedisError::new_context(
-        RedisErrorKind::IO,
-        format!("Missing command queue for {}", server),
-        command.command,
-      ));
-    }
-  }
-  // if writing the command fails it will be retried from this point forward since it has been added to the commands queue
-  let _ = connection::write_command(inner, writer, counters, frame, should_flush).await?;
-  // return whether the socket was flushed so the caller can flush the other sockets if needed
-  Ok(should_flush)
-}
-
-fn respond_early_to_caller_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, error: RedisError) {
-  _debug!(inner, "Responding early to caller with error {:?}", error);
-
-  if let Some(tx) = command.tx.take() {
-    if let Err(e) = tx.send(Err(error)) {
-      _warn!(inner, "Error sending response to caller: {:?}", e);
-    }
-  }
-
-  // check for a multiplexer response sender too
-  if let Some(tx) = command.resp_tx.write().take() {
-    let _ = tx.send(());
-  }
+  Ok((frame, should_flush))
 }
 
 pub async fn write_centralized_command(

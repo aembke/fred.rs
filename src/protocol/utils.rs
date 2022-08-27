@@ -1,6 +1,6 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::ClusterErrorKind;
+use crate::protocol::command::{ClusterErrorKind, RedisCommand, RedisCommandKind};
 use crate::protocol::connection::OK;
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::types::*;

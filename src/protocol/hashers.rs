@@ -27,41 +27,46 @@ fn hash_key(value: &RedisValue) -> Option<u16> {
   read_redis_key(value).map(|k| redis_keyslot(k))
 }
 
+/// A cluster hashing policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterHash {
+  /// Hash the first string or bytes value in the arguments. (Default)
+  FirstKey,
   /// Hash the first argument regardless of type.
   FirstValue,
-  /// Hash the second argument regardless of type.
-  SecondValue,
-  /// Hash the first string or bytes value in the arguments.
-  FirstKey,
   /// Use a random node in the cluster.
-  None,
+  Random,
   /// Hash the value with the provided offset in the arguments array.
   Offset(usize),
   /// Provide a custom hash slot value.
-  Custom(Option<u16>),
+  Custom(u16),
+}
+
+impl Default for ClusterHash {
+  fn default() -> Self {
+    ClusterHash::FirstKey
+  }
 }
 
 impl ClusterHash {
+  /// Hash the provided arguments.
   pub fn hash(&self, args: &[RedisValue]) -> Option<u16> {
     match self {
       ClusterHash::FirstValue => args.get(0).and_then(|v| hash_value(v)),
-      ClusterHash::SecondValue => args.get(1).and_then(|v| hash_value(v)),
       ClusterHash::FirstKey => args.iter().find_map(|v| hash_key(v)),
-      ClusterHash::None => None,
+      ClusterHash::Random => None,
       ClusterHash::Offset(idx) => args.get(idx).and_then(|v| hash_value(v)),
-      ClusterHash::Custom(val) => val.clone(),
+      ClusterHash::Custom(val) => Some(*val),
     }
   }
 
+  /// Find the key to hash with the provided arguments.
   pub fn find_key<'a>(&self, args: &'a [RedisValue]) -> Option<&'a [u8]> {
     match self {
       ClusterHash::FirstValue => args.get(0).and_then(|v| read_redis_key(v)),
-      ClusterHash::SecondValue => args.get(1).and_then(|v| read_redis_key(v)),
       ClusterHash::FirstKey => args.iter().find_map(|v| read_redis_key(v)),
       ClusterHash::Offset(idx) => args.get(idx).and_then(|v| read_redis_key(v)),
-      ClusterHash::None | ClusterHash::Custom(_) => None,
+      ClusterHash::Random | ClusterHash::Custom(_) => None,
     }
   }
 }

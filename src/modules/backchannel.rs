@@ -7,7 +7,7 @@ use crate::protocol::connection;
 use crate::protocol::connection::{FramedTcp, FramedTls, RedisTransport};
 use crate::protocol::types::ProtocolFrame;
 use crate::protocol::utils as protocol_utils;
-use crate::types::Resolve;
+use crate::types::{Resolve, TlsConnector};
 use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::collections::HashMap;
@@ -102,6 +102,14 @@ impl Backchannel {
     self.blocked = None;
   }
 
+  /// Remove the blocked flag only if the server matches the blocked server.
+  pub fn check_and_set_unblocked(&mut self, server: &ArcStr) {
+    let should_remove = self.blocked.as_ref().map(|blocked| blocked == server).unwrap_or(false);
+    if should_remove {
+      self.set_unblocked();
+    }
+  }
+
   /// Whether or not the client is blocked on a command.
   pub fn is_blocked(&self) -> bool {
     self.blocked.is_some()
@@ -159,22 +167,29 @@ impl Backchannel {
     self.transport = None;
 
     let (host, port) = protocol_utils::server_to_parts(server)?;
-    if inner.config.uses_native_tls() {
-      _debug!(inner, "Creating backchannel native-tls connection to {}:{}", host, port);
-      let mut transport = RedisTransport::new_native_tls(inner, host.to_owned(), port).await?;
-      let _ = transport.setup(inner).await?;
-      self.transport = Some(BackchannelTransport::NativeTls(transport));
-    } else if inner.config.uses_rustls() {
-      _debug!(inner, "Creating backchannel rustls connection to {}:{}", host, port);
-      let mut transport = RedisTransport::new_rustls(inner, host.to_owned(), port).await?;
-      let _ = transport.setup(inner).await?;
-      self.transport = Some(BackchannelTransport::Rustls(transport));
-    } else {
-      _debug!(inner, "Creating backchannel TCP connection to {}:{}", host, port);
-      let mut transport = RedisTransport::new_tcp(inner, host.to_owned(), port).await?;
-      let _ = transport.setup(inner).await?;
-      self.transport = Some(BackchannelTransport::Tcp(transport));
-    }
+    let transport = match inner.config.tls {
+      #[cfg(feature = "enable-native-tls")]
+      Some(TlsConnector::Native(_)) => {
+        _debug!(inner, "Creating backchannel native-tls connection to {}:{}", host, port);
+        let mut transport = RedisTransport::new_native_tls(inner, host.to_owned(), port).await?;
+        let _ = transport.setup(inner).await?;
+        BackchannelTransport::NativeTls(transport)
+      },
+      #[cfg(feature = "enable-rustls")]
+      Some(TlsConnector::Rustls(_)) => {
+        _debug!(inner, "Creating backchannel rustls connection to {}:{}", host, port);
+        let mut transport = RedisTransport::new_rustls(inner, host.to_owned(), port).await?;
+        let _ = transport.setup(inner).await?;
+        BackchannelTransport::Rustls(transport)
+      },
+      _ => {
+        _debug!(inner, "Creating backchannel TCP connection to {}:{}", host, port);
+        let mut transport = RedisTransport::new_tcp(inner, host.to_owned(), port).await?;
+        let _ = transport.setup(inner).await?;
+        BackchannelTransport::Tcp(transport)
+      },
+    };
+    self.transport = Some(transport);
 
     Ok(true)
   }

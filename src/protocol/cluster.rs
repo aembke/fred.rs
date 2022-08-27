@@ -1,11 +1,11 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
+use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::connection::RedisTransport;
 use crate::protocol::tls::TlsConnector;
-use crate::protocol::types::RedisCommandKind::ClusterSlots;
-use crate::protocol::types::{ProtocolFrame, RedisCommand, RedisCommandKind, SlotRange};
+use crate::protocol::types::{ClusterRouting, ProtocolFrame, SlotRange};
 use crate::protocol::utils as protocol_utils;
-use crate::types::{ClusterKeyCache, RedisKey, RedisMap, RedisValue, Resolve};
+use crate::types::{ClusterRouting, RedisKey, RedisMap, RedisValue, Resolve};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use nom::combinator::value;
@@ -50,7 +50,7 @@ fn check_metadata_hostname(data: &HashMap<String, String>) -> Option<&str> {
 /// 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata field, then use the metadata field. Otherwise use `default_host`.
 ///
 /// <https://redis.io/commands/cluster-slots/#nested-result-array>
-fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
+fn parse_cluster_slot_hostname(primary: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
   if server.is_empty() {
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
@@ -107,7 +107,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
   let end = parse_as_u16(slot_range.pop().unwrap())?;
 
   // the third value is the primary node, following values are optional replica nodes
-  let (server, id) = {
+  let (primary, id) = {
     // length checked above. format is `<hostname>|null, <port>, <id>, [metadata]`
     let server_block: Vec<RedisValue> = slot_range.pop().unwrap().convert()?;
     if server_block.len() < 3 {
@@ -119,7 +119,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
 
     let hostname = parse_cluster_slot_hostname(&server_block, default_host)?;
     let port: u16 = parse_as_u16(server_block[1].clone())?;
-    let server = ArcStr::from(format!("{}:{}", hostname, port));
+    let primary = ArcStr::from(format!("{}:{}", hostname, port));
     let id = if let Some(s) = server_block[2].as_str() {
       ArcStr::from(s.as_ref().to_string())
     } else {
@@ -129,11 +129,16 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
       ));
     };
 
-    (server, id)
+    (primary, id)
   };
   // TODO parse replica nodes from remaining elements in `slot_range`
 
-  Ok(SlotRange { start, end, server, id })
+  Ok(SlotRange {
+    start,
+    end,
+    primary,
+    id,
+  })
 }
 
 /// Parse the entire CLUSTER SLOTS response with the provided `default_host` of the connection used to send the command.
@@ -152,7 +157,7 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
 pub async fn read_cluster_slots<T>(
   transport: &mut RedisTransport<T>,
   inner: &Arc<RedisClientInner>,
-) -> Result<ClusterKeyCache, RedisError>
+) -> Result<ClusterRouting, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
@@ -161,7 +166,7 @@ where
   let response = transport.request_response(cmd, inner.is_resp3()).await?;
   let response = protocol_utils::frame_to_results_raw(response.into_resp3())?;
 
-  let mut cache = ClusterKeyCache::new();
+  let mut cache = ClusterRouting::new();
   cache.rebuild(response, transport.default_host.as_str())?;
   Ok(cache)
 }
@@ -169,7 +174,7 @@ where
 pub async fn read_cluster_state<T>(
   transport: &mut RedisTransport<T>,
   inner: &Arc<RedisClientInner>,
-) -> Result<ClusterKeyCache, RedisError>
+) -> Result<ClusterRouting, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
@@ -190,7 +195,7 @@ where
 }
 
 /// Attempt to connect and read the cluster state from all known hosts in the provided `RedisConfig`.
-pub async fn read_cluster_state_all_nodes(inner: &Arc<RedisClientInner>) -> Result<ClusterKeyCache, RedisError> {
+pub async fn read_cluster_state_all_nodes(inner: &Arc<RedisClientInner>) -> Result<ClusterRouting, RedisError> {
   let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
 
   for (host, port) in known_nodes.into_iter() {
@@ -294,19 +299,19 @@ mod tests {
       SlotRange {
         start: 0,
         end: 5460,
-        server: "host-1.redis.example.com:30001".into(),
+        primary: "host-1.redis.example.com:30001".into(),
         id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
         start: 5461,
         end: 10922,
-        server: "host-3.redis.example.com:30002".into(),
+        primary: "host-3.redis.example.com:30002".into(),
         id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
         start: 10923,
         end: 16383,
-        server: "host-5.redis.example.com:30003".into(),
+        primary: "host-5.redis.example.com:30003".into(),
         id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
@@ -364,19 +369,19 @@ mod tests {
       SlotRange {
         start: 0,
         end: 5460,
-        server: "127.0.0.1:30001".into(),
+        primary: "127.0.0.1:30001".into(),
         id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
         start: 5461,
         end: 10922,
-        server: "127.0.0.1:30002".into(),
+        primary: "127.0.0.1:30002".into(),
         id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
         start: 10923,
         end: 16383,
-        server: "127.0.0.1:30003".into(),
+        primary: "127.0.0.1:30003".into(),
         id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
@@ -440,19 +445,19 @@ mod tests {
       SlotRange {
         start: 0,
         end: 5460,
-        server: "127.0.0.1:30001".into(),
+        primary: "127.0.0.1:30001".into(),
         id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
         start: 5461,
         end: 10922,
-        server: "127.0.0.1:30002".into(),
+        primary: "127.0.0.1:30002".into(),
         id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
         start: 10923,
         end: 16383,
-        server: "127.0.0.1:30003".into(),
+        primary: "127.0.0.1:30003".into(),
         id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
@@ -516,19 +521,19 @@ mod tests {
       SlotRange {
         start: 0,
         end: 5460,
-        server: "fake-host:30001".into(),
+        primary: "fake-host:30001".into(),
         id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
         start: 5461,
         end: 10922,
-        server: "fake-host:30002".into(),
+        primary: "fake-host:30002".into(),
         id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
         start: 10923,
         end: 16383,
-        server: "fake-host:30003".into(),
+        primary: "fake-host:30003".into(),
         id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
