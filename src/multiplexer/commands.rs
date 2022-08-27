@@ -334,6 +334,26 @@ fn handle_connection_closed(
   reconnect_inner.reconnect_sleep_jh.write().replace(jh);
 }
 
+/// Handle re-sync cluster
+fn handle_resync(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+) {
+  let (tx, mut rx) = unbounded_channel();
+  _debug!(inner, "Set inner cluster re-sync sender.");
+  client_utils::set_locked(&inner.cluster_resync_tx, Some(tx));
+
+  let (multiplexer, inner) = (multiplexer.clone(), inner.clone());
+
+  tokio::spawn(async move {
+    while let Some(_) = rx.recv().await {
+      if let Err(e) = multiplexer.sync_cluster().await {
+        _warn!(inner, "Error re-sync cluster: {}", e)
+      }
+    }
+  });
+}
+
 /// Whether or not the error represents a fatal CONFIG error. CONFIG errors are fatal errors that represent problems with the provided config such that no amount of reconnect or retry will help.
 fn is_config_error<T>(result: &Result<T, RedisError>) -> bool {
   if let Err(ref e) = result {
@@ -881,6 +901,8 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
 
   let has_policy = policy.is_some();
   handle_connection_closed(inner, &multiplexer, policy);
+
+  handle_resync(inner, &multiplexer);
 
   _debug!(inner, "Starting command stream...");
   while let Some(command) = rx.recv().await {

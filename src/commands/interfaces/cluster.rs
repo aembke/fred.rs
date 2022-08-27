@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::utils;
 use bytes_utils::Str;
+use crate::error::{RedisError, RedisErrorKind};
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
 pub trait ClusterInterface: ClientLike + Sized {
@@ -17,6 +18,16 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// Read the cached state of the cluster used for routing commands to the correct cluster nodes.
   fn cached_cluster_state(&self) -> Option<ClusterKeyCache> {
     self.inner().cluster_state.read().clone()
+  }
+
+  /// Manual re-sync cluster state.
+  fn cluster_resync(&self) -> AsyncResult<()> {
+    async_spawn(self, |inner| async move {
+      if let Some(tx) = inner.cluster_resync_tx.read().clone() {
+        return tx.send(()).map_err(|e| RedisError::new(RedisErrorKind::Cluster, e.to_string()));
+      }
+      Err(RedisError::new(RedisErrorKind::Cluster, "Cluster re-sync error"))
+    })
   }
 
   /// Advances the cluster config epoch.
