@@ -211,6 +211,8 @@ pub struct RedisClientInner {
   pub sentinel_primary: RwLock<Option<Arc<String>>>,
   /// The internal representation of the performance config options from the `RedisConfig`.
   pub perf_config: Arc<InternalPerfConfig>,
+  /// An mpsc sender for `cluster_resync` requests.
+  pub cluster_resync_tx: RwLock<Option<UnboundedSender<()>>>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
@@ -268,6 +270,7 @@ impl RedisClientInner {
       command_tx,
       resolver,
       id,
+      cluster_resync_tx: RwLock::new(None),
     })
   }
 
