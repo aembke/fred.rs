@@ -24,7 +24,7 @@ use std::fmt::Formatter;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::Instant;
-use std::{fmt, str};
+use std::{fmt, mem, str};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 use url::quirks::hash;
 
@@ -1330,6 +1330,25 @@ impl RedisCommandKind {
     }
   }
 
+  pub fn can_pipeline(&self) -> bool {
+    if self.is_blocking() {
+      false
+    } else {
+      match self {
+        // make it easier to handle multiple potentially out-of-band responses
+        RedisCommandKind::Psubscribe
+        | RedisCommandKind::Punsubscribe
+        // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
+        | RedisCommandKind::Eval
+        | RedisCommandKind::EvalSha
+        | RedisCommandKind::Auth
+        // makes it easier to avoid decoding in-flight responses with the wrong codec logic
+        | RedisCommandKind::_Hello(_) => false,
+        _ => true,
+      }
+    }
+  }
+
   pub fn is_eval(&self) -> bool {
     match *self {
       RedisCommandKind::EvalSha | RedisCommandKind::Eval => true,
@@ -1487,11 +1506,9 @@ impl RedisCommand {
   pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>) -> bool {
     let should_pipeline = inner.is_pipelined()
       && self.can_pipeline
+      && self.kind.can_pipeline()
       // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
-      && self.transaction_id.is_none()
-      // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
-      // also disable pipelining for HELLO to avoid decoding in-flight responses with the wrong codec logic
-      && !(self.kind.is_eval() || self.kind.is_hello() || self.kind.is_blocking());
+      && self.transaction_id.is_none();
 
     _trace!(
       inner,
@@ -1529,6 +1546,20 @@ impl RedisCommand {
     }
   }
 
+  /// Take the arguments from this command.
+  pub fn take_args(&mut self) -> Vec<RedisValue> {
+    match self.response {
+      ResponseKind::ValueScan(ref mut inner) => inner.args.drain(..).collect(),
+      ResponseKind::KeyScan(ref mut inner) => inner.args.drain(..).collect(),
+      _ => self.arguments.drain(..).collect(),
+    }
+  }
+
+  /// Take the response handler, replacing it with `ResponseKind::Skip`.
+  pub fn take_response(&mut self) -> ResponseKind {
+    mem::replace(&mut self.response, ResponseKind::Skip)
+  }
+
   /// Create a channel on which to block the multiplexer, returning the receiver.
   pub fn create_multiplexer_channel(&mut self) -> OneshotReceiver<MultiplexerResponse> {
     let (tx, rx) = oneshot_channel();
@@ -1537,12 +1568,17 @@ impl RedisCommand {
   }
 
   /// Send a message to unblock the multiplexer loop, if necessary.
-  pub fn respond_to_multiplexer(&mut self, name: &str, cmd: MultiplexerResponse) {
+  pub fn respond_to_multiplexer(&mut self, inner: &Arc<RedisClientInner>, cmd: MultiplexerResponse) {
     if let Some(tx) = self.multiplexer_tx.take() {
       if tx.send(cmd).is_err() {
-        warn!("{}: Failed to unblock multiplexer loop.", name);
+        _warn!(inner, "Failed to unblock multiplexer loop.");
       }
     }
+  }
+
+  /// Whether the command has a channel to the multiplexer.
+  pub fn has_multiplexer_channel(&self) -> bool {
+    self.multiplexer_tx.is_some()
   }
 
   /// Clone the command, supporting commands with shared response state.
@@ -1715,7 +1751,11 @@ pub enum MultiplexerCommand {
   /// Initiate a reconnection to the provided server, or all servers.
   ///
   /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
-  Reconnect { server: Option<ArcStr>, force: bool },
+  Reconnect {
+    server: Option<ArcStr>,
+    force: bool,
+    tx: Option<ResponseSender>,
+  },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster,
 }

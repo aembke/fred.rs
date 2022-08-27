@@ -48,6 +48,15 @@ impl Default for ClusterHash {
   }
 }
 
+impl From<Option<u16>> for ClusterHash {
+  fn from(hash_slot: Option<u16>) -> Self {
+    match hash_slot {
+      Some(slot) => ClusterHash::Custom(slot),
+      None => ClusterHash::Random,
+    }
+  }
+}
+
 impl ClusterHash {
   /// Hash the provided arguments.
   pub fn hash(&self, args: &[RedisValue]) -> Option<u16> {

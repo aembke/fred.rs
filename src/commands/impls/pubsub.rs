@@ -33,7 +33,7 @@ pub async fn publish<C: ClientLike>(client: C, channel: Str, message: RedisValue
 
 pub async fn psubscribe<C: ClientLike>(client: C, patterns: MultipleStrings) -> Result<RedisValue, RedisError> {
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(patterns.len(), tx);
+  let response = ResponseKind::new_multiple(patterns.len(), tx);
   let args = patterns.inner().into_iter().map(|p| p.into()).collect();
   let command: RedisCommand = (RedisCommandKind::Psubscribe, args, response).into();
   let _ = client.send_command(command)?;
@@ -44,7 +44,7 @@ pub async fn psubscribe<C: ClientLike>(client: C, patterns: MultipleStrings) -> 
 
 pub async fn punsubscribe<C: ClientLike>(client: C, patterns: MultipleStrings) -> Result<RedisValue, RedisError> {
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(patterns.len(), tx);
+  let response = ResponseKind::new_multiple(patterns.len(), tx);
   let args = patterns.inner().into_iter().map(|p| p.into()).collect();
   let command: RedisCommand = (RedisCommandKind::Punsubscribe, args, response).into();
   let _ = client.send_command(command)?;

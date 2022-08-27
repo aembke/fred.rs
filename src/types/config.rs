@@ -110,8 +110,8 @@ impl ReconnectPolicy {
     }
   }
 
-  /// Reset the number of reconnection attempts. It's unlikely users will need to call this.
-  pub fn reset_attempts(&mut self) {
+  /// Reset the number of reconnection attempts.
+  pub(crate) fn reset_attempts(&mut self) {
     match *self {
       ReconnectPolicy::Constant { ref mut attempts, .. } => {
         *attempts = 0;
@@ -131,6 +131,27 @@ impl ReconnectPolicy {
       ReconnectPolicy::Constant { ref attempts, .. } => *attempts,
       ReconnectPolicy::Linear { ref attempts, .. } => *attempts,
       ReconnectPolicy::Exponential { ref attempts, .. } => *attempts,
+    }
+  }
+
+  /// Whether the client should initiate a reconnect.
+  pub(crate) fn should_reconnect(&self) -> bool {
+    match *self {
+      ReconnectPolicy::Constant {
+        ref attempts,
+        ref max_attempts,
+        ..
+      } => *max_attempts == 0 || *attempts < *max_attempts,
+      ReconnectPolicy::Linear {
+        ref attempts,
+        ref max_attempts,
+        ..
+      } => *max_attempts == 0 || *attempts < *max_attempts,
+      ReconnectPolicy::Exponential {
+        ref attempts,
+        ref max_attempts,
+        ..
+      } => *max_attempts == 0 || *attempts < *max_attempts,
     }
   }
 

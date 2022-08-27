@@ -1,35 +1,26 @@
-use crate::error::RedisError;
+use crate::error::{RedisError, RedisErrorKind};
 use crate::interfaces::Resp3Frame;
 use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::RedisCommand;
-use crate::protocol::command::ResponseSender;
+use crate::modules::metrics::MovingStats;
+use crate::protocol::command::{MultiplexerResponse, RedisCommand};
+use crate::protocol::command::{RedisCommandKind, ResponseSender};
 use crate::protocol::connection::SharedBuffer;
-use crate::protocol::types::{KeyScanInner, ValueScanInner};
-use crate::types::RedisValue;
+use crate::protocol::types::{KeyScanInner, ValueScanInner, ValueScanResult};
+use crate::protocol::utils as protocol_utils;
+use crate::types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
-use parking_lot::Mutex;
+use arcstr::ArcStr;
+use bytes_utils::Str;
+use parking_lot::{Mutex, RwLock};
+use std::cmp;
 use std::collections::vec_deque::VecDeque;
 use std::iter::repeat;
+use std::ops::DerefMut;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::time::Instant;
 
-// TODO change ArcSwap<Arc<T>> to ArcSwap<T>
-// TODO make sure should_pipeline flushes the socket on EXEC/DISCARD or if multiplexer is blocked
-
-// TODO move should_pipeline to RedisCommandKind with override arguments
-// TODO create a new backpressure policy to block the connection until all responses are received.
-
-// TODO
-// impl the transaction interface the same way as a pipeline, but with added checks to store the hash slot
-// update docs to make it clear that transactions are pipelined unless abort_on_error is passed
-// in which case don't pipeline it, and use the Multiple policy and override pipeline to be false
-// this greatly simplifies the cluster slot checks in transactions
-
-// TODO put an atomicbool on the multiplexer, shared with each connection to indicate reader state.
-// before writing a command check that value and queue commands instead if needed.
-// assumes a reconnect or close command will arrive later
-// if the writer was dropped first then the reader should detect this.
-// do not send sync or reconnect if the multiplixer rx is on inner (indicates quit was called)
+const LAST_CURSOR: &'static str = "0";
 
 // TODO
 // make a ReplicaClient struct that has an added field for replica state
@@ -69,7 +60,11 @@ pub enum ResponseKind {
   Respond(Option<ResponseSender>),
   /// Associates multiple responses with one command, throwing away all but the last response.
   ///
-  /// Typically used by commands sent to all nodes in a cluster where responses arrive on different connections concurrently.
+  /// Note: This must not be shared across multiple commands. Use `Buffer` instead.
+  ///
+  /// `PSUBSCRIBE` and `PUNSUBSCRIBE` return multiple top level response frames on the same connection to the command. This requires unique response handling logic
+  /// to re-queue the command at the front of the shared command buffer until the expected number of frames are received.
+  // FIXME change this interface so it wont compile if this is shared across commands
   Multiple {
     /// The number of expected response frames.
     expected: usize,
@@ -153,115 +148,445 @@ impl ResponseKind {
   }
 }
 
-pub mod utils {
-  use super::*;
-  use crate::prelude::Resp3Frame;
-  use crate::protocol::command::RedisCommandKind;
+#[cfg(feature = "metrics")]
+fn sample_latency(latency_stats: &RwLock<MovingStats>, sent: Instant) {
+  let dur = Instant::now().duration_since(sent);
+  let dur_ms = cmp::max(0, (dur.as_secs() * 1000) + dur.subsec_millis() as u64) as i64;
+  latency_stats.write().sample(dur_ms);
+}
 
-  pub fn should_reconnect(inner: &Arc<RedisClientInner>, error: &RedisError) -> bool {
-    inner.policy.read().is_some() && !error.is_canceled()
+/// Sample overall and network latency values for a command.
+#[cfg(feature = "metrics")]
+fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) {
+  if let Some(sent) = command.network_start.take() {
+    sample_latency(&inner.network_latency_stats, sent);
   }
+  sample_latency(&inner.latency_stats, command.command.sent);
+}
 
-  pub fn should_sync(inner: &Arc<RedisClientInner>, error: &RedisError) -> bool {
-    inner.config.server.is_clustered() && error.is_cluster_error()
-  }
+#[cfg(not(feature = "metrics"))]
+fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut SentCommand) {}
 
-  pub async fn take_last_command(buffer: &SharedBuffer) -> Option<RedisCommand> {
-    buffer.lock().await.pop_front()
-  }
+/// Update the client's protocol version codec version after receiving a non-error response to HELLO.
+fn update_protocol_version(inner: &Arc<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {
+  if !frame.is_error() {
+    let version = match command.kind {
+      RedisCommandKind::_Hello(ref version) => version,
+      RedisCommandKind::_HelloAllCluster(ref version) => version,
+      _ => return,
+    };
 
-  pub async fn replace_last_command(buffer: &SharedBuffer, command: RedisCommand) {
-    buffer.lock().await.push_front(command);
-  }
-
-  pub fn is_pubsub(frame: &Resp3Frame) -> bool {
-    unimplemented!()
-  }
-
-  pub fn send_reconnect(inner: &Arc<RedisClientInner>) {
-    inner.command_tx.send(RedisCommandKind::_Reconnect.into());
+    _debug!(inner, "Changing RESP version to {:?}", version);
+    // HELLO cannot be pipelined so this is safe
+    inner.switch_protocol_versions(version.clone());
   }
 }
 
-pub mod default {
-  use super::*;
-  use crate::protocol::connection::{Counters, SharedBuffer, SplitRedisStream};
-  use arcstr::ArcStr;
-  use futures::stream::{Stream, StreamExt};
-  use std::sync::atomic::AtomicBool;
+fn respond_locked(
+  inner: &Arc<RedisClientInner>,
+  tx: &Arc<Mutex<Option<ResponseSender>>>,
+  result: Result<Resp3Frame, RedisError>,
+) {
+  if let Some(tx) = tx.lock().take() {
+    if let Err(_) = tx.send(result) {
+      _debug!(inner, "Error responding to caller.");
+    }
+  }
+}
 
-  /// Process the frame in the context of the command at the front of the queue.
-  ///
-  /// Returns the command if it should be put back at the front of the queue.
-  async fn process_command(
-    inner: &Arc<RedisClientInner>,
-    server: &ArcStr,
-    counters: &Counters,
-    command: RedisCommand,
-    frame: Resp3Frame,
-  ) -> Result<Option<RedisCommand>, RedisError> {
-    unimplemented!()
+fn add_buffered_frame(buffer: &Arc<Mutex<Vec<Resp3Frame>>>, index: usize, frame: Resp3Frame) {
+  let mut guard = buffer.lock();
+  let mut buffer_ref = guard.deref_mut();
+
+  buffer_ref[index] = frame;
+}
+
+/// Merge multiple potentially nested frames into one flat array of frames.
+fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
+  let inner_len = frames.iter().fold(0, |count, frame| {
+    count
+      + match frame {
+        Resp3Frame::Array { ref data, .. } => data.len(),
+        Resp3Frame::Push { ref data, .. } => data.len(),
+        _ => 1,
+      }
+  });
+
+  let mut out = Vec::with_capacity(inner_len);
+  for frame in frames.drain(..) {
+    // unwrap and return errors early
+    if frame.is_error() {
+      return frame;
+    }
+
+    match frame {
+      Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
+        for inner_frame in data.into_iter() {
+          out.push(inner_frame);
+        }
+      },
+      _ => out.push(frame),
+    };
   }
 
-  /// Process the frame as an out-of-band pubsub message.
-  async fn process_pubsub(
-    inner: &Arc<RedisClientInner>,
-    server: &ArcStr,
-    counters: &Counters,
-    frame: Resp3Frame,
-  ) -> Result<(), RedisError> {
-    unimplemented!()
+  Resp3Frame::Array {
+    data: out,
+    attributes: None,
   }
+}
 
-  pub async fn run<T>(
-    inner: Arc<RedisClientInner>,
-    mut stream: SplitRedisStream<T>,
-    server: ArcStr,
-    buffer: SharedBuffer,
-    counters: Counters,
-    all_connected: Arc<AtomicBool>,
-  ) -> Result<(), RedisError> {
-    loop {
-      let frame: Resp3Frame = match stream.next().await {
-        Ok(Some(frame)) => frame.into_resp3(),
-        Ok(None) => {
-          _debug!(inner, "{}: Reader stream closed without error.", server);
-          break;
-        },
-        Err(e) => {
-          _warn!(inner, "{}: Reader error: {:?}", server, e);
-          unimplemented!()
+/// Parse the output of a command that scans keys.
+fn parse_key_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), RedisError> {
+  if let Resp3Frame::Array { mut data, .. } = frame {
+    if data.len() == 2 {
+      let cursor = match protocol_utils::frame_to_str(&data[0]) {
+        Some(s) => s,
+        None => {
+          return Err(RedisError::new(
+            RedisErrorKind::Protocol,
+            "Expected first SCAN result element to be a bulk string.",
+          ))
         },
       };
 
-      // TODO check for MOVED/ASK, custom reconnect errors, etc
+      if let Some(Resp3Frame::Array { data, .. }) = data.pop() {
+        let mut keys = Vec::with_capacity(data.len());
 
-      if utils::is_pubsub(&frame) {
-        if let Err(e) = process_pubsub(&inner, &server, &counters, frame).await {
-          _warn!(inner, "{}: Failed processing pubsub message: {:?}", server, e);
+        for frame in data.into_iter() {
+          let key = match protocol_utils::frame_to_bytes(&frame) {
+            Some(s) => s,
+            None => {
+              return Err(RedisError::new(
+                RedisErrorKind::Protocol,
+                "Expected an array of strings from second SCAN result.",
+              ))
+            },
+          };
+
+          keys.push(key.into());
         }
+
+        Ok((cursor, keys))
       } else {
-        let command = match utils::take_last_command(&buffer).await {
-          Some(command) => command,
-          None => {
-            // TODO need a better error message here
-            _warn!(inner, "{}: Unexpected frame: {:?}", server, frame.kind());
-            unimplemented!()
-          },
-        };
-
-        if let Some(command) = process_command(&inner, &server, &counters, command, frame).await? {
-          utils::replace_last_command(&buffer, command).await;
-        }
+        Err(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Expected second SCAN result element to be an array.",
+        ))
       }
+    } else {
+      Err(RedisError::new(
+        RedisErrorKind::Protocol,
+        "Expected two-element bulk string array from SCAN.",
+      ))
     }
-
-    client_utils::set_bool_atomic(&all_connected, false);
-    // TODO:
-    // set some state on the writer to start queueing messages, if not already
-    // decide whether to reconnect
-    // check error to see if it's canceled, return Ok(())
-
-    Ok(())
+  } else {
+    Err(RedisError::new(
+      RedisErrorKind::Protocol,
+      "Expected bulk string array from SCAN.",
+    ))
   }
+}
+
+/// Parse the output of a command that scans values.
+fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), RedisError> {
+  if let Resp3Frame::Array { mut data, .. } = frame {
+    if data.len() == 2 {
+      let cursor = match protocol_utils::frame_to_str(&data[0]) {
+        Some(s) => s,
+        None => {
+          return Err(RedisError::new(
+            RedisErrorKind::Protocol,
+            "Expected first result element to be a bulk string.",
+          ))
+        },
+      };
+
+      if let Some(Resp3Frame::Array { data, .. }) = data.pop() {
+        let mut values = Vec::with_capacity(data.len());
+
+        for frame in data.into_iter() {
+          values.push(protocol_utils::frame_to_single_result(frame)?);
+        }
+
+        Ok((cursor, values))
+      } else {
+        Err(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Expected second result element to be an array.",
+        ))
+      }
+    } else {
+      Err(RedisError::new(
+        RedisErrorKind::Protocol,
+        "Expected two-element bulk string array.",
+      ))
+    }
+  } else {
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected bulk string array."))
+  }
+}
+
+/// Send the output to the caller of a command that scans values.
+fn send_value_scan_result(
+  inner: &Arc<RedisClientInner>,
+  scanner: ValueScanInner,
+  command: &RedisCommand,
+  result: Vec<RedisValue>,
+  can_continue: bool,
+) -> Result<(), RedisError> {
+  match command.kind {
+    RedisCommandKind::Zscan => {
+      let tx = scanner.tx.clone();
+      let results = ValueScanInner::transform_zscan_result(result)?;
+
+      let state = ValueScanResult::ZScan(ZScanResult {
+        can_continue,
+        inner: inner.clone(),
+        scan_state: scanner,
+        results: Some(results),
+      });
+
+      if let Err(_) = tx.send(Ok(state)) {
+        _warn!(inner, "Failed to send ZSCAN result to caller");
+      }
+    },
+    RedisCommandKind::Sscan => {
+      let tx = scan_state.tx.clone();
+
+      let state = ValueScanResult::SScan(SScanResult {
+        can_continue,
+        inner: inner.clone(),
+        scan_state: scanner,
+        results: Some(result),
+      });
+
+      if let Err(_) = tx.send(Ok(state)) {
+        _warn!(inner, "Failed to send SSCAN result to caller");
+      }
+    },
+    RedisCommandKind::Hscan => {
+      let tx = scan_state.tx.clone();
+      let results = ValueScanInner::transform_hscan_result(result)?;
+
+      let state = ValueScanResult::HScan(HScanResult {
+        can_continue,
+        inner: inner.clone(),
+        scan_state: scanner,
+        results: Some(results),
+      });
+
+      if let Err(_) = tx.send(Ok(state)) {
+        _warn!(inner, "Failed to send HSCAN result to caller");
+      }
+    },
+    _ => {
+      return Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Invalid redis command. Expected HSCAN, SSCAN, or ZSCAN.",
+      ))
+    },
+  };
+
+  Ok(())
+}
+
+// ------------------------------------------- END UTILS --------------------------------------
+
+/// Respond to the caller with the default response policy.
+pub fn respond_to_caller(
+  inner: &Arc<RedisClientInner>,
+  server: &ArcStr,
+  mut command: RedisCommand,
+  tx: ResponseSender,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
+  sample_command_latencies(inner, &mut command);
+  _trace!(
+    inner,
+    "Respond to caller from {} for {} with {:?}",
+    server,
+    command.kind.to_str_debug(),
+    frame.kind()
+  );
+  if command.kind.is_hello() {
+    update_protocol_version(inner, &command, &frame);
+  }
+
+  let _ = tx.send(Ok(frame));
+  command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+  Ok(())
+}
+
+/// Respond to the caller, assuming multiple response frames from the last command.
+///
+/// This interface may return the last command to be put back at the front of the shared buffer if more responses are expected.
+pub fn respond_multiple(
+  inner: &Arc<RedisClientInner>,
+  server: &ArcStr,
+  mut command: RedisCommand,
+  received: Arc<AtomicUsize>,
+  expected: usize,
+  tx: Arc<Mutex<Option<ResponseSender>>>,
+  frame: Resp3Frame,
+) -> Result<Option<RedisCommand>, RedisError> {
+  _trace!(
+    inner,
+    "Handling `multiple` response from {} for {}",
+    server,
+    command.kind.to_str_debug()
+  );
+  if frame.is_error() {
+    // respond early to callers if an error is received from any of the commands
+    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+
+    let result = Err(protocol_utils::frame_to_error(&frame).unwrap_or(RedisError::new_canceled()));
+    respond_locked(inner, &tx, result);
+  } else {
+    let received = client_utils::incr_atomic(&received);
+
+    if received == expected {
+      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+
+      if command.kind.is_hello() {
+        update_protocol_version(inner, &command, &frame);
+      }
+
+      _trace!(
+        inner,
+        "Finishing `multiple` response from {} for {}",
+        server,
+        command.kind.to_str_debug()
+      );
+      respond_locked(inner, &tx, Ok(frame));
+    } else {
+      // more responses are expected
+      _trace!(
+        inner,
+        "Waiting on {} more responses to `multiple` command",
+        expected - received
+      );
+      // do not unblock the multiplexer here
+
+      return Ok(Some(command));
+    }
+  }
+
+  Ok(None)
+}
+
+/// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in the shared buffer.
+pub fn respond_buffer(
+  inner: &Arc<RedisClientInner>,
+  server: &ArcStr,
+  mut command: RedisCommand,
+  received: Arc<AtomicUsize>,
+  expected: usize,
+  frames: Arc<Mutex<Vec<Resp3Frame>>>,
+  index: usize,
+  tx: Arc<Mutex<Option<ResponseSender>>>,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
+  _trace!(
+    inner,
+    "Handling `buffer` response from {} for {}",
+    server,
+    command.kind.to_str_debug()
+  );
+
+  // errors are buffered like normal frames and are not returned early
+  let received = client_utils::incr_atomic(&received);
+  add_buffered_frame(&frames, index, frame);
+
+  if received == expected {
+    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+
+    let frame = merge_multiple_frames(frames.lock().deref_mut());
+    respond_locked(inner, &tx, Ok(frame));
+  } else {
+    // more responses are expected
+    _trace!(
+      inner,
+      "Waiting on {} more responses to all nodes command",
+      expected - received
+    );
+    // this response type is shared across connections so we do not return the command to be re-queued
+  }
+
+  Ok(())
+}
+
+/// Respond to the caller of a key scanning operation.
+pub fn respond_key_scan(
+  inner: &Arc<RedisClientInner>,
+  server: &ArcStr,
+  mut command: RedisCommand,
+  mut scanner: KeyScanInner,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
+  _trace!(
+    inner,
+    "Handling `KeyScan` response from {} for {}",
+    server,
+    command.kind.to_str_debug()
+  );
+  let (next_cursor, keys) = match parse_key_scan_frame(frame) {
+    Ok(result) => result,
+    Err(e) => {
+      scanner.send_error(e);
+      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      return Ok(());
+    },
+  };
+  let scan_stream = scanner.tx.clone();
+  let can_continue = next_cursor != LAST_CURSOR;
+  scanner.update_cursor(next_cursor);
+  command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+
+  let scan_result = ScanResult {
+    scan_state: scanner,
+    inner: inner.clone(),
+    results: Some(keys),
+    can_continue,
+  };
+  if let Err(_) = scan_stream.send(Ok(scan_result)) {
+    _debug!(inner, "Error sending SCAN page.");
+  }
+
+  Ok(())
+}
+
+/// Respond to the caller of a value scanning operation.
+pub fn respond_value_scan(
+  inner: &Arc<RedisClientInner>,
+  server: &ArcStr,
+  mut command: RedisCommand,
+  mut scanner: ValueScanInner,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
+  _trace!(
+    inner,
+    "Handling `ValueScan` response from {} for {}",
+    server,
+    command.kind.to_str_debug()
+  );
+
+  let (next_cursor, values) = match parse_value_scan_frame(frame) {
+    Ok(result) => result,
+    Err(e) => {
+      scanner.send_error(e);
+      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      return Ok(());
+    },
+  };
+  let scan_stream = scanner.tx.clone();
+  let can_continue = next_cursor != LAST_CURSOR;
+  scanner.update_cursor(next_cursor);
+  command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+
+  _trace!(inner, "Sending value scan result with {} values", values.len());
+  if let Err(e) = send_value_scan_result(inner, scanner, &command, values, can_continue) {
+    scan_stream.send(Err(e));
+  }
+
+  Ok(())
 }

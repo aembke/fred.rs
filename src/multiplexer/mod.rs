@@ -23,6 +23,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 pub mod centralized;
 pub mod clustered;
 pub mod commands;
+pub mod reader;
 pub mod responses;
 pub mod sentinel;
 pub mod types;
@@ -311,6 +312,18 @@ where
     }
   }
 
+  /// Queue the command to run later.
+  ///
+  /// The internal buffer is drained whenever a `Reconnect` or `Sync` command is processed.
+  pub fn queue_command(&mut self, command: RedisCommand) {
+    self.buffer.push_back(command);
+  }
+
+  /// Drain and return the buffered commands.
+  pub fn take_command_buffer(&mut self) -> VecDeque<RedisCommand> {
+    self.buffer.drain(..).collect()
+  }
+
   /// Send a command to the server.
   ///
   /// If the command cannot be written:
@@ -318,7 +331,7 @@ where
   ///   * The associated connection will be dropped.
   ///   * The reader task for that connection will close, sending a `Reconnect` message to the multiplexer.
   ///
-  /// Any errors returned here assume that a compensating message will be sent to the multiplexer later.
+  /// Errors are handled internally, but may be returned if the command was queued to run later.
   pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Written, RedisError> {
     if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
       debug!(
@@ -351,12 +364,10 @@ where
     }
   }
 
-  /// Disconnect from the server(s), moving all in-flight messages to the internal command buffer and triggering a reconnection, if necessary.
-  pub async fn disconnect(&mut self) {
-    client_utils::set_locked(&self.inner.state, ClientState::Disconnecting);
+  /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a reconnection, if necessary.
+  pub async fn disconnect_all(&mut self) {
     let commands = self.connections.disconnect_all().await;
     self.buffer.extend(commands);
-    client_utils::set_locked(&self.inner.state, ClientState::Disconnected);
   }
 
   /// Connect to the server(s), discarding any previous connection state.
@@ -372,13 +383,13 @@ where
   ///
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&self) -> Result<(), RedisError> {
-    client_utils::set_client_state(&self.inner.state, ClientState::Connecting);
     utils::sync_cluster(&self.inner, &self.connections).await?;
-    client_utils::set_client_state(&self.inner.state, ClientState::Connected);
     Ok(())
   }
 
-  /// Replay all queued commands.
+  /// Replay all queued commands on the internal buffer without backpressure.
+  ///
+  /// If a command cannot be written the underlying connections will close.
   pub async fn replay_buffer(&mut self) -> Result<(), RedisError> {
     for mut command in self.buffer.drain(..) {
       command.skip_backpressure = true;

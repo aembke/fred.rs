@@ -3,7 +3,7 @@ use crate::error::*;
 use crate::interfaces::MultiplexerClient;
 use crate::modules::backchannel::Backchannel;
 use crate::multiplexer::SentCommand;
-use crate::protocol::command::QueuedCommand;
+use crate::protocol::command::{MultiplexerCommand, QueuedCommand};
 use crate::protocol::types::RedisCommand;
 use crate::protocol::types::{ClusterRouting, DefaultResolver};
 use crate::types::*;
@@ -362,5 +362,27 @@ impl RedisClientInner {
 
   pub async fn set_blocked_server(&self, server: &ArcStr) {
     self.backchannel.write().await.set_blocked(server);
+  }
+
+  pub fn should_reconnect(&self) -> bool {
+    let has_policy = self
+      .policy
+      .read()
+      .map(|policy| policy.should_reconnect())
+      .unwrap_or(false);
+
+    // do not attempt a reconnection if the client is intentionally disconnecting
+    has_policy && utils::read_locked(&self.state) != ClientState::Disconnecting
+  }
+
+  pub fn send_reconnect(&self, server: Option<ArcStr>, force: bool) {
+    debug!("{}: Sending reconnect message to multiplexer for {:?}", self.id, server);
+    if let Err(_) = self.command_tx.send(MultiplexerCommand::Reconnect { server, force }) {
+      warn!("{}: Error sending reconnect command to multiplexer.", self.id);
+    }
+  }
+
+  pub fn should_cluster_sync(&self, error: &RedisError) -> bool {
+    self.config.server.is_clustered() && error.is_cluster_error()
   }
 }

@@ -63,6 +63,18 @@ pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, Re
   rx.await?
 }
 
+pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  let (tx, rx) = oneshot_channel();
+  let command = MultiplexerCommand::Reconnect {
+    server: None,
+    force: true,
+    tx: Some(tx),
+  };
+  let _ = interfaces::send_to_multiplexer(inner, command)?;
+
+  rx.await?.map(|_| ())
+}
+
 pub async fn flushall<C: ClientLike>(client: C, r#async: bool) -> Result<RedisValue, RedisError> {
   let args = if r#async { vec![static_val!(ASYNC)] } else { Vec::new() };
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::FlushAll, args))).await?;
@@ -76,7 +88,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: C) -> Result<(), RedisError
   }
 
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_multiple(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
   let command: RedisCommand = (RedisCommandKind::_FlushAllCluster, vec![], response).into();
   let _ = client.send_command(command)?;
 
@@ -121,7 +133,7 @@ pub async fn hello<C: ClientLike>(
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_multiple(client.inner().num_cluster_nodes(), tx);
+    let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
     let command: RedisCommand = (RedisCommandKind::_HelloAllCluster(version), response).into();
     let _ = client.send_command(command)?;
 
@@ -143,7 +155,7 @@ pub async fn auth<C: ClientLike>(client: C, username: Option<String>, password: 
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_multiple(client.inner().num_cluster_nodes(), tx);
+    let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
     let command: RedisCommand = (RedisCommandKind::_AuthAllCluster, args, response).into();
     let _ = client.send_command(command)?;
 

@@ -181,7 +181,7 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// The unique ID identifying this client and underlying connections.
   ///
-  /// All connections created by this client will use `CLIENT SETNAME` with this value.
+  /// All connections created by this client will use `CLIENT SETNAME` with this value unless the `no-client-setname` feature is enabled.
   fn id(&self) -> &str {
     self.inner().id.as_str()
   }
@@ -216,6 +216,11 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     self.inner().config.server.is_clustered()
   }
 
+  /// Whether or not the client uses the sentinel interface.
+  fn uses_sentinels(&self) -> bool {
+    self.inner().config.server.is_sentinel()
+  }
+
   /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) in place with new values.
   fn update_perf_config(&self, config: PerformanceConfig) {
     self.inner().update_performance_config(config);
@@ -233,29 +238,35 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     *self.inner().state.read() == ClientState::Connected
   }
 
-  /// Connect to the Redis server with an optional reconnection policy.
+  /// Connect to the Redis server.
   ///
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the connection closes, and if a
   /// reconnection policy with unlimited attempts is provided then the `JoinHandle` will run forever, or until `QUIT` is called.
-  ///
-  /// **Note:** See the [RedisConfig](crate::types::RedisConfig) documentation for more information on how the `policy` is applied to new connections.
   fn connect(&self) -> ConnectHandle {
     let inner = self.inner().clone();
 
     tokio::spawn(async move {
       let result = multiplexer_commands::init(&inner).await;
       if let Err(ref e) = result {
-        multiplexer_utils::emit_connect_error(&inner, e);
+        inner.notifications.broadcast_connect(Err(e.clone()));
       }
       utils::set_client_state(&inner.state, ClientState::Disconnected);
       result
     })
   }
 
-  /// Wait for the client to connect to the server, or return an error if the initial connection cannot be established.
-  /// If the client is already connected this future will resolve immediately.
+  /// Force a reconnection to the server(s).
   ///
-  /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the first connection attempt vs subsequent attempts.
+  /// When running against a cluster this function will also refresh the cached cluster routing table.
+  fn force_reconnection(&self) -> AsyncResult<()> {
+    async_spawn(self, |client| async move {
+      commands::server::force_reconnection(client.inner()).await
+    })
+  }
+
+  /// Wait for the result of the next connection attempt.
+  ///
+  /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the next connection attempt vs all subsequent attempts.
   fn wait_for_connect(&self) -> AsyncResult<()> {
     let mut rx = self.inner().notifications.connect.subscribe();
     wrap_async(move || async move { rx.recv().await })
@@ -263,7 +274,7 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// Listen for reconnection notifications.
   ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to select the right database again, re-subscribe to channels, etc.
+  /// This function can be used to receive notifications whenever the client successfully reconnects in order to re-subscribe to channels, etc.
   ///
   /// A reconnection event is also triggered upon first connecting to the server.
   fn on_reconnect(&self) -> BroadcastReceiver<()> {
@@ -291,16 +302,15 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams.
   fn quit(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move { commands::server::quit(&inner).await })
+    async_spawn(self, |client| async move { commands::server::quit(&client).await })
   }
 
   /// Shut down the server and quit the client.
   ///
   /// <https://redis.io/commands/shutdown>
   fn shutdown(&self, flags: Option<ShutdownFlags>) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::server::shutdown(&inner, flags).await
+    async_spawn(self, |client| async move {
+      commands::server::shutdown(&client, flags).await
     })
   }
 
@@ -308,10 +318,9 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   ///
   /// <https://redis.io/commands/ping>
   fn ping(&self) -> AsyncResult<()> {
-    async_spawn(
-      self,
-      |inner| async move { commands::server::ping(&inner).await?.convert() },
-    )
+    async_spawn(self, |client| async move {
+      commands::server::ping(&client).await?.convert()
+    })
   }
 
   /// Read info about the server.
@@ -321,20 +330,12 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |inner| async move {
-      commands::server::info(&inner, section).await?.convert()
+    async_spawn(self, |client| async move {
+      commands::server::info(&client, section).await?.convert()
     })
   }
 
   /// Run a custom command that is not yet supported via another interface on this client. This is most useful when interacting with third party modules or extensions.
-  ///
-  /// This interface makes some assumptions about the nature of the provided command:
-  /// * For commands comprised of multiple command strings they must be separated by a space.
-  /// * The command string will be sent to the server exactly as written.
-  /// * Arguments will be sent in the order provided.
-  /// * When used against a cluster the caller must provide the correct hash slot to identify the cluster
-  /// node that should receive the command. If one is not provided the command will be sent to a random node
-  /// in the cluster.
   ///
   /// Callers should use the re-exported [redis_keyslot](crate::util::redis_keyslot) function to hash the command's key, if necessary.
   ///
@@ -346,8 +347,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     T::Error: Into<RedisError>,
   {
     let args = atry!(utils::try_into_vec(args));
-    async_spawn(self, |inner| async move {
-      commands::server::custom(&inner, cmd, args).await?.convert()
+    async_spawn(self, |client| async move {
+      commands::server::custom(&client, cmd, args).await?.convert()
     })
   }
 
@@ -360,8 +361,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     T::Error: Into<RedisError>,
   {
     let args = atry!(utils::try_into_vec(args));
-    async_spawn(self, |inner| async move {
-      commands::server::custom_raw(&inner, cmd, args).await
+    async_spawn(self, |client| async move {
+      commands::server::custom_raw(&client, cmd, args).await
     })
   }
 }

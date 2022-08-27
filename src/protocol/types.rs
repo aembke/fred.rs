@@ -89,6 +89,11 @@ impl KeyScanInner {
   pub fn update_cursor(&mut self, cursor: Str) {
     self.args[self.cursor_idx] = cursor.into();
   }
+
+  /// Send an error on the response stream.
+  pub fn send_error(&self, error: RedisError) {
+    self.tx.send(Err(error));
+  }
 }
 
 pub enum ValueScanResult {
@@ -118,6 +123,11 @@ impl ValueScanInner {
   /// Update the cursor in place in the arguments.
   pub fn update_cursor(&mut self, cursor: Str) {
     self.args[self.cursor_idx] = cursor.into();
+  }
+
+  /// Send an error on the response stream.
+  pub fn send_error(&self, error: RedisError) {
+    self.tx.send(Err(error));
   }
 
   pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
