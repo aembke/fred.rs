@@ -346,9 +346,9 @@ fn handle_resync(
   let (multiplexer, inner) = (multiplexer.clone(), inner.clone());
 
   tokio::spawn(async move {
-    while let Some(_) = rx.recv().await {
-      if let Err(e) = multiplexer.sync_cluster().await {
-        _warn!(inner, "Error re-sync cluster: {}", e)
+    while let Some(resp_tx) = rx.recv().await {
+      if let Err(res) = resp_tx.send(multiplexer.sync_cluster().await) {
+        _error!(inner, "Error reply for re-sync cluster: {:?}", res)
       }
     }
   });

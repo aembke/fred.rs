@@ -6,6 +6,7 @@ use crate::types::{
 };
 use crate::utils;
 use bytes_utils::Str;
+use tokio::sync::oneshot;
 use crate::error::{RedisError, RedisErrorKind};
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
@@ -23,8 +24,11 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// Manual re-sync cluster state.
   fn cluster_resync(&self) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
-      if let Some(tx) = inner.cluster_resync_tx.read().clone() {
-        return tx.send(()).map_err(|e| RedisError::new(RedisErrorKind::Cluster, e.to_string()));
+      let tx_result = inner.cluster_resync_tx.read().clone();
+      if let Some(tx) = tx_result {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        tx.send(resp_tx).map_err(|e| RedisError::new(RedisErrorKind::Cluster, e.to_string()))?;
+        return Ok(resp_rx.await??);
       }
       Err(RedisError::new(RedisErrorKind::Cluster, "Cluster re-sync error"))
     })
