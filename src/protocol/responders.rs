@@ -48,6 +48,10 @@ const LAST_CURSOR: &'static str = "0";
 // commands are queued, then quit is called. should the client wait to reconnect, then try those commands,
 // then quit on the new connection? or should quit() cancel reconnection attempts and all queued messages?
 
+// TODO
+// add a exec_raw() fn to Transaction that returns a Vec<Result<RedisValue, RedisError>>
+// and allow the user to handle errors themselves
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.

@@ -2,11 +2,11 @@ use crate::clients::RedisClient;
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::{utils, Backpressure, Connections, Counters, Written};
+use crate::multiplexer::{responses, utils, Backpressure, Connections, Counters, Written};
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::connection::{self, RedisReader, RedisTransport, RedisWriter};
 use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
+use crate::protocol::{responders, utils as protocol_utils};
 use crate::trace;
 use crate::types::*;
 use crate::utils as client_utils;
@@ -113,12 +113,9 @@ pub fn prepare_command(
 /// Write a command on the provided writer half of a socket.
 pub async fn write_command(
   inner: &Arc<RedisClientInner>,
-  writer: &mut RedisWriter<T>,
+  writer: &mut RedisWriter,
   mut command: RedisCommand,
-) -> Written
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> Written {
   match utils::check_backpressure(inner, &writer.counters, &command) {
     Ok(Some(backpressure)) => {
       _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
@@ -158,81 +155,6 @@ where
 }
 
 // --------------------------------------------------------------------------------------------------------
-
-pub fn spawn_clustered_listener(
-  inner: &Arc<RedisClientInner>,
-  connections: &Connections,
-  commands: &Arc<Mutex<BTreeMap<Arc<String>, VecDeque<SentCommand>>>>,
-  counters: &Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-  mut close_rx: BroadcastReceiver<RedisError>,
-  server: &Arc<String>,
-  stream: RedisStream,
-) {
-  let inner = inner.clone();
-  let connections = connections.clone();
-  let commands = commands.clone();
-  let counters = counters.clone();
-  let server = server.clone();
-
-  let _ = tokio::spawn(async move {
-    let memo = (inner.clone(), server.clone(), counters, commands);
-
-    let stream_ft = match stream {
-      RedisStream::Tls(stream) => Either::Left(
-        stream
-          .try_fold(memo, |(inner, server, counters, commands), frame| async {
-            let frame = frame.into_resp3();
-            responses::process_clustered_frame(&inner, &server, &counters, &commands, frame).await?;
-            Ok((inner, server, counters, commands))
-          })
-          .and_then(|_| async { Ok(()) }),
-      ),
-      RedisStream::Tcp(stream) => Either::Right(
-        stream
-          .try_fold(memo, |(inner, server, counters, commands), frame| async {
-            let frame = frame.into_resp3();
-            responses::process_clustered_frame(&inner, &server, &counters, &commands, frame).await?;
-            Ok((inner, server, counters, commands))
-          })
-          .and_then(|_| async { Ok(()) }),
-      ),
-    }
-    .fuse();
-    pin_mut!(stream_ft);
-
-    let close_inner = inner.clone();
-    let close_ft = close_rx
-      .recv()
-      .err_into::<RedisError>()
-      .and_then(|e| async move {
-        _debug!(close_inner, "Close rx recv error: {:?}", e);
-        Err(e)
-      })
-      .fuse();
-    pin_mut!(close_ft);
-
-    let result = select! {
-      close_res = close_ft => close_res,
-      stream_res = stream_ft => stream_res
-    };
-    let error = result
-      .and_then(|_| Err::<(), _>(RedisError::new_canceled()))
-      .unwrap_err();
-
-    if client_utils::read_client_state(&inner.state) == ClientState::Disconnecting {
-      // client was closed intentionally via Quit
-      client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-      return Ok(());
-    }
-
-    _debug!(inner, "Redis clustered frame stream closed with error {:?}", error);
-    remove_cluster_writer(&connections, &server).await;
-    client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    emit_connection_closed(&inner, &connections, &server, error);
-
-    Ok::<(), RedisError>(())
-  });
-}
 
 async fn create_cluster_connection(
   inner: &Arc<RedisClientInner>,
@@ -317,80 +239,6 @@ pub async fn connect_clustered(
       "Expected clustered connections.",
     ))
   }
-}
-
-pub fn spawn_centralized_listener(
-  inner: &Arc<RedisClientInner>,
-  server: &Arc<String>,
-  connections: &Connections,
-  mut close_rx: BroadcastReceiver<RedisError>,
-  commands: &Arc<Mutex<VecDeque<SentCommand>>>,
-  counters: &Counters,
-  stream: RedisStream,
-) {
-  let inner = inner.clone();
-  let commands = commands.clone();
-  let counters = counters.clone();
-  let connections = connections.clone();
-  let server = server.clone();
-
-  let _ = tokio::spawn(async move {
-    let memo = (inner.clone(), server.clone(), counters, commands);
-
-    let stream_ft = match stream {
-      RedisStream::Tls(stream) => Either::Left(
-        stream
-          .try_fold(memo, |(inner, server, counters, commands), frame| async {
-            let frame = frame.into_resp3();
-            responses::process_centralized_frame(&inner, &server, &counters, &commands, frame).await?;
-            Ok((inner, server, counters, commands))
-          })
-          .and_then(|_| async { Ok(()) }),
-      ),
-      RedisStream::Tcp(stream) => Either::Right(
-        stream
-          .try_fold(memo, |(inner, server, counters, commands), frame| async {
-            let frame = frame.into_resp3();
-            responses::process_centralized_frame(&inner, &server, &counters, &commands, frame).await?;
-            Ok((inner, server, counters, commands))
-          })
-          .and_then(|_| async { Ok(()) }),
-      ),
-    }
-    .fuse();
-    pin_mut!(stream_ft);
-
-    let close_inner = inner.clone();
-    let close_ft = close_rx
-      .recv()
-      .err_into::<RedisError>()
-      .and_then(|e| async move {
-        _debug!(close_inner, "Close rx recv error: {:?}", e);
-        Err(e)
-      })
-      .fuse();
-    pin_mut!(close_ft);
-
-    let result = select! {
-      close_res = close_ft => close_res,
-      stream_res = stream_ft => stream_res
-    };
-    let error = result
-      .and_then(|_| Err::<(), _>(RedisError::new_canceled()))
-      .unwrap_err();
-
-    if client_utils::read_client_state(&inner.state) == ClientState::Disconnecting {
-      // client was closed intentionally via Quit
-      client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-      return Ok(());
-    }
-
-    _debug!(inner, "Redis frame stream closed with error {:?}", error);
-    client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    emit_connection_closed(&inner, &connections, &server, error);
-
-    Ok::<(), RedisError>(())
-  });
 }
 
 pub async fn connect_centralized(
@@ -686,57 +534,6 @@ fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterCha
     }
 
     emit_cluster_changes(inner, changes);
-  }
-}
-
-pub async fn sync_cluster<T>(
-  inner: &Arc<RedisClientInner>,
-  connections: &mut Connections<T>,
-) -> Result<(), RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  _debug!(inner, "Synchronizing cluster state.");
-
-  if let Connections::Clustered { cache, writers } = connections {
-    let state = cluster_nodes_backchannel(inner).await?;
-    *cache = state.clone();
-
-    let changes = create_cluster_change(&state, &writers).await;
-    _debug!(inner, "Changing cluster connections: {:?}", changes);
-    broadcast_cluster_changes(inner, &changes);
-
-    for removed_server in changes.remove.into_iter() {
-      let commands = remove_server(inner, writers, &removed_server).await?;
-      if let Some(commands) = commands {
-        buffer.extend(commands.into_iter().map(|c| QueuedCommand {
-          custom_hash_slot: c.hash_slot,
-          cmd: c.command,
-          no_backpressure: c.no_backpressure,
-        }))
-      }
-    }
-    for new_server in changes.add.into_iter() {
-      add_server(
-        inner,
-        connections,
-        counters,
-        writers,
-        commands,
-        connection_ids,
-        close_tx,
-        &new_server,
-      )
-      .await?;
-    }
-
-    _debug!(inner, "Finish synchronizing cluster connections.");
-    Ok(())
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected clustered connections.",
-    ))
   }
 }
 

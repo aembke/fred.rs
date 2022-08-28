@@ -3,14 +3,17 @@ use crate::interfaces;
 use crate::interfaces::Resp3Frame;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::Written;
 use crate::multiplexer::{responses, utils};
+use crate::multiplexer::{Connections, Written};
 use crate::protocol::command::{ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand};
-use crate::protocol::connection::{Counters, RedisWriter, SharedBuffer, SplitRedisStream};
+use crate::protocol::connection::{
+  self, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
+};
 use crate::protocol::responders;
 use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::ClusterRouting;
 use crate::protocol::utils as protocol_utils;
+use crate::protocol::utils::server_to_parts;
 use crate::utils as client_utils;
 use arcstr::ArcStr;
 use futures::StreamExt;
@@ -39,15 +42,12 @@ pub fn find_cluster_node<'a>(
     })
 }
 
-pub async fn send_command<'a, T>(
+pub async fn send_command<'a>(
   inner: &Arc<RedisClientInner>,
-  writers: &mut HashMap<ArcStr, RedisWriter<T>>,
+  writers: &mut HashMap<ArcStr, RedisWriter>,
   state: &'a ClusterRouting,
   mut command: RedisCommand,
-) -> Result<Written<'a>, (RedisError, RedisCommand)>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> Result<Written<'a>, (RedisError, RedisCommand)> {
   let server = match find_cluster_node(inner, state, &command) {
     Some(server) => server,
     None => {
@@ -80,13 +80,10 @@ where
   }
 }
 
-pub fn create_cluster_change<T>(
+pub fn create_cluster_change(
   cluster_state: &ClusterRouting,
-  writers: &HashMap<ArcStr, RedisWriter<T>>,
-) -> ClusterChange
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  writers: &HashMap<ArcStr, RedisWriter>,
+) -> ClusterChange {
   let mut old_servers = BTreeSet::new();
   let mut new_servers = BTreeSet::new();
   for server in cluster_state.unique_primary_nodes().into_iter() {
@@ -102,9 +99,9 @@ where
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
-pub fn spawn_reader_task<T>(
+pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
-  mut reader: SplitRedisStream<T>,
+  mut reader: SplitStreamKind,
   server: &ArcStr,
   buffer: &SharedBuffer,
   counters: &Counters,
@@ -260,8 +257,13 @@ pub async fn process_response_frame(
     process_cluster_error(inner, command, frame);
     return Ok(());
   }
-  if command.transaction_id.is_some() && frame.is_error() {
-    // TODO handle errors within a transaction
+  if command.transaction_id.is_some() && frame.is_error() && !command.kind.ends_transaction() {
+    if let Some(error) = protocol_utils::frame_to_error(&frame) {
+      if let Some(tx) = command.multiplexer_tx.take() {
+        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+        return Ok(());
+      }
+    }
   }
 
   match command.take_response() {
@@ -289,5 +291,96 @@ pub async fn process_response_frame(
     } => responders::respond_buffer(inner, server, command, received, expected, frames, index, tx, frame),
     ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
     ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
+  }
+}
+
+/// Try connecting to any node in the provided `RedisConfig`.
+pub async fn connect_any(
+  inner: &Arc<RedisClientInner>,
+  old_servers: Vec<ArcStr>,
+) -> Result<RedisTransport, RedisError> {
+  let mut all_servers: BTreeSet<(String, u16)> = old_servers
+    .into_iter()
+    .filter_map(|server| {
+      server_to_parts(&server)
+        .ok()
+        .map(|(host, port)| (host.to_owned(), port))
+    })
+    .collect();
+  all_servers.extend(inner.config.server.hosts().map(|(host, port)| (host.to_owned(), port)));
+  _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
+
+  let num_servers = all_servers.len();
+  for (idx, (host, port)) in all_servers.into_iter().enumerate() {
+    let connection = try_or_continue!(connection::create_connection(inner, host, port).await);
+    _debug!(
+      inner,
+      "Connected to {} ({}/{})",
+      connection.server,
+      idx + 1,
+      num_servers
+    );
+    return Ok(connection);
+  }
+
+  Err(RedisError::new(
+    RedisErrorKind::Cluster,
+    "Failed connecting to any cluster node.",
+  ))
+}
+
+/// Run the `CLUSTER SLOTS` command on the backchannel, creating a new connection if needed.
+pub async fn cluster_slots_backchannel(inner: &Arc<RedisClientInner>) -> Result<ClusterRouting, RedisError> {
+  let response = {
+    let mut backchannel = inner.backchannel.write().await;
+    // check if a backchannel connection exists
+    // if so then try using it
+    // if that fails then run connect_to_cluster
+    // set that connection on the backchannel
+  };
+}
+
+pub async fn sync_cluster(inner: &Arc<RedisClientInner>, connections: &mut Connections) -> Result<(), RedisError> {
+  _debug!(inner, "Synchronizing cluster state.");
+
+  if let Connections::Clustered { cache, writers } = connections {
+    let state = cluster_nodes_backchannel(inner).await?;
+    *cache = state.clone();
+
+    let changes = responses::create_cluster_change(&state, &writers).await;
+    _debug!(inner, "Changing cluster connections: {:?}", changes);
+    broadcast_cluster_changes(inner, &changes);
+
+    for removed_server in changes.remove.into_iter() {
+      let commands = remove_server(inner, writers, &removed_server).await?;
+      if let Some(commands) = commands {
+        buffer.extend(commands.into_iter().map(|c| QueuedCommand {
+          custom_hash_slot: c.hash_slot,
+          cmd: c.command,
+          no_backpressure: c.no_backpressure,
+        }))
+      }
+    }
+    for new_server in changes.add.into_iter() {
+      add_server(
+        inner,
+        connections,
+        counters,
+        writers,
+        commands,
+        connection_ids,
+        close_tx,
+        &new_server,
+      )
+      .await?;
+    }
+
+    _debug!(inner, "Finish synchronizing cluster connections.");
+    Ok(())
+  } else {
+    Err(RedisError::new(
+      RedisErrorKind::Config,
+      "Expected clustered connections.",
+    ))
   }
 }

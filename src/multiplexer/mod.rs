@@ -382,8 +382,8 @@ where
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   ///
   /// This will also create new connections or drop old connections as needed.
-  pub async fn sync_cluster(&self) -> Result<(), RedisError> {
-    utils::sync_cluster(&self.inner, &self.connections).await?;
+  pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
+    utils::sync_cluster(&self.inner, &mut self.connections).await?;
     Ok(())
   }
 

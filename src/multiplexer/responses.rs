@@ -8,6 +8,7 @@ use crate::protocol::utils::{frame_to_error, frame_to_single_result};
 use crate::trace;
 use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
 use crate::utils as client_utils;
+use arcstr::ArcStr;
 use bytes_utils::Str;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -18,7 +19,6 @@ use std::sync::Arc;
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use arcstr::ArcStr;
 #[cfg(feature = "metrics")]
 use std::cmp;
 #[cfg(feature = "metrics")]

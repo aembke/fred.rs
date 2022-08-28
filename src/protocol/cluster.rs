@@ -154,13 +154,10 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
   Ok(out)
 }
 
-pub async fn read_cluster_slots<T>(
-  transport: &mut RedisTransport<T>,
+pub async fn read_cluster_slots(
+  transport: &mut RedisTransport,
   inner: &Arc<RedisClientInner>,
-) -> Result<ClusterRouting, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> Result<ClusterRouting, RedisError> {
   _debug!(inner, "Reading cluster slots from {}", transport.server);
   let cmd = RedisCommand::new(RedisCommandKind::ClusterSlots, vec![], None);
   let response = transport.request_response(cmd, inner.is_resp3()).await?;
@@ -171,13 +168,10 @@ where
   Ok(cache)
 }
 
-pub async fn read_cluster_state<T>(
-  transport: &mut RedisTransport<T>,
+pub async fn read_cluster_state(
+  transport: &mut RedisTransport,
   inner: &Arc<RedisClientInner>,
-) -> Result<ClusterRouting, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> Result<ClusterRouting, RedisError> {
   let major_version = protocol_utils::major_redis_version(&transport.version);
 
   if major_version < 3 {
@@ -192,48 +186,6 @@ where
     // read_cluster_shards(transport, inner).await
     read_cluster_slots(transport, inner).await
   }
-}
-
-/// Attempt to connect and read the cluster state from all known hosts in the provided `RedisConfig`.
-pub async fn read_cluster_state_all_nodes(inner: &Arc<RedisClientInner>) -> Result<ClusterRouting, RedisError> {
-  let known_nodes = protocol_utils::read_clustered_hosts(&inner.config)?;
-
-  for (host, port) in known_nodes.into_iter() {
-    _debug!(inner, "Attempting to read cluster state from {}:{}", host, port);
-
-    if inner.config.uses_tls() {
-      match inner.config.tls {
-        #[cfg(feature = "enable-native-tls")]
-        Some(TlsConnector::Native(_)) => {
-          let mut transport = try_or_continue!(RedisTransport::new_native_tls(inner, host, port).await);
-
-          if let Ok(cache) = read_cluster_state(&mut transport, inner).await {
-            return Ok(cache);
-          }
-        },
-        #[cfg(feature = "enable-rustls")]
-        Some(TlsConnector::Rustls(_)) => {
-          let mut transport = try_or_continue!(RedisTransport::new_rustls(inner, host, port).await);
-
-          if let Ok(cache) = read_cluster_state(&mut transport, inner).await {
-            return Ok(cache);
-          }
-        },
-        _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
-      }
-    } else {
-      let mut transport = try_or_continue!(RedisTransport::new_tcp(inner, host, port).await);
-
-      if let Ok(cache) = read_cluster_state(&mut transport, inner).await {
-        return Ok(cache);
-      }
-    }
-  }
-
-  Err(RedisError::new(
-    RedisErrorKind::Unknown,
-    "Could not read cluster state from any known node in the cluster.",
-  ))
 }
 
 #[cfg(test)]

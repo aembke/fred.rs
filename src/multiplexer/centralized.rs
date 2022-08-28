@@ -6,9 +6,9 @@ use crate::multiplexer::Written;
 use crate::prelude::{RedisError, Resp3Frame};
 use crate::protocol::command::{MultiplexerResponse, RedisCommand, ResponseSender};
 use crate::protocol::connection::{Counters, RedisReader, RedisWriter, SharedBuffer, SplitRedisStream};
-use crate::protocol::responders;
-use crate::protocol::responders::ResponseKind;
+use crate::protocol::responders::{self, ResponseKind};
 use crate::protocol::types::{KeyScanInner, ValueScanInner};
+use crate::protocol::utils as protocol_utils;
 use arcstr::ArcStr;
 use futures::StreamExt;
 use parking_lot::Mutex;
@@ -108,9 +108,12 @@ pub async fn process_response_frame(
   };
   counters.decr_in_flight();
 
-  if command.transaction_id.is_some() && frame.is_error() {
-    // TODO handle errors within a transaction
-    // if abort_on_error is set then need to send a transaction error to the multiplexer
+  if command.transaction_id.is_some() && frame.is_error() && !command.kind.ends_transaction() {
+    if let Some(error) = protocol_utils::frame_to_error(&frame) {
+      if let Some(tx) = command.multiplexer_tx.take() {
+        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+      }
+    }
   }
 
   match command.take_response() {

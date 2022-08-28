@@ -13,7 +13,7 @@ use arcstr::ArcStr;
 use futures::lock::BiLock;
 use futures::sink::SinkExt;
 use futures::stream::{SplitSink, SplitStream, StreamExt};
-use futures::{Sink, Stream};
+use futures::{Sink, Stream, TryStream};
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp2::types::Frame as Resp2Frame;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
@@ -43,11 +43,196 @@ use tokio_rustls::{rustls::ServerName, TlsConnector as RustlsConnector, TlsStrea
 
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";
+/// The default timeout when establishing new connections.
+pub const DEFAULT_CONNECTION_TIMEOUT_MS: u64 = 60_0000;
 
 pub type CommandBuffer = VecDeque<RedisCommand>;
 pub type SharedBuffer = Arc<BiLock<CommandBuffer>>;
+
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
+
+pub enum ConnectionKind {
+  Tcp(Framed<TcpStream, RedisCodec>),
+  #[cfg(feature = "enable-rustls")]
+  Rustls(Framed<RustlsStream<TcpStream>, RedisCodec>),
+  #[cfg(feature = "enable-native-tls")]
+  NativeTls(Framed<NativeTlsStream<TcpStream>, RedisCodec>),
+}
+
+impl ConnectionKind {
+  /// Split the connection.
+  pub fn split(self) -> (SplitSinkKind, SplitStreamKind) {
+    match self {
+      ConnectionKind::Tcp(mut conn) => {
+        let (sink, stream) = conn.split();
+        (SplitSinkKind::Tcp(sink), SplitStreamKind::Tcp(stream))
+      },
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(mut conn) => {
+        let (sink, stream) = conn.split();
+        (SplitSinkKind::Rustls(sink), SplitStreamKind::Rustls(stream))
+      },
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(mut conn) => {
+        let (sink, stream) = conn.split();
+        (SplitSinkKind::NativeTls(sink), SplitStreamKind::NativeTls(stream))
+      },
+    }
+  }
+}
+
+impl Stream for ConnectionKind {
+  type Item = Result<ProtocolFrame, RedisError>;
+
+  fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_next(cx),
+    }
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).size_hint(),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).size_hint(),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).size_hint(),
+    }
+  }
+}
+
+impl Sink<ProtocolFrame> for ConnectionKind {
+  type Error = RedisError;
+
+  fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_ready(cx),
+    }
+  }
+
+  fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).start_send(item),
+    }
+  }
+
+  fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+    }
+  }
+
+  fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+    }
+  }
+}
+
+pub enum SplitStreamKind {
+  Tcp(SplitRedisStream<TcpStream>),
+  #[cfg(feature = "enable-rustls")]
+  Rustls(SplitRedisStream<RustlsStream<TcpStream>>),
+  #[cfg(feature = "enable-native-tls")]
+  NativeTls(SplitRedisStream<NativeTlsStream<TcpStream>>),
+}
+
+impl Stream for SplitStreamKind {
+  type Item = Result<ProtocolFrame, RedisError>;
+
+  fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_next(cx),
+    }
+  }
+
+  fn size_hint(&self) -> (usize, Option<usize>) {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).size_hint(),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).size_hint(),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).size_hint(),
+    }
+  }
+}
+
+pub enum SplitSinkKind {
+  Tcp(SplitRedisSink<TcpStream>),
+  #[cfg(feature = "enable-rustls")]
+  Rustls(SplitRedisSink<RustlsStream<TcpStream>>),
+  #[cfg(feature = "enable-native-tls")]
+  NativeTls(SplitRedisSink<NativeTlsStream<TcpStream>>),
+}
+
+impl Sink<ProtocolFrame> for SplitSinkKind {
+  type Error = RedisError;
+
+  fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_ready(cx),
+    }
+  }
+
+  fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).start_send(item),
+    }
+  }
+
+  fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+    }
+  }
+
+  fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    match self {
+      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-rustls")]
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      #[cfg(feature = "enable-native-tls")]
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+    }
+  }
+}
 
 /// Atomic counters stored with connection state.
 #[derive(Clone, Debug)]
@@ -93,15 +278,15 @@ impl Counters {
   }
 }
 
-pub struct RedisTransport<T: AsyncRead + AsyncWrite + Unpin + 'static> {
+pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
   pub server: ArcStr,
   /// The parsed `SocketAddr` for the connection.
   pub addr: SocketAddr,
   /// The hostname used to initialize the connection.
   pub default_host: ArcStr,
-  /// The TCP/TLS connection.
-  pub transport: Framed<T, RedisCodec>,
+  /// The network connection.
+  pub transport: ConnectionKind,
   /// A shared buffer of commands used for pipelining.
   pub buffer: CommandBuffer,
   /// The connection/client ID from the CLIENT ID command.
@@ -112,11 +297,8 @@ pub struct RedisTransport<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub counters: Counters,
 }
 
-impl<T> RedisTransport<T>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  pub async fn new_tcp(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self<T>, RedisError> {
+impl RedisTransport {
+  pub async fn new_tcp(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
     let buffer_size = protocol_utils::initial_buffer_size(inner);
     let counters = Counters::new(&inner.cmd_buffer_len);
     let (id, version, buffer) = (None, None, VecDeque::with_capacity(buffer_size));
@@ -132,7 +314,7 @@ where
       addr.port()
     );
     let socket = TcpStream::connect(addr).await?;
-    let transport = Framed::new(socket, codec);
+    let transport = ConnectionKind::Tcp(Framed::new(socket, codec));
 
     Ok(RedisTransport {
       server,
@@ -147,7 +329,7 @@ where
   }
 
   #[cfg(feature = "enable-native-tls")]
-  pub async fn new_native_tls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self<T>, RedisError> {
+  pub async fn new_native_tls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
     let buffer_size = protocol_utils::initial_buffer_size(inner);
     let counters = Counters::new(&inner.cmd_buffer_len);
     let (id, version, buffer) = (None, None, VecDeque::with_capacity(buffer_size));
@@ -167,7 +349,7 @@ where
     match inner.config.tls {
       Some(TlsConnector::Native(ref connector)) => {
         let socket = connector.clone().connect(&host, socket).await?;
-        let transport = Framed::new(socket, codec);
+        let transport = ConnectionKind::NativeTls(Framed::new(socket, codec));
 
         Ok(RedisTransport {
           server,
@@ -213,7 +395,7 @@ where
       Some(TlsConnector::Rustls(ref connector)) => {
         let server_name: ServerName = host.as_str().try_into()?;
         let socket = connector.clone().connect(server_name, socket).await?;
-        let transport = Framed::new(socket, codec);
+        let transport = ConnectionKind::Rustls(Framed::new(socket, codec));
 
         Ok(RedisTransport {
           server,
@@ -380,7 +562,7 @@ where
 
   /// Read and cache the connection ID.
   pub async fn cache_connection_id(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
+    let command = (RedisCommandKind::ClientID, vec![], None).into();
     let result = self.request_response(command, inner.is_resp3()).await?;
     _debug!(inner, "Read client ID: {:?}", result);
     self.id = match result.into_resp3() {
@@ -389,6 +571,21 @@ where
     };
 
     Ok(())
+  }
+
+  /// Send `PING` to the server.
+  pub async fn ping(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    let command = RedisCommandKind::Ping.into();
+    let response = self
+      .request_response(command, inner.is_resp3())
+      .await
+      .map(|frame| frame.into_resp3())?;
+
+    if let Some(e) = protocol_utils::frame_to_error(&response) {
+      Err(e)
+    } else {
+      Ok(())
+    }
   }
 
   /// Select the database provided in the `RedisConfig`.
@@ -425,7 +622,7 @@ where
   }
 
   /// Split the transport into reader/writer halves.
-  pub fn split(self) -> (RedisWriter<T>, RedisReader<T>) {
+  pub fn split(self) -> (RedisWriter, RedisReader) {
     let buffer = Arc::new(Mutex::new(self.buffer));
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
     let (sink, stream) = self.transport.split();
@@ -453,44 +650,15 @@ where
   }
 }
 
-pub struct RedisReader<T: AsyncRead + AsyncWrite + Unpin + 'static> {
-  pub stream: Option<SplitRedisStream<T>>,
+pub struct RedisReader {
+  pub stream: Option<SplitStreamKind>,
   pub server: ArcStr,
   pub buffer: SharedBuffer,
   pub counters: Counters,
   pub task: Option<JoinHandle<Result<(), RedisError>>>,
 }
 
-impl<T> RedisReader<T>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  pub fn spawn_background_default(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    all_connected: &Arc<AtomicBool>,
-  ) -> Result<(), RedisError> {
-    let stream = match self.stream.take() {
-      Some(stream) => stream,
-      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection not found.")),
-    };
-    let inner = inner.clone();
-    let server = self.server.clone();
-    let buffer = self.buffer.clone();
-    let counters = self.counters.clone();
-    let all_connected = all_connected.clone();
-
-    self.task = Some(tokio::spawn(responders::default::run(
-      inner,
-      stream,
-      server,
-      buffer,
-      counters,
-      all_connected,
-    )));
-    Ok(())
-  }
-
+impl RedisReader {
   pub async fn wait(&mut self) -> Result<(), RedisError> {
     if let Some(ref mut task) = self.task {
       task.await?
@@ -517,8 +685,8 @@ where
   }
 }
 
-pub struct RedisWriter<T: AsyncRead + AsyncWrite + Unpin + 'static> {
-  pub sink: SplitRedisSink<T>,
+pub struct RedisWriter {
+  pub sink: SplitSinkKind,
   pub server: ArcStr,
   pub default_host: ArcStr,
   pub addr: SocketAddr,
@@ -526,22 +694,16 @@ pub struct RedisWriter<T: AsyncRead + AsyncWrite + Unpin + 'static> {
   pub version: Option<Version>,
   pub id: Option<i64>,
   pub counters: Counters,
-  pub reader: Option<RedisReader<T>>,
+  pub reader: Option<RedisReader>,
 }
 
-impl<T> fmt::Debug for RedisWriter<T>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+impl fmt::Debug for RedisWriter {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("Connection").field("server", &self.server).finish()
   }
 }
 
-impl<T> RedisWriter<T>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+impl RedisWriter {
   /// Flush the sink and reset the feed counter.
   pub async fn flush(&mut self) -> Result<(), RedisError> {
     let _ = self.sink.flush().await?;
@@ -598,4 +760,26 @@ where
     }
     self.buffer.lock().drain(..).collect()
   }
+}
+
+/// Connect to the server and initialize the connection (AUTH, SELECT, etc).
+pub async fn create_connection(
+  inner: &Arc<RedisClientInner>,
+  host: String,
+  port: u16,
+  timeout_ms: Option<u64>,
+) -> Result<RedisTransport, RedisError> {
+  let timeout = timeout_ms.unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
+
+  let transport_ft = if inner.config.uses_native_tls() {
+    RedisTransport::new_native_tls(inner, host, port)
+  } else if inner.config.uses_rustls() {
+    RedisTransport::new_rustls(inner, host, port)
+  } else {
+    RedisTransport::new_tcp(inner, host, port)
+  };
+  let mut transport = utils::apply_timeout(transport_ft, timeout).await?;
+  let _ = transport.setup(inner).await?;
+
+  Ok(transport)
 }

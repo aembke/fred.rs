@@ -21,57 +21,11 @@ use tokio_native_tls::TlsStream as NativeTlsStream;
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsStream as RustlsStream;
 
-/// Wrapper type to hide generic connection type parameters.
-pub enum BackchannelTransport {
-  Tcp(RedisTransport<TcpStream>),
-  #[cfg(feature = "enable-native-tls")]
-  NativeTls(RedisTransport<NativeTlsStream<TcpStream>>),
-  #[cfg(feature = "enable-rustls")]
-  Rustls(RedisTransport<RustlsStream<TcpStream>>),
-}
-
-impl BackchannelTransport {
-  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    match self {
-      BackchannelTransport::Tcp(t) => t.setup(inner).await,
-      #[cfg(feature = "enable-native-tls")]
-      BackchannelTransport::NativeTls(t) => t.setup(inner).await,
-      #[cfg(feature = "enable-rustls")]
-      BackchannelTransport::Rustls(t) => t.setup(inner).await,
-    }
-  }
-
-  pub async fn request_response(&mut self, cmd: RedisCommand, is_resp3: bool) -> Result<Resp3Frame, RedisError> {
-    match self {
-      BackchannelTransport::Tcp(t) => t.request_response(cmd, is_resp3).await.map(|f| f.into_resp3()),
-      #[cfg(feature = "enable-native-tls")]
-      BackchannelTransport::NativeTls(t) => t.request_response(cmd, is_resp3).await.map(|f| f.into_resp3()),
-      #[cfg(feature = "enable-rustls")]
-      BackchannelTransport::Rustls(t) => t.request_response(cmd, is_resp3).await.map(|f| f.into_resp3()),
-    }
-  }
-
-  pub async fn ping(&mut self, is_resp3: bool) -> Result<(), RedisError> {
-    let cmd = RedisCommand::new(RedisCommandKind::Ping, vec![], None);
-    self.request_response(cmd, is_resp3).await.map(|_| ())
-  }
-
-  pub fn server(&self) -> &ArcStr {
-    match self {
-      BackchannelTransport::Tcp(t) => &t.server,
-      #[cfg(feature = "enable-native-tls")]
-      BackchannelTransport::NativeTls(t) => &t.server,
-      #[cfg(feature = "enable-rustls")]
-      BackchannelTransport::Rustls(t) => &t.server,
-    }
-  }
-}
-
 /// A struct wrapping a separate connection to the server or cluster for client or cluster management commands.
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
-  pub transport: Option<BackchannelTransport>,
+  pub transport: Option<RedisTransport>,
   /// An identifier for the blocked connection, if any.
   pub blocked: Option<ArcStr>,
   /// A map of server IDs to connection IDs, as managed by the multiplexer.
@@ -80,7 +34,7 @@ pub struct Backchannel {
 
 impl Backchannel {
   /// Set the connection IDs from the multiplexer.
-  pub fn update_connection_ids<T>(&mut self, connections: Connections<T>)
+  pub fn update_connection_ids<T>(&mut self, connections: &Connections<T>)
   where
     T: AsyncRead + AsyncWrite + Unpin + 'static,
   {
@@ -138,13 +92,13 @@ impl Backchannel {
 
   /// Return a server ID, with the following preferences:
   ///
-  /// 1. The blocked server ID, if any.
-  /// 2. The server ID of the existing connection, if any.
+  /// 1. The server ID of the existing connection, if any.
+  /// 2. The blocked server ID, if any.
   /// 3. A random server ID from the multiplexer's connection map.
   pub fn any_server(&self) -> Option<ArcStr> {
     self
-      .blocked_server()
-      .or(self.current_server())
+      .current_server()
+      .or(self.blocked_server())
       .or(self.connection_ids.keys().next().cloned())
   }
 
@@ -158,7 +112,7 @@ impl Backchannel {
   ) -> Result<bool, RedisError> {
     if let Some(ref mut transport) = self.transport {
       if transport.server() == server {
-        if transport.ping(inner.is_resp3()).await.is_ok() {
+        if transport.ping(inner).await.is_ok() {
           _debug!(inner, "Using existing backchannel connection to {}", server);
           return Ok(false);
         }
@@ -167,28 +121,7 @@ impl Backchannel {
     self.transport = None;
 
     let (host, port) = protocol_utils::server_to_parts(server)?;
-    let transport = match inner.config.tls {
-      #[cfg(feature = "enable-native-tls")]
-      Some(TlsConnector::Native(_)) => {
-        _debug!(inner, "Creating backchannel native-tls connection to {}:{}", host, port);
-        let mut transport = RedisTransport::new_native_tls(inner, host.to_owned(), port).await?;
-        let _ = transport.setup(inner).await?;
-        BackchannelTransport::NativeTls(transport)
-      },
-      #[cfg(feature = "enable-rustls")]
-      Some(TlsConnector::Rustls(_)) => {
-        _debug!(inner, "Creating backchannel rustls connection to {}:{}", host, port);
-        let mut transport = RedisTransport::new_rustls(inner, host.to_owned(), port).await?;
-        let _ = transport.setup(inner).await?;
-        BackchannelTransport::Rustls(transport)
-      },
-      _ => {
-        _debug!(inner, "Creating backchannel TCP connection to {}:{}", host, port);
-        let mut transport = RedisTransport::new_tcp(inner, host.to_owned(), port).await?;
-        let _ = transport.setup(inner).await?;
-        BackchannelTransport::Tcp(transport)
-      },
-    };
+    let transport = connection::create_connection(inner, host.to_owned(), port, None).await?;
     self.transport = Some(transport);
 
     Ok(true)
@@ -207,7 +140,10 @@ impl Backchannel {
 
     if let Some(ref mut transport) = self.transport {
       _debug!(inner, "Sending {} on backchannel to {}", command.to_debug_str(), server);
-      transport.request_response(command, inner.is_resp3()).await
+      transport
+        .request_response(command, inner.is_resp3())
+        .await
+        .map(|frame| frame.into_resp3())
     } else {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
