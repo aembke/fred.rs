@@ -316,7 +316,7 @@ impl Multiplexer {
   pub async fn wait_for_sync(&self) -> Result<(), RedisError> {
     let inner = &self.inner;
     if !self.is_synchronizing() {
-      _trace!(inner, "Skip waiting on cluster sync.");
+      _debug!(inner, "Skip waiting on cluster sync.");
       return Ok(());
     }
 
@@ -330,11 +330,16 @@ impl Multiplexer {
   }
 
   pub async fn sync_cluster(&self) -> Result<(), RedisError> {
+    let inner = &self.inner;
+    _debug!(inner, "Start sync cluster...");
     if self.check_and_set_sync() {
       // dont return here. if multiple consecutive repair commands come in while one is running we still want to run them all, but not concurrently.
+      _debug!(inner, "Wait for sync...");
       let _ = self.wait_for_sync().await?;
     }
+    _debug!(inner, "Start sync cluster...Ok.");
     utils::sync_cluster(&self.inner, &self.connections, &self.close_tx).await?;
+    _debug!(inner, "Sync ok.");
 
     self.set_synchronizing(false);
     client_utils::set_client_state(&self.inner.state, ClientState::Connected);
