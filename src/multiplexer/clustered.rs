@@ -5,19 +5,23 @@ use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::types::ClusterChange;
 use crate::multiplexer::{responses, utils};
 use crate::multiplexer::{Connections, Written};
-use crate::protocol::command::{ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand};
+use crate::protocol::command::{
+  ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand, RedisCommandKind,
+};
 use crate::protocol::connection::{
-  self, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
+  self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
 };
 use crate::protocol::responders;
 use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::ClusterRouting;
 use crate::protocol::utils as protocol_utils;
 use crate::protocol::utils::server_to_parts;
+use crate::types::ClusterStateChange;
 use crate::utils as client_utils;
 use arcstr::ArcStr;
+use futures::future::{join_all, try_join_all};
 use futures::StreamExt;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task::JoinHandle;
@@ -80,7 +84,7 @@ pub async fn send_command<'a>(
   }
 }
 
-pub fn create_cluster_change(
+pub fn parse_cluster_changes(
   cluster_state: &ClusterRouting,
   writers: &HashMap<ArcStr, RedisWriter>,
 ) -> ClusterChange {
@@ -98,6 +102,36 @@ pub fn create_cluster_change(
   ClusterChange { add, remove }
 }
 
+pub fn broadcast_cluster_change(inner: &Arc<RedisClientInner>, changes: &ClusterChange) {
+  let mut added: Vec<ClusterStateChange> = changes
+    .add
+    .iter()
+    .filter_map(|server| {
+      protocol_utils::server_to_parts(server)
+        .ok()
+        .map(|(h, p)| ClusterStateChange::Add((h.to_owned(), p)))
+    })
+    .collect();
+  let removed: Vec<ClusterStateChange> = changes
+    .remove
+    .iter()
+    .filter_map(|server| {
+      protocol_utils::server_to_parts(server)
+        .ok()
+        .map(|(h, p)| ClusterStateChange::Remove((h.to_owned(), p)))
+    })
+    .collect();
+
+  let changes = if added.is_empty() && removed.is_empty() {
+    vec![ClusterStateChange::Rebalance]
+  } else {
+    added.extend(removed);
+    added
+  };
+
+  inner.notifications.broadcast_cluster_change(changes);
+}
+
 /// Spawn a task to read response frames from the reader half of the socket.
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
@@ -105,10 +139,7 @@ pub fn spawn_reader_task(
   server: &ArcStr,
   buffer: &SharedBuffer,
   counters: &Counters,
-) -> JoinHandle<Result<(), RedisError>>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> JoinHandle<Result<(), RedisError>> {
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
@@ -260,6 +291,11 @@ pub async fn process_response_frame(
   if command.transaction_id.is_some() && frame.is_error() && !command.kind.ends_transaction() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
       if let Some(tx) = command.multiplexer_tx.take() {
+        _debug!(
+          inner,
+          "Send transaction error to multiplexer for {}",
+          command.kind.to_str_debug()
+        );
         let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
         return Ok(());
       }
@@ -294,7 +330,7 @@ pub async fn process_response_frame(
   }
 }
 
-/// Try connecting to any node in the provided `RedisConfig`.
+/// Try connecting to any node in the provided `RedisConfig` or `old_servers`.
 pub async fn connect_any(
   inner: &Arc<RedisClientInner>,
   old_servers: Vec<ArcStr>,
@@ -312,7 +348,9 @@ pub async fn connect_any(
 
   let num_servers = all_servers.len();
   for (idx, (host, port)) in all_servers.into_iter().enumerate() {
-    let connection = try_or_continue!(connection::create_connection(inner, host, port).await);
+    let mut connection = try_or_continue!(connection::create_connection(inner, host, port, None).await);
+    let _ = try_or_continue!(connection.setup(inner).await);
+
     _debug!(
       inner,
       "Connected to {} ({}/{})",
@@ -330,49 +368,112 @@ pub async fn connect_any(
 }
 
 /// Run the `CLUSTER SLOTS` command on the backchannel, creating a new connection if needed.
-pub async fn cluster_slots_backchannel(inner: &Arc<RedisClientInner>) -> Result<ClusterRouting, RedisError> {
-  let response = {
-    let mut backchannel = inner.backchannel.write().await;
-    // check if a backchannel connection exists
-    // if so then try using it
-    // if that fails then run connect_to_cluster
-    // set that connection on the backchannel
+///
+/// This function will attempt to use the existing backchannel connection, if found. Failing that it will
+/// try to connect to any of the cluster nodes as identified in the `RedisConfig` or previous cached state.
+///
+/// If this returns an error then all known cluster nodes are unreachable.
+pub async fn cluster_slots_backchannel(
+  inner: &Arc<RedisClientInner>,
+  cache: Option<&ClusterRouting>,
+) -> Result<ClusterRouting, RedisError> {
+  let (response, host) = {
+    let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
+    let frame = {
+      // try to use the existing backchannel connection first
+      let mut backchannel = inner.backchannel.write().await;
+      if let Some(server) = backchannel.current_server() {
+        if let Some(ref transport) = backchannel.transport {
+          let default_host = transport.default_host.clone();
+
+          backchannel
+            .request_response(inner, &server, command.clone())
+            .await
+            .ok()
+            .map(|frame| (frame, default_host))
+        } else {
+          None
+        }
+      } else {
+        None
+      }
+    };
+
+    let old_hosts = cache.map(|cache| cache.unique_primary_nodes()).unwrap_or(Vec::new());
+    let (frame, host) = if let Some((frame, host)) = frame {
+      if frame.is_error() {
+        // try connecting to any of the nodes, then try again
+        let mut transport = connect_any(inner, old_hosts).await?;
+        let frame = transport.request_response(command, inner.is_resp3()).await?;
+        let host = transport.default_host.clone();
+        inner.update_backchannel(transport);
+
+        (frame, host)
+      } else {
+        // use the response from the backchannel command
+        (frame, host)
+      }
+    } else {
+      // try connecting to any of the nodes, then try again
+      let mut transport = connect_any(inner, old_hosts).await?;
+      let frame = transport.request_response(command, inner.is_resp3()).await?;
+      let host = transport.default_host.clone();
+      inner.update_backchannel(transport);
+
+      (frame, host)
+    };
+
+    (protocol_utils::frame_to_results_raw(frame)?, host)
   };
+
+  let mut new_cache = ClusterRouting::new();
+  _debug!(inner, "Rebuilding cluster state from host: {}", host);
+  new_cache.rebuild(response, host.as_str())?;
+  Ok(new_cache)
 }
 
-pub async fn sync_cluster(inner: &Arc<RedisClientInner>, connections: &mut Connections) -> Result<(), RedisError> {
+/// Run `CLUSTER SLOTS`, update the cached routing table, and modify the connection map.
+pub async fn sync(
+  inner: &Arc<RedisClientInner>,
+  connections: &mut Connections,
+  buffer: &mut CommandBuffer,
+) -> Result<(), RedisError> {
   _debug!(inner, "Synchronizing cluster state.");
 
   if let Connections::Clustered { cache, writers } = connections {
-    let state = cluster_nodes_backchannel(inner).await?;
+    // send `CLUSTER SLOTS` to any of the cluster nodes via a backchannel
+    let state = cluster_slots_backchannel(inner, Some(&*cache)).await?;
+    // update the cached routing table
+    inner.update_cluster_state(Some(state.clone()));
     *cache = state.clone();
 
-    let changes = responses::create_cluster_change(&state, &writers).await;
+    // detect changes to the cluster topology
+    let changes = parse_cluster_changes(&state, &writers);
     _debug!(inner, "Changing cluster connections: {:?}", changes);
-    broadcast_cluster_changes(inner, &changes);
+    broadcast_cluster_change(inner, &changes);
 
+    // drop connections that are no longer used
     for removed_server in changes.remove.into_iter() {
-      let commands = remove_server(inner, writers, &removed_server).await?;
-      if let Some(commands) = commands {
-        buffer.extend(commands.into_iter().map(|c| QueuedCommand {
-          custom_hash_slot: c.hash_slot,
-          cmd: c.command,
-          no_backpressure: c.no_backpressure,
-        }))
-      }
+      _debug!(inner, "Disconnecting from cluster node {}", removed_server);
+      let commands = connections.disconnect(Some(&removed_server)).await;
+      buffer.extend(commands);
     }
-    for new_server in changes.add.into_iter() {
-      add_server(
-        inner,
-        connections,
-        counters,
-        writers,
-        commands,
-        connection_ids,
-        close_tx,
-        &new_server,
-      )
-      .await?;
+
+    // concurrently connect to each of the new nodes
+    let connections_ft = changes.add.into_iter().map(|server| async {
+      _debug!(inner, "Connecting to cluster node {}", server);
+      let (host, port) = protocol_utils::server_to_parts(&server)?;
+      let mut transport = connection::create_connection(inner, host.to_owned(), port, None).await?;
+      let _ = transport.setup(inner).await?;
+
+      Ok(transport)
+    });
+    let connections = try_join_all(connections_ft).await?;
+
+    // update the local connection map
+    for transport in connections.into_iter() {
+      let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task);
+      writers.insert(server, writer);
     }
 
     _debug!(inner, "Finish synchronizing cluster connections.");

@@ -161,7 +161,7 @@ pub async fn read_cluster_slots(
   _debug!(inner, "Reading cluster slots from {}", transport.server);
   let cmd = RedisCommand::new(RedisCommandKind::ClusterSlots, vec![], None);
   let response = transport.request_response(cmd, inner.is_resp3()).await?;
-  let response = protocol_utils::frame_to_results_raw(response.into_resp3())?;
+  let response = protocol_utils::frame_to_results_raw(response)?;
 
   let mut cache = ClusterRouting::new();
   cache.rebuild(response, transport.default_host.as_str())?;

@@ -73,7 +73,7 @@ pub fn queued_frame() -> Resp3Frame {
   }
 }
 
-pub fn is_ok(frame: &ProtocolFrame) -> bool {
+pub fn is_ok(frame: &Resp3Frame) -> bool {
   match frame {
     ProtocolFrame::Resp3(ref frame) => match frame {
       Resp3Frame::SimpleString { ref data, .. } => data == OK,

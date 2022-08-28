@@ -3,7 +3,7 @@ use crate::error::*;
 use crate::interfaces::MultiplexerClient;
 use crate::modules::backchannel::Backchannel;
 use crate::multiplexer::SentCommand;
-use crate::protocol::command::{MultiplexerCommand, QueuedCommand};
+use crate::protocol::command::{MultiplexerCommand, QueuedCommand, ResponseSender};
 use crate::protocol::types::RedisCommand;
 use crate::protocol::types::{ClusterRouting, DefaultResolver};
 use crate::types::*;
@@ -25,6 +25,7 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use crate::protocol::connection::RedisTransport;
 
 pub type CommandSender = UnboundedSender<QueuedCommand>;
 pub type CommandReceiver = UnboundedReceiver<QueuedCommand>;
@@ -118,8 +119,8 @@ impl Notifications {
 
 #[derive(Clone)]
 pub struct ClientCounters {
-  cmd_buffer_len: Arc<AtomicUsize>,
-  redelivery_count: Arc<AtomicUsize>,
+  pub cmd_buffer_len: Arc<AtomicUsize>,
+  pub redelivery_count: Arc<AtomicUsize>,
 }
 
 impl Default for ClientCounters {
@@ -144,11 +145,11 @@ impl ClientCounters {
     utils::incr_atomic(&self.redelivery_count)
   }
 
-  pub fn cmd_buffer_len(&self) -> usize {
+  pub fn read_cmd_buffer_len(&self) -> usize {
     utils::read_atomic(&self.cmd_buffer_len)
   }
 
-  pub fn redelivery_count(&self) -> usize {
+  pub fn read_redelivery_count(&self) -> usize {
     utils::read_atomic(&self.redelivery_count)
   }
 
@@ -270,7 +271,7 @@ impl RedisClientInner {
     self.id.as_str()
   }
 
-  pub fn update_cluster_state(&self, state: Option<ClusterKeyCache>) {
+  pub fn update_cluster_state(&self, state: Option<ClusterRouting>) {
     self.cluster_state.as_ref().store(state.map(|s| Arc::new(s)));
   }
 
@@ -375,14 +376,22 @@ impl RedisClientInner {
     has_policy && utils::read_locked(&self.state) != ClientState::Disconnecting
   }
 
-  pub fn send_reconnect(&self, server: Option<ArcStr>, force: bool) {
+  pub fn send_reconnect(&self, server: Option<ArcStr>, force: bool, tx: Option<ResponseSender>) {
     debug!("{}: Sending reconnect message to multiplexer for {:?}", self.id, server);
-    if let Err(_) = self.command_tx.send(MultiplexerCommand::Reconnect { server, force }) {
+    let result = self
+      .command_tx
+      .send(MultiplexerCommand::Reconnect { server, force, tx });
+
+    if let Err(_) = result {
       warn!("{}: Error sending reconnect command to multiplexer.", self.id);
     }
   }
 
   pub fn should_cluster_sync(&self, error: &RedisError) -> bool {
     self.config.server.is_clustered() && error.is_cluster_error()
+  }
+
+  pub async fn update_backchannel(&self, transport: RedisTransport) {
+    self.backchannel.write().await.transport = Some(transport);
   }
 }

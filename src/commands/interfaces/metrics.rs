@@ -10,7 +10,7 @@ pub trait MetricsInterface: ClientLike + Sized {
   ///
   /// This is the number of times a request had to be sent again due to a connection closing while waiting on a response.
   fn read_redelivery_count(&self) -> usize {
-    self.inner().counters.redelivery_count()
+    self.inner().counters.read_redelivery_count()
   }
 
   /// Read and reset the number of request redeliveries.
@@ -20,7 +20,7 @@ pub trait MetricsInterface: ClientLike + Sized {
 
   /// Read the number of buffered commands that have not yet been sent to the server.
   fn command_queue_len(&self) -> usize {
-    self.inner().counters.cmd_buffer_len()
+    self.inner().counters.read_cmd_buffer_len()
   }
 
   /// Read latency metrics across all commands.

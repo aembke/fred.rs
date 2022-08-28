@@ -1760,25 +1760,6 @@ pub enum MultiplexerCommand {
   SyncCluster,
 }
 
-impl MultiplexerCommand {
-  /// Create a multiplexer command from a cluster error response frame.
-  pub fn from_cluster_error(frame: Resp3Frame, command: RedisCommand) -> Result<Self, RedisError> {
-    let (kind, slot, server) = match frame {
-      Resp3Frame::SimpleError { data, .. } => protocol_utils::parse_cluster_error(&data)?,
-      Resp3Frame::BlobError { data, .. } => {
-        let parsed = str::from_utf8(data.as_bytes())?;
-        protocol_utils::parse_cluster_error(&parsed)?
-      },
-      _ => return Err(RedisError::new(RedisErrorKind::Unknown, "Expected cluster error.")),
-    };
-
-    Ok(match kind {
-      ClusterErrorKind::Moved => MultiplexerCommand::Moved { slot, server, command },
-      ClusterErrorKind::Ask => MultiplexerCommand::Ask { slot, server, command },
-    })
-  }
-}
-
 impl From<RedisCommand> for MultiplexerCommand {
   fn from(cmd: RedisCommand) -> Self {
     MultiplexerCommand::Command(cmd)

@@ -5,7 +5,9 @@ use crate::multiplexer::utils;
 use crate::multiplexer::Written;
 use crate::prelude::{RedisError, Resp3Frame};
 use crate::protocol::command::{MultiplexerResponse, RedisCommand, ResponseSender};
-use crate::protocol::connection::{Counters, RedisReader, RedisWriter, SharedBuffer, SplitRedisStream};
+use crate::protocol::connection::{
+  Counters, RedisReader, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
+};
 use crate::protocol::responders::{self, ResponseKind};
 use crate::protocol::types::{KeyScanInner, ValueScanInner};
 use crate::protocol::utils as protocol_utils;
@@ -17,14 +19,11 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task::JoinHandle;
 
-pub async fn send_command<T>(
+pub async fn send_command(
   inner: &Arc<RedisClientInner>,
-  writer: &mut Option<RedisWriter<T>>,
+  writer: &mut Option<RedisWriter>,
   mut command: RedisCommand,
-) -> Result<Written, (RedisError, RedisCommand)>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> Result<Written, (RedisError, RedisCommand)> {
   if let Some(writer) = writer.as_mut() {
     Ok(utils::write_command(inner, writer, command).await)
   } else {
@@ -39,16 +38,13 @@ where
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
-pub fn spawn_reader_task<T>(
+pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
-  mut reader: SplitRedisStream<T>,
+  mut reader: SplitStreamKind,
   server: &ArcStr,
   buffer: &SharedBuffer,
   counters: &Counters,
-) -> JoinHandle<Result<(), RedisError>>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> JoinHandle<Result<(), RedisError>> {
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
@@ -111,7 +107,13 @@ pub async fn process_response_frame(
   if command.transaction_id.is_some() && frame.is_error() && !command.kind.ends_transaction() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
       if let Some(tx) = command.multiplexer_tx.take() {
+        _debug!(
+          inner,
+          "Send transaction error to multiplexer for {}",
+          command.kind.to_str_debug()
+        );
         let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+        return Ok(());
       }
     }
   }

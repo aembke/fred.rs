@@ -34,7 +34,7 @@ pub struct Backchannel {
 
 impl Backchannel {
   /// Set the connection IDs from the multiplexer.
-  pub fn update_connection_ids<T>(&mut self, connections: &Connections<T>)
+  pub fn update_connection_ids<T>(&mut self, connections: &Connections)
   where
     T: AsyncRead + AsyncWrite + Unpin + 'static,
   {
@@ -102,6 +102,14 @@ impl Backchannel {
       .or(self.connection_ids.keys().next().cloned())
   }
 
+  /// Whether the existing connection is to the currently blocked server.
+  pub fn current_server_is_blocked(&self) -> bool {
+    self
+      .current_server()
+      .and_then(|server| self.blocked_server().map(|blocked| server == blocked))
+      .unwrap_or(false)
+  }
+
   /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.
   ///
   /// Returns whether a new connection was created.
@@ -140,10 +148,7 @@ impl Backchannel {
 
     if let Some(ref mut transport) = self.transport {
       _debug!(inner, "Sending {} on backchannel to {}", command.to_debug_str(), server);
-      transport
-        .request_response(command, inner.is_resp3())
-        .await
-        .map(|frame| frame.into_resp3())
+      transport.request_response(command, inner.is_resp3()).await
     } else {
       Err(RedisError::new(
         RedisErrorKind::Unknown,

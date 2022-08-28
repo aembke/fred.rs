@@ -51,34 +51,31 @@ pub enum Backpressure {
 }
 
 #[derive(Clone)]
-pub enum Connections<T: AsyncRead + AsyncWrite + Unpin + 'static> {
+pub enum Connections {
   Centralized {
     /// The connection to the server.
-    writer: Option<RedisWriter<T>>,
+    writer: Option<RedisWriter>,
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
     cache: ClusterRouting,
     /// A map of server IDs and connections.
-    writers: HashMap<ArcStr, RedisWriter<T>>,
+    writers: HashMap<ArcStr, RedisWriter>,
   },
   Sentinel {
     /// The connection to the primary server.
-    writer: Option<RedisWriter<T>>,
+    writer: Option<RedisWriter>,
     /// The name of the primary server as provided from the sentinel interface.
     server_name: Option<ArcStr>,
   },
 }
 
-impl<T> Connections<T>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  pub fn new_centralized() -> Self<T> {
+impl Connections {
+  pub fn new_centralized() -> Self {
     Connections::Centralized { writer: None }
   }
 
-  pub fn new_sentinel() -> Self<T> {
+  pub fn new_sentinel() -> Self {
     Connections::Sentinel {
       writer: None,
       server_name: None,
@@ -254,9 +251,31 @@ where
   }
 
   /// Send a command to all servers in a cluster.
-  pub async fn write_all_cluster(&mut self, command: RedisCommand) -> Result<(), RedisError> {
-    // TODO should this revert to `write_command` when the server is not clustered?
-    unimplemented!()
+  pub async fn write_all_cluster(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    command: RedisCommand,
+  ) -> Result<Written, RedisError> {
+    if inner.config.server.is_clustered() {
+      unimplemented!()
+    } else {
+      // fall back on write_command. need to change the fn signature though.
+      unimplemented!()
+    }
+  }
+
+  /// Check if the provided `server` node owns the provided `slot`.
+  pub fn check_cluster_owner(&self, slot: u16, server: &str) -> bool {
+    match self {
+      Connections::Clustered { ref cache, .. } => cache
+        .get_server(slot)
+        .map(|owner| {
+          trace!("Comparing cached cluster owner for {}: {} == {}", slot, owner, server);
+          owner.as_str() == server
+        })
+        .unwrap_or(false),
+      _ => false,
+    }
   }
 }
 
@@ -277,17 +296,14 @@ where
 // in a transaction if an ASKING error is received instead of QUEUED
 // then change the hash slot on the transaction, send ASKING, and send all the commands
 
-pub struct Multiplexer<T: AsyncRead + AsyncWrite + Unpin + 'static> {
-  pub connections: Connections<T>,
+pub struct Multiplexer {
+  pub connections: Connections,
   pub inner: Arc<RedisClientInner>,
   pub buffer: VecDeque<RedisCommand>,
 }
 
-impl<T> Multiplexer<T>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  pub fn new(inner: &Arc<RedisClientInner>) -> Self<T> {
+impl Multiplexer {
+  pub fn new(inner: &Arc<RedisClientInner>) -> Self {
     let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
     } else if inner.config.server.is_sentinel() {
@@ -347,11 +363,7 @@ where
     }
 
     if command.kind.is_all_cluster_nodes() {
-      self
-        .connections
-        .write_all_cluster(command)
-        .await
-        .map(|_| Written::Ignore)
+      self.connections.write_all_cluster(&self.inner, command).await
     } else {
       self
         .connections
@@ -383,7 +395,7 @@ where
   ///
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
-    utils::sync_cluster(&self.inner, &mut self.connections).await?;
+    clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await?;
     Ok(())
   }
 
