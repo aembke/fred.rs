@@ -116,7 +116,7 @@ where
   let timeout = Duration::from_millis(2_000);
   let (response, transport) = tokio::time::timeout(timeout, transport.into_future())
     .await
-    .map_err(|e| RedisError::new(RedisErrorKind::Timeout, "Inner request timed out."))?;
+    .map_err(|_| RedisError::new(RedisErrorKind::Timeout, "Inner request timed out."))?;
 
   let response = match response {
     Some(result) => result?,
