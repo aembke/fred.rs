@@ -167,6 +167,37 @@ impl ClientCounters {
   }
 }
 
+/// Added state associated with different server deployment types.
+pub enum ServerState {
+  Sentinel {
+    /// An updated set of known sentinel nodes.
+    sentinels: Vec<(String, u16)>,
+    /// The server host/port resolved from the sentinel nodes, if known.
+    primary: Option<ArcStr>,
+  },
+  Cluster {
+    /// The cached cluster routing table.
+    cache: Option<ClusterRouting>,
+  },
+  Centralized {
+    // TODO
+  },
+}
+
+impl ServerState {
+  /// Create a new, empty server state cache.
+  pub fn new(config: &RedisConfig) -> Self {
+    match config.server {
+      ServerConfig::Clustered { .. } => ServerState::Cluster { cache: None },
+      ServerConfig::Sentinel { ref hosts, .. } => ServerState::Sentinel {
+        sentinels: hosts.clone(),
+        primary: None,
+      },
+      ServerConfig::Centralized { .. } => ServerState::Centralized {},
+    }
+  }
+}
+
 pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id: ArcStr,
@@ -193,10 +224,8 @@ pub struct RedisClientInner {
   pub resolver: DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel: Arc<AsyncRwLock<Backchannel>>,
-  /// The server host/port resolved from the sentinel nodes, if known.
-  pub sentinel_primary: RwLock<Option<ArcStr>>,
-  /// Cached cluster state managed by the multiplexer.
-  pub cluster_state: ArcSwap<Option<ClusterRouting>>,
+  /// Server state cache for various deployment types.
+  pub server_state: RwLock<ServerState>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
@@ -219,13 +248,12 @@ impl RedisClientInner {
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Notifications::new(&id);
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
-    let cluster_state = ArcSwap::new(Arc::new(None));
     let performance = ArcSwap::new(Arc::new(perf));
     let resp_version = ArcSwap::new(Arc::new(config.version.clone()));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
     let (command_rx, policy) = (RwLock::new(Some(command_rx)), RwLock::new(policy));
-    let sentinel_primary = RwLock::new(None);
     let backchannel = Arc::new(AsyncRwLock::new(Backchannel::default()));
+    let server_state = RwLock::new(ServerState::new(&config));
 
     Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
@@ -237,10 +265,9 @@ impl RedisClientInner {
       #[cfg(feature = "metrics")]
       res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
 
-      cluster_state,
       backchannel,
       command_rx,
-      sentinel_primary,
+      server_state,
       command_tx,
       state,
       counters,
@@ -272,26 +299,32 @@ impl RedisClientInner {
   }
 
   pub fn update_cluster_state(&self, state: Option<ClusterRouting>) {
-    self.cluster_state.as_ref().store(state.map(|s| Arc::new(s)));
+    if let ServerState::Cluster { ref mut cache } = self.server_state.write() {
+      *cache = state;
+    }
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
-    self
-      .cluster_state
-      .load()
-      .as_ref()
-      .map(|state| state.unique_primary_nodes().len())
-      .unwrap_or(1)
+    if let ServerState::Cluster { ref cache } = self.server_state.read() {
+      cache.map(|state| state.unique_primary_nodes().len()).unwrap_or(1)
+    } else {
+      1
+    }
   }
 
   pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    let guard = self.cluster_state.load();
-
-    if let Some(state) = guard.as_ref() {
-      func(state)
+    if let ServerState::Cluster { ref cache } = self.server_state.read() {
+      if let Some(state) = guard.as_ref() {
+        func(state)
+      } else {
+        Err(RedisError::new(
+          RedisErrorKind::Cluster,
+          "Missing cluster routing state.",
+        ))
+      }
     } else {
       Err(RedisError::new(
         RedisErrorKind::Cluster,
@@ -309,8 +342,17 @@ impl RedisClientInner {
   }
 
   pub fn update_sentinel_primary(&self, server: &ArcStr) {
-    let mut guard = self.sentinel_primary.write();
-    *guard = Some(server.clone());
+    if let ServerState::Sentinel { ref mut primary, .. } = self.server_state.write() {
+      *primary = Some(server.clone());
+    }
+  }
+
+  pub fn sentinel_primary(&self) -> Option<ArcStr> {
+    if let ServerState::Sentinel { ref primary, .. } = self.server_state.read() {
+      primary.clone()
+    } else {
+      None
+    }
   }
 
   #[cfg(feature = "partial-tracing")]
@@ -355,6 +397,10 @@ impl RedisClientInner {
 
   pub fn max_command_attempts(&self) -> u32 {
     self.performance.load().max_command_attempts
+  }
+
+  pub fn max_feed_count(&self) -> u64 {
+    self.performance.load().max_feed_count
   }
 
   pub fn default_command_timeout(&self) -> u64 {

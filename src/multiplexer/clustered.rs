@@ -348,7 +348,7 @@ pub async fn connect_any(
 
   let num_servers = all_servers.len();
   for (idx, (host, port)) in all_servers.into_iter().enumerate() {
-    let mut connection = try_or_continue!(connection::create_connection(inner, host, port, None).await);
+    let mut connection = try_or_continue!(connection::create(inner, host, port, None).await);
     let _ = try_or_continue!(connection.setup(inner).await);
 
     _debug!(
@@ -455,7 +455,7 @@ pub async fn sync(
     // drop connections that are no longer used
     for removed_server in changes.remove.into_iter() {
       _debug!(inner, "Disconnecting from cluster node {}", removed_server);
-      let commands = connections.disconnect(Some(&removed_server)).await;
+      let commands = connections.disconnect(inner, Some(&removed_server)).await;
       buffer.extend(commands);
     }
 
@@ -463,7 +463,7 @@ pub async fn sync(
     let connections_ft = changes.add.into_iter().map(|server| async {
       _debug!(inner, "Connecting to cluster node {}", server);
       let (host, port) = protocol_utils::server_to_parts(&server)?;
-      let mut transport = connection::create_connection(inner, host.to_owned(), port, None).await?;
+      let mut transport = connection::create(inner, host.to_owned(), port, None).await?;
       let _ = transport.setup(inner).await?;
 
       Ok(transport)
@@ -486,13 +486,13 @@ pub async fn sync(
   }
 }
 
-/// Initialize
+/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.
 pub async fn initialize_connections(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,
   buffer: &mut CommandBuffer,
 ) -> Result<(), RedisError> {
-  let commands = connections.disconnect_all().await;
-
-  unimplemented!()
+  let commands = connections.disconnect_all(inner).await;
+  buffer.extend(commands);
+  sync(inner, connections, buffer).await
 }

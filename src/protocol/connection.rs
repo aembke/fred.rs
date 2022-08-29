@@ -255,7 +255,7 @@ impl Counters {
 
   /// Flush the sink if the max feed count is reached or no commands are queued following the current command.
   pub fn should_send(&self, inner: &Arc<RedisClientInner>) -> bool {
-    client_utils::read_atomic(&self.feed_count) > inner.perf_config.max_feed_count()
+    client_utils::read_atomic(&self.feed_count) > inner.max_feed_count()
       || client_utils::read_atomic(&self.cmd_buffer_len) == 0
   }
 
@@ -763,7 +763,7 @@ impl RedisWriter {
 /// Create a connection to the specified `host` and `port` with the provided timeout, in ms.
 ///
 /// The returned connection will not be initialized.
-pub async fn create_connection(
+pub async fn create(
   inner: &Arc<RedisClientInner>,
   host: String,
   port: u16,

@@ -129,7 +129,7 @@ impl Backchannel {
     self.transport = None;
 
     let (host, port) = protocol_utils::server_to_parts(server)?;
-    let transport = connection::create_connection(inner, host.to_owned(), port, None).await?;
+    let transport = connection::create(inner, host.to_owned(), port, None).await?;
     self.transport = Some(transport);
 
     Ok(true)

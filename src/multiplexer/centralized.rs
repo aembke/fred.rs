@@ -10,7 +10,8 @@ use crate::protocol::connection::{
 };
 use crate::protocol::responders::{self, ResponseKind};
 use crate::protocol::types::{KeyScanInner, ValueScanInner};
-use crate::protocol::utils as protocol_utils;
+use crate::protocol::{connection, utils as protocol_utils};
+use crate::types::ServerConfig;
 use arcstr::ArcStr;
 use futures::StreamExt;
 use parking_lot::Mutex;
@@ -146,13 +147,32 @@ pub async fn process_response_frame(
   }
 }
 
-/// Initialize
+/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.
 pub async fn initialize_connection(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,
   buffer: &mut CommandBuffer,
 ) -> Result<(), RedisError> {
-  let commands = connections.disconnect_all().await;
+  _debug!(inner, "Initializing centralized connection.");
+  let commands = connections.disconnect_all(inner).await;
+  buffer.extend(commands);
 
-  unimplemented!()
+  match connections {
+    Connections::Centralized { writer, .. } => {
+      let (host, port) = match inner.config.server {
+        ServerConfig::Centralized { ref host, ref port } => (host.to_owned(), *port),
+        _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
+      };
+      let mut transport = connection::create(inner, host, port, None).await?;
+      let _ = transport.setup(inner).await?;
+      let (_, _writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;
+
+      *writer = Some(_writer);
+      Ok(())
+    },
+    _ => Err(RedisError::new(
+      RedisErrorKind::Config,
+      "Expected centralized connection.",
+    )),
+  }
 }

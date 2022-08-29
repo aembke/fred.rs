@@ -2,7 +2,7 @@ use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::Backpressure::Queue;
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::connection::{CommandBuffer, Counters, RedisSink, RedisWriter, SentCommand};
+use crate::protocol::connection::{CommandBuffer, Counters, RedisSink, RedisWriter};
 use crate::protocol::types::ClusterRouting;
 use crate::types::ServerConfig;
 use crate::types::{ClientState, RedisConfig};
@@ -90,8 +90,18 @@ impl Connections {
   }
 
   /// Initialize the underlying connection(s).
-  pub async fn initialize(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    utils::initialize_connections(inner, self).await
+  pub async fn initialize(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    buffer: &mut CommandBuffer,
+  ) -> Result<(), RedisError> {
+    if inner.config.server.is_clustered() {
+      clustered::initialize_connections(inner, self, buffer).await
+    } else if inner.config.server.is_centralized() {
+      centralized::initialize_connection(inner, self, buffer).await
+    } else if inner.config.server.is_sentinel() {
+      sentinel::initialize_connection(inner, self, buffer).await
+    }
   }
 
   /// Read the counters associated with a connection to a server.
@@ -106,10 +116,11 @@ impl Connections {
   }
 
   /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
-  pub async fn disconnect(&mut self, server: Option<&ArcStr>) -> CommandBuffer {
+  pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&ArcStr>) -> CommandBuffer {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer.take() {
+          _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
           VecDeque::new()
@@ -124,6 +135,7 @@ impl Connections {
 
         if let Some(server) = server {
           if let Some(writer) = writers.remove(server) {
+            _debug!(inner, "Disconnecting from {}", writer.server);
             let commands = writer.graceful_close().await;
             out.extend(commands.into_iter());
           }
@@ -136,6 +148,7 @@ impl Connections {
       } => {
         *server_name = None;
         if let Some(writer) = writer.take() {
+          _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
           VecDeque::new()
@@ -145,10 +158,11 @@ impl Connections {
   }
 
   /// Disconnect and clear local state for all connections, returning all in-flight commands.
-  pub async fn disconnect_all(&mut self) -> CommandBuffer {
+  pub async fn disconnect_all(&mut self, inner: &Arc<RedisClientInner>) -> CommandBuffer {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer.take() {
+          _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
           VecDeque::new()
@@ -161,6 +175,7 @@ impl Connections {
       } => {
         let mut out = VecDeque::new();
         for (_, writer) in writers.drain() {
+          _debug!(inner, "Disconnecting from {}", writer.server);
           let commands = writer.graceful_close().await;
           out.extend(commands.into_iter());
         }
@@ -172,6 +187,7 @@ impl Connections {
       } => {
         *server_name = None;
         if let Some(writer) = writer.take() {
+          _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
           VecDeque::new()
@@ -212,7 +228,9 @@ impl Connections {
   }
 
   /// Flush the socket(s) associated with each server if they have pending frames.
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
+  pub async fn check_and_flush(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    _trace!(inner, "Checking and flushing sockets...");
+
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer {
@@ -296,6 +314,7 @@ impl Connections {
 // in a transaction if an ASKING error is received instead of QUEUED
 // then change the hash slot on the transaction, send ASKING, and send all the commands
 
+/// A struct for routing commands to the server(s).
 pub struct Multiplexer {
   pub connections: Connections,
   pub inner: Arc<RedisClientInner>,
@@ -303,6 +322,7 @@ pub struct Multiplexer {
 }
 
 impl Multiplexer {
+  /// Create a new `Multiplexer` without connecting to the server(s).
   pub fn new(inner: &Arc<RedisClientInner>) -> Self {
     let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
@@ -338,6 +358,11 @@ impl Multiplexer {
   /// Drain and return the buffered commands.
   pub fn take_command_buffer(&mut self) -> VecDeque<RedisCommand> {
     self.buffer.drain(..).collect()
+  }
+
+  /// Whether the multiplexer has buffered commands that need to be retried.
+  pub fn has_buffered_commands(&self) -> bool {
+    self.buffer.len() > 0
   }
 
   /// Send a command to the server.
@@ -378,17 +403,13 @@ impl Multiplexer {
 
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a reconnection, if necessary.
   pub async fn disconnect_all(&mut self) {
-    let commands = self.connections.disconnect_all().await;
+    let commands = self.connections.disconnect_all(&self.inner).await;
     self.buffer.extend(commands);
   }
 
   /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self) -> Result<(), RedisError> {
-    if self.inner.config.server.is_clustered() {
-      unimplemented!()
-    } else {
-      unimplemented!()
-    }
+    self.connections.initialize(&self.inner, &mut self.buffer).await
   }
 
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
@@ -402,13 +423,13 @@ impl Multiplexer {
   /// Replay all queued commands on the internal buffer without backpressure.
   ///
   /// If a command cannot be written the underlying connections will close.
-  pub async fn replay_buffer(&mut self) -> Result<(), RedisError> {
+  pub async fn retry_buffer(&mut self) -> Result<(), RedisError> {
     for mut command in self.buffer.drain(..) {
       command.skip_backpressure = true;
 
       if let Err(e) = self.write_command(command).await {
         warn!("{}: Error replaying command: {:?}", self.inner.id, e);
-        self.disconnect().await; // triggers a reconnect if needed
+        self.disconnect_all().await; // triggers a reconnect if needed
         break;
       }
     }
