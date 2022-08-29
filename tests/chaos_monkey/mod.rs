@@ -66,7 +66,7 @@ fn read_path_from_env(env_path: &str) -> String {
         } else {
           panic!("Invalid {}: {} not found.", env_path, s);
         }
-      }
+      },
       Err(_) => panic!("Invalid {} env variable.", env_path),
     },
     None => panic!("Missing {} env variable.", env_path),
@@ -119,7 +119,7 @@ async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
         RedisErrorKind::Unknown,
         "Failed to find a destination node.",
       ))
-    }
+    },
   };
 
   let _ = client.quit().await;
@@ -177,7 +177,7 @@ fn move_foo(root_path: &str) {
     Err(e) => {
       warn!("Error reading src/dest ports {:?}", e);
       return;
-    }
+    },
   };
   debug!("Moving foo from {} -> {}", args.src, args.dest);
 

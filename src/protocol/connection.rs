@@ -16,6 +16,7 @@ use semver::Version;
 use std::net::SocketAddr;
 use std::str;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_util::codec::Framed;
@@ -111,7 +112,11 @@ where
 {
   let frame = request.to_frame(is_resp3)?;
   let _ = transport.send(frame).await?;
-  let (response, transport) = transport.into_future().await;
+
+  let timeout = Duration::from_millis(2_000);
+  let (response, transport) = tokio::time::timeout(timeout, transport.into_future())
+    .await
+    .map_err(|e| RedisError::new(RedisErrorKind::Timeout, "Inner request timed out."))?;
 
   let response = match response {
     Some(result) => result?,
@@ -242,7 +247,7 @@ where
         return Err(RedisError::new(
           RedisErrorKind::Auth,
           "Invalid auth response. Expected string.",
-        ))
+        ));
       },
     }
   } else {
@@ -487,7 +492,7 @@ where
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,
         "Invalid server info response.",
-      ))
+      ));
     },
   };
 

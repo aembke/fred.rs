@@ -147,7 +147,9 @@ impl Backchannel {
       .await?;
     let server = _server.unwrap_or(server.clone());
 
-    let result = self.request_response_with_timeout(inner, transport, cmd.clone(), is_resp3).await;
+    let result = self
+      .request_response_with_timeout(inner, transport, cmd.clone(), is_resp3)
+      .await;
     _debug!(inner, "Result: {}", result.is_ok());
 
     match result {
@@ -155,7 +157,7 @@ impl Backchannel {
         _debug!(inner, "Created backchannel to {}", server);
         self.transport = Some((transport, server));
         Ok(frame)
-      }
+      },
       Err(e) => {
         if try_once {
           _warn!(inner, "Failed to create backchannel to {}", server);
@@ -166,18 +168,20 @@ impl Backchannel {
             .take_or_create_transport(inner, host, port, uses_tls, use_blocked)
             .await?;
 
-          let result = self.request_response_with_timeout(inner, transport, cmd.clone(), is_resp3).await;
+          let result = self
+            .request_response_with_timeout(inner, transport, cmd.clone(), is_resp3)
+            .await;
           _debug!(inner, "Result: {}", result.is_ok());
 
           match result {
             Ok((frame, transport)) => {
               self.transport = Some((transport, server));
               Ok(frame)
-            }
+            },
             Err(e) => Err(e),
           }
         }
-      }
+      },
     }
   }
 
@@ -189,15 +193,19 @@ impl Backchannel {
     is_resp3: bool,
   ) -> Result<(Resp3Frame, RedisTransport), RedisError> {
     _debug!(inner, "Request response with timeout...");
-    tokio::time::timeout(Duration::from_millis(2_000), async move {match transport {
-      RedisTransport::Tcp(transport) => {
-        map_tcp_response(connection::request_response_safe(transport, command.as_ref(), is_resp3).await).map_err(|(e, _)| e)
+    tokio::time::timeout(Duration::from_millis(2_000), async move {
+      match transport {
+        RedisTransport::Tcp(transport) => {
+          map_tcp_response(connection::request_response_safe(transport, command.as_ref(), is_resp3).await)
+            .map_err(|(e, _)| e)
+        },
+        RedisTransport::Tls(transport) => {
+          map_tls_response(connection::request_response_safe(transport, command.as_ref(), is_resp3).await)
+            .map_err(|(e, _)| e)
+        },
       }
-      RedisTransport::Tls(transport) => {
-        map_tls_response(connection::request_response_safe(transport, command.as_ref(), is_resp3).await).map_err(|(e, _)| e)
-      }
-    }}).await.unwrap_or_else(|_| {
-      Err(RedisError::new(RedisErrorKind::Timeout, "Inner request timed out."))
     })
+    .await
+    .unwrap_or_else(|_| Err(RedisError::new(RedisErrorKind::Timeout, "Inner request timed out.")))
   }
 }

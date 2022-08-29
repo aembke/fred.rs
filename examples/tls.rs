@@ -1,7 +1,6 @@
 use fred::prelude::*;
 use fred::types::TlsConfig;
 
-
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig {

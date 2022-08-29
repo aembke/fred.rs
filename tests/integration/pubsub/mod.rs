@@ -1,8 +1,8 @@
+use fred::interfaces::PubsubInterface;
 use fred::prelude::*;
 use futures::StreamExt;
 use std::time::Duration;
 use tokio::time::sleep;
-use fred::interfaces::PubsubInterface;
 
 const CHANNEL1: &'static str = "foo";
 const CHANNEL2: &'static str = "bar";
