@@ -528,7 +528,7 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
 
   _debug!(inner, "Starting command stream...");
   while let Some(command) = rx.recv().await {
-    let disable_pipeline = !inner.perf_config.pipeline();
+    let disable_pipeline = !inner.is_pipelined();
     if let Err(e) = handle_command_t(inner, &multiplexer, command, has_policy, disable_pipeline).await {
       if e.is_canceled() {
         break;

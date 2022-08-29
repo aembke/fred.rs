@@ -4,7 +4,7 @@ use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::types::ClusterChange;
 use crate::multiplexer::{responses, utils, Backpressure, Connections, Counters, Multiplexer, Written};
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::connection::{self, RedisReader, RedisTransport, RedisWriter};
+use crate::protocol::connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter, SharedBuffer};
 use crate::protocol::types::*;
 use crate::protocol::{responders, utils as protocol_utils};
 use crate::trace;
@@ -29,16 +29,6 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock as AsyncRwLock;
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 16;
-
-pub async fn initialize_connections<T>(
-  inner: &Arc<RedisClientInner>,
-  connections: &mut Connections<T>,
-) -> Result<(), RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  unimplemented!()
-}
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure<T>(

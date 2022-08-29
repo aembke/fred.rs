@@ -299,7 +299,7 @@ impl Connections {
 pub struct Multiplexer {
   pub connections: Connections,
   pub inner: Arc<RedisClientInner>,
-  pub buffer: VecDeque<RedisCommand>,
+  pub buffer: CommandBuffer,
 }
 
 impl Multiplexer {

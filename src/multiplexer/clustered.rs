@@ -485,3 +485,14 @@ pub async fn sync(
     ))
   }
 }
+
+/// Initialize
+pub async fn initialize_connections(
+  inner: &Arc<RedisClientInner>,
+  connections: &mut Connections,
+  buffer: &mut CommandBuffer,
+) -> Result<(), RedisError> {
+  let commands = connections.disconnect_all().await;
+
+  unimplemented!()
+}

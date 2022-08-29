@@ -1,12 +1,12 @@
 use crate::error::RedisErrorKind;
 use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::responses;
 use crate::multiplexer::utils;
 use crate::multiplexer::Written;
+use crate::multiplexer::{responses, Connections};
 use crate::prelude::{RedisError, Resp3Frame};
 use crate::protocol::command::{MultiplexerResponse, RedisCommand, ResponseSender};
 use crate::protocol::connection::{
-  Counters, RedisReader, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
+  CommandBuffer, Counters, RedisReader, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
 };
 use crate::protocol::responders::{self, ResponseKind};
 use crate::protocol::types::{KeyScanInner, ValueScanInner};
@@ -144,4 +144,15 @@ pub async fn process_response_frame(
     ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
     ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
   }
+}
+
+/// Initialize
+pub async fn initialize_connection(
+  inner: &Arc<RedisClientInner>,
+  connections: &mut Connections,
+  buffer: &mut CommandBuffer,
+) -> Result<(), RedisError> {
+  let commands = connections.disconnect_all().await;
+
+  unimplemented!()
 }
