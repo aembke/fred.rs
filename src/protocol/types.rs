@@ -223,7 +223,7 @@ impl ValueScanInner {
             RedisErrorKind::ProtocolError,
             "Invalid HSCAN result. Expected string.",
           ))
-        }
+        },
       };
 
       out.insert(key, value);
@@ -255,7 +255,7 @@ impl ValueScanInner {
             RedisErrorKind::ProtocolError,
             "Invalid HSCAN result. Expected a string or integer score.",
           ))
-        }
+        },
       };
 
       out.push((value, score));
@@ -1248,7 +1248,7 @@ impl RedisCommandKind {
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
       RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
         panic!("unreachable (redis command)")
-      }
+      },
     };
 
     utils::static_str(s)
@@ -1520,7 +1520,7 @@ impl RedisCommandKind {
     match *self {
       RedisCommandKind::_HelloAllCluster((ref inner, ref version)) => {
         Some(RedisCommandKind::_HelloAllCluster((inner.clone(), version.clone())))
-      }
+      },
       RedisCommandKind::_AuthAllCluster(ref inner) => Some(RedisCommandKind::_AuthAllCluster(inner.clone())),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(RedisCommandKind::_FlushAllCluster(inner.clone())),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(RedisCommandKind::_ScriptFlushCluster(inner.clone())),

@@ -129,7 +129,7 @@ pub fn emit_connection_closed(
     Connections::Centralized { ref commands, .. } => {
       let commands: SentCommands = commands.lock().drain(..).collect();
       Some(commands)
-    }
+    },
   };
 
   if let Some(tx) = closed_tx {
@@ -313,7 +313,7 @@ pub async fn write_all_nodes(
           RedisErrorKind::Config,
           format!("Failed to lookup counter for {}", server),
         ))
-      }
+      },
     };
 
     let kind = match command.kind.clone_all_nodes() {
@@ -323,7 +323,7 @@ pub async fn write_all_nodes(
           RedisErrorKind::Config,
           "Invalid redis command kind to send to all nodes.",
         ));
-      }
+      },
     };
     let _command = command.duplicate(kind);
 
@@ -472,7 +472,7 @@ pub async fn write_centralized_command(
       Err(e) => {
         respond_early_to_caller_error(inner, command, e);
         return Ok(Backpressure::Skipped);
-      }
+      },
     };
 
     if let Some(backpressure) = backpressure {
@@ -539,7 +539,7 @@ pub async fn write_clustered_command(
             format!("Unable to find server for keyslot {}", hash_slot),
             command,
           ));
-        }
+        },
       },
       None => match cache.read().random_slot() {
         Some(slot) => slot.server.clone(),
@@ -549,7 +549,7 @@ pub async fn write_clustered_command(
             "Cluster state is not initialized.",
             command,
           ));
-        }
+        },
       },
     };
 
@@ -559,7 +559,7 @@ pub async fn write_clustered_command(
         Err(e) => {
           respond_early_to_caller_error(inner, command, e);
           return Ok(Backpressure::Skipped);
-        }
+        },
       };
 
       if let Some(backpressure) = backpressure {
@@ -790,7 +790,7 @@ async fn create_cluster_connection(
           connection_ids.write().insert(server.clone(), id);
         }
         socket
-      }
+      },
       Err((_, socket)) => socket,
     };
 
@@ -804,7 +804,7 @@ async fn create_cluster_connection(
           connection_ids.write().insert(server.clone(), id);
         }
         socket
-      }
+      },
       Err((_, socket)) => socket,
     };
 
@@ -972,7 +972,7 @@ pub async fn connect_centralized(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
 
@@ -987,7 +987,7 @@ pub async fn connect_centralized(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
 
@@ -1032,7 +1032,7 @@ pub fn check_mget_cluster_keys(multiplexer: &Multiplexer, keys: &Vec<RedisValue>
             RedisErrorKind::InvalidArgument,
             "Failed to find cluster node",
           ));
-        }
+        },
       };
 
       nodes.insert(server);
@@ -1075,7 +1075,7 @@ pub fn check_mset_cluster_keys(multiplexer: &Multiplexer, args: &Vec<RedisValue>
             RedisErrorKind::InvalidArgument,
             "Failed to find cluster node.",
           ));
-        }
+        },
       };
 
       nodes.insert(server);
@@ -1228,7 +1228,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
       Err(e) => {
         _warn!(inner, "Error creating or using backchannel for cluster nodes: {:?}", e);
         continue;
-      }
+      },
     };
 
     if let Resp3Frame::BlobString { data, .. } = frame {
@@ -1238,7 +1238,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
         Err(e) => {
           _warn!(inner, "Error parsing cluster nodes response from backchannel: {:?}", e);
           continue;
-        }
+        },
       };
       return Ok(state);
     } else {

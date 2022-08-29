@@ -1,7 +1,7 @@
+use crate::commands;
 use crate::error::RedisError;
 use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleValues, RedisKey, FromRedis, RedisValue};
-use crate::{commands};
+use crate::types::{FromRedis, MultipleKeys, MultipleValues, RedisKey, RedisValue};
 use std::convert::TryInto;
 
 /// Functions that implement the [Sets](https://redis.io/commands#set) interface.

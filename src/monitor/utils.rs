@@ -27,7 +27,7 @@ async fn handle_monitor_frame(
     Err(e) => {
       _error!(inner, "Error on monitor stream: {:?}", e);
       return None;
-    }
+    },
   };
   let frame_size = protocol_utils::resp3_frame_size(&frame);
 
@@ -59,7 +59,7 @@ async fn handle_monitor_frame(
     Err(e) => {
       _error!(inner, "Error on monitor stream: {:?}", e);
       return None;
-    }
+    },
   };
 
   parser::parse(inner, frame)
@@ -107,11 +107,11 @@ async fn send_monitor_command(
     RedisTransport::Tcp(framed) => {
       let (frame, framed) = connection::request_response(framed, &command, false).await?;
       (frame.into_resp3(), RedisTransport::Tcp(framed))
-    }
+    },
     RedisTransport::Tls(framed) => {
       let (frame, framed) = connection::request_response(framed, &command, false).await?;
       (frame.into_resp3(), RedisTransport::Tls(framed))
-    }
+    },
   };
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);

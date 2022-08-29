@@ -71,7 +71,7 @@ fn merge_multiple_frames(frames: &mut VecDeque<Resp3Frame>) -> Resp3Frame {
         for inner_frame in data.into_iter() {
           out.push(inner_frame);
         }
-      }
+      },
       _ => out.push(frame),
     };
   }
@@ -98,7 +98,7 @@ fn update_scan_cursor(inner: &Arc<RedisClientInner>, last_command: &mut SentComm
     _ => {
       _warn!(inner, "Failed to update cursor. Invalid command kind.");
       return;
-    }
+    },
   };
 
   *old_cursor = cursor;
@@ -115,7 +115,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), Red
             RedisErrorKind::ProtocolError,
             "Expected first SCAN result element to be a bulk string.",
           ))
-        }
+        },
       };
 
       if let Some(Resp3Frame::Array { data, .. }) = data.pop() {
@@ -129,7 +129,7 @@ fn handle_key_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), Red
                 RedisErrorKind::ProtocolError,
                 "Expected an array of strings from second SCAN result.",
               ))
-            }
+            },
           };
 
           keys.push(key.into());
@@ -167,7 +167,7 @@ fn handle_value_scan_result(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>),
             RedisErrorKind::ProtocolError,
             "Expected first result element to be a bulk string.",
           ))
-        }
+        },
       };
 
       if let Some(Resp3Frame::Array { data, .. }) = data.pop() {
@@ -274,7 +274,7 @@ fn send_value_scan_result(
       if let Err(_) = tx.send(Ok(state)) {
         _warn!(inner, "Failed to send ZSCAN result to caller");
       }
-    }
+    },
     RedisCommandKind::Sscan(scan_state) => {
       let tx = scan_state.tx.clone();
 
@@ -289,7 +289,7 @@ fn send_value_scan_result(
       if let Err(_) = tx.send(Ok(state)) {
         _warn!(inner, "Failed to send SSCAN result to caller");
       }
-    }
+    },
     RedisCommandKind::Hscan(scan_state) => {
       let tx = scan_state.tx.clone();
       let results = ValueScanInner::transform_hscan_result(result)?;
@@ -305,13 +305,13 @@ fn send_value_scan_result(
       if let Err(_) = tx.send(Ok(state)) {
         _warn!(inner, "Failed to send HSCAN result to caller");
       }
-    }
+    },
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Invalid redis command. Expected HSCAN, SSCAN, or ZSCAN.",
       ))
-    }
+    },
   };
 
   Ok(())
@@ -332,7 +332,7 @@ fn send_value_scan_error(
         RedisErrorKind::Unknown,
         "Invalid redis command. Expected HSCAN, SSCAN, or ZSCAN.",
       ))
-    }
+    },
   };
 
   if let Err(_) = scan_state.tx.send(Err(e)) {
@@ -519,14 +519,14 @@ async fn handle_multiple_responses(
         _warn!(inner, "Invalid command response kind. Expected multiple responses.");
         return Ok(None);
       }
-    }
+    },
     None => {
       _warn!(
         inner,
         "Failed to read multiple response kind. Dropping response frame..."
       );
       return Ok(None);
-    }
+    },
   };
 
   if let Some(frames) = frames {
@@ -586,7 +586,7 @@ async fn process_response(
         let _ = send_key_scan_error(inner, &last_command, e);
         check_command_resp_tx(inner, &last_command).await;
         return Ok(None);
-      }
+      },
     };
     let should_stop = next_cursor == LAST_CURSOR;
     update_scan_cursor(inner, &mut last_command, next_cursor);
@@ -605,7 +605,7 @@ async fn process_response(
         let _ = send_value_scan_error(inner, &last_command, e);
         check_command_resp_tx(inner, &last_command).await;
         return Ok(None);
-      }
+      },
     };
     let should_stop = next_cursor == LAST_CURSOR;
     update_scan_cursor(inner, &mut last_command, next_cursor);
@@ -758,7 +758,7 @@ fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Opt
     Err(err) => {
       _warn!(inner, "Invalid message on pubsub interface: {:?}", err);
       return None;
-    }
+    },
   };
   if let Some(ref span) = span {
     span.record("channel", &channel.as_str());
@@ -806,12 +806,12 @@ fn last_cluster_command(
       None => {
         _warn!(inner, "Recv response without a corresponding command from {}", server);
         return Ok(None);
-      }
+      },
     },
     None => {
       _error!(inner, "Couldn't find command queue for server {}", server);
       return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command queue."));
-    }
+    },
   };
 
   Ok(Some(last_command))
@@ -829,7 +829,7 @@ fn add_back_last_cluster_command(
     None => {
       _error!(inner, "Couldn't find command queue for server {}", server);
       return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command queue."));
-    }
+    },
   };
 
   Ok(())
@@ -976,7 +976,7 @@ async fn end_centralized_multi_block(
           RedisErrorKind::ProtocolError,
           "Missing last command from EXEC or DISCARD.",
         ))
-      }
+      },
     }
   };
   if !last_command.command.kind.ends_transaction() {
@@ -1043,7 +1043,7 @@ async fn end_clustered_multi_block(
         RedisErrorKind::ProtocolError,
         "Missing last command from EXEC or DISCARD.",
       ))
-    }
+    },
   };
   if !last_command.command.kind.ends_transaction() {
     return Err(RedisError::new(
@@ -1075,7 +1075,7 @@ async fn handle_clustered_queued_response(
         RedisErrorKind::ProtocolError,
         "Expected MULTI block policy with QUEUED response.",
       ))
-    }
+    },
   };
   if let Some(counters) = counters.read().get(server) {
     counters.decr_in_flight();
@@ -1090,7 +1090,7 @@ async fn handle_clustered_queued_response(
         RedisErrorKind::ProtocolError,
         "Could not find last request.",
       ))
-    }
+    },
   };
 
   if frame.is_error() && multi_block.abort_on_error {
@@ -1118,7 +1118,7 @@ async fn handle_centralized_queued_response(
         RedisErrorKind::ProtocolError,
         "Expected MULTI block policy with QUEUED response.",
       ))
-    }
+    },
   };
   counters.decr_in_flight();
 
@@ -1132,7 +1132,7 @@ async fn handle_centralized_queued_response(
           RedisErrorKind::ProtocolError,
           "Could not find last request.",
         ))
-      }
+      },
     }
   };
 
@@ -1240,7 +1240,7 @@ pub async fn process_clustered_frame(
         None => {
           _error!(inner, "Couldn't find counters for server {}", server);
           return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command counters."));
-        }
+        },
       };
       let last_command = match last_cluster_command(inner, commands, server)? {
         Some(cmd) => cmd,
@@ -1252,7 +1252,7 @@ pub async fn process_clustered_frame(
             server
           );
           return Ok(());
-        }
+        },
       };
 
       if let Some(last_command) = process_response(inner, server, &counters, last_command, frame).await? {
@@ -1300,7 +1300,7 @@ pub async fn process_centralized_frame(
               server
             );
             return Ok(());
-          }
+          },
         }
       };
 

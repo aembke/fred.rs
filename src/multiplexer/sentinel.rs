@@ -291,11 +291,11 @@ async fn update_connection_id(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
       RedisTransport::Tcp(framed)
-    }
+    },
     RedisTransport::Tls(framed) => {
       let framed = match connection::read_client_id(inner, framed).await {
         Ok((id, socket)) => {
@@ -304,11 +304,11 @@ async fn update_connection_id(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
       RedisTransport::Tls(framed)
-    }
+    },
   };
 
   Ok(transport)
@@ -389,7 +389,7 @@ fn parse_sentinel_nodes_response(
           RedisErrorKind::Sentinel,
           "Failed to read sentinel node IP address.",
         ));
-      }
+      },
     };
     let port = match map.get("port") {
       Some(port) => port.parse::<u16>()?,
@@ -399,7 +399,7 @@ fn parse_sentinel_nodes_response(
           RedisErrorKind::Sentinel,
           "Failed to read sentinel node port.",
         ));
-      }
+      },
     };
 
     out.push((ip, port));
