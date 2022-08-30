@@ -65,8 +65,6 @@ pub enum Connections {
   Sentinel {
     /// The connection to the primary server.
     writer: Option<RedisWriter>,
-    /// The name of the primary server as provided from the sentinel interface.
-    server_name: Option<ArcStr>,
   },
 }
 
@@ -76,10 +74,7 @@ impl Connections {
   }
 
   pub fn new_sentinel() -> Self {
-    Connections::Sentinel {
-      writer: None,
-      server_name: None,
-    }
+    Connections::Sentinel { writer: None }
   }
 
   pub fn new_clustered() -> Self {
@@ -142,11 +137,7 @@ impl Connections {
         }
         out
       },
-      Connections::Sentinel {
-        ref mut writer,
-        ref mut server_name,
-      } => {
-        *server_name = None;
+      Connections::Sentinel { ref mut writer } => {
         if let Some(writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
@@ -181,11 +172,7 @@ impl Connections {
         }
         out
       },
-      Connections::Sentinel {
-        ref mut writer,
-        ref mut server_name,
-      } => {
-        *server_name = None;
+      Connections::Sentinel { ref mut writer } => {
         if let Some(writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await

@@ -1,6 +1,10 @@
 use super::*;
 use crate::error::RedisError;
 use crate::modules::inner::RedisClientInner;
+use crate::multiplexer::sentinel::{
+  CKQUORUM, CONFIG, FAILOVER, FLUSHCONFIG, GET_MASTER_ADDR_BY_NAME, INFO_CACHE, MASTER, MASTERS, MONITOR, MYID,
+  PENDING_SCRIPTS, REMOVE, REPLICAS, SENTINELS, SET, SIMULATE_FAILURE,
+};
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
 use crate::protocol::types::*;
 use crate::protocol::utils as protocol_utils;
@@ -9,23 +13,6 @@ use crate::utils;
 use bytes_utils::Str;
 use std::net::IpAddr;
 use std::sync::Arc;
-
-static CONFIG: &'static str = "CONFIG";
-static SET: &'static str = "SET";
-static CKQUORUM: &'static str = "CKQUORUM";
-static FLUSHCONFIG: &'static str = "FLUSHCONFIG";
-static FAILOVER: &'static str = "FAILOVER";
-static GET_MASTER_ADDR_BY_NAME: &'static str = "GET-MASTER-ADDR-BY-NAME";
-static INFO_CACHE: &'static str = "INFO-CACHE";
-static MASTERS: &'static str = "MASTERS";
-static MASTER: &'static str = "MASTER";
-static MONITOR: &'static str = "MONITOR";
-static MYID: &'static str = "MYID";
-static PENDING_SCRIPTS: &'static str = "PENDING-SCRIPTS";
-static REMOVE: &'static str = "REMOVE";
-static REPLICAS: &'static str = "REPLICAS";
-static SENTINELS: &'static str = "SENTINELS";
-static SIMULATE_FAILURE: &'static str = "SIMULATE-FAILURE";
 
 pub async fn config_get<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {

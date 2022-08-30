@@ -1481,6 +1481,27 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
 }
 
 impl RedisCommand {
+  /// Create a new command without a response handling policy.
+  pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>) -> Self {
+    RedisCommand {
+      kind,
+      arguments: args,
+      response: ResponseKind::Skip,
+      hasher: ClusterHash::FirstKey,
+      multiplexer_tx: None,
+      attempted: 0,
+      can_pipeline: true,
+      skip_backpressure: false,
+      transaction_id: None,
+      #[cfg(feature = "metrics")]
+      created: Instant::now(),
+      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+      network_start: None,
+      #[cfg(feature = "partial-tracing")]
+      traces: CommandTraces::default(),
+    }
+  }
+
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
@@ -1756,6 +1777,8 @@ pub enum MultiplexerCommand {
     force: bool,
     tx: Option<ResponseSender>,
   },
+  /// Check and update the cached sentinel state against one of the known sentinel nodes.
+  CheckSentinels,
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster,
 }

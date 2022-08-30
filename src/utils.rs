@@ -754,6 +754,7 @@ pub fn read_sentinel_host(inner: &Arc<RedisClientInner>) -> Result<(Vec<(String,
   }
 }
 
+// TODO fix this
 pub async fn update_sentinel_nodes(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let (hosts, service_name) = read_sentinel_host(inner)?;
   let timeout = globals().sentinel_connection_timeout_ms() as u64;

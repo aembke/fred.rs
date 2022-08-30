@@ -65,7 +65,7 @@ pub(crate) struct Globals {
 impl Default for Globals {
   fn default() -> Self {
     Globals {
-      sentinel_connection_timeout_ms: Arc::new(AtomicUsize::new(200)),
+      sentinel_connection_timeout_ms: Arc::new(AtomicUsize::new(2_000)),
       #[cfg(feature = "blocking-encoding")]
       blocking_encode_threshold: Arc::new(AtomicUsize::new(500_000)),
       #[cfg(feature = "custom-reconnect-errors")]

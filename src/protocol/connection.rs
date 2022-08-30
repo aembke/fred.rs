@@ -435,10 +435,10 @@ impl RedisTransport {
 
   /// Set the client name with CLIENT SETNAME.
   #[cfg(not(feature = "no-client-setname"))]
-  pub async fn set_client_name(&mut self, name: &str, is_resp3: bool) -> Result<(), RedisError> {
-    debug!("{}: Changing client name to {}", name, name);
-    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
-    let response = self.request_response(command, is_resp3).await?;
+  pub async fn set_client_name(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    _debug!(inner, "Setting client name.");
+    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![inner.id.as_str().into()]);
+    let response = self.request_response(command, inner.is_resp3()).await?;
 
     if protocol_utils::is_ok(&response) {
       debug!("{}: Successfully set Redis client name.", name);
@@ -453,14 +453,14 @@ impl RedisTransport {
   }
 
   #[cfg(feature = "no-client-setname")]
-  pub async fn set_client_name(&mut self, name: &str, _: bool) -> Result<(), RedisError> {
-    debug!("{}: Skip setting client name.", name);
+  pub async fn set_client_name(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    _debug!(inner, "Skip setting client name.");
     Ok(())
   }
 
   /// Read and cache the server version.
   pub async fn cache_server_version(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
+    let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()]);
     let result = self.request_response(command, inner.is_resp3()).await?;
     let result = match result {
       Resp3Frame::BlobString { data, .. } => String::from_utf8(data.to_vec())?,
@@ -509,7 +509,7 @@ impl RedisTransport {
       } else {
         vec![password.into()]
       };
-      let command = RedisCommand::new(RedisCommandKind::Auth, args, None);
+      let command = RedisCommand::new(RedisCommandKind::Auth, args);
 
       debug!("{}: Authenticating Redis client...", name);
       let frame = self.request_response(command, is_resp3).await?;
@@ -526,9 +526,10 @@ impl RedisTransport {
         };
         return Err(protocol_utils::pretty_error(&error));
       }
+    } else {
+      trace!("{}: Skip authentication without credentials.", name);
     }
 
-    let _ = self.set_client_name(name, is_resp3).await?;
     Ok(())
   }
 
@@ -551,12 +552,13 @@ impl RedisTransport {
         vec![]
       };
 
-      let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), args, None);
+      let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), args);
       let response = self.request_response(cmd, true).await?;
       let response = protocol_utils::frame_to_results(response)?;
-      _debug!(inner, "Recv HELLO response {:?}", response);
+      inner.switch_protocol_versions(RespVersion::RESP3);
+      _trace!(inner, "Recv HELLO response {:?}", response);
 
-      self.set_client_name(&inner.id, true).await
+      Ok(())
     } else {
       self.authenticate(&inner.id, username, password, false).await
     }
@@ -564,7 +566,7 @@ impl RedisTransport {
 
   /// Read and cache the connection ID.
   pub async fn cache_connection_id(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    let command = (RedisCommandKind::ClientID, vec![], None).into();
+    let command = (RedisCommandKind::ClientID, vec![]).into();
     let result = self.request_response(command, inner.is_resp3()).await?;
     _debug!(inner, "Read client ID: {:?}", result);
     self.id = match result {
@@ -599,7 +601,7 @@ impl RedisTransport {
     };
 
     _trace!(inner, "Selecting database {} after connecting.", db);
-    let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()], None);
+    let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()]);
     let (result, transport) = self.request_response(command, inner.is_resp3()).await?;
 
     if let Some(error) = protocol_utils::frame_to_error(&result) {
@@ -612,6 +614,7 @@ impl RedisTransport {
   /// Authenticate, set the protocol version, set the client name, select the provided database, and cache the connection ID and server version.
   pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     let _ = self.switch_protocols_and_authenticate(inner).await?;
+    let _ = self.set_client_name(inner).await?;
     let _ = self.select_database(inner).await?;
     let _ = self.cache_connection_id(inner).await?;
     let _ = self.cache_server_version(inner).await?;

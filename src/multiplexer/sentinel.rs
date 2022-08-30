@@ -27,6 +27,23 @@ use crate::protocol::tls;
 /// This is a different timeout than the timeout connecting to the sentinel, which is controlled via a global setting.
 const DEFAULT_CONNECTION_TIMEOUT_MS: u64 = 30_000;
 
+pub static CONFIG: &'static str = "CONFIG";
+pub static SET: &'static str = "SET";
+pub static CKQUORUM: &'static str = "CKQUORUM";
+pub static FLUSHCONFIG: &'static str = "FLUSHCONFIG";
+pub static FAILOVER: &'static str = "FAILOVER";
+pub static GET_MASTER_ADDR_BY_NAME: &'static str = "GET-MASTER-ADDR-BY-NAME";
+pub static INFO_CACHE: &'static str = "INFO-CACHE";
+pub static MASTERS: &'static str = "MASTERS";
+pub static MASTER: &'static str = "MASTER";
+pub static MONITOR: &'static str = "MONITOR";
+pub static MYID: &'static str = "MYID";
+pub static PENDING_SCRIPTS: &'static str = "PENDING-SCRIPTS";
+pub static REMOVE: &'static str = "REMOVE";
+pub static REPLICAS: &'static str = "REPLICAS";
+pub static SENTINELS: &'static str = "SENTINELS";
+pub static SIMULATE_FAILURE: &'static str = "SIMULATE-FAILURE";
+
 macro_rules! try_continue (
   ($inner:ident, $expr:expr) => {
     match $expr {
@@ -50,26 +67,6 @@ macro_rules! stry (
     }
   }
 );
-
-#[cfg(feature = "sentinel-auth")]
-fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
-  match inner.config.server {
-    ServerConfig::Sentinel {
-      ref username,
-      ref password,
-      ..
-    } => Ok((username.clone(), password.clone())),
-    _ => Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected sentinel server configuration.",
-    )),
-  }
-}
-
-#[cfg(not(feature = "sentinel-auth"))]
-fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
-  Ok((inner.config.username.clone(), inner.config.password.clone()))
-}
 
 async fn read_primary_node_address(
   inner: &Arc<RedisClientInner>,
@@ -352,6 +349,142 @@ pub async fn connect_centralized_from_sentinel(
   Ok(pending_commands)
 }
 
+// ------------------------------------------------------------------
+
+#[cfg(feature = "sentinel-auth")]
+fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
+  match inner.config.server {
+    ServerConfig::Sentinel {
+      ref username,
+      ref password,
+      ..
+    } => Ok((username.clone(), password.clone())),
+    _ => Err(RedisError::new(
+      RedisErrorKind::Config,
+      "Expected sentinel server configuration.",
+    )),
+  }
+}
+
+#[cfg(not(feature = "sentinel-auth"))]
+fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
+  Ok((inner.config.username.clone(), inner.config.password.clone()))
+}
+
+/// Read the `(host, port)` tuples for the known sentinel nodes, and the credentials to use when connecting.
+async fn read_sentinel_nodes_and_auth(
+  inner: &Arc<RedisClientInner>,
+) -> Result<(Vec<(String, u16)>, (Option<String>, Option<String>)), RedisError> {
+  let (username, password) = read_sentinel_auth(inner);
+  let hosts = match inner.read_sentinel_nodes() {
+    Some(hosts) => hosts,
+    None => {
+      return Err(RedisError::new(
+        RedisErrorKind::Sentinel,
+        "Failed to read cached sentinel nodes.",
+      ))
+    },
+  };
+
+  Ok((hosts, (username, password)))
+}
+
+/// Read the set of sentinel nodes via `SENTINEL sentinels`.
+async fn read_sentinels(
+  inner: &Arc<RedisClientInner>,
+  sentinel: &mut RedisTransport,
+) -> Result<Vec<(String, u16)>, RedisError> {
+  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![static_val!(SENTINELS)]);
+  let frame = sentinel.request_response(command, false).await?;
+  let response = stry!(protocol_utils::frame_to_results(frame));
+  _trace!(inner, "Read sentinel `sentinels` response: {:?}", response);
+  let sentinel_nodes = stry!(parse_sentinel_nodes_response(inner, response));
+
+  if sentinel_nodes.is_empty() {
+    _warn!(inner, "Failed to read any known sentinel nodes.")
+  }
+
+  Ok(sentinel_nodes)
+}
+
+/// Connect to any of the sentinel nodes provided on the associated `RedisConfig`.
+async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTransport, RedisError> {
+  let (hosts, (username, password)) = read_sentinel_nodes_and_auth(inner)?;
+  let timeout = globals().sentinel_connection_timeout_ms() as u64;
+
+  for (host, port) in hosts.into_iter() {
+    _debug!(inner, "Connecting to sentinel {}:{}", host, port);
+    let mut transport = try_or_continue!(connection::create(inner, host, port, Some(timeout)).await);
+    let _ = try_or_continue!(transport.authenticate(&inner.id, username, password, false).await);
+
+    return Ok(transport);
+  }
+
+  Err(RedisError::new(
+    RedisErrorKind::Sentinel,
+    "Failed to connect to all sentinel nodes.",
+  ))
+}
+
+/// Read the `(host, port)` tuple for the primary Redis server, as identified by the `SENTINEL get-master-addr-by-name` command, then return a connection to that node.
+async fn discover_primary_node(
+  inner: &Arc<RedisClientInner>,
+  sentinel: &mut RedisTransport,
+) -> Result<RedisTransport, RedisError> {
+  let service_name = match inner.config.server {
+    ServerConfig::Sentinel { ref service_name, .. } => service_name,
+    _ => {
+      return Err(RedisError::new(
+        RedisErrorKind::Sentinel,
+        "Missing sentinel service name.",
+      ))
+    },
+  };
+  let command = RedisCommand::new(
+    RedisCommandKind::Sentinel,
+    vec![static_val!(GET_MASTER_ADDR_BY_NAME), service_name.into()],
+  );
+  let frame = sentinel.request_response(command, false).await?;
+  let response = stry!(protocol_utils::frame_to_results(frame));
+  let (host, port): (String, u16) = if response.is_null() {
+    return Err(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Missing primary address in response from sentinel node.",
+    ));
+  } else {
+    stry!(response.convert())
+  };
+
+  let mut transport = stry!(connection::create(inner, host, port, None).await);
+  let _ = stry!(transport.setup(inner).await);
+  Ok(transport)
+}
+
+/// Verify that the Redis server is a primary node and not a replica.
+async fn check_primary_node_role(
+  inner: &Arc<RedisClientInner>,
+  transport: &mut RedisTransport,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
+/// Update the cached client and connection state with the latest sentinel state.
+///
+/// This does the following:
+/// * Call `SENTINEL sentinels` on the sentinels
+/// * Store the updated sentinel node list on `inner`.
+/// * Update the primary node on `inner`.
+/// * Store the primary node transport on `connections`.
+/// * Store the latest primary node address on `inner` and `connections`.
+async fn update_cached_client_state(
+  inner: &Arc<RedisClientInner>,
+  writer: &mut Option<RedisWriter>,
+  mut sentinel: RedisTransport,
+  mut transport: RedisTransport,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
 /// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.
 ///
 /// <https://redis.io/docs/reference/sentinel-clients/>
@@ -365,13 +498,13 @@ pub async fn initialize_connection(
   buffer.extend(commands);
 
   match connections {
-    Connections::Sentinel { writer, server_name } => {
-      // connect to a sentinel node
-      // get master address
-      // connect to master node
-      // call ROLE on master, check response
-      // update connection state
-      unimplemented!()
+    Connections::Sentinel { writer } => {
+      let mut sentinel = connect_to_sentinel(inner).await?;
+      let mut transport = discover_primary_node(inner, &mut sentinel).await?;
+      let _ = check_primary_node_role(inner, &mut transport).await?;
+      let _ = update_cached_client_state(inner, writer, sentinel, transport).await?;
+
+      Ok(())
     },
     _ => Err(RedisError::new(
       RedisErrorKind::Config,

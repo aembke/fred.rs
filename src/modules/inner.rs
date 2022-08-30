@@ -355,6 +355,27 @@ impl RedisClientInner {
     }
   }
 
+  pub fn update_sentinel_nodes(&self, nodes: Vec<(String, u16)>) {
+    if let ServerState::Sentinel { ref mut sentinels, .. } = self.server_state.write() {
+      *sentinels = nodes;
+    }
+  }
+
+  pub fn read_sentinel_nodes(&self) -> Option<Vec<(String, u16)>> {
+    if let ServerState::Sentinel { ref sentinels, .. } = self.server_state.read() {
+      if sentinels.is_empty() {
+        match self.config.server {
+          ServerConfig::Sentinel { ref hosts, .. } => Some(hosts.clone()),
+          _ => None,
+        }
+      } else {
+        Some(sentinels.clone())
+      }
+    } else {
+      None
+    }
+  }
+
   #[cfg(feature = "partial-tracing")]
   pub fn should_trace(&self) -> bool {
     self.config.tracing
