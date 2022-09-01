@@ -6,6 +6,12 @@ TLDR
 * Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
 * Versions 6.x will be focused on performance. 
 
+## 5.2.0
+
+* Reduce number of `tokio` features
+* Use 6379 as default cluster port in `from_url`
+* Fix RESP3 auth error (https://github.com/aembke/fred.rs/issues/54)
+
 ## 5.1.0
 
 * Update `redis-protocol` and `nom`
