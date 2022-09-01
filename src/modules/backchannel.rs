@@ -49,10 +49,7 @@ impl Backchannel {
   }
 
   /// Set the connection IDs from the multiplexer.
-  pub fn update_connection_ids<T>(&mut self, connections: &Connections)
-  where
-    T: AsyncRead + AsyncWrite + Unpin + 'static,
-  {
+  pub fn update_connection_ids(&mut self, connections: &Connections) {
     self.connection_ids = connections.connection_ids();
   }
 

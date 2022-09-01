@@ -569,14 +569,18 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
 
   _debug!(inner, "Initializing connections...");
   if inner.config.fail_fast {
-    if let Err(err) = multiplexer.connect().await {
+    if let Err(e) = multiplexer.connect().await {
       inner.notifications.broadcast_connect(Err(e.clone()));
       inner.notifications.broadcast_error(e.clone());
+      inner.store_command_rx(rx);
       return Err(e);
     }
   } else {
     connect_with_policy(inner, &multiplexer, &mut policy).await?;
   }
 
+  // TODO handle command loop
+
+  inner.store_command_rx(rx);
   Ok(())
 }

@@ -84,19 +84,25 @@ impl Connections {
     }
   }
 
-  /// Initialize the underlying connection(s).
+  /// Initialize the underlying connection(s) and update the cached backchannel information.
   pub async fn initialize(
     &mut self,
     inner: &Arc<RedisClientInner>,
     buffer: &mut CommandBuffer,
   ) -> Result<(), RedisError> {
-    if inner.config.server.is_clustered() {
+    let result = if inner.config.server.is_clustered() {
       clustered::initialize_connections(inner, self, buffer).await
     } else if inner.config.server.is_centralized() {
       centralized::initialize_connection(inner, self, buffer).await
     } else if inner.config.server.is_sentinel() {
       sentinel::initialize_connection(inner, self, buffer).await
+    };
+
+    if result.is_ok() {
+      let mut backchannel = inner.backchannel.write().await;
+      backchannel.connection_ids = self.connection_ids();
     }
+    result
   }
 
   /// Read the counters associated with a connection to a server.

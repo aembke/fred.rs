@@ -5,6 +5,7 @@ use crate::types::{
   ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, FromRedis, RedisValue,
 };
 use crate::utils;
+use arcstr::ArcStr;
 use bytes_utils::Str;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,12 +31,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
   ///
   /// Note: despite being async this function will usually return cached information from the client if possible.
-  fn connection_ids(&self) -> AsyncResult<HashMap<Arc<String>, i64>> {
+  fn connection_ids(&self) -> AsyncResult<HashMap<ArcStr, i64>> {
     async_spawn(self, |_self| async move {
-      utils::read_connection_ids(_self).await.ok_or(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Failed to read connection IDs",
-      ))
+      Ok(_self.inner().backchannel.write().await.connection_ids.clone())
     })
   }
 
