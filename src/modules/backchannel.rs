@@ -33,6 +33,21 @@ pub struct Backchannel {
 }
 
 impl Backchannel {
+  /// Check if the current server matches the provided server, and disconnect.
+  pub async fn check_and_disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&ArcStr>) {
+    let should_close = self
+      .current_server()
+      .map(|current| server.map(|server| server == current).unwrap_or(true))
+      .unwrap_or(false);
+
+    if should_close {
+      if let Some(ref mut transport) = self.transport {
+        let _ = transport.disconnect(inner).await;
+      }
+      self.transport = None;
+    }
+  }
+
   /// Set the connection IDs from the multiplexer.
   pub fn update_connection_ids<T>(&mut self, connections: &Connections)
   where

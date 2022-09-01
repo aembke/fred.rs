@@ -542,3 +542,41 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
   inner.store_command_rx(rx);
   Ok(())
 }
+
+// ------------------------------------------------------------------------------------
+
+pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Connections are already initialized or connecting.",
+    ));
+  }
+
+  let mut rx = match inner.take_command_rx() {
+    Some(rx) => rx,
+    None => {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Redis client is already initialized.",
+      ))
+    },
+  };
+  if let Some(ref mut policy) = policy {
+    policy.reset_attempts();
+  }
+  let mut multiplexer = Multiplexer::new(inner);
+
+  _debug!(inner, "Initializing connections...");
+  if inner.config.fail_fast {
+    if let Err(err) = multiplexer.connect().await {
+      inner.notifications.broadcast_connect(Err(e.clone()));
+      inner.notifications.broadcast_error(e.clone());
+      return Err(e);
+    }
+  } else {
+    connect_with_policy(inner, &multiplexer, &mut policy).await?;
+  }
+
+  Ok(())
+}

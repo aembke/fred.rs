@@ -1,6 +1,7 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
 use crate::modules::inner::RedisClientInner;
+use crate::multiplexer::centralized;
 use crate::multiplexer::{utils, Connections, Counters};
 use crate::protocol::codec::RedisCodec;
 use crate::protocol::command::{RedisCommand, RedisCommandKind};
@@ -68,184 +69,6 @@ macro_rules! stry (
   }
 );
 
-async fn read_primary_node_address(
-  inner: &Arc<RedisClientInner>,
-  transport: RedisTransport,
-  server_name: &str,
-) -> Result<(RedisTransport, String, SocketAddr), RedisError> {
-  let request = RedisCommand::new(
-    RedisCommandKind::Sentinel,
-    vec!["get-master-addr-by-name".into(), server_name.into()],
-    None,
-  );
-  let (frame, transport) = stry!(connection::transport_request_response(transport, &request, false).await);
-  let result = stry!(protocol_utils::frame_to_results(frame.into_resp3()));
-  let (host, port): (String, u16) = stry!(result.convert());
-  let addr = stry!(inner.resolver.resolve(host.clone(), port).await);
-
-  Ok((transport, host, addr))
-}
-
-async fn discover_primary_node(
-  inner: &Arc<RedisClientInner>,
-) -> Result<(String, RedisTransport, String, SocketAddr), RedisError> {
-  let (hosts, name) = client_utils::read_sentinel_host(inner)?;
-  let timeout = globals().sentinel_connection_timeout_ms() as u64;
-
-  for (idx, (sentinel_host, port)) in hosts.into_iter().enumerate() {
-    let sentinel_transport = try_continue!(inner, connect_to_sentinel(inner, &sentinel_host, port, timeout).await);
-    swap_first_sentinel_server(inner, idx);
-
-    let (sentinel_transport, host, addr) = read_primary_node_address(inner, sentinel_transport, &name).await?;
-    _debug!(
-      inner,
-      "Found primary node address {}:{} from sentinel {}:{}",
-      addr.ip(),
-      addr.port(),
-      host,
-      port
-    );
-    return Ok((name, sentinel_transport, host, addr));
-  }
-
-  Err(RedisError::new(
-    RedisErrorKind::Sentinel,
-    "Failed to connect to any sentinel node.",
-  ))
-}
-
-async fn connect_and_check_primary_role(
-  inner: &Arc<RedisClientInner>,
-  host: &str,
-  addr: &SocketAddr,
-) -> Result<RedisTransport, RedisError> {
-  let request = RedisCommand::new(RedisCommandKind::Role, vec![], None);
-  let transport = stry!(connect_to_server(inner, host, addr, DEFAULT_CONNECTION_TIMEOUT_MS, false).await);
-
-  _debug!(inner, "Checking role for redis server at {}:{}", host, addr.port());
-  let is_resp3 = inner.is_resp3();
-  let (frame, transport) = stry!(connection::transport_request_response(transport, &request, is_resp3).await);
-  let result = stry!(protocol_utils::frame_to_results(frame.into_resp3()));
-
-  if let RedisValue::Array(values) = result {
-    if let Some(first) = values.first() {
-      let is_master = first.as_str().map(|s| s == "master").unwrap_or(false);
-
-      if is_master {
-        Ok(transport)
-      } else {
-        Err(RedisError::new(
-          RedisErrorKind::Sentinel,
-          format!("Invalid role: {:?}", first.as_str()),
-        ))
-      }
-    } else {
-      Err(RedisError::new(RedisErrorKind::Sentinel, "Invalid role response."))
-    }
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Sentinel,
-      "Could not read redis server role.",
-    ))
-  }
-}
-
-async fn update_connection_id(
-  inner: &Arc<RedisClientInner>,
-  connection_id: &Arc<RwLock<Option<i64>>>,
-  transport: RedisTransport,
-) -> Result<RedisTransport, RedisError> {
-  let transport = match transport {
-    RedisTransport::Tcp(framed) => {
-      let framed = match connection::read_client_id(inner, framed).await {
-        Ok((id, socket)) => {
-          if let Some(id) = id {
-            _debug!(inner, "Read sentinel connection ID: {}", id);
-            connection_id.write().replace(id);
-          }
-          socket
-        },
-        Err((_, socket)) => socket,
-      };
-      RedisTransport::Tcp(framed)
-    },
-    RedisTransport::Tls(framed) => {
-      let framed = match connection::read_client_id(inner, framed).await {
-        Ok((id, socket)) => {
-          if let Some(id) = id {
-            _debug!(inner, "Read sentinel connection ID: {}", id);
-            connection_id.write().replace(id);
-          }
-          socket
-        },
-        Err((_, socket)) => socket,
-      };
-      RedisTransport::Tls(framed)
-    },
-  };
-
-  Ok(transport)
-}
-
-async fn update_sentinel_client_state(
-  inner: &Arc<RedisClientInner>,
-  server: &Arc<AsyncRwLock<Arc<String>>>,
-  counters: &Counters,
-  new_server: &Arc<String>,
-  close_tx: &Arc<RwLock<Option<CloseTx>>>,
-) -> CloseTx {
-  client_utils::set_locked_async(server, new_server.clone()).await;
-  inner.update_sentinel_primary(&new_server);
-  counters.reset_feed_count();
-  counters.reset_in_flight();
-  utils::get_or_create_close_tx(inner, close_tx)
-}
-
-async fn connect_centralized(
-  inner: &Arc<RedisClientInner>,
-  connections: &Connections,
-  host: &str,
-  addr: SocketAddr,
-  close_tx: &Arc<RwLock<Option<CloseTx>>>,
-) -> Result<(), RedisError> {
-  if let Connections::Centralized {
-    ref writer,
-    ref server,
-    ref counters,
-    ref connection_id,
-    ref commands,
-    ..
-  } = connections
-  {
-    let new_server = Arc::new(format!("{}:{}", host, addr.port()));
-    let transport = stry!(connect_and_check_primary_role(inner, host, &addr).await);
-    _debug!(inner, "Connected via sentinel to server: {}", new_server);
-
-    let tx = update_sentinel_client_state(inner, server, counters, &new_server, close_tx).await;
-    let transport = update_connection_id(inner, connection_id, transport).await?;
-    let (sink, stream) = connection::split_transport(transport);
-
-    client_utils::set_locked_async(writer, Some(sink)).await;
-    utils::spawn_centralized_listener(
-      inner,
-      &new_server,
-      connections,
-      tx.subscribe(),
-      commands,
-      counters,
-      stream,
-    );
-    _debug!(inner, "Spawned socket reader task for server: {}", new_server);
-
-    Ok(())
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected centralized connection with sentinel config.",
-    ))
-  }
-}
-
 fn parse_sentinel_nodes_response(
   inner: &Arc<RedisClientInner>,
   value: RedisValue,
@@ -293,63 +116,6 @@ fn has_different_sentinel_nodes(old: &[(String, u16)], new: &[(String, u16)]) ->
 
   old_set.symmetric_difference(&new_set).count() > 0
 }
-
-pub async fn update_sentinel_nodes(
-  inner: &Arc<RedisClientInner>,
-  transport: RedisTransport,
-  name: &str,
-) -> Result<(), RedisError> {
-  _debug!(inner, "Reading sentinel nodes...");
-  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec!["sentinels".into(), name.into()], None);
-  let (frame, _) = stry!(connection::transport_request_response(transport, &command, false).await);
-  let response = stry!(protocol_utils::frame_to_results(frame.into_resp3()));
-  _trace!(inner, "Read sentinel response: {:?}", response);
-  let sentinel_nodes = stry!(parse_sentinel_nodes_response(inner, response));
-
-  if !sentinel_nodes.is_empty() {
-    if let ServerConfig::Sentinel { ref mut hosts, .. } = inner.config.write().server {
-      if has_different_sentinel_nodes(&hosts, &sentinel_nodes) {
-        _debug!(
-          inner,
-          "Updating sentinel nodes from {:?} to {:?}",
-          hosts,
-          sentinel_nodes
-        );
-        *hosts = sentinel_nodes;
-      } else {
-        _debug!(inner, "Sentinel nodes did not change.")
-      }
-    }
-  } else {
-    _warn!(inner, "Failed to read any known sentinel nodes.")
-  }
-
-  Ok(())
-}
-
-/// Use the sentinel API to find the correct primary/main node that should act as the centralized server to the multiplexer.
-///
-/// See [the documentation](https://redis.io/topics/sentinel-clients) for more information.
-pub async fn connect_centralized_from_sentinel(
-  inner: &Arc<RedisClientInner>,
-  connections: &Connections,
-  close_tx: &Arc<RwLock<Option<CloseTx>>>,
-) -> Result<VecDeque<SentCommand>, RedisError> {
-  let pending_commands = utils::take_sent_commands(connections);
-  connections.disconnect_centralized().await;
-  client_utils::set_client_state(&inner.state, ClientState::Connecting);
-
-  let (service_name, sentinel_transport, host, primary_addr) = discover_primary_node(inner).await?;
-  let _ = connect_centralized(inner, connections, &host, primary_addr, close_tx).await?;
-  client_utils::set_client_state(&inner.state, ClientState::Connected);
-
-  if let Err(e) = update_sentinel_nodes(inner, sentinel_transport, &service_name).await {
-    _warn!(inner, "Failed to update sentinel nodes with error: {:?}", e);
-  };
-  Ok(pending_commands)
-}
-
-// ------------------------------------------------------------------
 
 #[cfg(feature = "sentinel-auth")]
 fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, Option<String>), RedisError> {
@@ -465,7 +231,48 @@ async fn check_primary_node_role(
   inner: &Arc<RedisClientInner>,
   transport: &mut RedisTransport,
 ) -> Result<(), RedisError> {
-  unimplemented!()
+  let command = RedisCommand::new(RedisCommandKind::Role, Vec::new());
+  _debug!(inner, "Checking role for redis server at {}", transport.server);
+
+  let frame = stry!(transport.request_response(inner, command, inner.is_resp3()).await);
+  let response = stry!(protocol_utils::frame_to_results(frame));
+
+  if let RedisValue::Array(values) = response {
+    if let Some(first) = values.first() {
+      let is_master = first.as_str().map(|s| s == "master").unwrap_or(false);
+
+      if is_master {
+        Ok(())
+      } else {
+        Err(RedisError::new(
+          RedisErrorKind::Sentinel,
+          format!("Invalid role: {:?}", first.as_str()),
+        ))
+      }
+    } else {
+      Err(RedisError::new(RedisErrorKind::Sentinel, "Invalid role response."))
+    }
+  } else {
+    Err(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Could not read redis server role.",
+    ))
+  }
+}
+
+/// Update the cached backchannel state with the new connection information, disconnecting the old connection if needed.
+async fn update_sentinel_backchannel(
+  inner: &Arc<RedisClientInner>,
+  transport: &RedisTransport,
+) -> Result<(), RedisError> {
+  let mut backchannel = inner.backchannel.write().await;
+  backchannel.check_and_disconnect(inner, Some(&transport.server)).await;
+  backchannel.connection_ids.clear();
+  if let Some(id) = transport.id {
+    backchannel.connection_ids.insert(transport.server.clone(), id);
+  }
+
+  Ok(())
 }
 
 /// Update the cached client and connection state with the latest sentinel state.
@@ -474,15 +281,22 @@ async fn check_primary_node_role(
 /// * Call `SENTINEL sentinels` on the sentinels
 /// * Store the updated sentinel node list on `inner`.
 /// * Update the primary node on `inner`.
-/// * Store the primary node transport on `connections`.
-/// * Store the latest primary node address on `inner` and `connections`.
+/// * Update the cached backchannel information.
+/// * Split and store the primary node transport on `writer`.
 async fn update_cached_client_state(
   inner: &Arc<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   mut sentinel: RedisTransport,
   mut transport: RedisTransport,
 ) -> Result<(), RedisError> {
-  unimplemented!()
+  let sentinels = read_sentinels(inner, &mut sentinel).await?;
+  inner.update_sentinel_nodes(sentinels);
+  inner.update_sentinel_primary(&transport.server);
+  update_sentinel_backchannel(inner, &transport).await;
+
+  let (_, _writer) = connection::split_and_initialize(inner, transport, centralized::spawn_reader_task)?;
+  *writer = Some(_writer);
+  Ok(())
 }
 
 /// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.

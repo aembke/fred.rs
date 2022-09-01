@@ -589,6 +589,15 @@ impl RedisTransport {
     }
   }
 
+  /// Send `QUIT` and close the connection.
+  pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    let command: RedisCommand = RedisCommandKind::Quit.into();
+    let _ = self.request_response(command, inner.is_resp3()).await?;
+    let _ = self.transport.close().await;
+
+    Ok(())
+  }
+
   /// Select the database provided in the `RedisConfig`.
   pub async fn select_database(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     if inner.config.server.is_clustered() {
