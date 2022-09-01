@@ -66,6 +66,7 @@ jobs:
       - run:
           name: Run tests with all features
           command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
+          no_output_timeout: 20m
   test-sentinel:
     docker:
       - image: cimg/rust:1.57.0
