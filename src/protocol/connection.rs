@@ -332,8 +332,9 @@ pub async fn create_authenticated_connection_tls(
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
-  let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
+  let framed = Framed::new(socket, codec);
   let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
+  let framed = switch_protocols(inner, framed).await?;
   let framed = select_database(inner, framed).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
@@ -360,8 +361,9 @@ pub async fn create_authenticated_connection(
   let username = inner.config.read().username.clone();
 
   let socket = TcpStream::connect(addr).await?;
-  let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
+  let framed = Framed::new(socket, codec);
   let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
+  let framed = switch_protocols(inner, framed).await?;
   let framed = select_database(inner, framed).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
