@@ -25,19 +25,19 @@ impl Hash for DebugFrame {
       DebugFrame::String(ref s) => {
         's'.hash(state);
         s.hash(state)
-      },
+      }
       DebugFrame::Bytes(ref b) => {
         'b'.hash(state);
         b.hash(state)
-      },
+      }
       DebugFrame::Integer(ref i) => {
         'i'.hash(state);
         i.hash(state)
-      },
+      }
       DebugFrame::Double(ref f) => {
         'd'.hash(state);
         f.to_be_bytes().hash(state)
-      },
+      }
       _ => panic!("Cannot hash network log debug frame {:?}", self),
     }
   }
@@ -98,7 +98,7 @@ impl<'a> From<&'a Resp3Frame> for DebugFrame {
           values.push(DebugFrame::String(password.to_string()));
         }
         DebugFrame::Array(values)
-      },
+      }
     }
   }
 }

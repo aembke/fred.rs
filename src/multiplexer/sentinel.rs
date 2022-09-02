@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio_util::codec::Framed;
+use std::time::Duration;
 
 #[cfg(feature = "enable-tls")]
 use crate::protocol::tls;
@@ -94,6 +95,8 @@ pub async fn create_authenticated_connection_tls(
     (read_redis_auth(inner), inner.is_resp3())
   };
 
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
+
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
@@ -102,11 +105,11 @@ pub async fn create_authenticated_connection_tls(
   } else {
     connection::switch_protocols(inner, Framed::new(socket, codec)).await?
   };
-  let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = authenticate(framed, &client_name, username, password, is_resp3, timeout.clone()).await?;
   let framed = if is_sentinel {
     framed
   } else {
-    select_database(inner, framed).await?
+    select_database(inner, framed, timeout).await?
   };
 
   Ok(framed)
@@ -136,17 +139,19 @@ pub async fn create_authenticated_connection(
     (read_redis_auth(inner), inner.is_resp3())
   };
 
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
+
   let socket = TcpStream::connect(addr).await?;
   let framed = if is_sentinel {
     Framed::new(socket, codec)
   } else {
     connection::switch_protocols(inner, Framed::new(socket, codec)).await?
   };
-  let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = authenticate(framed, &client_name, username, password, is_resp3, timeout.clone()).await?;
   let framed = if is_sentinel {
     framed
   } else {
-    select_database(inner, framed).await?
+    select_database(inner, framed, timeout).await?
   };
 
   Ok(framed)
@@ -291,11 +296,11 @@ async fn update_connection_id(
             connection_id.write().replace(id);
           }
           socket
-        },
+        }
         Err((_, socket)) => socket,
       };
       RedisTransport::Tcp(framed)
-    },
+    }
     RedisTransport::Tls(framed) => {
       let framed = match connection::read_client_id(inner, framed).await {
         Ok((id, socket)) => {
@@ -304,11 +309,11 @@ async fn update_connection_id(
             connection_id.write().replace(id);
           }
           socket
-        },
+        }
         Err((_, socket)) => socket,
       };
       RedisTransport::Tls(framed)
-    },
+    }
   };
 
   Ok(transport)
@@ -389,7 +394,7 @@ fn parse_sentinel_nodes_response(
           RedisErrorKind::Sentinel,
           "Failed to read sentinel node IP address.",
         ));
-      },
+      }
     };
     let port = match map.get("port") {
       Some(port) => port.parse::<u16>()?,
@@ -399,7 +404,7 @@ fn parse_sentinel_nodes_response(
           RedisErrorKind::Sentinel,
           "Failed to read sentinel node port.",
         ));
-      },
+      }
     };
 
     out.push((ip, port));

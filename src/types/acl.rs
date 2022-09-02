@@ -57,7 +57,7 @@ impl AclCommandPattern {
         } else {
           format!("{}{}", prefix, command).into()
         }
-      },
+      }
     }
   }
 }

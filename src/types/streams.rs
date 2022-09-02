@@ -34,7 +34,7 @@ impl<'a> TryFrom<&'a str> for XCapTrim {
           RedisErrorKind::InvalidArgument,
           "Invalid XADD trim value.",
         ))
-      },
+      }
     })
   }
 }
@@ -189,7 +189,7 @@ impl<'a> TryFrom<&'a str> for XCapKind {
           RedisErrorKind::InvalidArgument,
           "Expected MAXLEN or MINID,",
         ))
-      },
+      }
     })
   }
 }
@@ -364,7 +364,7 @@ impl XPendingArgs {
             RedisErrorKind::InvalidArgument,
             "The `start` argument is required in this context.",
           ))
-        },
+        }
       };
       let end = match self.end {
         Some(s) => s,
@@ -373,7 +373,7 @@ impl XPendingArgs {
             RedisErrorKind::InvalidArgument,
             "The `end` argument is required in this context.",
           ))
-        },
+        }
       };
       let count = match self.count {
         Some(s) => s,
@@ -382,7 +382,7 @@ impl XPendingArgs {
             RedisErrorKind::InvalidArgument,
             "The `count` argument is required in this context.",
           ))
-        },
+        }
       };
 
       Ok(Some((self.idle, start, end, count, self.consumer)))

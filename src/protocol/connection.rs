@@ -106,6 +106,7 @@ pub async fn request_response<T>(
   mut transport: Framed<T, RedisCodec>,
   request: &RedisCommand,
   is_resp3: bool,
+  timeout: Duration,
 ) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -113,7 +114,6 @@ where
   let frame = request.to_frame(is_resp3)?;
   let _ = transport.send(frame).await?;
 
-  let timeout = Duration::from_millis(2_000);
   let (response, transport) = tokio::time::timeout(timeout, transport.into_future())
     .await
     .map_err(|_| RedisError::new(RedisErrorKind::Timeout, "Inner request timed out."))?;
@@ -181,13 +181,14 @@ pub async fn set_client_name<T>(
   transport: Framed<T, RedisCodec>,
   name: &str,
   is_resp3: bool,
+  timeout: Duration,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
   debug!("{}: Changing client name to {}", name, name);
   let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
-  let (response, transport) = request_response(transport, &command, is_resp3).await?;
+  let (response, transport) = request_response(transport, &command, is_resp3, timeout).await?;
 
   if is_ok(&response) {
     debug!("{}: Successfully set Redis client name.", name);
@@ -220,6 +221,7 @@ pub async fn authenticate<T>(
   username: Option<String>,
   password: Option<String>,
   is_resp3: bool,
+  timeout: Duration,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -233,7 +235,7 @@ where
     let command = RedisCommand::new(RedisCommandKind::Auth, args, None);
 
     debug!("{}: Authenticating Redis client...", name);
-    let (response, transport) = request_response(transport, &command, is_resp3).await?;
+    let (response, transport) = request_response(transport, &command, is_resp3, timeout.clone()).await?;
 
     match frame_into_string(response.into_resp3()) {
       Ok(inner) => {
@@ -247,14 +249,14 @@ where
         return Err(RedisError::new(
           RedisErrorKind::Auth,
           "Invalid auth response. Expected string.",
-        ));
+        ))
       },
     }
   } else {
     transport
   };
 
-  set_client_name(transport, name, is_resp3).await
+  set_client_name(transport, name, is_resp3, timeout).await
 }
 
 pub async fn switch_protocols<T>(
@@ -271,9 +273,11 @@ where
     return Ok(transport);
   }
 
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
+
   _debug!(inner, "Switching to RESP3 protocol with HELLO...");
   let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), vec![], None);
-  let (response, transport) = request_response(transport, &cmd, true).await?;
+  let (response, transport) = request_response(transport, &cmd, true, timeout).await?;
   let response = protocol_utils::frame_to_results(response.into_resp3())?;
 
   _debug!(inner, "Recv HELLO response {:?}", response);
@@ -301,6 +305,7 @@ where
 pub async fn select_database<T>(
   inner: &Arc<RedisClientInner>,
   transport: Framed<T, RedisCodec>,
+  timeout: Duration,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -312,7 +317,7 @@ where
 
   _trace!(inner, "Selecting database {} after connecting.", db);
   let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()], None);
-  let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
+  let (result, transport) = request_response(transport, &command, inner.is_resp3(), timeout).await?;
   let response = result.into_resp3();
 
   if let Some(error) = protocol_utils::frame_to_error(&response) {
@@ -333,13 +338,14 @@ pub async fn create_authenticated_connection_tls(
   let client_name = inner.client_name();
   let password = inner.config.read().password.clone();
   let username = inner.config.read().username.clone();
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
 
   let socket = TcpStream::connect(addr).await?;
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
   let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
-  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
-  let framed = select_database(inner, framed).await?;
+  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3(), timeout).await?;
+  let framed = select_database(inner, framed, timeout).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
@@ -363,11 +369,12 @@ pub async fn create_authenticated_connection(
   let client_name = inner.client_name();
   let password = inner.config.read().password.clone();
   let username = inner.config.read().username.clone();
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
 
   let socket = TcpStream::connect(addr).await?;
   let framed = switch_protocols(inner, Framed::new(socket, codec)).await?;
-  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
-  let framed = select_database(inner, framed).await?;
+  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3(), timeout).await?;
+  let framed = select_database(inner, framed, timeout).await?;
 
   client_utils::set_client_state(&inner.state, ClientState::Connected);
   Ok(framed)
@@ -412,6 +419,8 @@ async fn read_cluster_state(
     },
   };
 
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
+
   let response = if uses_tls {
     let connection = match create_authenticated_connection_tls(&addr, &host, &inner).await {
       Ok(connection) => connection,
@@ -421,7 +430,7 @@ async fn read_cluster_state(
       },
     };
 
-    match request_response(connection, &command, inner.is_resp3()).await {
+    match request_response(connection, &command, inner.is_resp3(), timeout.clone()).await {
       Ok((frame, _)) => frame.into_resp3(),
       Err(e) => {
         _trace!(inner, "Failed to read cluster state from {}:{} => {:?}", host, port, e);
@@ -437,7 +446,7 @@ async fn read_cluster_state(
       },
     };
 
-    match request_response(connection, &command, inner.is_resp3()).await {
+    match request_response(connection, &command, inner.is_resp3(), timeout).await {
       Ok((frame, _)) => frame.into_resp3(),
       Err(e) => {
         _trace!(inner, "Failed to read cluster state from {}:{} => {:?}", host, port, e);
@@ -477,8 +486,9 @@ pub async fn read_server_version<T>(
 where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
+  let timeout = Duration::from_millis(inner.perf_config.default_command_timeout() as u64);
   let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
-  let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
+  let (result, transport) = request_response(transport, &command, inner.is_resp3(), timeout).await?;
   let result = match result.into_resp3() {
     Resp3Frame::BlobString { data, .. } => String::from_utf8(data.to_vec())?,
     Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
@@ -490,7 +500,7 @@ where
       return Err(RedisError::new(
         RedisErrorKind::ProtocolError,
         "Invalid server info response.",
-      ));
+      ))
     },
   };
 
