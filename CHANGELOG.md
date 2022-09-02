@@ -1,20 +1,17 @@
 ## 6.0.0
 
-* Major refactoring of the connection and protocol layer.
-* Remove all locks (except the one required for pipelines) on the hot paths.
+* Refactored the connection and protocol layer.
 * Add a manual `Pipeline` interface.
 * Rework the `Transaction` interface to buffer commands in memory before EXEC/DISCARD.
 * Switch from `Arc<String>` to `ArcStr` for shared server identifiers.
-* Rework the cluster discovery and failover implementation to more reliably handle various failure modes.
-  * Includes support for cluster hostname discovery via `cluster-announce-hostname`, etc.
-  * Includes several changes to how hostnames are resolved to fix multiple cluster discovery issues.
+* Rework the cluster discovery and failover implementation. 
 * Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
 * Rework the sentinel interface to more reliably handle failover scenarios.
 * Rework the `native-tls` interface to support fully customizable TLS configurations.
 * Add `rustls` support.
   * Note: both TLS feature flags can be used at the same time.
 * Add CI tests for Redis v7.
-* Add CI tests for fully customized TLS configurations with a cluster.
+* Add CI tests for clusters with TLS. 
 
 ### Updating from 5.x
 
