@@ -266,7 +266,7 @@ where
     match value {
       RedisValue::Bytes(bytes) => {
         T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
-      },
+      }
       RedisValue::String(string) => {
         // hacky way to check if T is bytes without consuming `string`
         if T::from_owned_bytes(vec![]).is_some() {
@@ -275,7 +275,7 @@ where
         } else {
           Ok(vec![T::from_value(RedisValue::String(string))?])
         }
-      },
+      }
       RedisValue::Array(values) => T::from_values(values),
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
@@ -293,7 +293,7 @@ where
             Ok(out)
           })
         })
-      },
+      }
       RedisValue::Null => Ok(vec![]),
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
       RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
@@ -464,7 +464,7 @@ impl FromRedis for Value {
         } else {
           s.to_string().into()
         }
-      },
+      }
       RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
       RedisValue::Integer(i) => i.into(),
       RedisValue::Double(f) => f.into(),
@@ -475,7 +475,7 @@ impl FromRedis for Value {
           out.push(Self::from_value(value)?);
         }
         Value::Array(out)
-      },
+      }
       RedisValue::Map(v) => {
         let mut out = Map::with_capacity(v.len());
         for (key, value) in v.inner().into_iter() {
@@ -487,7 +487,7 @@ impl FromRedis for Value {
           out.insert(key, value);
         }
         Value::Object(out)
-      },
+      }
     };
 
     Ok(value)

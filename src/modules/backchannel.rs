@@ -157,7 +157,7 @@ impl Backchannel {
         _debug!(inner, "Created backchannel to {}", server);
         self.transport = Some((transport, server));
         Ok(frame)
-      },
+      }
       Err(e) => {
         if try_once {
           _warn!(inner, "Failed to create backchannel to {}", server);
@@ -171,7 +171,6 @@ impl Backchannel {
           let result = self
             .request_response_with_timeout(inner, transport, cmd.clone(), is_resp3)
             .await;
-          _debug!(inner, "Result: {}", result.is_ok());
 
           match result {
             Ok((frame, transport)) => {

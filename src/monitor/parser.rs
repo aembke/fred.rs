@@ -128,7 +128,7 @@ pub fn parse(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Command
     _ => {
       _warn!(inner, "Unexpected frame type on monitor stream: {:?}", frame.kind());
       return None;
-    },
+    }
   };
 
   log_frame(inner, frame_bytes);

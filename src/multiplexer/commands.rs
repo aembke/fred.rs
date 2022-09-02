@@ -45,7 +45,7 @@ async fn backpressure(
       Backpressure::Wait((_duration, _command)) => {
         duration = _duration;
         command = _command;
-      },
+      }
       Backpressure::Ok(s) => return Ok(Backpressure::Ok(s)),
       Backpressure::Skipped => return Ok(Backpressure::Skipped),
     }
@@ -114,7 +114,7 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
       Err(e) => {
         let _ = tx.send(Err(e));
         return;
-      },
+      }
     };
     let main_nodes = cluster_state.unique_main_nodes();
     let mut clients = Vec::with_capacity(main_nodes.len());
@@ -135,7 +135,7 @@ fn split_connection(inner: &Arc<RedisClientInner>, _multiplexer: &Multiplexer, c
         Err(e) => {
           let _ = tx.send(Err(RedisError::from(e)));
           return;
-        },
+        }
       };
 
       let mut new_config = config.clone();
@@ -259,7 +259,7 @@ fn handle_connection_closed(
             write_final_error_to_callers(&inner, commands, &error);
             shutdown_client(&inner, &error);
             break 'recv;
-          },
+          }
         };
 
         if next_delay > 0 {
@@ -450,17 +450,17 @@ async fn handle_deferred_multi_response(
       } else {
         false
       }
-    },
+    }
     Ok(Err(e)) => {
       if let Some(tx) = command.tx.take() {
         let _ = tx.send(Err(e));
       }
       true
-    },
+    }
     Err(_e) => {
       _warn!(inner, "Recv error on deferred MULTI command.");
       false
-    },
+    }
   }
 }
 
@@ -484,14 +484,14 @@ async fn handle_backpressure(
           Backpressure::Wait(_) => {
             _warn!(inner, "Failed waiting on backpressure.");
             Ok(None)
-          },
+          }
           Backpressure::Ok(server) => Ok(Some(server)),
           Backpressure::Skipped => Ok(None),
         }
       } else {
         Ok(None)
       }
-    },
+    }
     Backpressure::Ok(server) => Ok(Some(server)),
     Backpressure::Skipped => Ok(None),
   }
@@ -723,7 +723,7 @@ async fn handle_command(
       None => {
         _warn!(inner, "Expected command, found none.");
         return Err(RedisError::new(RedisErrorKind::Unknown, "Invalid empty command."));
-      },
+      }
     };
 
     let result = write_command_t(&inner, &multiplexer, command).await;
@@ -755,7 +755,7 @@ async fn handle_command(
         }
 
         return Ok(());
-      },
+      }
       Err(mut error) => {
         let command = error.take_context();
         _warn!(
@@ -781,7 +781,7 @@ async fn handle_command(
 
           return Ok(());
         }
-      },
+      }
     }
   }
 }
@@ -837,7 +837,7 @@ async fn connect_with_policy(
             utils::emit_connect_error(inner, &error);
             utils::emit_error(inner, &error);
             return Err(error);
-          },
+          }
         };
         _info!(inner, "Sleeping for {} ms before reconnecting", delay);
         sleep(Duration::from_millis(delay)).await;
@@ -874,7 +874,7 @@ pub async fn init(inner: &Arc<RedisClientInner>, mut policy: Option<ReconnectPol
         RedisErrorKind::Config,
         "Redis client is already initialized.",
       ))
-    },
+    }
   };
   if let Some(ref mut policy) = policy {
     policy.reset_attempts();
