@@ -13,6 +13,7 @@ use arc_swap::{ArcSwap, ArcSwapOption};
 use arcstr::ArcStr;
 use parking_lot::RwLock;
 use std::collections::VecDeque;
+use std::ops::DerefMut;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::broadcast::{self, Sender as BroadcastSender};
@@ -27,8 +28,8 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 use crate::modules::metrics::MovingStats;
 use crate::protocol::connection::RedisTransport;
 
-pub type CommandSender = UnboundedSender<QueuedCommand>;
-pub type CommandReceiver = UnboundedReceiver<QueuedCommand>;
+pub type CommandSender = UnboundedSender<MultiplexerCommand>;
+pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
 
 #[derive(Clone)]
 pub struct Notifications {
@@ -451,6 +452,12 @@ impl RedisClientInner {
 
     if let Err(_) = result {
       warn!("{}: Error sending reconnect command to multiplexer.", self.id);
+    }
+  }
+
+  pub fn reset_reconnection_attempts(&self) {
+    if let Some(policy) = self.policy.write().deref_mut() {
+      policy.reset_attempts();
     }
   }
 

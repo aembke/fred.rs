@@ -80,34 +80,6 @@ where
   }
 }
 
-/// A wrapper type for async stream return values from functions implemented in a trait.
-///
-/// This is used to work around the lack of `impl Trait` support in trait functions.
-pub struct AsyncStream<T: Unpin + Send + 'static> {
-  inner: UnboundedReceiverStream<T>,
-}
-
-impl<T> Stream for AsyncStream<T>
-where
-  T: Unpin + Send + 'static,
-{
-  type Item = T;
-
-  fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-    Pin::new(&mut self.get_mut().inner).poll_next(cx)
-  }
-}
-
-#[doc(hidden)]
-impl<T> From<UnboundedReceiverStream<T>> for AsyncStream<T>
-where
-  T: Unpin + Send + 'static,
-{
-  fn from(rx: UnboundedReceiverStream<T>) -> Self {
-    AsyncStream { inner: rx }
-  }
-}
-
 /// Run a function in the context of an async block, returning an `AsyncResult` that wraps a trait object.
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
@@ -162,9 +134,6 @@ pub(crate) fn send_to_multiplexer(
 
   Ok(())
 }
-
-// TODO
-// change command functions to take C: ClientLike instead of inner
 
 /// Any Redis client that implements any part of the Redis interface.
 pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
@@ -246,7 +215,7 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     let inner = self.inner().clone();
 
     tokio::spawn(async move {
-      let result = multiplexer_commands::init(&inner).await;
+      let result = multiplexer_commands::start(&inner).await;
       if let Err(ref e) = result {
         inner.notifications.broadcast_connect(Err(e.clone()));
       }

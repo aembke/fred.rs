@@ -18,11 +18,10 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 pub async fn quit<C: ClientLike>(client: C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
-  utils::interrupt_reconnect_sleep(&inner);
 
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
+  inner.notifications.broadcast_close();
   let _ = utils::request_response(client, || Ok((RedisCommandKind::Quit, vec![]))).await;
-
   utils::set_client_state(&inner.state, ClientState::Disconnected);
   Ok(())
 }

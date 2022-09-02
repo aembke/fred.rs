@@ -9,17 +9,19 @@ This document gives some background on how the library is structured and how to 
 * Run rustfmt before submitting any changes.
 * Clean up any compiler warnings.
 * Submit PRs against the `develop` branch.
+* Use the `async/await` syntax rather than `impl Future`, etc.
 
 ## TODO List
 
-* Add a FF for redis v7 changes (GET, XAUTOCLAIM, etc)
-* Any missing commands.
-* Support unix domain sockets
+* Add a feature flag for redis v7 changes (GET, XAUTOCLAIM, etc)
+* Implement any missing commands.
+* Support unix domain sockets.
+
+## Goals
 
 ## Design 
 
 # Adding Commands
-
 
 ## New Commands
 
@@ -75,10 +77,10 @@ impl RedisCommandKind {
 2. Create the private function implementing the command in [src/commands/impls/keys.rs](src/commands/impls/keys.rs).
 
 ```rust
-pub async fn mget(inner: &Arc<RedisClientInner>, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn mget<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   utils::check_empty_keys(&keys)?;
 
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     // time spent here will show up in traces
     let args = keys.inner().into_iter().map(|k| k.into()).collect();
     Ok((RedisCommandKind::Mget, args))
@@ -117,6 +119,8 @@ pub trait KeysInterface: ClientLike + Sized {
 }
 ```
 
+Implement the interface on the necessary client structs, if needed.
+
 ```rust
 impl KeysInterface for RedisClient {}
 ```
@@ -125,7 +129,7 @@ impl KeysInterface for RedisClient {}
 
 Integration tests are in the [tests/integration](tests/integration) folder organized by category. See the tests [README](tests/README.md) for more information.
 
-Using `MGET` as an example:
+Using `MGET` as an example again:
 
 1. Write tests in the [keys](tests/integration/keys/mod.rs) file.
 
@@ -167,6 +171,10 @@ mod keys {
 }
 ```
 
-This will generate test wrappers to call your test function against both centralized and clustered redis servers with pipelined and non-pipelined clients in RESP2 and RESP3 modes.
+These macros will generate test wrapper functions to call your test 8 times based on the following options:
+
+* Clustered vs centralized deployments
+* Pipelined vs non-pipelined clients
+* RESP2 vs RESP3 protocol modes
 
 # Misc

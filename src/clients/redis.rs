@@ -93,7 +93,7 @@ impl RedisClient {
     )
   }
 
-  /// Split a clustered Redis client into a list of centralized clients - one for each primary node in the cluster.
+  /// Split a clustered Redis client into a set of centralized clients - one for each primary node in the cluster.
   ///
   /// Some Redis commands are not designed to work with hash slots against a clustered deployment. For example,
   /// `FLUSHDB`, `PING`, etc all work on one node in the cluster, but no interface exists for the client to
@@ -142,7 +142,7 @@ impl RedisClient {
   /// Run the `SCAN` command on each primary/main node in a cluster concurrently.
   ///
   /// In order for this function to work reliably the cluster state must not change while scanning. If nodes are added or removed, or hash slots are rebalanced, it may result
-  /// in missing keys or duplicate keys in the result stream. If callers need to support cluster scanning while the cluster state may change please see [split_cluster](Self::split_cluster).
+  /// in missing keys or duplicate keys in the result stream. See [split_cluster](Self::split_cluster) for use cases that require scanning to work while the cluster state changes.
   ///
   /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
   pub fn scan_cluster<P>(

@@ -1702,7 +1702,6 @@ impl RedisCommand {
 }
 
 /// A message sent from the front-end client to the multiplexer.
-#[derive(Debug)]
 pub enum MultiplexerCommand {
   /// Send a command to the server.
   Command(RedisCommand),
@@ -1781,6 +1780,57 @@ pub enum MultiplexerCommand {
   CheckSentinels,
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster,
+}
+
+impl fmt::Debug for MultiplexerCommand {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    let mut formatter = f.debug_struct("MultiplexerCommand");
+
+    match self {
+      MultiplexerCommand::Ask { server, slot, command } => {
+        formatter
+          .field("kind", "Ask")
+          .field("server", server)
+          .field("slot", slot)
+          .field("command", command.kind.to_str_debug());
+      },
+      MultiplexerCommand::Moved { server, slot, command } => {
+        formatter
+          .field("kind", "Moved")
+          .field("server", server)
+          .field("slot", slot)
+          .field("command", command.kind.to_str_debug());
+      },
+      MultiplexerCommand::Reconnect { server, force, .. } => {
+        formatter
+          .field("kind", "Reconnect")
+          .field("server", server)
+          .field("force", force);
+      },
+      MultiplexerCommand::Split { .. } => {
+        formatter.field("kind", "Split");
+      },
+      MultiplexerCommand::CheckSentinels => {
+        formatter.field("kind", "Check Sentinels");
+      },
+      MultiplexerCommand::SyncCluster => {
+        formatter.field("kind", "Sync Cluster");
+      },
+      MultiplexerCommand::Transaction { .. } => {
+        formatter.field("kind", "Transaction");
+      },
+      MultiplexerCommand::Pipeline { .. } => {
+        formatter.field("kind", "Pipeline");
+      },
+      MultiplexerCommand::Command(command) => {
+        formatter
+          .field("kind", "Command")
+          .field("command", command.kind.to_str_debug());
+      },
+    };
+
+    formatter.finish()
+  }
 }
 
 impl From<RedisCommand> for MultiplexerCommand {

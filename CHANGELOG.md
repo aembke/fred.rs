@@ -1,10 +1,33 @@
-TLDR
-====
+## 6.0.0
 
-* Versions 3.x were focused on upgrading to Tokio 1.x and async/await
-* Versions 4.x were focused on ergonomics and testing
-* Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
-* Versions 6.x will be focused on performance. 
+* Major refactoring of the connection and protocol layer.
+* Remove all locks (except the one required for pipelines) on the hot paths.
+* Add a manual `Pipeline` interface.
+* Rework the `Transaction` interface to buffer commands in memory before EXEC/DISCARD.
+* Switch from `Arc<String>` to `ArcStr` for shared server identifiers.
+* Rework the cluster discovery and failover implementation to more reliably handle various failure modes.
+  * Includes support for cluster hostname discovery via `cluster-announce-hostname`, etc.
+  * Includes several changes to how hostnames are resolved to fix multiple cluster discovery issues.
+* Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
+* Rework the sentinel interface to more reliably handle failover scenarios.
+* Rework the `native-tls` interface to support fully customizable TLS configurations.
+* Add `rustls` support.
+  * Note: both TLS feature flags can be used at the same time.
+* Add CI tests for Redis v7.
+* Add CI tests for fully customized TLS configurations with a cluster.
+
+### Updating from 5.x
+
+Notable breaking changes in 6.x:
+
+* New TLS feature flags: `enable-rustls` and `enable-native-tls`.
+* New TLS configuration process: see the [example](examples/tls.rs).
+* New [transaction](examples/transactions.rs) interface.
+* New backpressure configuration options, most notably the `Drain` policy. This is now the default.
+* Changed the type and fields on `BackpressurePolicy::Sleep`.
+* New [custom command interface](examples/custom.rs) for managing cluster hash slots.
+* Removed or renamed some fields on `RedisConfig`.
+* Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
 
 ## 5.2.0
 

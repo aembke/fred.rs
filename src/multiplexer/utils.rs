@@ -138,8 +138,8 @@ pub async fn write_command(
       Written::Disconnect((server, Some(command)))
     }
   } else {
-    _trace!(inner, "Successfully sent command {}", command.kind.to_str_debug());
     writer.buffer.lock().await.push_back(command);
+    _trace!(inner, "Successfully sent command {}", command.kind.to_str_debug());
     Written::Sent((server, should_flush))
   }
 }

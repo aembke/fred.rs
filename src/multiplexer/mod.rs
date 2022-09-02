@@ -84,6 +84,19 @@ impl Connections {
     }
   }
 
+  /// Whether or not the connection map has a connection to the provided `host:port`.
+  pub fn has_server_connection(&self, server: &str) -> bool {
+    match self {
+      Connections::Centralized { ref writer } => {
+        writer.as_ref().map(|writer| writer.server == server).unwrap_or(false)
+      },
+      Connections::Sentinel { ref writer } => writer.as_ref().map(|writer| writer.server == server).unwrap_or(false),
+      Connections::Clustered { ref writers, .. } => {
+        writers.keys().fold(false, |memo, writer| memo || writer == server)
+      },
+    }
+  }
+
   /// Initialize the underlying connection(s) and update the cached backchannel information.
   pub async fn initialize(
     &mut self,
@@ -421,6 +434,8 @@ impl Multiplexer {
       command.skip_backpressure = true;
 
       if let Err(e) = self.write_command(command).await {
+        // TODO unpack the command if possible, and put it back at the front of the buffer
+
         warn!("{}: Error replaying command: {:?}", self.inner.id, e);
         self.disconnect_all().await; // triggers a reconnect if needed
         break;
@@ -428,5 +443,10 @@ impl Multiplexer {
     }
 
     Ok(())
+  }
+
+  /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.
+  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
+    self.connections.check_and_flush(&self.inner).await
   }
 }

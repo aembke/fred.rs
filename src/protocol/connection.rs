@@ -287,8 +287,6 @@ pub struct RedisTransport {
   pub default_host: ArcStr,
   /// The network connection.
   pub transport: ConnectionKind,
-  /// A shared buffer of commands used for pipelining.
-  pub buffer: CommandBuffer,
   /// The connection/client ID from the CLIENT ID command.
   pub id: Option<i64>,
   /// The server version.
@@ -299,9 +297,8 @@ pub struct RedisTransport {
 
 impl RedisTransport {
   pub async fn new_tcp(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
-    let buffer_size = protocol_utils::initial_buffer_size(inner);
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
-    let (id, version, buffer) = (None, None, VecDeque::with_capacity(buffer_size));
+    let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
@@ -321,7 +318,6 @@ impl RedisTransport {
       default_host,
       counters,
       addr,
-      buffer,
       id,
       version,
       transport,
@@ -330,9 +326,8 @@ impl RedisTransport {
 
   #[cfg(feature = "enable-native-tls")]
   pub async fn new_native_tls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
-    let buffer_size = protocol_utils::initial_buffer_size(inner);
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
-    let (id, version, buffer) = (None, None, VecDeque::with_capacity(buffer_size));
+    let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
@@ -356,7 +351,6 @@ impl RedisTransport {
           default_host,
           counters,
           addr,
-          buffer,
           id,
           version,
           transport,
@@ -375,9 +369,8 @@ impl RedisTransport {
 
   #[cfg(feature = "enable-rustls")]
   pub async fn new_rustls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
-    let buffer_size = protocol_utils::initial_buffer_size(inner);
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
-    let (id, version, buffer) = (None, None, VecDeque::with_capacity(buffer_size));
+    let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
@@ -402,7 +395,6 @@ impl RedisTransport {
           counters,
           default_host,
           addr,
-          buffer,
           id,
           version,
           transport,
@@ -630,8 +622,9 @@ impl RedisTransport {
   }
 
   /// Split the transport into reader/writer halves.
-  pub fn split(self) -> (RedisWriter, RedisReader) {
-    let buffer = Arc::new(Mutex::new(self.buffer));
+  pub fn split(self, inner: &Arc<RedisClientInner>) -> (RedisWriter, RedisReader) {
+    let len = protocol_utils::initial_buffer_size(inner);
+    let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(len)));
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
     let (sink, stream) = self.transport.split();
     let (id, version, counters) = (self.id, self.version, self.counters);
@@ -707,7 +700,12 @@ pub struct RedisWriter {
 
 impl fmt::Debug for RedisWriter {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("Connection").field("server", &self.server).finish()
+    f.debug_struct("Connection")
+      .field("server", &self.server)
+      .field("id", &self.id)
+      .field("default_host", &self.default_host)
+      .field("version", &self.version)
+      .finish()
   }
 }
 
@@ -744,8 +742,8 @@ impl RedisWriter {
   }
 
   /// Put a command at the back of the command queue.
-  pub fn push_command(&self, cmd: RedisCommand) {
-    self.buffer.lock().push_back(cmd.into());
+  pub async fn push_command(&self, cmd: RedisCommand) {
+    self.buffer.lock().await.push_back(cmd);
   }
 
   /// Force close the connection.

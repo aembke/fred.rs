@@ -279,7 +279,7 @@ pub struct BackpressureConfig {
   pub max_in_flight_commands: u64,
   /// The backpressure policy to apply when the max number of in-flight commands is reached.
   ///
-  /// Default: `Drain`
+  /// Default: [Drain](crate::types::BackpressurePolicy::Drain).
   pub policy: BackpressurePolicy,
 }
 
@@ -318,11 +318,11 @@ pub struct PerformanceConfig {
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///
-  /// Default: 1000
+  /// Default: 500
   pub max_feed_count: u64,
-  /// The amount of time, in milliseconds, to wait after a `MOVED` or `ASK` error is received before the client will update the cached cluster state.
+  /// The amount of time, in milliseconds, to wait after a `MOVED` error is received before the client will update the cached cluster state.
   ///
-  /// If `0` the client will follow `MOVED` or `ASK` redirects as quickly as possible. However, this can result in some unnecessary state synchronization overhead when large values are being moved between nodes.
+  /// If `0` the client will follow cluster redirects as quickly as possible. However, this can result in some unnecessary state synchronization overhead when large values are being moved between nodes.
   ///
   /// Default: 0 ms
   pub cluster_cache_update_delay_ms: u32,
@@ -335,7 +335,7 @@ impl Default for PerformanceConfig {
       backpressure: BackpressureConfig::default(),
       max_command_attempts: 3,
       default_command_timeout_ms: 0,
-      max_feed_count: 1000,
+      max_feed_count: 500,
       cluster_cache_update_delay_ms: 0,
     }
   }

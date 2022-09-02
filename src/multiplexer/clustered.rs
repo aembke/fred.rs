@@ -178,7 +178,9 @@ pub fn spawn_reader_task(
   })
 }
 
-/// Send a MOVED or ASK command to the multiplexer.
+/// Send a MOVED or ASK command to the multiplexer, using the multiplexer channel if possible and falling back on the command queue if appropriate.
+///
+/// Note: Cluster errors within a transaction can only be handled via the blocking multiplexer channel.
 fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, frame: Resp3Frame) {
   let (kind, slot, server) = match frame.as_str() {
     Some(data) => match protocol_utils::parse_cluster_error(data) {
