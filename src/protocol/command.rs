@@ -85,8 +85,10 @@ impl MultiplexerResponse {
 
 /// A channel for communication between connection reader tasks and futures returned to the caller.
 pub type ResponseSender = OneshotSender<Result<Resp3Frame, RedisError>>;
-/// A channel for communication between connection reader tasks and the multiplexer.
+/// A sender channel for communication between connection reader tasks and the multiplexer.
 pub type MultiplexerSender = OneshotSender<MultiplexerResponse>;
+/// A receiver channel for communication between connection reader tasks and the multiplexer.
+pub type MultiplexerReceiver = OneshotReceiver<MultiplexerResponse>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterErrorKind {
@@ -1524,12 +1526,13 @@ impl RedisCommand {
   }
 
   /// Whether or not to pipeline the command.
-  pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>) -> bool {
-    let should_pipeline = inner.is_pipelined()
+  pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>, force: bool) -> bool {
+    let should_pipeline = force
+      || (inner.is_pipelined()
       && self.can_pipeline
       && self.kind.can_pipeline()
       // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
-      && self.transaction_id.is_none();
+      && self.transaction_id.is_none());
 
     _trace!(
       inner,

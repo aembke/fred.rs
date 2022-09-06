@@ -1,7 +1,7 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::Backpressure::Queue;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
+use crate::protocol::command::{MultiplexerReceiver, RedisCommand, RedisCommandKind};
 use crate::protocol::connection::{CommandBuffer, Counters, RedisSink, RedisWriter};
 use crate::protocol::types::ClusterRouting;
 use crate::types::ServerConfig;
@@ -48,6 +48,27 @@ pub enum Backpressure {
   Block,
   /// Return a backpressure error to the caller of the command.
   Error(RedisError),
+}
+
+impl Backpressure {
+  ///
+  pub async fn run(
+    self,
+    inner: &Arc<RedisClientInner>,
+    command: &mut RedisCommand,
+  ) -> Result<Option<MultiplexerReceiver>, RedisError> {
+    match backpressure {
+      Backpressure::Error(e) => Err(e),
+      Backpressure::Wait(duration) => {
+        let _ = inner.wait_with_interrupt(duration).await?;
+        Ok(None)
+      },
+      Backpressure::Block => {
+        command.skip_backpressure = true;
+        Ok(Some(command.create_multiplexer_channel()))
+      },
+    }
+  }
 }
 
 #[derive(Clone)]

@@ -1,8 +1,11 @@
 use crate::error::{RedisError, RedisErrorKind};
 use crate::globals::globals;
+use crate::interfaces::ClientLike;
 use crate::modules::inner::RedisClientInner;
 use crate::multiplexer::utils as multiplexer_utils;
 use crate::multiplexer::{sentinel, ConnectionIDs};
+use crate::protocol::command::RedisCommand;
+use crate::protocol::responders::ResponseKind;
 use crate::protocol::types::{RedisCommand, RedisCommandKind};
 use crate::types::*;
 use arcstr::ArcStr;
@@ -27,9 +30,6 @@ use tokio::sync::RwLock as AsyncRwLock;
 use tokio::time::sleep;
 use url::Url;
 
-use crate::interfaces::ClientLike;
-use crate::protocol::command::RedisCommand;
-use crate::protocol::responders::ResponseKind;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::protocol::utils as protocol_utils;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]

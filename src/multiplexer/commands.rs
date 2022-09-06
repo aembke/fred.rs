@@ -23,7 +23,9 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 use tokio::sync::oneshot::Receiver as OneshotReceiver;
 use tokio::time::sleep;
 
-use crate::protocol::command::{MultiplexerCommand, RedisCommand, ResponseSender};
+use crate::protocol::command::{
+  MultiplexerCommand, MultiplexerReceiver, MultiplexerResponse, RedisCommand, ResponseSender,
+};
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 
@@ -569,11 +571,7 @@ async fn reconnect_with_policy(
   loop {
     let delay = next_reconnection_delay(inner)?;
     _debug!(inner, "Sleeping for {} ms before reconnecting.", delay.as_millis());
-
-    let mut rx = inner.notifications.close.subscribe();
-    if let Either::Right((_, _)) = select(sleep(delay), rx.recv()).await {
-      return Err(RedisError::new(RedisErrorKind::Canceled, "Connection(s) closed."));
-    }
+    let _ = inner.wait_with_interrupt(delay).await?;
 
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
     if let Err(e) = multiplexer.connect().await {
@@ -599,20 +597,113 @@ async fn reconnect_with_policy(
   }
 }
 
-async fn handle_backpressure(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
-  backpressure: Backpressure,
-) -> Result<(), RedisError> {
-  unimplemented!()
+async fn wait_for_response(inner: &Arc<RedisClientInner>, multiplexer: &mut Multiplexer, rx: Option<MultiplexerReceiver>) -> Result<(), RedisError> {
+  if let Some(rx) = rx {
+    _trace!(inner, "Waiting on multiplexer channel.");
+    let response = match rx.await {
+      Ok(response) => response,
+      Err(e) => {
+        _warn!(inner, "Dropped multiplexer response channel.");
+        return Ok(());
+      }
+    };
+
+    unimplemented!()
+  }else{
+    unimplemented!()
+  }
 }
 
-async fn process_write_response(
+/// Continuously write the command until it is sent or fails with a fatal error.
+///
+// Note: this is somewhat more complicated since async recursion is not supported.
+async fn write_with_backpressure(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  written: Written,
+  command: RedisCommand,
+  backpressure: Backpressure,
 ) -> Result<(), RedisError> {
-  unimplemented!()
+  let (mut _command, mut _backpressure) = (Some(command), Some(backpressure));
+  loop {
+    let mut command = match _command.take() {
+      Some(command) => command,
+      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
+    };
+    let mut backpressure = match _backpressure.take() {
+      Some(backpressure) => backpressure,
+      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing backpressure.")),
+    };
+    let rx = match backpressure.run(inner, &mut command).await {
+      Ok(rx) => match rx {
+        Some(rx) => Some(rx),
+        None => if command.should_auto_pipeline(inner) {
+          Some(command.create_multiplexer_channel())
+        }else{
+          None
+        }
+      },
+      Err(e) => {
+        command.respond_to_caller(Err(e));
+        return Ok(());
+      }
+    };
+
+    match multiplexer.write_command(command) {
+
+    }
+
+    unimplemented!()
+  }
+
+  Ok(())
+}
+
+
+async fn process_write_
+/// Write the command and run the associated policy logic afterwards.
+///
+/// Note: errors returned here are returned to the caller.
+async fn write_command(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &mut Multiplexer,
+  mut command: RedisCommand,
+) -> Result<(), RedisError> {
+  // TODO make sure this is correct when manually pipelining
+  let rx = if command.should_auto_pipeline(inner, false) {
+    Some(command.create_multiplexer_channel())
+  }else{
+    None
+  };
+
+  match multiplexer.write_command(command).await {
+    Written::Backpressure((command, backpressure)) => {
+      write_with_backpressure(inner, multiplexer, command, backpressure).await
+    },
+    Written::Disconnect((server, command)) => {
+      _debug!(inner, "Handle disconnect backpressure for {}", server);
+      let commands = multiplexer.connections.disconnect(inner, Some(server)).await;
+      multiplexer.buffer.extend(commands);
+      if let Some(command) = command {
+        multiplexer.buffer.push_back(command);
+      }
+
+      return Ok(());
+    },
+    Written::Sent((server, flushed)) => {
+      _trace!(inner, "Sent command to {}. Flushed: {}", server, flushed);
+      if flushed {
+        multiplexer.check_and_flush().await;
+      }
+      _trace!(inner, "Finished sending to {}", server);
+
+      let _ = wait_for_response(inner, multiplexer, rx).await?;
+      return Ok(());
+    },
+    Written::Ignore => {
+      _trace!(inner, "Ignore `Written` response.");
+      return Ok(());
+    },
+  }
 }
 
 async fn process_ask(

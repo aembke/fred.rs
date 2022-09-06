@@ -11,16 +11,19 @@ use crate::utils;
 use arc_swap::access::Access;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use arcstr::ArcStr;
+use futures::future::{select, Either};
 use parking_lot::RwLock;
 use std::collections::VecDeque;
 use std::ops::DerefMut;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast::{self, Sender as BroadcastSender};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::Sender as OneshotSender;
 use tokio::sync::RwLock as AsyncRwLock;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
@@ -467,5 +470,15 @@ impl RedisClientInner {
 
   pub async fn update_backchannel(&self, transport: RedisTransport) {
     self.backchannel.write().await.transport = Some(transport);
+  }
+
+  pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
+    let mut rx = self.notifications.close.subscribe();
+    debug!("{}: Sleeping for {} ms", self.id, duration.as_millis());
+    if let Either::Right((_, _)) = select(sleep(duration), rx.recv()).await {
+      Err(RedisError::new(RedisErrorKind::Canceled, "Connection(s) closed."))
+    } else {
+      Ok(())
+    }
   }
 }
