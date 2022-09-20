@@ -47,7 +47,7 @@ pub const OK: &'static str = "OK";
 pub const DEFAULT_CONNECTION_TIMEOUT_MS: u64 = 60_0000;
 
 pub type CommandBuffer = VecDeque<RedisCommand>;
-pub type SharedBuffer = Arc<BiLock<CommandBuffer>>;
+pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
 
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
@@ -743,7 +743,7 @@ impl RedisWriter {
 
   /// Put a command at the back of the command queue.
   pub async fn push_command(&self, cmd: RedisCommand) {
-    self.buffer.lock().await.push_back(cmd);
+    self.buffer.lock().push_back(cmd);
   }
 
   /// Force close the connection.
@@ -806,7 +806,7 @@ where
   ) -> JoinHandle<Result<(), RedisError>>,
 {
   let server = transport.server.clone();
-  let (mut writer, mut reader) = transport.split();
+  let (mut writer, mut reader) = transport.split(inner);
   let reader_stream = match reader.stream.take() {
     Some(stream) => stream,
     None => {

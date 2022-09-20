@@ -106,7 +106,7 @@ pub async fn write_command(
   writer: &mut RedisWriter,
   mut command: RedisCommand,
 ) -> Written {
-  match utils::check_backpressure(inner, &writer.counters, &command) {
+  match check_backpressure(inner, &writer.counters, &command) {
     Ok(Some(backpressure)) => {
       _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
       return Written::Backpressure((command, backpressure));
@@ -119,7 +119,7 @@ pub async fn write_command(
     _ => {},
   };
 
-  let (frame, should_flush) = match utils::prepare_command(inner, &writer.counters, &mut command) {
+  let (frame, should_flush) = match prepare_command(inner, &writer.counters, &mut command) {
     Ok((frame, should_flush)) => (frame, should_flush),
     Err(e) => {
       // do not retry commands that trigger frame encoding errors
@@ -138,7 +138,7 @@ pub async fn write_command(
       Written::Disconnect((server, Some(command)))
     }
   } else {
-    writer.buffer.lock().await.push_back(command);
+    writer.push_command(command);
     _trace!(inner, "Successfully sent command {}", command.kind.to_str_debug());
     Written::Sent((server, should_flush))
   }
@@ -223,49 +223,6 @@ pub fn check_mset_cluster_keys(multiplexer: &Multiplexer, args: &Vec<RedisValue>
     }
   } else {
     Ok(())
-  }
-}
-
-fn broadcast_cluster_changes(inner: &Arc<RedisClientInner>, changes: &ClusterChange) {
-  let has_listeners = { inner.cluster_change_tx.read().len() > 0 };
-
-  if has_listeners {
-    let (added, removed) = {
-      let mut added = Vec::with_capacity(changes.add.len());
-      let mut removed = Vec::with_capacity(changes.remove.len());
-
-      for server in changes.add.iter() {
-        let parts = match server_to_parts(server) {
-          Ok((host, port)) => (host.to_owned(), port),
-          Err(_) => continue,
-        };
-
-        added.push(parts);
-      }
-      for server in changes.remove.iter() {
-        let parts = match server_to_parts(server) {
-          Ok((host, port)) => (host.to_owned(), port),
-          Err(_) => continue,
-        };
-
-        removed.push(parts);
-      }
-
-      (added, removed)
-    };
-    let mut changes = Vec::with_capacity(added.len() + removed.len() + 1);
-    if added.is_empty() && removed.is_empty() {
-      changes.push(ClusterStateChange::Rebalance);
-    } else {
-      for parts in added.into_iter() {
-        changes.push(ClusterStateChange::Add(parts))
-      }
-      for parts in removed.into_iter() {
-        changes.push(ClusterStateChange::Remove(parts));
-      }
-    }
-
-    emit_cluster_changes(inner, changes);
   }
 }
 

@@ -90,7 +90,7 @@ pub async fn process_response_frame(
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   let mut command = {
-    match buffer.lock().await.pop_front() {
+    match buffer.lock().pop_front() {
       Some(command) => command,
       None => {
         _debug!(
@@ -129,7 +129,7 @@ pub async fn process_response_frame(
       if let Some(command) = responders::respond_multiple(inner, server, command, received, expected, tx, frame)? {
         // the `Multiple` policy works by processing a series of responses on the same connection. the response channel
         // is not shared across commands (since there's only one), so we re-queue it while waiting on response frames.
-        buffer.lock().await.push_front(command);
+        buffer.lock().push_front(command);
         counters.incr_in_flight();
       }
 

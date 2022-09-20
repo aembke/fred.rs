@@ -470,4 +470,15 @@ impl Multiplexer {
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     self.connections.check_and_flush(&self.inner).await
   }
+
+  /// Returns whether or not the provided `server` owns the provided `slot`.
+  pub fn cluster_node_owns_slot(&self, slot: u16, server: &str) -> bool {
+    match self.connections {
+      Connections::Clustered { ref cache, .. } => cache
+        .get_server(slot)
+        .map(|node| node.as_str() == server)
+        .unwrap_or(false),
+      _ => false,
+    }
+  }
 }
