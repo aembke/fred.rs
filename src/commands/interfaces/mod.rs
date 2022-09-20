@@ -2,6 +2,7 @@ pub mod acl;
 pub mod client;
 pub mod cluster;
 pub mod config;
+pub mod function;
 pub mod geo;
 pub mod hashes;
 pub mod hyperloglog;

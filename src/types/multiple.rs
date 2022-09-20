@@ -69,6 +69,18 @@ where
   }
 }
 
+impl<T> From<Option<Vec<T>>> for MultipleKeys
+where
+  T: Into<RedisKey>,
+{
+  fn from(d: Option<Vec<T>>) -> Self {
+    match d {
+      Some(d) => d.into(),
+      None => MultipleKeys { keys: vec![] },
+    }
+  }
+}
+
 impl<T> From<VecDeque<T>> for MultipleKeys
 where
   T: Into<RedisKey>,
@@ -164,6 +176,20 @@ where
     }
 
     Ok(MultipleValues { values })
+  }
+}
+
+impl<T> TryFrom<Option<Vec<T>>> for MultipleValues
+where
+  T: Into<RedisValue>,
+{
+  type Error = RedisError;
+
+  fn try_from(d: Option<Vec<T>>) -> Result<Self, Self::Error> {
+    Ok(match d {
+      Some(d) => d.try_into()?,
+      None => MultipleValues { values: vec![] },
+    })
   }
 }
 

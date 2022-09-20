@@ -328,6 +328,7 @@ pub use crate::commands::interfaces::{
   client::ClientInterface,
   cluster::ClusterInterface,
   config::ConfigInterface,
+  function::FunctionInterface,
   geo::GeoInterface,
   hashes::HashesInterface,
   hyperloglog::HyperloglogInterface,

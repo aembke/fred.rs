@@ -7,6 +7,7 @@ use crate::{
     ClientInterface,
     ClusterInterface,
     ConfigInterface,
+    FunctionInterface,
     GeoInterface,
     HashesInterface,
     HeartbeatInterface,
@@ -75,6 +76,7 @@ impl MetricsInterface for RedisClient {}
 impl TransactionInterface for RedisClient {}
 impl KeysInterface for RedisClient {}
 impl LuaInterface for RedisClient {}
+impl FunctionInterface for RedisClient {}
 impl ListInterface for RedisClient {}
 impl MemoryInterface for RedisClient {}
 impl AuthInterface for RedisClient {}

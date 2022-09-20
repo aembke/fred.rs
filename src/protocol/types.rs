@@ -532,6 +532,16 @@ pub enum RedisCommandKind {
   ScriptExists,
   ScriptFlush,
   ScriptKill,
+  Fcall,
+  FcallRo,
+  FunctionDelete,
+  FunctionDump,
+  FunctionFlush,
+  FunctionKill,
+  FunctionList,
+  FunctionLoad,
+  FunctionRestore,
+  FunctionStats,
   Scan(KeyScanInner),
   Sscan(ValueScanInner),
   Hscan(ValueScanInner),
@@ -967,6 +977,16 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptFlush => "SCRIPT FLUSH",
       RedisCommandKind::ScriptKill => "SCRIPT KILL",
       RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
+      RedisCommandKind::Fcall => "FCALL",
+      RedisCommandKind::FcallRo => "FCALL_RO",
+      RedisCommandKind::FunctionDelete => "FUNCTION DELETE",
+      RedisCommandKind::FunctionDump => "FUNCTION DUMP",
+      RedisCommandKind::FunctionFlush => "FUNCTION FLUSH",
+      RedisCommandKind::FunctionKill => "FUNCTION KILL",
+      RedisCommandKind::FunctionList => "FUNCTION LIST",
+      RedisCommandKind::FunctionLoad => "FUNCTION LOAD",
+      RedisCommandKind::FunctionRestore => "FUNCTION RESTORE",
+      RedisCommandKind::FunctionStats => "FUNCTION STATS",
       RedisCommandKind::_Close => "CLOSE",
       RedisCommandKind::_Split(_) => "SPLIT",
       RedisCommandKind::_AuthAllCluster(_) => "AUTH ALL CLUSTER",
@@ -1243,6 +1263,16 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptFlush => "SCRIPT",
       RedisCommandKind::ScriptKill => "SCRIPT",
       RedisCommandKind::ScriptLoad => "SCRIPT",
+      RedisCommandKind::Fcall => "FCALL",
+      RedisCommandKind::FcallRo => "FCALL_RO",
+      RedisCommandKind::FunctionDelete => "FUNCTION",
+      RedisCommandKind::FunctionDump => "FUNCTION",
+      RedisCommandKind::FunctionFlush => "FUNCTION",
+      RedisCommandKind::FunctionKill => "FUNCTION",
+      RedisCommandKind::FunctionList => "FUNCTION",
+      RedisCommandKind::FunctionLoad => "FUNCTION",
+      RedisCommandKind::FunctionRestore => "FUNCTION",
+      RedisCommandKind::FunctionStats => "FUNCTION",
       RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT",
       RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT",
       RedisCommandKind::_ScriptKillCluster(_) => "SCRIPT",
@@ -1269,6 +1299,14 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptKill => "KILL",
       RedisCommandKind::ScriptFlush => "FLUSH",
       RedisCommandKind::ScriptExists => "EXISTS",
+      RedisCommandKind::FunctionDelete => "DELETE",
+      RedisCommandKind::FunctionDump => "DUMP",
+      RedisCommandKind::FunctionFlush => "FLUSH",
+      RedisCommandKind::FunctionKill => "KILL",
+      RedisCommandKind::FunctionList => "LIST",
+      RedisCommandKind::FunctionLoad => "LOAD",
+      RedisCommandKind::FunctionRestore => "RESTORE",
+      RedisCommandKind::FunctionStats => "STATS",
       RedisCommandKind::_ScriptFlushCluster(_) => "FLUSH",
       RedisCommandKind::_ScriptLoadCluster(_) => "LOAD",
       RedisCommandKind::_ScriptKillCluster(_) => "KILL",
@@ -1350,6 +1388,22 @@ impl RedisCommandKind {
       | RedisCommandKind::_ScriptLoadCluster(_)
       | RedisCommandKind::_ScriptKillCluster(_)
       | RedisCommandKind::ScriptLoad => true,
+      _ => false,
+    }
+  }
+
+  pub fn is_function_command(&self) -> bool {
+    match *self {
+      RedisCommandKind::Fcall
+      | RedisCommandKind::FcallRo
+      | RedisCommandKind::FunctionDelete
+      | RedisCommandKind::FunctionDump
+      | RedisCommandKind::FunctionFlush
+      | RedisCommandKind::FunctionKill
+      | RedisCommandKind::FunctionList
+      | RedisCommandKind::FunctionLoad
+      | RedisCommandKind::FunctionRestore
+      | RedisCommandKind::FunctionStats => true,
       _ => false,
     }
   }
