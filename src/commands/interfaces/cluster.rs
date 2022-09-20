@@ -1,10 +1,19 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{
-  ClusterFailoverFlag, ClusterInfo, ClusterKeyCache, ClusterResetFlag, ClusterSetSlotState, FromRedis,
-  MultipleHashSlots, RedisKey, RedisValue,
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{
+    ClusterFailoverFlag,
+    ClusterInfo,
+    ClusterKeyCache,
+    ClusterResetFlag,
+    ClusterSetSlotState,
+    FromRedis,
+    MultipleHashSlots,
+    RedisKey,
+    RedisValue,
+  },
+  utils,
 };
-use crate::utils;
 use bytes_utils::Str;
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
@@ -24,8 +33,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-bumpepoch>
   fn cluster_bumpepoch<R>(&self) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_bumpepoch(&inner).await?.convert()
     })
@@ -46,8 +54,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-myid>
   fn cluster_myid<R>(&self) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_myid(&inner).await?.convert()
     })
@@ -55,7 +62,8 @@ pub trait ClusterInterface: ClientLike + Sized {
 
   /// Read the current cluster node configuration.
   ///
-  /// Note: The client keeps a cached, parsed version of the cluster state in memory available at [cached_cluster_state](Self::cached_cluster_state).
+  /// Note: The client keeps a cached, parsed version of the cluster state in memory available at
+  /// [cached_cluster_state](Self::cached_cluster_state).
   ///
   /// <https://redis.io/commands/cluster-nodes>
   fn cluster_nodes(&self) -> AsyncResult<String> {
@@ -94,13 +102,13 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// This command is useful in order to modify a node's view of the cluster configuration. Specifically it assigns a set of hash slots to the node receiving the command.
+  /// This command is useful in order to modify a node's view of the cluster configuration. Specifically it assigns a
+  /// set of hash slots to the node receiving the command.
   ///
   /// <https://redis.io/commands/cluster-addslots>
   fn cluster_add_slots<S>(&self, slots: S) -> AsyncResult<()>
   where
-    S: Into<MultipleHashSlots>,
-  {
+    S: Into<MultipleHashSlots>, {
     into!(slots);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -114,8 +122,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   fn cluster_count_failure_reports<R, S>(&self, node_id: S) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(node_id);
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_count_failure_reports(&inner, node_id)
@@ -129,8 +136,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-countkeysinslot>
   fn cluster_count_keys_in_slot<R>(&self, slot: u16) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_count_keys_in_slot(&inner, slot)
         .await?
@@ -138,13 +144,13 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// The CLUSTER DELSLOTS command asks a particular Redis Cluster node to forget which master is serving the hash slots specified as arguments.
+  /// The CLUSTER DELSLOTS command asks a particular Redis Cluster node to forget which master is serving the hash
+  /// slots specified as arguments.
   ///
   /// <https://redis.io/commands/cluster-delslots>
   fn cluster_del_slots<S>(&self, slots: S) -> AsyncResult<()>
   where
-    S: Into<MultipleHashSlots>,
-  {
+    S: Into<MultipleHashSlots>, {
     into!(slots);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -152,7 +158,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// This command, that can only be sent to a Redis Cluster replica node, forces the replica to start a manual failover of its master instance.
+  /// This command, that can only be sent to a Redis Cluster replica node, forces the replica to start a manual
+  /// failover of its master instance.
   ///
   /// <https://redis.io/commands/cluster-failover>
   fn cluster_failover(&self, flag: Option<ClusterFailoverFlag>) -> AsyncResult<()> {
@@ -162,14 +169,14 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// The command is used in order to remove a node, specified via its node ID, from the set of known nodes of the Redis Cluster node receiving the command.
-  /// In other words the specified node is removed from the nodes table of the node receiving the command.
+  /// The command is used in order to remove a node, specified via its node ID, from the set of known nodes of the
+  /// Redis Cluster node receiving the command. In other words the specified node is removed from the nodes table of
+  /// the node receiving the command.
   ///
   /// <https://redis.io/commands/cluster-forget>
   fn cluster_forget<S>(&self, node_id: S) -> AsyncResult<()>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(node_id);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -182,8 +189,7 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-getkeysinslot>
   fn cluster_get_keys_in_slot<R>(&self, slot: u16, count: u64) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
       commands::cluster::cluster_get_keys_in_slot(&inner, slot, count)
@@ -198,21 +204,20 @@ pub trait ClusterInterface: ClientLike + Sized {
   fn cluster_keyslot<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_keyslot(&inner, key).await?.convert()
     })
   }
 
-  /// CLUSTER MEET is used in order to connect different Redis nodes with cluster support enabled, into a working cluster.
+  /// CLUSTER MEET is used in order to connect different Redis nodes with cluster support enabled, into a working
+  /// cluster.
   ///
   /// <https://redis.io/commands/cluster-meet>
   fn cluster_meet<S>(&self, ip: S, port: u16) -> AsyncResult<()>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(ip);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -220,14 +225,13 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// The command reconfigures a node as a replica of the specified master. If the node receiving the command is an empty master, as
-  /// a side effect of the command, the node role is changed from master to replica.
+  /// The command reconfigures a node as a replica of the specified master. If the node receiving the command is an
+  /// empty master, as a side effect of the command, the node role is changed from master to replica.
   ///
   /// <https://redis.io/commands/cluster-replicate>
   fn cluster_replicate<S>(&self, node_id: S) -> AsyncResult<()>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(node_id);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -240,17 +244,16 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// <https://redis.io/commands/cluster-replicas>
   fn cluster_replicas<S>(&self, node_id: S) -> AsyncResult<String>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(node_id);
     async_spawn(self, |inner| async move {
       commands::cluster::cluster_replicas(&inner, node_id).await?.convert()
     })
   }
 
-  /// Reset a Redis Cluster node, in a more or less drastic way depending on the reset type, that can be hard or soft. Note that
-  /// this command does not work for masters if they hold one or more keys, in that case to completely reset a master node keys
-  /// must be removed first, e.g. by using FLUSHALL first, and then CLUSTER RESET.
+  /// Reset a Redis Cluster node, in a more or less drastic way depending on the reset type, that can be hard or soft.
+  /// Note that this command does not work for masters if they hold one or more keys, in that case to completely
+  /// reset a master node keys must be removed first, e.g. by using FLUSHALL first, and then CLUSTER RESET.
   ///
   /// <https://redis.io/commands/cluster-reset>
   fn cluster_reset(&self, mode: Option<ClusterResetFlag>) -> AsyncResult<()> {

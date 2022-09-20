@@ -44,7 +44,7 @@ async fn main() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = publisher_client.publish("foo", idx).await?;
     sleep(Duration::from_millis(1000)).await;
   }
@@ -69,7 +69,8 @@ async fn subscriber_example() -> Result<(), RedisError> {
 
   let _ = subscriber.subscribe("foo").await?;
   let _ = subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
-  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo", "bar*", and "baz*" after reconnecting
+  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo",
+  // "bar*", and "baz*" after reconnecting
 
   println!("Subscriber channels: {:?}", subscriber.tracked_channels()); // "foo"
   println!("Subscriber patterns: {:?}", subscriber.tracked_patterns()); // "bar*", "baz*"

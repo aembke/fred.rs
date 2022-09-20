@@ -1,17 +1,15 @@
-use fred::prelude::*;
-use fred::types::TlsConfig;
-
+use fred::{prelude::*, types::TlsConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig {
     // or use Some(TlsConfig::default()) to use default TLS settings
     tls: Some(TlsConfig {
-      root_certs: None,
-      min_protocol_version: None,
-      max_protocol_version: None,
+      root_certs:             None,
+      min_protocol_version:   None,
+      max_protocol_version:   None,
       disable_built_in_roots: false,
-      use_sni: true,
+      use_sni:                true,
     }),
     ..RedisConfig::default()
   };

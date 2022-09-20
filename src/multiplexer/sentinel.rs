@@ -1,22 +1,24 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::{utils, CloseTx, Connections, Counters, SentCommand};
-use crate::protocol::codec::RedisCodec;
-use crate::protocol::connection::{self, authenticate, select_database, FramedTcp, FramedTls, RedisTransport};
-use crate::protocol::types::{RedisCommand, RedisCommandKind};
-use crate::protocol::utils as protocol_utils;
-use crate::types::ClientState;
-use crate::types::Resolve;
-use crate::types::{RedisValue, ServerConfig};
-use crate::utils as client_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  globals::globals,
+  modules::inner::RedisClientInner,
+  multiplexer::{utils, CloseTx, Connections, Counters, SentCommand},
+  protocol::{
+    codec::RedisCodec,
+    connection::{self, authenticate, select_database, FramedTcp, FramedTls, RedisTransport},
+    types::{RedisCommand, RedisCommandKind},
+    utils as protocol_utils,
+  },
+  types::{ClientState, RedisValue, Resolve, ServerConfig},
+  utils as client_utils,
+};
 use parking_lot::RwLock;
-use std::collections::VecDeque;
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio::sync::RwLock as AsyncRwLock;
+use std::{
+  collections::{HashMap, HashSet, VecDeque},
+  net::SocketAddr,
+  sync::Arc,
+};
+use tokio::{net::TcpStream, sync::RwLock as AsyncRwLock};
 use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-tls")]
@@ -85,7 +87,7 @@ pub async fn create_authenticated_connection_tls(
   inner: &Arc<RedisClientInner>,
   is_sentinel: bool,
 ) -> Result<FramedTls, RedisError> {
-  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
+  let server = format!("{}:{}", addr.ip(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
   let ((username, password), is_resp3) = if is_sentinel {
@@ -102,7 +104,7 @@ pub async fn create_authenticated_connection_tls(
   } else {
     connection::switch_protocols(inner, Framed::new(socket, codec)).await?
   };
-  let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = authenticate(framed, client_name, username, password, is_resp3).await?;
   let framed = if is_sentinel {
     framed
   } else {
@@ -127,7 +129,7 @@ pub async fn create_authenticated_connection(
   inner: &Arc<RedisClientInner>,
   is_sentinel: bool,
 ) -> Result<FramedTcp, RedisError> {
-  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
+  let server = format!("{}:{}", addr.ip(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
   let ((username, password), is_resp3) = if is_sentinel {
@@ -142,7 +144,7 @@ pub async fn create_authenticated_connection(
   } else {
     connection::switch_protocols(inner, Framed::new(socket, codec)).await?
   };
-  let framed = authenticate(framed, &client_name, username, password, is_resp3).await?;
+  let framed = authenticate(framed, client_name, username, password, is_resp3).await?;
   let framed = if is_sentinel {
     framed
   } else {
@@ -291,11 +293,11 @@ async fn update_connection_id(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
       RedisTransport::Tcp(framed)
-    }
+    },
     RedisTransport::Tls(framed) => {
       let framed = match connection::read_client_id(inner, framed).await {
         Ok((id, socket)) => {
@@ -304,11 +306,11 @@ async fn update_connection_id(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
       RedisTransport::Tls(framed)
-    }
+    },
   };
 
   Ok(transport)
@@ -322,7 +324,7 @@ async fn update_sentinel_client_state(
   close_tx: &Arc<RwLock<Option<CloseTx>>>,
 ) -> CloseTx {
   client_utils::set_locked_async(server, new_server.clone()).await;
-  inner.update_sentinel_primary(&new_server);
+  inner.update_sentinel_primary(new_server);
   counters.reset_feed_count();
   counters.reset_in_flight();
   utils::get_or_create_close_tx(inner, close_tx)
@@ -389,7 +391,7 @@ fn parse_sentinel_nodes_response(
           RedisErrorKind::Sentinel,
           "Failed to read sentinel node IP address.",
         ));
-      }
+      },
     };
     let port = match map.get("port") {
       Some(port) => port.parse::<u16>()?,
@@ -399,7 +401,7 @@ fn parse_sentinel_nodes_response(
           RedisErrorKind::Sentinel,
           "Failed to read sentinel node port.",
         ));
-      }
+      },
     };
 
     out.push((ip, port));
@@ -435,7 +437,7 @@ pub async fn update_sentinel_nodes(
 
   if !sentinel_nodes.is_empty() {
     if let ServerConfig::Sentinel { ref mut hosts, .. } = inner.config.write().server {
-      if has_different_sentinel_nodes(&hosts, &sentinel_nodes) {
+      if has_different_sentinel_nodes(hosts, &sentinel_nodes) {
         _debug!(
           inner,
           "Updating sentinel nodes from {:?} to {:?}",
@@ -454,7 +456,8 @@ pub async fn update_sentinel_nodes(
   Ok(())
 }
 
-/// Use the sentinel API to find the correct primary/main node that should act as the centralized server to the multiplexer.
+/// Use the sentinel API to find the correct primary/main node that should act as the centralized server to the
+/// multiplexer.
 ///
 /// See [the documentation](https://redis.io/topics/sentinel-clients) for more information.
 pub async fn connect_centralized_from_sentinel(
@@ -467,7 +470,7 @@ pub async fn connect_centralized_from_sentinel(
   client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
   let (service_name, sentinel_transport, host, primary_addr) = discover_primary_node(inner).await?;
-  let _ = connect_centralized(inner, connections, &host, primary_addr, close_tx).await?;
+  connect_centralized(inner, connections, &host, primary_addr, close_tx).await?;
   client_utils::set_client_state(&inner.state, ClientState::Connected);
 
   if let Err(e) = update_sentinel_nodes(inner, sentinel_transport, &service_name).await {

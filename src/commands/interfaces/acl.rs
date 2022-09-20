@@ -1,7 +1,9 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue};
-use crate::utils;
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue},
+  utils,
+};
 use bytes_utils::Str;
 
 /// Functions that implement the [ACL](https://redis.io/commands#server) interface.
@@ -11,16 +13,15 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-setuser>
   fn acl_setuser<S>(&self, username: S, rules: Vec<AclRule>) -> AsyncResult<()>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(username);
     async_spawn(self, |inner| async move {
       commands::acl::acl_setuser(&inner, username, rules).await
     })
   }
 
-  /// When Redis is configured to use an ACL file (with the aclfile configuration option), this command will reload the
-  /// ACLs from the file, replacing all the current ACL rules with the ones defined in the file.
+  /// When Redis is configured to use an ACL file (with the aclfile configuration option), this command will reload
+  /// the ACLs from the file, replacing all the current ACL rules with the ones defined in the file.
   ///
   /// <https://redis.io/commands/acl-load>
   fn acl_load(&self) -> AsyncResult<()> {
@@ -43,8 +44,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-list>
   fn acl_list<R>(&self) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(
       self,
       |inner| async move { commands::acl::acl_list(&inner).await?.convert() },
@@ -56,8 +56,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-users>
   fn acl_users<R>(&self) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |inner| async move {
       commands::acl::acl_users(&inner).await?.convert()
     })
@@ -68,8 +67,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-getuser>
   fn acl_getuser<S>(&self, username: S) -> AsyncResult<Option<AclUser>>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(username);
     async_spawn(self, |inner| async move {
       commands::acl::acl_getuser(&inner, username).await
@@ -82,8 +80,7 @@ pub trait AclInterface: ClientLike + Sized {
   fn acl_deluser<R, S>(&self, usernames: S) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<MultipleStrings>,
-  {
+    S: Into<MultipleStrings>, {
     into!(usernames);
     async_spawn(self, |inner| async move {
       commands::acl::acl_deluser(&inner, usernames).await?.convert()

@@ -4,15 +4,15 @@ use futures::stream::StreamExt;
 static COUNT: u32 = 50;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0..COUNT {
-    let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+  for idx in 0 .. COUNT {
+    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   Ok(())
 }
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0..COUNT {
-    let _ = client.del(format!("foo-{}", idx)).await?;
+  for idx in 0 .. COUNT {
+    client.del(format!("foo-{}", idx)).await?;
   }
   Ok(())
 }
@@ -23,9 +23,9 @@ async fn main() -> Result<(), RedisError> {
   let client = RedisClient::new(config);
 
   let jh = client.connect(None);
-  let _ = client.wait_for_connect().await?;
-  let _ = delete_fake_data(&client).await?;
-  let _ = create_fake_data(&client).await?;
+  client.wait_for_connect().await?;
+  delete_fake_data(&client).await?;
+  create_fake_data(&client).await?;
 
   // build up a buffer of (key, value) pairs from pages with 10 keys per page
   let mut buffer = Vec::with_capacity(COUNT as usize);
@@ -49,9 +49,9 @@ async fn main() -> Result<(), RedisError> {
   }
 
   assert_eq!(buffer.len(), COUNT as usize);
-  let _ = delete_fake_data(&client).await?;
+  delete_fake_data(&client).await?;
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   // optionally wait for the task driving the connection to finish
   let _ = jh.await;
   Ok(())

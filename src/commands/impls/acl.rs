@@ -1,10 +1,11 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
@@ -46,7 +47,7 @@ pub async fn acl_getuser(inner: &Arc<RedisClientInner>, username: Str) -> Result
   let frame = protocol_utils::frame_map_or_set_to_nested_array(frame)?;
 
   if let Frame::Array { data, .. } = frame {
-    protocol_utils::parse_acl_getuser_frames(data).map(|u| Some(u))
+    protocol_utils::parse_acl_getuser_frames(data).map(Some)
   } else {
     Err(RedisError::new(
       RedisErrorKind::ProtocolError,

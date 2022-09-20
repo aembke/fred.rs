@@ -6,8 +6,8 @@ async fn main() -> Result<(), RedisError> {
   let client = RedisClient::new(config);
 
   let _ = client.connect(None);
-  let _ = client.wait_for_connect().await?;
-  let _ = client.flushall(false).await?;
+  client.wait_for_connect().await?;
+  client.flushall(false).await?;
 
   let trx = client.multi(true).await?;
   let res1: RedisValue = trx.get("foo").await?;
@@ -20,6 +20,6 @@ async fn main() -> Result<(), RedisError> {
   let values: (Option<String>, (), String) = trx.exec().await?;
   println!("Transaction results: {:?}", values);
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

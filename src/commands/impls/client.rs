@@ -1,9 +1,10 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use std::sync::Arc;
 
@@ -36,8 +37,7 @@ pub async fn client_list<K>(
   ids: Option<Vec<K>>,
 ) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let ids: Option<Vec<RedisKey>> = ids.map(|ids| ids.into_iter().map(|id| id.into()).collect());
   let frame = utils::request_response(inner, move || {
     let max_args = 2 + ids.as_ref().map(|i| i.len()).unwrap_or(0);
@@ -114,8 +114,7 @@ pub async fn client_unblock<S>(
   flag: Option<ClientUnblockFlag>,
 ) -> Result<RedisValue, RedisError>
 where
-  S: Into<RedisValue>,
-{
+  S: Into<RedisValue>, {
   let id = id.into();
   let frame = utils::backchannel_request_response(inner, true, move || {
     let mut args = Vec::with_capacity(2);

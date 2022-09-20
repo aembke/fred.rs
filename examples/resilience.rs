@@ -1,7 +1,8 @@
-use fred::globals::{self, ReconnectError};
-use fred::prelude::*;
-use fred::types::InfoKind::Default;
-use fred::types::PerformanceConfig;
+use fred::{
+  globals::{self, ReconnectError},
+  prelude::*,
+  types::{InfoKind::Default, PerformanceConfig},
+};
 use futures::StreamExt;
 
 const DATABASE: u8 = 2;
@@ -16,19 +17,20 @@ async fn main() -> Result<(), RedisError> {
   ]);
 
   let config = RedisConfig {
-    // apply reconnection logic on the first connection attempt instead of returning initial connection errors to the caller.
-    // if you use this feature make sure your server config is correct or you wont see errors until the reconnection policy
-    // max attempts value is reached (unless certain logging is enabled).
+    // apply reconnection logic on the first connection attempt instead of returning initial connection errors to the
+    // caller. if you use this feature make sure your server config is correct or you wont see errors until the
+    // reconnection policy max attempts value is reached (unless certain logging is enabled).
     fail_fast: false,
     performance: PerformanceConfig {
-      // try to write commands up to 20 times. this value is incremented for a command whenever the connection closes while the
-      // command is in-flight, or whenever the client receives a MOVED/ASK error in response to the command. in the case of a
-      // MOVED/ASK error the client will not try the command again until the hash slot is finished migrating to the destination node.
+      // try to write commands up to 20 times. this value is incremented for a command whenever the connection closes
+      // while the command is in-flight, or whenever the client receives a MOVED/ASK error in response to the
+      // command. in the case of a MOVED/ASK error the client will not try the command again until the hash slot
+      // is finished migrating to the destination node.
       max_command_attempts: 20,
       // configure the amount of time to wait when checking the state of migrating hash slots.
       cluster_cache_update_delay_ms: 100,
-      // apply a global timeout on commands, if necessary. otherwise the client will attempt to write them until the max attempt
-      // count is reached (however long that takes depends on the reconnect policy, etc).
+      // apply a global timeout on commands, if necessary. otherwise the client will attempt to write them until the
+      // max attempt count is reached (however long that takes depends on the reconnect policy, etc).
       default_command_timeout_ms: 60_000,
       ..Default::default()
     },

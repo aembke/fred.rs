@@ -1,7 +1,9 @@
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MultipleKeys, MultipleValues, RedisKey, FromRedis, RedisValue};
-use crate::{commands};
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, MultipleKeys, MultipleValues, RedisKey, RedisValue},
+};
 use std::convert::TryInto;
 
 /// Functions that implement the [Sets](https://redis.io/commands#set) interface.
@@ -14,8 +16,7 @@ pub trait SetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {
@@ -29,8 +30,7 @@ pub trait SetsInterface: ClientLike + Sized {
   fn scard<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sets::scard(&inner, key).await?.convert()
@@ -43,8 +43,7 @@ pub trait SetsInterface: ClientLike + Sized {
   fn sdiff<R, K>(&self, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::sets::sdiff(&inner, keys).await?.convert()
@@ -58,8 +57,7 @@ pub trait SetsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(dest, keys);
     async_spawn(self, |inner| async move {
       commands::sets::sdiffstore(&inner, dest, keys).await?.convert()
@@ -72,8 +70,7 @@ pub trait SetsInterface: ClientLike + Sized {
   fn sinter<R, K>(&self, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::sets::sinter(&inner, keys).await?.convert()
@@ -87,8 +84,7 @@ pub trait SetsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(dest, keys);
     async_spawn(self, |inner| async move {
       commands::sets::sinterstore(&inner, dest, keys).await?.convert()
@@ -103,8 +99,7 @@ pub trait SetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -120,8 +115,7 @@ pub trait SetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {
@@ -135,8 +129,7 @@ pub trait SetsInterface: ClientLike + Sized {
   fn smembers<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sets::smembers(&inner, key).await?.convert()
@@ -152,8 +145,7 @@ pub trait SetsInterface: ClientLike + Sized {
     S: Into<RedisKey>,
     D: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(source, dest);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -167,8 +159,7 @@ pub trait SetsInterface: ClientLike + Sized {
   fn spop<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sets::spop(&inner, key, count).await?.convert()
@@ -177,14 +168,14 @@ pub trait SetsInterface: ClientLike + Sized {
 
   /// When called with just the key argument, return a random element from the set value stored at `key`.
   ///
-  /// If the provided `count` argument is positive, return an array of distinct elements. The array's length is either count or the set's cardinality (SCARD), whichever is lower.
+  /// If the provided `count` argument is positive, return an array of distinct elements. The array's length is either
+  /// count or the set's cardinality (SCARD), whichever is lower.
   ///
   /// <https://redis.io/commands/srandmember>
   fn srandmember<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sets::srandmember(&inner, key, count).await?.convert()
@@ -199,8 +190,7 @@ pub trait SetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {
@@ -214,8 +204,7 @@ pub trait SetsInterface: ClientLike + Sized {
   fn sunion<R, K>(&self, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::sets::sunion(&inner, keys).await?.convert()
@@ -229,8 +218,7 @@ pub trait SetsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(dest, keys);
     async_spawn(self, |inner| async move {
       commands::sets::sunionstore(&inner, dest, keys).await?.convert()

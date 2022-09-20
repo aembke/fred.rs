@@ -14,8 +14,8 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = publisher_client.connect(None);
   let _ = subscriber_client.connect(None);
-  let _ = publisher_client.wait_for_connect().await?;
-  let _ = subscriber_client.wait_for_connect().await?;
+  publisher_client.wait_for_connect().await?;
+  subscriber_client.wait_for_connect().await?;
 
   let subscriber_jh = tokio::spawn(async move {
     while let Ok((key, value)) = subscriber_client.blpop::<(String, i64), _>("foo", 5.0).await {
@@ -25,11 +25,11 @@ async fn main() -> Result<(), RedisError> {
     Ok::<(), RedisError>(())
   });
 
-  for idx in 0..COUNT {
-    let _ = publisher_client.rpush("foo", idx).await?;
+  for idx in 0 .. COUNT {
+    publisher_client.rpush("foo", idx).await?;
     sleep(Duration::from_millis(1000)).await;
   }
 
-  let _ = subscriber_jh.abort();
+  subscriber_jh.abort();
   Ok(())
 }

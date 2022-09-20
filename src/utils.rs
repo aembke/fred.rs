@@ -1,29 +1,41 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::utils as multiplexer_utils;
-use crate::multiplexer::{sentinel, ConnectionIDs};
-use crate::protocol::types::{RedisCommand, RedisCommandKind};
-use crate::types::*;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  globals::globals,
+  modules::inner::RedisClientInner,
+  multiplexer::{sentinel, utils as multiplexer_utils, ConnectionIDs},
+  protocol::types::{RedisCommand, RedisCommandKind},
+  types::*,
+};
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
-use futures::future::{select, Either};
-use futures::{pin_mut, Future};
+use futures::{
+  future::{select, Either},
+  pin_mut,
+  Future,
+};
 use parking_lot::RwLock;
-use rand::distributions::Alphanumeric;
-use rand::{self, Rng};
+use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::ops::DerefMut;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use std::{f64, mem};
-use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
-use tokio::sync::RwLock as AsyncRwLock;
-use tokio::time::sleep;
+use std::{
+  collections::HashMap,
+  convert::TryInto,
+  f64,
+  mem,
+  ops::DerefMut,
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
+  time::Duration,
+};
+use tokio::{
+  sync::{
+    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
+    RwLock as AsyncRwLock,
+  },
+  time::sleep,
+};
 use url::Url;
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -37,11 +49,11 @@ use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
-const REDIS_TLS_SCHEME: &'static str = "rediss";
-const REDIS_CLUSTER_SCHEME_SUFFIX: &'static str = "-cluster";
-const REDIS_SENTINEL_SCHEME_SUFFIX: &'static str = "-sentinel";
-const SENTINEL_NAME_QUERY: &'static str = "sentinelServiceName";
-const CLUSTER_NODE_QUERY: &'static str = "node";
+const REDIS_TLS_SCHEME: &str = "rediss";
+const REDIS_CLUSTER_SCHEME_SUFFIX: &str = "-cluster";
+const REDIS_SENTINEL_SCHEME_SUFFIX: &str = "-sentinel";
+const SENTINEL_NAME_QUERY: &str = "sentinelServiceName";
+const CLUSTER_NODE_QUERY: &str = "node";
 #[cfg(feature = "sentinel-auth")]
 const SENTINEL_USERNAME_QUERY: &'static str = "sentinelUsername";
 #[cfg(feature = "sentinel-auth")]
@@ -161,7 +173,7 @@ pub fn check_clustered(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> 
 pub fn pattern_pubsub_counts(result: Vec<RedisValue>) -> Result<Vec<usize>, RedisError> {
   let mut out = Vec::with_capacity(result.len() / 3);
 
-  if result.len() > 0 {
+  if !result.is_empty() {
     let mut idx = 2;
     while idx < result.len() {
       out.push(match result[idx] {
@@ -294,20 +306,19 @@ pub fn interrupt_reconnect_sleep(inner: &Arc<RedisClientInner>) {
   }
 }
 
-/// Check whether the client has already sent the MULTI portion of a transaction, and if not return the hash slot describing the server to which it should be sent.
+/// Check whether the client has already sent the MULTI portion of a transaction, and if not return the hash slot
+/// describing the server to which it should be sent.
 ///
-/// Sending the MULTI portion of a transaction is deferred on clustered clients because we dont know the server to which to send the command until the caller
-/// sends the first command with a key. When we finally have a hash slot we send the MULTI portion first, and then we send the actual user command to start
-/// the transaction.
+/// Sending the MULTI portion of a transaction is deferred on clustered clients because we dont know the server to
+/// which to send the command until the caller sends the first command with a key. When we finally have a hash slot we
+/// send the MULTI portion first, and then we send the actual user command to start the transaction.
 pub fn should_send_multi_command(inner: &Arc<RedisClientInner>) -> Option<u16> {
   if is_clustered(&inner.config) {
-    inner.multi_block.read().as_ref().and_then(|policy| {
-      if !policy.sent_multi {
-        policy.hash_slot.clone()
-      } else {
-        None
-      }
-    })
+    inner
+      .multi_block
+      .read()
+      .as_ref()
+      .and_then(|policy| if !policy.sent_multi { policy.hash_slot } else { None })
   } else {
     None
   }
@@ -316,27 +327,21 @@ pub fn should_send_multi_command(inner: &Arc<RedisClientInner>) -> Option<u16> {
 /// Read the MULTI block hash slot, if known.
 pub fn read_multi_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> {
   if is_clustered(&inner.config) {
-    inner
-      .multi_block
-      .read()
-      .as_ref()
-      .and_then(|policy| policy.hash_slot.clone())
+    inner.multi_block.read().as_ref().and_then(|policy| policy.hash_slot)
   } else {
     None
   }
 }
 
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
-  let formatted = val.starts_with("(") || val.starts_with("[") || val == "+" || val == "-";
+  let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
   if formatted {
     val
+  } else if *kind == ZRangeKind::Exclusive {
+    format!("({}", val)
   } else {
-    if *kind == ZRangeKind::Exclusive {
-      format!("({}", val)
-    } else {
-      format!("[{}", val)
-    }
+    format!("[{}", val)
   }
 }
 
@@ -372,7 +377,7 @@ pub fn update_multi_sent_flag(inner: &Arc<RedisClientInner>, value: bool) {
 }
 
 pub fn read_transaction_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> {
-  inner.multi_block.read().as_ref().and_then(|p| p.hash_slot.clone())
+  inner.multi_block.read().as_ref().and_then(|p| p.hash_slot)
 }
 
 pub fn shutdown_listeners(inner: &Arc<RedisClientInner>) {
@@ -411,8 +416,7 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
 pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
-  Fut: Future<Output = Result<T, E>>,
-{
+  Fut: Future<Output = Result<T, E>>, {
   if timeout > 0 {
     let sleep_ft = sleep(Duration::from_millis(timeout));
     pin_mut!(sleep_ft);
@@ -465,17 +469,17 @@ pub async fn interrupt_blocked_connection(
   };
 
   backchannel_request_response(inner, true, move || {
-    Ok((
-      RedisCommandKind::ClientUnblock,
-      vec![connection_id.into(), flag.to_str().into()],
-    ))
+    Ok((RedisCommandKind::ClientUnblock, vec![
+      connection_id.into(),
+      flag.to_str().into(),
+    ]))
   })
   .await
   .map(|_| ())
 }
 
 async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
-  if should_enforce_blocking_policy(inner, &command).await {
+  if should_enforce_blocking_policy(inner, command).await {
     _debug!(
       inner,
       "Checking to enforce blocking policy for {}",
@@ -499,15 +503,14 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
 
 pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
-{
+  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>, {
   let (kind, args) = func()?;
   let (tx, rx) = oneshot_channel();
   let command = RedisCommand::new(kind, args, Some(tx));
 
-  let _ = check_blocking_policy(inner, &command).await?;
-  let _ = disallow_nested_values(&command)?;
-  let _ = send_command(&inner, command)?;
+  check_blocking_policy(inner, &command).await?;
+  disallow_nested_values(&command)?;
+  send_command(inner, command)?;
 
   wait_for_response(rx, inner.perf_config.default_command_timeout() as u64).await
 }
@@ -515,8 +518,7 @@ where
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
-{
+  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>, {
   if !inner.should_trace() {
     return basic_request_response(inner, func).await;
   }
@@ -559,8 +561,7 @@ where
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
-{
+  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>, {
   basic_request_response(inner, func).await
 }
 
@@ -570,22 +571,15 @@ where
 /// If the client is not clustered then use the same server that the client is connected to.
 fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {
   match inner.config.read().server {
-    ServerConfig::Sentinel { .. } => {
-      inner
-        .sentinel_primary
-        .read()
-        .as_ref()
-        .map(|s| s.clone())
-        .ok_or(RedisError::new(
-          RedisErrorKind::Sentinel,
-          "Failed to read sentinel primary server",
-        ))
-    },
+    ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().as_ref().cloned().ok_or(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Failed to read sentinel primary server",
+    )),
     ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
     ServerConfig::Clustered { .. } => {
       if let Some(key) = command.extract_key() {
         // hash the key and send the command to that node
-        let hash_slot = redis_protocol::redis_keyslot(&key);
+        let hash_slot = redis_protocol::redis_keyslot(key);
         let server = match &*inner.cluster_state.read() {
           Some(ref state) => match state.get_server(hash_slot) {
             Some(slot) => slot.server.clone(),
@@ -637,11 +631,10 @@ pub async fn backchannel_request_response<F>(
   func: F,
 ) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
-{
+  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>, {
   let (kind, args) = func()?;
   let command = RedisCommand::new(kind, args, None);
-  let _ = disallow_nested_values(&command)?;
+  disallow_nested_values(&command)?;
 
   let blocked_server = inner.backchannel.read().await.blocked.clone();
 
@@ -823,16 +816,14 @@ pub fn clustered_scan_pattern_has_hash_tag(inner: &Arc<RedisClientInner>, patter
 pub fn try_into<S, D>(val: S) -> Result<D, RedisError>
 where
   S: TryInto<D>,
-  S::Error: Into<RedisError>,
-{
+  S::Error: Into<RedisError>, {
   val.try_into().map_err(|e| e.into())
 }
 
 pub fn try_into_vec<S>(values: Vec<S>) -> Result<Vec<RedisValue>, RedisError>
 where
   S: TryInto<RedisValue>,
-  S::Error: Into<RedisError>,
-{
+  S::Error: Into<RedisError>, {
   let mut out = Vec::with_capacity(values.len());
   for value in values.into_iter() {
     out.push(try_into(value)?);
@@ -842,22 +833,21 @@ where
 }
 
 pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
-  delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
+  delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
 }
 
-pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
+pub fn into_redis_map<I, K, V>(iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
 where
   I: Iterator<Item = (K, V)>,
   K: TryInto<RedisKey>,
   K::Error: Into<RedisError>,
   V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
-{
+  V::Error: Into<RedisError>, {
   let (lower, upper) = iter.size_hint();
   let capacity = if let Some(upper) = upper { upper } else { lower };
   let mut out = HashMap::with_capacity(capacity);
 
-  while let Some((key, value)) = iter.next() {
+  for (key, value) in iter {
     out.insert(to!(key)?, to!(value)?);
   }
   Ok(out)
@@ -917,8 +907,8 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
 }
 
 pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
-  if arr.len() > 0 && arr.len() % 2 == 0 {
-    arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
+  if !arr.is_empty() && arr.len() % 2 == 0 {
+    arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
   } else {
     false
   }
@@ -1008,9 +998,9 @@ pub fn parse_url_credentials(url: &Url) -> (Option<String>, Option<String>) {
 pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<(String, u16)>, RedisError> {
   let mut out = Vec::new();
 
-  for (key, value) in url.query_pairs().into_iter() {
+  for (key, value) in url.query_pairs() {
     if key == CLUSTER_NODE_QUERY {
-      let parts: Vec<&str> = value.split(":").collect();
+      let parts: Vec<&str> = value.split(':').collect();
       if parts.len() != 2 {
         return Err(RedisError::new(
           RedisErrorKind::Config,
@@ -1028,7 +1018,7 @@ pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<(String, u16)>, RedisError
 }
 
 pub fn parse_url_sentinel_service_name(url: &Url) -> Result<String, RedisError> {
-  for (key, value) in url.query_pairs().into_iter() {
+  for (key, value) in url.query_pairs() {
     if key == SENTINEL_NAME_QUERY {
       return Ok(value.to_string());
     }
@@ -1065,16 +1055,13 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::error::RedisError;
-  use crate::types::RedisValue;
-  use std::convert::TryInto;
-  use std::fmt::Debug;
+  use crate::{error::RedisError, types::RedisValue};
+  use std::{convert::TryInto, fmt::Debug};
 
   fn m<V>(v: V) -> RedisValue
   where
     V: TryInto<RedisValue> + Debug,
-    V::Error: Into<RedisError> + Debug,
-  {
+    V::Error: Into<RedisError> + Debug, {
     v.try_into().unwrap()
   }
 

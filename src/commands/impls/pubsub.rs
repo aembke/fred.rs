@@ -1,13 +1,13 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
-use std::collections::VecDeque;
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 pub async fn subscribe(inner: &Arc<RedisClientInner>, channel: Str) -> Result<usize, RedisError> {
   // note: if this ever changes to take in more than one channel then some additional work must be done
@@ -66,12 +66,11 @@ pub async fn publish(
 
 pub async fn psubscribe<S>(inner: &Arc<RedisClientInner>, patterns: S) -> Result<Vec<usize>, RedisError>
 where
-  S: Into<MultipleStrings>,
-{
+  S: Into<MultipleStrings>, {
   let patterns = patterns.into();
   let frame = utils::request_response(inner, move || {
     let kind = RedisCommandKind::Psubscribe(ResponseKind::Multiple {
-      count: patterns.len(),
+      count:  patterns.len(),
       buffer: VecDeque::with_capacity(patterns.len()),
     });
     let mut args = Vec::with_capacity(patterns.len());
@@ -97,12 +96,11 @@ where
 
 pub async fn punsubscribe<S>(inner: &Arc<RedisClientInner>, patterns: S) -> Result<Vec<usize>, RedisError>
 where
-  S: Into<MultipleStrings>,
-{
+  S: Into<MultipleStrings>, {
   let patterns = patterns.into();
   let frame = utils::request_response(inner, move || {
     let kind = RedisCommandKind::Punsubscribe(ResponseKind::Multiple {
-      count: patterns.len(),
+      count:  patterns.len(),
       buffer: VecDeque::with_capacity(patterns.len()),
     });
     let mut args = Vec::with_capacity(patterns.len());

@@ -1,19 +1,22 @@
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::ClientLike;
-use crate::types::{ConnectHandle, ReconnectPolicy, RedisConfig};
-use crate::utils;
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  interfaces::ClientLike,
+  types::{ConnectHandle, ReconnectPolicy, RedisConfig},
+  utils,
+};
 use futures::future::{join_all, try_join_all};
-use std::fmt;
-use std::ops::Deref;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::{
+  fmt,
+  ops::Deref,
+  sync::{atomic::AtomicUsize, Arc},
+};
 
 /// The inner state used by a `RedisPool`.
 #[derive(Clone)]
 pub(crate) struct RedisPoolInner {
   clients: Vec<RedisClient>,
-  last: Arc<AtomicUsize>,
+  last:    Arc<AtomicUsize>,
 }
 
 /// A struct to pool multiple Redis clients together into one interface that will round-robin requests among clients,
@@ -54,7 +57,7 @@ impl RedisPool {
   pub fn new(config: RedisConfig, size: usize) -> Result<Self, RedisError> {
     if size > 0 {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0..size {
+      for _ in 0 .. size {
         clients.push(RedisClient::new(config.clone()));
       }
       let last = Arc::new(AtomicUsize::new(0));
@@ -97,7 +100,7 @@ impl RedisPool {
   pub fn next(&self) -> &RedisClient {
     let mut idx = utils::incr_atomic(&self.inner.last) % self.inner.clients.len();
 
-    for _ in 0..self.inner.clients.len() {
+    for _ in 0 .. self.inner.clients.len() {
       let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;

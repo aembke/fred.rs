@@ -1,11 +1,14 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MemoryStats, RedisKey};
-use crate::utils;
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{MemoryStats, RedisKey},
+  utils,
+};
 
 /// Functions that implement the [Memory](https://redis.io/commands#server) interface.
 pub trait MemoryInterface: ClientLike + Sized {
-  /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and advises about possible remedies.
+  /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and
+  /// advises about possible remedies.
   ///
   /// <https://redis.io/commands/memory-doctor>
   fn memory_doctor(&self) -> AsyncResult<String> {
@@ -50,8 +53,7 @@ pub trait MemoryInterface: ClientLike + Sized {
   /// <https://redis.io/commands/memory-usage>
   fn memory_usage<K>(&self, key: K, samples: Option<u32>) -> AsyncResult<Option<u64>>
   where
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;

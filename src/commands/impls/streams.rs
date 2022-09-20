@@ -1,16 +1,24 @@
 use super::*;
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::RedisCommandKind;
-use crate::protocol::utils as protocol_utils;
-use crate::types::{
-  MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XPendingArgs, XID,
+use crate::{
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  protocol::{types::RedisCommandKind, utils as protocol_utils},
+  types::{
+    MultipleIDs,
+    MultipleKeys,
+    MultipleOrderedPairs,
+    MultipleStrings,
+    RedisKey,
+    RedisValue,
+    XCap,
+    XPendingArgs,
+    XID,
+  },
+  utils,
 };
-use crate::utils;
 use bytes_utils::Str;
 use redis_protocol::redis_keyslot;
-use std::convert::TryInto;
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
 fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
   if let Some((kind, trim, threshold, limit)) = cap.into_parts() {
@@ -208,7 +216,8 @@ pub async fn xread(
 
     args.push(static_val!(STREAMS));
     for (idx, key) in keys.inner().into_iter().enumerate() {
-      // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say something
+      // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say
+      // something
       if is_clustered && idx == 0 {
         hash_slot = Some(redis_keyslot(key.as_bytes()));
       }
@@ -256,10 +265,11 @@ pub async fn xgroup_createconsumer(
   consumername: Str,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::XgroupCreateConsumer,
-      vec![key.into(), groupname.into(), consumername.into()],
-    ))
+    Ok((RedisCommandKind::XgroupCreateConsumer, vec![
+      key.into(),
+      groupname.into(),
+      consumername.into(),
+    ]))
   })
   .await?;
 
@@ -273,10 +283,11 @@ pub async fn xgroup_delconsumer(
   consumername: Str,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::XgroupDelConsumer,
-      vec![key.into(), groupname.into(), consumername.into()],
-    ))
+    Ok((RedisCommandKind::XgroupDelConsumer, vec![
+      key.into(),
+      groupname.into(),
+      consumername.into(),
+    ]))
   })
   .await?;
 
@@ -303,10 +314,11 @@ pub async fn xgroup_setid(
   id: XID,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::XgroupSetId,
-      vec![key.into(), groupname.into(), id.into_str().into()],
-    ))
+    Ok((RedisCommandKind::XgroupSetId, vec![
+      key.into(),
+      groupname.into(),
+      id.into_str().into(),
+    ]))
   })
   .await?;
 

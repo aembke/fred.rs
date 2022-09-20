@@ -1,8 +1,7 @@
-use fred::prelude::*;
-use fred::util;
+use fred::{prelude::*, util};
 
-static ECHO_SCRIPT: &'static str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
-static GET_SCRIPT: &'static str = "return redis.call('get', KEYS[1])";
+static ECHO_SCRIPT: &str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
+static GET_SCRIPT: &str = "return redis.call('get', KEYS[1])";
 
 pub async fn load_script(client: &RedisClient, script: &str) -> Result<String, RedisError> {
   if client.is_clustered() {
@@ -42,7 +41,7 @@ pub async fn should_evalsha_echo_script(client: RedisClient, _: RedisConfig) -> 
   let result: Vec<String> = client.evalsha(hash, vec!["a{1}", "b{1}"], vec!["c{1}", "d{1}"]).await?;
   assert_eq!(result, vec!["a{1}", "b{1}", "c{1}", "d{1}"]);
 
-  let _ = flush_scripts(&client).await?;
+  flush_scripts(&client).await?;
   Ok(())
 }
 
@@ -54,11 +53,11 @@ pub async fn should_evalsha_get_script(client: RedisClient, _: RedisConfig) -> R
   let result: Option<String> = client.evalsha(&script_hash, vec!["foo"], None).await?;
   assert!(result.is_none());
 
-  let _: () = client.set("foo", "bar", None, None, false).await?;
+  client.set("foo", "bar", None, None, false).await?;
   let result: String = client.evalsha(&script_hash, vec!["foo"], None).await?;
   assert_eq!(result, "bar");
 
-  let _ = flush_scripts(&client).await?;
+  flush_scripts(&client).await?;
   Ok(())
 }
 
@@ -68,7 +67,7 @@ pub async fn should_eval_echo_script(client: RedisClient, _: RedisConfig) -> Res
     .await?;
   assert_eq!(result, vec!["a{1}", "b{1}", "c{1}", "d{1}"]);
 
-  let _ = flush_scripts(&client).await?;
+  flush_scripts(&client).await?;
   Ok(())
 }
 
@@ -80,13 +79,13 @@ pub async fn should_eval_get_script(client: RedisClient, _: RedisConfig) -> Resu
   let result: Option<String> = client.evalsha(&hash, vec!["foo"], None).await?;
   assert!(result.is_none());
 
-  let _: () = client.set("foo", "bar", None, None, false).await?;
+  client.set("foo", "bar", None, None, false).await?;
   let result: String = client.eval(GET_SCRIPT, vec!["foo"], None).await?;
   assert_eq!(result, "bar");
 
   let result: String = client.evalsha(&hash, vec!["foo"], None).await?;
   assert_eq!(result, "bar");
 
-  let _ = flush_scripts(&client).await?;
+  flush_scripts(&client).await?;
   Ok(())
 }

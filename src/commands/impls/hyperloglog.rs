@@ -1,9 +1,10 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use std::sync::Arc;
 
 pub async fn pfadd<K>(
@@ -12,8 +13,7 @@ pub async fn pfadd<K>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let key = key.into();
 
   let frame = utils::request_response(inner, move || {
@@ -32,8 +32,7 @@ where
 
 pub async fn pfcount<K>(inner: &Arc<RedisClientInner>, keys: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let args: Vec<RedisValue> = keys.into().inner().into_iter().map(|k| k.into()).collect();
   args_value_cmd(inner, RedisCommandKind::Pfcount, args).await
 }
@@ -41,8 +40,7 @@ where
 pub async fn pfmerge<D, S>(inner: &Arc<RedisClientInner>, dest: D, sources: S) -> Result<RedisValue, RedisError>
 where
   D: Into<RedisKey>,
-  S: Into<MultipleKeys>,
-{
+  S: Into<MultipleKeys>, {
   let (dest, sources) = (dest.into(), sources.into());
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(1 + sources.len());

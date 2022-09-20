@@ -1,13 +1,13 @@
 use super::*;
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
 pub async fn config_get(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
@@ -25,10 +25,12 @@ pub async fn config_set(
   value: RedisValue,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!("CONFIG"), static_val!("SET"), name.into(), value],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!("CONFIG"),
+      static_val!("SET"),
+      name.into(),
+      value,
+    ]))
   })
   .await?;
 
@@ -59,10 +61,10 @@ pub async fn failover(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisV
 
 pub async fn get_master_addr_by_name(inner: &Arc<RedisClientInner>, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!("GET-MASTER-ADDR-BY-NAME"), name.into()],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!("GET-MASTER-ADDR-BY-NAME"),
+      name.into(),
+    ]))
   })
   .await?;
 
@@ -95,16 +97,13 @@ pub async fn monitor(
 ) -> Result<RedisValue, RedisError> {
   let ip = ip.to_string();
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![
-        static_val!("MONITOR"),
-        name.into(),
-        ip.into(),
-        port.into(),
-        quorum.into(),
-      ],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!("MONITOR"),
+      name.into(),
+      ip.into(),
+      port.into(),
+      quorum.into(),
+    ]))
   })
   .await?;
 
@@ -168,10 +167,10 @@ pub async fn simulate_failure(
   kind: SentinelFailureKind,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!("SIMULATE-FAILURE"), kind.to_str().into()],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!("SIMULATE-FAILURE"),
+      kind.to_str().into(),
+    ]))
   })
   .await?;
 

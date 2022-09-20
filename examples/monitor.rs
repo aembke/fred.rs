@@ -1,5 +1,7 @@
-use fred::monitor::{self, Config};
-use fred::prelude::*;
+use fred::{
+  monitor::{self, Config},
+  prelude::*,
+};
 use futures::stream::StreamExt;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -27,7 +29,7 @@ async fn main() -> Result<(), RedisError> {
     println!("Client failed to connect with error: {:?}", error);
   }
 
-  for idx in 0..50 {
+  for idx in 0 .. 50 {
     let _ = client.set("foo", idx, Some(Expiration::EX(10)), None, false).await?;
   }
   let _ = client.quit().await?;

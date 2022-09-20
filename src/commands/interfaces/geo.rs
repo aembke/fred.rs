@@ -1,9 +1,20 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{
-  Any, FromRedis, GeoPosition, GeoRadiusInfo, GeoUnit, MultipleGeoValues, MultipleValues, RedisKey, RedisValue,
-  SetOptions, SortOrder,
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{
+    Any,
+    FromRedis,
+    GeoPosition,
+    GeoRadiusInfo,
+    GeoUnit,
+    MultipleGeoValues,
+    MultipleValues,
+    RedisKey,
+    RedisValue,
+    SetOptions,
+    SortOrder,
+  },
 };
 use std::convert::TryInto;
 
@@ -16,8 +27,7 @@ pub trait GeoInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    V: Into<MultipleGeoValues>,
-  {
+    V: Into<MultipleGeoValues>, {
     into!(key, values);
     async_spawn(self, move |inner| async move {
       commands::geo::geoadd(&inner, key, options, changed, values)
@@ -26,7 +36,8 @@ pub trait GeoInterface: ClientLike + Sized {
     })
   }
 
-  /// Return valid Geohash strings representing the position of one or more elements in a sorted set value representing a geospatial index (where elements were added using GEOADD).
+  /// Return valid Geohash strings representing the position of one or more elements in a sorted set value
+  /// representing a geospatial index (where elements were added using GEOADD).
   ///
   /// <https://redis.io/commands/geohash>
   fn geohash<R, K, V>(&self, key: K, members: V) -> AsyncResult<R>
@@ -34,8 +45,7 @@ pub trait GeoInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {
@@ -43,7 +53,8 @@ pub trait GeoInterface: ClientLike + Sized {
     })
   }
 
-  /// Return the positions (longitude,latitude) of all the specified members of the geospatial index represented by the sorted set at key.
+  /// Return the positions (longitude,latitude) of all the specified members of the geospatial index represented by
+  /// the sorted set at key.
   ///
   /// Callers can use [as_geo_position](crate::types::RedisValue::as_geo_position) to lazily parse results as needed.
   ///
@@ -52,8 +63,7 @@ pub trait GeoInterface: ClientLike + Sized {
   where
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {
@@ -71,8 +81,7 @@ pub trait GeoInterface: ClientLike + Sized {
     S: TryInto<RedisValue>,
     S::Error: Into<RedisError>,
     D: TryInto<RedisValue>,
-    D::Error: Into<RedisError>,
-  {
+    D::Error: Into<RedisError>, {
     into!(key);
     try_into!(src, dest);
     async_spawn(self, |inner| async move {
@@ -80,8 +89,8 @@ pub trait GeoInterface: ClientLike + Sized {
     })
   }
 
-  /// Return the members of a sorted set populated with geospatial information using GEOADD, which are within the borders of the area specified with
-  /// the center location and the maximum distance from the center (the radius).
+  /// Return the members of a sorted set populated with geospatial information using GEOADD, which are within the
+  /// borders of the area specified with the center location and the maximum distance from the center (the radius).
   ///
   /// <https://redis.io/commands/georadius>
   fn georadius<K, P>(
@@ -100,8 +109,7 @@ pub trait GeoInterface: ClientLike + Sized {
   ) -> AsyncResult<Vec<GeoRadiusInfo>>
   where
     K: Into<RedisKey>,
-    P: Into<GeoPosition>,
-  {
+    P: Into<GeoPosition>, {
     into!(key, position);
     async_spawn(self, |inner| async move {
       commands::geo::georadius(
@@ -111,8 +119,9 @@ pub trait GeoInterface: ClientLike + Sized {
     })
   }
 
-  /// This command is exactly like GEORADIUS with the sole difference that instead of taking, as the center of the area to query, a longitude and
-  /// latitude value, it takes the name of a member already existing inside the geospatial index represented by the sorted set.
+  /// This command is exactly like GEORADIUS with the sole difference that instead of taking, as the center of the
+  /// area to query, a longitude and latitude value, it takes the name of a member already existing inside the
+  /// geospatial index represented by the sorted set.
   ///
   /// <https://redis.io/commands/georadiusbymember>
   fn georadiusbymember<K, V>(
@@ -132,8 +141,7 @@ pub trait GeoInterface: ClientLike + Sized {
   where
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -155,7 +163,8 @@ pub trait GeoInterface: ClientLike + Sized {
     })
   }
 
-  /// Return the members of a sorted set populated with geospatial information using GEOADD, which are within the borders of the area specified by a given shape.
+  /// Return the members of a sorted set populated with geospatial information using GEOADD, which are within the
+  /// borders of the area specified by a given shape.
   ///
   /// <https://redis.io/commands/geosearch>
   fn geosearch<K>(
@@ -172,8 +181,7 @@ pub trait GeoInterface: ClientLike + Sized {
     withhash: bool,
   ) -> AsyncResult<Vec<GeoRadiusInfo>>
   where
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::geo::geosearch(
@@ -193,7 +201,8 @@ pub trait GeoInterface: ClientLike + Sized {
     })
   }
 
-  /// This command is like GEOSEARCH, but stores the result in destination key. Returns the number of members added to the destination key.
+  /// This command is like GEOSEARCH, but stores the result in destination key. Returns the number of members added to
+  /// the destination key.
   ///
   /// <https://redis.io/commands/geosearchstore>
   fn geosearchstore<R, D, S>(
@@ -211,8 +220,7 @@ pub trait GeoInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
-    S: Into<RedisKey>,
-  {
+    S: Into<RedisKey>, {
     into!(dest, source);
     async_spawn(self, |inner| async move {
       commands::geo::geosearchstore(

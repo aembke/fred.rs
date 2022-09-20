@@ -1,13 +1,17 @@
-use crate::error::RedisError;
-use crate::types::{RedisKey, RedisValue};
-use std::collections::VecDeque;
-use std::convert::{TryFrom, TryInto};
-use std::iter::FromIterator;
+use crate::{
+  error::RedisError,
+  types::{RedisKey, RedisValue},
+};
+use std::{
+  collections::VecDeque,
+  convert::{TryFrom, TryInto},
+  iter::FromIterator,
+};
 
 /// Convenience struct for commands that take 1 or more keys.
 ///
-/// **Note: this can also be used to represent an empty array of keys by passing `None` to any function that takes `Into<MultipleKeys>`.** This
-/// is mostly useful for `EVAL` and `EVALSHA`.
+/// **Note: this can also be used to represent an empty array of keys by passing `None` to any function that takes
+/// `Into<MultipleKeys>`.** This is mostly useful for `EVAL` and `EVALSHA`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleKeys {
   keys: Vec<RedisKey>,
@@ -81,8 +85,8 @@ pub type MultipleStrings = MultipleKeys;
 
 /// Convenience struct for commands that take 1 or more values.
 ///
-/// **Note: this can be used to represent an empty set of values by using `None` for any function that takes `Into<MultipleValues>`.** This
-/// is most useful for `EVAL` and `EVALSHA`.
+/// **Note: this can be used to represent an empty set of values by using `None` for any function that takes
+/// `Into<MultipleValues>`.** This is most useful for `EVAL` and `EVALSHA`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleValues {
   values: Vec<RedisValue>,
@@ -110,21 +114,19 @@ impl From<Option<RedisValue>> for MultipleValues {
   }
 }
 
-/*
 // https://github.com/rust-lang/rust/issues/50133
 // FIXME there has to be a way around this issue?
-impl<T> TryFrom<T> for MultipleValues
-where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
-{
-  type Error = RedisError;
-
-  fn try_from(d: T) -> Result<Self, Self::Error> {
-    Ok(MultipleValues { values: vec![to!(d)?] })
-  }
-}
-*/
+// impl<T> TryFrom<T> for MultipleValues
+// where
+// T: TryInto<RedisValue>,
+// T::Error: Into<RedisError>,
+// {
+// type Error = RedisError;
+//
+// fn try_from(d: T) -> Result<Self, Self::Error> {
+// Ok(MultipleValues { values: vec![to!(d)?] })
+// }
+// }
 
 // TODO consider supporting conversion from tuples with a reasonable size
 

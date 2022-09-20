@@ -1,10 +1,12 @@
-use crate::clients::TransactionClient;
-use crate::commands;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::modules::inner::MultiPolicy;
-use crate::types::MultipleKeys;
-use crate::utils;
+use crate::{
+  clients::TransactionClient,
+  commands,
+  error::{RedisError, RedisErrorKind},
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  modules::inner::MultiPolicy,
+  types::MultipleKeys,
+  utils,
+};
 
 /// Functions that implement the [transactions](https://redis.io/commands#transactions) interface.
 ///
@@ -14,14 +16,15 @@ pub trait TransactionInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/multi>
   ///
-  /// The `abort_on_error` flag indicates whether the client should automatically abort the transaction when an error is received from a command within
-  /// the transaction (i.e. the server responds with an error before `EXEC` is called).
+  /// The `abort_on_error` flag indicates whether the client should automatically abort the transaction when an error
+  /// is received from a command within the transaction (i.e. the server responds with an error before `EXEC` is
+  /// called).
   ///
   /// See <https://redis.io/topics/transactions#errors-inside-a-transaction> for more information. If this flag is `false` then the caller will need to
   /// `exec` or `discard` the transaction before either retrying or moving on to new commands outside the transaction.
   ///
-  /// When used against a cluster the client will wait to send the `MULTI` command until the hash slot is known from a subsequent command. If no hash slot
-  /// is provided the transaction will run against a random cluster node.
+  /// When used against a cluster the client will wait to send the `MULTI` command until the hash slot is known from a
+  /// subsequent command. If no hash slot is provided the transaction will run against a random cluster node.
   // TODO make sure this works with multiple commands that don't have a hash slot
   fn multi(&self, abort_on_error: bool) -> AsyncResult<TransactionClient> {
     async_spawn(self, |inner| async move {
@@ -68,9 +71,10 @@ pub trait TransactionInterface: ClientLike + Sized {
 
   /// Force the client to abort any in-flight transactions.
   ///
-  /// The `Drop` trait on the [TransactionClient](crate::clients::TransactionClient) is not async and so callers that accidentally drop the transaction
-  /// client associated with a MULTI block before calling EXEC or DISCARD can use this function to exit the transaction.
-  /// A warning log line will be emitted if the transaction client is dropped before calling EXEC or DISCARD.
+  /// The `Drop` trait on the [TransactionClient](crate::clients::TransactionClient) is not async and so callers that
+  /// accidentally drop the transaction client associated with a MULTI block before calling EXEC or DISCARD can use
+  /// this function to exit the transaction. A warning log line will be emitted if the transaction client is dropped
+  /// before calling EXEC or DISCARD.
   fn force_discard_transaction(&self) -> AsyncResult<()> {
     async_spawn(self, |inner| async move { commands::server::discard(&inner).await })
   }
@@ -80,8 +84,7 @@ pub trait TransactionInterface: ClientLike + Sized {
   /// <https://redis.io/commands/watch>
   fn watch<K>(&self, keys: K) -> AsyncResult<()>
   where
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;

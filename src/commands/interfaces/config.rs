@@ -1,8 +1,10 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, RedisValue};
-use crate::utils;
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, RedisValue},
+  utils,
+};
 use bytes_utils::Str;
 use std::convert::TryInto;
 
@@ -18,9 +20,9 @@ pub trait ConfigInterface: ClientLike + Sized {
     })
   }
 
-  /// The CONFIG REWRITE command rewrites the redis.conf file the server was started with, applying the minimal changes needed to make it
-  /// reflect the configuration currently used by the server, which may be different compared to the original one because of the use of
-  /// the CONFIG SET command.
+  /// The CONFIG REWRITE command rewrites the redis.conf file the server was started with, applying the minimal
+  /// changes needed to make it reflect the configuration currently used by the server, which may be different
+  /// compared to the original one because of the use of the CONFIG SET command.
   ///
   /// <https://redis.io/commands/config-rewrite>
   fn config_rewrite(&self) -> AsyncResult<()> {
@@ -36,8 +38,7 @@ pub trait ConfigInterface: ClientLike + Sized {
   fn config_get<R, S>(&self, parameter: S) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(parameter);
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -52,8 +53,7 @@ pub trait ConfigInterface: ClientLike + Sized {
   where
     P: Into<Str>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(parameter);
     try_into!(value);
     async_spawn(self, |inner| async move {

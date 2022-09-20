@@ -1,16 +1,12 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::types::*;
-use crate::utils;
+use crate::{error::*, modules::inner::RedisClientInner, protocol::types::*, types::*, utils};
 use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
 use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-static STARTING_CURSOR: &'static str = "0";
+static STARTING_CURSOR: &str = "0";
 
 fn values_args(key: RedisKey, pattern: Str, count: Option<u32>) -> Vec<RedisValue> {
   let mut args = Vec::with_capacity(6);
@@ -77,8 +73,8 @@ pub fn scan_cluster(
     _trace!(inner, "Scan cluster hash slot server: {}", slot);
     let scan_inner = KeyScanInner {
       key_slot: Some(slot),
-      tx: tx.clone(),
-      cursor: utils::static_str(STARTING_CURSOR),
+      tx:       tx.clone(),
+      cursor:   utils::static_str(STARTING_CURSOR),
     };
     let cmd = RedisCommand::new(RedisCommandKind::Scan(scan_inner), args.clone(), None);
 
@@ -154,8 +150,7 @@ pub fn hscan<K>(
   count: Option<u32>,
 ) -> impl Stream<Item = Result<HScanResult, RedisError>>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let (tx, rx) = unbounded_channel();
   let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
     early_error(&tx, e);
@@ -195,8 +190,7 @@ pub fn sscan<K>(
   count: Option<u32>,
 ) -> impl Stream<Item = Result<SScanResult, RedisError>>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let (tx, rx) = unbounded_channel();
   let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
     early_error(&tx, e);
@@ -236,8 +230,7 @@ pub fn zscan<K>(
   count: Option<u32>,
 ) -> impl Stream<Item = Result<ZScanResult, RedisError>>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let (tx, rx) = unbounded_channel();
   let should_send = if let Err(e) = utils::disallow_during_transaction(inner) {
     early_error(&tx, e);

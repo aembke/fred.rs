@@ -1,5 +1,4 @@
-use fred::prelude::*;
-use fred::util as fred_utils;
+use fred::{prelude::*, util as fred_utils};
 
 static SCRIPTS: &'static [&'static str] = &[
   "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",

@@ -1,10 +1,14 @@
-use crate::commands::{MAXLEN, MINID};
-use crate::error::{RedisError, RedisErrorKind};
-use crate::types::{LimitCount, RedisKey, RedisValue, StringOrNumber};
-use crate::utils;
+use crate::{
+  commands::{MAXLEN, MINID},
+  error::{RedisError, RedisErrorKind},
+  types::{LimitCount, RedisKey, RedisValue, StringOrNumber},
+  utils,
+};
 use bytes_utils::Str;
-use std::collections::{HashMap, VecDeque};
-use std::convert::{TryFrom, TryInto};
+use std::{
+  collections::{HashMap, VecDeque},
+  convert::{TryFrom, TryInto},
+};
 
 /// Representation for the "=" or "~" operator in `XADD`, etc.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,7 +30,7 @@ impl<'a> TryFrom<&'a str> for XCapTrim {
   type Error = RedisError;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
-    Ok(match s.as_ref() {
+    Ok(match s {
       "=" => XCapTrim::Exact,
       "~" => XCapTrim::AlmostExact,
       _ => {
@@ -34,7 +38,7 @@ impl<'a> TryFrom<&'a str> for XCapTrim {
           RedisErrorKind::InvalidArgument,
           "Invalid XADD trim value.",
         ))
-      }
+      },
     })
   }
 }
@@ -181,7 +185,7 @@ impl<'a> TryFrom<&'a str> for XCapKind {
   type Error = RedisError;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-    Ok(match value.as_ref() {
+    Ok(match value {
       "MAXLEN" => XCapKind::MaxLen,
       "MINID" => XCapKind::MinID,
       _ => {
@@ -189,7 +193,7 @@ impl<'a> TryFrom<&'a str> for XCapKind {
           RedisErrorKind::InvalidArgument,
           "Expected MAXLEN or MINID,",
         ))
-      }
+      },
     })
   }
 }
@@ -285,14 +289,14 @@ impl XID {
       XID::Auto => utils::static_str("*"),
       XID::Max => utils::static_str("$"),
       XID::NewInGroup => utils::static_str(">"),
-      XID::Manual(s) => s.into(),
+      XID::Manual(s) => s,
     }
   }
 }
 
 impl<'a> From<&'a str> for XID {
   fn from(value: &'a str) -> Self {
-    match value.as_ref() {
+    match value {
       "*" => XID::Auto,
       "$" => XID::Max,
       ">" => XID::NewInGroup,
@@ -336,13 +340,14 @@ impl From<Str> for XID {
 
 /// A struct representing the trailing optional arguments to [XPENDING](https://redis.io/commands/xpending).
 ///
-/// See the `From` implementations for various shorthand representations of these arguments. Callers should use `()` to represent no arguments.
+/// See the `From` implementations for various shorthand representations of these arguments. Callers should use `()`
+/// to represent no arguments.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct XPendingArgs {
-  pub idle: Option<u64>,
-  pub start: Option<XID>,
-  pub end: Option<XID>,
-  pub count: Option<u64>,
+  pub idle:     Option<u64>,
+  pub start:    Option<XID>,
+  pub end:      Option<XID>,
+  pub count:    Option<u64>,
   pub consumer: Option<Str>,
 }
 
@@ -364,7 +369,7 @@ impl XPendingArgs {
             RedisErrorKind::InvalidArgument,
             "The `start` argument is required in this context.",
           ))
-        }
+        },
       };
       let end = match self.end {
         Some(s) => s,
@@ -373,7 +378,7 @@ impl XPendingArgs {
             RedisErrorKind::InvalidArgument,
             "The `end` argument is required in this context.",
           ))
-        }
+        },
       };
       let count = match self.count {
         Some(s) => s,
@@ -382,7 +387,7 @@ impl XPendingArgs {
             RedisErrorKind::InvalidArgument,
             "The `count` argument is required in this context.",
           ))
-        }
+        },
       };
 
       Ok(Some((self.idle, start, end, count, self.consumer)))
@@ -393,10 +398,10 @@ impl XPendingArgs {
 impl From<()> for XPendingArgs {
   fn from(_: ()) -> Self {
     XPendingArgs {
-      idle: None,
-      start: None,
-      end: None,
-      count: None,
+      idle:     None,
+      start:    None,
+      end:      None,
+      count:    None,
       consumer: None,
     }
   }
@@ -409,10 +414,10 @@ where
 {
   fn from((start, end, count): (S, E, u64)) -> Self {
     XPendingArgs {
-      idle: None,
-      start: Some(start.into()),
-      end: Some(end.into()),
-      count: Some(count),
+      idle:     None,
+      start:    Some(start.into()),
+      end:      Some(end.into()),
+      count:    Some(count),
       consumer: None,
     }
   }
@@ -426,10 +431,10 @@ where
 {
   fn from((start, end, count, consumer): (S, E, u64, C)) -> Self {
     XPendingArgs {
-      idle: None,
-      start: Some(start.into()),
-      end: Some(end.into()),
-      count: Some(count),
+      idle:     None,
+      start:    Some(start.into()),
+      end:      Some(end.into()),
+      count:    Some(count),
       consumer: Some(consumer.into()),
     }
   }
@@ -442,10 +447,10 @@ where
 {
   fn from((idle, start, end, count): (u64, S, E, u64)) -> Self {
     XPendingArgs {
-      idle: Some(idle),
-      start: Some(start.into()),
-      end: Some(end.into()),
-      count: Some(count),
+      idle:     Some(idle),
+      start:    Some(start.into()),
+      end:      Some(end.into()),
+      count:    Some(count),
       consumer: None,
     }
   }
@@ -459,10 +464,10 @@ where
 {
   fn from((idle, start, end, count, consumer): (u64, S, E, u64, C)) -> Self {
     XPendingArgs {
-      idle: Some(idle),
-      start: Some(start.into()),
-      end: Some(end.into()),
-      count: Some(count),
+      idle:     Some(idle),
+      start:    Some(start.into()),
+      end:      Some(end.into()),
+      count:    Some(count),
       consumer: Some(consumer.into()),
     }
   }
@@ -482,5 +487,6 @@ pub type XReadValue<I, K, V> = (I, HashMap<K, V>);
 /// * K2 - The type of key in the map associated with each stream record.
 /// * V - The type of value in the map associated with each stream record.
 ///
-/// To support heterogeneous values in the map describing each stream element it is recommended to declare the last type as `RedisValue` and [convert](crate::types::RedisValue::convert) as needed.
+/// To support heterogeneous values in the map describing each stream element it is recommended to declare the last
+/// type as `RedisValue` and [convert](crate::types::RedisValue::convert) as needed.
 pub type XReadResponse<K1, I, K2, V> = HashMap<K1, Vec<XReadValue<I, K2, V>>>;

@@ -1,27 +1,28 @@
 use crate::protocol::types::RedisCommand;
 use bytes_utils::string::Utf8Error as BytesUtf8Error;
 use futures::channel::oneshot::Canceled;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::types::RedisProtocolError;
+use redis_protocol::{resp2::types::Frame as Resp2Frame, types::RedisProtocolError};
 use semver::Error as SemverError;
-use std::borrow::{Borrow, Cow};
-use std::convert::Infallible;
-use std::error::Error;
-use std::fmt;
-use std::fmt::Display;
-use std::io::Error as IoError;
-use std::num::ParseFloatError;
-use std::num::ParseIntError;
-use std::str;
-use std::str::Utf8Error;
-use std::string::FromUtf8Error;
+use std::{
+  borrow::{Borrow, Cow},
+  convert::Infallible,
+  error::Error,
+  fmt,
+  fmt::Display,
+  io::Error as IoError,
+  num::{ParseFloatError, ParseIntError},
+  str,
+  str::Utf8Error,
+  string::FromUtf8Error,
+};
 use tokio::task::JoinError;
 use url::ParseError;
 
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RedisErrorKind {
-  /// A fatal client configuration error. These errors will shutdown a client and break out of any reconnection attempts.
+  /// A fatal client configuration error. These errors will shutdown a client and break out of any reconnection
+  /// attempts.
   Config,
   /// An authentication error.
   Auth,
@@ -43,13 +44,15 @@ pub enum RedisErrorKind {
   Unknown,
   /// A timeout error.
   Timeout,
-  /// An error used to indicate that the cluster's state has changed. These errors will show up on the `on_error` error stream even though the client will automatically attempt to recover.
+  /// An error used to indicate that the cluster's state has changed. These errors will show up on the `on_error`
+  /// error stream even though the client will automatically attempt to recover.
   Cluster,
   /// A parser error.
   Parse,
   /// An error communicating with redis sentinel.
   Sentinel,
-  /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a non-nullable type.
+  /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a
+  /// non-nullable type.
   NotFound,
   /// An error indicating that the caller should apply backpressure and retry the command.
   Backpressure,
@@ -83,7 +86,7 @@ pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind: RedisErrorKind,
+  kind:    RedisErrorKind,
   /// Command context for the error.
   context: Option<RedisCommand>,
 }
@@ -247,8 +250,7 @@ impl RedisError {
   /// Create a new Redis error with the provided details.
   pub fn new<T>(kind: RedisErrorKind, details: T) -> RedisError
   where
-    T: Into<Cow<'static, str>>,
-  {
+    T: Into<Cow<'static, str>>, {
     RedisError {
       kind,
       details: details.into(),
@@ -259,8 +261,7 @@ impl RedisError {
   /// Create a new error with the provided command context.
   pub(crate) fn new_context<T>(kind: RedisErrorKind, details: T, cmd: RedisCommand) -> RedisError
   where
-    T: Into<Cow<'static, str>>,
-  {
+    T: Into<Cow<'static, str>>, {
     RedisError {
       kind,
       details: details.into(),
@@ -321,8 +322,7 @@ impl RedisError {
   /// Create a new parse error with the provided details.
   pub(crate) fn new_parse<T>(details: T) -> RedisError
   where
-    T: Into<Cow<'static, str>>,
-  {
+    T: Into<Cow<'static, str>>, {
     RedisError::new(RedisErrorKind::Parse, details)
   }
 

@@ -1,16 +1,19 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
-use std::convert::TryInto;
-use std::sync::Arc;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
+use std::{convert::TryInto, sync::Arc};
 
-pub async fn sadd<K>(inner: &Arc<RedisClientInner>, key: K, members: MultipleValues) -> Result<RedisValue, RedisError>
+pub async fn sadd<K>(
+  inner: &Arc<RedisClientInner>,
+  key: K,
+  members: MultipleValues,
+) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let key = key.into();
 
   let frame = utils::request_response(inner, move || {
@@ -29,15 +32,13 @@ where
 
 pub async fn scard<K>(inner: &Arc<RedisClientInner>, key: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   one_arg_value_cmd(inner, RedisCommandKind::Scard, key.into().into()).await
 }
 
 pub async fn sdiff<K>(inner: &Arc<RedisClientInner>, keys: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let keys = keys.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(keys.len());
@@ -55,8 +56,7 @@ where
 pub async fn sdiffstore<D, K>(inner: &Arc<RedisClientInner>, dest: D, keys: K) -> Result<RedisValue, RedisError>
 where
   D: Into<RedisKey>,
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let (dest, keys) = (dest.into(), keys.into());
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(1 + keys.len());
@@ -74,8 +74,7 @@ where
 
 pub async fn sinter<K>(inner: &Arc<RedisClientInner>, keys: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let keys = keys.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(keys.len());
@@ -93,8 +92,7 @@ where
 pub async fn sinterstore<D, K>(inner: &Arc<RedisClientInner>, dest: D, keys: K) -> Result<RedisValue, RedisError>
 where
   D: Into<RedisKey>,
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let (dest, keys) = (dest.into(), keys.into());
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(1 + keys.len());
@@ -110,10 +108,13 @@ where
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn sismember<K>(inner: &Arc<RedisClientInner>, key: K, member: RedisValue) -> Result<RedisValue, RedisError>
+pub async fn sismember<K>(
+  inner: &Arc<RedisClientInner>,
+  key: K,
+  member: RedisValue,
+) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   args_value_cmd(inner, RedisCommandKind::Sismember, vec![key.into().into(), member]).await
 }
 
@@ -123,8 +124,7 @@ pub async fn smismember<K>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let key = key.into();
 
   let frame = utils::request_response(inner, move || {
@@ -143,8 +143,7 @@ where
 
 pub async fn smembers<K>(inner: &Arc<RedisClientInner>, key: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   one_arg_values_cmd(inner, RedisCommandKind::Smembers, key.into().into()).await
 }
 
@@ -156,8 +155,7 @@ pub async fn smove<S, D>(
 ) -> Result<RedisValue, RedisError>
 where
   S: Into<RedisKey>,
-  D: Into<RedisKey>,
-{
+  D: Into<RedisKey>, {
   let (source, dest) = (source.into(), dest.into());
   let args = vec![source.into(), dest.into(), member];
   args_value_cmd(inner, RedisCommandKind::Smove, args).await
@@ -165,8 +163,7 @@ where
 
 pub async fn spop<K>(inner: &Arc<RedisClientInner>, key: K, count: Option<usize>) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let key = key.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(2);
@@ -188,8 +185,7 @@ pub async fn srandmember<K>(
   count: Option<usize>,
 ) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let key = key.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(2);
@@ -205,10 +201,13 @@ where
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn srem<K>(inner: &Arc<RedisClientInner>, key: K, members: MultipleValues) -> Result<RedisValue, RedisError>
+pub async fn srem<K>(
+  inner: &Arc<RedisClientInner>,
+  key: K,
+  members: MultipleValues,
+) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   let key = key.into();
 
   let frame = utils::request_response(inner, move || {
@@ -227,8 +226,7 @@ where
 
 pub async fn sunion<K>(inner: &Arc<RedisClientInner>, keys: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let keys = keys.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(keys.len());
@@ -246,8 +244,7 @@ where
 pub async fn sunionstore<D, K>(inner: &Arc<RedisClientInner>, dest: D, keys: K) -> Result<RedisValue, RedisError>
 where
   D: Into<RedisKey>,
-  K: Into<MultipleKeys>,
-{
+  K: Into<MultipleKeys>, {
   let (dest, keys) = (dest.into(), keys.into());
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(1 + keys.len());

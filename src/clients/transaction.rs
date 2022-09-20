@@ -1,18 +1,20 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::*;
-use crate::modules::inner::RedisClientInner;
-use crate::types::FromRedis;
-use crate::utils::check_and_set_bool;
-use crate::{commands, utils};
+use crate::{
+  commands,
+  error::{RedisError, RedisErrorKind},
+  interfaces::*,
+  modules::inner::RedisClientInner,
+  types::FromRedis,
+  utils,
+  utils::check_and_set_bool,
+};
 use parking_lot::RwLock;
-use std::fmt;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 /// A client struct for commands in a MULTI/EXEC transaction block.
 ///
 /// This struct will use the same connection(s) as the client from which it was created.
 pub struct TransactionClient {
-  inner: Arc<RedisClientInner>,
+  inner:    Arc<RedisClientInner>,
   finished: Arc<RwLock<bool>>,
 }
 
@@ -65,14 +67,13 @@ impl TransactionClient {
   ///
   /// <https://redis.io/commands/exec>
   ///
-  /// Note: Automatic request retry policies in the event of a connection closing can present problems for transactions.
-  /// If the underlying connection closes while a transaction is in process the client will abort the transaction by
-  /// returning a `Canceled` error to the caller of any pending intermediate command, as well as this one. It's up to
-  /// the caller to retry transactions as needed.
+  /// Note: Automatic request retry policies in the event of a connection closing can present problems for
+  /// transactions. If the underlying connection closes while a transaction is in process the client will abort the
+  /// transaction by returning a `Canceled` error to the caller of any pending intermediate command, as well as this
+  /// one. It's up to the caller to retry transactions as needed.
   pub async fn exec<R>(self) -> Result<R, RedisError>
   where
-    R: FromRedis,
-  {
+    R: FromRedis, {
     if check_and_set_bool(&self.finished, true) {
       return Err(RedisError::new(
         RedisErrorKind::InvalidCommand,
@@ -105,7 +106,7 @@ impl TransactionClient {
 impl<'a> From<&'a Arc<RedisClientInner>> for TransactionClient {
   fn from(inner: &'a Arc<RedisClientInner>) -> Self {
     TransactionClient {
-      inner: inner.clone(),
+      inner:    inner.clone(),
       finished: Arc::new(RwLock::new(false)),
     }
   }

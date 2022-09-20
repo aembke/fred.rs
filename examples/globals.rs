@@ -1,5 +1,4 @@
-use fred::globals;
-use fred::prelude::*;
+use fred::{globals, prelude::*};
 
 #[cfg(feature = "custom-reconnect-errors")]
 use globals::ReconnectError;

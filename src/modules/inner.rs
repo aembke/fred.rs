@@ -1,20 +1,26 @@
-use crate::clients::RedisClient;
-use crate::error::*;
-use crate::modules::backchannel::Backchannel;
-use crate::multiplexer::SentCommand;
-use crate::protocol::types::DefaultResolver;
-use crate::protocol::types::RedisCommand;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  clients::RedisClient,
+  error::*,
+  modules::backchannel::Backchannel,
+  multiplexer::SentCommand,
+  protocol::types::{DefaultResolver, RedisCommand},
+  types::*,
+  utils,
+};
 use arc_swap::ArcSwap;
 use parking_lot::RwLock;
-use std::collections::VecDeque;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot::Sender as OneshotSender;
-use tokio::sync::RwLock as AsyncRwLock;
-use tokio::task::JoinHandle;
+use std::{
+  collections::VecDeque,
+  sync::{atomic::AtomicUsize, Arc},
+};
+use tokio::{
+  sync::{
+    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    oneshot::Sender as OneshotSender,
+    RwLock as AsyncRwLock,
+  },
+  task::JoinHandle,
+};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
@@ -27,7 +33,7 @@ pub struct ClosedState {
   /// Commands that were in flight that can be retried again after reconnecting.
   pub commands: VecDeque<SentCommand>,
   /// The error that closed the last connection.
-  pub error: RedisError,
+  pub error:    RedisError,
 }
 
 pub type ConnectionClosedTx = UnboundedSender<ClosedState>;
@@ -35,11 +41,12 @@ pub type ConnectionClosedTx = UnboundedSender<ClosedState>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultiPolicy {
   /// The hash slot against which the transaction is running.
-  pub hash_slot: Option<u16>,
+  pub hash_slot:      Option<u16>,
   /// Whether or not to abort the transaction on an error.
   pub abort_on_error: bool,
-  /// Whether or not the MULTI command has been sent. In clustered mode we defer sending the MULTI command until we know the hash slot.
-  pub sent_multi: bool,
+  /// Whether or not the MULTI command has been sent. In clustered mode we defer sending the MULTI command until we
+  /// know the hash slot.
+  pub sent_multi:     bool,
 }
 
 impl MultiPolicy {
@@ -62,35 +69,39 @@ impl MultiPolicy {
 /// A lock-free internal representation of the performance config options from the `RedisConfig`.
 #[derive(Debug)]
 pub struct InternalPerfConfig {
-  pipeline: ArcSwap<bool>,
-  max_command_attempts: Arc<AtomicUsize>,
-  default_command_timeout: Arc<AtomicUsize>,
-  max_feed_count: Arc<AtomicUsize>,
+  pipeline:                      ArcSwap<bool>,
+  max_command_attempts:          Arc<AtomicUsize>,
+  default_command_timeout:       Arc<AtomicUsize>,
+  max_feed_count:                Arc<AtomicUsize>,
   cluster_cache_update_delay_ms: Arc<AtomicUsize>,
-  disable_auto_backpressure: ArcSwap<bool>,
-  disable_backpressure_scaling: ArcSwap<bool>,
-  min_sleep_duration: Arc<AtomicUsize>,
-  max_in_flight_commands: Arc<AtomicUsize>,
+  disable_auto_backpressure:     ArcSwap<bool>,
+  disable_backpressure_scaling:  ArcSwap<bool>,
+  min_sleep_duration:            Arc<AtomicUsize>,
+  max_in_flight_commands:        Arc<AtomicUsize>,
 }
 
 impl<'a> From<&'a RedisConfig> for InternalPerfConfig {
   fn from(config: &'a RedisConfig) -> Self {
     InternalPerfConfig {
-      pipeline: ArcSwap::from(Arc::new(config.performance.pipeline)),
-      max_command_attempts: Arc::new(AtomicUsize::new(config.performance.max_command_attempts as usize)),
-      default_command_timeout: Arc::new(AtomicUsize::new(config.performance.default_command_timeout_ms as usize)),
-      max_feed_count: Arc::new(AtomicUsize::new(config.performance.max_feed_count as usize)),
+      pipeline:                      ArcSwap::from(Arc::new(config.performance.pipeline)),
+      max_command_attempts:          Arc::new(AtomicUsize::new(config.performance.max_command_attempts as usize)),
+      default_command_timeout:       Arc::new(AtomicUsize::new(
+        config.performance.default_command_timeout_ms as usize,
+      )),
+      max_feed_count:                Arc::new(AtomicUsize::new(config.performance.max_feed_count as usize)),
       cluster_cache_update_delay_ms: Arc::new(AtomicUsize::new(
         config.performance.cluster_cache_update_delay_ms as usize,
       )),
-      disable_auto_backpressure: ArcSwap::from(Arc::new(config.performance.backpressure.disable_auto_backpressure)),
-      disable_backpressure_scaling: ArcSwap::from(Arc::new(
+      disable_auto_backpressure:     ArcSwap::from(Arc::new(
+        config.performance.backpressure.disable_auto_backpressure,
+      )),
+      disable_backpressure_scaling:  ArcSwap::from(Arc::new(
         config.performance.backpressure.disable_backpressure_scaling,
       )),
-      min_sleep_duration: Arc::new(AtomicUsize::new(
+      min_sleep_duration:            Arc::new(AtomicUsize::new(
         config.performance.backpressure.min_sleep_duration_ms as usize,
       )),
-      max_in_flight_commands: Arc::new(AtomicUsize::new(
+      max_in_flight_commands:        Arc::new(AtomicUsize::new(
         config.performance.backpressure.max_in_flight_commands as usize,
       )),
     }
@@ -166,64 +177,64 @@ impl InternalPerfConfig {
 
 pub struct RedisClientInner {
   /// The client ID as seen by the server.
-  pub id: Arc<String>,
+  pub id:                   Arc<String>,
   /// The RESP version used by the underlying connections.
-  pub resp_version: Arc<ArcSwap<RespVersion>>,
+  pub resp_version:         Arc<ArcSwap<RespVersion>>,
   /// The response policy to apply when the client is in a MULTI block.
-  pub multi_block: RwLock<Option<MultiPolicy>>,
+  pub multi_block:          RwLock<Option<MultiPolicy>>,
   /// The state of the underlying connection.
-  pub state: RwLock<ClientState>,
+  pub state:                RwLock<ClientState>,
   /// The redis config used for initializing connections.
-  pub config: RwLock<RedisConfig>,
+  pub config:               RwLock<RedisConfig>,
   /// An optional reconnect policy.
-  pub policy: RwLock<Option<ReconnectPolicy>>,
+  pub policy:               RwLock<Option<ReconnectPolicy>>,
   /// An mpsc sender for errors to `on_error` streams.
-  pub error_tx: RwLock<VecDeque<UnboundedSender<RedisError>>>,
+  pub error_tx:             RwLock<VecDeque<UnboundedSender<RedisError>>>,
   /// An mpsc sender for commands to the multiplexer.
-  pub command_tx: CommandSender,
+  pub command_tx:           CommandSender,
   /// Temporary storage for the receiver half of the multiplexer command channel.
-  pub command_rx: RwLock<Option<CommandReceiver>>,
+  pub command_rx:           RwLock<Option<CommandReceiver>>,
   /// An mpsc sender for pubsub messages to `on_message` streams.
-  pub message_tx: RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>,
+  pub message_tx:           RwLock<VecDeque<UnboundedSender<(String, RedisValue)>>>,
   /// An mpsc sender for pubsub messages to `on_keyspace_event` streams.
-  pub keyspace_tx: RwLock<VecDeque<UnboundedSender<KeyspaceEvent>>>,
+  pub keyspace_tx:          RwLock<VecDeque<UnboundedSender<KeyspaceEvent>>>,
   /// An mpsc sender for reconnection events to `on_reconnect` streams.
-  pub reconnect_tx: RwLock<VecDeque<UnboundedSender<RedisClient>>>,
+  pub reconnect_tx:         RwLock<VecDeque<UnboundedSender<RedisClient>>>,
   /// An mpsc sender for cluster change notifications.
-  pub cluster_change_tx: RwLock<VecDeque<UnboundedSender<Vec<ClusterStateChange>>>>,
+  pub cluster_change_tx:    RwLock<VecDeque<UnboundedSender<Vec<ClusterStateChange>>>>,
   /// MPSC senders for `on_connect` futures.
-  pub connect_tx: RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
+  pub connect_tx:           RwLock<VecDeque<OneshotSender<Result<(), RedisError>>>>,
   /// A join handle for the task that sleeps waiting to reconnect.
-  pub reconnect_sleep_jh: RwLock<Option<JoinHandle<Result<(), ()>>>>,
+  pub reconnect_sleep_jh:   RwLock<Option<JoinHandle<Result<(), ()>>>>,
   /// Command queue buffer size.
-  pub cmd_buffer_len: Arc<AtomicUsize>,
+  pub cmd_buffer_len:       Arc<AtomicUsize>,
   /// Number of message redeliveries.
-  pub redeliver_count: Arc<AtomicUsize>,
+  pub redeliver_count:      Arc<AtomicUsize>,
   /// Channel listening to connection closed events.
   pub connection_closed_tx: RwLock<Option<ConnectionClosedTx>>,
   /// The cached view of the cluster state, if running against a clustered deployment.
-  pub cluster_state: RwLock<Option<ClusterKeyCache>>,
+  pub cluster_state:        RwLock<Option<ClusterKeyCache>>,
   /// The DNS resolver to use when establishing new connections.
-  pub resolver: DefaultResolver,
+  pub resolver:             DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
-  pub backchannel: Arc<AsyncRwLock<Backchannel>>,
+  pub backchannel:          Arc<AsyncRwLock<Backchannel>>,
   /// The server host/port resolved from the sentinel nodes, if known.
-  pub sentinel_primary: RwLock<Option<Arc<String>>>,
+  pub sentinel_primary:     RwLock<Option<Arc<String>>>,
   /// The internal representation of the performance config options from the `RedisConfig`.
-  pub perf_config: Arc<InternalPerfConfig>,
+  pub perf_config:          Arc<InternalPerfConfig>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
-  pub latency_stats: RwLock<MovingStats>,
+  pub latency_stats:         RwLock<MovingStats>,
   /// Network latency metrics.
   #[cfg(feature = "metrics")]
   pub network_latency_stats: RwLock<MovingStats>,
   /// Payload size metrics tracking for requests.
   #[cfg(feature = "metrics")]
-  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  pub req_size_stats:        Arc<RwLock<MovingStats>>,
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
-  pub res_size_stats: Arc<RwLock<MovingStats>>,
+  pub res_size_stats:        Arc<RwLock<MovingStats>>,
 }
 
 impl RedisClientInner {
@@ -277,8 +288,7 @@ impl RedisClientInner {
 
   pub fn log_client_name_fn<F>(&self, level: log::Level, func: F)
   where
-    F: FnOnce(&str),
-  {
+    F: FnOnce(&str), {
     if log_enabled!(level) {
       func(self.id.as_str())
     }

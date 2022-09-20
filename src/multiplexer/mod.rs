@@ -1,18 +1,24 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::connection::RedisSink;
-use crate::protocol::types::ClusterKeyCache;
-use crate::protocol::types::RedisCommand;
-use crate::types::ClientState;
-use crate::utils as client_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{
+    connection::RedisSink,
+    types::{ClusterKeyCache, RedisCommand},
+  },
+  types::ClientState,
+  utils as client_utils,
+};
 use parking_lot::{Mutex, RwLock};
-use std::collections::{BTreeMap, VecDeque};
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::broadcast::Sender as BroadcastSender;
-use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
-use tokio::sync::RwLock as AsyncRwLock;
+use std::{
+  collections::{BTreeMap, VecDeque},
+  sync::{atomic::AtomicUsize, Arc},
+  time::{Duration, Instant},
+};
+use tokio::sync::{
+  broadcast::Sender as BroadcastSender,
+  oneshot::{channel as oneshot_channel, Sender as OneshotSender},
+  RwLock as AsyncRwLock,
+};
 
 pub mod commands;
 pub mod responses;
@@ -34,17 +40,17 @@ pub enum Backpressure {
 
 #[derive(Debug)]
 pub struct SentCommand {
-  pub command: RedisCommand,
+  pub command:       RedisCommand,
   pub network_start: Option<Instant>,
-  pub multi_queued: bool,
+  pub multi_queued:  bool,
 }
 
 impl From<RedisCommand> for SentCommand {
   fn from(cmd: RedisCommand) -> Self {
     SentCommand {
-      command: cmd,
+      command:       cmd,
       network_start: None,
-      multi_queued: false,
+      multi_queued:  false,
     }
   }
 }
@@ -52,16 +58,16 @@ impl From<RedisCommand> for SentCommand {
 #[derive(Clone, Debug)]
 pub struct Counters {
   pub cmd_buffer_len: Arc<AtomicUsize>,
-  pub in_flight: Arc<AtomicUsize>,
-  pub feed_count: Arc<AtomicUsize>,
+  pub in_flight:      Arc<AtomicUsize>,
+  pub feed_count:     Arc<AtomicUsize>,
 }
 
 impl Counters {
   pub fn new(cmd_buffer_len: &Arc<AtomicUsize>) -> Self {
     Counters {
       cmd_buffer_len: cmd_buffer_len.clone(),
-      in_flight: Arc::new(AtomicUsize::new(0)),
-      feed_count: Arc::new(AtomicUsize::new(0)),
+      in_flight:      Arc::new(AtomicUsize::new(0)),
+      feed_count:     Arc::new(AtomicUsize::new(0)),
     }
   }
 
@@ -100,18 +106,19 @@ pub enum ConnectionIDs {
 #[derive(Clone)]
 pub enum Connections {
   Centralized {
-    writer: Arc<AsyncRwLock<Option<RedisSink>>>,
-    commands: Arc<Mutex<SentCommands>>,
-    counters: Counters,
-    // TODO find a better way to do this that works with mutable servers due to sentinel changes, but where server names are cloned a lot
-    server: Arc<AsyncRwLock<Arc<String>>>,
+    writer:        Arc<AsyncRwLock<Option<RedisSink>>>,
+    commands:      Arc<Mutex<SentCommands>>,
+    counters:      Counters,
+    // TODO find a better way to do this that works with mutable servers due to sentinel changes, but where server
+    // names are cloned a lot
+    server:        Arc<AsyncRwLock<Arc<String>>>,
     connection_id: Arc<RwLock<Option<i64>>>,
   },
   Clustered {
-    cache: Arc<RwLock<ClusterKeyCache>>,
-    counters: Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
-    writers: Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
-    commands: Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
+    cache:          Arc<RwLock<ClusterKeyCache>>,
+    counters:       Arc<RwLock<BTreeMap<Arc<String>, Counters>>>,
+    writers:        Arc<AsyncRwLock<BTreeMap<Arc<String>, RedisSink>>>,
+    commands:       Arc<Mutex<BTreeMap<Arc<String>, SentCommands>>>,
     connection_ids: Arc<RwLock<BTreeMap<Arc<String>, i64>>>,
   },
 }
@@ -121,10 +128,10 @@ impl Connections {
     let server = utils::centralized_server_name(inner);
 
     Connections::Centralized {
-      server: Arc::new(AsyncRwLock::new(Arc::new(server))),
-      counters: Counters::new(cmd_buffer_len),
-      writer: Arc::new(AsyncRwLock::new(None)),
-      commands: Arc::new(Mutex::new(VecDeque::new())),
+      server:        Arc::new(AsyncRwLock::new(Arc::new(server))),
+      counters:      Counters::new(cmd_buffer_len),
+      writer:        Arc::new(AsyncRwLock::new(None)),
+      commands:      Arc::new(Mutex::new(VecDeque::new())),
       connection_id: Arc::new(RwLock::new(None)),
     }
   }
@@ -133,10 +140,10 @@ impl Connections {
     let cache = ClusterKeyCache::new(None).expect("Couldn't initialize empty cluster cache.");
 
     Connections::Clustered {
-      cache: Arc::new(RwLock::new(cache)),
-      writers: Arc::new(AsyncRwLock::new(BTreeMap::new())),
-      commands: Arc::new(Mutex::new(BTreeMap::new())),
-      counters: Arc::new(RwLock::new(BTreeMap::new())),
+      cache:          Arc::new(RwLock::new(cache)),
+      writers:        Arc::new(AsyncRwLock::new(BTreeMap::new())),
+      commands:       Arc::new(Mutex::new(BTreeMap::new())),
+      counters:       Arc::new(RwLock::new(BTreeMap::new())),
       connection_ids: Arc::new(RwLock::new(BTreeMap::new())),
     }
   }
@@ -157,12 +164,12 @@ impl Connections {
 
 #[derive(Clone)]
 pub struct Multiplexer {
-  pub connections: Connections,
-  inner: Arc<RedisClientInner>,
-  clustered: bool,
-  close_tx: Arc<RwLock<Option<CloseTx>>>,
+  pub connections:  Connections,
+  inner:            Arc<RedisClientInner>,
+  clustered:        bool,
+  close_tx:         Arc<RwLock<Option<CloseTx>>>,
   synchronizing_tx: Arc<RwLock<VecDeque<OneshotSender<()>>>>,
-  synchronizing: Arc<RwLock<bool>>,
+  synchronizing:    Arc<RwLock<bool>>,
 }
 
 impl Multiplexer {
@@ -323,7 +330,7 @@ impl Multiplexer {
     let (tx, rx) = oneshot_channel();
     self.synchronizing_tx.write().push_back(tx);
     _debug!(inner, "Waiting on cluster sync to finish.");
-    let _ = rx.await?;
+    rx.await?;
     _debug!(inner, "Finished waiting on cluster sync.");
 
     Ok(())
@@ -331,8 +338,9 @@ impl Multiplexer {
 
   pub async fn sync_cluster(&self) -> Result<(), RedisError> {
     if self.check_and_set_sync() {
-      // dont return here. if multiple consecutive repair commands come in while one is running we still want to run them all, but not concurrently.
-      let _ = self.wait_for_sync().await?;
+      // dont return here. if multiple consecutive repair commands come in while one is running we still want to run
+      // them all, but not concurrently.
+      self.wait_for_sync().await?;
     }
     utils::sync_cluster(&self.inner, &self.connections, &self.close_tx).await?;
 

@@ -1,30 +1,44 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::prelude::RedisError;
-use crate::types::{
-  FromRedis, FromRedisKey, MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue,
-  XCap, XPendingArgs, XReadResponse, XReadValue, XID,
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  prelude::RedisError,
+  types::{
+    FromRedis,
+    FromRedisKey,
+    MultipleIDs,
+    MultipleKeys,
+    MultipleOrderedPairs,
+    MultipleStrings,
+    RedisKey,
+    RedisValue,
+    XCap,
+    XPendingArgs,
+    XReadResponse,
+    XReadValue,
+    XID,
+  },
 };
 use bytes_utils::Str;
-use std::convert::TryInto;
-use std::hash::Hash;
+use std::{convert::TryInto, hash::Hash};
 
 /// A trait that implements the [streams](https://redis.io/commands#stream) interface.
 ///
-/// **Note:** Several of the stream commands can return types with verbose type declarations. Additionally, certain commands can be parsed differently in RESP2 and RESP3 modes.
-/// As a result this interface provides some utility functions that can make this easier. Functions such as [xread_map](Self::xread_map), [xreadgroup_map](Self::xreadgroup_map),
-/// [xrange_values](Self::xrange_values), etc exist to make this easier on callers. These functions apply an additional layer of parsing logic that can make declaring response
-/// types easier, as well as automatically handling the differences between RESP2 and RESP3 return value types.
+/// **Note:** Several of the stream commands can return types with verbose type declarations. Additionally, certain
+/// commands can be parsed differently in RESP2 and RESP3 modes. As a result this interface provides some utility
+/// functions that can make this easier. Functions such as [xread_map](Self::xread_map),
+/// [xreadgroup_map](Self::xreadgroup_map), [xrange_values](Self::xrange_values), etc exist to make this easier on
+/// callers. These functions apply an additional layer of parsing logic that can make declaring response types easier,
+/// as well as automatically handling the differences between RESP2 and RESP3 return value types.
 pub trait StreamsInterface: ClientLike + Sized {
-  /// This command returns the list of consumers that belong to the `groupname` consumer group of the stream stored at `key`.
+  /// This command returns the list of consumers that belong to the `groupname` consumer group of the stream stored at
+  /// `key`.
   ///
   /// <https://redis.io/commands/xinfo-consumers>
   fn xinfo_consumers<R, K, S>(&self, key: K, groupname: S) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(key, groupname);
     async_spawn(self, |inner| async move {
       commands::streams::xinfo_consumers(&inner, key, groupname)
@@ -39,8 +53,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   fn xinfo_groups<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::streams::xinfo_groups(&inner, key).await?.convert()
@@ -53,8 +66,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   fn xinfo_stream<R, K>(&self, key: K, full: bool, count: Option<u64>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::streams::xinfo_stream(&inner, key, full, count)
@@ -63,9 +75,9 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
-  /// Appends the specified stream entry to the stream at the specified key. If the key does not exist, as a side effect of
-  /// running this command the key is created with a stream value. The creation of stream's key can be disabled with the
-  /// NOMKSTREAM option.
+  /// Appends the specified stream entry to the stream at the specified key. If the key does not exist, as a side
+  /// effect of running this command the key is created with a stream value. The creation of stream's key can be
+  /// disabled with the NOMKSTREAM option.
   ///
   /// <https://redis.io/commands/xadd>
   fn xadd<R, K, C, I, F>(&self, key: K, nomkstream: bool, cap: C, id: I, fields: F) -> AsyncResult<R>
@@ -76,8 +88,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     F: TryInto<MultipleOrderedPairs>,
     F::Error: Into<RedisError>,
     C: TryInto<XCap>,
-    C::Error: Into<RedisError>,
-  {
+    C::Error: Into<RedisError>, {
     into!(key, id);
     try_into!(fields, cap);
     async_spawn(self, |inner| async move {
@@ -95,8 +106,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     C: TryInto<XCap>,
-    C::Error: Into<RedisError>,
-  {
+    C::Error: Into<RedisError>, {
     into!(key);
     try_into!(cap);
     async_spawn(self, |inner| async move {
@@ -111,15 +121,15 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<MultipleStrings>,
-  {
+    S: Into<MultipleStrings>, {
     into!(key, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xdel(&inner, key, ids).await?.convert()
     })
   }
 
-  /// Return the stream entries matching the provided range of IDs, automatically converting to a less verbose type definition.
+  /// Return the stream entries matching the provided range of IDs, automatically converting to a less verbose type
+  /// definition.
   ///
   /// <https://redis.io/commands/xrange>
   fn xrange_values<Ri, Rk, Rv, K, S, E>(
@@ -137,8 +147,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: TryInto<RedisValue>,
     S::Error: Into<RedisError>,
     E: TryInto<RedisValue>,
-    E::Error: Into<RedisError>,
-  {
+    E::Error: Into<RedisError>, {
     into!(key);
     try_into!(start, end);
     async_spawn(self, |inner| async move {
@@ -162,8 +171,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: TryInto<RedisValue>,
     S::Error: Into<RedisError>,
     E: TryInto<RedisValue>,
-    E::Error: Into<RedisError>,
-  {
+    E::Error: Into<RedisError>, {
     into!(key);
     try_into!(start, end);
     async_spawn(self, |inner| async move {
@@ -173,7 +181,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
-  /// Similar to `XRANGE`, but with the results returned in reverse order. The results will be automatically converted to a less verbose type definition.
+  /// Similar to `XRANGE`, but with the results returned in reverse order. The results will be automatically converted
+  /// to a less verbose type definition.
   ///
   /// <https://redis.io/commands/xrevrange>
   fn xrevrange_values<Ri, Rk, Rv, K, E, S>(
@@ -191,8 +200,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: TryInto<RedisValue>,
     S::Error: Into<RedisError>,
     E: TryInto<RedisValue>,
-    E::Error: Into<RedisError>,
-  {
+    E::Error: Into<RedisError>, {
     into!(key);
     try_into!(start, end);
     async_spawn(self, |inner| async move {
@@ -214,8 +222,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     S: TryInto<RedisValue>,
     S::Error: Into<RedisError>,
     E: TryInto<RedisValue>,
-    E::Error: Into<RedisError>,
-  {
+    E::Error: Into<RedisError>, {
     into!(key);
     try_into!(start, end);
     async_spawn(self, |inner| async move {
@@ -231,21 +238,23 @@ pub trait StreamsInterface: ClientLike + Sized {
   fn xlen<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::streams::xlen(&inner, key).await?.convert()
     })
   }
 
-  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID reported by the caller.
+  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID
+  /// reported by the caller.
   ///
   /// <https://redis.io/commands/xread>
   ///
-  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode. In many cases it is also easier to operate on the
-  /// return values of these functions as a `HashMap`, but manually declaring this type can be very verbose. This function will automatically convert the response to the
-  /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences between RESP2 and RESP3.
+  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode.
+  /// In many cases it is also easier to operate on the return values of these functions as a `HashMap`, but
+  /// manually declaring this type can be very verbose. This function will automatically convert the response to the
+  /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences
+  /// between RESP2 and RESP3.
   ///
   /// ```rust no_run
   /// # use fred::types::XReadResponse;
@@ -262,10 +271,11 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///   assert_eq!(idx, *value);
   /// }
   /// ```
-  // The underlying issue here isn't so much a semantic difference between RESP2 and RESP3, but rather an assumption that went into the logic behind the `FromRedis` trait.
+  // The underlying issue here isn't so much a semantic difference between RESP2 and RESP3, but rather an assumption
+  // that went into the logic behind the `FromRedis` trait.
   //
-  // In all other Redis commands that return "maps" in RESP2 (or responses that should be interpreted as maps) a map is encoded as an array with an even number of elements
-  // representing `(key, value)` pairs.
+  // In all other Redis commands that return "maps" in RESP2 (or responses that should be interpreted as maps) a map
+  // is encoded as an array with an even number of elements representing `(key, value)` pairs.
   //
   // As a result the `FromRedis` implementation for `HashMap`, `BTreeMap`, etc, took a dependency on this behavior. For example: https://redis.io/commands/hgetall#return-value
   //
@@ -287,7 +297,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   // 2# "baz" => "1"
   // ```
   //
-  // However, with XREAD/XREADGROUP there's an extra array wrapper in RESP2 around both the "outer" map and "inner" map(s):
+  // However, with XREAD/XREADGROUP there's an extra array wrapper in RESP2 around both the "outer" map and "inner"
+  // map(s):
   //
   // ```
   // // RESP3
@@ -319,19 +330,24 @@ pub trait StreamsInterface: ClientLike + Sized {
   //
   // In pseudo-Rust types: we expect `Vec<K1, V1, K2, V2, ...>` but instead get `Vec<Vec<K1, V1>, Vec<K2, V2>, ...>`.
   //
-  // This left two choices: either make this specific use case (XREAD/XREADGROUP) easier with some utility functions and/or types, or try to add custom type conversion logic in `FromRedis`
-  // for this type of map encoding.
+  // This left two choices: either make this specific use case (XREAD/XREADGROUP) easier with some utility functions
+  // and/or types, or try to add custom type conversion logic in `FromRedis` for this type of map encoding.
   //
-  // There is a downside with the second approach outside of this use case though. It is possible for callers to write lua scripts that return pretty much anything. If we were to build in
-  // generic logic that modified response values in all cases when they matched this format then we could risk unexpected behavior for callers that just happen to write a lua script that
-  // returns this format. This is not likely to happen, but is still probably worth considering.
+  // There is a downside with the second approach outside of this use case though. It is possible for callers to write
+  // lua scripts that return pretty much anything. If we were to build in generic logic that modified response
+  // values in all cases when they matched this format then we could risk unexpected behavior for callers that just
+  // happen to write a lua script that returns this format. This is not likely to happen, but is still probably
+  // worth considering.
   //
-  // Actually implementing that logic could also be pretty complicated and brittle. It's certainly possible, but seems like more trouble than it's worth when the issue only shows up with
-  // 2 commands out of hundreds. Additionally, we don't want to take away the ability for callers to manually declare the RESP2 structure as-is.
+  // Actually implementing that logic could also be pretty complicated and brittle. It's certainly possible, but seems
+  // like more trouble than it's worth when the issue only shows up with 2 commands out of hundreds. Additionally,
+  // we don't want to take away the ability for callers to manually declare the RESP2 structure as-is.
   //
-  // This function (and `xreadgroup_map`) provide an easier but optional way to handle the encoding differences with the streams interface.
+  // This function (and `xreadgroup_map`) provide an easier but optional way to handle the encoding differences with
+  // the streams interface.
   //
-  // The underlying functions that do the RESP2 vs RESP3 conversion are public for callers as well, so one could use a `BTreeMap` instead of a `HashMap` like so:
+  // The underlying functions that do the RESP2 vs RESP3 conversion are public for callers as well, so one could use a
+  // `BTreeMap` instead of a `HashMap` like so:
   //
   // ```
   // let value: BTreeMap<String, Vec<(String, BTreeMap<String, usize>)>> = client
@@ -355,8 +371,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     Rk3: FromRedisKey + Hash + Eq + Unpin + Send,
     Rv: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(keys, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xread(&inner, count, block, keys, ids)
@@ -365,17 +380,18 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
-  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID reported by the caller.
+  /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID
+  /// reported by the caller.
   ///
   /// <https://redis.io/commands/xread>
   ///
-  /// **See [xread_map](Self::xread_map) for more information on a variation of this function that might be more useful.**
+  /// **See [xread_map](Self::xread_map) for more information on a variation of this function that might be more
+  /// useful.**
   fn xread<R, K, I>(&self, count: Option<u64>, block: Option<u64>, keys: K, ids: I) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(keys, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xread(&inner, count, block, keys, ids)
@@ -392,8 +408,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     S: Into<Str>,
-    I: Into<XID>,
-  {
+    I: Into<XID>, {
     into!(key, groupname, id);
     async_spawn(self, |inner| async move {
       commands::streams::xgroup_create(&inner, key, groupname, id, mkstream)
@@ -410,8 +425,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     G: Into<Str>,
-    C: Into<Str>,
-  {
+    C: Into<Str>, {
     into!(key, groupname, consumername);
     async_spawn(self, |inner| async move {
       commands::streams::xgroup_createconsumer(&inner, key, groupname, consumername)
@@ -428,8 +442,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     G: Into<Str>,
-    C: Into<Str>,
-  {
+    C: Into<Str>, {
     into!(key, groupname, consumername);
     async_spawn(self, |inner| async move {
       commands::streams::xgroup_delconsumer(&inner, key, groupname, consumername)
@@ -445,8 +458,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(key, groupname);
     async_spawn(self, |inner| async move {
       commands::streams::xgroup_destroy(&inner, key, groupname)
@@ -463,8 +475,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     S: Into<Str>,
-    I: Into<XID>,
-  {
+    I: Into<XID>, {
     into!(key, groupname, id);
     async_spawn(self, |inner| async move {
       commands::streams::xgroup_setid(&inner, key, groupname, id)
@@ -475,13 +486,17 @@ pub trait StreamsInterface: ClientLike + Sized {
 
   /// A special version of the `XREAD` command with support for consumer groups.
   ///
-  /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more information.
+  /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response
+  /// values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more
+  /// information.
   ///
   /// <https://redis.io/commands/xreadgroup>
   ///
-  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode. In many cases it is also easier to operate on the
-  /// return values of these functions as a `HashMap`, but manually declaring this type can be very verbose. This function will automatically convert the response to the
-  /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences between RESP2 and RESP3.
+  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode.
+  /// In many cases it is also easier to operate on the return values of these functions as a `HashMap`, but
+  /// manually declaring this type can be very verbose. This function will automatically convert the response to the
+  /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences
+  /// between RESP2 and RESP3.
   ///
   /// See the [xread_map](Self::xread_map) documentation for more information.
   // See the `xread_map` source docs for more information.
@@ -503,8 +518,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     G: Into<Str>,
     C: Into<Str>,
     K: Into<MultipleKeys>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(group, consumer, keys, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xreadgroup(&inner, group, consumer, count, block, noack, keys, ids)
@@ -515,7 +529,9 @@ pub trait StreamsInterface: ClientLike + Sized {
 
   /// A special version of the `XREAD` command with support for consumer groups.
   ///
-  /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more information.
+  /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response
+  /// values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more
+  /// information.
   ///
   /// <https://redis.io/commands/xreadgroup>
   ///
@@ -535,8 +551,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     G: Into<Str>,
     C: Into<Str>,
     K: Into<MultipleKeys>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(group, consumer, keys, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xreadgroup(&inner, group, consumer, count, block, noack, keys, ids)
@@ -553,8 +568,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     G: Into<Str>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(key, group, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xack(&inner, key, group, ids).await?.convert()
@@ -582,8 +596,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
     G: Into<Str>,
     C: Into<Str>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(key, group, consumer, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xclaim(
@@ -628,8 +641,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
     G: Into<Str>,
     C: Into<Str>,
-    I: Into<MultipleIDs>,
-  {
+    I: Into<MultipleIDs>, {
     into!(key, group, consumer, ids);
     async_spawn(self, |inner| async move {
       commands::streams::xclaim(
@@ -650,7 +662,8 @@ pub trait StreamsInterface: ClientLike + Sized {
     })
   }
 
-  /// This command transfers ownership of pending stream entries that match the specified criteria. It also converts the response type to a less verbose type declaration and handles potential differences between RESP2 and RESP3.
+  /// This command transfers ownership of pending stream entries that match the specified criteria. It also converts
+  /// the response type to a less verbose type declaration and handles potential differences between RESP2 and RESP3.
   ///
   /// <https://redis.io/commands/xautoclaim>
   // FIXME: this type declaration wont work for Redis v7. Probably need a new FF for this...
@@ -671,8 +684,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
     G: Into<Str>,
     C: Into<Str>,
-    I: Into<XID>,
-  {
+    I: Into<XID>, {
     into!(key, group, consumer, start);
     async_spawn(self, |inner| async move {
       commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
@@ -685,7 +697,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/xautoclaim>
   ///
-  /// **Note: See [xautoclaim_values](Self::xautoclaim_values) for a variation of this function that may be more useful.**
+  /// **Note: See [xautoclaim_values](Self::xautoclaim_values) for a variation of this function that may be more
+  /// useful.**
   fn xautoclaim<R, K, G, C, I>(
     &self,
     key: K,
@@ -701,8 +714,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<RedisKey>,
     G: Into<Str>,
     C: Into<Str>,
-    I: Into<XID>,
-  {
+    I: Into<XID>, {
     into!(key, group, consumer, start);
     async_spawn(self, |inner| async move {
       commands::streams::xautoclaim(&inner, key, group, consumer, min_idle_time, start, count, justid)
@@ -719,8 +731,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     G: Into<Str>,
-    A: Into<XPendingArgs>,
-  {
+    A: Into<XPendingArgs>, {
     into!(key, group, args);
     async_spawn(self, |inner| async move {
       commands::streams::xpending(&inner, key, group, args).await?.convert()

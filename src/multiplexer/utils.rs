@@ -1,33 +1,49 @@
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::{ClosedState, RedisClientInner};
-use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::{responses, Multiplexer};
-use crate::multiplexer::{Backpressure, CloseTx, Connections, Counters, SentCommand, SentCommands};
-use crate::protocol::connection::{self, RedisSink, RedisStream};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::server_to_parts;
-use crate::trace;
-use crate::types::*;
-use crate::utils as client_utils;
-use futures::future::Either;
-use futures::pin_mut;
-use futures::select;
-use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  modules::inner::{ClosedState, RedisClientInner},
+  multiplexer::{
+    responses,
+    types::ClusterChange,
+    Backpressure,
+    CloseTx,
+    Connections,
+    Counters,
+    Multiplexer,
+    SentCommand,
+    SentCommands,
+  },
+  protocol::{
+    connection::{self, RedisSink, RedisStream},
+    types::*,
+    utils as protocol_utils,
+    utils::server_to_parts,
+  },
+  trace,
+  types::*,
+  utils as client_utils,
+};
+use futures::{future::Either, pin_mut, select, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::ops::DerefMut;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{cmp, mem, str};
-use tokio;
-use tokio::sync::broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver};
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot::Sender as OneshotSender;
-use tokio::sync::RwLock as AsyncRwLock;
+use std::{
+  cmp,
+  collections::{BTreeMap, BTreeSet, VecDeque},
+  ops::DerefMut,
+  str,
+  sync::Arc,
+  time::{Duration, Instant},
+};
+use tokio::{
+  self,
+  sync::{
+    broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver},
+    mpsc::UnboundedSender,
+    oneshot::Sender as OneshotSender,
+    RwLock as AsyncRwLock,
+  },
+};
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 16;
 
@@ -129,11 +145,11 @@ pub fn emit_connection_closed(
     Connections::Centralized { ref commands, .. } => {
       let commands: SentCommands = commands.lock().drain(..).collect();
       Some(commands)
-    }
+    },
   };
 
   if let Some(tx) = closed_tx {
-    let commands = commands.unwrap_or(VecDeque::new());
+    let commands = commands.unwrap_or_default();
     _trace!(inner, "Emitting connection closed with {} messages", commands.len());
 
     if let Err(_e) = tx.send(ClosedState { commands, error }) {
@@ -313,7 +329,7 @@ pub async fn write_all_nodes(
           RedisErrorKind::Config,
           format!("Failed to lookup counter for {}", server),
         ))
-      }
+      },
     };
 
     let kind = match command.kind.clone_all_nodes() {
@@ -323,11 +339,11 @@ pub async fn write_all_nodes(
           RedisErrorKind::Config,
           "Invalid redis command kind to send to all nodes.",
         ));
-      }
+      },
     };
     let _command = command.duplicate(kind);
 
-    let was_flushed = send_clustered_command(inner, &server, &counter, writer, commands, _command).await?;
+    let was_flushed = send_clustered_command(inner, server, &counter, writer, commands, _command).await?;
     if !was_flushed {
       if let Err(e) = writer.flush().await {
         _warn!(inner, "Failed to flush socket: {:?}", e);
@@ -405,9 +421,10 @@ pub async fn send_centralized_command(
   );
 
   {
-    commands.lock().push_back(command.into());
+    commands.lock().push_back(command);
   }
-  // if writing the command fails it will be retried from this point forward since it has been added to the commands queue
+  // if writing the command fails it will be retried from this point forward since it has been added to the commands
+  // queue
   connection::write_command(inner, writer, counters, frame, should_flush).await
 }
 
@@ -439,8 +456,9 @@ pub async fn send_clustered_command(
       ));
     }
   }
-  // if writing the command fails it will be retried from this point forward since it has been added to the commands queue
-  let _ = connection::write_command(inner, writer, counters, frame, should_flush).await?;
+  // if writing the command fails it will be retried from this point forward since it has been added to the commands
+  // queue
+  connection::write_command(inner, writer, counters, frame, should_flush).await?;
   // return whether the socket was flushed so the caller can flush the other sockets if needed
   Ok(should_flush)
 }
@@ -472,7 +490,7 @@ pub async fn write_centralized_command(
       Err(e) => {
         respond_early_to_caller_error(inner, command, e);
         return Ok(Backpressure::Skipped);
-      }
+      },
     };
 
     if let Some(backpressure) = backpressure {
@@ -492,7 +510,7 @@ pub async fn write_centralized_command(
     if let Some(writer) = writer.write().await.deref_mut() {
       let server_guard = server.read().await;
 
-      send_centralized_command(inner, &*server_guard, counters, writer, &commands, command)
+      send_centralized_command(inner, &server_guard, counters, writer, commands, command)
         .await
         .map(|_| Backpressure::Ok((*server_guard).clone()))
     } else {
@@ -528,7 +546,7 @@ pub async fn write_clustered_command(
   {
     let hash_slot = match hash_slot {
       Some(slot) => Some(slot),
-      None => command.extract_key().map(|key| redis_keyslot(key)),
+      None => command.extract_key().map(redis_keyslot),
     };
     let server = match hash_slot {
       Some(hash_slot) => match cache.read().get_server(hash_slot) {
@@ -539,7 +557,7 @@ pub async fn write_clustered_command(
             format!("Unable to find server for keyslot {}", hash_slot),
             command,
           ));
-        }
+        },
       },
       None => match cache.read().random_slot() {
         Some(slot) => slot.server.clone(),
@@ -549,7 +567,7 @@ pub async fn write_clustered_command(
             "Cluster state is not initialized.",
             command,
           ));
-        }
+        },
       },
     };
 
@@ -559,7 +577,7 @@ pub async fn write_clustered_command(
         Err(e) => {
           respond_early_to_caller_error(inner, command, e);
           return Ok(Backpressure::Skipped);
-        }
+        },
       };
 
       if let Some(backpressure) = backpressure {
@@ -596,15 +614,15 @@ pub async fn write_clustered_command(
       if was_flushed {
         // flush the other connections to other nodes to be safe, skipping the socket that was already flushed
         // TODO improve this by checking in-flight counters on each server. if zero then dont flush.
-        flush_sinks(inner, &mut *writers_guard, Some(&server)).await;
+        flush_sinks(inner, &mut writers_guard, Some(&server)).await;
       }
       Ok(Backpressure::Ok(server.clone()))
     } else {
-      return Err(RedisError::new_context(
+      Err(RedisError::new_context(
         RedisErrorKind::Unknown,
         format!("Unable to find server counters for {}", server),
         command,
-      ));
+      ))
     }
   } else {
     _error!(
@@ -626,7 +644,8 @@ pub fn take_sent_commands(connections: &Connections) -> VecDeque<SentCommand> {
   }
 }
 
-/// Zip up all the command queues on each connection, returning an array with all commands that is sorted by the inner ordering within each command queue and across all queues.
+/// Zip up all the command queues on each connection, returning an array with all commands that is sorted by the inner
+/// ordering within each command queue and across all queues.
 ///
 /// For example, given a command queue map such as:
 ///
@@ -655,7 +674,7 @@ pub fn zip_cluster_commands(
 
     for (_, commands) in commands.lock().iter_mut() {
       capacity += commands.len();
-      out.push(mem::replace(commands, VecDeque::new()));
+      out.push(std::mem::take(commands));
     }
     // sort the arrays by length in desc order so that we can iterate for the length of the first array
     // and when we come to an array that doesnt have an element at that idx we can just pop it off the
@@ -671,7 +690,7 @@ pub fn zip_cluster_commands(
 
   let mut zipped_commands = VecDeque::with_capacity(capacity);
   // unwrap checked above. first queue is the longest one
-  for _ in 0..command_queues.first().unwrap().len() {
+  for _ in 0 .. command_queues.first().unwrap().len() {
     let mut to_pop = 0;
 
     for queue in command_queues.iter_mut() {
@@ -682,7 +701,7 @@ pub fn zip_cluster_commands(
       }
     }
 
-    for _ in 0..to_pop {
+    for _ in 0 .. to_pop {
       let _ = command_queues.pop();
     }
   }
@@ -781,7 +800,7 @@ async fn create_cluster_connection(
   let addr = inner.resolver.resolve(host.to_owned(), port).await?;
 
   if uses_tls {
-    let (domain, addr) = protocol_utils::parse_cluster_server(inner, &server).await?;
+    let (domain, addr) = protocol_utils::parse_cluster_server(inner, server).await?;
 
     let socket = connection::create_authenticated_connection_tls(&addr, &domain, inner).await?;
     let socket = match connection::read_client_id(inner, socket).await {
@@ -790,7 +809,7 @@ async fn create_cluster_connection(
           connection_ids.write().insert(server.clone(), id);
         }
         socket
-      }
+      },
       Err((_, socket)) => socket,
     };
 
@@ -804,7 +823,7 @@ async fn create_cluster_connection(
           connection_ids.write().insert(server.clone(), id);
         }
         socket
-      }
+      },
       Err((_, socket)) => socket,
     };
 
@@ -958,7 +977,7 @@ pub async fn connect_centralized(
     ref connection_id,
   } = connections
   {
-    let addr = protocol_utils::read_centralized_addr(&inner).await?;
+    let addr = protocol_utils::read_centralized_addr(inner).await?;
     let uses_tls = protocol_utils::uses_tls(inner);
     client_utils::set_client_state(&inner.state, ClientState::Connecting);
 
@@ -972,7 +991,7 @@ pub async fn connect_centralized(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
 
@@ -987,7 +1006,7 @@ pub async fn connect_centralized(
             connection_id.write().replace(id);
           }
           socket
-        }
+        },
         Err((_, socket)) => socket,
       };
 
@@ -999,7 +1018,7 @@ pub async fn connect_centralized(
 
     let tx = get_or_create_close_tx(inner, close_tx);
     _debug!(inner, "Set centralized connection closed sender.");
-    let _ = client_utils::set_locked_async(&writer, Some(sink)).await;
+    let _ = client_utils::set_locked_async(writer, Some(sink)).await;
     let server = server.read().await.clone();
 
     spawn_centralized_listener(inner, &server, connections, tx.subscribe(), commands, counters, stream);
@@ -1014,7 +1033,8 @@ pub async fn connect_centralized(
   }
 }
 
-/// Check the keys provided in an `mget` command when run against a cluster to ensure the keys all live on one node in the cluster.
+/// Check the keys provided in an `mget` command when run against a cluster to ensure the keys all live on one node in
+/// the cluster.
 pub fn check_mget_cluster_keys(multiplexer: &Multiplexer, keys: &Vec<RedisValue>) -> Result<(), RedisError> {
   if let Connections::Clustered { ref cache, .. } = multiplexer.connections {
     let mut nodes = BTreeSet::new();
@@ -1032,7 +1052,7 @@ pub fn check_mget_cluster_keys(multiplexer: &Multiplexer, keys: &Vec<RedisValue>
             RedisErrorKind::InvalidArgument,
             "Failed to find cluster node",
           ));
-        }
+        },
       };
 
       nodes.insert(server);
@@ -1075,7 +1095,7 @@ pub fn check_mset_cluster_keys(multiplexer: &Multiplexer, args: &Vec<RedisValue>
             RedisErrorKind::InvalidArgument,
             "Failed to find cluster node.",
           ));
-        }
+        },
       };
 
       nodes.insert(server);
@@ -1110,14 +1130,14 @@ async fn create_cluster_change(
   }
 
   ClusterChange {
-    add: new_servers.difference(&old_servers).map(|s| s.clone()).collect(),
-    remove: old_servers.difference(&new_servers).map(|s| s.clone()).collect(),
+    add:    new_servers.difference(&old_servers).cloned().collect(),
+    remove: old_servers.difference(&new_servers).cloned().collect(),
   }
 }
 
 pub fn finish_synchronizing(inner: &Arc<RedisClientInner>, tx: &Arc<RwLock<VecDeque<OneshotSender<()>>>>) {
   for tx in tx.write().drain(..) {
-    if let Err(_) = tx.send(()) {
+    if tx.send(()).is_err() {
       _warn!(inner, "Error sending repairing message to caller.");
     }
   }
@@ -1173,7 +1193,7 @@ async fn add_server(
   insert_locked_map_mutex(commands, server.clone(), VecDeque::new());
   insert_locked_map_async(writers, server.clone(), sink).await;
   insert_locked_map(counters, server.clone(), Counters::new(&inner.cmd_buffer_len));
-  spawn_clustered_listener(inner, connections, commands, counters, tx.subscribe(), &server, stream);
+  spawn_clustered_listener(inner, connections, commands, counters, tx.subscribe(), server, stream);
   Ok(())
 }
 
@@ -1228,7 +1248,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
       Err(e) => {
         _warn!(inner, "Error creating or using backchannel for cluster nodes: {:?}", e);
         continue;
-      }
+      },
     };
 
     if let Resp3Frame::BlobString { data, .. } = frame {
@@ -1238,7 +1258,7 @@ async fn cluster_nodes_backchannel(inner: &Arc<RedisClientInner>) -> Result<Clus
         Err(e) => {
           _warn!(inner, "Error parsing cluster nodes response from backchannel: {:?}", e);
           continue;
-        }
+        },
       };
       return Ok(state);
     } else {
@@ -1263,7 +1283,7 @@ fn emit_cluster_changes(inner: &Arc<RedisClientInner>, changes: Vec<ClusterState
   // check for closed senders as we emit messages, and drop them at the end
   {
     for (idx, tx) in inner.cluster_change_tx.read().iter().enumerate() {
-      if let Err(_) = tx.send(changes.clone()) {
+      if tx.send(changes.clone()).is_err() {
         to_remove.insert(idx);
       }
     }
@@ -1350,7 +1370,7 @@ pub async fn sync_cluster(
       *old_cache = state.clone();
       state
     };
-    let changes = create_cluster_change(&cluster_state, &writers).await;
+    let changes = create_cluster_change(&cluster_state, writers).await;
     _debug!(inner, "Changing cluster connections: {:?}", changes);
     broadcast_cluster_changes(inner, &changes);
 
@@ -1413,36 +1433,36 @@ mod tests {
     let server_c = Arc::new("c".to_owned());
     let cache = vec![
       Arc::new(SlotRange {
-        start: 0,
-        end: 1,
+        start:  0,
+        end:    1,
         server: server_a.clone(),
-        id: Arc::new("a1".into()),
+        id:     Arc::new("a1".into()),
       }),
       Arc::new(SlotRange {
-        start: 1,
-        end: 2,
+        start:  1,
+        end:    2,
         server: server_b.clone(),
-        id: Arc::new("b1".into()),
+        id:     Arc::new("b1".into()),
       }),
       Arc::new(SlotRange {
-        start: 2,
-        end: 3,
+        start:  2,
+        end:    3,
         server: server_c.clone(),
-        id: Arc::new("c1".into()),
+        id:     Arc::new("c1".into()),
       }),
     ];
     let cache = Arc::new(RwLock::new(cache.into()));
 
     let mut server_a_commands = VecDeque::new();
-    for idx in 1..5 {
+    for idx in 1 .. 5 {
       add_command(&mut server_a_commands, idx);
     }
     let mut server_b_commands = VecDeque::new();
-    for idx in 5..7 {
+    for idx in 5 .. 7 {
       add_command(&mut server_b_commands, idx);
     }
     let mut server_c_commands = VecDeque::new();
-    for idx in 7..10 {
+    for idx in 7 .. 10 {
       add_command(&mut server_c_commands, idx);
     }
 

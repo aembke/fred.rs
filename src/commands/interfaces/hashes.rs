@@ -1,7 +1,9 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue};
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue},
+};
 use std::convert::TryInto;
 
 /// Functions that implement the [Hashes](https://redis.io/commands#hashes) interface.
@@ -12,8 +14,7 @@ pub trait HashesInterface: ClientLike + Sized {
   fn hgetall<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::hashes::hgetall(&inner, key).await?.convert()
@@ -27,8 +28,7 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<MultipleKeys>,
-  {
+    F: Into<MultipleKeys>, {
     into!(key, fields);
     async_spawn(self, |inner| async move {
       commands::hashes::hdel(&inner, key, fields).await?.convert()
@@ -42,8 +42,7 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<RedisKey>,
-  {
+    F: Into<RedisKey>, {
     into!(key, field);
     async_spawn(self, |inner| async move {
       commands::hashes::hexists(&inner, key, field).await?.convert()
@@ -57,8 +56,7 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<RedisKey>,
-  {
+    F: Into<RedisKey>, {
     into!(key, field);
     async_spawn(self, |inner| async move {
       commands::hashes::hget(&inner, key, field).await?.convert()
@@ -72,8 +70,7 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<RedisKey>,
-  {
+    F: Into<RedisKey>, {
     into!(key, field);
     async_spawn(self, |inner| async move {
       commands::hashes::hincrby(&inner, key, field, increment)
@@ -82,15 +79,15 @@ pub trait HashesInterface: ClientLike + Sized {
     })
   }
 
-  /// Increment the specified `field` of a hash stored at `key`, and representing a floating point number, by the specified `increment`.
+  /// Increment the specified `field` of a hash stored at `key`, and representing a floating point number, by the
+  /// specified `increment`.
   ///
   /// <https://redis.io/commands/hincrbyfloat>
   fn hincrbyfloat<R, K, F>(&self, key: K, field: F, increment: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<RedisKey>,
-  {
+    F: Into<RedisKey>, {
     into!(key, field);
     async_spawn(self, |inner| async move {
       commands::hashes::hincrbyfloat(&inner, key, field, increment)
@@ -105,8 +102,7 @@ pub trait HashesInterface: ClientLike + Sized {
   fn hkeys<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::hashes::hkeys(&inner, key).await?.convert()
@@ -119,8 +115,7 @@ pub trait HashesInterface: ClientLike + Sized {
   fn hlen<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::hashes::hlen(&inner, key).await?.convert()
@@ -134,8 +129,7 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<MultipleKeys>,
-  {
+    F: Into<MultipleKeys>, {
     into!(key, fields);
     async_spawn(self, |inner| async move {
       commands::hashes::hmget(&inner, key, fields).await?.convert()
@@ -150,8 +144,7 @@ pub trait HashesInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisMap>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(values);
     async_spawn(self, |inner| async move {
@@ -167,8 +160,7 @@ pub trait HashesInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisMap>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(values);
     async_spawn(self, |inner| async move {
@@ -185,8 +177,7 @@ pub trait HashesInterface: ClientLike + Sized {
     K: Into<RedisKey>,
     F: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key, field);
     try_into!(value);
     async_spawn(self, |inner| async move {
@@ -202,8 +193,7 @@ pub trait HashesInterface: ClientLike + Sized {
   fn hrandfield<R, K>(&self, key: K, count: Option<(i64, bool)>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::hashes::hrandfield(&inner, key, count).await?.convert()
@@ -217,8 +207,7 @@ pub trait HashesInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
-    F: Into<RedisKey>,
-  {
+    F: Into<RedisKey>, {
     into!(key, field);
     async_spawn(self, |inner| async move {
       commands::hashes::hstrlen(&inner, key, field).await?.convert()
@@ -231,8 +220,7 @@ pub trait HashesInterface: ClientLike + Sized {
   fn hvals<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::hashes::hvals(&inner, key).await?.convert()

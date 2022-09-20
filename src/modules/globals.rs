@@ -1,7 +1,6 @@
 use crate::utils::{read_atomic, set_atomic};
 use lazy_static::lazy_static;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Arc};
 
 #[cfg(feature = "custom-reconnect-errors")]
 use parking_lot::RwLock;
@@ -18,7 +17,8 @@ pub enum ReconnectError {
   Loading,
   /// The MASTERDOWN prefix.
   MasterDown,
-  /// The READONLY prefix, which can happen if a primary node is switched to a replica without any connection interruption.
+  /// The READONLY prefix, which can happen if a primary node is switched to a replica without any connection
+  /// interruption.
   ReadOnly,
   /// The MISCONF prefix.
   Misconf,
@@ -56,20 +56,20 @@ pub(crate) struct Globals {
   pub(crate) sentinel_connection_timeout_ms: Arc<AtomicUsize>,
   #[cfg(feature = "blocking-encoding")]
   /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
-  pub(crate) blocking_encode_threshold: Arc<AtomicUsize>,
+  pub(crate) blocking_encode_threshold:      Arc<AtomicUsize>,
   /// Any special errors that should trigger reconnection logic.
   #[cfg(feature = "custom-reconnect-errors")]
-  pub(crate) reconnect_errors: Arc<RwLock<Vec<ReconnectError>>>,
+  pub(crate) reconnect_errors:               Arc<RwLock<Vec<ReconnectError>>>,
 }
 
 impl Default for Globals {
   fn default() -> Self {
     Globals {
-      sentinel_connection_timeout_ms: Arc::new(AtomicUsize::new(200)),
+      sentinel_connection_timeout_ms:                                  Arc::new(AtomicUsize::new(200)),
       #[cfg(feature = "blocking-encoding")]
-      blocking_encode_threshold: Arc::new(AtomicUsize::new(500_000)),
+      blocking_encode_threshold:                                       Arc::new(AtomicUsize::new(500_000)),
       #[cfg(feature = "custom-reconnect-errors")]
-      reconnect_errors: Arc::new(RwLock::new(vec![
+      reconnect_errors:                                                Arc::new(RwLock::new(vec![
         ReconnectError::ClusterDown,
         ReconnectError::Loading,
         ReconnectError::ReadOnly,
@@ -97,7 +97,8 @@ pub(crate) fn globals() -> &'static Globals {
   &GLOBALS
 }
 
-/// Read the case-sensitive list of error prefixes (without the leading `-`) that will trigger the client to reconnect and retry the last command.
+/// Read the case-sensitive list of error prefixes (without the leading `-`) that will trigger the client to reconnect
+/// and retry the last command.
 ///
 /// Default: CLUSTERDOWN, READONLY, LOADING
 #[cfg(feature = "custom-reconnect-errors")]

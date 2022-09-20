@@ -1,35 +1,37 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, RedisValue};
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, RedisValue},
+};
 use std::convert::TryInto;
 
 /// Functions that implement the [Lists](https://redis.io/commands#lists) interface.
 pub trait ListInterface: ClientLike + Sized {
-  /// BLPOP is a blocking list pop primitive. It is the blocking version of LPOP because it blocks the connection when there are no elements to pop from
-  /// any of the given lists. An element is popped from the head of the first list that is non-empty, with the given keys being checked in the order that they are given.
+  /// BLPOP is a blocking list pop primitive. It is the blocking version of LPOP because it blocks the connection when
+  /// there are no elements to pop from any of the given lists. An element is popped from the head of the first list
+  /// that is non-empty, with the given keys being checked in the order that they are given.
   ///
   /// <https://redis.io/commands/blpop>
   fn blpop<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::lists::blpop(&inner, keys, timeout).await?.convert()
     })
   }
 
-  /// BRPOP is a blocking list pop primitive. It is the blocking version of RPOP because it blocks the connection when there are no elements to pop from any of the
-  /// given lists. An element is popped from the tail of the first list that is non-empty, with the given keys being checked in the order that they are given.
+  /// BRPOP is a blocking list pop primitive. It is the blocking version of RPOP because it blocks the connection when
+  /// there are no elements to pop from any of the given lists. An element is popped from the tail of the first list
+  /// that is non-empty, with the given keys being checked in the order that they are given.
   ///
   /// <https://redis.io/commands/brpop>
   fn brpop<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::lists::brpop(&inner, keys, timeout).await?.convert()
@@ -43,8 +45,7 @@ pub trait ListInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
-    D: Into<RedisKey>,
-  {
+    D: Into<RedisKey>, {
     into!(source, destination);
     async_spawn(self, |inner| async move {
       commands::lists::brpoplpush(&inner, source, destination, timeout)
@@ -67,8 +68,7 @@ pub trait ListInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
-    D: Into<RedisKey>,
-  {
+    D: Into<RedisKey>, {
     into!(source, destination);
     async_spawn(self, |inner| async move {
       commands::lists::blmove(
@@ -90,8 +90,7 @@ pub trait ListInterface: ClientLike + Sized {
   fn lindex<R, K>(&self, key: K, index: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::lists::lindex(&inner, key, index).await?.convert()
@@ -108,8 +107,7 @@ pub trait ListInterface: ClientLike + Sized {
     P: TryInto<RedisValue>,
     P::Error: Into<RedisError>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(pivot, element);
     async_spawn(self, |inner| async move {
@@ -125,8 +123,7 @@ pub trait ListInterface: ClientLike + Sized {
   fn llen<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::lists::llen(&inner, key).await?.convert()
@@ -139,8 +136,7 @@ pub trait ListInterface: ClientLike + Sized {
   fn lpop<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::lists::lpop(&inner, key, count).await?.convert()
@@ -162,8 +158,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(element);
     async_spawn(self, |inner| async move {
@@ -181,8 +176,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(elements);
     async_spawn(self, |inner| async move {
@@ -198,8 +192,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(elements);
     async_spawn(self, |inner| async move {
@@ -213,8 +206,7 @@ pub trait ListInterface: ClientLike + Sized {
   fn lrange<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::lists::lrange(&inner, key, start, stop).await?.convert()
@@ -229,8 +221,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(element);
     async_spawn(self, |inner| async move {
@@ -246,8 +237,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(element);
     async_spawn(self, |inner| async move {
@@ -261,8 +251,7 @@ pub trait ListInterface: ClientLike + Sized {
   fn ltrim<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::lists::ltrim(&inner, key, start, stop).await?.convert()
@@ -275,31 +264,31 @@ pub trait ListInterface: ClientLike + Sized {
   fn rpop<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::lists::rpop(&inner, key, count).await?.convert()
     })
   }
 
-  /// Atomically returns and removes the last element (tail) of the list stored at `source`, and pushes the element at the first element (head) of the list stored at `destination`.
+  /// Atomically returns and removes the last element (tail) of the list stored at `source`, and pushes the element at
+  /// the first element (head) of the list stored at `destination`.
   ///
   /// <https://redis.io/commands/rpoplpush>
   fn rpoplpush<R, S, D>(&self, source: S, dest: D) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
-    D: Into<RedisKey>,
-  {
+    D: Into<RedisKey>, {
     into!(source, dest);
     async_spawn(self, |inner| async move {
       commands::lists::rpoplpush(&inner, source, dest).await?.convert()
     })
   }
 
-  /// Atomically returns and removes the first/last element (head/tail depending on the source direction argument) of the list stored at `source`, and pushes
-  /// the element at the first/last element (head/tail depending on the destination direction argument) of the list stored at `destination`.
+  /// Atomically returns and removes the first/last element (head/tail depending on the source direction argument) of
+  /// the list stored at `source`, and pushes the element at the first/last element (head/tail depending on the
+  /// destination direction argument) of the list stored at `destination`.
   ///
   /// <https://redis.io/commands/lmove>
   fn lmove<R, S, D>(
@@ -312,8 +301,7 @@ pub trait ListInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
-    D: Into<RedisKey>,
-  {
+    D: Into<RedisKey>, {
     into!(source, dest);
     async_spawn(self, |inner| async move {
       commands::lists::lmove(&inner, source, dest, source_direction, dest_direction)
@@ -330,8 +318,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(elements);
     async_spawn(self, |inner| async move {
@@ -347,8 +334,7 @@ pub trait ListInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(elements);
     async_spawn(self, |inner| async move {

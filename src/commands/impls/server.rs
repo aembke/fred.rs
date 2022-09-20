@@ -1,12 +1,13 @@
 use super::*;
-use crate::clients::RedisClient;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::prelude::Resp3Frame;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  clients::RedisClient,
+  error::*,
+  modules::inner::RedisClientInner,
+  prelude::Resp3Frame,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -17,10 +18,10 @@ pub async fn quit(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   utils::interrupt_reconnect_sleep(inner);
 
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
-  let _ = utils::request_response(&inner, || Ok((RedisCommandKind::Quit, vec![]))).await;
+  let _ = utils::request_response(inner, || Ok((RedisCommandKind::Quit, vec![]))).await;
 
   // close anything left over from previous connections or reconnection attempts
-  utils::shutdown_listeners(&inner);
+  utils::shutdown_listeners(inner);
   utils::set_client_state(&inner.state, ClientState::Disconnected);
 
   Ok(())
@@ -31,7 +32,7 @@ pub async fn shutdown(inner: &Arc<RedisClientInner>, flags: Option<ShutdownFlags
   utils::interrupt_reconnect_sleep(inner);
 
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
-  let _ = utils::request_response(&inner, move || {
+  let _ = utils::request_response(inner, move || {
     let args = if let Some(flags) = flags {
       vec![flags.to_str().into()]
     } else {
@@ -42,7 +43,7 @@ pub async fn shutdown(inner: &Arc<RedisClientInner>, flags: Option<ShutdownFlags
   })
   .await?;
 
-  utils::shutdown_listeners(&inner);
+  utils::shutdown_listeners(inner);
   utils::set_client_state(&inner.state, ClientState::Disconnected);
 
   Ok(())
@@ -64,7 +65,7 @@ pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, Re
     config: Some(config),
   };
   let cmd = RedisCommand::new(RedisCommandKind::_Split(split_cmd), vec![], None);
-  let _ = utils::send_command(inner, cmd)?;
+  utils::send_command(inner, cmd)?;
 
   rx.await?
 }
@@ -77,13 +78,13 @@ pub async fn flushall(inner: &Arc<RedisClientInner>, r#async: bool) -> Result<Re
 }
 
 pub async fn flushall_cluster(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let _ = utils::check_clustered(inner)?;
+  utils::check_clustered(inner)?;
 
   let (tx, rx) = oneshot_channel();
   let kind = RedisCommandKind::_FlushAllCluster(AllNodesResponse::new(tx));
   let command = RedisCommand::new(kind, vec![], None);
-  let _ = utils::send_command(inner, command)?;
-  let _ = rx.await??;
+  utils::send_command(inner, command)?;
+  rx.await??;
 
   Ok(())
 }
@@ -148,8 +149,8 @@ pub async fn hello(
     let (tx, rx) = oneshot_channel();
     let kind = RedisCommandKind::_HelloAllCluster((AllNodesResponse::new(tx), version));
     let command = RedisCommand::new(kind, args, None);
-    let _ = utils::send_command(inner, command)?;
-    let _ = rx.await??;
+    utils::send_command(inner, command)?;
+    rx.await??;
 
     Ok(())
   } else {
@@ -170,8 +171,8 @@ pub async fn auth(inner: &Arc<RedisClientInner>, username: Option<String>, passw
     let (tx, rx) = oneshot_channel();
     let kind = RedisCommandKind::_AuthAllCluster(AllNodesResponse::new(tx));
     let command = RedisCommand::new(kind, args, None);
-    let _ = utils::send_command(inner, command)?;
-    let _ = rx.await??;
+    utils::send_command(inner, command)?;
+    rx.await??;
 
     Ok(())
   } else {

@@ -1,23 +1,30 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::Counters;
-use crate::protocol::codec::RedisCodec;
-use crate::protocol::types::ProtocolFrame;
-use crate::protocol::types::{ClusterKeyCache, RedisCommand, RedisCommandKind};
-use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::{frame_into_string, pretty_error};
-use crate::types::{ClientState, InfoKind, Resolve};
-use crate::utils as client_utils;
-use futures::sink::SinkExt;
-use futures::stream::{SplitSink, SplitStream, StreamExt};
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  multiplexer::Counters,
+  protocol::{
+    codec::RedisCodec,
+    types::{ClusterKeyCache, ProtocolFrame, RedisCommand, RedisCommandKind},
+    utils as protocol_utils,
+    utils::{frame_into_string, pretty_error},
+  },
+  types::{ClientState, InfoKind, Resolve},
+  utils as client_utils,
+};
+use futures::{
+  sink::SinkExt,
+  stream::{SplitSink, SplitStream, StreamExt},
+};
+use redis_protocol::{
+  resp2::types::Frame as Resp2Frame,
+  resp3::types::{Frame as Resp3Frame, RespVersion},
+};
 use semver::Version;
-use std::net::SocketAddr;
-use std::str;
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+use std::{net::SocketAddr, str, sync::Arc};
+use tokio::{
+  io::{AsyncRead, AsyncWrite},
+  net::TcpStream,
+};
 use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-tls")]
@@ -28,7 +35,7 @@ use crate::types::ServerConfig;
 use tokio_native_tls::TlsStream;
 
 /// The contents of a simplestring OK response.
-pub const OK: &'static str = "OK";
+pub const OK: &str = "OK";
 
 pub type FramedTcp = Framed<TcpStream, RedisCodec>;
 #[cfg(feature = "enable-tls")]
@@ -107,10 +114,9 @@ pub async fn request_response<T>(
   is_resp3: bool,
 ) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   let frame = request.to_frame(is_resp3)?;
-  let _ = transport.send(frame).await?;
+  transport.send(frame).await?;
   let (response, transport) = transport.into_future().await;
 
   let response = match response {
@@ -126,8 +132,7 @@ pub async fn request_response_safe<T>(
   is_resp3: bool,
 ) -> Result<(ProtocolFrame, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   let frame = match request.to_frame(is_resp3) {
     Ok(frame) => frame,
     Err(e) => return Err((e, transport)),
@@ -178,8 +183,7 @@ pub async fn set_client_name<T>(
   is_resp3: bool,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   debug!("{}: Changing client name to {}", name, name);
   let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.into()], None);
   let (response, transport) = request_response(transport, &command, is_resp3).await?;
@@ -203,8 +207,7 @@ pub async fn set_client_name<T>(
   _: bool,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   debug!("{}: Skip setting client name.", name);
   Ok(transport)
 }
@@ -217,8 +220,7 @@ pub async fn authenticate<T>(
   is_resp3: bool,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   let transport = if let Some(password) = password {
     let args = if let Some(username) = username {
       vec![username.into(), password.into()]
@@ -257,8 +259,7 @@ pub async fn switch_protocols<T>(
   transport: Framed<T, RedisCodec>,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   // reset the protocol version to the one specified by the config when we create new connections
   inner.reset_protocol_version();
   // this is only used when initializing connections, and if the caller has not specified RESP3 then we can skip this
@@ -280,8 +281,7 @@ pub async fn read_client_id<T>(
   transport: Framed<T, RedisCodec>,
 ) -> Result<(Option<i64>, Framed<T, RedisCodec>), (RedisError, Framed<T, RedisCodec>)>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   let command = RedisCommand::new(RedisCommandKind::ClientID, vec![], None);
   let (result, transport) = request_response_safe(transport, &command, inner.is_resp3()).await?;
   _debug!(inner, "Read client ID: {:?}", result);
@@ -298,9 +298,8 @@ pub async fn select_database<T>(
   transport: Framed<T, RedisCodec>,
 ) -> Result<Framed<T, RedisCodec>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
-  let db = match inner.config.read().database.clone() {
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
+  let db = match inner.config.read().database {
     Some(db) => db,
     None => return Ok(transport),
   };
@@ -323,7 +322,7 @@ pub async fn create_authenticated_connection_tls(
   domain: &str,
   inner: &Arc<RedisClientInner>,
 ) -> Result<FramedTls, RedisError> {
-  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
+  let server = format!("{}:{}", addr.ip(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
   let password = inner.config.read().password.clone();
@@ -333,7 +332,7 @@ pub async fn create_authenticated_connection_tls(
   let tls_stream = tls::create_tls_connector(&inner.config)?;
   let socket = tls_stream.connect(domain, socket).await?;
   let framed = Framed::new(socket, codec);
-  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
+  let framed = authenticate(framed, client_name, username, password, inner.is_resp3()).await?;
   let framed = switch_protocols(inner, framed).await?;
   let framed = select_database(inner, framed).await?;
 
@@ -354,7 +353,7 @@ pub async fn create_authenticated_connection(
   addr: &SocketAddr,
   inner: &Arc<RedisClientInner>,
 ) -> Result<FramedTcp, RedisError> {
-  let server = format!("{}:{}", addr.ip().to_string(), addr.port());
+  let server = format!("{}:{}", addr.ip(), addr.port());
   let codec = RedisCodec::new(inner, server);
   let client_name = inner.client_name();
   let password = inner.config.read().password.clone();
@@ -362,7 +361,7 @@ pub async fn create_authenticated_connection(
 
   let socket = TcpStream::connect(addr).await?;
   let framed = Framed::new(socket, codec);
-  let framed = authenticate(framed, &client_name, username, password, inner.is_resp3()).await?;
+  let framed = authenticate(framed, client_name, username, password, inner.is_resp3()).await?;
   let framed = switch_protocols(inner, framed).await?;
   let framed = select_database(inner, framed).await?;
 
@@ -410,7 +409,7 @@ async fn read_cluster_state(
   };
 
   let response = if uses_tls {
-    let connection = match create_authenticated_connection_tls(&addr, &host, &inner).await {
+    let connection = match create_authenticated_connection_tls(&addr, &host, inner).await {
       Ok(connection) => connection,
       Err(e) => {
         _debug!(inner, "Error creating tls connection to {}:{} => {:?}", host, port, e);
@@ -426,7 +425,7 @@ async fn read_cluster_state(
       },
     }
   } else {
-    let connection = match create_authenticated_connection(&addr, &inner).await {
+    let connection = match create_authenticated_connection(&addr, inner).await {
       Ok(connection) => connection,
       Err(e) => {
         _debug!(inner, "Error creating connection to {}:{} => {:?}", host, port, e);
@@ -472,8 +471,7 @@ pub async fn read_server_version<T>(
   transport: Framed<T, RedisCodec>,
 ) -> Result<(Version, Framed<T, RedisCodec>), RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()], None);
   let (result, transport) = request_response(transport, &command, inner.is_resp3()).await?;
   let result = match result.into_resp3() {
@@ -492,13 +490,13 @@ where
   };
 
   let version = result.lines().find_map(|line| {
-    let parts: Vec<&str> = line.split(":").collect();
+    let parts: Vec<&str> = line.split(':').collect();
     if parts.len() < 2 {
       return None;
     }
 
     if parts[0] == "redis_version" {
-      Version::parse(&parts[1]).ok()
+      Version::parse(parts[1]).ok()
     } else {
       None
     }
@@ -574,7 +572,7 @@ pub async fn read_redis_version(inner: &Arc<RedisClientInner>) -> Result<Version
       "Failed to read server version from any cluster node.",
     ))
   } else {
-    let addr = protocol_utils::read_centralized_addr(&inner).await?;
+    let addr = protocol_utils::read_centralized_addr(inner).await?;
 
     if uses_tls {
       let domain = protocol_utils::read_centralized_domain(&inner.config)?;

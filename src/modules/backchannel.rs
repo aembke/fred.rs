@@ -1,11 +1,15 @@
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::ConnectionIDs;
-use crate::protocol::connection;
-use crate::protocol::connection::{FramedTcp, FramedTls, RedisTransport};
-use crate::protocol::types::{ProtocolFrame, RedisCommand};
-use crate::protocol::utils as protocol_utils;
-use crate::types::Resolve;
+use crate::{
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  multiplexer::ConnectionIDs,
+  protocol::{
+    connection,
+    connection::{FramedTcp, FramedTls, RedisTransport},
+    types::{ProtocolFrame, RedisCommand},
+    utils as protocol_utils,
+  },
+  types::Resolve,
+};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 
@@ -48,9 +52,9 @@ fn map_tls_response(
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers, with the associated server name.
-  pub transport: Option<(RedisTransport, Arc<String>)>,
+  pub transport:      Option<(RedisTransport, Arc<String>)>,
   /// The server (host/port) that is blocked, if any.
-  pub blocked: Option<Arc<String>>,
+  pub blocked:        Option<Arc<String>>,
   /// A shared mapping of server IDs to connection IDs.
   pub connection_ids: Option<ConnectionIDs>,
 }
@@ -67,8 +71,8 @@ impl Backchannel {
       .connection_ids
       .as_ref()
       .and_then(|connection_ids| match connection_ids {
-        ConnectionIDs::Centralized(ref inner) => inner.read().clone(),
-        ConnectionIDs::Clustered(ref inner) => inner.read().get(server).map(|i| *i),
+        ConnectionIDs::Centralized(ref inner) => *inner.read(),
+        ConnectionIDs::Clustered(ref inner) => inner.read().get(server).copied(),
       })
   }
 
@@ -98,7 +102,8 @@ impl Backchannel {
     }
   }
 
-  /// Take the current transport or create a new one, returning the new transport, the server name, and whether a new connection was needed.
+  /// Take the current transport or create a new one, returning the new transport, the server name, and whether a new
+  /// connection was needed.
   pub async fn take_or_create_transport(
     &mut self,
     inner: &Arc<RedisClientInner>,
@@ -126,8 +131,9 @@ impl Backchannel {
 
   /// Send the provided command to the server at `host:port`.
   ///
-  /// If an existing transport to the provided server is found this function will try to use it, but will automatically retry once if the connection is dead.
-  /// If a new transport has to be created this function will create it, use it, and set it on `self` if the command succeeds.
+  /// If an existing transport to the provided server is found this function will try to use it, but will
+  /// automatically retry once if the connection is dead. If a new transport has to be created this function will
+  /// create it, use it, and set it on `self` if the command succeeds.
   pub async fn request_response(
     &mut self,
     inner: &Arc<RedisClientInner>,
@@ -146,10 +152,10 @@ impl Backchannel {
     let result = match transport {
       RedisTransport::Tcp(transport) => {
         map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
-      }
+      },
       RedisTransport::Tls(transport) => {
         map_tls_response(connection::request_response_safe(transport, &command, is_resp3).await)
-      }
+      },
     };
 
     match result {
@@ -157,7 +163,7 @@ impl Backchannel {
         _debug!(inner, "Created backchannel to {}", server);
         self.transport = Some((transport, server));
         Ok(frame)
-      }
+      },
       Err((e, _)) => {
         if try_once {
           _warn!(inner, "Failed to create backchannel to {}", server);
@@ -170,21 +176,21 @@ impl Backchannel {
           let result = match transport {
             RedisTransport::Tcp(transport) => {
               map_tcp_response(connection::request_response_safe(transport, &command, is_resp3).await)
-            }
+            },
             RedisTransport::Tls(transport) => {
               map_tls_response(connection::request_response_safe(transport, &command, is_resp3).await)
-            }
+            },
           };
 
           match result {
             Ok((frame, transport)) => {
               self.transport = Some((transport, server));
               Ok(frame)
-            }
+            },
             Err((e, _)) => Err(e),
           }
         }
-      }
+      },
     }
   }
 }

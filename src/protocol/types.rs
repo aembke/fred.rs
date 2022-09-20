@@ -1,25 +1,26 @@
 use super::utils as protocol_utils;
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::types::*;
-use crate::utils;
-use crate::utils::{set_locked, take_locked};
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  types::*,
+  utils,
+  utils::{set_locked, take_locked},
+};
 use bytes_utils::Str;
 use parking_lot::RwLock;
 use rand::Rng;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp2_frame_to_resp3;
-use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::convert::TryInto;
-use std::fmt;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot::Sender as OneshotSender;
+use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
+use std::{
+  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  convert::TryInto,
+  fmt,
+  net::{SocketAddr, ToSocketAddrs},
+  sync::Arc,
+  time::Instant,
+};
+use tokio::sync::{mpsc::UnboundedSender, oneshot::Sender as OneshotSender};
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
@@ -67,7 +68,7 @@ pub struct AllNodesResponse {
   // this state can shared across tasks scheduled in different threads on multi-thread runtimes when we
   // send commands to all servers at once and wait for all the responses
   num_nodes: Arc<RwLock<usize>>,
-  resp_tx: Arc<RwLock<Option<OneshotSender<Result<(), RedisError>>>>>,
+  resp_tx:   Arc<RwLock<Option<OneshotSender<Result<(), RedisError>>>>>,
 }
 
 impl fmt::Debug for AllNodesResponse {
@@ -89,7 +90,7 @@ impl AllNodesResponse {
   pub fn new(tx: OneshotSender<Result<(), RedisError>>) -> Self {
     AllNodesResponse {
       num_nodes: Arc::new(RwLock::new(0)),
-      resp_tx: Arc::new(RwLock::new(Some(tx))),
+      resp_tx:   Arc::new(RwLock::new(Some(tx))),
     }
   }
 
@@ -99,7 +100,7 @@ impl AllNodesResponse {
   }
 
   pub fn num_nodes(&self) -> usize {
-    self.num_nodes.read().clone()
+    *self.num_nodes.read()
   }
 
   pub fn decr_num_nodes(&self) -> usize {
@@ -121,7 +122,7 @@ pub struct CustomKeySlot {
 #[derive(Clone)]
 pub struct SplitCommand {
   // TODO change to mutex
-  pub tx: Arc<RwLock<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
+  pub tx:     Arc<RwLock<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
   pub config: Option<RedisConfig>,
 }
 
@@ -141,8 +142,13 @@ impl Eq for SplitCommand {}
 
 #[derive(Clone)]
 pub enum ResponseKind {
-  Blocking { tx: Option<UnboundedSender<Resp3Frame>> },
-  Multiple { count: usize, buffer: VecDeque<Resp3Frame> },
+  Blocking {
+    tx: Option<UnboundedSender<Resp3Frame>>,
+  },
+  Multiple {
+    count:  usize,
+    buffer: VecDeque<Resp3Frame>,
+  },
 }
 
 impl fmt::Debug for ResponseKind {
@@ -170,8 +176,8 @@ impl Eq for ResponseKind {}
 
 pub struct KeyScanInner {
   pub key_slot: Option<u16>,
-  pub cursor: Str,
-  pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
+  pub cursor:   Str,
+  pub tx:       UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
 impl PartialEq for KeyScanInner {
@@ -190,7 +196,7 @@ pub enum ValueScanResult {
 
 pub struct ValueScanInner {
   pub cursor: Str,
-  pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
+  pub tx:     UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
 impl PartialEq for ValueScanInner {
@@ -223,13 +229,13 @@ impl ValueScanInner {
             RedisErrorKind::ProtocolError,
             "Invalid HSCAN result. Expected string.",
           ))
-        }
+        },
       };
 
       out.insert(key, value);
     }
 
-    Ok(out.try_into()?)
+    out.try_into()
   }
 
   pub fn transform_zscan_result(mut data: Vec<RedisValue>) -> Result<Vec<(RedisValue, f64)>, RedisError> {
@@ -255,7 +261,7 @@ impl ValueScanInner {
             RedisErrorKind::ProtocolError,
             "Invalid HSCAN result. Expected a string or integer score.",
           ))
-        }
+        },
       };
 
       out.push((value, score));
@@ -973,7 +979,8 @@ impl RedisCommandKind {
     }
   }
 
-  /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis command.
+  /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis
+  /// command.
   pub(crate) fn cmd_str(&self) -> Str {
     let s = match *self {
       RedisCommandKind::AclLoad => "ACL",
@@ -1248,7 +1255,7 @@ impl RedisCommandKind {
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
       RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
         panic!("unreachable (redis command)")
-      }
+      },
     };
 
     utils::static_str(s)
@@ -1475,12 +1482,12 @@ impl RedisCommandKind {
 
   pub fn custom_key_slot(&self) -> Option<u16> {
     match *self {
-      RedisCommandKind::Scan(ref inner) => inner.key_slot.clone(),
-      RedisCommandKind::_Custom(ref kind) => kind.hash_slot.clone(),
-      RedisCommandKind::EvalSha(ref slot) => slot.key_slot.clone(),
-      RedisCommandKind::Eval(ref slot) => slot.key_slot.clone(),
-      RedisCommandKind::Xread((_, ref slot)) => slot.clone(),
-      RedisCommandKind::Xreadgroup((_, ref slot)) => slot.clone(),
+      RedisCommandKind::Scan(ref inner) => inner.key_slot,
+      RedisCommandKind::_Custom(ref kind) => kind.hash_slot,
+      RedisCommandKind::EvalSha(ref slot) => slot.key_slot,
+      RedisCommandKind::Eval(ref slot) => slot.key_slot,
+      RedisCommandKind::Xread((_, ref slot)) => *slot,
+      RedisCommandKind::Xreadgroup((_, ref slot)) => *slot,
       _ => None,
     }
   }
@@ -1520,7 +1527,7 @@ impl RedisCommandKind {
     match *self {
       RedisCommandKind::_HelloAllCluster((ref inner, ref version)) => {
         Some(RedisCommandKind::_HelloAllCluster((inner.clone(), version.clone())))
-      }
+      },
       RedisCommandKind::_AuthAllCluster(ref inner) => Some(RedisCommandKind::_AuthAllCluster(inner.clone())),
       RedisCommandKind::_FlushAllCluster(ref inner) => Some(RedisCommandKind::_FlushAllCluster(inner.clone())),
       RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(RedisCommandKind::_ScriptFlushCluster(inner.clone())),
@@ -1532,9 +1539,7 @@ impl RedisCommandKind {
 
   pub fn is_read(&self) -> bool {
     // TODO finish this and use for sending reads to replicas
-    match *self {
-      _ => false,
-    }
+    false
   }
 }
 
@@ -1543,18 +1548,18 @@ pub type ResponseSender = Option<OneshotSender<Result<Resp3Frame, RedisError>>>;
 
 /// An arbitrary Redis command.
 pub struct RedisCommand {
-  pub kind: RedisCommandKind,
-  pub args: Vec<RedisValue>,
+  pub kind:      RedisCommandKind,
+  pub args:      Vec<RedisValue>,
   /// Sender for notifying the caller that a response was received.
-  pub tx: ResponseSender,
+  pub tx:        ResponseSender,
   /// Number of times the request was sent to the server.
   pub attempted: usize,
   /// Time when the command was first initialized.
-  pub sent: Instant,
+  pub sent:      Instant,
   /// Sender for notifying the command processing loop that the command received a response.
-  pub resp_tx: Arc<RwLock<Option<OneshotSender<()>>>>,
+  pub resp_tx:   Arc<RwLock<Option<OneshotSender<()>>>>,
   #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-  pub traces: CommandTraces,
+  pub traces:    CommandTraces,
 }
 
 impl fmt::Debug for RedisCommand {
@@ -1615,7 +1620,7 @@ impl RedisCommand {
       attempted: 0,
       tx: None,
       args: self.args.clone(),
-      sent: self.sent.clone(),
+      sent: self.sent,
       resp_tx: self.resp_tx.clone(),
     }
   }
@@ -1721,7 +1726,7 @@ impl RedisCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReplicaNodes {
   servers: Vec<Arc<String>>,
-  next: usize,
+  next:    usize,
 }
 
 impl ReplicaNodes {
@@ -1742,7 +1747,7 @@ impl ReplicaNodes {
   }
 
   pub fn next(&mut self) -> Option<Arc<String>> {
-    if self.servers.len() == 0 {
+    if self.servers.is_empty() {
       return None;
     }
 
@@ -1756,12 +1761,12 @@ impl ReplicaNodes {
 /// A slot range and associated cluster node information from the CLUSTER NODES command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
-  pub start: u16,
-  pub end: u16,
+  pub start:  u16,
+  pub end:    u16,
   pub server: Arc<String>,
-  pub id: Arc<String>,
-  // TODO cache replicas for each primary and round-robin reads to the replicas + primary, and only send writes to the primary
-  //pub replicas: Option<ReplicaNodes>,
+  pub id:     Arc<String>,
+  // TODO cache replicas for each primary and round-robin reads to the replicas + primary, and only send writes to
+  // the primary pub replicas: Option<ReplicaNodes>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
@@ -1866,8 +1871,8 @@ impl ClusterKeyCache {
 
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<Arc<SlotRange>> {
-    if self.data.len() > 0 {
-      let idx = rand::thread_rng().gen_range(0..self.data.len());
+    if !self.data.is_empty() {
+      let idx = rand::thread_rng().gen_range(0 .. self.data.len());
       Some(self.data[idx].clone())
     } else {
       None

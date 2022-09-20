@@ -1,12 +1,12 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{types::*, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
-use std::convert::TryInto;
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
 value_cmd!(cluster_bumpepoch, ClusterBumpEpoch);
 ok_cmd!(cluster_flushslots, ClusterFlushSlots);
@@ -22,8 +22,7 @@ pub async fn cluster_info(inner: &Arc<RedisClientInner>) -> Result<ClusterInfo, 
 
 pub async fn cluster_add_slots<S>(inner: &Arc<RedisClientInner>, slots: S) -> Result<(), RedisError>
 where
-  S: Into<MultipleHashSlots>,
-{
+  S: Into<MultipleHashSlots>, {
   let slots = slots.into();
   let frame = utils::request_response(inner, move || {
     let mut args = Vec::with_capacity(slots.len());
@@ -62,8 +61,7 @@ pub async fn cluster_count_keys_in_slot(inner: &Arc<RedisClientInner>, slot: u16
 
 pub async fn cluster_del_slots<S>(inner: &Arc<RedisClientInner>, slots: S) -> Result<(), RedisError>
 where
-  S: Into<MultipleHashSlots>,
-{
+  S: Into<MultipleHashSlots>, {
   let slots = slots.into();
 
   let frame = utils::request_response(inner, move || {
@@ -122,8 +120,7 @@ pub async fn cluster_get_keys_in_slot(
 
 pub async fn cluster_keyslot<K>(inner: &Arc<RedisClientInner>, key: K) -> Result<RedisValue, RedisError>
 where
-  K: Into<RedisKey>,
-{
+  K: Into<RedisKey>, {
   one_arg_value_cmd(inner, RedisCommandKind::ClusterKeySlot, key.into().into()).await
 }
 

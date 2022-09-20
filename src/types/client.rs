@@ -44,13 +44,10 @@ impl ClientKillFilter {
       ClientKillFilter::User(ref user) => ("USER", user.into()),
       ClientKillFilter::Addr(ref addr) => ("ADDR", addr.into()),
       ClientKillFilter::LAddr(ref addr) => ("LADDR", addr.into()),
-      ClientKillFilter::SkipMe(ref b) => (
-        "SKIPME",
-        match *b {
-          true => utils::static_str("yes"),
-          false => utils::static_str("no"),
-        },
-      ),
+      ClientKillFilter::SkipMe(ref b) => ("SKIPME", match *b {
+        true => utils::static_str("yes"),
+        false => utils::static_str("no"),
+      }),
     };
 
     (utils::static_str(prefix), value)

@@ -1,13 +1,15 @@
-use fred::clients::RedisClient;
-use fred::error::RedisError;
-use fred::interfaces::*;
-use fred::types::{RedisConfig, RedisValue};
+use fred::{
+  clients::RedisClient,
+  error::RedisError,
+  interfaces::*,
+  types::{RedisConfig, RedisValue},
+};
 
 pub async fn should_run_get_set_trx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   let trx = client.multi(true).await?;
 
-  let _r1: () = trx.set("foo", "bar", None, None, false).await?;
-  let _r2: () = trx.get("foo").await?;
+  trx.set("foo", "bar", None, None, false).await?;
+  trx.get("foo").await?;
   let results: Vec<String> = trx.exec().await?;
 
   assert_eq!(results, vec!["OK", "bar"]);
@@ -15,20 +17,20 @@ pub async fn should_run_get_set_trx(client: RedisClient, _config: RedisConfig) -
 }
 
 pub async fn should_run_error_get_set_trx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
-  let _: () = client.set("foo", "bar", None, None, false).await?;
+  client.set("foo", "bar", None, None, false).await?;
 
   let trx = client.multi(true).await?;
-  let _: () = trx.incr("foo").await?;
-  let _: () = trx.exec().await?;
+  trx.incr("foo").await?;
+  trx.exec().await?;
 
   Ok(())
 }
 
 pub async fn should_fail_with_hashslot_error(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   let trx = client.multi(true).await?;
-  let _: () = client.set("foo", "bar", None, None, false).await?;
-  let _: () = client.set("bar", "baz", None, None, false).await?;
-  let _: () = trx.exec().await?;
+  client.set("foo", "bar", None, None, false).await?;
+  client.set("bar", "baz", None, None, false).await?;
+  trx.exec().await?;
 
   Ok(())
 }
@@ -41,6 +43,6 @@ pub async fn should_use_cluster_slot_with_publish(client: RedisClient, _: RedisC
   let res2: RedisValue = trx.publish("foo2", "bar").await?;
   assert!(res2.is_queued());
 
-  let _: () = trx.exec().await?;
+  trx.exec().await?;
   Ok(())
 }

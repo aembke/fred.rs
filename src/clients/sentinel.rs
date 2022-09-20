@@ -1,13 +1,13 @@
-use crate::clients::redis::RedisClient;
-use crate::interfaces::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::tls::TlsConfig;
-use crate::types::{Blocking, PerformanceConfig, RedisConfig, ServerConfig};
+use crate::{
+  clients::redis::RedisClient,
+  interfaces::*,
+  modules::inner::RedisClientInner,
+  protocol::tls::TlsConfig,
+  types::{Blocking, PerformanceConfig, RedisConfig, ServerConfig},
+};
 use futures::{Stream, StreamExt};
 use redis_protocol::resp3::prelude::RespVersion;
-use std::default::Default;
-use std::fmt;
-use std::sync::Arc;
+use std::{default::Default, fmt, sync::Arc};
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -18,12 +18,13 @@ pub struct SentinelConfig {
   /// The hostname for the sentinel node.
   ///
   /// Default: `127.0.0.1`
-  pub host: String,
+  pub host:     String,
   /// The port on which the sentinel node is listening.
   ///
   /// Default: `26379`
-  pub port: u16,
-  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should be `None`.
+  pub port:     u16,
+  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
+  /// be `None`.
   ///
   /// Default: `None`
   pub username: Option<String>,
@@ -36,26 +37,26 @@ pub struct SentinelConfig {
   /// Default: `None`
   #[cfg(feature = "enable-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
-  pub tls: Option<TlsConfig>,
+  pub tls:      Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing: bool,
+  pub tracing:  bool,
 }
 
 impl Default for SentinelConfig {
   fn default() -> Self {
     SentinelConfig {
-      host: "127.0.0.1".into(),
-      port: 26379,
-      username: None,
-      password: None,
+      host:                                        "127.0.0.1".into(),
+      port:                                        26379,
+      username:                                    None,
+      password:                                    None,
       #[cfg(feature = "enable-tls")]
-      tls: None,
+      tls:                                         None,
       #[cfg(feature = "partial-tracing")]
-      tracing: false,
+      tracing:                                     false,
     }
   }
 }
@@ -64,31 +65,34 @@ impl Default for SentinelConfig {
 impl From<SentinelConfig> for RedisConfig {
   fn from(config: SentinelConfig) -> Self {
     RedisConfig {
-      server: ServerConfig::Centralized {
+      server:                                      ServerConfig::Centralized {
         host: config.host,
         port: config.port,
       },
-      fail_fast: true,
-      performance: PerformanceConfig {
+      fail_fast:                                   true,
+      performance:                                 PerformanceConfig {
         pipeline: false,
         ..Default::default()
       },
-      database: None,
-      blocking: Blocking::Block,
-      username: config.username,
-      password: config.password,
-      version: RespVersion::RESP2,
+      database:                                    None,
+      blocking:                                    Blocking::Block,
+      username:                                    config.username,
+      password:                                    config.password,
+      version:                                     RespVersion::RESP2,
       #[cfg(feature = "enable-tls")]
-      tls: config.tls,
+      tls:                                         config.tls,
       #[cfg(feature = "partial-tracing")]
-      tracing: config.tracing,
+      tracing:                                     config.tracing,
     }
   }
 }
 
 /// A struct for interacting directly with Sentinel nodes.
 ///
-/// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::RedisClient) interface with a [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a sentinel layer.
+/// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the
+/// sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::RedisClient) interface with a
+/// [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a
+/// sentinel layer.
 ///
 /// See the [sentinel API docs](https://redis.io/topics/sentinel#sentinel-api) for more information.
 #[derive(Clone)]

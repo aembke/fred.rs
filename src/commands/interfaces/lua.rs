@@ -1,20 +1,22 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag};
-use crate::utils;
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag},
+  utils,
+};
 use bytes_utils::Str;
 use std::convert::TryInto;
 
 /// Functions that implement the [lua](https://redis.io/commands#lua) interface.
 pub trait LuaInterface: ClientLike + Sized {
-  /// Load a script into the scripts cache, without executing it. After the specified command is loaded into the script cache it will be callable using EVALSHA with the correct SHA1 digest of the script.
+  /// Load a script into the scripts cache, without executing it. After the specified command is loaded into the
+  /// script cache it will be callable using EVALSHA with the correct SHA1 digest of the script.
   ///
   /// <https://redis.io/commands/script-load>
   fn script_load<S>(&self, script: S) -> AsyncResult<String>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(script);
     async_spawn(self, |inner| async move {
       commands::lua::script_load(&inner, script).await?.convert()
@@ -24,8 +26,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// A clustered variant of [script_load](Self::script_load) that loads the script on all primary nodes in a cluster.
   fn script_load_cluster<S>(&self, script: S) -> AsyncResult<String>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(script);
     async_spawn(self, |inner| async move {
       commands::lua::script_load_cluster(&inner, script).await?.convert()
@@ -42,7 +43,8 @@ pub trait LuaInterface: ClientLike + Sized {
     })
   }
 
-  /// A clustered variant of the [script_kill](Self::script_kill) command that issues the command to all primary nodes in the cluster.
+  /// A clustered variant of the [script_kill](Self::script_kill) command that issues the command to all primary nodes
+  /// in the cluster.
   fn script_kill_cluster(&self) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -60,7 +62,8 @@ pub trait LuaInterface: ClientLike + Sized {
     })
   }
 
-  /// A clustered variant of [script_flush](Self::script_flush) that flushes the script cache on all primary nodes in the cluster.
+  /// A clustered variant of [script_flush](Self::script_flush) that flushes the script cache on all primary nodes in
+  /// the cluster.
   fn script_flush_cluster(&self, r#async: bool) -> AsyncResult<()> {
     async_spawn(self, |inner| async move {
       utils::disallow_during_transaction(&inner)?;
@@ -73,8 +76,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// <https://redis.io/commands/script-exists>
   fn script_exists<H>(&self, hashes: H) -> AsyncResult<Vec<bool>>
   where
-    H: Into<MultipleStrings>,
-  {
+    H: Into<MultipleStrings>, {
     into!(hashes);
     async_spawn(self, |inner| async move {
       commands::lua::script_exists(&inner, hashes).await
@@ -102,8 +104,7 @@ pub trait LuaInterface: ClientLike + Sized {
     S: Into<Str>,
     K: Into<MultipleKeys>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(hash, keys);
     try_into!(args);
     async_spawn(self, |inner| async move {
@@ -123,8 +124,7 @@ pub trait LuaInterface: ClientLike + Sized {
     S: Into<Str>,
     K: Into<MultipleKeys>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(script, keys);
     try_into!(args);
     async_spawn(self, |inner| async move {

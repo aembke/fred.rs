@@ -32,11 +32,13 @@ pub use streams::*;
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
 
-pub(crate) static QUEUED: &'static str = "QUEUED";
-pub(crate) static NIL: &'static str = "nil";
+pub(crate) static QUEUED: &str = "QUEUED";
+pub(crate) static NIL: &str = "nil";
 
-pub use crate::modules::response::{FromRedis, FromRedisKey};
-pub use crate::protocol::types::ClusterKeyCache;
+pub use crate::{
+  modules::response::{FromRedis, FromRedisKey},
+  protocol::types::ClusterKeyCache,
+};
 pub use redis_protocol::resp3::types::{Frame, RespVersion};
 
 /// The ANY flag used on certain GEO commands.

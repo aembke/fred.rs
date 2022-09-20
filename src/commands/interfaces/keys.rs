@@ -1,7 +1,9 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{Expiration, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions};
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{Expiration, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions},
+};
 use std::convert::TryInto;
 
 /// Functions that implement the generic [keys](https://redis.io/commands#generic) interface.
@@ -11,8 +13,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/randomkey>
   fn randomkey<R>(&self) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |inner| async move {
       commands::keys::randomkey(&inner).await?.convert()
     })
@@ -25,8 +26,7 @@ pub trait KeysInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     S: Into<RedisKey>,
-    D: Into<RedisKey>,
-  {
+    D: Into<RedisKey>, {
     into!(source, destination);
     async_spawn(self, |inner| async move {
       commands::keys::copy(&inner, source, destination, db, replace)
@@ -40,8 +40,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// <https://redis.io/commands/dump>
   fn dump<K>(&self, key: K) -> AsyncResult<RedisValue>
   where
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move { commands::keys::dump(&inner, key).await })
   }
@@ -60,8 +59,7 @@ pub trait KeysInterface: ClientLike + Sized {
     frequency: Option<i64>,
   ) -> AsyncResult<RedisValue>
   where
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::restore(&inner, key, ttl, serialized, replace, absttl, idletime, frequency).await
@@ -85,8 +83,7 @@ pub trait KeysInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(value);
     async_spawn(self, |inner| async move {
@@ -102,8 +99,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn get<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::get(&inner, key).await?.convert()
@@ -118,15 +114,15 @@ pub trait KeysInterface: ClientLike + Sized {
   fn getrange<R, K>(&self, key: K, start: usize, end: usize) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::getrange(&inner, key, start, end).await?.convert()
     })
   }
 
-  /// Overwrites part of the string stored at `key`, starting at the specified `offset`, for the entire length of `value`.
+  /// Overwrites part of the string stored at `key`, starting at the specified `offset`, for the entire length of
+  /// `value`.
   ///
   /// <https://redis.io/commands/setrange>
   fn setrange<R, K, V>(&self, key: K, offset: u32, value: V) -> AsyncResult<R>
@@ -134,8 +130,7 @@ pub trait KeysInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(value);
     async_spawn(self, |inner| async move {
@@ -153,8 +148,7 @@ pub trait KeysInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(value);
     async_spawn(self, |inner| async move {
@@ -162,14 +156,14 @@ pub trait KeysInterface: ClientLike + Sized {
     })
   }
 
-  /// Get the value of key and delete the key. This command is similar to GET, except for the fact that it also deletes the key on success (if and only if the key's value type is a string).
+  /// Get the value of key and delete the key. This command is similar to GET, except for the fact that it also
+  /// deletes the key on success (if and only if the key's value type is a string).
   ///
   /// <https://redis.io/commands/getdel>
   fn getdel<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::getdel(&inner, key).await?.convert()
@@ -182,8 +176,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn strlen<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::strlen(&inner, key).await?.convert()
@@ -198,22 +191,21 @@ pub trait KeysInterface: ClientLike + Sized {
   fn del<R, K>(&self, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::keys::del(&inner, keys).await?.convert()
     })
   }
 
-  /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the special value nil is returned.
+  /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the
+  /// special value nil is returned.
   ///
   /// <https://redis.io/commands/mget>
   fn mget<R, K>(&self, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::keys::mget(&inner, keys).await?.convert()
@@ -226,30 +218,30 @@ pub trait KeysInterface: ClientLike + Sized {
   fn mset<V>(&self, values: V) -> AsyncResult<()>
   where
     V: TryInto<RedisMap>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     try_into!(values);
     async_spawn(self, |inner| async move {
       commands::keys::mset(&inner, values).await?.convert()
     })
   }
 
-  /// Sets the given keys to their respective values. MSETNX will not perform any operation at all even if just a single key already exists.
+  /// Sets the given keys to their respective values. MSETNX will not perform any operation at all even if just a
+  /// single key already exists.
   ///
   /// <https://redis.io/commands/msetnx>
   fn msetnx<R, V>(&self, values: V) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     V: TryInto<RedisMap>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     try_into!(values);
     async_spawn(self, |inner| async move {
       commands::keys::msetnx(&inner, values).await?.convert()
     })
   }
 
-  /// Increments the number stored at `key` by one. If the key does not exist, it is set to 0 before performing the operation.
+  /// Increments the number stored at `key` by one. If the key does not exist, it is set to 0 before performing the
+  /// operation.
   ///
   /// Returns an error if the value at key is of the wrong type.
   ///
@@ -257,15 +249,15 @@ pub trait KeysInterface: ClientLike + Sized {
   fn incr<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::incr(&inner, key).await?.convert()
     })
   }
 
-  /// Increments the number stored at `key` by `val`. If the key does not exist, it is set to 0 before performing the operation.
+  /// Increments the number stored at `key` by `val`. If the key does not exist, it is set to 0 before performing the
+  /// operation.
   ///
   /// Returns an error if the value at key is of the wrong type.
   ///
@@ -273,31 +265,32 @@ pub trait KeysInterface: ClientLike + Sized {
   fn incr_by<R, K>(&self, key: K, val: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::incr_by(&inner, key, val).await?.convert()
     })
   }
 
-  /// Increment the string representing a floating point number stored at key by `val`. If the key does not exist, it is set to 0 before performing the operation.
+  /// Increment the string representing a floating point number stored at key by `val`. If the key does not exist, it
+  /// is set to 0 before performing the operation.
   ///
-  /// Returns an error if key value is the wrong type or if the current value cannot be parsed as a floating point value.
+  /// Returns an error if key value is the wrong type or if the current value cannot be parsed as a floating point
+  /// value.
   ///
   /// <https://redis.io/commands/incrbyfloat>
   fn incr_by_float<R, K>(&self, key: K, val: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::incr_by_float(&inner, key, val).await?.convert()
     })
   }
 
-  /// Decrements the number stored at `key` by one. If the key does not exist, it is set to 0 before performing the operation.
+  /// Decrements the number stored at `key` by one. If the key does not exist, it is set to 0 before performing the
+  /// operation.
   ///
   /// Returns an error if the key contains a value of the wrong type.
   ///
@@ -305,15 +298,15 @@ pub trait KeysInterface: ClientLike + Sized {
   fn decr<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::decr(&inner, key).await?.convert()
     })
   }
 
-  /// Decrements the number stored at `key` by `val`. If the key does not exist, it is set to 0 before performing the operation.
+  /// Decrements the number stored at `key` by `val`. If the key does not exist, it is set to 0 before performing the
+  /// operation.
   ///
   /// Returns an error if the key contains a value of the wrong type.
   ///
@@ -321,8 +314,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn decr_by<R, K>(&self, key: K, val: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::decr_by(&inner, key, val).await?.convert()
@@ -335,8 +327,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn ttl<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::ttl(&inner, key).await?.convert()
@@ -349,8 +340,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn pttl<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::pttl(&inner, key).await?.convert()
@@ -366,8 +356,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn persist<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::persist(&inner, key).await?.convert()
@@ -382,8 +371,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn expire<R, K>(&self, key: K, seconds: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::expire(&inner, key, seconds).await?.convert()
@@ -398,8 +386,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn expire_at<R, K>(&self, key: K, timestamp: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::keys::expire_at(&inner, key, timestamp).await?.convert()
@@ -412,8 +399,7 @@ pub trait KeysInterface: ClientLike + Sized {
   fn exists<R, K>(&self, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::keys::exists(&inner, keys).await?.convert()

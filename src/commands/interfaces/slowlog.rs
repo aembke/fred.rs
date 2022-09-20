@@ -1,6 +1,9 @@
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::SlowlogEntry;
-use crate::{commands, utils};
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::SlowlogEntry,
+  utils,
+};
 
 /// Functions that implement the [slowlog](https://redis.io/commands#server) interface.
 pub trait SlowlogInterface: ClientLike + Sized {

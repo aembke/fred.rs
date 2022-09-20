@@ -1,31 +1,24 @@
-use crate::clients::RedisClient;
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{
-  async_spawn, wrap_async, AsyncResult, AuthInterface, ClientLike, MetricsInterface, PubsubInterface,
+use crate::{
+  clients::RedisClient,
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, wrap_async, AsyncResult, AuthInterface, ClientLike, MetricsInterface, PubsubInterface},
+  modules::inner::RedisClientInner,
+  types::{MultipleStrings, RedisConfig},
+  utils,
 };
-use crate::modules::inner::RedisClientInner;
-use crate::types::{MultipleStrings, RedisConfig};
-use crate::utils;
 use bytes_utils::Str;
-use futures::future::join_all;
-use futures::Stream;
+use futures::{future::join_all, Stream};
 use parking_lot::RwLock;
-use std::collections::BTreeSet;
-use std::fmt;
-use std::fmt::Formatter;
-use std::mem;
-use std::sync::Arc;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::task::JoinHandle;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_stream::StreamExt;
+use std::{collections::BTreeSet, fmt, fmt::Formatter, mem, sync::Arc};
+use tokio::{sync::mpsc::unbounded_channel, task::JoinHandle};
+use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 
 fn from_redis_client(client: RedisClient, channels: &ChannelSet, patterns: &ChannelSet) -> SubscriberClient {
   SubscriberClient {
-    inner: client.inner,
+    inner:    client.inner,
     patterns: patterns.clone(),
     channels: channels.clone(),
   }
@@ -118,7 +111,7 @@ fn concurrent_op(
 pub struct SubscriberClient {
   channels: ChannelSet,
   patterns: ChannelSet,
-  inner: Arc<RedisClientInner>,
+  inner:    Arc<RedisClientInner>,
 }
 
 impl fmt::Debug for SubscriberClient {
@@ -144,8 +137,7 @@ impl MetricsInterface for SubscriberClient {}
 impl PubsubInterface for SubscriberClient {
   fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(channel);
     let cached_channels = self.channels.clone();
     async_spawn(self, |inner| async move {
@@ -159,8 +151,7 @@ impl PubsubInterface for SubscriberClient {
 
   fn psubscribe<S>(&self, patterns: S) -> AsyncResult<Vec<usize>>
   where
-    S: Into<MultipleStrings>,
-  {
+    S: Into<MultipleStrings>, {
     into!(patterns);
     let cached_patterns = self.patterns.clone();
     async_spawn(self, |inner| async move {
@@ -178,8 +169,7 @@ impl PubsubInterface for SubscriberClient {
 
   fn unsubscribe<S>(&self, channel: S) -> AsyncResult<usize>
   where
-    S: Into<Str>,
-  {
+    S: Into<Str>, {
     into!(channel);
     let cached_channels = self.channels.clone();
     async_spawn(self, |inner| async move {
@@ -193,8 +183,7 @@ impl PubsubInterface for SubscriberClient {
 
   fn punsubscribe<S>(&self, patterns: S) -> AsyncResult<Vec<usize>>
   where
-    S: Into<MultipleStrings>,
-  {
+    S: Into<MultipleStrings>, {
     into!(patterns);
     let cached_patterns = self.patterns.clone();
     async_spawn(self, |inner| async move {
@@ -217,13 +206,14 @@ impl SubscriberClient {
     SubscriberClient {
       channels: Arc::new(RwLock::new(BTreeSet::new())),
       patterns: Arc::new(RwLock::new(BTreeSet::new())),
-      inner: RedisClientInner::new(config),
+      inner:    RedisClientInner::new(config),
     }
   }
 
   /// Create a new `SubscriberClient` from the config provided to this client.
   ///
-  /// The returned client will not be connected to the server, and it will use new connections after connecting. However, it will manage the same channel subscriptions as the original client.
+  /// The returned client will not be connected to the server, and it will use new connections after connecting.
+  /// However, it will manage the same channel subscriptions as the original client.
   pub fn clone_new(&self) -> Self {
     let inner = RedisClientInner::new(utils::read_locked(&self.inner.config));
 
@@ -236,7 +226,8 @@ impl SubscriberClient {
 
   /// Listen for reconnection notifications.
   ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to select the right database again, re-subscribe to channels, etc.
+  /// This function can be used to receive notifications whenever the client successfully reconnects in order to
+  /// select the right database again, re-subscribe to channels, etc.
   ///
   /// A reconnection event is also triggered upon first connecting to the server.
   pub fn on_reconnect(&self) -> impl Stream<Item = Self> {

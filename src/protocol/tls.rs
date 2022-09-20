@@ -47,22 +47,22 @@ pub fn should_disable_host_verification() -> bool {
 #[cfg(feature = "enable-tls")]
 #[derive(Clone)]
 pub struct TlsConfig {
-  pub root_certs: Option<Vec<Certificate>>,
-  pub min_protocol_version: Option<Protocol>,
-  pub max_protocol_version: Option<Protocol>,
+  pub root_certs:             Option<Vec<Certificate>>,
+  pub min_protocol_version:   Option<Protocol>,
+  pub max_protocol_version:   Option<Protocol>,
   pub disable_built_in_roots: bool,
-  pub use_sni: bool,
+  pub use_sni:                bool,
 }
 
 #[cfg(feature = "enable-tls")]
 impl Default for TlsConfig {
   fn default() -> Self {
     TlsConfig {
-      root_certs: None,
-      min_protocol_version: None,
-      max_protocol_version: None,
+      root_certs:             None,
+      min_protocol_version:   None,
+      max_protocol_version:   None,
       disable_built_in_roots: false,
-      use_sni: true,
+      use_sni:                true,
     }
   }
 }
@@ -119,15 +119,15 @@ pub fn create_tls_connector(config: &RwLock<RedisConfig>) -> Result<TlsConnector
       builder.disable_built_in_roots(true);
     }
     if let Some(ref protocol) = config.min_protocol_version {
-      builder.min_protocol_version(Some(protocol.clone()));
+      builder.min_protocol_version(Some(*protocol));
     }
     if let Some(ref protocol) = config.max_protocol_version {
-      builder.max_protocol_version(Some(protocol.clone()));
+      builder.max_protocol_version(Some(*protocol));
     }
   }
 
   builder
     .build()
-    .map(|t| TlsConnector::from(t))
+    .map(TlsConnector::from)
     .map_err(|e| RedisError::new(RedisErrorKind::Tls, format!("{:?}", e)))
 }

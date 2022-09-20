@@ -1,9 +1,22 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{
-  AggregateOptions, FromRedis, Limit, MultipleKeys, MultipleValues, MultipleWeights, MultipleZaddValues, Ordering,
-  RedisKey, RedisValue, SetOptions, ZRange, ZSort,
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{
+    AggregateOptions,
+    FromRedis,
+    Limit,
+    MultipleKeys,
+    MultipleValues,
+    MultipleWeights,
+    MultipleZaddValues,
+    Ordering,
+    RedisKey,
+    RedisValue,
+    SetOptions,
+    ZRange,
+    ZSort,
+  },
 };
 use std::convert::TryInto;
 
@@ -15,8 +28,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::bzpopmin(&inner, keys, timeout).await?.convert()
@@ -29,8 +41,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::bzpopmax(&inner, keys, timeout).await?.convert()
@@ -53,8 +64,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleZaddValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(values);
     async_spawn(self, |inner| async move {
@@ -70,8 +80,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zcard<R, K>(&self, key: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zcard(&inner, key).await?.convert()
@@ -84,37 +93,36 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zcount<R, K>(&self, key: K, min: f64, max: f64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zcount(&inner, key, min, max).await?.convert()
     })
   }
 
-  /// This command is similar to ZDIFFSTORE, but instead of storing the resulting sorted set, it is returned to the client.
+  /// This command is similar to ZDIFFSTORE, but instead of storing the resulting sorted set, it is returned to the
+  /// client.
   ///
   /// <https://redis.io/commands/zdiff>
   fn zdiff<R, K>(&self, keys: K, withscores: bool) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(keys);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zdiff(&inner, keys, withscores).await?.convert()
     })
   }
 
-  /// Computes the difference between the first and all successive input sorted sets and stores the result in `destination`.
+  /// Computes the difference between the first and all successive input sorted sets and stores the result in
+  /// `destination`.
   ///
   /// <https://redis.io/commands/zdiffstore>
   fn zdiffstore<R, D, K>(&self, dest: D, keys: K) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
-  {
+    K: Into<MultipleKeys>, {
     into!(dest, keys);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zdiffstore(&inner, dest, keys).await?.convert()
@@ -129,8 +137,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -140,7 +147,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     })
   }
 
-  /// This command is similar to ZINTERSTORE, but instead of storing the resulting sorted set, it is returned to the client.
+  /// This command is similar to ZINTERSTORE, but instead of storing the resulting sorted set, it is returned to the
+  /// client.
   ///
   /// <https://redis.io/commands/zinter>
   fn zinter<R, K, W>(
@@ -153,8 +161,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   where
     R: FromRedis + Unpin + Send,
     K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
-  {
+    W: Into<MultipleWeights>, {
     into!(keys, weights);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zinter(&inner, keys, weights, aggregate, withscores)
@@ -163,7 +170,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     })
   }
 
-  /// Computes the intersection of the sorted sets given by the specified keys, and stores the result in `destination`.
+  /// Computes the intersection of the sorted sets given by the specified keys, and stores the result in
+  /// `destination`.
   ///
   /// <https://redis.io/commands/zinterstore>
   fn zinterstore<R, D, K, W>(
@@ -177,8 +185,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
-  {
+    W: Into<MultipleWeights>, {
     into!(dest, keys, weights);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zinterstore(&inner, dest, keys, weights, aggregate)
@@ -187,8 +194,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     })
   }
 
-  /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical ordering,
-  /// this command returns the number of elements in the sorted set at key with a value between min and max.
+  /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical
+  /// ordering, this command returns the number of elements in the sorted set at key with a value between min and
+  /// max.
   ///
   /// <https://redis.io/commands/zlexcount>
   fn zlexcount<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
@@ -198,8 +206,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -213,8 +220,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zpopmax<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zpopmax(&inner, key, count).await?.convert()
@@ -227,8 +233,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zpopmin<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zpopmin(&inner, key, count).await?.convert()
@@ -241,8 +246,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zrandmember<R, K>(&self, key: K, count: Option<(i64, bool)>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zrandmember(&inner, key, count).await?.convert()
@@ -269,8 +273,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(dest, source);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -299,8 +302,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -321,8 +323,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -343,8 +344,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(max, min);
     async_spawn(self, |inner| async move {
@@ -372,8 +372,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -401,8 +400,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(max, min);
     async_spawn(self, |inner| async move {
@@ -420,8 +418,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -437,8 +434,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {
@@ -458,8 +454,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -475,8 +470,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zremrangebyrank<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zremrangebyrank(&inner, key, start, stop)
@@ -495,8 +489,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     M: TryInto<ZRange>,
     M::Error: Into<RedisError>,
     N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
-  {
+    N::Error: Into<RedisError>, {
     into!(key);
     try_into!(min, max);
     async_spawn(self, |inner| async move {
@@ -512,8 +505,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   fn zrevrange<R, K>(&self, key: K, start: i64, stop: i64, withscores: bool) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-  {
+    K: Into<RedisKey>, {
     into!(key);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zrevrange(&inner, key, start, stop, withscores)
@@ -530,8 +522,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -547,8 +538,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(member);
     async_spawn(self, |inner| async move {
@@ -556,7 +546,8 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     })
   }
 
-  /// This command is similar to ZUNIONSTORE, but instead of storing the resulting sorted set, it is returned to the client.
+  /// This command is similar to ZUNIONSTORE, but instead of storing the resulting sorted set, it is returned to the
+  /// client.
   ///
   /// <https://redis.io/commands/zunion>
   fn zunion<K, W>(
@@ -568,8 +559,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   ) -> AsyncResult<RedisValue>
   where
     K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
-  {
+    W: Into<MultipleWeights>, {
     into!(keys, weights);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zunion(&inner, keys, weights, aggregate, withscores).await
@@ -590,8 +580,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     D: Into<RedisKey>,
     K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
-  {
+    W: Into<MultipleWeights>, {
     into!(dest, keys, weights);
     async_spawn(self, |inner| async move {
       commands::sorted_sets::zunionstore(&inner, dest, keys, weights, aggregate)
@@ -608,8 +597,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     R: FromRedis + Unpin + Send,
     K: Into<RedisKey>,
     V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
-  {
+    V::Error: Into<RedisError>, {
     into!(key);
     try_into!(members);
     async_spawn(self, |inner| async move {

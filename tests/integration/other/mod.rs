@@ -1,16 +1,19 @@
-use fred::clients::RedisClient;
-use fred::error::{RedisError, RedisErrorKind};
-use fred::interfaces::*;
-use fred::prelude::{Blocking, RedisValue};
-use fred::types::{ClientUnblockFlag, RedisConfig, RedisKey, RedisMap, ServerConfig};
+use fred::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  interfaces::*,
+  prelude::{Blocking, RedisValue},
+  types::{ClientUnblockFlag, RedisConfig, RedisKey, RedisMap, ServerConfig},
+};
 use parking_lot::RwLock;
 use redis_protocol::resp3::types::RespVersion;
-use std::collections::HashMap;
-use std::collections::{BTreeMap, BTreeSet};
-use std::convert::TryInto;
-use std::mem;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+  collections::{BTreeMap, BTreeSet, HashMap},
+  convert::TryInto,
+  mem,
+  sync::Arc,
+  time::Duration,
+};
 use tokio::time::sleep;
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
@@ -26,9 +29,9 @@ fn array_to_set<T: Ord>(vals: Vec<T>) -> BTreeSet<T> {
 
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let nested_values: RedisMap = vec![("a", 1), ("b", 2)].try_into()?;
-  let _ = client.set("foo", "123", None, None, false).await?;
-  let _ = client.set("baz", "456", None, None, false).await?;
-  let _ = client.hset("bar", &nested_values).await?;
+  client.set("foo", "123", None, None, false).await?;
+  client.set("baz", "456", None, None, false).await?;
+  client.hset("bar", &nested_values).await?;
 
   let foo: usize = client.get("foo").await?;
   assert_eq!(foo, 123);
@@ -58,7 +61,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
   config.blocking = Blocking::Interrupt;
   let client = RedisClient::new(config);
   let _ = client.connect(None);
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let unblock_client = client.clone();
   let _ = tokio::spawn(async move {
@@ -96,7 +99,7 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
   config.blocking = Blocking::Error;
   let client = RedisClient::new(config);
   let _ = client.connect(None);
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
   let error_client = client.clone();
 
   let _ = tokio::spawn(async move {
@@ -166,12 +169,12 @@ pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) 
 pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let count: i64 = 200;
 
-  for idx in 0..count {
-    let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+  for idx in 0 .. count {
+    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
-  let _ = client.flushall_cluster().await?;
+  client.flushall_cluster().await?;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
     assert!(value.is_none());
   }
@@ -193,19 +196,19 @@ pub async fn should_safely_change_protocols_repeatedly(
         return Ok::<_, RedisError>(());
       }
 
-      let _ = other.incr("foo").await?;
+      other.incr("foo").await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
 
   // switch protocols every half second
-  for idx in 0..20 {
+  for idx in 0 .. 20 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
       RespVersion::RESP3
     };
-    let _ = client.hello(version, None).await?;
+    client.hello(version, None).await?;
     sleep(Duration::from_millis(500)).await;
   }
   let _ = mem::replace(&mut *done.write(), true);
