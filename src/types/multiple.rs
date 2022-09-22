@@ -1,11 +1,12 @@
-use crate::{
-  error::RedisError,
-  types::{RedisKey, RedisValue},
-};
 use std::{
   collections::VecDeque,
   convert::{TryFrom, TryInto},
   iter::FromIterator,
+};
+
+use crate::{
+  error::RedisError,
+  types::{RedisKey, RedisValue},
 };
 
 /// Convenience struct for commands that take 1 or more keys.
@@ -31,22 +32,6 @@ impl MultipleKeys {
   }
 }
 
-impl From<Option<RedisKey>> for MultipleKeys {
-  fn from(key: Option<RedisKey>) -> Self {
-    let keys = if let Some(key) = key { vec![key] } else { vec![] };
-    MultipleKeys { keys }
-  }
-}
-
-impl<T> From<T> for MultipleKeys
-where
-  T: Into<RedisKey>,
-{
-  fn from(d: T) -> Self {
-    MultipleKeys { keys: vec![d.into()] }
-  }
-}
-
 impl<T> FromIterator<T> for MultipleKeys
 where
   T: Into<RedisKey>,
@@ -55,6 +40,25 @@ where
     MultipleKeys {
       keys: iter.into_iter().map(|k| k.into()).collect(),
     }
+  }
+}
+
+impl<T: Into<RedisKey>> From<T> for MultipleKeys {
+  fn from(d: T) -> Self {
+    MultipleKeys {
+      keys: vec![d.into()],
+    }
+  }
+}
+
+impl From<Option<RedisKey>> for MultipleKeys {
+  fn from(key: Option<RedisKey>) -> Self {
+    let keys = if let Some(key) = key {
+      vec![key]
+    } else {
+      vec![]
+    };
+    MultipleKeys { keys }
   }
 }
 
@@ -121,7 +125,11 @@ impl MultipleValues {
 
 impl From<Option<RedisValue>> for MultipleValues {
   fn from(val: Option<RedisValue>) -> Self {
-    let values = if let Some(val) = val { vec![val] } else { vec![] };
+    let values = if let Some(val) = val {
+      vec![val]
+    } else {
+      vec![]
+    };
     MultipleValues { values }
   }
 }
@@ -146,8 +154,21 @@ impl<T> From<T> for MultipleValues
 where
   T: Into<RedisValue>,
 {
-  fn from(d: T) -> Self {
-    MultipleValues { values: vec![d.into()] }
+  fn from(t: T) -> Self {
+    MultipleValues {
+      values: vec![t.into()],
+    }
+  }
+}
+
+impl<T> From<std::vec::IntoIter<T>> for MultipleValues
+where
+  T: Into<RedisValue>,
+{
+  fn from(iter: std::vec::IntoIter<T>) -> Self {
+    MultipleValues {
+      values: iter.map(|v| v.into()).collect(),
+    }
   }
 }
 

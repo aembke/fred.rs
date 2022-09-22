@@ -1,14 +1,3 @@
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  interfaces::{ClientLike, Resp3Frame},
-  protocol::{connection::OK, utils as protocol_utils},
-  types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED},
-  utils,
-};
-use bytes::Bytes;
-use bytes_utils::Str;
-use float_cmp::approx_eq;
-use redis_protocol::resp2::types::NULL;
 use std::{
   borrow::Cow,
   collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -22,8 +11,20 @@ use std::{
   sync::Arc,
 };
 
+use bytes::Bytes;
+use bytes_utils::Str;
+use float_cmp::approx_eq;
+use redis_protocol::resp2::types::NULL;
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
+
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces::{ClientLike, Resp3Frame},
+  protocol::{connection::OK, utils as protocol_utils},
+  types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED},
+  utils,
+};
 
 static_str!(TRUE_STR, "true");
 static_str!(FALSE_STR, "false");
@@ -153,6 +154,15 @@ impl From<f64> for StringOrNumber {
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RedisKey {
   key: Bytes,
+}
+
+impl IntoIterator for RedisKey {
+  type IntoIter = std::vec::IntoIter<Self::Item>;
+  type Item = RedisKey;
+
+  fn into_iter(self) -> Self::IntoIter {
+    vec![self].into_iter()
+  }
 }
 
 impl RedisKey {
@@ -290,7 +300,8 @@ impl<'a> From<&'a [u8]> for RedisKey {
 }
 
 // doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what
-// to do with `Vec<u8>`. impl From<Vec<u8>> for RedisKey {
+// to do with `Vec<u8>`.
+// impl From<Vec<u8>> for RedisKey {
 // fn from(b: Vec<u8>) -> Self {
 // RedisKey { key: b.into() }
 // }
@@ -1468,9 +1479,9 @@ where
   }
 }
 
-impl FromIterator<RedisValue> for RedisValue {
-  fn from_iter<I: IntoIterator<Item = RedisValue>>(iter: I) -> Self {
-    RedisValue::Array(iter.into_iter().collect())
+impl<V: Into<RedisValue>> FromIterator<V> for RedisValue {
+  fn from_iter<I: IntoIterator<Item = V>>(iter: I) -> Self {
+    RedisValue::Array(iter.into_iter().map(|i| i.into()).collect())
   }
 }
 
