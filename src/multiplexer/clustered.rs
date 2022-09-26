@@ -1,30 +1,43 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces;
-use crate::interfaces::Resp3Frame;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::{responses, utils};
-use crate::multiplexer::{Connections, Written};
-use crate::protocol::command::{
-  ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand, RedisCommandKind,
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces,
+  interfaces::Resp3Frame,
+  modules::inner::RedisClientInner,
+  multiplexer::{responses, types::ClusterChange, utils, Connections, Written},
+  protocol::{
+    command::{ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand, RedisCommandKind},
+    connection::{
+      self,
+      CommandBuffer,
+      Counters,
+      RedisTransport,
+      RedisWriter,
+      SharedBuffer,
+      SplitRedisStream,
+      SplitStreamKind,
+    },
+    responders,
+    responders::ResponseKind,
+    types::ClusterRouting,
+    utils as protocol_utils,
+    utils::server_to_parts,
+  },
+  types::ClusterStateChange,
+  utils as client_utils,
 };
-use crate::protocol::connection::{
-  self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
-};
-use crate::protocol::responders;
-use crate::protocol::responders::ResponseKind;
-use crate::protocol::types::ClusterRouting;
-use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::server_to_parts;
-use crate::types::ClusterStateChange;
-use crate::utils as client_utils;
 use arcstr::ArcStr;
-use futures::future::{join_all, try_join_all};
-use futures::StreamExt;
-use std::collections::{BTreeSet, HashMap, VecDeque};
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::task::JoinHandle;
+use futures::{
+  future::{join_all, try_join_all},
+  StreamExt,
+};
+use std::{
+  collections::{BTreeSet, HashMap, VecDeque},
+  sync::Arc,
+};
+use tokio::{
+  io::{AsyncRead, AsyncWrite},
+  task::JoinHandle,
+};
 
 pub fn find_cluster_node<'a>(
   inner: &Arc<RedisClientInner>,
@@ -71,7 +84,7 @@ pub async fn send_command<'a>(
 
   if let Some(writer) = writers.get_mut(server) {
     _debug!(inner, "Writing command `{}` to {}", command.kind.to_str_debug(), server);
-    Ok(utils::write_command(inner, writer, command).await)
+    Ok(utils::write_command(inner, writer, command, false).await)
   } else {
     // a reconnect message should already be queued from the reader task
     _debug!(
@@ -178,7 +191,8 @@ pub fn spawn_reader_task(
   })
 }
 
-/// Send a MOVED or ASK command to the multiplexer, using the multiplexer channel if possible and falling back on the command queue if appropriate.
+/// Send a MOVED or ASK command to the multiplexer, using the multiplexer channel if possible and falling back on the
+/// command queue if appropriate.
 ///
 /// Note: Cluster errors within a transaction can only be handled via the blocking multiplexer channel.
 fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, frame: Resp3Frame) {
@@ -312,8 +326,9 @@ pub async fn process_response_frame(
     ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
     ResponseKind::Multiple { received, expected, tx } => {
       if let Some(command) = responders::respond_multiple(inner, server, command, received, expected, tx, frame)? {
-        // the `Multiple` policy works by processing a series of responses on the same connection. the response channel
-        // is not shared across commands (since there's only one), so we re-queue it while waiting on response frames.
+        // the `Multiple` policy works by processing a series of responses on the same connection. the response
+        // channel is not shared across commands (since there's only one), so we re-queue it while waiting on
+        // response frames.
         buffer.lock().push_front(command);
         counters.incr_in_flight();
       }
@@ -488,7 +503,8 @@ pub async fn sync(
   }
 }
 
-/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.
+/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on
+/// `buffer`.
 pub async fn initialize_connections(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,

@@ -1,19 +1,24 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::utils;
-use crate::multiplexer::{Counters, SentCommand, SentCommands};
-use crate::protocol::types::{RedisCommandKind, ResponseKind, ValueScanInner, ValueScanResult};
-use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::{frame_to_error, frame_to_single_result};
-use crate::trace;
-use crate::types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
-use crate::utils as client_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  multiplexer::{utils, Counters, SentCommand, SentCommands},
+  protocol::{
+    types::{RedisCommandKind, ResponseKind, ValueScanInner, ValueScanResult},
+    utils as protocol_utils,
+    utils::{frame_to_error, frame_to_single_result},
+  },
+  trace,
+  types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
+  utils as client_utils,
+};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::Arc;
+use std::{
+  collections::{BTreeMap, BTreeSet, VecDeque},
+  sync::Arc,
+};
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;

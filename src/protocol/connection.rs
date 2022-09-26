@@ -1,35 +1,53 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::codec::RedisCodec;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::responders;
-use crate::protocol::types::ClusterKeyCache;
-use crate::protocol::types::ProtocolFrame;
-use crate::protocol::utils as protocol_utils;
-use crate::protocol::utils::{frame_into_string, pretty_error};
-use crate::types::{ClientState, InfoKind, Resolve};
-use crate::{utils as client_utils, utils};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{
+    codec::RedisCodec,
+    command::{RedisCommand, RedisCommandKind},
+    responders,
+    types::{ClusterKeyCache, ProtocolFrame},
+    utils as protocol_utils,
+    utils::{frame_into_string, pretty_error},
+  },
+  types::{ClientState, InfoKind, Resolve},
+  utils as client_utils,
+  utils,
+};
 use arcstr::ArcStr;
-use futures::lock::BiLock;
-use futures::sink::SinkExt;
-use futures::stream::{SplitSink, SplitStream, StreamExt};
-use futures::{Sink, Stream, TryStream};
+use futures::{
+  lock::BiLock,
+  sink::SinkExt,
+  stream::{SplitSink, SplitStream, StreamExt},
+  Sink,
+  Stream,
+  TryStream,
+};
 use parking_lot::{Mutex, RwLock};
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
+use redis_protocol::{
+  resp2::types::Frame as Resp2Frame,
+  resp3::types::{Frame as Resp3Frame, RespVersion},
+};
 use semver::Version;
-use std::collections::VecDeque;
-use std::convert::TryInto;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use std::time::Instant;
-use std::{fmt, mem, str};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
-use tokio::task::JoinHandle;
+use std::{
+  collections::VecDeque,
+  convert::TryInto,
+  fmt,
+  mem,
+  net::SocketAddr,
+  pin::Pin,
+  str,
+  sync::{
+    atomic::{AtomicBool, AtomicUsize},
+    Arc,
+  },
+  task::{Context, Poll},
+  time::Instant,
+};
+use tokio::{
+  io::{AsyncRead, AsyncWrite},
+  net::TcpStream,
+  task::JoinHandle,
+};
 use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
@@ -238,22 +256,22 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
 #[derive(Clone, Debug)]
 pub struct Counters {
   pub cmd_buffer_len: Arc<AtomicUsize>,
-  pub in_flight: Arc<AtomicUsize>,
-  pub feed_count: Arc<AtomicUsize>,
+  pub in_flight:      Arc<AtomicUsize>,
+  pub feed_count:     Arc<AtomicUsize>,
 }
 
 impl Counters {
   pub fn new(cmd_buffer_len: &Arc<AtomicUsize>) -> Self {
     Counters {
       cmd_buffer_len: cmd_buffer_len.clone(),
-      in_flight: Arc::new(AtomicUsize::new(0)),
-      feed_count: Arc::new(AtomicUsize::new(0)),
+      in_flight:      Arc::new(AtomicUsize::new(0)),
+      feed_count:     Arc::new(AtomicUsize::new(0)),
     }
   }
 
   /// Flush the sink if the max feed count is reached or no commands are queued following the current command.
   pub fn should_send(&self, inner: &Arc<RedisClientInner>) -> bool {
-    client_utils::read_atomic(&self.feed_count) > inner.max_feed_count()
+    client_utils::read_atomic(&self.feed_count) as u64 > inner.max_feed_count()
       || client_utils::read_atomic(&self.cmd_buffer_len) == 0
   }
 
@@ -280,19 +298,19 @@ impl Counters {
 
 pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
-  pub server: ArcStr,
+  pub server:       ArcStr,
   /// The parsed `SocketAddr` for the connection.
-  pub addr: SocketAddr,
+  pub addr:         SocketAddr,
   /// The hostname used to initialize the connection.
   pub default_host: ArcStr,
   /// The network connection.
-  pub transport: ConnectionKind,
+  pub transport:    ConnectionKind,
   /// The connection/client ID from the CLIENT ID command.
-  pub id: Option<i64>,
+  pub id:           Option<i64>,
   /// The server version.
-  pub version: Option<Version>,
+  pub version:      Option<Version>,
   /// Counters for the connection state.
-  pub counters: Counters,
+  pub counters:     Counters,
 }
 
 impl RedisTransport {
@@ -357,9 +375,7 @@ impl RedisTransport {
         })
       },
       _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
-    };
-
-    Ok(framed)
+    }
   }
 
   #[cfg(not(feature = "enable-native-tls"))]
@@ -401,9 +417,7 @@ impl RedisTransport {
         })
       },
       _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
-    };
-
-    Ok(framed)
+    }
   }
 
   #[cfg(not(feature = "enable-rustls"))]
@@ -610,7 +624,8 @@ impl RedisTransport {
     }
   }
 
-  /// Authenticate, set the protocol version, set the client name, select the provided database, and cache the connection ID and server version.
+  /// Authenticate, set the protocol version, set the client name, select the provided database, and cache the
+  /// connection ID and server version.
   pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     let _ = self.switch_protocols_and_authenticate(inner).await?;
     let _ = self.set_client_name(inner).await?;
@@ -652,11 +667,11 @@ impl RedisTransport {
 }
 
 pub struct RedisReader {
-  pub stream: Option<SplitStreamKind>,
-  pub server: ArcStr,
-  pub buffer: SharedBuffer,
+  pub stream:   Option<SplitStreamKind>,
+  pub server:   ArcStr,
+  pub buffer:   SharedBuffer,
   pub counters: Counters,
-  pub task: Option<JoinHandle<Result<(), RedisError>>>,
+  pub task:     Option<JoinHandle<Result<(), RedisError>>>,
 }
 
 impl RedisReader {
@@ -687,15 +702,15 @@ impl RedisReader {
 }
 
 pub struct RedisWriter {
-  pub sink: SplitSinkKind,
-  pub server: ArcStr,
+  pub sink:         SplitSinkKind,
+  pub server:       ArcStr,
   pub default_host: ArcStr,
-  pub addr: SocketAddr,
-  pub buffer: SharedBuffer,
-  pub version: Option<Version>,
-  pub id: Option<i64>,
-  pub counters: Counters,
-  pub reader: Option<RedisReader>,
+  pub addr:         SocketAddr,
+  pub buffer:       SharedBuffer,
+  pub version:      Option<Version>,
+  pub id:           Option<i64>,
+  pub counters:     Counters,
+  pub reader:       Option<RedisReader>,
 }
 
 impl fmt::Debug for RedisWriter {
@@ -803,8 +818,7 @@ where
     &ArcStr,
     &SharedBuffer,
     &Counters,
-  ) -> JoinHandle<Result<(), RedisError>>,
-{
+  ) -> JoinHandle<Result<(), RedisError>>, {
   let server = transport.server.clone();
   let (mut writer, mut reader) = transport.split(inner);
   let reader_stream = match reader.stream.take() {

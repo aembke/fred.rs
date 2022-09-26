@@ -1,10 +1,14 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::types::RedisValue;
-use crate::utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::RedisValue,
+  utils,
+};
 use bytes_utils::Str;
-use std::collections::VecDeque;
-use std::convert::{TryFrom, TryInto};
-use std::iter::FromIterator;
+use std::{
+  collections::VecDeque,
+  convert::{TryFrom, TryInto},
+  iter::FromIterator,
+};
 
 /// Convenience struct for `ZINTERSTORE` and `ZUNIONSTORE` when accepting 1 or more `weights` arguments.
 pub struct MultipleWeights {
@@ -264,7 +268,7 @@ impl Default for ZRangeKind {
 /// A wrapper struct for a range bound in a sorted set command.
 #[derive(Clone, Debug)]
 pub struct ZRange {
-  pub kind: ZRangeKind,
+  pub kind:  ZRangeKind,
   pub range: ZRangeBound,
 }
 
@@ -299,7 +303,7 @@ impl ZRange {
 impl From<i64> for ZRange {
   fn from(i: i64) -> Self {
     ZRange {
-      kind: ZRangeKind::default(),
+      kind:  ZRangeKind::default(),
       range: i.into(),
     }
   }
@@ -308,7 +312,7 @@ impl From<i64> for ZRange {
 impl<'a> From<&'a str> for ZRange {
   fn from(s: &'a str) -> Self {
     ZRange {
-      kind: ZRangeKind::default(),
+      kind:  ZRangeKind::default(),
       range: s.into(),
     }
   }
@@ -317,7 +321,7 @@ impl<'a> From<&'a str> for ZRange {
 impl From<String> for ZRange {
   fn from(s: String) -> Self {
     ZRange {
-      kind: ZRangeKind::default(),
+      kind:  ZRangeKind::default(),
       range: s.into(),
     }
   }
@@ -326,7 +330,7 @@ impl From<String> for ZRange {
 impl<'a> From<&'a String> for ZRange {
   fn from(s: &'a String) -> Self {
     ZRange {
-      kind: ZRangeKind::default(),
+      kind:  ZRangeKind::default(),
       range: s.as_str().into(),
     }
   }
@@ -337,7 +341,7 @@ impl TryFrom<f64> for ZRange {
 
   fn try_from(f: f64) -> Result<Self, Self::Error> {
     Ok(ZRange {
-      kind: ZRangeKind::default(),
+      kind:  ZRangeKind::default(),
       range: f.try_into()?,
     })
   }

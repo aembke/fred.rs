@@ -1,14 +1,20 @@
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::Resp3Frame;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::connection::{SentCommand, SharedBuffer};
-use crate::protocol::hashers::ClusterHash;
-use crate::protocol::responders::ResponseKind;
-use crate::protocol::types::{ClusterRouting, KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner};
-use crate::protocol::utils as protocol_utils;
-use crate::types::{CustomCommand, RedisConfig, RedisValue};
-use crate::{trace, utils as client_utils, utils};
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  interfaces::Resp3Frame,
+  modules::inner::RedisClientInner,
+  protocol::{
+    connection::{SentCommand, SharedBuffer},
+    hashers::ClusterHash,
+    responders::ResponseKind,
+    types::{ClusterRouting, KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner},
+    utils as protocol_utils,
+  },
+  trace,
+  types::{CustomCommand, RedisConfig, RedisValue},
+  utils as client_utils,
+  utils,
+};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use lazy_static::lazy_static;
@@ -16,15 +22,18 @@ use nom::AsBytes;
 use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
 use semver::Op;
-use std::borrow::Cow;
-use std::collections::VecDeque;
-use std::convert::TryFrom;
-use std::env::args;
-use std::fmt::Formatter;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::time::Instant;
-use std::{fmt, mem, str};
+use std::{
+  borrow::Cow,
+  collections::VecDeque,
+  convert::TryFrom,
+  env::args,
+  fmt,
+  fmt::Formatter,
+  mem,
+  str,
+  sync::{atomic::AtomicUsize, Arc},
+  time::Instant,
+};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 use url::quirks::hash;
 
@@ -785,7 +794,8 @@ impl RedisCommandKind {
     }
   }
 
-  /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis command.
+  /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis
+  /// command.
   pub(crate) fn cmd_str(&self) -> Str {
     let s = match *self {
       RedisCommandKind::AclLoad
@@ -1361,36 +1371,36 @@ impl RedisCommandKind {
 
 pub struct RedisCommand {
   /// The command and optional subcommand name.
-  pub kind: RedisCommandKind,
+  pub kind:              RedisCommandKind,
   /// The policy to apply when handling the response.
-  pub response: ResponseKind,
+  pub response:          ResponseKind,
   /// The policy to use when hashing the arguments for cluster routing.
-  pub hasher: ClusterHash,
+  pub hasher:            ClusterHash,
   /// The provided arguments.
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
-  pub arguments: Vec<RedisValue>,
+  pub arguments:         Vec<RedisValue>,
   /// A oneshot sender used to communicate with the multiplexer.
-  pub multiplexer_tx: Option<MultiplexerSender>,
+  pub multiplexer_tx:    Option<MultiplexerSender>,
   /// The number of times the command was sent to the server.
-  pub attempted: u32,
+  pub attempted:         u32,
   /// Whether or not the command can be pipelined.
   ///
   /// Also used for commands like XREAD that block based on an argument.
-  pub can_pipeline: bool,
+  pub can_pipeline:      bool,
   /// Whether or not to skip backpressure checks.
   pub skip_backpressure: bool,
   /// The internal ID of a transaction.
-  pub transaction_id: Option<u64>,
+  pub transaction_id:    Option<u64>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
-  pub created: Instant,
+  pub created:           Instant,
   /// A timestamp of when the command was last written to the socket.
   #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-  pub network_start: Option<Instant>,
+  pub network_start:     Option<Instant>,
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
-  pub traces: CommandTraces,
+  pub traces:            CommandTraces,
 }
 
 impl fmt::Debug for RedisCommand {
@@ -1546,6 +1556,11 @@ impl RedisCommand {
   /// Whether errors writing the command should be returned to the caller.
   pub fn should_send_write_error(&self, inner: &Arc<RedisClientInner>) -> bool {
     self.attempted == inner.max_command_attempts() || inner.policy.read().is_none()
+  }
+
+  /// Mark the command to only run once, returning connection write errors to the caller immediately.
+  pub fn set_try_once(&mut self, inner: &Arc<RedisClientInner>) {
+    self.attempted = inner.max_command_attempts();
   }
 
   /// Increment and check the number of write attempts.
@@ -1718,14 +1733,14 @@ pub enum MultiplexerCommand {
   /// 5. The client receives `MOVED` or `ASK` from `GET bar`.
   /// 6. The client receives a successful response from `GET baz`.
   ///
-  /// In this scenario the client will retry `GET bar` against the correct node, but after `GET baz` has already finished.
-  /// Callers should use a transaction if they require commands to always finish in order across arbitrary keys in a cluster.
-  /// Both a `Pipeline` and `Transaction` will run a series of commands without interruption, but only a `Transaction` can
-  /// guarantee in-order execution while accounting for cluster errors.
+  /// In this scenario the client will retry `GET bar` against the correct node, but after `GET baz` has already
+  /// finished. Callers should use a transaction if they require commands to always finish in order across
+  /// arbitrary keys in a cluster. Both a `Pipeline` and `Transaction` will run a series of commands without
+  /// interruption, but only a `Transaction` can guarantee in-order execution while accounting for cluster errors.
   ///
-  /// Note: if the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the commands
-  /// **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands, and the client would
-  /// retry them in the same order.
+  /// Note: if the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the
+  /// commands **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands,
+  /// and the client would retry them in the same order.
   Pipeline { commands: Vec<RedisCommand> },
   /// Send a transaction to the server.
   ///
@@ -1739,13 +1754,14 @@ pub enum MultiplexerCommand {
   /// 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
   /// 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
   ///
-  /// According to the cluster spec the client should retry the entire transaction against the node in the `ASK` response,
-  /// but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET foo{1}` will have
-  /// already finished at this point. To account for this the client will never pipeline transactions against a cluster,
-  /// and may clone commands before sending them in order to replay them later with a different cluster node mapping.
+  /// According to the cluster spec the client should retry the entire transaction against the node in the `ASK`
+  /// response, but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET
+  /// foo{1}` will have already finished at this point. To account for this the client will never pipeline
+  /// transactions against a cluster, and may clone commands before sending them in order to replay them later with
+  /// a different cluster node mapping.
   Transaction {
-    id: u64,
-    commands: Vec<RedisCommand>,
+    id:             u64,
+    commands:       Vec<RedisCommand>,
     abort_on_error: bool,
   },
   /// Retry a command after a `MOVED` error.
@@ -1753,8 +1769,8 @@ pub enum MultiplexerCommand {
   /// This will trigger a call to `CLUSTER SLOTS` before the command is retried. Additionally,
   /// the client will **not** increment the command's write attempt counter.
   Moved {
-    slot: u16,
-    server: String,
+    slot:    u16,
+    server:  String,
     command: RedisCommand,
   },
   /// Retry a command after an `ASK` error.
@@ -1763,8 +1779,8 @@ pub enum MultiplexerCommand {
   ///
   /// This is typically used instead of `MultiplexerResponse::Ask` when a command was pipelined.
   Ask {
-    slot: u16,
-    server: String,
+    slot:    u16,
+    server:  String,
     command: RedisCommand,
   },
   /// Split a clustered client into a set of centralized clients, one for each primary node.
@@ -1776,8 +1792,8 @@ pub enum MultiplexerCommand {
   /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
     server: Option<ArcStr>,
-    force: bool,
-    tx: Option<ResponseSender>,
+    force:  bool,
+    tx:     Option<ResponseSender>,
   },
   /// Check and update the cached sentinel state against one of the known sentinel nodes.
   CheckSentinels,

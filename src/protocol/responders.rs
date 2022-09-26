@@ -1,24 +1,27 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::Resp3Frame;
-use crate::modules::inner::RedisClientInner;
-use crate::modules::metrics::MovingStats;
-use crate::protocol::command::{MultiplexerResponse, RedisCommand};
-use crate::protocol::command::{RedisCommandKind, ResponseSender};
-use crate::protocol::connection::SharedBuffer;
-use crate::protocol::types::{KeyScanInner, ValueScanInner, ValueScanResult};
-use crate::protocol::utils as protocol_utils;
-use crate::types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult};
-use crate::utils as client_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces::Resp3Frame,
+  modules::{inner::RedisClientInner, metrics::MovingStats},
+  protocol::{
+    command::{MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender},
+    connection::SharedBuffer,
+    types::{KeyScanInner, ValueScanInner, ValueScanResult},
+    utils as protocol_utils,
+  },
+  types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
+  utils as client_utils,
+};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use parking_lot::{Mutex, RwLock};
-use std::cmp;
-use std::collections::vec_deque::VecDeque;
-use std::iter::repeat;
-use std::ops::DerefMut;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+  cmp,
+  collections::vec_deque::VecDeque,
+  iter::repeat,
+  ops::DerefMut,
+  sync::{atomic::AtomicUsize, Arc},
+  time::Instant,
+};
 
 const LAST_CURSOR: &'static str = "0";
 
@@ -35,7 +38,8 @@ const LAST_CURSOR: &'static str = "0";
 // TODO
 // multiplexer stream logic needs to change:
 // * handle _Reconnect and _Sync
-// * reorder functions to reader can detect that the connection was intentionally closed via the inner.multiplexer_rx field
+// * reorder functions to reader can detect that the connection was intentionally closed via the inner.multiplexer_rx
+//   field
 // * implement cluster sync logic
 // * implement shared cluster socket flushing
 // * change reconnect logic on write failure
@@ -66,8 +70,9 @@ pub enum ResponseKind {
   ///
   /// Note: This must not be shared across multiple commands. Use `Buffer` instead.
   ///
-  /// `PSUBSCRIBE` and `PUNSUBSCRIBE` return multiple top level response frames on the same connection to the command. This requires unique response handling logic
-  /// to re-queue the command at the front of the shared command buffer until the expected number of frames are received.
+  /// `PSUBSCRIBE` and `PUNSUBSCRIBE` return multiple top level response frames on the same connection to the
+  /// command. This requires unique response handling logic to re-queue the command at the front of the shared
+  /// command buffer until the expected number of frames are received.
   // FIXME change this interface so it wont compile if this is shared across commands
   Multiple {
     /// The number of expected response frames.
@@ -75,22 +80,23 @@ pub enum ResponseKind {
     /// The number of response frames received.
     received: Arc<AtomicUsize>,
     /// A shared oneshot sender to the caller.
-    tx: Arc<Mutex<Option<ResponseSender>>>,
+    tx:       Arc<Mutex<Option<ResponseSender>>>,
   },
-  /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to the caller.
+  /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to
+  /// the caller.
   ///
   /// Typically used to handle concurrent responses in a `Pipeline` that may span multiple cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames: Arc<Mutex<Vec<Resp3Frame>>>,
+    frames:   Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
     expected: usize,
     /// The number of response frames received.
     received: Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx: Arc<Mutex<Option<ResponseSender>>>,
+    tx:       Arc<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
-    index: usize,
+    index:    usize,
   },
   /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
   ValueScan(ValueScanInner),
@@ -234,7 +240,7 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   }
 
   Resp3Frame::Array {
-    data: out,
+    data:       out,
     attributes: None,
   }
 }
@@ -423,7 +429,8 @@ pub fn respond_to_caller(
 
 /// Respond to the caller, assuming multiple response frames from the last command.
 ///
-/// This interface may return the last command to be put back at the front of the shared buffer if more responses are expected.
+/// This interface may return the last command to be put back at the front of the shared buffer if more responses are
+/// expected.
 pub fn respond_multiple(
   inner: &Arc<RedisClientInner>,
   server: &ArcStr,
@@ -478,7 +485,8 @@ pub fn respond_multiple(
   Ok(None)
 }
 
-/// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in the shared buffer.
+/// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in
+/// the shared buffer.
 pub fn respond_buffer(
   inner: &Arc<RedisClientInner>,
   server: &ArcStr,

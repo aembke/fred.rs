@@ -19,16 +19,16 @@ impl Default for ClusterState {
 /// <https://redis.io/commands/cluster-info>
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ClusterInfo {
-  pub cluster_state: ClusterState,
-  pub cluster_slots_assigned: u16,
-  pub cluster_slots_ok: u16,
-  pub cluster_slots_pfail: u16,
-  pub cluster_slots_fail: u16,
-  pub cluster_known_nodes: u16,
-  pub cluster_size: u32,
-  pub cluster_current_epoch: u64,
-  pub cluster_my_epoch: u64,
-  pub cluster_stats_messages_sent: u64,
+  pub cluster_state:                   ClusterState,
+  pub cluster_slots_assigned:          u16,
+  pub cluster_slots_ok:                u16,
+  pub cluster_slots_pfail:             u16,
+  pub cluster_slots_fail:              u16,
+  pub cluster_known_nodes:             u16,
+  pub cluster_size:                    u32,
+  pub cluster_current_epoch:           u64,
+  pub cluster_my_epoch:                u64,
+  pub cluster_stats_messages_sent:     u64,
   pub cluster_stats_messages_received: u64,
 }
 

@@ -1,24 +1,34 @@
-use crate::error::RedisErrorKind;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::utils;
-use crate::multiplexer::Written;
-use crate::multiplexer::{responses, Connections};
-use crate::prelude::{RedisError, Resp3Frame};
-use crate::protocol::command::{MultiplexerResponse, RedisCommand, ResponseSender};
-use crate::protocol::connection::{
-  CommandBuffer, Counters, RedisReader, RedisWriter, SharedBuffer, SplitRedisStream, SplitStreamKind,
+use crate::{
+  error::RedisErrorKind,
+  modules::inner::RedisClientInner,
+  multiplexer::{responses, utils, Connections, Written},
+  prelude::{RedisError, Resp3Frame},
+  protocol::{
+    command::{MultiplexerResponse, RedisCommand, ResponseSender},
+    connection,
+    connection::{
+      CommandBuffer,
+      Counters,
+      RedisReader,
+      RedisWriter,
+      SharedBuffer,
+      SplitRedisStream,
+      SplitStreamKind,
+    },
+    responders::{self, ResponseKind},
+    types::{KeyScanInner, ValueScanInner},
+    utils as protocol_utils,
+  },
+  types::ServerConfig,
 };
-use crate::protocol::responders::{self, ResponseKind};
-use crate::protocol::types::{KeyScanInner, ValueScanInner};
-use crate::protocol::{connection, utils as protocol_utils};
-use crate::types::ServerConfig;
 use arcstr::ArcStr;
 use futures::StreamExt;
 use parking_lot::Mutex;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::task::JoinHandle;
+use std::sync::{atomic::AtomicUsize, Arc};
+use tokio::{
+  io::{AsyncRead, AsyncWrite},
+  task::JoinHandle,
+};
 
 pub async fn send_command(
   inner: &Arc<RedisClientInner>,
@@ -26,7 +36,7 @@ pub async fn send_command(
   mut command: RedisCommand,
 ) -> Result<Written, (RedisError, RedisCommand)> {
   if let Some(writer) = writer.as_mut() {
-    Ok(utils::write_command(inner, writer, command).await)
+    Ok(utils::write_command(inner, writer, command, false).await)
   } else {
     _debug!(
       inner,
@@ -127,8 +137,9 @@ pub async fn process_response_frame(
     ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
     ResponseKind::Multiple { received, expected, tx } => {
       if let Some(command) = responders::respond_multiple(inner, server, command, received, expected, tx, frame)? {
-        // the `Multiple` policy works by processing a series of responses on the same connection. the response channel
-        // is not shared across commands (since there's only one), so we re-queue it while waiting on response frames.
+        // the `Multiple` policy works by processing a series of responses on the same connection. the response
+        // channel is not shared across commands (since there's only one), so we re-queue it while waiting on
+        // response frames.
         buffer.lock().push_front(command);
         counters.incr_in_flight();
       }
@@ -147,7 +158,8 @@ pub async fn process_response_frame(
   }
 }
 
-/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.
+/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on
+/// `buffer`.
 pub async fn initialize_connection(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,

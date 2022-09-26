@@ -1,6 +1,4 @@
-use crate::error::RedisError;
-use crate::types::RespVersion;
-use crate::utils;
+use crate::{error::RedisError, types::RespVersion, utils};
 use std::cmp;
 use url::Url;
 
@@ -24,37 +22,37 @@ pub const DEFAULT_JITTER_MS: u32 = 100;
 pub enum ReconnectPolicy {
   /// Wait a constant amount of time between reconnect attempts, in ms.
   Constant {
-    attempts: u32,
+    attempts:     u32,
     max_attempts: u32,
-    delay: u32,
-    jitter: u32,
+    delay:        u32,
+    jitter:       u32,
   },
   /// Backoff reconnection attempts linearly, adding `delay` each time.
   Linear {
-    attempts: u32,
+    attempts:     u32,
     max_attempts: u32,
-    max_delay: u32,
-    delay: u32,
-    jitter: u32,
+    max_delay:    u32,
+    delay:        u32,
+    jitter:       u32,
   },
   /// Backoff reconnection attempts exponentially, multiplying the last delay by `mult` each time.
   Exponential {
-    attempts: u32,
+    attempts:     u32,
     max_attempts: u32,
-    min_delay: u32,
-    max_delay: u32,
-    mult: u32,
-    jitter: u32,
+    min_delay:    u32,
+    max_delay:    u32,
+    mult:         u32,
+    jitter:       u32,
   },
 }
 
 impl Default for ReconnectPolicy {
   fn default() -> Self {
     ReconnectPolicy::Constant {
-      attempts: 0,
+      attempts:     0,
       max_attempts: 0,
-      delay: 1000,
-      jitter: DEFAULT_JITTER_MS,
+      delay:        1000,
+      jitter:       DEFAULT_JITTER_MS,
     }
   }
 }
@@ -208,7 +206,8 @@ impl ReconnectPolicy {
   }
 }
 
-/// Describes how the client should respond when a command is sent while the client is in a blocked state from a blocking command.
+/// Describes how the client should respond when a command is sent while the client is in a blocked state from a
+/// blocking command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Blocking {
   /// Wait to send the command until the blocked command finishes. (Default)
@@ -232,17 +231,18 @@ pub enum BackpressurePolicy {
   Sleep {
     /// Disable the backpressure scaling logic used to calculate the `sleep` duration when throttling commands.
     ///
-    /// If `true` the client will always wait a constant amount of time defined by `min_sleep_duration_ms` when throttling commands. Otherwise
-    /// the sleep duration will scale based on the number of in-flight commands.
+    /// If `true` the client will always wait a constant amount of time defined by `min_sleep_duration_ms` when
+    /// throttling commands. Otherwise the sleep duration will scale based on the number of in-flight commands.
     ///
     /// Default: `false`
     disable_backpressure_scaling: bool,
     /// The minimum amount of time to wait when applying backpressure to a command.
     ///
-    /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless `disable_auto_backpressure` is `true`.
+    /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless
+    /// `disable_auto_backpressure` is `true`.
     ///
     /// Default: 50 ms
-    min_sleep_duration_ms: u64,
+    min_sleep_duration_ms:        u64,
   },
   /// Wait for all in-flight commands to finish before sending the next command.
   Drain,
@@ -259,7 +259,7 @@ impl BackpressurePolicy {
   pub fn default_sleep() -> Self {
     BackpressurePolicy::Sleep {
       disable_backpressure_scaling: false,
-      min_sleep_duration_ms: 50,
+      min_sleep_duration_ms:        50,
     }
   }
 }
@@ -276,19 +276,19 @@ pub struct BackpressureConfig {
   /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
   ///
   /// Default: 5000
-  pub max_in_flight_commands: u64,
+  pub max_in_flight_commands:    u64,
   /// The backpressure policy to apply when the max number of in-flight commands is reached.
   ///
   /// Default: [Drain](crate::types::BackpressurePolicy::Drain).
-  pub policy: BackpressurePolicy,
+  pub policy:                    BackpressurePolicy,
 }
 
 impl Default for BackpressureConfig {
   fn default() -> Self {
     BackpressureConfig {
       disable_auto_backpressure: false,
-      max_in_flight_commands: 5000,
-      policy: BackpressurePolicy::default(),
+      max_in_flight_commands:    5000,
+      policy:                    BackpressurePolicy::default(),
     }
   }
 }
@@ -296,33 +296,35 @@ impl Default for BackpressureConfig {
 /// Configuration options that can affect the performance of the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PerformanceConfig {
-  /// Whether or not the client should automatically pipeline commands when possible.
+  /// Whether or not the client should automatically pipeline commands across tasks when possible.
   ///
   /// Default: `true`
-  pub auto_pipeline: bool,
+  pub auto_pipeline:                 bool,
   /// The maximum number of times the client will attempt to send a command.
   ///
   /// This value be incremented on a command whenever the connection closes while the command is in-flight.
   ///
   /// Default: `3`
-  pub max_command_attempts: u32,
+  pub max_command_attempts:          u32,
   /// Configuration options for backpressure features in the client.
-  pub backpressure: BackpressureConfig,
+  pub backpressure:                  BackpressureConfig,
   /// An optional timeout (in milliseconds) to apply to all commands.
   ///
   /// If `0` this will disable any timeout being applied to commands.
   ///
   /// Default: `0`
-  pub default_command_timeout_ms: u64,
+  pub default_command_timeout_ms:    u64,
   /// The maximum number of frames that will be passed to a socket before flushing the socket.
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///
   /// Default: 500
-  pub max_feed_count: u64,
-  /// The amount of time, in milliseconds, to wait after a `MOVED` error is received before the client will update the cached cluster state.
+  pub max_feed_count:                u64,
+  /// The amount of time, in milliseconds, to wait after a `MOVED` error is received before the client will update
+  /// the cached cluster state.
   ///
-  /// If `0` the client will follow cluster redirects as quickly as possible. However, this can result in some unnecessary state synchronization overhead when large values are being moved between nodes.
+  /// If `0` the client will follow cluster redirects as quickly as possible. However, this can result in some
+  /// unnecessary state synchronization overhead when large values are being moved between nodes.
   ///
   /// Default: 0 ms
   pub cluster_cache_update_delay_ms: u32,
@@ -331,11 +333,11 @@ pub struct PerformanceConfig {
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      auto_pipeline: true,
-      backpressure: BackpressureConfig::default(),
-      max_command_attempts: 3,
-      default_command_timeout_ms: 0,
-      max_feed_count: 500,
+      auto_pipeline:                 true,
+      backpressure:                  BackpressureConfig::default(),
+      max_command_attempts:          3,
+      default_command_timeout_ms:    0,
+      max_feed_count:                500,
       cluster_cache_update_delay_ms: 0,
     }
   }
@@ -344,49 +346,55 @@ impl Default for PerformanceConfig {
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisConfig {
-  /// Whether or not the client should return an error if it cannot connect to the server the first time when being initialized.
-  /// If `false` the client will run the reconnect logic if it cannot connect to the server the first time, but if `true` the client
-  /// will return initial connection errors to the caller immediately.
+  /// Whether or not the client should return an error if it cannot connect to the server the first time when being
+  /// initialized. If `false` the client will run the reconnect logic if it cannot connect to the server the first
+  /// time, but if `true` the client will return initial connection errors to the caller immediately.
   ///
-  /// Normally the reconnection logic only applies to connections that close unexpectedly, but this flag can apply the same logic to
-  /// the first connection as it is being created.
+  /// Normally the reconnection logic only applies to connections that close unexpectedly, but this flag can apply
+  /// the same logic to the first connection as it is being created.
   ///
-  /// Note: Callers should use caution setting this to `false` since it can make debugging configuration issues more difficult.
+  /// Note: Callers should use caution setting this to `false` since it can make debugging configuration issues more
+  /// difficult.
   ///
   /// Default: `true`
   pub fail_fast: bool,
-  /// The default behavior of the client when a command is sent while the connection is blocked on a blocking command.
+  /// The default behavior of the client when a command is sent while the connection is blocked on a blocking
+  /// command.
   ///
   /// Default: `Blocking::Block`
-  pub blocking: Blocking,
-  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should be `None`.
+  pub blocking:  Blocking,
+  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
+  /// be `None`.
   ///
   /// Default: `None`
-  pub username: Option<String>,
+  pub username:  Option<String>,
   /// An optional password for the client to use when authenticating.
   ///
   /// Default: `None`
-  pub password: Option<String>,
+  pub password:  Option<String>,
   /// Connection configuration for the server(s).
   ///
   /// Default: `Centralized(localhost, 6379)`
-  pub server: ServerConfig,
+  pub server:    ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
-  /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis >=6.0.0.** If the `HELLO`
-  /// command fails this will prevent the client from connecting. Callers should set this to RESP2 and use `HELLO` manually to fall back
-  /// to RESP2 if needed.
+  /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
+  /// >=6.0.0.** If the `HELLO` command fails this will prevent the client from connecting. Callers should set this
+  /// to RESP2 and use `HELLO` manually to fall back to RESP2 if needed.
   ///
-  /// Note: upgrading an existing codebase from RESP2 to RESP3 may require changing certain type signatures. RESP3 has a slightly different type system than RESP2.
+  /// Note: upgrading an existing codebase from RESP2 to RESP3 may require changing certain type signatures. RESP3
+  /// has a slightly different type system than RESP2.
   ///
   /// Default: `RESP2`
-  pub version: RespVersion,
+  pub version:   RespVersion,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
-  /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect` block, if possible. Commands that were in-flight when the connection closed will retry before anything inside the `on_reconnect` block.
+  /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect`
+  /// block, if possible. Commands that were in-flight when the connection closed will retry before anything inside
+  /// the `on_reconnect` block.
   ///
   /// Default: `None`
-  pub database: Option<u8>,
+  pub database:  Option<u8>,
   /// TLS configuration options.
   ///
   /// See the `tls` examples on Github for more information.
@@ -394,13 +402,13 @@ pub struct RedisConfig {
   /// Default: None
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls: Option<TlsConnector>,
+  pub tls:       Option<TlsConnector>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing: bool,
+  pub tracing:   bool,
 }
 
 impl Default for RedisConfig {
@@ -502,14 +510,26 @@ impl RedisConfig {
   ///
   /// # Query Parameters
   ///
-  /// In some cases it's necessary to specify multiple node hostname/port tuples (with a cluster or sentinel layer for example). The following query parameters may also be used in their respective contexts:
+  /// In some cases it's necessary to specify multiple node hostname/port tuples (with a cluster or sentinel layer for
+  /// example). The following query parameters may also be used in their respective contexts:
   ///
-  /// * `node` - Specify another node in the topology. In a cluster this would refer to any other known cluster node. In the context of a Redis sentinel layer this refers to a known **sentinel** node. Multiple `node` parameters may be used in a URL.
-  /// * `sentinelServiceName` - Specify the name of the sentinel service. This is required when using the `redis-sentinel` scheme.
-  /// * `sentinelUsername` - Specify the username to use when connecting to a **sentinel** node. This requires the `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual Redis server. The `username` part of the URL immediately following the scheme will refer to the username used when connecting to the backing Redis server.
-  /// * `sentinelPassword` - Specify the password to use when connecting to a **sentinel** node. This requires the `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual Redis server. The `password` part of the URL immediately following the scheme will refer to the password used when connecting to the backing Redis server.
+  /// * `node` - Specify another node in the topology. In a cluster this would refer to any other known cluster node.
+  ///   In the context of a Redis sentinel layer this refers to a known **sentinel** node. Multiple `node` parameters
+  ///   may be used in a URL.
+  /// * `sentinelServiceName` - Specify the name of the sentinel service. This is required when using the
+  ///   `redis-sentinel` scheme.
+  /// * `sentinelUsername` - Specify the username to use when connecting to a **sentinel** node. This requires the
+  ///   `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual
+  ///   Redis server. The `username` part of the URL immediately following the scheme will refer to the username used
+  ///   when connecting to the backing Redis server.
+  /// * `sentinelPassword` - Specify the password to use when connecting to a **sentinel** node. This requires the
+  ///   `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual
+  ///   Redis server. The `password` part of the URL immediately following the scheme will refer to the password used
+  ///   when connecting to the backing Redis server.
   ///
-  /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered), and [from_url_sentinel](Self::from_url_sentinel) for more information. Or see the [RedisConfig](Self) unit tests for examples.
+  /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered), and
+  /// [from_url_sentinel](Self::from_url_sentinel) for more information. Or see the [RedisConfig](Self) unit tests for
+  /// examples.
   pub fn from_url(url: &str) -> Result<RedisConfig, RedisError> {
     let parsed_url = Url::parse(url)?;
     if utils::url_is_clustered(&parsed_url) {
@@ -531,7 +551,8 @@ impl RedisConfig {
   /// // ... etc
   /// ```
   ///
-  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration parameters that are only relevant to a centralized server.
+  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration
+  /// parameters that are only relevant to a centralized server.
   ///
   /// For example:
   ///
@@ -565,7 +586,8 @@ impl RedisConfig {
   /// // ... etc
   /// ```
   ///
-  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration parameters that are only relevant to a clustered deployment.
+  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration
+  /// parameters that are only relevant to a clustered deployment.
   ///
   /// For example:
   ///
@@ -601,24 +623,29 @@ impl RedisConfig {
   /// // ... etc
   /// ```
   ///
-  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration parameters that are only relevant to a sentinel deployment.
+  /// This function is very similar to [from_url](Self::from_url), but it adds a layer of validation for configuration
+  /// parameters that are only relevant to a sentinel deployment.
   ///
   /// For example:
   ///
   /// * The `-sentinel` suffix in the scheme is optional when using this function directly.
   /// * A database can be defined in the `path` section.
-  /// * The `port` field is optional following the first hostname (`26379` will be used if undefined), but required within any `node` query parameters.
+  /// * The `port` field is optional following the first hostname (`26379` will be used if undefined), but required
+  ///   within any `node` query parameters.
   /// * Any `node` query parameters will be used to find other known sentinel nodes.
   /// * The `sentinelServiceName` query parameter is required.
   /// * Depending on the cargo features used other sentinel query parameters may be used.
   ///
-  /// This particular function is more complex than the others when the `sentinel-auth` feature is used. For example, to declare a config that uses different credentials for the sentinel nodes vs the backing Redis servers:
+  /// This particular function is more complex than the others when the `sentinel-auth` feature is used. For example,
+  /// to declare a config that uses different credentials for the sentinel nodes vs the backing Redis servers:
   ///
   /// ```text
   /// redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&sentinelUsername=username2&sentinelPassword=password2&node=bar.com:26379&node=baz.com:26380
   /// ```
   ///
-  /// The above example will use `("username1", "password1")` when authenticating to the backing Redis servers, and `("username2", "password2")` when initially connecting to the sentinel nodes. Additionally, all 3 addresses (`foo.com:26379`, `bar.com:26379`, `baz.com:26380`) specify known **sentinel** nodes.
+  /// The above example will use `("username1", "password1")` when authenticating to the backing Redis servers, and
+  /// `("username2", "password2")` when initially connecting to the sentinel nodes. Additionally, all 3 addresses
+  /// (`foo.com:26379`, `bar.com:26379`, `baz.com:26380`) specify known **sentinel** nodes.
   pub fn from_url_sentinel(url: &str) -> Result<RedisConfig, RedisError> {
     let (url, host, port, _tls) = utils::parse_url(url, Some(26379))?;
     let mut other_nodes = utils::parse_url_other_nodes(&url)?;
@@ -657,13 +684,13 @@ pub enum ServerConfig {
     port: u16,
   },
   Clustered {
-    /// An array of `(host, port)` tuples for nodes in the cluster. Only one node in the cluster needs to be provided here,
-    /// the rest will be discovered via the `CLUSTER NODES` command.
+    /// An array of `(host, port)` tuples for nodes in the cluster. Only one node in the cluster needs to be provided
+    /// here, the rest will be discovered via the `CLUSTER NODES` command.
     hosts: Vec<(String, u16)>,
   },
   Sentinel {
     /// An array of `(host, port)` tuples for each known sentinel instance.
-    hosts: Vec<(String, u16)>,
+    hosts:        Vec<(String, u16)>,
     /// The service name for primary/main instances.
     service_name: String,
 
@@ -688,8 +715,7 @@ impl ServerConfig {
   /// Create a new centralized config with the provided host and port.
   pub fn new_centralized<S>(host: S, port: u16) -> ServerConfig
   where
-    S: Into<String>,
-  {
+    S: Into<String>, {
     ServerConfig::Centralized {
       host: host.into(),
       port,
@@ -698,11 +724,11 @@ impl ServerConfig {
 
   /// Create a new clustered config with the provided set of hosts and ports.
   ///
-  /// Only one valid host in the cluster needs to be provided here. The client will use `CLUSTER NODES` to discover the other nodes.
+  /// Only one valid host in the cluster needs to be provided here. The client will use `CLUSTER NODES` to discover
+  /// the other nodes.
   pub fn new_clustered<S>(mut hosts: Vec<(S, u16)>) -> ServerConfig
   where
-    S: Into<String>,
-  {
+    S: Into<String>, {
     ServerConfig::Clustered {
       hosts: hosts.drain(..).map(|(s, p)| (s.into(), p)).collect(),
     }
@@ -714,15 +740,14 @@ impl ServerConfig {
   pub fn new_sentinel<H, N>(hosts: Vec<(H, u16)>, service_name: N) -> ServerConfig
   where
     H: Into<String>,
-    N: Into<String>,
-  {
+    N: Into<String>, {
     ServerConfig::Sentinel {
-      hosts: hosts.into_iter().map(|(h, p)| (h.into(), p)).collect(),
-      service_name: service_name.into(),
+      hosts:                                      hosts.into_iter().map(|(h, p)| (h.into(), p)).collect(),
+      service_name:                               service_name.into(),
       #[cfg(feature = "sentinel-auth")]
-      username: None,
+      username:                                   None,
       #[cfg(feature = "sentinel-auth")]
-      password: None,
+      password:                                   None,
     }
   }
 
@@ -782,8 +807,7 @@ impl ServerConfig {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::prelude::ServerConfig;
-  use crate::types::RedisConfig;
+  use crate::{prelude::ServerConfig, types::RedisConfig};
 
   #[test]
   fn should_parse_centralized_url() {
@@ -964,7 +988,8 @@ mod tests {
 
   #[test]
   fn should_parse_sentinel_url_with_other_nodes() {
-    let url = "redis-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename&node=bar.com:26380&node=baz.com:26381";
+    let url = "redis-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename&node=bar.com:26380&\
+               node=baz.com:26381";
     let expected = RedisConfig {
       // also need to be careful with array ordering here
       server: ServerConfig::new_sentinel(
@@ -1005,13 +1030,14 @@ mod tests {
   #[test]
   #[cfg(feature = "sentinel-auth")]
   fn should_parse_sentinel_url_with_sentinel_auth() {
-    let url = "redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&sentinelUsername=username2&sentinelPassword=password2";
+    let url = "redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&\
+               sentinelUsername=username2&sentinelPassword=password2";
     let expected = RedisConfig {
       server: ServerConfig::Sentinel {
-        hosts: vec![("foo.com".into(), 26379)],
+        hosts:        vec![("foo.com".into(), 26379)],
         service_name: "fakename".into(),
-        username: Some("username2".into()),
-        password: Some("password2".into()),
+        username:     Some("username2".into()),
+        password:     Some("password2".into()),
       },
       username: Some("username1".into()),
       password: Some("password1".into()),

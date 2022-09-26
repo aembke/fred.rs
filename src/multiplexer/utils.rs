@@ -1,32 +1,43 @@
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::types::ClusterChange;
-use crate::multiplexer::{responses, utils, Backpressure, Connections, Counters, Multiplexer, Written};
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter, SharedBuffer};
-use crate::protocol::types::*;
-use crate::protocol::{responders, utils as protocol_utils};
-use crate::trace;
-use crate::types::*;
-use crate::utils as client_utils;
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  multiplexer::{responses, types::ClusterChange, utils, Backpressure, Connections, Counters, Multiplexer, Written},
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter, SharedBuffer},
+    responders,
+    types::*,
+    utils as protocol_utils,
+  },
+  trace,
+  types::*,
+  utils as client_utils,
+};
 use arcstr::ArcStr;
-use futures::future::Either;
-use futures::{pin_mut, select, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures::{future::Either, pin_mut, select, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use log::Level;
 use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::ops::DerefMut;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use std::{cmp, mem, str};
-use tokio;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver};
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot::Sender as OneshotSender;
-use tokio::sync::RwLock as AsyncRwLock;
+use std::{
+  cmp,
+  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  mem,
+  ops::DerefMut,
+  str,
+  sync::Arc,
+  time::{Duration, Instant},
+};
+use tokio::{
+  self,
+  io::{AsyncRead, AsyncWrite},
+  sync::{
+    broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver},
+    mpsc::UnboundedSender,
+    oneshot::Sender as OneshotSender,
+    RwLock as AsyncRwLock,
+  },
+};
 
 const DEFAULT_BROADCAST_CAPACITY: usize = 16;
 
@@ -37,8 +48,7 @@ pub fn check_backpressure<T>(
   command: &RedisCommand,
 ) -> Result<Option<Backpressure>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+  T: AsyncRead + AsyncWrite + Unpin + 'static, {
   if command.skip_backpressure {
     return Ok(None);
   }
@@ -105,6 +115,7 @@ pub async fn write_command(
   inner: &Arc<RedisClientInner>,
   writer: &mut RedisWriter,
   mut command: RedisCommand,
+  force_flush: bool,
 ) -> Written {
   match check_backpressure(inner, &writer.counters, &command) {
     Ok(Some(backpressure)) => {
@@ -120,7 +131,7 @@ pub async fn write_command(
   };
 
   let (frame, should_flush) = match prepare_command(inner, &writer.counters, &mut command) {
-    Ok((frame, should_flush)) => (frame, should_flush),
+    Ok((frame, should_flush)) => (frame, should_flush || force_flush),
     Err(e) => {
       // do not retry commands that trigger frame encoding errors
       command.respond_to_caller(Err(e));
@@ -131,11 +142,11 @@ pub async fn write_command(
   if let Err(e) = writer.write_frame(frame, should_flush).await {
     _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
     if command.should_send_write_error(inner) {
-      command.respond_to_caller(Err(e));
-      Written::Disconnect((server, None))
+      command.respond_to_caller(Err(e.clone()));
+      Written::Disconnect((server, None, e))
     } else {
-      inner.notifications.broadcast_error(e);
-      Written::Disconnect((server, Some(command)))
+      inner.notifications.broadcast_error(e.clone());
+      Written::Disconnect((server, Some(command), e))
     }
   } else {
     writer.push_command(command);
@@ -144,9 +155,33 @@ pub async fn write_command(
   }
 }
 
-// --------------------------------------------------------------------------------------------------------
+/// Compare server identifiers of the form `<host>|<ip>:<port>` and `:<port>`, using `default_host` if a host/ip is
+/// not provided.
+// TODO unit test this
+pub fn compare_servers(lhs: &str, rhs: &str, default_host: &str) -> bool {
+  let lhs_parts: Vec<&str> = lhs.split(":").collect();
+  let rhs_parts: Vec<&str> = rhs.split(":").collect();
+  if lhs_parts.is_empty() || rhs_parts.is_empty() {
+    error!("Invalid server identifier(s): {} == {}", lhs, rhs);
+    return false;
+  }
 
-/// Check the keys provided in an `mget` command when run against a cluster to ensure the keys all live on one node in the cluster.
+  if lhs_parts.len() == 2 && rhs_parts.len() == 2 {
+    lhs == rhs
+  } else if lhs_parts.len() == 2 && rhs_parts == 1 {
+    lhs_parts[0] == default_host && lhs_parts[1] == rhs_parts[0]
+  } else if lhs_parts.len() == 1 && rhs_parts.len() == 2 {
+    rhs_parts[0] == default_host && rhs_parts[1] == lhs_parts[0]
+  } else {
+    lhs == rhs
+  }
+}
+
+// --------------------------------------------------------------------------------------------------------
+// TODO move this to command utils
+
+/// Check the keys provided in an `mget` command when run against a cluster to ensure the keys all live on one node in
+/// the cluster.
 pub fn check_mget_cluster_keys(multiplexer: &Multiplexer, keys: &Vec<RedisValue>) -> Result<(), RedisError> {
   if let Connections::Clustered { ref cache, .. } = multiplexer.connections {
     let mut nodes = BTreeSet::new();

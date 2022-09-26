@@ -1,24 +1,35 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::Backpressure::Queue;
-use crate::protocol::command::{MultiplexerReceiver, RedisCommand, RedisCommandKind};
-use crate::protocol::connection::{CommandBuffer, Counters, RedisSink, RedisWriter};
-use crate::protocol::types::ClusterRouting;
-use crate::types::ServerConfig;
-use crate::types::{ClientState, RedisConfig};
-use crate::utils as client_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  multiplexer::Backpressure::Queue,
+  protocol::{
+    command::{MultiplexerReceiver, RedisCommand, RedisCommandKind},
+    connection::{CommandBuffer, Counters, RedisSink, RedisTransport, RedisWriter},
+    types::ClusterRouting,
+  },
+  types::{ClientState, RedisConfig, ServerConfig},
+  utils as client_utils,
+};
 use arc_swap::ArcSwap;
 use arcstr::ArcStr;
 use futures::future::{join_all, try_join_all};
 use parking_lot::{Mutex, RwLock};
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::broadcast::Sender as BroadcastSender;
-use tokio::sync::oneshot::{channel as oneshot_channel, Sender as OneshotSender};
-use tokio::sync::RwLock as AsyncRwLock;
+use std::{
+  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  sync::{
+    atomic::{AtomicBool, AtomicUsize},
+    Arc,
+  },
+  time::{Duration, Instant},
+};
+use tokio::{
+  io::{AsyncRead, AsyncWrite},
+  sync::{
+    broadcast::Sender as BroadcastSender,
+    oneshot::{channel as oneshot_channel, Sender as OneshotSender},
+    RwLock as AsyncRwLock,
+  },
+};
 
 pub mod centralized;
 pub mod clustered;
@@ -36,7 +47,7 @@ pub enum Written<'a> {
   /// Indicates that the command was sent to the associated server and whether the socket was flushed.
   Sent((&'a ArcStr, bool)),
   /// Disconnect from the provided server and retry the command later.
-  Disconnect((&'a ArcStr, Option<RedisCommand>)),
+  Disconnect((&'a ArcStr, Option<RedisCommand>, RedisError)),
   /// Indicates that the result should be ignored since the command will not be retried.
   Ignore,
 }
@@ -79,7 +90,7 @@ pub enum Connections {
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
-    cache: ClusterRouting,
+    cache:   ClusterRouting,
     /// A map of server IDs and connections.
     writers: HashMap<ArcStr, RedisWriter>,
   },
@@ -100,7 +111,7 @@ impl Connections {
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache: ClusterRouting::new(),
+      cache:   ClusterRouting::new(),
       writers: HashMap::new(),
     }
   }
@@ -108,13 +119,50 @@ impl Connections {
   /// Whether or not the connection map has a connection to the provided `host:port`.
   pub fn has_server_connection(&self, server: &str) -> bool {
     match self {
-      Connections::Centralized { ref writer } => {
-        writer.as_ref().map(|writer| writer.server == server).unwrap_or(false)
-      },
-      Connections::Sentinel { ref writer } => writer.as_ref().map(|writer| writer.server == server).unwrap_or(false),
+      Connections::Centralized { ref writer } => writer
+        .as_ref()
+        .map(|writer| utils::compare_servers(&writer.server, server, &writer.default_host))
+        .unwrap_or(false),
+      Connections::Sentinel { ref writer } => writer
+        .as_ref()
+        .map(|writer| utils::compare_servers(&writer.server, server, &writer.default_host))
+        .unwrap_or(false),
       Connections::Clustered { ref writers, .. } => {
-        writers.keys().fold(false, |memo, writer| memo || writer == server)
+        for (_, writer) in writers.iter() {
+          if utils::compare_servers(&writer.server, server, &writer.default_host) {
+            return true;
+          }
+        }
+
+        false
       },
+    }
+  }
+
+  /// Get the connection writer half for the provided server.
+  pub fn get_connection_mut(&mut self, server: &str) -> Option<&mut RedisWriter> {
+    match self {
+      Connections::Centralized { ref mut writer } => writer.as_mut().and_then(|writer| {
+        if utils::compare_servers(&writer.server, server, &writer.default_host) {
+          Some(writer)
+        } else {
+          None
+        }
+      }),
+      Connections::Sentinel { ref mut writer } => writer.as_mut().and_then(|writer| {
+        if utils::compare_servers(&writer.server, server, &writer.default_host) {
+          Some(writer)
+        } else {
+          None
+        }
+      }),
+      Connections::Clustered { ref mut writers, .. } => writers.iter_mut().find_map(|(_, writer)| {
+        if utils::compare_servers(&writer.server, server, &writer.default_host) {
+          Some(writer)
+        } else {
+          None
+        }
+      }),
     }
   }
 
@@ -344,8 +392,8 @@ impl Connections {
 /// A struct for routing commands to the server(s).
 pub struct Multiplexer {
   pub connections: Connections,
-  pub inner: Arc<RedisClientInner>,
-  pub buffer: CommandBuffer,
+  pub inner:       Arc<RedisClientInner>,
+  pub buffer:      CommandBuffer,
 }
 
 impl Multiplexer {
@@ -428,7 +476,57 @@ impl Multiplexer {
     }
   }
 
-  /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a reconnection, if necessary.
+  /// Write the command once without checking for backpressure, returning any connection errors.
+  ///
+  /// The associated connection will be dropped if needed.
+  pub async fn write_once(&mut self, command: RedisCommand, server: &str) -> Result<(), RedisError> {
+    debug!(
+      "{}: Writing `{}` command once to {}",
+      self.inner.id,
+      command.kind.to_str_debug(),
+      server
+    );
+
+    let mut writer = match self.connections.get_connection_mut(server) {
+      Some(writer) => writer,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::Unknown,
+          format!("Failed to find connection for {}", server),
+        ))
+      },
+    };
+
+    match utils::write_command(&self.inner, writer, command, true).await? {
+      Written::Disconnect((server, command, error)) => {
+        if let Some(command) = command {
+          debug!(
+            "{}: Dropping command after failing in try_once: {}",
+            self.inner.id, command
+          );
+        }
+        let buffer = self.connections.disconnect(&self.inner, Some(server)).await;
+        self.buffer.extend(buffer.into_iter());
+        // the connection error is sent to the caller in `write_command`
+        Err(error)
+      },
+      Written::Sent((_, flushed)) => {
+        if !flushed {
+          let _ = self.check_and_flush().await?;
+        }
+
+        Ok(())
+      },
+      Written::Ignore => Err(RedisError::new(RedisErrorKind::Unknown, "Could not send command.")),
+      Written::Backpressure(_) => Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Unexpected backpressure flag.",
+      )),
+    }
+  }
+
+  /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
+  /// reconnection, if necessary.
   pub async fn disconnect_all(&mut self) {
     let commands = self.connections.disconnect_all(&self.inner).await;
     self.buffer.extend(commands);

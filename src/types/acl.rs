@@ -38,7 +38,7 @@ pub enum AclCommandPattern {
   AllCommands,
   NoCommands,
   Custom {
-    command: String,
+    command:    String,
     subcommand: Option<String>,
   },
 }
@@ -57,7 +57,7 @@ impl AclCommandPattern {
         } else {
           format!("{}{}", prefix, command).into()
         }
-      }
+      },
     }
   }
 }
@@ -124,9 +124,9 @@ pub enum AclUserFlag {
 /// <https://redis.io/commands/acl-getuser>
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct AclUser {
-  pub flags: Vec<AclUserFlag>,
+  pub flags:     Vec<AclUserFlag>,
   pub passwords: Vec<String>,
-  pub commands: Vec<String>,
-  pub keys: Vec<String>,
-  pub channels: Vec<String>,
+  pub commands:  Vec<String>,
+  pub keys:      Vec<String>,
+  pub channels:  Vec<String>,
 }

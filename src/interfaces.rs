@@ -1,25 +1,37 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils};
-use crate::protocol::command::{MultiplexerCommand, QueuedCommand, RedisCommand};
-use crate::types::{
-  ClientState, ClusterStateChange, ConnectHandle, CustomCommand, FromRedis, InfoKind, ReconnectPolicy, RedisConfig,
-  RedisValue, ShutdownFlags,
+use crate::{
+  commands,
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils},
+  protocol::command::{MultiplexerCommand, QueuedCommand, RedisCommand},
+  types::{
+    ClientState,
+    ClusterStateChange,
+    ConnectHandle,
+    CustomCommand,
+    FromRedis,
+    InfoKind,
+    PerformanceConfig,
+    ReconnectPolicy,
+    RedisConfig,
+    RedisValue,
+    RespVersion,
+    ShutdownFlags,
+  },
+  utils,
+  utils::send_command,
 };
-use crate::types::{PerformanceConfig, RespVersion};
-use crate::utils;
-use crate::utils::send_command;
 use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::convert::TryInto;
-use std::future::Future;
-use std::ops::Mul;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
-use tokio::sync::broadcast::Receiver as BroadcastReceiver;
-use tokio::sync::mpsc::unbounded_channel;
+use std::{
+  convert::TryInto,
+  future::Future,
+  ops::Mul,
+  pin::Pin,
+  sync::Arc,
+  task::{Context, Poll},
+};
+use tokio::sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// An enum used to represent the return value from a function that does some fallible synchronous work,
@@ -86,8 +98,7 @@ where
   C: ClientLike + Clone,
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce(C) -> Fut,
-  T: Unpin + Send + 'static,
-{
+  T: Unpin + Send + 'static, {
   let client = client.clone();
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func(client))),
@@ -100,8 +111,7 @@ pub(crate) fn wrap_async<F, Fut, T>(func: F) -> AsyncResult<T>
 where
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce() -> Fut,
-  T: Unpin + Send + 'static,
-{
+  T: Unpin + Send + 'static, {
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func())),
   }
@@ -110,8 +120,7 @@ where
 /// Send a single `RedisCommand` to the multiplexer.
 pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
 where
-  C: Into<RedisCommand>,
-{
+  C: Into<RedisCommand>, {
   send_to_multiplexer(inner, command.into().into())
 }
 
@@ -122,14 +131,13 @@ pub(crate) fn send_to_multiplexer(
 ) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
   if let Err(mut e) = inner.command_tx.send(command) {
+    _error!(inner, "Error sending command to multiplexer.");
     inner.counters.decr_cmd_buffer_len();
-    if let Some(tx) = e.0.tx.take() {
-      // TODO
-      unimplemented!()
-      //if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
-      //  _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
-      //}
-    }
+    let command = e.0;
+    let error = RedisError::new(RedisErrorKind::Unknown, "Client is not initialized.");
+
+    // TODO respond to caller differently for each command kind
+    // use command.respond_with_error(error)
   }
 
   Ok(())
@@ -143,14 +151,14 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   #[doc(hidden)]
   fn send_command<C>(&self, command: C) -> Result<(), RedisError>
   where
-    C: Into<RedisCommand>,
-  {
+    C: Into<RedisCommand>, {
     default_send_command(inner, command)
   }
 
   /// The unique ID identifying this client and underlying connections.
   ///
-  /// All connections created by this client will use `CLIENT SETNAME` with this value unless the `no-client-setname` feature is enabled.
+  /// All connections created by this client will use `CLIENT SETNAME` with this value unless the `no-client-setname`
+  /// feature is enabled.
   fn id(&self) -> &str {
     self.inner().id.as_str()
   }
@@ -209,8 +217,9 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// Connect to the Redis server.
   ///
-  /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the connection closes, and if a
-  /// reconnection policy with unlimited attempts is provided then the `JoinHandle` will run forever, or until `QUIT` is called.
+  /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the
+  /// connection closes, and if a reconnection policy with unlimited attempts is provided then the `JoinHandle` will
+  /// run forever, or until `QUIT` is called.
   fn connect(&self) -> ConnectHandle {
     let inner = self.inner().clone();
 
@@ -235,15 +244,17 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// Wait for the result of the next connection attempt.
   ///
-  /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the next connection attempt vs all subsequent attempts.
+  /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the next
+  /// connection attempt vs all subsequent attempts.
   fn wait_for_connect(&self) -> AsyncResult<()> {
     let mut rx = self.inner().notifications.connect.subscribe();
-    wrap_async(move || async move { rx.recv().await })
+    wrap_async(move || async move { rx.recv().await? })
   }
 
   /// Listen for reconnection notifications.
   ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to re-subscribe to channels, etc.
+  /// This function can be used to receive notifications whenever the client successfully reconnects in order to
+  /// re-subscribe to channels, etc.
   ///
   /// A reconnection event is also triggered upon first connecting to the server.
   fn on_reconnect(&self) -> BroadcastReceiver<()> {
@@ -252,7 +263,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// Listen for notifications whenever the cluster state changes.
   ///
-  /// This is usually triggered in response to a `MOVED` error, but can also happen when connections close unexpectedly.
+  /// This is usually triggered in response to a `MOVED` error, but can also happen when connections close
+  /// unexpectedly.
   fn on_cluster_change(&self) -> BroadcastReceiver<Vec<ClusterStateChange>> {
     self.inner().notifications.cluster_change.subscribe()
   }
@@ -265,9 +277,9 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     self.inner().notifications.errors.subscribe()
   }
 
-  /// Close the connection to the Redis server. The returned future resolves when the command has been written to the socket,
-  /// not when the connection has been fully closed. Some time after this future resolves the future returned by [connect](Self::connect)
-  /// will resolve which indicates that the connection has been fully closed.
+  /// Close the connection to the Redis server. The returned future resolves when the command has been written to the
+  /// socket, not when the connection has been fully closed. Some time after this future resolves the future
+  /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams.
   fn quit(&self) -> AsyncResult<()> {
@@ -297,38 +309,39 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   /// <https://redis.io/commands/info>
   fn info<R>(&self, section: Option<InfoKind>) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send,
-  {
+    R: FromRedis + Unpin + Send, {
     async_spawn(self, |client| async move {
       commands::server::info(&client, section).await?.convert()
     })
   }
 
-  /// Run a custom command that is not yet supported via another interface on this client. This is most useful when interacting with third party modules or extensions.
+  /// Run a custom command that is not yet supported via another interface on this client. This is most useful when
+  /// interacting with third party modules or extensions.
   ///
-  /// Callers should use the re-exported [redis_keyslot](crate::util::redis_keyslot) function to hash the command's key, if necessary.
+  /// Callers should use the re-exported [redis_keyslot](crate::util::redis_keyslot) function to hash the command's
+  /// key, if necessary.
   ///
-  /// This interface should be used with caution as it may break the automatic pipeline features in the client if command flags are not properly configured.
+  /// This interface should be used with caution as it may break the automatic pipeline features in the client if
+  /// command flags are not properly configured.
   fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<R>
   where
     R: FromRedis + Unpin + Send,
     T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>,
-  {
+    T::Error: Into<RedisError>, {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |client| async move {
       commands::server::custom(&client, cmd, args).await?.convert()
     })
   }
 
-  /// Run a custom command similar to [custom](Self::custom), but return the response frame directly without any parsing.
+  /// Run a custom command similar to [custom](Self::custom), but return the response frame directly without any
+  /// parsing.
   ///
   /// Note: RESP2 frames from the server are automatically converted to the RESP3 format when parsed by the client.
   fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<Resp3Frame>
   where
     T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>,
-  {
+    T::Error: Into<RedisError>, {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |client| async move {
       commands::server::custom_raw(&client, cmd, args).await
@@ -337,13 +350,27 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 }
 
 pub use crate::commands::interfaces::{
-  acl::AclInterface, client::ClientInterface, cluster::ClusterInterface, config::ConfigInterface, geo::GeoInterface,
-  hashes::HashesInterface, hyperloglog::HyperloglogInterface, keys::KeysInterface, lists::ListInterface,
-  lua::LuaInterface, memory::MemoryInterface, metrics::MetricsInterface, pubsub::PubsubInterface,
-  server::AuthInterface, server::HeartbeatInterface, server::ServerInterface, sets::SetsInterface,
-  slowlog::SlowlogInterface, sorted_sets::SortedSetsInterface, streams::StreamsInterface,
+  acl::AclInterface,
+  client::ClientInterface,
+  cluster::ClusterInterface,
+  config::ConfigInterface,
+  geo::GeoInterface,
+  hashes::HashesInterface,
+  hyperloglog::HyperloglogInterface,
+  keys::KeysInterface,
+  lists::ListInterface,
+  lua::LuaInterface,
+  memory::MemoryInterface,
+  metrics::MetricsInterface,
+  pubsub::PubsubInterface,
+  server::{AuthInterface, HeartbeatInterface, ServerInterface},
+  sets::SetsInterface,
+  slowlog::SlowlogInterface,
+  sorted_sets::SortedSetsInterface,
+  streams::StreamsInterface,
   transactions::TransactionInterface,
 };
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+use crate::prelude::RedisErrorKind;
