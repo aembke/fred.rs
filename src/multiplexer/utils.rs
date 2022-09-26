@@ -133,6 +133,7 @@ pub async fn write_command(
   let (frame, should_flush) = match prepare_command(inner, &writer.counters, &mut command) {
     Ok((frame, should_flush)) => (frame, should_flush || force_flush),
     Err(e) => {
+      _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
       // do not retry commands that trigger frame encoding errors
       command.respond_to_caller(Err(e));
       return Written::Ignore;

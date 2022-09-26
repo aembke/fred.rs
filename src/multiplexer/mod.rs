@@ -476,6 +476,57 @@ impl Multiplexer {
     }
   }
 
+  /// Attempt to write the command without backpressure, returning the error and command on failure.
+  ///
+  /// The associated connection will be dropped if needed. The caller is responsible for returning errors.
+  pub async fn write_direct(
+    &mut self,
+    mut command: RedisCommand,
+    server: &str,
+  ) -> Result<(), (RedisError, RedisCommand)> {
+    debug!(
+      "{}: Direct write `{}` command to {}",
+      self.inner.id,
+      command.kind.to_str_debug(),
+      server
+    );
+
+    let mut writer = match self.connections.get_connection_mut(server) {
+      Some(writer) => writer,
+      None => {
+        let err = RedisError::new(
+          RedisErrorKind::Unknown,
+          format!("Failed to find connection for {}", server),
+        );
+        return Err((err, command));
+      },
+    };
+
+    let frame = match utils::prepare_command(inner, &writer.counters, &mut command) {
+      Ok((frame, _)) => frame,
+      Err(e) => {
+        warn!(
+          "{}: Frame encoding error for {}",
+          self.inner.id,
+          command.kind.to_str_debug()
+        );
+        // do not retry commands that trigger frame encoding errors
+        command.respond_to_caller(Err(e));
+        return Ok(());
+      },
+    };
+
+    // always flush the socket in this case
+    if let Err(e) = writer.write_frame(frame, true).await {
+      _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
+      Err((e, command))
+    } else {
+      writer.push_command(command);
+      _trace!(inner, "Successfully sent command {}", command.kind.to_str_debug());
+      Ok(())
+    }
+  }
+
   /// Write the command once without checking for backpressure, returning any connection errors.
   ///
   /// The associated connection will be dropped if needed.
@@ -499,14 +550,16 @@ impl Multiplexer {
 
     match utils::write_command(&self.inner, writer, command, true).await? {
       Written::Disconnect((server, command, error)) => {
-        if let Some(command) = command {
-          debug!(
-            "{}: Dropping command after failing in try_once: {}",
-            self.inner.id, command
-          );
-        }
         let buffer = self.connections.disconnect(&self.inner, Some(server)).await;
         self.buffer.extend(buffer.into_iter());
+
+        if let Some(command) = command {
+          debug!(
+            "{}: Dropping command after write failure in write_once: {}",
+            self.inner.id,
+            command.kind.to_str_debug()
+          );
+        }
         // the connection error is sent to the caller in `write_command`
         Err(error)
       },
@@ -542,6 +595,7 @@ impl Multiplexer {
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
     clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await?;
+    // TODO need to retry queued commands?
     Ok(())
   }
 
