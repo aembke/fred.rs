@@ -5,12 +5,7 @@ use crate::{
   multiplexer::{utils, Backpressure, Multiplexer, SentCommand, Written},
   protocol::{
     command::{
-      MultiplexerCommand,
-      MultiplexerReceiver,
-      MultiplexerResponse,
-      RedisCommand,
-      RedisCommandKind,
-      ResponseSender,
+      MultiplexerCommand, MultiplexerReceiver, MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender,
     },
     connection::read_cluster_nodes,
     responders::ResponseKind,
@@ -24,6 +19,7 @@ use crate::{
 };
 use arcstr::ArcStr;
 use futures::future::{select, Either};
+use parking_lot::Mutex;
 use redis_protocol::{redis_keyslot, resp3::types::Frame as Resp3Frame};
 use std::{
   collections::VecDeque,
@@ -817,6 +813,15 @@ async fn write_with_backpressure(
   Ok(())
 }
 
+/// Send an early error to the caller in the context of a pipeline.
+fn write_pipeline_error(
+  inner: &Arc<RedisClientInner>,
+  tx: Option<Arc<Mutex<Option<ResponseSender>>>>,
+  error: RedisError,
+) {
+  unimplemented!()
+}
+
 /// Write a command in the context of a transaction.
 ///
 /// Returns the command and non-fatal error or a fatal error that should end the transaction.
@@ -868,14 +873,28 @@ async fn process_pipeline(
   commands: Vec<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Writing pipeline with {} commands", commands.len());
+  let tx = commands
+    .iter()
+    .find_map(|command| command.response.clone_shared_response_tx());
 
   for mut command in commands.into_iter() {
     command.can_pipeline = true;
     command.skip_backpressure = true;
 
+    if let Err(e) = write_with_backpressure(inner, multiplexer, command).await {
+      let dur = match next_reconnection_delay(inner) {
+        Ok(dur) => dur,
+        Err(e) => {
+
+        }
+      }
+      sleep()
+    }
+
     // send the command, running the reconnection policy on write errors
   }
 
+  inner.reset_reconnection_attempts();
   Ok(())
 }
 

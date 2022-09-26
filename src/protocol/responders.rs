@@ -80,7 +80,7 @@ pub enum ResponseKind {
     /// The number of response frames received.
     received: Arc<AtomicUsize>,
     /// A shared oneshot sender to the caller.
-    tx:       Arc<Mutex<Option<ResponseSender>>>,
+    tx: Arc<Mutex<Option<ResponseSender>>>,
   },
   /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to
   /// the caller.
@@ -88,15 +88,15 @@ pub enum ResponseKind {
   /// Typically used to handle concurrent responses in a `Pipeline` that may span multiple cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames:   Arc<Mutex<Vec<Resp3Frame>>>,
+    frames: Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
     expected: usize,
     /// The number of response frames received.
     received: Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx:       Arc<Mutex<Option<ResponseSender>>>,
+    tx: Arc<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
-    index:    usize,
+    index: usize,
   },
   /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
   ValueScan(ValueScanInner),
@@ -136,6 +136,15 @@ impl ResponseKind {
       ResponseKind::Respond(tx) => tx.take(),
       ResponseKind::Buffer { tx, .. } => tx.lock().take(),
       ResponseKind::Multiple { tx, .. } => tx.lock().take(),
+      _ => None,
+    }
+  }
+
+  /// Clone the shared response sender for `Buffer` or `Multiple` variants.
+  pub fn clone_shared_response_tx(&self) -> Option<Arc<Mutex<Option<ResponseSender>>>> {
+    match self {
+      ResponseKind::Buffer { tx, .. } => Some(tx.clone()),
+      ResponseKind::Multiple { tx, .. } => Some(tx.clone()),
       _ => None,
     }
   }
@@ -240,7 +249,7 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   }
 
   Resp3Frame::Array {
-    data:       out,
+    data: out,
     attributes: None,
   }
 }
