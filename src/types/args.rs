@@ -299,6 +299,12 @@ impl<'a> From<&'a [u8]> for RedisKey {
   }
 }
 
+impl From<Box<[u8]>> for RedisKey {
+  fn from(b: Box<[u8]>) -> Self {
+    RedisKey { key: b.into() }
+  }
+}
+
 // doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what
 // to do with `Vec<u8>`.
 // impl From<Vec<u8>> for RedisKey {
@@ -1514,6 +1520,12 @@ where
     Ok(RedisValue::Map(RedisMap {
       inner: utils::into_redis_map(d.into_iter())?,
     }))
+  }
+}
+
+impl From<Box<[u8]>> for RedisValue {
+  fn from(b: Box<[u8]>) -> Self {
+    RedisValue::Bytes(b.into())
   }
 }
 
