@@ -5,12 +5,7 @@ use crate::{
   multiplexer::{utils, Backpressure, Multiplexer, SentCommand, Written},
   protocol::{
     command::{
-      MultiplexerCommand,
-      MultiplexerReceiver,
-      MultiplexerResponse,
-      RedisCommand,
-      RedisCommandKind,
-      ResponseSender,
+      MultiplexerCommand, MultiplexerReceiver, MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender,
     },
     connection::read_cluster_nodes,
     responders::ResponseKind,
@@ -837,26 +832,58 @@ async fn process_transaction(
   id: u64,
   abort_on_error: bool,
 ) -> Result<(), RedisError> {
-  let mut custom_hash_slot = None;
-
   'outer: loop {
     _debug!(inner, "Writing transaction with ID: {}", id);
     let mut idx = 0;
+    let mut should_reconnect = false;
+
     'inner: while idx < commands.len() {
       let mut command = commands[idx].duplicate(ResponseKind::Skip);
-      if let Some(hash_slot) = custom_hash_slot {
-        command.hasher = ClusterHash::Custom(hash_slot);
+      let mut rx = command.create_multiplexer_channel();
+
+      let server = match multiplexer.find_connection(&command) {
+        Some(server) => server,
+        None => {
+          should_reconnect = true;
+          break 'inner;
+        },
+      };
+      if let Err(e) = multiplexer.write_once(command, server).await {
+        _debug!(inner, "Error writing trx command: {:?}", e);
+        should_reconnect = true;
+        break 'inner;
       }
 
-      // write the command
-      // check the write response, sleep and continue 'outer if needed
-      // wait on the multiplexer response
-      //   handle trx errors
-      //     if abort_on_error then take tx off commands.last_mut() and send error
-      //     else continue, incrementing idx
-      //   handle moved or ask by syncing cluster and continuing 'outer, optionally sending ASKING
-      //     also override the custom_hash_slot
-      //   if no error then increment idx
+      match rx.await? {
+        MultiplexerResponse::TransactionError((error, command)) => {
+          // if abort on error then respond to last command caller with error, send discard
+          // otherwise continue and incr idx
+          unimplemented!()
+        },
+        MultiplexerResponse::Ask((slot, server, command)) => {
+          // sync cluster, continue outer, send ASKING
+          // override custom hash slot
+          unimplemented!()
+        },
+        MultiplexerResponse::Moved((slot, server, command)) => {
+          // sync cluster, continue outer
+          // override custom hash slot
+          unimplemented!()
+        },
+        _ => {
+          idx += 1;
+          continue;
+        },
+      };
+    }
+
+    if should_reconnect {
+      if let Err(e) = reconnect_with_policy(inner, multiplexer).await {
+        // TODO send error to last command caller
+        return Err(e);
+      }
+    } else {
+      break 'outer;
     }
   }
 

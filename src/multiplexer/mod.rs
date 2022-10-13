@@ -90,7 +90,7 @@ pub enum Connections {
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
-    cache:   ClusterRouting,
+    cache: ClusterRouting,
     /// A map of server IDs and connections.
     writers: HashMap<ArcStr, RedisWriter>,
   },
@@ -111,7 +111,7 @@ impl Connections {
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache:   ClusterRouting::new(),
+      cache: ClusterRouting::new(),
       writers: HashMap::new(),
     }
   }
@@ -392,8 +392,8 @@ impl Connections {
 /// A struct for routing commands to the server(s).
 pub struct Multiplexer {
   pub connections: Connections,
-  pub inner:       Arc<RedisClientInner>,
-  pub buffer:      CommandBuffer,
+  pub inner: Arc<RedisClientInner>,
+  pub buffer: CommandBuffer,
 }
 
 impl Multiplexer {
@@ -438,6 +438,18 @@ impl Multiplexer {
   /// Whether the multiplexer has buffered commands that need to be retried.
   pub fn has_buffered_commands(&self) -> bool {
     self.buffer.len() > 0
+  }
+
+  /// Read the connection identifier for the provided command.
+  pub fn find_connection(&self, command: &RedisCommand) -> Option<&str> {
+    match self.connections {
+      Connections::Centralized { ref writer } => writer.as_ref().map(|w| w.server.as_str()),
+      Connections::Sentinel { ref writer } => writer.as_ref().map(|w| w.server.as_str()),
+      Connections::Clustered { ref writers, ref cache } => command
+        .cluster_hash()
+        .and_then(|slot| cache.get_server(slot))
+        .map(|s| s.as_str()),
+    }
   }
 
   /// Send a command to the server.
