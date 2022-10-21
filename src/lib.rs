@@ -89,11 +89,12 @@ pub mod types;
 
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {
+  pub use redis_protocol::redis_keyslot;
+
   pub use crate::{
     s,
     utils::{f64_to_redis_string, redis_string_to_f64, static_bytes, static_str},
   };
-  pub use redis_protocol::redis_keyslot;
 
   /// Calculate the SHA1 hash output as a hex string. This is provided for clients that use the Lua interface to
   /// manage their own script caches.
@@ -116,15 +117,8 @@ pub mod prelude {
     error::{RedisError, RedisErrorKind},
     interfaces::*,
     types::{
-      Blocking,
-      Expiration,
-      FromRedis,
-      ReconnectPolicy,
-      RedisConfig,
-      RedisValue,
-      RedisValueKind,
-      ServerConfig,
-      SetOptions,
+      Blocking, Expiration, FromRedis, ReconnectPolicy, RedisConfig, RedisValue, RedisValueKind,
+      ServerConfig, SetOptions,
     },
   };
 }

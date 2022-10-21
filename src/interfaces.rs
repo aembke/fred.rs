@@ -1,25 +1,3 @@
-use crate::{
-  commands,
-  error::RedisError,
-  modules::inner::RedisClientInner,
-  multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils},
-  types::{
-    ClientState,
-    ConnectHandle,
-    CustomCommand,
-    FromRedis,
-    InfoKind,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    RedisValue,
-    RespVersion,
-    ShutdownFlags,
-  },
-  utils,
-};
-use futures::Stream;
-pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{
   convert::TryInto,
   future::Future,
@@ -27,19 +5,34 @@ use std::{
   sync::Arc,
   task::{Context, Poll},
 };
+
+use futures::Stream;
+pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+use crate::{
+  commands,
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils},
+  types::{
+    ClientState, ConnectHandle, CustomCommand, FromRedis, InfoKind, PerformanceConfig,
+    ReconnectPolicy, RedisConfig, RedisValue, RespVersion, ShutdownFlags,
+  },
+  utils,
+};
+
 /// An enum used to represent the return value from a function that does some fallible synchronous work,
 /// followed by some more fallible async logic inside a tokio task.
-enum AsyncInner<T: Unpin + Send + 'static> {
+pub enum AsyncInner<T: Unpin + Send + 'static> {
   Result(Option<Result<T, RedisError>>),
   Task(Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>),
 }
 
 /// A wrapper type for return values from async functions implemented in a trait.
 pub struct AsyncResult<T: Unpin + Send + 'static> {
-  inner: AsyncInner<T>,
+  pub inner: AsyncInner<T>,
 }
 
 #[doc(hidden)]
@@ -56,7 +49,8 @@ where
 }
 
 #[doc(hidden)]
-impl<T> From<Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>> for AsyncResult<T>
+impl<T> From<Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>>
+  for AsyncResult<T>
 where
   T: Unpin + Send + 'static,
 {
@@ -82,7 +76,7 @@ where
           error!("Tried calling poll on an AsyncResult::Result more than once.");
           Poll::Ready(Err(RedisError::new_canceled()))
         }
-      },
+      }
       AsyncInner::Task(ref mut fut) => Pin::new(fut).poll(cx),
     }
   }
@@ -122,7 +116,8 @@ where
   C: ClientLike,
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce(Arc<RedisClientInner>) -> Fut,
-  T: Unpin + Send + 'static, {
+  T: Unpin + Send + 'static,
+{
   // this is unfortunate but necessary without async functions in traits
   let inner = client.inner().clone();
   AsyncResult {
@@ -136,7 +131,8 @@ pub(crate) fn wrap_async<F, Fut, T>(func: F) -> AsyncResult<T>
 where
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce() -> Fut,
-  T: Unpin + Send + 'static, {
+  T: Unpin + Send + 'static,
+{
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func())),
   }
@@ -227,7 +223,9 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the first
   /// connection attempt vs subsequent attempts.
   fn wait_for_connect(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move { utils::wait_for_connect(&inner).await })
+    async_spawn(self, |inner| async move {
+      utils::wait_for_connect(&inner).await
+    })
   }
 
   /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
@@ -247,7 +245,10 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams.
   fn quit(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move { commands::server::quit(&inner).await })
+    async_spawn(
+      self,
+      |inner| async move { commands::server::quit(&inner).await },
+    )
   }
 
   /// Shut down the server and quit the client.
@@ -264,10 +265,9 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   ///
   /// <https://redis.io/commands/ping>
   fn ping(&self) -> AsyncResult<()> {
-    async_spawn(
-      self,
-      |inner| async move { commands::server::ping(&inner).await?.convert() },
-    )
+    async_spawn(self, |inner| async move {
+      commands::server::ping(&inner).await?.convert()
+    })
   }
 
   /// Read info about the server.
@@ -275,7 +275,8 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   /// <https://redis.io/commands/info>
   fn info<R>(&self, section: Option<InfoKind>) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send, {
+    R: FromRedis + Unpin + Send,
+  {
     async_spawn(self, |inner| async move {
       commands::server::info(&inner, section).await?.convert()
     })
@@ -301,7 +302,8 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   where
     R: FromRedis + Unpin + Send,
     T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>, {
+    T::Error: Into<RedisError>,
+  {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |inner| async move {
       commands::server::custom(&inner, cmd, args).await?.convert()
@@ -315,7 +317,8 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<Resp3Frame>
   where
     T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>, {
+    T::Error: Into<RedisError>,
+  {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |inner| async move {
       commands::server::custom_raw(&inner, cmd, args).await
@@ -323,6 +326,8 @@ pub trait ClientLike: Unpin + Send + Sync + Sized {
   }
 }
 
+#[cfg(feature = "sentinel-client")]
+pub use crate::commands::interfaces::sentinel::SentinelInterface;
 pub use crate::commands::interfaces::{
   acl::AclInterface,
   client::ClientInterface,
@@ -345,6 +350,3 @@ pub use crate::commands::interfaces::{
   streams::StreamsInterface,
   transactions::TransactionInterface,
 };
-
-#[cfg(feature = "sentinel-client")]
-pub use crate::commands::interfaces::sentinel::SentinelInterface;

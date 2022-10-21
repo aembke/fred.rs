@@ -1,22 +1,25 @@
-use crate::{
-  clients::RedisClient,
-  error::{RedisError, RedisErrorKind},
-  interfaces::ClientLike,
-  types::{ConnectHandle, ReconnectPolicy, RedisConfig},
-  utils,
-};
-use futures::future::{join_all, try_join_all};
 use std::{
   fmt,
   ops::Deref,
   sync::{atomic::AtomicUsize, Arc},
 };
 
+use futures::future::{join_all, try_join_all};
+
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  interfaces::{AsyncInner, ClientLike},
+  prelude::AsyncResult,
+  types::{ConnectHandle, ReconnectPolicy, RedisConfig},
+  utils,
+};
+
 /// The inner state used by a `RedisPool`.
 #[derive(Clone)]
 pub(crate) struct RedisPoolInner {
   clients: Vec<RedisClient>,
-  last:    Arc<AtomicUsize>,
+  last: Arc<AtomicUsize>,
 }
 
 /// A struct to pool multiple Redis clients together into one interface that will round-robin requests among clients,
@@ -57,7 +60,7 @@ impl RedisPool {
   pub fn new(config: RedisConfig, size: usize) -> Result<Self, RedisError> {
     if size > 0 {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0 .. size {
+      for _ in 0..size {
         clients.push(RedisClient::new(config.clone()));
       }
       let last = Arc::new(AtomicUsize::new(0));
@@ -66,7 +69,10 @@ impl RedisPool {
         inner: Arc::new(RedisPoolInner { clients, last }),
       })
     } else {
-      Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
+      Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Pool cannot be empty.",
+      ))
     }
   }
 
@@ -79,7 +85,12 @@ impl RedisPool {
   ///
   /// The caller is responsible for calling `wait_for_connect` or any `on_*` functions on each client.
   pub fn connect(&self, policy: Option<ReconnectPolicy>) -> Vec<ConnectHandle> {
-    self.inner.clients.iter().map(|c| c.connect(policy.clone())).collect()
+    self
+      .inner
+      .clients
+      .iter()
+      .map(|c| c.connect(policy.clone()))
+      .collect()
   }
 
   /// Wait for all the clients to connect to the server.
@@ -100,7 +111,7 @@ impl RedisPool {
   pub fn next(&self) -> &RedisClient {
     let mut idx = utils::incr_atomic(&self.inner.last) % self.inner.clients.len();
 
-    for _ in 0 .. self.inner.clients.len() {
+    for _ in 0..self.inner.clients.len() {
       let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;
@@ -123,8 +134,18 @@ impl RedisPool {
   }
 
   /// Call `QUIT` on each client in the pool.
-  pub async fn quit_pool(&self) {
-    let futures = self.inner.clients.iter().map(|c| c.quit());
-    let _ = join_all(futures).await;
+  pub fn quit_pool(&self) -> AsyncResult<()> {
+    let inner = self.inner.clone();
+    AsyncResult {
+      inner: AsyncInner::Task(Box::pin(async move {
+        let futures = inner.clients.iter().map(|c| c.quit());
+        for i in join_all(futures).await {
+          if let Err(err) = i {
+            return Err(err);
+          }
+        }
+        Ok(())
+      })),
+    }
   }
 }
