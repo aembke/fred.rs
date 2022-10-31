@@ -1,18 +1,19 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::connection::RedisTransport;
-use crate::protocol::tls::TlsConnector;
-use crate::protocol::types::{ClusterRouting, ProtocolFrame, SlotRange};
-use crate::protocol::utils as protocol_utils;
-use crate::types::{ClusterRouting, RedisKey, RedisMap, RedisValue, Resolve};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    connection::RedisTransport,
+    tls::TlsConnector,
+    types::{ClusterRouting, ProtocolFrame, SlotRange},
+    utils as protocol_utils,
+  },
+  types::{ClusterRouting, RedisKey, RedisMap, RedisValue, Resolve},
+};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use nom::combinator::value;
-use std::collections::HashMap;
-use std::net::IpAddr;
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
@@ -42,12 +43,14 @@ fn check_metadata_hostname(data: &HashMap<String, String>) -> Option<&str> {
 
 /// Find the correct hostname for the server, preferring hostnames over IP addresses for TLS purposes.
 ///
-/// The format of `server` is `[<preferred host>|null, <port>, <id>, <metadata>]`. However, in Redis <=6 the `metadata` value will not be present.
+/// The format of `server` is `[<preferred host>|null, <port>, <id>, <metadata>]`. However, in Redis <=6 the
+/// `metadata` value will not be present.
 ///
 /// The implementation here does the following:
 /// 1. If `server[0]` is a hostname then use that.
-/// 2. If `server[0]` is an IP address, then check `server[3]` for a "hostname" metadata field and use that if found. Otherwise use the IP address in `server[0]`.
-/// 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata field, then use the metadata field. Otherwise use `default_host`.
+/// 2. If `server[0]` is an IP address, then check `server[3]` for a "hostname" metadata field and use that if found.
+/// Otherwise use the IP address in `server[0]`. 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata
+/// field, then use the metadata field. Otherwise use `default_host`.
 ///
 /// <https://redis.io/commands/cluster-slots/#nested-result-array>
 fn parse_cluster_slot_hostname(primary: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
@@ -141,7 +144,8 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
   })
 }
 
-/// Parse the entire CLUSTER SLOTS response with the provided `default_host` of the connection used to send the command.
+/// Parse the entire CLUSTER SLOTS response with the provided `default_host` of the connection used to send the
+/// command.
 pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<SlotRange>, RedisError> {
   let slot_ranges: Vec<Vec<RedisValue>> = frame.convert()?;
   let mut out: Vec<SlotRange> = Vec::with_capacity(slot_ranges.len());
@@ -249,22 +253,22 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start: 0,
-        end: 5460,
+        start:   0,
+        end:     5460,
         primary: "host-1.redis.example.com:30001".into(),
-        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
-        start: 5461,
-        end: 10922,
+        start:   5461,
+        end:     10922,
         primary: "host-3.redis.example.com:30002".into(),
-        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
-        start: 10923,
-        end: 16383,
+        start:   10923,
+        end:     16383,
         primary: "host-5.redis.example.com:30003".into(),
-        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
     assert_eq!(actual, expected);
@@ -319,22 +323,22 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start: 0,
-        end: 5460,
+        start:   0,
+        end:     5460,
         primary: "127.0.0.1:30001".into(),
-        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
-        start: 5461,
-        end: 10922,
+        start:   5461,
+        end:     10922,
         primary: "127.0.0.1:30002".into(),
-        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
-        start: 10923,
-        end: 16383,
+        start:   10923,
+        end:     16383,
         primary: "127.0.0.1:30003".into(),
-        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
     assert_eq!(actual, expected);
@@ -395,22 +399,22 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start: 0,
-        end: 5460,
+        start:   0,
+        end:     5460,
         primary: "127.0.0.1:30001".into(),
-        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
-        start: 5461,
-        end: 10922,
+        start:   5461,
+        end:     10922,
         primary: "127.0.0.1:30002".into(),
-        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
-        start: 10923,
-        end: 16383,
+        start:   10923,
+        end:     16383,
         primary: "127.0.0.1:30003".into(),
-        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
     assert_eq!(actual, expected);
@@ -471,22 +475,22 @@ mod tests {
     let actual = parse_cluster_slots(input, "fake-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start: 0,
-        end: 5460,
+        start:   0,
+        end:     5460,
         primary: "fake-host:30001".into(),
-        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {
-        start: 5461,
-        end: 10922,
+        start:   5461,
+        end:     10922,
         primary: "fake-host:30002".into(),
-        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       },
       SlotRange {
-        start: 10923,
-        end: 16383,
+        start:   10923,
+        end:     16383,
         primary: "fake-host:30003".into(),
-        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       },
     ];
     assert_eq!(actual, expected);

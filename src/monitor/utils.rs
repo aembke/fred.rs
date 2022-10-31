@@ -1,16 +1,21 @@
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::monitor::parser;
-use crate::monitor::{Command, Config};
-use crate::protocol::codec::RedisCodec;
-use crate::protocol::connection::{self, RedisTransport};
-use crate::protocol::types::{ProtocolFrame, RedisCommand, RedisCommandKind};
-use crate::protocol::utils as protocol_utils;
-use crate::types::{RedisConfig, ServerConfig};
+use crate::{
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  monitor::{parser, Command, Config},
+  protocol::{
+    codec::RedisCodec,
+    connection::{self, RedisTransport},
+    types::{ProtocolFrame, RedisCommand, RedisCommandKind},
+    utils as protocol_utils,
+  },
+  types::{RedisConfig, ServerConfig},
+};
 use futures::stream::{Stream, StreamExt};
 use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::{
+  io::{AsyncRead, AsyncWrite},
+  sync::mpsc::{unbounded_channel, UnboundedSender},
+};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::codec::Framed;
 
@@ -27,7 +32,7 @@ async fn handle_monitor_frame(
     Err(e) => {
       _error!(inner, "Error on monitor stream: {:?}", e);
       return None;
-    }
+    },
   };
   let frame_size = protocol_utils::resp3_frame_size(&frame);
 
@@ -59,7 +64,7 @@ async fn handle_monitor_frame(
     Err(e) => {
       _error!(inner, "Error on monitor stream: {:?}", e);
       return None;
-    }
+    },
   };
 
   parser::parse(inner, frame)
@@ -107,11 +112,11 @@ async fn send_monitor_command(
     RedisTransport::Tcp(framed) => {
       let (frame, framed) = connection::request_response(framed, &command, false).await?;
       (frame.into_resp3(), RedisTransport::Tcp(framed))
-    }
+    },
     RedisTransport::Tls(framed) => {
       let (frame, framed) = connection::request_response(framed, &command, false).await?;
       (frame.into_resp3(), RedisTransport::Tls(framed))
-    }
+    },
   };
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);
@@ -150,6 +155,7 @@ async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Comma
   _warn!(inner, "Stopping monitor stream.");
 }
 
+// TODO use new connection interface
 pub async fn start(config: Config) -> Result<impl Stream<Item = Command>, RedisError> {
   let inner = create_client_inner(config);
   let connection = connection::create_centralized_connection(&inner).await?;

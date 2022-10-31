@@ -818,7 +818,8 @@ where
     &ArcStr,
     &SharedBuffer,
     &Counters,
-  ) -> JoinHandle<Result<(), RedisError>>, {
+  ) -> JoinHandle<Result<(), RedisError>>,
+{
   let server = transport.server.clone();
   let (mut writer, mut reader) = transport.split(inner);
   let reader_stream = match reader.stream.take() {

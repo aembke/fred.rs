@@ -35,27 +35,6 @@ const LAST_CURSOR: &'static str = "0";
 // put a `replicas(&self)` function on RedisClient that shares the underlying connections
 // put checks in here so it only works on clustered clients with the FF set
 
-// TODO
-// multiplexer stream logic needs to change:
-// * handle _Reconnect and _Sync
-// * reorder functions to reader can detect that the connection was intentionally closed via the inner.multiplexer_rx
-//   field
-// * implement cluster sync logic
-// * implement shared cluster socket flushing
-// * change reconnect logic on write failure
-//   * dont emit message, drop the writer and queue the command
-//   * handle messages in the queue recv after the writer is dropped but before _Reconnect arrives
-
-// TODO reconnect logic needs to select() on a second ft from quit(), shutdown(), etc via the close notifications
-// the command function needs to emit this before sending the command in the queue
-// need to decide how to handle situation where the connection dies, reconnect policy calls sleep(), some
-// commands are queued, then quit is called. should the client wait to reconnect, then try those commands,
-// then quit on the new connection? or should quit() cancel reconnection attempts and all queued messages?
-
-// TODO
-// add a exec_raw() fn to Transaction that returns a Vec<Result<RedisValue, RedisError>>
-// and allow the user to handle errors themselves
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
@@ -80,7 +59,7 @@ pub enum ResponseKind {
     /// The number of response frames received.
     received: Arc<AtomicUsize>,
     /// A shared oneshot sender to the caller.
-    tx: Arc<Mutex<Option<ResponseSender>>>,
+    tx:       Arc<Mutex<Option<ResponseSender>>>,
   },
   /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to
   /// the caller.
@@ -88,15 +67,15 @@ pub enum ResponseKind {
   /// Typically used to handle concurrent responses in a `Pipeline` that may span multiple cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames: Arc<Mutex<Vec<Resp3Frame>>>,
+    frames:   Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
     expected: usize,
     /// The number of response frames received.
     received: Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx: Arc<Mutex<Option<ResponseSender>>>,
+    tx:       Arc<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
-    index: usize,
+    index:    usize,
   },
   /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
   ValueScan(ValueScanInner),
@@ -105,6 +84,36 @@ pub enum ResponseKind {
 }
 
 impl ResponseKind {
+  /// Attempt to clone the response channel.
+  ///
+  /// If the channel cannot be shared or cloned (since it contains a oneshot channel) this will fall back to a `Skip`
+  /// policy.
+  pub fn duplicate(&self) -> Option<Self> {
+    Some(match self {
+      ResponseKind::Skip => ResponseKind::Skip,
+      ResponseKind::Respond(_) => ResponseKind::Respond(None),
+      ResponseKind::Buffer {
+        frames,
+        tx,
+        received,
+        index,
+        expected,
+      } => ResponseKind::Buffer {
+        frames:   frames.clone(),
+        tx:       tx.clone(),
+        received: received.clone(),
+        index:    index.clone(),
+        expected: expected.clone(),
+      },
+      ResponseKind::Multiple { received, tx, expected } => ResponseKind::Multiple {
+        received: received.clone(),
+        tx:       tx.cone(),
+        expected: expected.clone(),
+      },
+      ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
+    })
+  }
+
   pub fn set_expected_index(&mut self, idx: usize) {
     if let ResponseKind::Buffer { ref mut index, .. } = self {
       *index = idx;
@@ -249,7 +258,7 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   }
 
   Resp3Frame::Array {
-    data: out,
+    data:       out,
     attributes: None,
   }
 }

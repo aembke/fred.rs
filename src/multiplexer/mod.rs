@@ -353,11 +353,14 @@ impl Connections {
     inner: &Arc<RedisClientInner>,
     command: RedisCommand,
   ) -> Result<Written, RedisError> {
-    if inner.config.server.is_clustered() {
-      unimplemented!()
+    if let Connections::Clustered { ref mut writers, .. } = self {
+      let _ = clustered::send_all_cluster_command(inner, writers, command).await?;
+      Ok(Written::Ignore)
     } else {
-      // fall back on write_command. need to change the fn signature though.
-      unimplemented!()
+      Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Expected clustered configuration.",
+      ))
     }
   }
 

@@ -89,7 +89,8 @@ impl ClientLike for Pipeline {
   #[doc(hidden)]
   fn send_command<C>(&self, command: C) -> Result<(), RedisError>
   where
-    C: Into<RedisCommand>, {
+    C: Into<RedisCommand>,
+  {
     let mut command: RedisCommand = command.into();
     if let Some(tx) = command.take_responder() {
       trace!(
@@ -97,7 +98,6 @@ impl ClientLike for Pipeline {
         &self.inner.id,
         command.kind.to_str_debug()
       );
-      // TODO make sure all the command impls work with QUEUED responses
       let _ = tx.send(Ok(protocol_utils::queued_frame()));
     }
 
@@ -139,7 +139,8 @@ impl Pipeline {
   /// ```
   pub async fn all<R>(self) -> Result<R, RedisError>
   where
-    R: FromRedis, {
+    R: FromRedis,
+  {
     let commands = { self.commands.lock().drain(..).collect() };
     send_all(&self.inner, commands).await?.convert()
   }
@@ -158,7 +159,8 @@ impl Pipeline {
   /// ```
   pub async fn last<R>(self) -> Result<R, RedisError>
   where
-    R: FromRedis, {
+    R: FromRedis,
+  {
     let commands = { self.commands.lock().drain(..).collect() };
     send_last(&self.inner, commands).await?.convert()
   }

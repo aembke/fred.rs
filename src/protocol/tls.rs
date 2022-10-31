@@ -1,10 +1,9 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::types::RedisConfig;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::RedisConfig,
+};
 use parking_lot::RwLock;
-use std::convert::TryFrom;
-use std::fmt::Formatter;
-use std::sync::Arc;
-use std::{env, fmt};
+use std::{convert::TryFrom, env, fmt, fmt::Formatter, sync::Arc};
 
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::TlsConnectorBuilder as NativeTlsConnectorBuilder;
@@ -34,15 +33,12 @@ pub enum TlsConnector {
 impl fmt::Debug for TlsConnector {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("TlsConnector")
-      .field(
-        "kind",
-        match self {
-          #[cfg(feature = "enable-native-tls")]
-          TlsConnector::Native(_) => "Native",
-          #[cfg(feature = "enable-rustls")]
-          TlsConnector::Rustls(_) => "Rustls",
-        },
-      )
+      .field("kind", match self {
+        #[cfg(feature = "enable-native-tls")]
+        TlsConnector::Native(_) => "Native",
+        #[cfg(feature = "enable-rustls")]
+        TlsConnector::Rustls(_) => "Rustls",
+      })
       .finish()
   }
 }

@@ -1,22 +1,38 @@
-use crate::commands;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::{
-  AclInterface, AuthInterface, ClientInterface, ClusterInterface, ConfigInterface, GeoInterface, HashesInterface,
-  HeartbeatInterface, HyperloglogInterface, KeysInterface, ListInterface, LuaInterface, MemoryInterface,
-  MetricsInterface, PubsubInterface, ServerInterface, SetsInterface, SlowlogInterface, SortedSetsInterface,
-  TransactionInterface,
+use crate::{
+  commands,
+  error::{RedisError, RedisErrorKind},
+  interfaces::{
+    AclInterface,
+    AuthInterface,
+    ClientInterface,
+    ClusterInterface,
+    ConfigInterface,
+    GeoInterface,
+    HashesInterface,
+    HeartbeatInterface,
+    HyperloglogInterface,
+    KeysInterface,
+    ListInterface,
+    LuaInterface,
+    MemoryInterface,
+    MetricsInterface,
+    PubsubInterface,
+    ServerInterface,
+    SetsInterface,
+    SlowlogInterface,
+    SortedSetsInterface,
+    TransactionInterface,
+  },
+  modules::inner::RedisClientInner,
+  multiplexer::types::ClusterChange,
+  prelude::{ClientLike, StreamsInterface},
+  types::*,
+  utils,
 };
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::types::ClusterChange;
-use crate::prelude::{ClientLike, StreamsInterface};
-use crate::types::*;
-use crate::utils;
 use bytes_utils::Str;
 use futures::Stream;
-use std::fmt;
-use std::sync::Arc;
-use tokio::sync::broadcast::Receiver as BroadcastReceiver;
-use tokio::sync::mpsc::unbounded_channel;
+use std::{fmt, sync::Arc};
+use tokio::sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel};
 
 /// The primary Redis client struct.
 #[derive(Clone)]
@@ -103,11 +119,9 @@ impl RedisClient {
   ///
   /// **The clients returned by this function will not be connected to their associated servers. The caller needs to
   /// call `connect` on each client before sending any commands.**
-  ///
-  /// Note: For this to work reliably this function needs to be called each time nodes are added or removed from the cluster.
-  pub async fn split_cluster(&self) -> Result<Vec<RedisClient>, RedisError> {
+  pub fn split_cluster(&self) -> Result<Vec<RedisClient>, RedisError> {
     if self.inner.config.server.is_clustered() {
-      commands::server::split(&self.inner).await
+      commands::server::split(&self.inner)
     } else {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
@@ -118,13 +132,15 @@ impl RedisClient {
 
   // --------------- SCANNING ---------------
 
-  /// Incrementally iterate over a set of keys matching the `pattern` argument, returning `count` results per page, if specified.
+  /// Incrementally iterate over a set of keys matching the `pattern` argument, returning `count` results per page, if
+  /// specified.
   ///
   /// The scan operation can be canceled by dropping the returned stream.
   ///
   /// Note: This function supports [hash tags](https://redis.io/topics/cluster-spec#keys-hash-tags) in the `pattern` so callers can direct scanning operations to specific
-  /// nodes in the cluster. Callers can also use [split_cluster](Self::split_cluster) with this function if hash tags are not used in the keys that should be scanned. The
-  /// [scan_cluster](Self::scan_cluster) function can also be used to concurrently scan all nodes in a cluster.
+  /// nodes in the cluster. Callers can also use [split_cluster](Self::split_cluster) with this function if hash tags
+  /// are not used in the keys that should be scanned. The [scan_cluster](Self::scan_cluster) function can also be
+  /// used to concurrently scan all nodes in a cluster.
   ///
   /// <https://redis.io/commands/scan>
   pub fn scan<P>(
@@ -141,10 +157,13 @@ impl RedisClient {
 
   /// Run the `SCAN` command on each primary/main node in a cluster concurrently.
   ///
-  /// In order for this function to work reliably the cluster state must not change while scanning. If nodes are added or removed, or hash slots are rebalanced, it may result
-  /// in missing keys or duplicate keys in the result stream. See [split_cluster](Self::split_cluster) for use cases that require scanning to work while the cluster state changes.
+  /// In order for this function to work reliably the cluster state must not change while scanning. If nodes are added
+  /// or removed, or hash slots are rebalanced, it may result in missing keys or duplicate keys in the result
+  /// stream. See [split_cluster](Self::split_cluster) for use cases that require scanning to work while the cluster
+  /// state changes.
   ///
-  /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
+  /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if
+  /// [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
   pub fn scan_cluster<P>(
     &self,
     pattern: P,
@@ -157,7 +176,8 @@ impl RedisClient {
     commands::scan::scan_cluster(&self.inner, pattern.into(), count, r#type)
   }
 
-  /// Incrementally iterate over pages of the hash map stored at `key`, returning `count` results per page, if specified.
+  /// Incrementally iterate over pages of the hash map stored at `key`, returning `count` results per page, if
+  /// specified.
   ///
   /// <https://redis.io/commands/hscan>
   pub fn hscan<K, P>(
@@ -189,7 +209,8 @@ impl RedisClient {
     commands::scan::sscan(&self.inner, key, pattern.into(), count)
   }
 
-  /// Incrementally iterate over pages of the sorted set stored at `key`, returning `count` results per page, if specified.
+  /// Incrementally iterate over pages of the sorted set stored at `key`, returning `count` results per page, if
+  /// specified.
   ///
   /// <https://redis.io/commands/zscan>
   pub fn zscan<K, P>(

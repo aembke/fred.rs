@@ -60,6 +60,7 @@ pub fn find_cluster_node<'a>(
     })
 }
 
+/// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
 pub async fn send_command<'a>(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<ArcStr, RedisWriter>,
@@ -96,6 +97,47 @@ pub async fn send_command<'a>(
     );
     Err((RedisError::new(RedisErrorKind::IO, "Missing connection."), command))
   }
+}
+
+/// Send a command to all cluster nodes.
+///
+/// Note: if any of the commands fail to send the entire command is interrupted.
+pub async fn send_all_cluster_command(
+  inner: &Arc<RedisClientInner>,
+  writers: &mut HashMap<ArcStr, RedisWriter>,
+  mut command: RedisCommand,
+) -> Result<(), RedisError> {
+  let num_nodes = writers.len();
+  let mut responder = match command.response.duplicate() {
+    Some(resp) => resp,
+    None => {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Invalid command response type.",
+      ))
+    },
+  };
+
+  for (idx, (server, writer)) in writers.iter_mut().enumerate() {
+    _debug!(inner, "Sending all cluster command to {}", server);
+    let mut cmd_responder = responder.duplicate().unwrap_or(ResponseKind::Skip);
+    cmd_responder.set_expected_index(idx);
+    let cmd = command.duplicate(cmd_responder);
+
+    if let Err(err) = utils::write_command(inner, writer, cmd, true).await {
+      _debug!(
+        inner,
+        "Exit all nodes command early ({}/{}) from error: {:?}",
+        idx + 1,
+        num_nodes,
+        err
+      );
+      responder.respond_with_error(err);
+      break;
+    }
+  }
+
+  Ok(())
 }
 
 pub fn parse_cluster_changes(

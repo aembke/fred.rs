@@ -216,7 +216,8 @@ impl RedisKey {
   /// known.
   pub fn cluster_owner<C>(&self, client: &C) -> Option<ArcStr>
   where
-    C: ClientLike, {
+    C: ClientLike,
+  {
     if client.is_clustered() {
       let hash_slot = self.cluster_hash();
       client
@@ -239,7 +240,8 @@ impl RedisKey {
   /// See the [RedisValue::convert](crate::types::RedisValue::convert) documentation for more information.
   pub fn convert<K>(self) -> Result<K, RedisError>
   where
-    K: FromRedisKey, {
+    K: FromRedisKey,
+  {
     K::from_key(self)
   }
 }
@@ -1152,7 +1154,8 @@ impl<'a> RedisValue {
     K1: FromRedisKey + Hash + Eq,
     K2: FromRedisKey + Hash + Eq,
     I: FromRedis,
-    V: FromRedis, {
+    V: FromRedis,
+  {
     self.flatten_array_values(2).convert()
   }
 
@@ -1163,7 +1166,8 @@ impl<'a> RedisValue {
   where
     K: FromRedisKey + Hash + Eq,
     I: FromRedis,
-    V: FromRedis, {
+    V: FromRedis,
+  {
     self.flatten_array_values(1).convert()
   }
 
@@ -1175,7 +1179,8 @@ impl<'a> RedisValue {
   where
     K: FromRedisKey + Hash + Eq,
     I: FromRedis,
-    V: FromRedis, {
+    V: FromRedis,
+  {
     if let RedisValue::Array(mut values) = self {
       if values.len() != 2 {
         warn!(
@@ -1218,9 +1223,11 @@ impl<'a> RedisValue {
   /// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111].into()).convert()?;
   /// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
   /// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
-  /// let foo: HashMap<String, u16> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
+  /// let foo: HashMap<String, u16> =
+  ///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
   /// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
-  /// let foo: Vec<(String, i64)> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
+  /// let foo: Vec<(String, i64)> =
+  ///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
   /// // ...
   /// ```
   /// **Performance Considerations**
@@ -1238,7 +1245,8 @@ impl<'a> RedisValue {
   /// if not a copy, of the underlying data.
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
-    R: FromRedis, {
+    R: FromRedis,
+  {
     R::from_value(self)
   }
 

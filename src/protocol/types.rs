@@ -1,28 +1,28 @@
 use super::utils as protocol_utils;
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::cluster;
-use crate::types::*;
-use crate::utils;
-use crate::utils::{set_locked, take_locked};
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::cluster,
+  types::*,
+  utils,
+  utils::{set_locked, take_locked},
+};
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use parking_lot::{Mutex, RwLock};
 use rand::Rng;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp2_frame_to_resp3;
-use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::convert::TryInto;
-use std::fmt;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::time::Instant;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot::Sender as OneshotSender;
+use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
+use std::{
+  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  convert::TryInto,
+  fmt,
+  net::{SocketAddr, ToSocketAddrs},
+  sync::{atomic::AtomicUsize, Arc},
+  time::Instant,
+};
+use tokio::sync::{mpsc::UnboundedSender, oneshot::Sender as OneshotSender};
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
@@ -67,13 +67,13 @@ impl From<Resp3Frame> for ProtocolFrame {
 
 pub struct KeyScanInner {
   /// The hash slot for the command.
-  pub hash_slot: Option<u16>,
+  pub hash_slot:  Option<u16>,
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args: Vec<RedisValue>,
+  pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
+  pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
 impl PartialEq for KeyScanInner {
@@ -106,9 +106,9 @@ pub struct ValueScanInner {
   /// The index of the cursor argument in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args: Vec<RedisValue>,
+  pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
+  pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
 impl PartialEq for ValueScanInner {
@@ -201,7 +201,7 @@ impl ValueScanInner {
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaSet {
   servers: Vec<ArcStr>,
-  next: usize,
+  next:    usize,
 }
 
 #[cfg(feature = "replicas")]
@@ -222,10 +222,10 @@ impl ReplicaSet {
 /// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
-  pub start: u16,
-  pub end: u16,
-  pub primary: ArcStr,
-  pub id: ArcStr,
+  pub start:    u16,
+  pub end:      u16,
+  pub primary:  ArcStr,
+  pub id:       ArcStr,
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub replicas: Option<ReplicaSet>,
@@ -328,7 +328,7 @@ impl ClusterRouting {
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<&SlotRange> {
     if self.data.len() > 0 {
-      let idx = rand::thread_rng().gen_range(0..self.data.len());
+      let idx = rand::thread_rng().gen_range(0 .. self.data.len());
       Some(&self.data[idx])
     } else {
       None

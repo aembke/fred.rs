@@ -1,5 +1,7 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::types::RedisValue;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::RedisValue,
+};
 use nom::AsBytes;
 use redis_protocol::redis_keyslot;
 

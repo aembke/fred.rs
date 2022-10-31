@@ -1,15 +1,19 @@
 use super::*;
-use crate::clients::RedisClient;
-use crate::error::*;
-use crate::interfaces;
-use crate::modules::inner::RedisClientInner;
-use crate::prelude::Resp3Frame;
-use crate::protocol::command::{MultiplexerCommand, RedisCommand, RedisCommandKind};
-use crate::protocol::responders::ResponseKind;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  clients::RedisClient,
+  error::*,
+  interfaces,
+  modules::inner::RedisClientInner,
+  prelude::Resp3Frame,
+  protocol::{
+    command::{MultiplexerCommand, RedisCommand, RedisCommandKind},
+    responders::ResponseKind,
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -29,7 +33,7 @@ pub async fn quit<C: ClientLike>(client: C) -> Result<(), RedisError> {
 pub async fn shutdown<C: ClientLike>(client: C, flags: Option<ShutdownFlags>) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Shutting down server.");
-  utils::interrupt_reconnect_sleep(&inner);
+  inner.notifications.broadcast_close();
 
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
   let _ = utils::request_response(client, move || {
@@ -47,27 +51,45 @@ pub async fn shutdown<C: ClientLike>(client: C, flags: Option<ShutdownFlags>) ->
   Ok(())
 }
 
-pub async fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
+/// Create a new client struct for each unique primary cluster node based on the cached cluster state.
+pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
   if !inner.config.server.is_clustered() {
     return Err(RedisError::new(
       RedisErrorKind::Config,
       "Expected clustered redis deployment.",
     ));
   }
+  let servers = inner.with_cluster_state(|state| Ok(state.unique_primary_nodes()))?;
 
-  let (tx, rx) = oneshot_channel();
-  let command = MultiplexerCommand::Split { tx };
-  let _ = interfaces::send_to_multiplexer(&inner, command)?;
+  Ok(
+    servers
+      .into_iter()
+      .filter_map(|server| {
+        let (host, port) = match protocol_utils::server_to_parts(&server) {
+          Ok((host, port)) => (host.to_owned(), port),
+          Err(_) => {
+            _debug!(inner, "Failed to parse server {}", server);
+            return None;
+          },
+        };
 
-  rx.await?
+        let mut config = inner.config.as_ref().clone();
+        config.server = ServerConfig::Centralized { host, port };
+        let perf = inner.performance_config();
+        let policy = inner.reconnect_policy();
+
+        Some(RedisClient::new(config, Some(perf), policy))
+      })
+      .collect(),
+  )
 }
 
 pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
   let command = MultiplexerCommand::Reconnect {
     server: None,
-    force: true,
-    tx: Some(tx),
+    force:  true,
+    tx:     Some(tx),
   };
   let _ = interfaces::send_to_multiplexer(inner, command)?;
 

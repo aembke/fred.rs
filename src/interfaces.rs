@@ -98,7 +98,8 @@ where
   C: ClientLike + Clone,
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce(C) -> Fut,
-  T: Unpin + Send + 'static, {
+  T: Unpin + Send + 'static,
+{
   let client = client.clone();
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func(client))),
@@ -111,7 +112,8 @@ pub(crate) fn wrap_async<F, Fut, T>(func: F) -> AsyncResult<T>
 where
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce() -> Fut,
-  T: Unpin + Send + 'static, {
+  T: Unpin + Send + 'static,
+{
   AsyncResult {
     inner: AsyncInner::Task(Box::pin(func())),
   }
@@ -120,7 +122,8 @@ where
 /// Send a single `RedisCommand` to the multiplexer.
 pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
 where
-  C: Into<RedisCommand>, {
+  C: Into<RedisCommand>,
+{
   send_to_multiplexer(inner, command.into().into())
 }
 
@@ -151,7 +154,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   #[doc(hidden)]
   fn send_command<C>(&self, command: C) -> Result<(), RedisError>
   where
-    C: Into<RedisCommand>, {
+    C: Into<RedisCommand>,
+  {
     default_send_command(inner, command)
   }
 
@@ -309,7 +313,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   /// <https://redis.io/commands/info>
   fn info<R>(&self, section: Option<InfoKind>) -> AsyncResult<R>
   where
-    R: FromRedis + Unpin + Send, {
+    R: FromRedis + Unpin + Send,
+  {
     async_spawn(self, |client| async move {
       commands::server::info(&client, section).await?.convert()
     })
@@ -327,7 +332,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   where
     R: FromRedis + Unpin + Send,
     T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>, {
+    T::Error: Into<RedisError>,
+  {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |client| async move {
       commands::server::custom(&client, cmd, args).await?.convert()
@@ -341,7 +347,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> AsyncResult<Resp3Frame>
   where
     T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>, {
+    T::Error: Into<RedisError>,
+  {
     let args = atry!(utils::try_into_vec(args));
     async_spawn(self, |client| async move {
       commands::server::custom_raw(&client, cmd, args).await

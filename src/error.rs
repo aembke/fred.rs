@@ -256,7 +256,8 @@ impl RedisError {
   /// Create a new Redis error with the provided details.
   pub fn new<T>(kind: RedisErrorKind, details: T) -> RedisError
   where
-    T: Into<Cow<'static, str>>, {
+    T: Into<Cow<'static, str>>,
+  {
     RedisError {
       kind,
       details: details.into(),
@@ -311,7 +312,8 @@ impl RedisError {
   /// Create a new parse error with the provided details.
   pub(crate) fn new_parse<T>(details: T) -> Self
   where
-    T: Into<Cow<'static, str>>, {
+    T: Into<Cow<'static, str>>,
+  {
     RedisError::new(RedisErrorKind::Parse, details)
   }
 

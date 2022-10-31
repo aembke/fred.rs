@@ -1806,8 +1806,6 @@ pub enum MultiplexerCommand {
     force:  bool,
     tx:     Option<ResponseSender>,
   },
-  /// Check and update the cached sentinel state against one of the known sentinel nodes.
-  CheckSentinels,
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster,
 }
@@ -1836,12 +1834,6 @@ impl fmt::Debug for MultiplexerCommand {
           .field("kind", "Reconnect")
           .field("server", server)
           .field("force", force);
-      },
-      MultiplexerCommand::Split { .. } => {
-        formatter.field("kind", "Split");
-      },
-      MultiplexerCommand::CheckSentinels => {
-        formatter.field("kind", "Check Sentinels");
       },
       MultiplexerCommand::SyncCluster => {
         formatter.field("kind", "Sync Cluster");

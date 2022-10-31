@@ -715,7 +715,8 @@ impl ServerConfig {
   /// Create a new centralized config with the provided host and port.
   pub fn new_centralized<S>(host: S, port: u16) -> ServerConfig
   where
-    S: Into<String>, {
+    S: Into<String>,
+  {
     ServerConfig::Centralized {
       host: host.into(),
       port,
@@ -728,7 +729,8 @@ impl ServerConfig {
   /// the other nodes.
   pub fn new_clustered<S>(mut hosts: Vec<(S, u16)>) -> ServerConfig
   where
-    S: Into<String>, {
+    S: Into<String>,
+  {
     ServerConfig::Clustered {
       hosts: hosts.drain(..).map(|(s, p)| (s.into(), p)).collect(),
     }
@@ -740,7 +742,8 @@ impl ServerConfig {
   pub fn new_sentinel<H, N>(hosts: Vec<(H, u16)>, service_name: N) -> ServerConfig
   where
     H: Into<String>,
-    N: Into<String>, {
+    N: Into<String>,
+  {
     ServerConfig::Sentinel {
       hosts:                                      hosts.into_iter().map(|(h, p)| (h.into(), p)).collect(),
       service_name:                               service_name.into(),

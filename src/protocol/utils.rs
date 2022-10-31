@@ -1,30 +1,26 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{ClusterErrorKind, RedisCommand, RedisCommandKind};
-use crate::protocol::connection::OK;
-use crate::protocol::types::ProtocolFrame;
-use crate::protocol::types::*;
-use crate::types::Resolve;
-use crate::types::*;
-use crate::types::{RedisConfig, ServerConfig, QUEUED};
-use crate::utils;
-use crate::utils::redis_string_to_f64;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind},
+    connection::OK,
+    types::{ProtocolFrame, *},
+  },
+  types::{RedisConfig, Resolve, ServerConfig, QUEUED, *},
+  utils,
+  utils::redis_string_to_f64,
+};
 use arcstr::ArcStr;
 use bytes::Bytes;
 use bytes_utils::Str;
 use futures::AsyncBufReadExt;
 use parking_lot::RwLock;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::types::{Auth, PUBSUB_PUSH_PREFIX};
-use redis_protocol::resp3::types::{Frame as Resp3Frame, FrameMap};
+use redis_protocol::{
+  resp2::types::Frame as Resp2Frame,
+  resp3::types::{Auth, Frame as Resp3Frame, FrameMap, PUBSUB_PUSH_PREFIX},
+};
 use semver::Version;
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::net::SocketAddr;
-use std::ops::Deref;
-use std::str;
-use std::sync::Arc;
+use std::{borrow::Cow, collections::HashMap, convert::TryInto, net::SocketAddr, ops::Deref, str, sync::Arc};
 
 macro_rules! parse_or_zero(
   ($data:ident, $t:ty) => {
@@ -68,7 +64,7 @@ pub fn null_frame(is_resp3: bool) -> ProtocolFrame {
 
 pub fn queued_frame() -> Resp3Frame {
   Resp3Frame::SimpleString {
-    data: utils::static_bytes(QUEUED.as_bytes()),
+    data:       utils::static_bytes(QUEUED.as_bytes()),
     attributes: None,
   }
 }
@@ -248,14 +244,14 @@ pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), 
 
   let mut out = Vec::with_capacity(frame.len() + 1);
   out.push(Resp3Frame::SimpleString {
-    data: PUBSUB_PUSH_PREFIX.into(),
+    data:       PUBSUB_PUSH_PREFIX.into(),
     attributes: None,
   });
 
   if let Resp3Frame::Push { data, .. } = frame {
     out.extend(data);
     let frame = Resp3Frame::Push {
-      data: out,
+      data:       out,
       attributes: None,
     };
 
@@ -301,7 +297,7 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 
   if is_auth_error {
     Resp3Frame::SimpleString {
-      data: "OK".into(),
+      data:       "OK".into(),
       attributes: None,
     }
   } else {
@@ -359,7 +355,8 @@ fn parse_nested_array(data: Vec<Resp3Frame>) -> Result<RedisValue, RedisError> {
 fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
   let mut out = HashMap::with_capacity(data.len());
 
-  // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types as keys...
+  // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types
+  // as keys...
   for (key, value) in data.into_iter() {
     let key: RedisKey = frame_to_single_result(key)?.try_into()?;
     let value = frame_to_results(value)?;
@@ -482,11 +479,13 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
   Ok(value)
 }
 
-/// Parse the protocol frame into a single redis value, returning an error if the result contains nested arrays, an array with more than one value, or any other aggregate type.
+/// Parse the protocol frame into a single redis value, returning an error if the result contains nested arrays, an
+/// array with more than one value, or any other aggregate type.
 ///
 /// If the array only contains one value then that value will be returned.
 ///
-/// This function is equivalent to [frame_to_results] but with an added validation layer if the result set is a nested array, aggregate type, etc.
+/// This function is equivalent to [frame_to_results] but with an added validation layer if the result set is a nested
+/// array, aggregate type, etc.
 pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   match frame {
     Resp3Frame::SimpleString { data, .. } => {
@@ -564,7 +563,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
       }
 
       Resp3Frame::Array {
-        data: out,
+        data:       out,
         attributes: None,
       }
     },
@@ -587,7 +586,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
       }
 
       Resp3Frame::Array {
-        data: out,
+        data:       out,
         attributes: None,
       }
     },
@@ -661,27 +660,27 @@ pub fn value_to_outgoing_resp2_frame(value: &RedisValue) -> Result<Resp2Frame, R
 pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, RedisError> {
   let frame = match value {
     RedisValue::Double(ref f) => Resp3Frame::BlobString {
-      data: f.to_string().into(),
+      data:       f.to_string().into(),
       attributes: None,
     },
     RedisValue::Boolean(ref b) => Resp3Frame::BlobString {
-      data: b.to_string().into(),
+      data:       b.to_string().into(),
       attributes: None,
     },
     RedisValue::Integer(ref i) => Resp3Frame::BlobString {
-      data: i.to_string().into(),
+      data:       i.to_string().into(),
       attributes: None,
     },
     RedisValue::String(ref s) => Resp3Frame::BlobString {
-      data: s.inner().clone(),
+      data:       s.inner().clone(),
       attributes: None,
     },
     RedisValue::Bytes(ref b) => Resp3Frame::BlobString {
-      data: b.clone(),
+      data:       b.clone(),
       attributes: None,
     },
     RedisValue::Queued => Resp3Frame::BlobString {
-      data: Bytes::from_static(QUEUED.as_bytes()),
+      data:       Bytes::from_static(QUEUED.as_bytes()),
       attributes: None,
     },
     RedisValue::Null => Resp3Frame::Null,
@@ -923,7 +922,7 @@ pub fn frame_map_or_set_to_nested_array(frame: Resp3Frame) -> Result<Resp3Frame,
       }
 
       Ok(Resp3Frame::Array {
-        data: out,
+        data:       out,
         attributes: None,
       })
     },
@@ -934,7 +933,7 @@ pub fn frame_map_or_set_to_nested_array(frame: Resp3Frame) -> Result<Resp3Frame,
       }
 
       Ok(Resp3Frame::Array {
-        data: out,
+        data:       out,
         attributes: None,
       })
     },
@@ -1455,7 +1454,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 
       for part in parts.into_iter() {
         bulk_strings.push(Resp3Frame::BlobString {
-          data: part.as_bytes().to_vec().into(),
+          data:       part.as_bytes().to_vec().into(),
           attributes: None,
         });
       }
@@ -1464,7 +1463,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
       }
 
       Ok(Resp3Frame::Array {
-        data: bulk_strings,
+        data:       bulk_strings,
         attributes: None,
       })
     },
@@ -1473,13 +1472,13 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
       let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
 
       bulk_strings.push(Resp3Frame::BlobString {
-        data: command.kind.cmd_str().into_inner(),
+        data:       command.kind.cmd_str().into_inner(),
         attributes: None,
       });
 
       if let Some(subcommand) = command.kind.subcommand_str() {
         bulk_strings.push(Resp3Frame::BlobString {
-          data: Bytes::from_static(subcommand.as_bytes()),
+          data:       Bytes::from_static(subcommand.as_bytes()),
           attributes: None,
         });
       }
@@ -1488,7 +1487,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
       }
 
       Ok(Resp3Frame::Array {
-        data: bulk_strings,
+        data:       bulk_strings,
         attributes: None,
       })
     },
@@ -1542,21 +1541,21 @@ mod tests {
 
   fn str_to_f(s: &str) -> Resp3Frame {
     Resp3Frame::SimpleString {
-      data: s.to_owned().into(),
+      data:       s.to_owned().into(),
       attributes: None,
     }
   }
 
   fn str_to_bs(s: &str) -> Resp3Frame {
     Resp3Frame::BlobString {
-      data: s.to_owned().into(),
+      data:       s.to_owned().into(),
       attributes: None,
     }
   }
 
   fn int_to_f(i: i64) -> Resp3Frame {
     Resp3Frame::Number {
-      data: i,
+      data:       i,
       attributes: None,
     }
   }
@@ -1587,7 +1586,7 @@ mod tests {
       int_to_f(0),
       str_to_f("db.0"),
       Resp3Frame::Array {
-        data: vec![
+        data:       vec![
           str_to_f("overhead.hashtable.main"),
           int_to_f(72),
           str_to_f("overhead.hashtable.expires"),
@@ -1634,37 +1633,37 @@ mod tests {
 
     let expected_db_0 = DatabaseMemoryStats {
       overhead_hashtable_expires: 0,
-      overhead_hashtable_main: 72,
+      overhead_hashtable_main:    72,
     };
     let mut expected_db = HashMap::new();
     expected_db.insert(0, expected_db_0);
     let expected = MemoryStats {
-      peak_allocated: 934192,
-      total_allocated: 872040,
-      startup_allocated: 809912,
-      replication_backlog: 0,
-      clients_slaves: 0,
-      clients_normal: 20496,
-      aof_buffer: 0,
-      lua_caches: 0,
-      db: expected_db,
-      overhead_total: 830480,
-      keys_count: 1,
-      keys_bytes_per_key: 62128,
-      dataset_bytes: 41560,
-      dataset_percentage: 66.894157409667969,
-      peak_percentage: 93.346977233886719,
-      allocator_allocated: 1022640,
-      allocator_active: 1241088,
-      allocator_resident: 5332992,
+      peak_allocated:                934192,
+      total_allocated:               872040,
+      startup_allocated:             809912,
+      replication_backlog:           0,
+      clients_slaves:                0,
+      clients_normal:                20496,
+      aof_buffer:                    0,
+      lua_caches:                    0,
+      db:                            expected_db,
+      overhead_total:                830480,
+      keys_count:                    1,
+      keys_bytes_per_key:            62128,
+      dataset_bytes:                 41560,
+      dataset_percentage:            66.894157409667969,
+      peak_percentage:               93.346977233886719,
+      allocator_allocated:           1022640,
+      allocator_active:              1241088,
+      allocator_resident:            5332992,
       allocator_fragmentation_ratio: 1.2136118412017822,
       allocator_fragmentation_bytes: 218448,
-      allocator_rss_ratio: 4.2970294952392578,
-      allocator_rss_bytes: 4091904,
-      rss_overhead_ratio: 2.0268816947937012,
-      rss_overhead_bytes: 5476352,
-      fragmentation: 13.007383346557617,
-      fragmentation_bytes: 9978328,
+      allocator_rss_ratio:           4.2970294952392578,
+      allocator_rss_bytes:           4091904,
+      rss_overhead_ratio:            2.0268816947937012,
+      rss_overhead_bytes:            5476352,
+      fragmentation:                 13.007383346557617,
+      fragmentation_bytes:           9978328,
     };
 
     assert_eq!(memory_stats, expected);
@@ -1672,33 +1671,31 @@ mod tests {
 
   #[test]
   fn should_parse_acl_getuser_response() {
-    /*
-        127.0.0.1:6379> acl getuser alec
-     1) "flags"
-     2) 1) "on"
-     3) "passwords"
-     4) 1) "c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"
-        2) "39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"
-     5) "commands"
-     6) "-@all +@sortedset +@geo +config|get"
-     7) "keys"
-     8) 1) "a"
-        2) "b"
-        3) "c"
-     9) "channels"
-    10) 1) "c1"
-        2) "c2"
-        */
+    // 127.0.0.1:6379> acl getuser alec
+    // 1) "flags"
+    // 2) 1) "on"
+    // 3) "passwords"
+    // 4) 1) "c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"
+    // 2) "39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"
+    // 5) "commands"
+    // 6) "-@all +@sortedset +@geo +config|get"
+    // 7) "keys"
+    // 8) 1) "a"
+    // 2) "b"
+    // 3) "c"
+    // 9) "channels"
+    // 10) 1) "c1"
+    // 2) "c2"
 
     let input = vec![
       str_to_bs("flags"),
       Resp3Frame::Array {
-        data: vec![str_to_bs("on")],
+        data:       vec![str_to_bs("on")],
         attributes: None,
       },
       str_to_bs("passwords"),
       Resp3Frame::Array {
-        data: vec![
+        data:       vec![
           str_to_bs("c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"),
           str_to_bs("39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"),
         ],
@@ -1708,69 +1705,57 @@ mod tests {
       str_to_bs("-@all +@sortedset +@geo +config|get"),
       str_to_bs("keys"),
       Resp3Frame::Array {
-        data: vec![str_to_bs("a"), str_to_bs("b"), str_to_bs("c")],
+        data:       vec![str_to_bs("a"), str_to_bs("b"), str_to_bs("c")],
         attributes: None,
       },
       str_to_bs("channels"),
       Resp3Frame::Array {
-        data: vec![str_to_bs("c1"), str_to_bs("c2")],
+        data:       vec![str_to_bs("c1"), str_to_bs("c2")],
         attributes: None,
       },
     ];
     let actual = parse_acl_getuser_frames(input).unwrap();
 
     let expected = AclUser {
-      flags: vec![AclUserFlag::On],
+      flags:     vec![AclUserFlag::On],
       passwords: string_vec(vec![
         "c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5",
         "39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45",
       ]),
-      commands: string_vec(vec!["-@all", "+@sortedset", "+@geo", "+config|get"]),
-      keys: string_vec(vec!["a", "b", "c"]),
-      channels: string_vec(vec!["c1", "c2"]),
+      commands:  string_vec(vec!["-@all", "+@sortedset", "+@geo", "+config|get"]),
+      keys:      string_vec(vec!["a", "b", "c"]),
+      channels:  string_vec(vec!["c1", "c2"]),
     };
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_slowlog_entries_redis_3() {
-    /*
-        redis 127.0.0.1:6379> slowlog get 2
-    1) 1) (integer) 14
-       2) (integer) 1309448221
-       3) (integer) 15
-       4) 1) "ping"
-    2) 1) (integer) 13
-       2) (integer) 1309448128
-       3) (integer) 30
-       4) 1) "slowlog"
-          2) "get"
-          3) "100"
-    */
+    // redis 127.0.0.1:6379> slowlog get 2
+    // 1) 1) (integer) 14
+    // 2) (integer) 1309448221
+    // 3) (integer) 15
+    // 4) 1) "ping"
+    // 2) 1) (integer) 13
+    // 2) (integer) 1309448128
+    // 3) (integer) 30
+    // 4) 1) "slowlog"
+    // 2) "get"
+    // 3) "100"
 
     let input = vec![
       Resp3Frame::Array {
-        data: vec![
-          int_to_f(14),
-          int_to_f(1309448221),
-          int_to_f(15),
-          Resp3Frame::Array {
-            data: vec![str_to_bs("ping")],
-            attributes: None,
-          },
-        ],
+        data:       vec![int_to_f(14), int_to_f(1309448221), int_to_f(15), Resp3Frame::Array {
+          data:       vec![str_to_bs("ping")],
+          attributes: None,
+        }],
         attributes: None,
       },
       Resp3Frame::Array {
-        data: vec![
-          int_to_f(13),
-          int_to_f(1309448128),
-          int_to_f(30),
-          Resp3Frame::Array {
-            data: vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
-            attributes: None,
-          },
-        ],
+        data:       vec![int_to_f(13), int_to_f(1309448128), int_to_f(30), Resp3Frame::Array {
+          data:       vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+          attributes: None,
+        }],
         attributes: None,
       },
     ];
@@ -1778,20 +1763,20 @@ mod tests {
 
     let expected = vec![
       SlowlogEntry {
-        id: 14,
+        id:        14,
         timestamp: 1309448221,
-        duration: 15,
-        args: vec!["ping".into()],
-        ip: None,
-        name: None,
+        duration:  15,
+        args:      vec!["ping".into()],
+        ip:        None,
+        name:      None,
       },
       SlowlogEntry {
-        id: 13,
+        id:        13,
         timestamp: 1309448128,
-        duration: 30,
-        args: vec!["slowlog".into(), "get".into(), "100".into()],
-        ip: None,
-        name: None,
+        duration:  30,
+        args:      vec!["slowlog".into(), "get".into(), "100".into()],
+        ip:        None,
+        name:      None,
       },
     ];
 
@@ -1800,32 +1785,30 @@ mod tests {
 
   #[test]
   fn should_parse_slowlog_entries_redis_4() {
-    /*
-        redis 127.0.0.1:6379> slowlog get 2
-    1) 1) (integer) 14
-       2) (integer) 1309448221
-       3) (integer) 15
-       4) 1) "ping"
-       5) "127.0.0.1:58217"
-       6) "worker-123"
-    2) 1) (integer) 13
-       2) (integer) 1309448128
-       3) (integer) 30
-       4) 1) "slowlog"
-          2) "get"
-          3) "100"
-       5) "127.0.0.1:58217"
-       6) "worker-123"
-    */
+    // redis 127.0.0.1:6379> slowlog get 2
+    // 1) 1) (integer) 14
+    // 2) (integer) 1309448221
+    // 3) (integer) 15
+    // 4) 1) "ping"
+    // 5) "127.0.0.1:58217"
+    // 6) "worker-123"
+    // 2) 1) (integer) 13
+    // 2) (integer) 1309448128
+    // 3) (integer) 30
+    // 4) 1) "slowlog"
+    // 2) "get"
+    // 3) "100"
+    // 5) "127.0.0.1:58217"
+    // 6) "worker-123"
 
     let input = vec![
       Resp3Frame::Array {
-        data: vec![
+        data:       vec![
           int_to_f(14),
           int_to_f(1309448221),
           int_to_f(15),
           Resp3Frame::Array {
-            data: vec![str_to_bs("ping")],
+            data:       vec![str_to_bs("ping")],
             attributes: None,
           },
           str_to_bs("127.0.0.1:58217"),
@@ -1834,12 +1817,12 @@ mod tests {
         attributes: None,
       },
       Resp3Frame::Array {
-        data: vec![
+        data:       vec![
           int_to_f(13),
           int_to_f(1309448128),
           int_to_f(30),
           Resp3Frame::Array {
-            data: vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+            data:       vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
             attributes: None,
           },
           str_to_bs("127.0.0.1:58217"),
@@ -1852,20 +1835,20 @@ mod tests {
 
     let expected = vec![
       SlowlogEntry {
-        id: 14,
+        id:        14,
         timestamp: 1309448221,
-        duration: 15,
-        args: vec!["ping".into()],
-        ip: Some("127.0.0.1:58217".into()),
-        name: Some("worker-123".into()),
+        duration:  15,
+        args:      vec!["ping".into()],
+        ip:        Some("127.0.0.1:58217".into()),
+        name:      Some("worker-123".into()),
       },
       SlowlogEntry {
-        id: 13,
+        id:        13,
         timestamp: 1309448128,
-        duration: 30,
-        args: vec!["slowlog".into(), "get".into(), "100".into()],
-        ip: Some("127.0.0.1:58217".into()),
-        name: Some("worker-123".into()),
+        duration:  30,
+        args:      vec!["slowlog".into(), "get".into(), "100".into()],
+        ip:        Some("127.0.0.1:58217".into()),
+        name:      Some("worker-123".into()),
       },
     ];
 
@@ -1887,21 +1870,21 @@ cluster_stats_messages_sent:1483972
 cluster_stats_messages_received:1483968";
 
     let expected = ClusterInfo {
-      cluster_state: ClusterState::Fail,
-      cluster_slots_assigned: 16384,
-      cluster_slots_ok: 16384,
-      cluster_slots_fail: 2,
-      cluster_slots_pfail: 3,
-      cluster_known_nodes: 6,
-      cluster_size: 3,
-      cluster_current_epoch: 6,
-      cluster_my_epoch: 2,
-      cluster_stats_messages_sent: 1483972,
+      cluster_state:                   ClusterState::Fail,
+      cluster_slots_assigned:          16384,
+      cluster_slots_ok:                16384,
+      cluster_slots_fail:              2,
+      cluster_slots_pfail:             3,
+      cluster_known_nodes:             6,
+      cluster_size:                    3,
+      cluster_current_epoch:           6,
+      cluster_my_epoch:                2,
+      cluster_stats_messages_sent:     1483972,
       cluster_stats_messages_received: 1483968,
     };
 
     let actual = parse_cluster_info(Resp3Frame::BlobString {
-      data: input.as_bytes().into(),
+      data:       input.as_bytes().into(),
       attributes: None,
     })
     .unwrap();

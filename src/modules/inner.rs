@@ -415,6 +415,10 @@ impl RedisClientInner {
     self.performance.load().as_ref().clone()
   }
 
+  pub fn reconnect_policy(&self) -> Option<ReconnectPolicy> {
+    self.policy.read().as_ref().map(|p| p.clone())
+  }
+
   pub fn reset_protocol_version(&self) {
     let version = self.config.version.clone();
     self.resp_version.as_ref().store(Arc::new(version));

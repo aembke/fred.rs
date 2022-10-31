@@ -44,65 +44,6 @@ use tokio::{
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 
-#[cfg(feature = "full-tracing")]
-async fn write_command_t(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &Multiplexer,
-  command: RedisCommand,
-) -> Result<Option<Arc<String>>, RedisError> {
-  if inner.should_trace() {
-    let span = fspan!(
-      command,
-      "write_to_socket",
-      pipelined = &command.resp_tx.read().is_none()
-    );
-    write_command(inner, multiplexer, command).instrument(span).await
-  } else {
-    write_command(inner, multiplexer, command).await
-  }
-}
-
-#[cfg(not(feature = "full-tracing"))]
-async fn write_command_t(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &Multiplexer,
-  command: RedisCommand,
-) -> Result<Option<Arc<String>>, RedisError> {
-  write_command(inner, multiplexer, command).await
-}
-
-#[cfg(feature = "full-tracing")]
-async fn handle_command_t(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &Multiplexer,
-  mut command: RedisCommand,
-  has_policy: bool,
-  disable_pipeline: bool,
-) -> Result<(), RedisError> {
-  if inner.should_trace() {
-    command.take_queued_span();
-    let span = fspan!(command, "handle_command");
-    handle_command(inner, multiplexer, command, has_policy, disable_pipeline)
-      .instrument(span)
-      .await
-  } else {
-    handle_command(inner, multiplexer, command, has_policy, disable_pipeline).await
-  }
-}
-
-#[cfg(not(feature = "full-tracing"))]
-async fn handle_command_t(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &Multiplexer,
-  command: RedisCommand,
-  has_policy: bool,
-  disable_pipeline: bool,
-) -> Result<(), RedisError> {
-  handle_command(inner, multiplexer, command, has_policy, disable_pipeline).await
-}
-
-// ------------------------------------------------------------------------------------
-
 /// Repeatedly try to sync the cluster state, applying any provided reconnection policy as needed.
 async fn sync_cluster_with_reconnect(
   inner: &Arc<RedisClientInner>,
@@ -175,6 +116,8 @@ async fn send_asking_with_reconnect(
 }
 
 /// Wait for the response from the reader task, handling cluster redirections if needed.
+///
+/// Returns the command to be retried later if needed.
 ///
 /// Note: This does **not** handle transaction errors.
 async fn handle_multiplexer_response(
@@ -312,6 +255,34 @@ async fn write_with_backpressure(
   Ok(())
 }
 
+#[cfg(feature = "full-tracing")]
+async fn write_with_backpressure_t(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &mut Multiplexer,
+  mut command: RedisCommand,
+  force_pipeline: bool,
+) -> Result<(), RedisError> {
+  if inner.should_trace() {
+    command.take_queued_span();
+    let span = fspan!(command, "process_command");
+    write_with_backpressure(inner, multiplexer, command, force_pipeline)
+      .instrument(span)
+      .await
+  } else {
+    write_with_backpressure(inner, multiplexer, command, force_pipeline).await
+  }
+}
+
+#[cfg(not(feature = "full-tracing"))]
+async fn process_normal_command_t(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &mut Multiplexer,
+  command: RedisCommand,
+  force_pipeline: bool,
+) -> Result<(), RedisError> {
+  write_with_backpressure(inner, multiplexer, command, force_pipeline).await
+}
+
 /// Run a pipelined series of commands, queueing commands to run later if needed.
 async fn process_pipeline(
   inner: &Arc<RedisClientInner>,
@@ -324,7 +295,7 @@ async fn process_pipeline(
     command.can_pipeline = true;
     command.skip_backpressure = true;
 
-    if let Err(e) = write_with_backpressure(inner, multiplexer, command, true).await {
+    if let Err(e) = write_with_backpressure_t(inner, multiplexer, command, true).await {
       // if the command cannot be written it will be queued to run later.
       // if a connection is dropped due to an error the reader will send a command to reconnect and retry later.
       _debug!(inner, "Error writing command in pipeline: {:?}", e);
@@ -424,6 +395,8 @@ async fn process_reconnect(
   force: bool,
   tx: Option<ResponseSender>,
 ) -> Result<(), RedisError> {
+  _debug!(inner, "Reconnecting to {:?} (force: {})", server, force);
+
   if let Some(server) = server {
     if multiplexer.connections.has_server_connection(&server) && !force {
       _debug!(inner, "Skip reconnecting to {}", server);
@@ -450,15 +423,6 @@ async fn process_reconnect(
   }
 }
 
-/// Update the cached sentinel state.
-async fn process_check_sentinels(
-  inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
-) -> Result<(), RedisError> {
-  // TODO implement
-  unimplemented!()
-}
-
 /// Sync and update the cached cluster state.
 async fn process_sync_cluster(
   inner: &Arc<RedisClientInner>,
@@ -473,7 +437,7 @@ async fn process_normal_command(
   multiplexer: &mut Multiplexer,
   command: RedisCommand,
 ) -> Result<(), RedisError> {
-  write_with_backpressure(inner, multiplexer, command, false)
+  write_with_backpressure_t(inner, multiplexer, command, false)
 }
 
 /// Process any kind of multiplexer command.
@@ -488,7 +452,6 @@ async fn process_command(
     MultiplexerCommand::Reconnect { server, force, tx } => {
       process_reconnect(inner, multiplexer, server, force, tx).await
     },
-    MultiplexerCommand::CheckSentinels => process_check_sentinels(inner, multiplexer).await,
     MultiplexerCommand::SyncCluster => process_sync_cluster(inner, multiplexer).await,
     MultiplexerCommand::Transaction {
       commands,
@@ -509,11 +472,12 @@ async fn process_commands(
 ) -> Result<(), RedisError> {
   _debug!(inner, "Starting command processing stream...");
   while let Some(command) = rx.recv().await {
-    // TODO decr inner.counters.cmd_buffer_len
+    inner.counters.decr_cmd_buffer_len();
+
     _trace!(inner, "Recv command: {:?}", command);
     if let Err(e) = process_command(inner, multiplexer, command).await {
       // errors on this interface end the client connection task
-      _debug!(inner, "Disconnecting after error processing command: {:?}", e);
+      _error!(inner, "Disconnecting after error processing command: {:?}", e);
       let _ = multiplexer.disconnect_all().await;
       return Err(e);
     }

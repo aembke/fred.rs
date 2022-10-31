@@ -1,23 +1,24 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::centralized;
-use crate::multiplexer::{utils, Connections, Counters};
-use crate::protocol::codec::RedisCodec;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter};
-use crate::protocol::utils as protocol_utils;
-use crate::types::ClientState;
-use crate::types::Resolve;
-use crate::types::{RedisValue, ServerConfig};
-use crate::utils as client_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  globals::globals,
+  modules::inner::RedisClientInner,
+  multiplexer::{centralized, utils, Connections, Counters},
+  protocol::{
+    codec::RedisCodec,
+    command::{RedisCommand, RedisCommandKind},
+    connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter},
+    utils as protocol_utils,
+  },
+  types::{ClientState, RedisValue, Resolve, ServerConfig},
+  utils as client_utils,
+};
 use parking_lot::RwLock;
-use std::collections::VecDeque;
-use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio::sync::RwLock as AsyncRwLock;
+use std::{
+  collections::{HashMap, HashSet, VecDeque},
+  net::SocketAddr,
+  sync::Arc,
+};
+use tokio::{net::TcpStream, sync::RwLock as AsyncRwLock};
 use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-native-tls")]
@@ -192,7 +193,8 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
   ))
 }
 
-/// Read the `(host, port)` tuple for the primary Redis server, as identified by the `SENTINEL get-master-addr-by-name` command, then return a connection to that node.
+/// Read the `(host, port)` tuple for the primary Redis server, as identified by the `SENTINEL
+/// get-master-addr-by-name` command, then return a connection to that node.
 async fn discover_primary_node(
   inner: &Arc<RedisClientInner>,
   sentinel: &mut RedisTransport,
@@ -206,10 +208,10 @@ async fn discover_primary_node(
       ))
     },
   };
-  let command = RedisCommand::new(
-    RedisCommandKind::Sentinel,
-    vec![static_val!(GET_MASTER_ADDR_BY_NAME), service_name.into()],
-  );
+  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
+    static_val!(GET_MASTER_ADDR_BY_NAME),
+    service_name.into(),
+  ]);
   let frame = sentinel.request_response(command, false).await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
   let (host, port): (String, u16) = if response.is_null() {
@@ -260,7 +262,8 @@ async fn check_primary_node_role(
   }
 }
 
-/// Update the cached backchannel state with the new connection information, disconnecting the old connection if needed.
+/// Update the cached backchannel state with the new connection information, disconnecting the old connection if
+/// needed.
 async fn update_sentinel_backchannel(
   inner: &Arc<RedisClientInner>,
   transport: &RedisTransport,
@@ -299,7 +302,8 @@ async fn update_cached_client_state(
   Ok(())
 }
 
-/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on `buffer`.
+/// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on
+/// `buffer`.
 ///
 /// <https://redis.io/docs/reference/sentinel-clients/>
 pub async fn initialize_connection(

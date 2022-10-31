@@ -103,7 +103,8 @@ impl CustomCommand {
   /// see the [custom](crate::interfaces::ClientLike::custom) command for more information.
   pub fn new<C>(cmd: C, cluster_hash: Option<ClusterHash>, is_blocking: bool) -> Self
   where
-    C: Into<Str>, {
+    C: Into<Str>,
+  {
     CustomCommand {
       cmd: cmd.into(),
       cluster_hash,

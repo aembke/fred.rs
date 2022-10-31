@@ -1,15 +1,17 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::ProtocolFrame;
-use crate::protocol::utils as protocol_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{types::ProtocolFrame, utils as protocol_utils},
+};
 use bytes::BytesMut;
-use redis_protocol::resp2::decode::decode_mut as resp2_decode;
-use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::decode::streaming::decode_mut as resp3_decode;
-use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
-use redis_protocol::resp3::types::RespVersion;
-use redis_protocol::resp3::types::{Frame as Resp3Frame, StreamedFrame};
+use redis_protocol::{
+  resp2::{decode::decode_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::Frame as Resp2Frame},
+  resp3::{
+    decode::streaming::decode_mut as resp3_decode,
+    encode::complete::encode_bytes as resp3_encode,
+    types::{Frame as Resp3Frame, RespVersion, StreamedFrame},
+  },
+};
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -183,27 +185,27 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name: ArcStr,
-  pub server: ArcStr,
-  pub version: Arc<ArcSwap<RespVersion>>,
+  pub name:            ArcStr,
+  pub server:          ArcStr,
+  pub version:         Arc<ArcSwap<RespVersion>>,
   pub streaming_state: Option<StreamedFrame>,
   #[cfg(feature = "metrics")]
-  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  pub req_size_stats:  Arc<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
-  pub res_size_stats: Arc<RwLock<MovingStats>>,
+  pub res_size_stats:  Arc<RwLock<MovingStats>>,
 }
 
 impl RedisCodec {
   pub fn new(inner: &Arc<RedisClientInner>, server: &ArcStr) -> Self {
     RedisCodec {
-      server: server.clone(),
-      name: inner.id.clone(),
-      version: inner.resp_version.clone(),
-      streaming_state: None,
+      server:                                     server.clone(),
+      name:                                       inner.id.clone(),
+      version:                                    inner.resp_version.clone(),
+      streaming_state:                            None,
       #[cfg(feature = "metrics")]
-      req_size_stats: inner.req_size_stats.clone(),
+      req_size_stats:                             inner.req_size_stats.clone(),
       #[cfg(feature = "metrics")]
-      res_size_stats: inner.res_size_stats.clone(),
+      res_size_stats:                             inner.res_size_stats.clone(),
     }
   }
 
@@ -244,8 +246,8 @@ impl Encoder<ProtocolFrame> for RedisCodec {
 }
 
 impl Decoder for RedisCodec {
-  type Item = ProtocolFrame;
   type Error = RedisError;
+  type Item = ProtocolFrame;
 
   #[cfg(not(feature = "blocking-encoding"))]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
