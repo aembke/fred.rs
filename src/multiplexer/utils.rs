@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   multiplexer::{responses, types::ClusterChange, utils, Backpressure, Connections, Counters, Multiplexer, Written},
   protocol::{
-    command::{RedisCommand, RedisCommandKind},
+    command::{MultiplexerResponse, RedisCommand, RedisCommandKind},
     connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter, SharedBuffer},
     responders,
     types::*,
@@ -22,6 +22,7 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{
   cmp,
   collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  future::Future,
   mem,
   ops::DerefMut,
   str,
@@ -48,7 +49,8 @@ pub fn check_backpressure<T>(
   command: &RedisCommand,
 ) -> Result<Option<Backpressure>, RedisError>
 where
-  T: AsyncRead + AsyncWrite + Unpin + 'static, {
+  T: AsyncRead + AsyncWrite + Unpin + 'static,
+{
   if command.skip_backpressure {
     return Ok(None);
   }
@@ -156,6 +158,61 @@ pub async fn write_command(
   }
 }
 
+/// Check the shared connection command buffer to see if the oldest command blocks the multiplexer task on a
+/// response (not pipelined).
+pub fn check_blocked_multiplexer(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+  let mut command = {
+    let mut guard = buffer.lock();
+    let should_pop = guard
+      .front()
+      .map(|command| command.has_multiplexer_channel())
+      .unwrap_or(false);
+
+    if should_pop {
+      guard.pop_front().unwrap()
+    } else {
+      return;
+    }
+  };
+
+  let tx = match command.take_multiplexer_channel() {
+    Some(tx) => tx,
+    None => return,
+  };
+  let error = error
+    .clone()
+    .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
+
+  tx.send(MultiplexerResponse::ConnectionClosed((error, command)));
+}
+
+/// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
+/// with the underlying error.
+pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+  let mut guard = buffer.lock();
+  let commands = guard
+    .drain(..)
+    .filter_map(|mut command| {
+      if command.has_multiplexer_channel() {
+        // TODO double check if this should be `>`
+        if command.attempts >= inner.max_command_attempts() {
+          let error = error
+            .clone()
+            .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
+          command.respond_to_caller(Err(error));
+          None
+        } else {
+          Some(command)
+        }
+      } else {
+        Some(command)
+      }
+    })
+    .collect();
+
+  *guard = commands;
+}
+
 /// Compare server identifiers of the form `<host>|<ip>:<port>` and `:<port>`, using `default_host` if a host/ip is
 /// not provided.
 // TODO unit test this
@@ -176,6 +233,94 @@ pub fn compare_servers(lhs: &str, rhs: &str, default_host: &str) -> bool {
   } else {
     lhs == rhs
   }
+}
+
+/// Read the next reconnection delay for the client.
+pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration, RedisError> {
+  inner
+    .policy
+    .write()
+    .as_mut()
+    .and_then(|policy| policy.next_delay())
+    .map(|amt| Duration::from_millis(amt))
+    .ok_or(RedisError::new(
+      RedisErrorKind::Canceled,
+      "Max reconnection attempts reached.",
+    ))
+}
+
+/// Run a function on an interval according to the reconnection policy.
+pub async fn on_reconnect_interval<F, Fut, T, E>(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &mut Multiplexer,
+  initial_delay: Option<Duration>,
+  func: F,
+) -> Result<T, RedisError>
+where
+  E: Into<RedisError>,
+  Fut: Future<Output = Result<T, E>>,
+  F: FnMut(&Arc<RedisClientInner>, &mut Multiplexer) -> Fut,
+{
+  let mut delay = initial_delay.unwrap_or_else(|| next_reconnection_delay(inner)?);
+  loop {
+    if !delay.is_zero() {
+      _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
+      let _ = inner.wait_with_interrupt(delay).await?;
+    }
+
+    match func(inner, multiplexer).await.map_err(|e| e.into()) {
+      Ok(result) => {
+        inner.reset_reconnection_attempts();
+        return Ok(result);
+      },
+      Err(error) => {
+        _warn!(inner, "Error reconnecting: {:?}", error);
+
+        // return the underlying error on the last attempt
+        delay = match next_reconnection_delay(inner) {
+          Ok(delay) => delay,
+          Err(_) => return Err(error),
+        };
+        continue;
+      },
+    };
+  }
+}
+
+/// Attempt to reconnect and replay queued commands.
+pub async fn reconnect_once(inner: &Arc<RedisClientInner>, multiplexer: &mut Multiplexer) -> Result<(), RedisError> {
+  client_utils::set_client_state(&inner.state, ClientState::Connecting);
+  if let Err(e) = multiplexer.connect().await {
+    _debug!(inner, "Failed reconnecting with error: {:?}", e);
+    client_utils::set_client_state(&inner.state, ClientState::Disconnected);
+    inner.notifications.broadcast_error(e.clone());
+    Err(e)
+  } else {
+    // try to flush any previously in-flight commands
+    if let Err(e) = multiplexer.retry_buffer().await {
+      _debug!(inner, "Failed retrying command buffer: {:?}", e);
+      client_utils::set_client_state(&inner.state, ClientState::Disconnected);
+      inner.notifications.broadcast_error(e.clone());
+      Err(e)
+    } else {
+      client_utils::set_client_state(&inner.state, ClientState::Connected);
+      inner.notifications.broadcast_connect(Ok(()));
+      inner.notifications.broadcast_reconnect();
+      inner.reset_reconnection_attempts();
+      Ok(())
+    }
+  }
+}
+
+/// Reconnect to the server(s) until the max reconnect policy attempts are reached.
+pub async fn reconnect_with_policy(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &mut Multiplexer,
+) -> Result<(), RedisError> {
+  on_reconnect_interval(inner, multiplexer, None, |inner, multiplexer| async {
+    reconnect_once(inner, multiplexer).await
+  })
+  .await
 }
 
 // --------------------------------------------------------------------------------------------------------

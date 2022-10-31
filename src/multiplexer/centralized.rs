@@ -22,7 +22,7 @@ use crate::{
   types::ServerConfig,
 };
 use arcstr::ArcStr;
-use futures::StreamExt;
+use futures::TryStreamExt;
 use parking_lot::Mutex;
 use std::sync::{atomic::AtomicUsize, Arc};
 use tokio::{
@@ -60,30 +60,37 @@ pub fn spawn_reader_task(
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
   tokio::spawn(async move {
-    while let Some(frame) = reader.next().await {
-      let frame = match frame {
-        Ok(frame) => frame.into_resp3(),
+    let mut last_error = None;
+    loop {
+      let frame = match reader.try_next().await {
+        Ok(Some(frame)) => frame.into_resp3(),
+        Ok(None) => {
+          last_error = None;
+          break;
+        },
         Err(error) => {
-          responses::handle_reader_error(&inner, &server, error);
-          return Err(RedisError::new_canceled());
+          last_error = Some(error);
+          break;
         },
       };
 
       if let Some(error) = responses::check_special_errors(&inner, &frame) {
-        responses::handle_reader_error(&inner, &server, error);
-        return Err(RedisError::new_canceled());
+        last_error = Some(error);
+        break;
       }
       if let Some(frame) = responses::check_pubsub_message(&inner, frame) {
         if let Err(e) = process_response_frame(&inner, &server, &buffer, &counters, frame).await {
           _debug!(inner, "Error processing response frame from {}: {:?}", server, e);
+          last_error = Some(e);
+          break;
         }
       }
     }
 
-    // check and emit a reconnection if the reader stream closes without an error
-    if inner.should_reconnect() {
-      inner.send_reconnect(Some(server.clone()), false);
-    }
+    utils::check_blocked_multiplexer(&inner, &buffer, &last_error);
+    utils::check_final_write_attempt(&inner, &buffer, &last_error);
+    responses::handle_reader_error(&inner, &server, last_error);
+
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
   })
@@ -115,15 +122,16 @@ pub async fn process_response_frame(
   };
   counters.decr_in_flight();
 
-  if command.transaction_id.is_some() && frame.is_error() && !command.kind.ends_transaction() {
+  if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      if let Some(tx) = command.multiplexer_tx.take() {
-        _debug!(
-          inner,
-          "Send transaction error to multiplexer for {}",
-          command.kind.to_str_debug()
-        );
-        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+      command.respond_to_multiplexer(inner, MultiplexerResponse::TransactionError((error, command)));
+      return Ok(());
+    } else {
+      if command.kind.ends_transaction() {
+        command.respond_to_multiplexer(inner, MultiplexerResponse::TransactionResult(frame));
+        return Ok(());
+      } else {
+        command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
         return Ok(());
       }
     }

@@ -68,13 +68,18 @@ pub enum MultiplexerResponse {
   /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
   /// may fall back to communication via the command channel in the context of pipelined commands.
   Moved((u16, String, RedisCommand)),
-  /// Indicate to the multiplexer that the provided command failed with the associated error.
+  /// Indicate to the multiplexer that the provided transaction command failed with the associated error.
   ///
-  /// The multiplexer is responsible for responding to the caller with the error, if needed.
-  ///
-  /// This interface is typically used for handling errors within a transaction. Normal commands will
-  /// handle errors without communication back to the multiplexer.
+  /// The multiplexer is responsible for responding to the caller with the error, if needed. Transaction commands are
+  /// never pipelined.
   TransactionError((RedisError, RedisCommand)),
+  /// Indicates to the multiplexer that the transaction finished with the associated result.
+  TransactionResult(Resp3Frame),
+  /// Indicates that the connection closed while the command was in-flight.
+  ///
+  /// This is only used for non-pipelined commands where the multiplexer task is blocked on a response before
+  /// checking the next command.
+  ConnectionClosed((RedisError, RedisCommand)),
 }
 
 impl MultiplexerResponse {
@@ -103,6 +108,15 @@ pub type MultiplexerReceiver = OneshotReceiver<MultiplexerResponse>;
 pub enum ClusterErrorKind {
   Moved,
   Ask,
+}
+
+impl fmt::Display for ClusterErrorKind {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      ClusterErrorKind::Moved => write!(f, "MOVED"),
+      ClusterErrorKind::Ask => write!(f, "ASK"),
+    }
+  }
 }
 
 impl<'a> TryFrom<&'a str> for ClusterErrorKind {
@@ -1745,7 +1759,7 @@ pub enum MultiplexerCommand {
   /// Send a transaction to the server.
   ///
   /// Notes:
-  /// * The inner command buffer will not contain the initial `MULTI` command.
+  /// * The inner command buffer will not contain the initial `MULTI` or trailing `EXEC` command.
   /// * Transactions are never pipelined in order to handle ASK responses.
   /// * IDs must be unique w/r/t other transactions buffered in memory.
   ///
@@ -1763,6 +1777,7 @@ pub enum MultiplexerCommand {
     id:             u64,
     commands:       Vec<RedisCommand>,
     abort_on_error: bool,
+    tx:             ResponseSender,
   },
   /// Retry a command after a `MOVED` error.
   ///
@@ -1782,10 +1797,6 @@ pub enum MultiplexerCommand {
     slot:    u16,
     server:  String,
     command: RedisCommand,
-  },
-  /// Split a clustered client into a set of centralized clients, one for each primary node.
-  Split {
-    tx: OneshotSender<Result<Vec<RedisClient>, RedisError>>,
   },
   /// Initiate a reconnection to the provided server, or all servers.
   ///

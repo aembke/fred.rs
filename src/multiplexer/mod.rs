@@ -3,9 +3,11 @@ use crate::{
   modules::inner::RedisClientInner,
   multiplexer::Backpressure::Queue,
   protocol::{
-    command::{MultiplexerReceiver, RedisCommand, RedisCommandKind},
+    command::{ClusterErrorKind, MultiplexerReceiver, RedisCommand, RedisCommandKind},
     connection::{CommandBuffer, Counters, RedisSink, RedisTransport, RedisWriter},
+    responders::ResponseKind,
     types::ClusterRouting,
+    utils::{parse_cluster_error, server_to_parts},
   },
   types::{ClientState, RedisConfig, ServerConfig},
   utils as client_utils,
@@ -16,6 +18,7 @@ use futures::future::{join_all, try_join_all};
 use parking_lot::{Mutex, RwLock};
 use std::{
   collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  future::Future,
   sync::{
     atomic::{AtomicBool, AtomicUsize},
     Arc,
@@ -37,6 +40,7 @@ pub mod commands;
 pub mod reader;
 pub mod responses;
 pub mod sentinel;
+pub mod transactions;
 pub mod types;
 pub mod utils;
 
@@ -90,7 +94,7 @@ pub enum Connections {
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
-    cache: ClusterRouting,
+    cache:   ClusterRouting,
     /// A map of server IDs and connections.
     writers: HashMap<ArcStr, RedisWriter>,
   },
@@ -111,7 +115,7 @@ impl Connections {
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache: ClusterRouting::new(),
+      cache:   ClusterRouting::new(),
       writers: HashMap::new(),
     }
   }
@@ -370,6 +374,11 @@ impl Connections {
       _ => false,
     }
   }
+
+  /// Connect or reconnect to the provided `host:port`.
+  pub fn add_connection(&mut self, inner: &Arc<RedisClientInner>, server: &str) -> Result<(), RedisError> {
+    unimplemented!()
+  }
 }
 
 // TODO
@@ -392,8 +401,8 @@ impl Connections {
 /// A struct for routing commands to the server(s).
 pub struct Multiplexer {
   pub connections: Connections,
-  pub inner: Arc<RedisClientInner>,
-  pub buffer: CommandBuffer,
+  pub inner:       Arc<RedisClientInner>,
+  pub buffer:      CommandBuffer,
 }
 
 impl Multiplexer {
@@ -607,27 +616,46 @@ impl Multiplexer {
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
     clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await?;
-    // TODO need to retry queued commands?
+    self.retry_buffer().await?;
     Ok(())
   }
 
-  /// Replay all queued commands on the internal buffer without backpressure.
+  /// Attempt to replay all queued commands on the internal buffer without backpressure.
   ///
-  /// If a command cannot be written the underlying connections will close.
-  pub async fn retry_buffer(&mut self) -> Result<(), RedisError> {
-    for mut command in self.buffer.drain(..) {
+  /// If a command cannot be written the underlying connections will close and the unsent commands will remain on the
+  /// internal buffer.
+  pub async fn retry_buffer(&mut self) {
+    let mut commands: Vec<RedisCommand> = self.buffer.drain(..).collect();
+    let mut failed_command = None;
+
+    for mut command in commands.drain(..) {
       command.skip_backpressure = true;
 
-      if let Err(e) = self.write_command(command).await {
-        // TODO unpack the command if possible, and put it back at the front of the buffer
+      match self.write_command(command).await {
+        Ok(Written::Disconnect((server, command, error))) => {
+          if let Some(command) = command {
+            failed_command = Some(command);
+          }
 
-        warn!("{}: Error replaying command: {:?}", self.inner.id, e);
-        self.disconnect_all().await; // triggers a reconnect if needed
-        break;
+          warn!("{}: Disconnect while replaying command: {:?}", self.inner.id, error);
+          self.disconnect_all().await; // triggers a reconnect if needed
+          break;
+        },
+        Err(error) => {
+          warn!("{}: Error replaying command: {:?}", self.inner.id, error);
+          self.disconnect_all().await; // triggers a reconnect if needed
+          break;
+        },
+        _ => {
+          continue;
+        },
       }
     }
 
-    Ok(())
+    if let Some(command) = failed_command {
+      self.buffer.push_back(command);
+    }
+    self.buffer.extend(commands.into_iter());
   }
 
   /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.
@@ -644,5 +672,49 @@ impl Multiplexer {
         .unwrap_or(false),
       _ => false,
     }
+  }
+
+  /// Modify connection state according to the cluster redirection error.
+  ///
+  /// * Synchronizes the cached cluster state in response to MOVED
+  /// * Connects and sends ASKING to the provided server in response to ASKED
+  pub async fn cluster_redirection(
+    &mut self,
+    kind: ClusterErrorKind,
+    slot: u16,
+    server: &str,
+  ) -> Result<(), RedisError> {
+    _debug!(
+      "{}: Handling cluster redirect {:?} {} {}",
+      &self.inner.id,
+      kind,
+      slot,
+      server
+    );
+
+    if kind == ClusterErrorKind::Moved {
+      let should_sync = self
+        .inner
+        .with_cluster_state(|state| Ok(state.get_server(slot).map(|owner| server == owner).unwrap_or(true)))
+        .unwrap_or(true);
+
+      if should_sync {
+        let _ = self.sync_cluster().await?;
+      }
+    } else if kind == ClusterErrorKind::Ask {
+      if !self.connections.has_server_connection(server) {
+        self.connections.add_connection(&self.inner, server).await?;
+      }
+
+      // can't use request_response since there may be pipelined commands ahead of this
+      let (tx, rx) = oneshot_channel();
+      let mut command = RedisCommand::new_asking(slot);
+      command.response = ResponseKind::Respond(Some(tx));
+
+      let _ = self.write_once(command, &server).await?;
+      let _ = rx.await??;
+    }
+
+    Ok(())
   }
 }

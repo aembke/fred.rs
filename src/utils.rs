@@ -44,6 +44,7 @@ use tokio::{
 };
 use url::Url;
 
+use crate::multiplexer::Multiplexer;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::protocol::utils as protocol_utils;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -428,7 +429,7 @@ pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), Redis
 pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Result<(), RedisError> {
   incr_atomic(&inner.cmd_buffer_len);
   if let Err(mut e) = inner.command_tx.send(command) {
-    decr_atomic(&inner.cmd_buffer_len);
+    decr_atomic(&inner.counters.cmd_buffer_len);
     if let Some(tx) = e.0.tx.take() {
       if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
         _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
@@ -442,7 +443,8 @@ pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Res
 pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
-  Fut: Future<Output = Result<T, E>>, {
+  Fut: Future<Output = Result<T, E>>,
+{
   if timeout > 0 {
     let sleep_ft = sleep(Duration::from_millis(timeout));
     pin_mut!(sleep_ft);
@@ -532,7 +534,8 @@ pub async fn basic_request_response<C, F, R>(client: C, func: F) -> Result<Resp3
 where
   C: ClientLike,
   R: Into<RedisCommand>,
-  F: FnOnce() -> Result<R, RedisError>, {
+  F: FnOnce() -> Result<R, RedisError>,
+{
   let inner = client.inner();
   let mut command: RedisCommand = func()?.into();
   let (tx, rx) = oneshot_channel();
@@ -551,7 +554,8 @@ pub async fn request_response<C, F, R>(client: C, func: F) -> Result<Resp3Frame,
 where
   C: ClientLike,
   R: Into<RedisCommand>,
-  F: FnOnce() -> Result<R, RedisError>, {
+  F: FnOnce() -> Result<R, RedisError>,
+{
   let inner = client.inner();
   if !inner.should_trace() {
     return basic_request_response(client, func).await;
@@ -597,7 +601,8 @@ pub async fn request_response<C, F, R>(client: C, func: F) -> Result<Resp3Frame,
 where
   C: ClientLike,
   R: Into<RedisCommand>,
-  F: FnOnce() -> Result<R, RedisError>, {
+  F: FnOnce() -> Result<R, RedisError>,
+{
   basic_request_response(client, func).await
 }
 
@@ -732,14 +737,16 @@ pub fn clustered_scan_pattern_has_hash_tag(inner: &Arc<RedisClientInner>, patter
 pub fn try_into<S, D>(val: S) -> Result<D, RedisError>
 where
   S: TryInto<D>,
-  S::Error: Into<RedisError>, {
+  S::Error: Into<RedisError>,
+{
   val.try_into().map_err(|e| e.into())
 }
 
 pub fn try_into_vec<S>(values: Vec<S>) -> Result<Vec<RedisValue>, RedisError>
 where
   S: TryInto<RedisValue>,
-  S::Error: Into<RedisError>, {
+  S::Error: Into<RedisError>,
+{
   let mut out = Vec::with_capacity(values.len());
   for value in values.into_iter() {
     out.push(try_into(value)?);
@@ -758,7 +765,8 @@ where
   K: TryInto<RedisKey>,
   K::Error: Into<RedisError>,
   V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>, {
+  V::Error: Into<RedisError>,
+{
   let (lower, upper) = iter.size_hint();
   let capacity = if let Some(upper) = upper { upper } else { lower };
   let mut out = HashMap::with_capacity(capacity);
@@ -977,7 +985,8 @@ mod tests {
   fn m<V>(v: V) -> RedisValue
   where
     V: TryInto<RedisValue> + Debug,
-    V::Error: Into<RedisError> + Debug, {
+    V::Error: Into<RedisError> + Debug,
+  {
     v.try_into().unwrap()
   }
 

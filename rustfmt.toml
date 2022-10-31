@@ -1,7 +1,7 @@
 edition = "2018"
 binop_separator = "Front"
 blank_lines_upper_bound = 1
-brace_style = "PreferSameLine"
+brace_style = "SameLineWhere"
 combine_control_expr = true
 comment_width = 125
 condense_wildcard_suffixes = false
