@@ -17,7 +17,8 @@ use bytes_utils::Str;
 use float_cmp::approx_eq;
 use futures::{
   future::{select, Either},
-  pin_mut, Future,
+  pin_mut,
+  Future,
 };
 use parking_lot::{Mutex, RwLock};
 use rand::{self, distributions::Alphanumeric, Rng};
@@ -25,7 +26,8 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{
   collections::HashMap,
   convert::TryInto,
-  f64, mem,
+  f64,
+  mem,
   ops::DerefMut,
   sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -165,7 +167,7 @@ pub fn random_string(len: usize) -> String {
 }
 
 pub fn random_u64(max: u64) -> u64 {
-  rand::thread_rng().gen_range(0..max)
+  rand::thread_rng().gen_range(0 .. max)
 }
 
 pub fn pattern_pubsub_counts(result: Vec<RedisValue>) -> Result<Vec<usize>, RedisError> {
@@ -396,10 +398,10 @@ pub async fn interrupt_blocked_connection(
   };
 
   backchannel_request_response(inner, true, move || {
-    Ok((
-      RedisCommandKind::ClientUnblock,
-      vec![connection_id.into(), flag.to_str().into()],
-    ))
+    Ok((RedisCommandKind::ClientUnblock, vec![
+      connection_id.into(),
+      flag.to_str().into(),
+    ]))
   })
   .await
   .map(|_| ())
@@ -505,75 +507,15 @@ where
   basic_request_response(client, func).await
 }
 
-/// Find the server that should receive a command on the backchannel connection.
+/// Send a command on the backchannel connection.
 ///
-/// * If the client is clustered then attempt to hash the arguments, otherwise pick a random node.
-/// * If the client is centralized then use the server specified in the `RedisConfig`.
-/// * If the client uses the sentinel interface then use the cached primary ID.
-pub fn route_backchannel_command(
+/// A new connection may be created.
+pub async fn backchannel_request_response(
   inner: &Arc<RedisClientInner>,
-  command: &RedisCommand,
-) -> Result<ArcStr, RedisError> {
-  match inner.config.server {
-    ServerConfig::Sentinel { .. } => {
-      inner
-        .sentinel_primary
-        .read()
-        .as_ref()
-        .map(|s| s.clone())
-        .ok_or(RedisError::new(
-          RedisErrorKind::Sentinel,
-          "Failed to read sentinel primary server",
-        ))
-    },
-    ServerConfig::Centralized { ref host, ref port } => Ok(ArcStr::from(format!("{}:{}", host, port))),
-    ServerConfig::Clustered { .. } => {
-      if let Some(key) = command.extract_key() {
-        // hash the key and send the command to that node
-        let hash_slot = redis_protocol::redis_keyslot(&key);
-        let server = match &*inner.cluster_state.read() {
-          Some(ref state) => match state.get_server(hash_slot) {
-            Some(slot) => slot.server.clone(),
-            None => {
-              return Err(RedisError::new(
-                RedisErrorKind::Cluster,
-                "Failed to find cluster node at hash slot.",
-              ))
-            },
-          },
-          None => {
-            return Err(RedisError::new(
-              RedisErrorKind::Cluster,
-              "Failed to find cluster state.",
-            ))
-          },
-        };
-
-        Ok(server)
-      } else {
-        // read a random node from the cluster
-        let server = match &*inner.cluster_state.read() {
-          Some(ref state) => match state.random_slot() {
-            Some(slot) => slot.server.clone(),
-            None => {
-              return Err(RedisError::new(
-                RedisErrorKind::Cluster,
-                "Failed to find read random cluster node.",
-              ))
-            },
-          },
-          None => {
-            return Err(RedisError::new(
-              RedisErrorKind::Cluster,
-              "Failed to find cluster state.",
-            ))
-          },
-        };
-
-        Ok(server)
-      }
-    },
-  }
+  command: RedisCommand,
+) -> Result<Resp3Frame, RedisError> {
+  // TODO
+  unimplemented!()
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
@@ -625,7 +567,7 @@ pub fn clustered_scan_pattern_has_hash_tag(inner: &Arc<RedisClientInner>, patter
   if has_wildcard {
     _warn!(
       inner,
-      "Found wildcard in scan pattern hash tag. You're probably not scanning the correct node."
+      "Found wildcard in scan pattern hash tag. You may not be scanning the correct node."
     );
   }
 
@@ -655,7 +597,7 @@ where
 }
 
 pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
-  delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
+  delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
 }
 
 pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>

@@ -1,26 +1,24 @@
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::RedisCommand;
-use crate::protocol::utils as protocol_utils;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{command::RedisCommand, utils as protocol_utils},
+  utils,
+};
 use redis_protocol::resp3::types::Frame;
-use std::fmt;
-use std::sync::Arc;
-use tracing::event;
-use tracing::field::Empty;
+use std::{fmt, sync::Arc};
 pub use tracing::span::Span;
-use tracing::{span, Id as TraceId, Level};
+use tracing::{event, field::Empty, span, Id as TraceId, Level};
 
 #[cfg(not(feature = "full-tracing"))]
 use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
 pub struct CommandTraces {
-  pub cmd_id: Option<TraceId>,
+  pub cmd_id:  Option<TraceId>,
   pub network: Option<Span>,
   #[cfg(feature = "full-tracing")]
-  pub queued: Option<Span>,
+  pub queued:  Option<Span>,
   #[cfg(not(feature = "full-tracing"))]
-  pub queued: Option<FakeSpan>,
+  pub queued:  Option<FakeSpan>,
 }
 
 /// Enter the network span when the command is dropped after receiving a response.
@@ -35,8 +33,8 @@ impl Drop for CommandTraces {
 impl Default for CommandTraces {
   fn default() -> Self {
     CommandTraces {
-      cmd_id: None,
-      queued: None,
+      cmd_id:  None,
+      queued:  None,
       network: None,
     }
   }

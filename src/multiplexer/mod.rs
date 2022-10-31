@@ -1,10 +1,9 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::Backpressure::Queue,
   protocol::{
     command::{ClusterErrorKind, MultiplexerReceiver, RedisCommand, RedisCommandKind},
-    connection::{CommandBuffer, Counters, RedisSink, RedisTransport, RedisWriter},
+    connection::{CommandBuffer, Counters, RedisTransport, RedisWriter},
     responders::ResponseKind,
     types::ClusterRouting,
     utils::{parse_cluster_error, server_to_parts},
@@ -384,23 +383,6 @@ impl Connections {
   }
 }
 
-// TODO
-// Moved((slot, server, command)):
-//   check if the hash slot maps to the provided server, if so then run the command early
-//   sync the cluster state
-//   create or drop connections
-//     need to check for unknown port format in error message (:6379) and re-use the same endpoint but with that port
-//   run the command
-// ASK((slot, server, command)):
-//   do not sync the cluster, but check if the connection exists
-//   if not then sync the cluster
-//   send the ASKING command
-//   run the command
-
-// TODO
-// in a transaction if an ASKING error is received instead of QUEUED
-// then change the hash slot on the transaction, send ASKING, and send all the commands
-
 /// A struct for routing commands to the server(s).
 pub struct Multiplexer {
   pub connections: Connections,
@@ -687,12 +669,9 @@ impl Multiplexer {
     slot: u16,
     server: &str,
   ) -> Result<(), RedisError> {
-    _debug!(
+    debug!(
       "{}: Handling cluster redirect {:?} {} {}",
-      &self.inner.id,
-      kind,
-      slot,
-      server
+      &self.inner.id, kind, slot, server
     );
 
     if kind == ClusterErrorKind::Moved {

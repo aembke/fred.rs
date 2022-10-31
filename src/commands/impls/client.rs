@@ -1,10 +1,14 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use std::sync::Arc;
 
@@ -83,6 +87,7 @@ pub async fn client_pause<C: ClientLike>(
 value_cmd!(client_getname, ClientGetName);
 
 pub async fn client_setname<C: ClientLike>(client: C, name: Str) -> Result<(), RedisError> {
+  let inner = client.inner();
   _warn!(
     inner,
     "Changing client name from {} to {}",

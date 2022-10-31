@@ -204,31 +204,31 @@ pub struct ReplicaSet {
   next:    usize,
 }
 
-#[cfg(feature = "replicas")]
-#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-impl ReplicaSet {
-  /// Read the replica server ID that should handle the next command.
-  pub fn next(&mut self) -> Option<&ArcStr> {
-    if self.servers.is_empty() {
-      return None;
-    }
-
-    let val = self.next;
-    self.next = self.next.wrapping_add(1);
-    Some(&self.servers[val % self.servers.len()])
-  }
-}
-
+// #[cfg(feature = "replicas")]
+// #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+// impl ReplicaSet {
+// Read the replica server ID that should handle the next command.
+// pub fn next(&mut self) -> Option<&ArcStr> {
+// if self.servers.is_empty() {
+// return None;
+// }
+//
+// let val = self.next;
+// self.next = self.next.wrapping_add(1);
+// Some(&self.servers[val % self.servers.len()])
+// }
+// }
+//
 /// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
-  pub start:    u16,
-  pub end:      u16,
-  pub primary:  ArcStr,
-  pub id:       ArcStr,
-  #[cfg(feature = "replicas")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replicas: Option<ReplicaSet>,
+  pub start:   u16,
+  pub end:     u16,
+  pub primary: ArcStr,
+  pub id:      ArcStr,
+  //#[cfg(feature = "replicas")]
+  //#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  // pub replicas: Option<ReplicaSet>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
@@ -297,23 +297,23 @@ impl ClusterRouting {
     protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].server)
   }
 
-  /// Read the set of replicas that own the provided hash slot.
-  #[cfg(feature = "replicas")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub fn read_replicas(&mut self, slot: u16) -> Option<&mut ReplicaSet> {
-    if self.data.is_empty() {
-      return None;
-    }
-
-    protocol_utils::binary_search(&self.data, slot).and_then(|idx| self.data[idx].replicas.as_mut())
-  }
-
-  /// Read the replica server ID that should handle the next command.
-  #[cfg(feature = "replicas")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub fn next_replica(&mut self, slot: u16) -> Option<&ArcStr> {
-    self.read_replicas(slot).and_then(|r| r.next())
-  }
+  // Read the set of replicas that own the provided hash slot.
+  // #[cfg(feature = "replicas")]
+  // #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  // pub fn read_replicas(&mut self, slot: u16) -> Option<&mut ReplicaSet> {
+  // if self.data.is_empty() {
+  // return None;
+  // }
+  //
+  // protocol_utils::binary_search(&self.data, slot).and_then(|idx| self.data[idx].replicas.as_mut())
+  // }
+  //
+  // Read the replica server ID that should handle the next command.
+  // #[cfg(feature = "replicas")]
+  // #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  // pub fn next_replica(&mut self, slot: u16) -> Option<&ArcStr> {
+  // self.read_replicas(slot).and_then(|r| r.next())
+  // }
 
   /// Read the number of hash slot ranges in the cluster.
   pub fn len(&self) -> usize {

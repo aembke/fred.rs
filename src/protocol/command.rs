@@ -4,10 +4,10 @@ use crate::{
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
   protocol::{
-    connection::{SentCommand, SharedBuffer},
+    connection::SharedBuffer,
     hashers::ClusterHash,
     responders::ResponseKind,
-    types::{ClusterRouting, KeyScanInner, ProtocolFrame, SplitCommand, ValueScanInner},
+    types::{ClusterRouting, KeyScanInner, ProtocolFrame, ValueScanInner},
     utils as protocol_utils,
   },
   trace,
@@ -18,7 +18,6 @@ use crate::{
 use arcstr::ArcStr;
 use bytes_utils::Str;
 use lazy_static::lazy_static;
-use nom::AsBytes;
 use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
 use semver::Op;
@@ -35,7 +34,6 @@ use std::{
   time::Instant,
 };
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
-use url::quirks::hash;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;

@@ -12,7 +12,6 @@ use crate::{
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
-use nom::combinator::value;
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -53,7 +52,7 @@ fn check_metadata_hostname(data: &HashMap<String, String>) -> Option<&str> {
 /// field, then use the metadata field. Otherwise use `default_host`.
 ///
 /// <https://redis.io/commands/cluster-slots/#nested-result-array>
-fn parse_cluster_slot_hostname(primary: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
+fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
   if server.is_empty() {
     return Err(RedisError::new(
       RedisErrorKind::Protocol,

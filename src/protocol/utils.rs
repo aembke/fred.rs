@@ -90,20 +90,6 @@ pub fn is_null(frame: &Resp3Frame) -> bool {
   }
 }
 
-#[cfg(not(feature = "no-client-setname"))]
-pub fn is_ok(frame: &ProtocolFrame) -> bool {
-  match frame {
-    ProtocolFrame::Resp3(ref frame) => match frame {
-      Resp3Frame::SimpleString { ref data, .. } => data == OK,
-      _ => false,
-    },
-    ProtocolFrame::Resp2(ref frame) => match frame {
-      Resp2Frame::SimpleString(ref data) => data == OK,
-      _ => false,
-    },
-  }
-}
-
 #[cfg(not(feature = "enable-native-tls"))]
 pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
   false

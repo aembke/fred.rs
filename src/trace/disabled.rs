@@ -1,7 +1,7 @@
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use crate::modules::inner::RedisClientInner;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-use crate::protocol::types::RedisCommand;
+use crate::protocol::command::RedisCommand;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use redis_protocol::resp3::types::Frame;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]

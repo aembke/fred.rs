@@ -4,7 +4,6 @@ use crate::{
   interfaces::{
     AclInterface,
     AsyncResult,
-    AsyncStream,
     AuthInterface,
     ClientInterface,
     ClientLike,
@@ -19,7 +18,6 @@ use crate::{
     LuaInterface,
     MemoryInterface,
     MetricsInterface,
-    MultiplexerClient,
     PubsubInterface,
     Resp3Frame,
     ServerInterface,
@@ -32,7 +30,7 @@ use crate::{
   modules::{inner::RedisClientInner, response::FromRedis},
   prelude::{ReconnectPolicy, RedisConfig, RedisValue},
   protocol::{
-    command::{MultiplexerCommand, QueuedCommand, RedisCommand},
+    command::{MultiplexerCommand, RedisCommand},
     responders::ResponseKind,
     utils as protocol_utils,
   },

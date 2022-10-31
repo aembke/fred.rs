@@ -1,9 +1,9 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::{utils, Counters, SentCommand, SentCommands},
+  multiplexer::{utils, Counters},
   protocol::{
-    types::{RedisCommandKind, ResponseKind, ValueScanInner, ValueScanResult},
+    types::{ValueScanInner, ValueScanResult},
     utils as protocol_utils,
     utils::{frame_to_error, frame_to_single_result},
   },

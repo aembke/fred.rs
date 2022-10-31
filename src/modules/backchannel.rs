@@ -1,33 +1,27 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::{ConnectionIDs, Connections};
-use crate::protocol::command::RedisCommand;
-use crate::protocol::command::RedisCommandKind;
-use crate::protocol::connection;
-use crate::protocol::connection::{FramedTcp, FramedTls, RedisTransport};
-use crate::protocol::types::ProtocolFrame;
-use crate::protocol::utils as protocol_utils;
-use crate::types::{Resolve, TlsConnector};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  multiplexer::Connections,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    connection,
+    connection::RedisTransport,
+    types::ProtocolFrame,
+    utils as protocol_utils,
+  },
+  types::{Resolve, TlsConnector},
+};
 use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::Arc;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
-
-#[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::TlsStream as NativeTlsStream;
-#[cfg(feature = "enable-rustls")]
-use tokio_rustls::TlsStream as RustlsStream;
+use std::{collections::HashMap, ops::Deref, sync::Arc};
 
 /// A struct wrapping a separate connection to the server or cluster for client or cluster management commands.
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
-  pub transport: Option<RedisTransport>,
+  pub transport:      Option<RedisTransport>,
   /// An identifier for the blocked connection, if any.
-  pub blocked: Option<ArcStr>,
+  pub blocked:        Option<ArcStr>,
   /// A map of server IDs to connection IDs, as managed by the multiplexer.
   pub connection_ids: HashMap<ArcStr, i64>,
 }

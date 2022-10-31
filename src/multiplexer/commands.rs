@@ -2,7 +2,7 @@ use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
-  multiplexer::{transactions, utils, utils::reconnect_once, Backpressure, Multiplexer, SentCommand, Written},
+  multiplexer::{transactions, utils, utils::reconnect_once, Backpressure, Multiplexer, Written},
   protocol::{
     command::{
       MultiplexerCommand,
@@ -41,6 +41,7 @@ use tokio::{
   },
   time::sleep,
 };
+
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 

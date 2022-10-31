@@ -1,7 +1,13 @@
 use crate::error::RedisError;
+pub use crate::modules::response::{FromRedis, FromRedisKey};
+pub use arcstr::ArcStr;
 use parking_lot::RwLock;
+pub use redis_protocol::resp3::types::{Frame, RespVersion};
 use std::{collections::VecDeque, net::SocketAddr};
-use tokio::task::JoinHandle;
+use tokio::{
+  sync::mpsc::{UnboundedReceiver, UnboundedSender},
+  task::JoinHandle,
+};
 
 mod acl;
 mod args;
@@ -35,14 +41,6 @@ pub use crate::modules::metrics::Stats;
 
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";
-
-pub use crate::{
-  modules::response::{FromRedis, FromRedisKey},
-  protocol::types::ClusterKeyCache,
-};
-pub use arcstr::ArcStr;
-pub use redis_protocol::resp3::types::{Frame, RespVersion};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 /// The ANY flag used on certain GEO commands.
 pub type Any = bool;

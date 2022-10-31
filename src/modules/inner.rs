@@ -1,35 +1,40 @@
-use crate::clients::RedisClient;
-use crate::error::*;
-use crate::interfaces::MultiplexerClient;
-use crate::modules::backchannel::Backchannel;
-use crate::multiplexer::SentCommand;
-use crate::protocol::command::{MultiplexerCommand, QueuedCommand, ResponseSender};
-use crate::protocol::types::RedisCommand;
-use crate::protocol::types::{ClusterRouting, DefaultResolver};
-use crate::types::*;
-use crate::utils;
-use arc_swap::access::Access;
+use crate::{
+  clients::RedisClient,
+  error::*,
+  modules::backchannel::Backchannel,
+  protocol::{
+    command::{MultiplexerCommand, ResponseSender},
+    connection::RedisTransport,
+    types::{ClusterRouting, DefaultResolver},
+  },
+  types::*,
+  utils,
+};
 use arc_swap::{ArcSwap, ArcSwapOption};
 use arcstr::ArcStr;
 use futures::future::{select, Either};
 use parking_lot::RwLock;
-use std::collections::VecDeque;
-use std::ops::DerefMut;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::broadcast::{self, Sender as BroadcastSender};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio::sync::oneshot::Sender as OneshotSender;
-use tokio::sync::RwLock as AsyncRwLock;
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
+use std::{
+  collections::VecDeque,
+  ops::DerefMut,
+  sync::{atomic::AtomicUsize, Arc},
+  time::Duration,
+};
+use tokio::{
+  sync::{
+    broadcast::{self, Sender as BroadcastSender},
+    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    oneshot::Sender as OneshotSender,
+    RwLock as AsyncRwLock,
+  },
+  task::JoinHandle,
+  time::sleep,
+};
 
 const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::connection::RedisTransport;
 
 pub type CommandSender = UnboundedSender<MultiplexerCommand>;
 pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
@@ -37,23 +42,23 @@ pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
 #[derive(Clone)]
 pub struct Notifications {
   /// The client ID.
-  pub id: ArcStr,
+  pub id:             ArcStr,
   /// A broadcast channel for the `on_error` interface.
-  pub errors: BroadcastSender<RedisError>,
+  pub errors:         BroadcastSender<RedisError>,
   /// A broadcast channel for the `on_message` interface.
-  pub pubsub: BroadcastSender<(String, RedisValue)>,
+  pub pubsub:         BroadcastSender<(String, RedisValue)>,
   /// A broadcast channel for the `on_keyspace_event` interface.
-  pub keyspace: BroadcastSender<KeyspaceEvent>,
+  pub keyspace:       BroadcastSender<KeyspaceEvent>,
   /// A broadcast channel for the `on_reconnect` interface.
-  pub reconnect: BroadcastSender<()>,
+  pub reconnect:      BroadcastSender<()>,
   /// A broadcast channel for the `on_cluster_change` interface.
   pub cluster_change: BroadcastSender<Vec<ClusterStateChange>>,
   /// A broadcast channel for the `on_connect` interface.
-  pub connect: BroadcastSender<Result<(), RedisError>>,
+  pub connect:        BroadcastSender<Result<(), RedisError>>,
   /// A channel for events that should close all client tasks with `Canceled` errors.
   ///
   /// Emitted when QUIT, SHUTDOWN, etc are called.
-  pub close: BroadcastSender<()>,
+  pub close:          BroadcastSender<()>,
 }
 
 impl Notifications {
@@ -123,14 +128,14 @@ impl Notifications {
 
 #[derive(Clone)]
 pub struct ClientCounters {
-  pub cmd_buffer_len: Arc<AtomicUsize>,
+  pub cmd_buffer_len:   Arc<AtomicUsize>,
   pub redelivery_count: Arc<AtomicUsize>,
 }
 
 impl Default for ClientCounters {
   fn default() -> Self {
     ClientCounters {
-      cmd_buffer_len: Arc::new(AtomicUsize::new(0)),
+      cmd_buffer_len:   Arc::new(AtomicUsize::new(0)),
       redelivery_count: Arc::new(AtomicUsize::new(0)),
     }
   }
@@ -177,14 +182,11 @@ pub enum ServerState {
     /// An updated set of known sentinel nodes.
     sentinels: Vec<(String, u16)>,
     /// The server host/port resolved from the sentinel nodes, if known.
-    primary: Option<ArcStr>,
+    primary:   Option<ArcStr>,
   },
   Cluster {
     /// The cached cluster routing table.
     cache: Option<ClusterRouting>,
-  },
-  Centralized {
-    // TODO
   },
 }
 
@@ -195,7 +197,7 @@ impl ServerState {
       ServerConfig::Clustered { .. } => ServerState::Cluster { cache: None },
       ServerConfig::Sentinel { ref hosts, .. } => ServerState::Sentinel {
         sentinels: hosts.clone(),
-        primary: None,
+        primary:   None,
       },
       ServerConfig::Centralized { .. } => ServerState::Centralized {},
     }
@@ -204,45 +206,45 @@ impl ServerState {
 
 pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
-  pub id: ArcStr,
+  pub id:            ArcStr,
   /// The RESP version used by the underlying connections.
-  pub resp_version: ArcSwap<RespVersion>,
+  pub resp_version:  ArcSwap<RespVersion>,
   /// The state of the underlying connection.
-  pub state: RwLock<ClientState>,
+  pub state:         RwLock<ClientState>,
   /// Client configuration options.
-  pub config: Arc<RedisConfig>,
+  pub config:        Arc<RedisConfig>,
   /// Performance config options for the client.
-  pub performance: ArcSwap<PerformanceConfig>,
+  pub performance:   ArcSwap<PerformanceConfig>,
   /// An optional reconnect policy.
-  pub policy: RwLock<Option<ReconnectPolicy>>,
+  pub policy:        RwLock<Option<ReconnectPolicy>>,
   /// Notification channels for the event interfaces.
   pub notifications: Notifications,
   /// An mpsc sender for commands to the multiplexer.
-  pub command_tx: CommandSender,
+  pub command_tx:    CommandSender,
   /// Temporary storage for the receiver half of the multiplexer command channel.
-  pub command_rx: RwLock<Option<CommandReceiver>>,
+  pub command_rx:    RwLock<Option<CommandReceiver>>,
   /// Shared counters.
-  pub counters: ClientCounters,
+  pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
   // TODO make this generic via the Resolve trait
-  pub resolver: DefaultResolver,
+  pub resolver:      DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
-  pub backchannel: Arc<AsyncRwLock<Backchannel>>,
+  pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
-  pub server_state: RwLock<ServerState>,
+  pub server_state:  RwLock<ServerState>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
-  pub latency_stats: RwLock<MovingStats>,
+  pub latency_stats:         RwLock<MovingStats>,
   /// Network latency metrics.
   #[cfg(feature = "metrics")]
   pub network_latency_stats: RwLock<MovingStats>,
   /// Payload size metrics tracking for requests.
   #[cfg(feature = "metrics")]
-  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  pub req_size_stats:        Arc<RwLock<MovingStats>>,
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
-  pub res_size_stats: Arc<RwLock<MovingStats>>,
+  pub res_size_stats:        Arc<RwLock<MovingStats>>,
 }
 
 impl RedisClientInner {

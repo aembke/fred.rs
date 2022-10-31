@@ -1,4 +1,4 @@
-use crate::protocol::types::RedisCommand;
+use crate::protocol::connection::RedisCommand;
 use bytes_utils::string::Utf8Error as BytesUtf8Error;
 use futures::channel::oneshot::Canceled;
 use redis_protocol::{resp2::types::Frame as Resp2Frame, types::RedisProtocolError};
