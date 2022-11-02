@@ -139,10 +139,10 @@ fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, 
 }
 
 /// Read the `(host, port)` tuples for the known sentinel nodes, and the credentials to use when connecting.
-async fn read_sentinel_nodes_and_auth(
+fn read_sentinel_nodes_and_auth(
   inner: &Arc<RedisClientInner>,
 ) -> Result<(Vec<(String, u16)>, (Option<String>, Option<String>)), RedisError> {
-  let (username, password) = read_sentinel_auth(inner);
+  let (username, password) = read_sentinel_auth(inner)?;
   let hosts = match inner.read_sentinel_nodes() {
     Some(hosts) => hosts,
     None => {
@@ -182,7 +182,11 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
   for (host, port) in hosts.into_iter() {
     _debug!(inner, "Connecting to sentinel {}:{}", host, port);
     let mut transport = try_or_continue!(connection::create(inner, host, port, Some(timeout)).await);
-    let _ = try_or_continue!(transport.authenticate(&inner.id, username, password, false).await);
+    let _ = try_or_continue!(
+      transport
+        .authenticate(&inner.id, username.clone(), password.clone(), false)
+        .await
+    );
 
     return Ok(transport);
   }
@@ -236,7 +240,7 @@ async fn check_primary_node_role(
   let command = RedisCommand::new(RedisCommandKind::Role, Vec::new());
   _debug!(inner, "Checking role for redis server at {}", transport.server);
 
-  let frame = stry!(transport.request_response(inner, command, inner.is_resp3()).await);
+  let frame = stry!(transport.request_response(command, inner.is_resp3()).await);
   let response = stry!(protocol_utils::frame_to_results(frame));
 
   if let RedisValue::Array(values) = response {

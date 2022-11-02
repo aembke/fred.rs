@@ -323,7 +323,7 @@ impl RedisClientInner {
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
     if let ServerState::Cluster { ref cache } = self.server_state.read() {
-      if let Some(state) = guard.as_ref() {
+      if let Some(state) = cache.as_ref() {
         func(state)
       } else {
         Err(RedisError::new(
@@ -481,7 +481,11 @@ impl RedisClientInner {
   pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
     let mut rx = self.notifications.close.subscribe();
     debug!("{}: Sleeping for {} ms", self.id, duration.as_millis());
-    if let Either::Right((_, _)) = select(sleep(duration), rx.recv()).await {
+    let (sleep_ft, recv_ft) = (sleep(duration), rx.recv());
+    tokio::pin!(sleep_ft);
+    tokio::pin!(recv_ft);
+
+    if let Either::Right((_, _)) = select(sleep_ft, recv_ft).await {
       Err(RedisError::new(RedisErrorKind::Canceled, "Connection(s) closed."))
     } else {
       Ok(())

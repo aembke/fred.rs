@@ -63,8 +63,8 @@ pub fn find_cluster_node<'a>(
 /// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
 pub async fn send_command<'a>(
   inner: &Arc<RedisClientInner>,
-  writers: &mut HashMap<ArcStr, RedisWriter>,
-  state: &'a ClusterRouting,
+  writers: &'a mut HashMap<ArcStr, RedisWriter>,
+  state: &ClusterRouting,
   mut command: RedisCommand,
 ) -> Result<Written<'a>, (RedisError, RedisCommand)> {
   let server = match find_cluster_node(inner, state, &command) {
@@ -122,14 +122,16 @@ pub async fn send_all_cluster_command(
     _debug!(inner, "Sending all cluster command to {}", server);
     let mut cmd_responder = responder.duplicate().unwrap_or(ResponseKind::Skip);
     cmd_responder.set_expected_index(idx);
-    let cmd = command.duplicate(cmd_responder);
+    let mut cmd = command.duplicate(cmd_responder);
+    cmd.skip_backpressure = true;
 
-    if let Err(err) = utils::write_command(inner, writer, cmd, true).await {
+    if let Written::Disconnect((server, _, err)) = utils::write_command(inner, writer, cmd, true).await {
       _debug!(
         inner,
-        "Exit all nodes command early ({}/{}) from error: {:?}",
+        "Exit all nodes command early ({}/{}: {}) from error: {:?}",
         idx + 1,
         num_nodes,
+        server,
         err
       );
       responder.respond_with_error(err);
@@ -307,7 +309,9 @@ fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisComman
       };
 
       _debug!(inner, "Sending cluster error to command queue.");
-      interfaces::send_to_multiplexer(inner, command);
+      if let Err(e) = interfaces::send_to_multiplexer(inner, command) {
+        _warn!(inner, "Cannot send MOVED to multiplexer channel: {:?}", e);
+      }
     }
   } else {
     let command = match kind {
@@ -316,7 +320,9 @@ fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisComman
     };
 
     _debug!(inner, "Sending cluster error to command queue.");
-    interfaces::send_to_multiplexer(inner, command);
+    if let Err(e) = interfaces::send_to_multiplexer(inner, command) {
+      _warn!(inner, "Cannot send ASKED to multiplexer channel: {:?}", e);
+    }
   }
 }
 
@@ -345,6 +351,7 @@ pub async fn process_response_frame(
     }
   };
   counters.decr_in_flight();
+  responses::check_and_set_unblocked_flag(inner, &command).await;
 
   if frame.is_moved_or_ask_error() {
     _debug!(
@@ -359,7 +366,9 @@ pub async fn process_response_frame(
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      command.respond_to_multiplexer(inner, MultiplexerResponse::TransactionError((error, command)));
+      if let Some(tx) = command.take_multiplexer_tx() {
+        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+      }
       return Ok(());
     } else {
       if command.kind.ends_transaction() {
@@ -414,7 +423,14 @@ pub async fn connect_any(
         .map(|(host, port)| (host.to_owned(), port))
     })
     .collect();
-  all_servers.extend(inner.config.server.hosts().map(|(host, port)| (host.to_owned(), port)));
+  all_servers.extend(
+    inner
+      .config
+      .server
+      .hosts()
+      .into_iter()
+      .map(|(host, port)| (host.to_owned(), port)),
+  );
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
   let num_servers = all_servers.len();
@@ -450,6 +466,7 @@ pub async fn cluster_slots_backchannel(
 ) -> Result<ClusterRouting, RedisError> {
   let (response, host) = {
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
+
     let frame = {
       // try to use the existing backchannel connection first
       let mut backchannel = inner.backchannel.write().await;
@@ -458,7 +475,7 @@ pub async fn cluster_slots_backchannel(
           let default_host = transport.default_host.clone();
 
           backchannel
-            .request_response(inner, &server, command.clone())
+            .request_response(inner, &server, command)
             .await
             .ok()
             .map(|frame| (frame, default_host))
@@ -470,7 +487,10 @@ pub async fn cluster_slots_backchannel(
       }
     };
 
+    // failing the backchannel, try to connect to any of the user-provided hosts or the last known cluster nodes
     let old_hosts = cache.map(|cache| cache.unique_primary_nodes()).unwrap_or(Vec::new());
+
+    let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
     let (frame, host) = if let Some((frame, host)) = frame {
       if frame.is_error() {
         // try connecting to any of the nodes, then try again
@@ -526,24 +546,23 @@ pub async fn sync(
     // drop connections that are no longer used
     for removed_server in changes.remove.into_iter() {
       _debug!(inner, "Disconnecting from cluster node {}", removed_server);
-      let commands = connections.disconnect(inner, Some(&removed_server)).await;
+      let writer = match writers.remove(&removed_server) {
+        Some(writer) => writer,
+        None => continue,
+      };
+
+      let commands = writer.graceful_close().await;
       buffer.extend(commands);
     }
 
-    // concurrently connect to each of the new nodes
-    let connections_ft = changes.add.into_iter().map(|server| async {
+    // connect to each of the new nodes
+    for server in changes.add.into_iter() {
       _debug!(inner, "Connecting to cluster node {}", server);
       let (host, port) = protocol_utils::server_to_parts(&server)?;
       let mut transport = connection::create(inner, host.to_owned(), port, None).await?;
       let _ = transport.setup(inner).await?;
 
-      Ok(transport)
-    });
-    let connections = try_join_all(connections_ft).await?;
-
-    // update the local connection map
-    for transport in connections.into_iter() {
-      let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task);
+      let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;
       writers.insert(server, writer);
     }
 

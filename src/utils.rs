@@ -3,11 +3,11 @@ use crate::{
   globals::globals,
   interfaces::ClientLike,
   modules::inner::RedisClientInner,
-  multiplexer::{sentinel, utils as multiplexer_utils, ConnectionIDs},
+  multiplexer::{sentinel, utils as multiplexer_utils, Multiplexer},
   protocol::{
-    command::RedisCommand,
+    command::{RedisCommand, RedisCommandKind},
     responders::ResponseKind,
-    types::{RedisCommand, RedisCommandKind},
+    utils as protocol_utils,
   },
   types::*,
 };
@@ -44,9 +44,6 @@ use tokio::{
 };
 use url::Url;
 
-use crate::multiplexer::Multiplexer;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::protocol::utils as protocol_utils;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -375,38 +372,45 @@ fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
 }
 
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
+  // TODO switch the blocked flag to an AtomicBool to avoid this locked check on each command
   !command.kind.closes_connection() && inner.backchannel.read().await.is_blocked()
 }
 
-// TODO
+/// Interrupt the currently blocked connection (if found) with the provided flag.
 pub async fn interrupt_blocked_connection(
   inner: &Arc<RedisClientInner>,
   flag: ClientUnblockFlag,
 ) -> Result<(), RedisError> {
-  let blocked_server = match inner.backchannel.read().await.blocked.clone() {
-    Some(server) => server,
-    None => return Err(RedisError::new(RedisErrorKind::Unknown, "No blocked connection found.")),
-  };
-  let connection_id = match inner.backchannel.read().await.connection_id(&blocked_server) {
-    Some(id) => id,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Failed to find blocked connection ID.",
-      ))
-    },
+  let connection_id = {
+    let backchannel = inner.backchannel.read().await;
+    let server = match backchannel.blocked_server() {
+      Some(server) => server,
+      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),
+    };
+    let id = match backchannel.connection_id(&server) {
+      Some(id) => id,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::Unknown,
+          "Failed to read connection ID.",
+        ))
+      },
+    };
+
+    id
   };
 
-  backchannel_request_response(inner, true, move || {
-    Ok((RedisCommandKind::ClientUnblock, vec![
-      connection_id.into(),
-      flag.to_str().into(),
-    ]))
-  })
-  .await
-  .map(|_| ())
+  let mut args = Vec::with_capacity(2);
+  args.push(connection_id.into());
+  args.push(flag.to_str().into());
+  let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
+
+  let frame = backchannel_request_response(inner, command, true).await?;
+  protocol_utils::frame_to_single_result(frame).map(|_| ())
 }
 
+/// Check the status of the connection (usually before sending a command) to determine whether the connection should
+/// be unblocked automatically.
 async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
   if should_enforce_blocking_policy(inner, &command).await {
     _debug!(
@@ -513,9 +517,11 @@ where
 pub async fn backchannel_request_response(
   inner: &Arc<RedisClientInner>,
   command: RedisCommand,
+  use_blocked: bool,
 ) -> Result<Resp3Frame, RedisError> {
-  // TODO
-  unimplemented!()
+  let mut backchannel = inner.backchannel.write().await;
+  let server = backchannel.find_server(inner, &command, use_blocked)?;
+  backchannel.request_response(inner, &server, command).await
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
@@ -530,7 +536,7 @@ pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
 }
 
 pub fn disallow_nested_values(cmd: &RedisCommand) -> Result<(), RedisError> {
-  for arg in cmd.args.iter() {
+  for arg in cmd.args().iter() {
     if arg.is_map() || arg.is_array() {
       return Err(RedisError::new(
         RedisErrorKind::InvalidArgument,

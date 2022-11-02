@@ -1567,7 +1567,7 @@ impl RedisCommand {
 
   /// Whether errors writing the command should be returned to the caller.
   pub fn should_send_write_error(&self, inner: &Arc<RedisClientInner>) -> bool {
-    self.attempted == inner.max_command_attempts() || inner.policy.read().is_none()
+    self.attempted >= inner.max_command_attempts() || inner.policy.read().is_none()
   }
 
   /// Mark the command to only run once, returning connection write errors to the caller immediately.
@@ -1595,6 +1595,16 @@ impl RedisCommand {
       ResponseKind::KeyScan(ref inner) => &inner.args,
       _ => &self.arguments,
     }
+  }
+
+  /// Whether the command blocks the connection.
+  pub fn blocks_connection(&self) -> bool {
+    self.transaction_id.is_none()
+      && (self.kind.is_blocking()
+        || match self.kind {
+          RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => !self.can_pipeline,
+          _ => false,
+        })
   }
 
   /// Take the arguments from this command.
@@ -1625,6 +1635,11 @@ impl RedisCommand {
         _warn!(inner, "Failed to unblock multiplexer loop.");
       }
     }
+  }
+
+  /// Take the multiplexer sender from the command.
+  pub fn take_multiplexer_tx(&mut self) -> Option<MultiplexerSender> {
+    self.multiplexer_tx.take()
   }
 
   /// Whether the command has a channel to the multiplexer.

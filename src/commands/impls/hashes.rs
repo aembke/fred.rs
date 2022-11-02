@@ -1,12 +1,15 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
-use std::convert::TryInto;
-use std::sync::Arc;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
+use std::{convert::TryInto, sync::Arc};
 
 pub async fn hdel<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
@@ -65,7 +68,7 @@ pub async fn hkeys<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue
 }
 
 pub async fn hlen<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(inner, RedisCommandKind::HLen, key.into()).await
+  one_arg_value_cmd(client.inner(), RedisCommandKind::HLen, key.into()).await
 }
 
 pub async fn hmget<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -174,5 +177,5 @@ pub async fn hstrlen<C: ClientLike>(client: C, key: RedisKey, field: RedisKey) -
 }
 
 pub async fn hvals<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_values_cmd(client, RedisCommandKind::HVals, key.into().into()).await
+  one_arg_values_cmd(client, RedisCommandKind::HVals, key.into()).await
 }

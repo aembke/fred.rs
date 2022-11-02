@@ -95,7 +95,7 @@ pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
   false
 }
 
-pub fn server_to_parts(server: &ArcStr) -> Result<(&str, u16), RedisError> {
+pub fn server_to_parts(server: &str) -> Result<(&str, u16), RedisError> {
   let parts: Vec<&str> = server.split(":").collect();
   if parts.len() < 2 {
     return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));

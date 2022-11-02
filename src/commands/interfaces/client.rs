@@ -1,20 +1,28 @@
-use crate::commands;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{
-  ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, FromRedis, RedisValue,
+use crate::{
+  commands,
+  error::{RedisError, RedisErrorKind},
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{
+    ClientKillFilter,
+    ClientKillType,
+    ClientPauseKind,
+    ClientReplyFlag,
+    ClientUnblockFlag,
+    FromRedis,
+    RedisValue,
+  },
+  utils,
 };
-use crate::utils;
 use arcstr::ArcStr;
 use bytes_utils::Str;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 /// Functions that implement the [CLIENT](https://redis.io/commands#connection) interface.
 pub trait ClientInterface: ClientLike + Sized {
   /// Return the ID of the current connection.
   ///
-  /// Note: Against a clustered deployment this will return the ID of a random connection. See [connection_ids](Self::connection_ids) for  more information.
+  /// Note: Against a clustered deployment this will return the ID of a random connection. See
+  /// [connection_ids](Self::connection_ids) for  more information.
   ///
   /// <https://redis.io/commands/client-id>
   fn client_id<R>(&self) -> AsyncResult<R>
@@ -37,14 +45,8 @@ pub trait ClientInterface: ClientLike + Sized {
     })
   }
 
-  /// Force update the client's sentinel nodes list if using the sentinel interface.
-  ///
-  /// The client will automatically update this when connections to the primary server close.
-  fn update_sentinel_nodes(&self) -> AsyncResult<()> {
-    async_spawn(self, |_self| async move { utils::update_sentinel_nodes(_self).await })
-  }
-
-  /// The command returns information and statistics about the current client connection in a mostly human readable format.
+  /// The command returns information and statistics about the current client connection in a mostly human readable
+  /// format.
   ///
   /// <https://redis.io/commands/client-info>
   fn client_info<R>(&self) -> AsyncResult<R>
@@ -68,7 +70,8 @@ pub trait ClientInterface: ClientLike + Sized {
     })
   }
 
-  /// The CLIENT LIST command returns information and statistics about the client connections server in a mostly human readable format.
+  /// The CLIENT LIST command returns information and statistics about the client connections server in a mostly human
+  /// readable format.
   ///
   /// <https://redis.io/commands/client-list>
   fn client_list<R, I>(&self, r#type: Option<ClientKillType>, ids: Option<Vec<String>>) -> AsyncResult<R>
@@ -94,8 +97,8 @@ pub trait ClientInterface: ClientLike + Sized {
 
   /// Assign a name to the current connection.
   ///
-  /// **Note: The client automatically generates a unique name for each client that is shared by all underlying connections.
-  /// Use `self.id() to read the automatically generated name.**
+  /// **Note: The client automatically generates a unique name for each client that is shared by all underlying
+  /// connections. Use `self.id() to read the automatically generated name.**
   ///
   /// <https://redis.io/commands/client-setname>
   fn client_setname<S>(&self, name: S) -> AsyncResult<()>
@@ -108,7 +111,8 @@ pub trait ClientInterface: ClientLike + Sized {
     })
   }
 
-  /// CLIENT PAUSE is a connections control command able to suspend all the Redis clients for the specified amount of time (in milliseconds).
+  /// CLIENT PAUSE is a connections control command able to suspend all the Redis clients for the specified amount of
+  /// time (in milliseconds).
   ///
   /// <https://redis.io/commands/client-pause>
   fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> AsyncResult<()> {
@@ -127,7 +131,8 @@ pub trait ClientInterface: ClientLike + Sized {
     )
   }
 
-  /// The CLIENT REPLY command controls whether the server will reply the client's commands. The following modes are available:
+  /// The CLIENT REPLY command controls whether the server will reply the client's commands. The following modes are
+  /// available:
   ///
   /// <https://redis.io/commands/client-reply>
   fn client_reply(&self, flag: ClientReplyFlag) -> AsyncResult<()> {
@@ -136,7 +141,8 @@ pub trait ClientInterface: ClientLike + Sized {
     })
   }
 
-  /// This command can unblock, from a different connection, a client blocked in a blocking operation, such as for instance BRPOP or XREAD or WAIT.
+  /// This command can unblock, from a different connection, a client blocked in a blocking operation, such as for
+  /// instance BRPOP or XREAD or WAIT.
   ///
   /// Note: this command is sent on a backchannel connection and will work even when the main connection is blocked.
   ///

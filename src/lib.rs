@@ -55,7 +55,6 @@ pub extern crate serde_json;
 extern crate async_trait;
 #[macro_use]
 extern crate log;
-extern crate core;
 #[cfg(feature = "enable-native-tls")]
 extern crate native_tls;
 #[cfg(feature = "enable-native-tls")]

@@ -9,7 +9,7 @@ use crate::{
     types::ProtocolFrame,
     utils as protocol_utils,
   },
-  types::{Resolve, TlsConnector},
+  types::Resolve,
 };
 use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -28,10 +28,11 @@ pub struct Backchannel {
 
 impl Backchannel {
   /// Check if the current server matches the provided server, and disconnect.
+  // TODO does this need to disconnect whenever the caller manually changes the RESP protocol mode?
   pub async fn check_and_disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&ArcStr>) {
     let should_close = self
       .current_server()
-      .map(|current| server.map(|server| server == current).unwrap_or(true))
+      .map(|current| server.map(|server| *server == current).unwrap_or(true))
       .unwrap_or(false);
 
     if should_close {
@@ -58,6 +59,7 @@ impl Backchannel {
   }
 
   /// Remove the blocked flag.
+  // TODO make sure this is called when needed
   pub fn set_unblocked(&mut self) {
     self.blocked = None;
   }
@@ -79,7 +81,7 @@ impl Backchannel {
   pub fn has_blocked_transport(&self) -> bool {
     match self.blocked {
       Some(ref server) => match self.transport {
-        Some(ref transport) => transport.server() == server,
+        Some(ref transport) => &transport.server == server,
         None => false,
       },
       None => false,
@@ -93,7 +95,7 @@ impl Backchannel {
 
   /// Return the server ID of the existing backchannel connection, if found.
   pub fn current_server(&self) -> Option<ArcStr> {
-    self.transport.map(|t| t.server().clone())
+    self.transport.map(|t| t.server.clone())
   }
 
   /// Return a server ID, with the following preferences:
@@ -125,7 +127,7 @@ impl Backchannel {
     server: &ArcStr,
   ) -> Result<bool, RedisError> {
     if let Some(ref mut transport) = self.transport {
-      if transport.server() == server {
+      if &transport.server == server {
         if transport.ping(inner).await.is_ok() {
           _debug!(inner, "Using existing backchannel connection to {}", server);
           return Ok(false);
@@ -153,13 +155,73 @@ impl Backchannel {
     let _ = self.check_and_create_transport(inner, server).await?;
 
     if let Some(ref mut transport) = self.transport {
-      _debug!(inner, "Sending {} on backchannel to {}", command.to_debug_str(), server);
+      _debug!(
+        inner,
+        "Sending {} on backchannel to {}",
+        command.kind.to_str_debug(),
+        server
+      );
       transport.request_response(command, inner.is_resp3()).await
     } else {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Failed to create backchannel connection.",
       ))
+    }
+  }
+
+  /// Find the server identifier that should receive the provided command.
+  ///
+  /// Servers are chosen with the following preference order:
+  ///
+  /// * If `use_blocked` is true and a connection is blocked then that server will be used.
+  /// * If the client is clustered and the command uses a hashing policy that specifies a specific server then that
+  ///   will be used.
+  /// * If a backchannel connection already exists then that will be used.
+  /// * Failing all of the above a random server will be used.
+  pub fn find_server(
+    &self,
+    inner: &Arc<RedisClientInner>,
+    command: &RedisCommand,
+    use_blocked: bool,
+  ) -> Result<ArcStr, RedisError> {
+    if use_blocked {
+      if let Some(server) = self.blocked.as_ref() {
+        Ok(server.clone())
+      } else {
+        // should this be more relaxed?
+        Err(RedisError::new(RedisErrorKind::Unknown, "No connections are blocked."))
+      }
+    } else {
+      if inner.config.server.is_clustered() {
+        if command.kind.use_random_cluster_node() {
+          self.any_server().ok_or(RedisError::new(
+            RedisErrorKind::Unknown,
+            "Failed to find backchannel server.",
+          ))
+        } else {
+          inner.with_cluster_state(|state| {
+            let slot = match command.cluster_hash() {
+              Some(slot) => slot,
+              None => {
+                return Err(RedisError::new(
+                  RedisErrorKind::Cluster,
+                  "Failed to find cluster hash slot.",
+                ))
+              },
+            };
+            state.get_server(slot).cloned().ok_or(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Failed to find cluster owner.",
+            ))
+          })
+        }
+      } else {
+        self.any_server().ok_or(RedisError::new(
+          RedisErrorKind::Unknown,
+          "Failed to find backchannel server.",
+        ))
+      }
     }
   }
 }

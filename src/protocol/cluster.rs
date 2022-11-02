@@ -4,11 +4,10 @@ use crate::{
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     connection::RedisTransport,
-    tls::TlsConnector,
     types::{ClusterRouting, ProtocolFrame, SlotRange},
     utils as protocol_utils,
   },
-  types::{ClusterRouting, RedisKey, RedisMap, RedisValue, Resolve},
+  types::{RedisKey, RedisMap, RedisValue, Resolve},
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
@@ -162,7 +161,7 @@ pub async fn read_cluster_slots(
   inner: &Arc<RedisClientInner>,
 ) -> Result<ClusterRouting, RedisError> {
   _debug!(inner, "Reading cluster slots from {}", transport.server);
-  let cmd = RedisCommand::new(RedisCommandKind::ClusterSlots, vec![], None);
+  let cmd = RedisCommand::new(RedisCommandKind::ClusterSlots, vec![]);
   let response = transport.request_response(cmd, inner.is_resp3()).await?;
   let response = protocol_utils::frame_to_results_raw(response)?;
 

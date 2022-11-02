@@ -4,9 +4,9 @@ use crate::{
   interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::RedisCommandKind,
+    command::{RedisCommand, RedisCommandKind},
     responders::ResponseKind,
-    types::{KeyScanInner, RedisCommand, RedisCommandKind, ValueScanInner},
+    types::{KeyScanInner, ValueScanInner},
   },
   types::{RedisKey, RedisMap, RedisValue},
   utils,
@@ -119,7 +119,7 @@ impl Scanner for ScanResult {
     }
 
     let response = ResponseKind::KeyScan(self.scan_state);
-    let cmd = (RedisCommandKind::Scan, Vec::new(), response).into();
+    let cmd: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
     interfaces::default_send_command(&self.inner, cmd)
   }
 }
@@ -163,7 +163,7 @@ impl Scanner for HScanResult {
     }
 
     let response = ResponseKind::ValueScan(self.scan_state);
-    let cmd = (RedisCommandKind::Hscan, Vec::new(), response).into();
+    let cmd: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
     interfaces::default_send_command(&self.inner, cmd)
   }
 }
@@ -207,7 +207,7 @@ impl Scanner for SScanResult {
     }
 
     let response = ResponseKind::ValueScan(self.scan_state);
-    let cmd = (RedisCommandKind::Sscan, Vec::new(), response).into();
+    let cmd: RedisCommand = (RedisCommandKind::Sscan, Vec::new(), response).into();
     interfaces::default_send_command(&self.inner, cmd)
   }
 }
@@ -251,7 +251,7 @@ impl Scanner for ZScanResult {
     }
 
     let response = ResponseKind::ValueScan(self.scan_state);
-    let cmd = (RedisCommandKind::Zscan, Vec::new(), response).into();
+    let cmd: RedisCommand = (RedisCommandKind::Zscan, Vec::new(), response).into();
     interfaces::default_send_command(&self.inner, cmd)
   }
 }

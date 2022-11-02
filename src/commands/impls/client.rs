@@ -1,8 +1,10 @@
 use super::*;
 use crate::{
+  error::RedisErrorKind,
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
+    responders::ResponseKind,
     types::*,
     utils as protocol_utils,
   },
@@ -11,6 +13,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use std::sync::Arc;
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 value_cmd!(client_id, ClientID);
 value_cmd!(client_info, ClientInfo);
@@ -118,22 +121,23 @@ pub async fn client_unblock<C: ClientLike>(
   id: RedisValue,
   flag: Option<ClientUnblockFlag>,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::backchannel_request_response(client, true, move || {
-    let mut args = Vec::with_capacity(2);
-    args.push(id);
+  let inner = client.inner();
 
-    if let Some(flag) = flag {
-      args.push(flag.to_str().into());
-    }
+  let mut args = Vec::with_capacity(2);
+  args.push(id);
+  if let Some(flag) = flag {
+    args.push(flag.to_str().into());
+  }
+  let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
 
-    Ok((RedisCommandKind::ClientUnblock, args))
-  })
-  .await?;
-
+  let frame = utils::backchannel_request_response(inner, command, false).await?;
   protocol_utils::frame_to_single_result(frame)
 }
 
 pub async fn unblock_self<C: ClientLike>(client: C, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {
+  let inner = client.inner();
   let flag = flag.unwrap_or(ClientUnblockFlag::Error);
-  utils::interrupt_blocked_connection(client, flag).await
+  let result = utils::interrupt_blocked_connection(inner, flag).await;
+  inner.backchannel.write().await.set_unblocked();
+  result
 }

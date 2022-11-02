@@ -1,14 +1,15 @@
 use crate::{
-  error::RedisError,
+  error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   monitor::{parser, Command, Config},
   protocol::{
     codec::RedisCodec,
+    command::{RedisCommand, RedisCommandKind},
     connection::{self, RedisTransport},
-    types::{ProtocolFrame, RedisCommand, RedisCommandKind},
+    types::ProtocolFrame,
     utils as protocol_utils,
   },
-  types::{RedisConfig, ServerConfig},
+  types::{PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
 use std::sync::Arc;
@@ -70,54 +71,14 @@ async fn handle_monitor_frame(
   parser::parse(inner, frame)
 }
 
-#[cfg(feature = "enable-native-tls")]
-fn create_client_inner(config: Config) -> Arc<RedisClientInner> {
-  let config = RedisConfig {
-    username: config.username,
-    password: config.password,
-    server: ServerConfig::Centralized {
-      host: config.host,
-      port: config.port,
-    },
-    tls: config.tls,
-    ..Default::default()
-  };
-
-  RedisClientInner::new(config)
-}
-
-#[cfg(not(feature = "enable-native-tls"))]
-fn create_client_inner(config: Config) -> Arc<RedisClientInner> {
-  let config = RedisConfig {
-    username: config.username,
-    password: config.password,
-    server: ServerConfig::Centralized {
-      host: config.host,
-      port: config.port,
-    },
-    ..Default::default()
-  };
-
-  RedisClientInner::new(config)
-}
-
 async fn send_monitor_command(
   inner: &Arc<RedisClientInner>,
-  connection: RedisTransport,
+  mut connection: RedisTransport,
 ) -> Result<RedisTransport, RedisError> {
   _debug!(inner, "Sending MONITOR command.");
 
-  let command = RedisCommand::new(RedisCommandKind::Monitor, vec![], None);
-  let (frame, connection) = match connection {
-    RedisTransport::Tcp(framed) => {
-      let (frame, framed) = connection::request_response(framed, &command, false).await?;
-      (frame.into_resp3(), RedisTransport::Tcp(framed))
-    },
-    RedisTransport::Tls(framed) => {
-      let (frame, framed) = connection::request_response(framed, &command, false).await?;
-      (frame.into_resp3(), RedisTransport::Tls(framed))
-    },
-  };
+  let command = RedisCommand::new(RedisCommandKind::Monitor, vec![]);
+  let frame = connection.request_response(command, inner.is_resp3()).await?;
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);
   let response = protocol_utils::frame_to_single_result(frame)?;
@@ -155,10 +116,24 @@ async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Comma
   _warn!(inner, "Stopping monitor stream.");
 }
 
-// TODO use new connection interface
-pub async fn start(config: Config) -> Result<impl Stream<Item = Command>, RedisError> {
-  let inner = create_client_inner(config);
-  let connection = connection::create_centralized_connection(&inner).await?;
+pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
+  let perf = PerformanceConfig {
+    auto_pipeline: false,
+    ..Default::default()
+  };
+  let (host, port) = match config.server {
+    ServerConfig::Centralized { ref host, ref port } => (host.to_owned(), *port),
+    _ => {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Expected centralized server config.",
+      ))
+    },
+  };
+
+  let inner = RedisClientInner::new(config, perf, None);
+  let mut connection = connection::create(&inner, host, port, None).await?;
+  let _ = connection.setup(&inner).await?;
   let connection = send_monitor_command(&inner, connection).await?;
 
   // there isn't really a mechanism to surface backpressure to the server for the MONITOR stream, so we use a

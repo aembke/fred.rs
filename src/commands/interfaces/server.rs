@@ -1,8 +1,9 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::FromRedis;
-use crate::types::RespVersion;
-use crate::utils;
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, RespVersion},
+  utils,
+};
 use bytes_utils::Str;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
@@ -11,7 +12,8 @@ use tokio::time::interval as tokio_interval;
 pub trait AuthInterface: ClientLike + Sized {
   /// Request for authentication in a password-protected Redis server. Returns ok if successful.
   ///
-  /// The client will automatically authenticate with the default user if a password is provided in the associated `RedisConfig` when calling [connect](crate::interfaces::ClientLike::connect).
+  /// The client will automatically authenticate with the default user if a password is provided in the associated
+  /// `RedisConfig` when calling [connect](crate::interfaces::ClientLike::connect).
   ///
   /// If running against clustered servers this function will authenticate all connections.
   ///
@@ -57,7 +59,7 @@ pub trait HeartbeatInterface: ClientLike + Sized + 'static {
           let _ = _self.ping().await?;
         } else {
           if let Err(e) = _self.ping().await {
-            _warn!(inner, "Heartbeat ping failed with error: {:?}", e);
+            warn!("{}: Heartbeat ping failed with error: {:?}", _self.inner().id, e);
           }
         }
       }
@@ -119,7 +121,8 @@ pub trait ServerInterface: ClientLike + Sized {
     })
   }
 
-  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis interface.
+  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis
+  /// interface.
   fn flushall_cluster(&self) -> AsyncResult<()> {
     async_spawn(
       self,
@@ -136,7 +139,8 @@ pub trait ServerInterface: ClientLike + Sized {
     })
   }
 
-  /// This command will start a coordinated failover between the currently-connected-to master and one of its replicas.
+  /// This command will start a coordinated failover between the currently-connected-to master and one of its
+  /// replicas.
   ///
   /// <https://redis.io/commands/failover>
   fn failover(&self, to: Option<(String, u16)>, force: bool, abort: bool, timeout: Option<u32>) -> AsyncResult<()> {

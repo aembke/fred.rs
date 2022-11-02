@@ -30,20 +30,15 @@ use tokio::{
   task::JoinHandle,
 };
 
-pub async fn send_command(
-  inner: &Arc<RedisClientInner>,
-  writer: &mut Option<RedisWriter>,
+pub async fn send_command<'a, 'b>(
+  inner: &'a Arc<RedisClientInner>,
+  writer: &'b mut Option<RedisWriter>,
   mut command: RedisCommand,
-) -> Result<Written, (RedisError, RedisCommand)> {
+) -> Result<Written<'b>, (RedisError, RedisCommand)> {
   if let Some(writer) = writer.as_mut() {
     Ok(utils::write_command(inner, writer, command, false).await)
   } else {
-    _debug!(
-      inner,
-      "Failed to read connection {} for {}",
-      server,
-      command.kind.to_str_debug()
-    );
+    _debug!(inner, "Failed to read connection for {}", command.kind.to_str_debug());
     Err((RedisError::new(RedisErrorKind::IO, "Missing connection."), command))
   }
 }
@@ -121,10 +116,13 @@ pub async fn process_response_frame(
     }
   };
   counters.decr_in_flight();
+  responses::check_and_set_unblocked_flag(inner, &command).await;
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      command.respond_to_multiplexer(inner, MultiplexerResponse::TransactionError((error, command)));
+      if let Some(tx) = command.take_multiplexer_tx() {
+        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+      }
       return Ok(());
     } else {
       if command.kind.ends_transaction() {

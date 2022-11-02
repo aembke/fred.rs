@@ -1,11 +1,15 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
 use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
@@ -25,10 +29,7 @@ pub async fn slowlog_get<C: ClientLike>(client: C, count: Option<i64>) -> Result
   if let Frame::Array { data, .. } = frame {
     protocol_utils::parse_slowlog_entries(data)
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected array response.",
-    ))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array response."))
   }
 }
 
@@ -39,13 +40,10 @@ pub async fn slowlog_length<C: ClientLike>(client: C) -> Result<u64, RedisError>
   if let RedisValue::Integer(len) = response {
     Ok(len as u64)
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected integer response.",
-    ))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer response."))
   }
 }
 
 pub async fn slowlog_reset<C: ClientLike>(client: C) -> Result<(), RedisError> {
-  args_ok_cmd(inner, RedisCommandKind::Slowlog, vec![static_val!(RESET)]).await
+  args_ok_cmd(client.inner(), RedisCommandKind::Slowlog, vec![static_val!(RESET)]).await
 }

@@ -5,7 +5,7 @@ use crate::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
     responders,
-    types::{ClusterKeyCache, ProtocolFrame},
+    types::{ClusterRouting, ProtocolFrame},
     utils as protocol_utils,
     utils::{frame_into_string, pretty_error},
   },
@@ -15,7 +15,6 @@ use crate::{
 };
 use arcstr::ArcStr;
 use futures::{
-  lock::BiLock,
   sink::SinkExt,
   stream::{SplitSink, SplitStream, StreamExt},
   Sink,
@@ -314,7 +313,7 @@ pub struct RedisTransport {
 }
 
 impl RedisTransport {
-  pub async fn new_tcp(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
+  pub async fn new_tcp(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<RedisTransport, RedisError> {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
@@ -343,7 +342,11 @@ impl RedisTransport {
   }
 
   #[cfg(feature = "enable-native-tls")]
-  pub async fn new_native_tls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
+  pub async fn new_native_tls(
+    inner: &Arc<RedisClientInner>,
+    host: String,
+    port: u16,
+  ) -> Result<RedisTransport, RedisError> {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
@@ -379,12 +382,20 @@ impl RedisTransport {
   }
 
   #[cfg(not(feature = "enable-native-tls"))]
-  pub async fn new_native_tls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
+  pub async fn new_native_tls(
+    inner: &Arc<RedisClientInner>,
+    host: String,
+    port: u16,
+  ) -> Result<RedisTransport, RedisError> {
     RedisTransport::new_tcp(inner, host, port).await
   }
 
   #[cfg(feature = "enable-rustls")]
-  pub async fn new_rustls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
+  pub async fn new_rustls(
+    inner: &Arc<RedisClientInner>,
+    host: String,
+    port: u16,
+  ) -> Result<RedisTransport, RedisError> {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
@@ -421,7 +432,11 @@ impl RedisTransport {
   }
 
   #[cfg(not(feature = "enable-rustls"))]
-  pub async fn new_rustls(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<Self, RedisError> {
+  pub async fn new_rustls(
+    inner: &Arc<RedisClientInner>,
+    host: String,
+    port: u16,
+  ) -> Result<RedisTransport, RedisError> {
     RedisTransport::new_tcp(inner, host, port).await
   }
 
@@ -431,17 +446,18 @@ impl RedisTransport {
     let _ = self.transport.send(frame).await?;
     let response = self.transport.next().await;
 
-    Ok(match response {
-      Some(result) => result?.into_resp3(),
-      None => protocol_utils::null_frame(is_resp3),
-    })
+    match response {
+      Some(result) => result.map(|f| f.into_resp3()),
+      None => Ok(Resp3Frame::Null),
+    }
   }
 
   /// Set the client name with CLIENT SETNAME.
   #[cfg(not(feature = "no-client-setname"))]
   pub async fn set_client_name(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     _debug!(inner, "Setting client name.");
-    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![inner.id.as_str().into()]);
+    let name = &inner.id;
+    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.as_str().into()]);
     let response = self.request_response(command, inner.is_resp3()).await?;
 
     if protocol_utils::is_ok(&response) {
@@ -449,10 +465,7 @@ impl RedisTransport {
       Ok(())
     } else {
       error!("{} Failed to set client name with error {:?}", name, response);
-      Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Failed to set client name.",
-      ))
+      Err(RedisError::new(RedisErrorKind::Protocol, "Failed to set client name."))
     }
   }
 
@@ -474,11 +487,11 @@ impl RedisTransport {
       },
       Resp3Frame::BlobError { data, .. } => {
         let parsed = String::from_utf8_lossy(&data);
-        _warn!("Failed to read server version: {:?}", parsed);
+        _warn!(inner, "Failed to read server version: {:?}", parsed);
         return Ok(());
       },
       _ => {
-        warn!(inner, "Invalid INFO response.");
+        _warn!(inner, "Invalid INFO response.");
         return Ok(());
       },
     };
@@ -556,7 +569,7 @@ impl RedisTransport {
         vec![]
       };
 
-      let cmd = RedisCommand::new(RedisCommandKind::Hello(RespVersion::RESP3), args);
+      let cmd = RedisCommand::new(RedisCommandKind::_Hello(RespVersion::RESP3), args);
       let response = self.request_response(cmd, true).await?;
       let response = protocol_utils::frame_to_results(response)?;
       inner.switch_protocol_versions(RespVersion::RESP3);
@@ -615,12 +628,12 @@ impl RedisTransport {
 
     _trace!(inner, "Selecting database {} after connecting.", db);
     let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()]);
-    let (result, transport) = self.request_response(command, inner.is_resp3()).await?;
+    let response = self.request_response(command, inner.is_resp3()).await?;
 
-    if let Some(error) = protocol_utils::frame_to_error(&result) {
+    if let Some(error) = protocol_utils::frame_to_error(&response) {
       Err(error)
     } else {
-      Ok(transport)
+      Ok(())
     }
   }
 
@@ -743,11 +756,9 @@ impl RedisWriter {
   /// Send a command to the server without waiting on the response.
   pub async fn write_frame(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
     if should_flush {
-      _trace!(inner, "Sending command and flushing the sink.");
       let _ = self.sink.send(frame).await?;
       self.counters.reset_feed_count();
     } else {
-      _trace!(inner, "Sending command without flushing the sink.");
       let _ = self.sink.feed(frame).await?;
       self.counters.incr_feed_count();
     };
@@ -775,9 +786,9 @@ impl RedisWriter {
   ///
   /// Returns the in-flight commands that had not received a response.
   pub async fn graceful_close(mut self) -> CommandBuffer {
-    self.sink.close().await;
+    let _ = self.sink.close().await;
     if let Some(mut reader) = self.reader {
-      reader.wait().await
+      let _ = reader.wait().await;
     }
     self.buffer.lock().drain(..).collect()
   }
@@ -794,15 +805,13 @@ pub async fn create(
 ) -> Result<RedisTransport, RedisError> {
   let timeout = timeout_ms.unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
 
-  let transport_ft = if inner.config.uses_native_tls() {
-    RedisTransport::new_native_tls(inner, host, port)
+  if inner.config.uses_native_tls() {
+    utils::apply_timeout(RedisTransport::new_native_tls(inner, host, port), timeout).await
   } else if inner.config.uses_rustls() {
-    RedisTransport::new_rustls(inner, host, port)
+    utils::apply_timeout(RedisTransport::new_rustls(inner, host, port), timeout).await
   } else {
-    RedisTransport::new_tcp(inner, host, port)
-  };
-
-  utils::apply_timeout(transport_ft, timeout).await
+    utils::apply_timeout(RedisTransport::new_tcp(inner, host, port), timeout).await
+  }
 }
 
 /// Split a connection, spawn a reader task, and link the reader and writer halves.

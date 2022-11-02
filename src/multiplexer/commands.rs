@@ -12,9 +12,7 @@ use crate::{
       RedisCommandKind,
       ResponseSender,
     },
-    connection::read_cluster_nodes,
     responders::ResponseKind,
-    types::{RedisCommand, RedisCommandKind},
     utils as protocol_utils,
     utils::pretty_error,
   },
@@ -54,7 +52,7 @@ async fn sync_cluster_with_reconnect(
 
   utils::on_reconnect_interval(inner, multiplexer, Some(dur), |inner, multiplexer| async {
     if let Err(e) = multiplexer.sync_cluster().await {
-      _warn!(inner, "Error syncing cluster after redirect: {:?}", error);
+      _warn!(inner, "Error syncing cluster after redirect: {:?}", e);
 
       if e.should_not_reconnect() {
         Ok(())
@@ -194,14 +192,18 @@ async fn write_with_backpressure(
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
     };
     let rx = if let Some(backpressure) = _backpressure {
-      match backpressure.run(inner, &mut command) {
-        Some(rx) => Some(rx),
-        None => {
+      match backpressure.run(inner, &mut command).await {
+        Ok(Some(rx)) => Some(rx),
+        Ok(None) => {
           if command.should_auto_pipeline(inner, force_pipeline) {
             Some(command.create_multiplexer_channel())
           } else {
             None
           }
+        },
+        Err(e) => {
+          command.respond_to_caller(Err(e));
+          return Ok(());
         },
       }
     } else {
@@ -211,6 +213,7 @@ async fn write_with_backpressure(
         None
       }
     };
+    let is_blocking = command.blocks_connection();
 
     match multiplexer.write_command(command) {
       Ok(Written::Backpressure((command, backpressure))) => {
@@ -236,10 +239,12 @@ async fn write_with_backpressure(
       },
       Ok(Written::Sent((server, flushed))) => {
         _trace!(inner, "Sent command to {}. Flushed: {}", server, flushed);
+        if is_blocking {
+          inner.backchannel.write().await.set_blocked(&server);
+        }
         if flushed {
           let _ = multiplexer.check_and_flush().await;
         }
-        _trace!(inner, "Finished sending to {}", server);
 
         if let Some(command) = handle_multiplexer_response(inner, multiplexer, rx).await? {
           _command = Some(command);
@@ -275,7 +280,7 @@ async fn write_with_backpressure_t(
 }
 
 #[cfg(not(feature = "full-tracing"))]
-async fn process_normal_command_t(
+async fn write_with_backpressure_t(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
   command: RedisCommand,
@@ -331,10 +336,11 @@ async fn process_ask(
       return Err(e);
     }
 
-    if Err(e) = command.incr_check_attempted(inner.max_command_attempts()) {
+    if let Err(e) = command.incr_check_attempted(inner.max_command_attempts()) {
       command.respond_to_caller(Err(e));
       break;
     }
+    // TODO fix this for blocking commands
     if let Err((error, command)) = multiplexer.write_direct(command, &server).await {
       _warn!(inner, "Error retrying command after ASKING: {:?}", error);
       _command = Some(command);
@@ -372,10 +378,11 @@ async fn process_moved(
       return Err(e);
     }
 
-    if Err(e) = command.incr_check_attempted(inner.max_command_attempts()) {
+    if let Err(e) = command.incr_check_attempted(inner.max_command_attempts()) {
       command.respond_to_caller(Err(e));
       break;
     }
+    // TODO fix this for blocking commands
     if let Err((error, command)) = multiplexer.write_direct(command, &server).await {
       _warn!(inner, "Error retrying command after ASKING: {:?}", error);
       _command = Some(command);
@@ -438,7 +445,7 @@ async fn process_normal_command(
   multiplexer: &mut Multiplexer,
   command: RedisCommand,
 ) -> Result<(), RedisError> {
-  write_with_backpressure_t(inner, multiplexer, command, false)
+  write_with_backpressure_t(inner, multiplexer, command, false).await
 }
 
 /// Process any kind of multiplexer command.

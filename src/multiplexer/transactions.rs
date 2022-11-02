@@ -172,7 +172,7 @@ pub async fn run(
           }
 
           if attempted >= inner.max_command_attempts() {
-            let _ = tx.send(Err(e));
+            let _ = tx.send(Err(error));
             return Ok(());
           } else {
             let _ = utils::reconnect_with_policy(inner, multiplexer).await?;
@@ -227,7 +227,7 @@ pub async fn run(
         }
 
         if attempted >= inner.max_command_attempts() {
-          let _ = tx.send(Err(e));
+          let _ = tx.send(Err(error));
           return Ok(());
         } else {
           let _ = utils::reconnect_with_policy(inner, multiplexer).await?;

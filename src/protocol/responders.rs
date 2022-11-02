@@ -13,10 +13,12 @@ use crate::{
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
+use core::fmt;
 use parking_lot::{Mutex, RwLock};
 use std::{
   cmp,
   collections::vec_deque::VecDeque,
+  fmt::Formatter,
   iter::repeat,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
@@ -35,7 +37,6 @@ const LAST_CURSOR: &'static str = "0";
 // put a `replicas(&self)` function on RedisClient that shares the underlying connections
 // put checks in here so it only works on clustered clients with the FF set
 
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
   ///
@@ -107,7 +108,7 @@ impl ResponseKind {
       },
       ResponseKind::Multiple { received, tx, expected } => ResponseKind::Multiple {
         received: received.clone(),
-        tx:       tx.cone(),
+        tx:       tx.clone(),
         expected: expected.clone(),
       },
       ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
@@ -121,7 +122,7 @@ impl ResponseKind {
   }
 
   pub fn new_buffer(expected: usize, tx: ResponseSender) -> Self {
-    let frames = repeat(RedisValue::Null).take(expected).collect();
+    let frames = repeat(Resp3Frame::Null).take(expected).collect();
     ResponseKind::Buffer {
       frames: Arc::new(Mutex::new(frames)),
       tx: Arc::new(Mutex::new(Some(tx))),
@@ -193,7 +194,7 @@ fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut RedisCo
 }
 
 #[cfg(not(feature = "metrics"))]
-fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut SentCommand) {}
+fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut RedisCommand) {}
 
 /// Update the client's protocol version codec version after receiving a non-error response to HELLO.
 fn update_protocol_version(inner: &Arc<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {
@@ -379,7 +380,7 @@ fn send_value_scan_result(
       }
     },
     RedisCommandKind::Sscan => {
-      let tx = scan_state.tx.clone();
+      let tx = scanner.tx.clone();
 
       let state = ValueScanResult::SScan(SScanResult {
         can_continue,
@@ -393,7 +394,7 @@ fn send_value_scan_result(
       }
     },
     RedisCommandKind::Hscan => {
-      let tx = scan_state.tx.clone();
+      let tx = scanner.tx.clone();
       let results = ValueScanInner::transform_hscan_result(result)?;
 
       let state = ValueScanResult::HScan(HScanResult {
@@ -418,6 +419,7 @@ fn send_value_scan_result(
   Ok(())
 }
 
+// TODO move this
 // ------------------------------------------- END UTILS --------------------------------------
 
 /// Respond to the caller with the default response policy.

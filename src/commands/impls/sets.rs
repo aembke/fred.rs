@@ -1,12 +1,15 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
-use std::convert::TryInto;
-use std::sync::Arc;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
+use std::{convert::TryInto, sync::Arc};
 
 pub async fn sadd<C: ClientLike>(
   client: C,
@@ -28,7 +31,7 @@ pub async fn sadd<C: ClientLike>(
 }
 
 pub async fn scard<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(client, RedisCommandKind::Scard, key.into().into()).await
+  one_arg_value_cmd(client, RedisCommandKind::Scard, key.into()).await
 }
 
 pub async fn sdiff<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -102,7 +105,7 @@ pub async fn sismember<C: ClientLike>(
   key: RedisKey,
   member: RedisValue,
 ) -> Result<RedisValue, RedisError> {
-  args_value_cmd(inner, RedisCommandKind::Sismember, vec![key.into(), member]).await
+  args_value_cmd(client.inner(), RedisCommandKind::Sismember, vec![key.into(), member]).await
 }
 
 pub async fn smismember<C: ClientLike>(

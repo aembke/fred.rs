@@ -1,10 +1,11 @@
-use crate::clients::Transaction;
-use crate::commands;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::modules::inner::MultiPolicy;
-use crate::types::MultipleKeys;
-use crate::utils;
+use crate::{
+  clients::Transaction,
+  commands,
+  error::{RedisError, RedisErrorKind},
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::MultipleKeys,
+  utils,
+};
 
 /// Functions that implement the [transactions](https://redis.io/commands#transactions) interface.
 ///

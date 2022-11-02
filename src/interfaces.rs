@@ -3,7 +3,7 @@ use crate::{
   error::RedisError,
   modules::inner::RedisClientInner,
   multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils},
-  protocol::command::{MultiplexerCommand, QueuedCommand, RedisCommand},
+  protocol::command::{MultiplexerCommand, RedisCommand},
   types::{
     ClientState,
     ClusterStateChange,
@@ -19,7 +19,6 @@ use crate::{
     ShutdownFlags,
   },
   utils,
-  utils::send_command,
 };
 use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -107,7 +106,6 @@ where
 }
 
 /// Run a function and wrap the result in an `AsyncResult` trait object.
-#[cfg(feature = "subscriber-client")]
 pub(crate) fn wrap_async<F, Fut, T>(func: F) -> AsyncResult<T>
 where
   Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
@@ -134,16 +132,24 @@ pub(crate) fn send_to_multiplexer(
 ) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
   if let Err(mut e) = inner.command_tx.send(command) {
-    _error!(inner, "Error sending command to multiplexer.");
+    _error!(inner, "Fatal error sending command to multiplexer.");
     inner.counters.decr_cmd_buffer_len();
-    let command = e.0;
-    let error = RedisError::new(RedisErrorKind::Unknown, "Client is not initialized.");
 
-    // TODO respond to caller differently for each command kind
-    // use command.respond_with_error(error)
+    if let MultiplexerCommand::Command(mut command) = e.0 {
+      // if a caller manages to trigger this it means that a connection task is not running
+      command.respond_to_caller(Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Client is not initialized.",
+      )));
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Failed to send command to multiplexer.",
+    ))
+  } else {
+    Ok(())
   }
-
-  Ok(())
 }
 
 /// Any Redis client that implements any part of the Redis interface.
@@ -156,7 +162,7 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   where
     C: Into<RedisCommand>,
   {
-    default_send_command(inner, command)
+    default_send_command(&self.inner(), command)
   }
 
   /// The unique ID identifying this client and underlying connections.
@@ -179,7 +185,7 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// Read the RESP version used by the client when communicating with the server.
   fn protocol_version(&self) -> RespVersion {
-    self.inner().resp_version.as_ref().load().as_ref().clone()
+    self.inner().resp_version.load().as_ref().clone()
   }
 
   /// Whether or not the client has a reconnection policy.

@@ -24,6 +24,7 @@ use std::{
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use crate::protocol::command::RedisCommand;
 #[cfg(feature = "metrics")]
 use std::cmp;
 #[cfg(feature = "metrics")]
@@ -169,6 +170,12 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
   };
 
   None
+}
+
+pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command: &RedisCommand) {
+  if command.blocks_connection() {
+    inner.backchannel.write().await.set_unblocked();
+  }
 }
 
 #[cfg(feature = "reconnect-on-auth-error")]

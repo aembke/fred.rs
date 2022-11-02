@@ -43,14 +43,11 @@ use tokio::{
 const DEFAULT_BROADCAST_CAPACITY: usize = 16;
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
-pub fn check_backpressure<T>(
+pub fn check_backpressure(
   inner: &Arc<RedisClientInner>,
   counters: &Counters,
   command: &RedisCommand,
-) -> Result<Option<Backpressure>, RedisError>
-where
-  T: AsyncRead + AsyncWrite + Unpin + 'static,
-{
+) -> Result<Option<Backpressure>, RedisError> {
   if command.skip_backpressure {
     return Ok(None);
   }
@@ -113,12 +110,12 @@ pub fn prepare_command(
 }
 
 /// Write a command on the provided writer half of a socket.
-pub async fn write_command(
-  inner: &Arc<RedisClientInner>,
-  writer: &mut RedisWriter,
+pub async fn write_command<'a, 'b>(
+  inner: &'a Arc<RedisClientInner>,
+  writer: &'b mut RedisWriter,
   mut command: RedisCommand,
   force_flush: bool,
-) -> Written {
+) -> Written<'b> {
   match check_backpressure(inner, &writer.counters, &command) {
     Ok(Some(backpressure)) => {
       _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
@@ -146,15 +143,15 @@ pub async fn write_command(
     _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
     if command.should_send_write_error(inner) {
       command.respond_to_caller(Err(e.clone()));
-      Written::Disconnect((server, None, e))
+      Written::Disconnect((&writer.server, None, e))
     } else {
       inner.notifications.broadcast_error(e.clone());
-      Written::Disconnect((server, Some(command), e))
+      Written::Disconnect((&writer.server, Some(command), e))
     }
   } else {
-    writer.push_command(command);
     _trace!(inner, "Successfully sent command {}", command.kind.to_str_debug());
-    Written::Sent((server, should_flush))
+    writer.push_command(command);
+    Written::Sent((&writer.server, should_flush))
   }
 }
 
@@ -254,14 +251,18 @@ pub async fn on_reconnect_interval<F, Fut, T, E>(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
   initial_delay: Option<Duration>,
-  func: F,
+  mut func: F,
 ) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
   Fut: Future<Output = Result<T, E>>,
   F: FnMut(&Arc<RedisClientInner>, &mut Multiplexer) -> Fut,
 {
-  let mut delay = initial_delay.unwrap_or_else(|| next_reconnection_delay(inner)?);
+  let mut delay = match initial_delay {
+    Some(delay) => delay,
+    None => next_reconnection_delay(inner)?,
+  };
+
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
@@ -297,18 +298,12 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, multiplexer: &mut Mul
     Err(e)
   } else {
     // try to flush any previously in-flight commands
-    if let Err(e) = multiplexer.retry_buffer().await {
-      _debug!(inner, "Failed retrying command buffer: {:?}", e);
-      client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-      inner.notifications.broadcast_error(e.clone());
-      Err(e)
-    } else {
-      client_utils::set_client_state(&inner.state, ClientState::Connected);
-      inner.notifications.broadcast_connect(Ok(()));
-      inner.notifications.broadcast_reconnect();
-      inner.reset_reconnection_attempts();
-      Ok(())
-    }
+    multiplexer.retry_buffer().await;
+    client_utils::set_client_state(&inner.state, ClientState::Connected);
+    inner.notifications.broadcast_connect(Ok(()));
+    inner.notifications.broadcast_reconnect();
+    inner.reset_reconnection_attempts();
+    Ok(())
   }
 }
 
