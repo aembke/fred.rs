@@ -1,23 +1,28 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue};
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue},
+};
 use bytes_utils::Str;
 use std::convert::TryInto;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 /// Functions that implement the [publish-subscribe](https://redis.io/commands#pubsub) interface.
 pub trait PubsubInterface: ClientLike + Sized {
-  /// Listen for `(channel, message)` tuples on the publish-subscribe interface. **Keyspace events are not sent on this interface.**
+  /// Listen for `(channel, message)` tuples on the publish-subscribe interface. **Keyspace events are not sent on
+  /// this interface.**
   ///
-  /// If the connection to the Redis server closes for any reason this function does not need to be called again. Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
+  /// If the connection to the Redis server closes for any reason this function does not need to be called again.
+  /// Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
   fn on_message(&self) -> BroadcastReceiver<(String, RedisValue)> {
     self.inner().notifications.pubsub.subscribe()
   }
 
   /// Listen for keyspace and keyevent notifications on the publish subscribe interface.
   ///
-  /// Callers still need to configure the server and subscribe to the relevant channels, but this interface will format the messages automatically.
+  /// Callers still need to configure the server and subscribe to the relevant channels, but this interface will
+  /// format the messages automatically.
   ///
   /// If the connection to the Redis server closes for any reason this function does not need to be called again.
   ///
@@ -26,7 +31,8 @@ pub trait PubsubInterface: ClientLike + Sized {
     self.inner().notifications.keyspace.subscribe()
   }
 
-  /// Subscribe to a channel on the publish-subscribe interface, returning the number of channels to which the client is subscribed.
+  /// Subscribe to a channel on the publish-subscribe interface, returning the number of channels to which the client
+  /// is subscribed.
   ///
   /// <https://redis.io/commands/subscribe>
   fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>
@@ -35,11 +41,12 @@ pub trait PubsubInterface: ClientLike + Sized {
   {
     into!(channel);
     async_spawn(self, |_self| async move {
-      commands::pubsub::subscribe(_self, channel).await
+      commands::pubsub::subscribe(_self, channel).await?.convert()
     })
   }
 
-  /// Unsubscribe from a channel on the PubSub interface, returning the number of channels to which hte client is subscribed.
+  /// Unsubscribe from a channel on the PubSub interface, returning the number of channels to which hte client is
+  /// subscribed.
   ///
   /// <https://redis.io/commands/unsubscribe>
   fn unsubscribe<S>(&self, channel: S) -> AsyncResult<usize>
@@ -48,7 +55,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   {
     into!(channel);
     async_spawn(self, |_self| async move {
-      commands::pubsub::unsubscribe(_self, channel).await
+      commands::pubsub::unsubscribe(_self, channel).await?.convert()
     })
   }
 
@@ -61,7 +68,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   {
     into!(patterns);
     async_spawn(self, |_self| async move {
-      commands::pubsub::psubscribe(_self, patterns).await
+      commands::pubsub::psubscribe(_self, patterns).await?.convert()
     })
   }
 
@@ -74,7 +81,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   {
     into!(patterns);
     async_spawn(self, |_self| async move {
-      commands::pubsub::punsubscribe(_self, patterns).await
+      commands::pubsub::punsubscribe(_self, patterns).await?.convert()
     })
   }
 

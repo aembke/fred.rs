@@ -323,9 +323,6 @@ pub struct PerformanceConfig {
   /// The amount of time, in milliseconds, to wait after a `MOVED` error is received before the client will update
   /// the cached cluster state.
   ///
-  /// If `0` the client will follow cluster redirects as quickly as possible. However, this can result in some
-  /// unnecessary state synchronization overhead when large values are being moved between nodes.
-  ///
   /// Default: 0 ms
   pub cluster_cache_update_delay_ms: u32,
 }

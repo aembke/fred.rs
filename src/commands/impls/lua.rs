@@ -26,16 +26,16 @@ pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Re
       for key in keys.iter() {
         let key_slot = redis_keyslot(key.as_bytes());
 
-        if let Some(slot) = state.get_server(key_slot) {
+        if let Some(server) = state.get_server(key_slot) {
           if let Some(ref cmd_server) = cmd_server {
-            if *cmd_server != slot.id {
+            if *cmd_server != server {
               return Err(RedisError::new(
                 RedisErrorKind::Cluster,
                 "All keys must belong to the same cluster node.",
               ));
             }
           } else {
-            cmd_server = Some(slot.id.clone());
+            cmd_server = Some(server.clone());
             cmd_slot = Some(key_slot);
           }
         } else {

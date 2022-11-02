@@ -2,7 +2,7 @@ use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
-  types::{ConnectHandle, ReconnectPolicy, RedisConfig},
+  types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig},
   utils,
 };
 use futures::future::{join_all, try_join_all};
@@ -54,7 +54,8 @@ impl<'a> From<&'a RedisPool> for RedisClient {
 
 impl RedisPool {
   /// Create a new pool without connecting to the server.
-  pub fn new(config: RedisConfig, size: usize) -> Result<Self, RedisError> {
+  // TODO rename the perf config struct and argument names
+  pub fn new(config: RedisConfig, perf: PerformanceConfig, size: usize) -> Result<Self, RedisError> {
     if size > 0 {
       let mut clients = Vec::with_capacity(size);
       for _ in 0 .. size {
@@ -78,8 +79,8 @@ impl RedisPool {
   /// Connect each client to the server, returning the task driving each connection.
   ///
   /// The caller is responsible for calling `wait_for_connect` or any `on_*` functions on each client.
-  pub fn connect(&self, policy: Option<ReconnectPolicy>) -> Vec<ConnectHandle> {
-    self.inner.clients.iter().map(|c| c.connect(policy.clone())).collect()
+  pub fn connect(&self) -> Vec<ConnectHandle> {
+    self.inner.clients.iter().map(|c| c.connect()).collect()
   }
 
   /// Wait for all the clients to connect to the server.

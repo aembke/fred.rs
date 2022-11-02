@@ -1,11 +1,16 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::responders::ResponseKind;
-use crate::protocol::types::*;
-use crate::types::*;
-use crate::{interfaces, utils};
+use crate::{
+  error::*,
+  interfaces,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    responders::ResponseKind,
+    types::*,
+  },
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
 use std::sync::Arc;
@@ -70,10 +75,10 @@ pub fn scan_cluster(
   for slot in hash_slots.into_iter() {
     _trace!(inner, "Scan cluster hash slot server: {}", slot);
     let response = ResponseKind::KeyScan(KeyScanInner {
-      hash_slot: Some(slot),
-      args: args.clone(),
+      hash_slot:  Some(slot),
+      args:       args.clone(),
       cursor_idx: 0,
-      tx: tx.clone(),
+      tx:         tx.clone(),
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
@@ -134,7 +139,7 @@ pub fn scan(
     cursor_idx: 0,
     tx: tx.clone(),
   });
-  let command = (RedisCommandKind::Scan, Vec::new(), response).into();
+  let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
   if let Err(e) = interfaces::default_send_command(inner, command) {
     early_error(&tx, e);
@@ -166,7 +171,7 @@ pub fn hscan(
   UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
     match result {
       ValueScanResult::HScan(res) => Ok(Some(res)),
-      _ => Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected HSCAN result.")),
+      _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected HSCAN result.")),
     }
   })
 }
@@ -194,7 +199,7 @@ pub fn sscan(
   UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
     match result {
       ValueScanResult::SScan(res) => Ok(Some(res)),
-      _ => Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected SSCAN result.")),
+      _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected SSCAN result.")),
     }
   })
 }
@@ -222,7 +227,7 @@ pub fn zscan(
   UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
     match result {
       ValueScanResult::ZScan(res) => Ok(Some(res)),
-      _ => Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected ZSCAN result.")),
+      _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected ZSCAN result.")),
     }
   })
 }
