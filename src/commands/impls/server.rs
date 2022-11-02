@@ -154,10 +154,10 @@ pub async fn hello<C: ClientLike>(
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
-    let command: RedisCommand = (RedisCommandKind::_HelloAllCluster(version), response).into();
-    let _ = client.send_command(command)?;
+    let mut command: RedisCommand = RedisCommandKind::_HelloAllCluster(version).into();
+    command.response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
 
+    let _ = client.send_command(command)?;
     let _ = rx.await??;
     Ok(())
   } else {

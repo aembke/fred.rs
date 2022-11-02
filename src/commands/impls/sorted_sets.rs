@@ -1,13 +1,16 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
-use std::convert::TryInto;
-use std::sync::Arc;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
+use std::{convert::TryInto, sync::Arc};
 
 fn new_range_error(kind: &Option<ZSort>) -> Result<(), RedisError> {
   if let Some(ref sort) = *kind {
@@ -119,7 +122,7 @@ pub async fn zadd<C: ClientLike>(
 }
 
 pub async fn zcard<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(client, RedisCommandKind::Zcard, key.into().into()).await
+  one_arg_value_cmd(client, RedisCommandKind::Zcard, key.into()).await
 }
 
 pub async fn zcount<C: ClientLike>(client: C, key: RedisKey, min: f64, max: f64) -> Result<RedisValue, RedisError> {
@@ -267,7 +270,7 @@ pub async fn zpopmax<C: ClientLike>(
   let args = if let Some(count) = count {
     vec![key.into(), count.try_into()?]
   } else {
-    vec![key.into().into()]
+    vec![key.into()]
   };
 
   args_values_cmd(client, RedisCommandKind::Zpopmax, args).await
@@ -281,7 +284,7 @@ pub async fn zpopmin<C: ClientLike>(
   let args = if let Some(count) = count {
     vec![key.into(), count.try_into()?]
   } else {
-    vec![key.into().into()]
+    vec![key.into()]
   };
 
   args_values_cmd(client, RedisCommandKind::Zpopmin, args).await
@@ -536,10 +539,11 @@ pub async fn zremrangebylex<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     let _ = check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
-    Ok((
-      RedisCommandKind::Zremrangebylex,
-      vec![key.into(), min.into_value()?, max.into_value()?],
-    ))
+    Ok((RedisCommandKind::Zremrangebylex, vec![
+      key.into(),
+      min.into_value()?,
+      max.into_value()?,
+    ]))
   })
   .await?;
 
@@ -565,10 +569,11 @@ pub async fn zremrangebyscore<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     let _ = check_range_types(&min, &max, &Some(ZSort::ByScore))?;
 
-    Ok((
-      RedisCommandKind::Zremrangebyscore,
-      vec![key.into(), min.into_value()?, max.into_value()?],
-    ))
+    Ok((RedisCommandKind::Zremrangebyscore, vec![
+      key.into(),
+      min.into_value()?,
+      max.into_value()?,
+    ]))
   })
   .await?;
 

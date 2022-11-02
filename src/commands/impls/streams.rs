@@ -374,7 +374,7 @@ pub async fn xreadgroup<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::Xreadgroup, args).into();
     command.can_pipeline = !is_blocking;
-    command.hasher = hash_slot.unwrap_or(ClusterHash::None);
+    command.hasher = hash_slot.unwrap_or(ClusterHash::Random);
     Ok(command)
   })
   .await?;

@@ -1,18 +1,20 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{MemoryStats, RedisKey};
-use crate::utils;
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  types::{MemoryStats, RedisKey},
+  utils,
+};
 
 /// Functions that implement the [Memory](https://redis.io/commands#server) interface.
 pub trait MemoryInterface: ClientLike + Sized {
-  /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and advises about possible remedies.
+  /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and
+  /// advises about possible remedies.
   ///
   /// <https://redis.io/commands/memory-doctor>
   fn memory_doctor(&self) -> AsyncResult<String> {
-    async_spawn(
-      self,
-      |_self| async move { commands::memory::memory_doctor(_self).await },
-    )
+    async_spawn(self, |_self| async move {
+      commands::memory::memory_doctor(_self).await?.convert()
+    })
   }
 
   /// The MEMORY MALLOC-STATS command provides an internal statistics report from the memory allocator.
@@ -20,7 +22,7 @@ pub trait MemoryInterface: ClientLike + Sized {
   /// <https://redis.io/commands/memory-malloc-stats>
   fn memory_malloc_stats(&self) -> AsyncResult<String> {
     async_spawn(self, |_self| async move {
-      commands::memory::memory_malloc_stats(_self).await
+      commands::memory::memory_malloc_stats(_self).await?.convert()
     })
   }
 
@@ -47,7 +49,7 @@ pub trait MemoryInterface: ClientLike + Sized {
   {
     into!(key);
     async_spawn(self, |_self| async move {
-      commands::memory::memory_usage(_self, key, samples).await
+      commands::memory::memory_usage(_self, key, samples).await?.convert()
     })
   }
 }

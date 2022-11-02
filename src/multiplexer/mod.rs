@@ -567,34 +567,40 @@ impl Multiplexer {
   ///
   /// The associated connection will be dropped if needed.
   pub async fn write_once(&mut self, command: RedisCommand, server: &str) -> Result<(), RedisError> {
-    debug!(
-      "{}: Writing `{}` command once to {}",
-      self.inner.id,
+    // clean this up
+    let inner = self.inner.clone();
+
+    _debug!(
+      inner,
+      "Writing `{}` command once to {}",
       command.kind.to_str_debug(),
       server
     );
 
-    let mut writer = match self.connections.get_connection_mut(server) {
-      Some(writer) => writer,
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Unknown,
-          format!("Failed to find connection for {}", server),
-        ))
-      },
-    };
     let is_blocking = command.blocks_connection();
+    let write_result = {
+      let mut writer = match self.connections.get_connection_mut(server) {
+        Some(writer) => writer,
+        None => {
+          return Err(RedisError::new(
+            RedisErrorKind::Unknown,
+            format!("Failed to find connection for {}", server),
+          ))
+        },
+      };
 
-    match utils::write_command(&self.inner, writer, command, true).await {
+      utils::write_command(&inner, writer, command, true).await
+    };
+
+    match write_result {
       Written::Disconnect((server, command, error)) => {
-        // TODO need to rework this to avoid borrowck errors
-        let buffer = self.connections.disconnect(&self.inner, Some(server)).await;
+        let buffer = self.connections.disconnect(&inner, Some(server)).await;
         self.buffer.extend(buffer.into_iter());
 
         if let Some(command) = command {
-          debug!(
-            "{}: Dropping command after write failure in write_once: {}",
-            self.inner.id,
+          _debug!(
+            inner,
+            "Dropping command after write failure in write_once: {}",
             command.kind.to_str_debug()
           );
         }
@@ -604,7 +610,7 @@ impl Multiplexer {
       Written::Sent((server, flushed)) => {
         trace!("{}: Sent command to {} (flushed: {})", self.inner.id, server, flushed);
         if is_blocking {
-          self.inner.backchannel.write().await.set_blocked(&server);
+          inner.backchannel.write().await.set_blocked(&server);
         }
         if !flushed {
           let _ = self.check_and_flush().await?;

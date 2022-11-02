@@ -1,11 +1,10 @@
-use crate::error::RedisError;
-use crate::interfaces::ClientLike;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::RedisCommandKind;
-use crate::protocol::utils as protocol_utils;
-use crate::types::RedisValue;
-use crate::utils;
-use std::sync::Arc;
+use crate::{
+  error::RedisError,
+  interfaces::ClientLike,
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  types::RedisValue,
+  utils,
+};
 
 pub static MATCH: &'static str = "MATCH";
 pub static COUNT: &'static str = "COUNT";
@@ -51,7 +50,8 @@ pub static RETRYCOUNT: &'static str = "RETRYCOUNT";
 pub static JUSTID: &'static str = "JUSTID";
 pub static SAMPLES: &'static str = "SAMPLES";
 
-/// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the caller.
+/// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the
+/// caller.
 macro_rules! ok_cmd(
   ($name:ident, $cmd:tt) => {
     pub async fn $name<C: ClientLike>(client: C) -> Result<(), RedisError> {
@@ -79,7 +79,8 @@ macro_rules! value_cmd(
   }
 );
 
-/// Macro to generate a command function that takes no arguments and returns a potentially nested `RedisValue` to the caller.
+/// Macro to generate a command function that takes no arguments and returns a potentially nested `RedisValue` to the
+/// caller.
 macro_rules! values_cmd(
   ($name:ident, $cmd:tt) => {
     pub async fn $name<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
@@ -109,7 +110,8 @@ pub async fn one_arg_values_cmd<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-/// A function that issues a command that only takes one argument and expects an OK response - returning `()` to the caller.
+/// A function that issues a command that only takes one argument and expects an OK response - returning `()` to the
+/// caller.
 pub async fn one_arg_ok_cmd<C: ClientLike>(
   client: C,
   kind: RedisCommandKind,
@@ -121,7 +123,8 @@ pub async fn one_arg_ok_cmd<C: ClientLike>(
   protocol_utils::expect_ok(&response)
 }
 
-/// A function that issues a command that takes any number of arguments and returns a single `RedisValue` to the caller.
+/// A function that issues a command that takes any number of arguments and returns a single `RedisValue` to the
+/// caller.
 pub async fn args_value_cmd<C: ClientLike>(
   client: C,
   kind: RedisCommandKind,
@@ -131,7 +134,8 @@ pub async fn args_value_cmd<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-/// A function that issues a command that takes any number of arguments and returns a potentially nested `RedisValue` to the caller.
+/// A function that issues a command that takes any number of arguments and returns a potentially nested `RedisValue`
+/// to the caller.
 pub async fn args_values_cmd<C: ClientLike>(
   client: C,
   kind: RedisCommandKind,
@@ -141,7 +145,8 @@ pub async fn args_values_cmd<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-/// A function that issues a command that takes any number of arguments and expects an OK response - returning `()` to the caller.
+/// A function that issues a command that takes any number of arguments and expects an OK response - returning `()` to
+/// the caller.
 pub async fn args_ok_cmd<C: ClientLike>(
   client: C,
   kind: RedisCommandKind,

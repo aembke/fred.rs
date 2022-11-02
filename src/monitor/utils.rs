@@ -22,6 +22,7 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
+use crate::protocol::connection::ConnectionKind;
 
 #[cfg(feature = "blocking-encoding")]
 async fn handle_monitor_frame(
@@ -108,9 +109,12 @@ async fn forward_results<T>(
 async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Command>, connection: RedisTransport) {
   _debug!(inner, "Starting monitor stream processing...");
 
-  match connection {
-    RedisTransport::Tcp(framed) => forward_results(inner, tx, framed).await,
-    RedisTransport::Tls(framed) => forward_results(inner, tx, framed).await,
+  match connection.transport {
+    ConnectionKind::Tcp(framed) => forward_results(inner, tx, framed).await,
+    #[cfg(feature = "enable-rustls")]
+    ConnectionKind::Rustls(framed) => forward_results(inner, tx, framed).await,
+    #[cfg(feature = "enable-native-tls")]
+    ConnectionKind::NativeTls(framed) => forward_results(inner, tx, framed).await,
   };
 
   _warn!(inner, "Stopping monitor stream.");

@@ -188,6 +188,7 @@ pub enum ServerState {
     /// The cached cluster routing table.
     cache: Option<ClusterRouting>,
   },
+  Centralized,
 }
 
 impl ServerState {
@@ -199,7 +200,7 @@ impl ServerState {
         sentinels: hosts.clone(),
         primary:   None,
       },
-      ServerConfig::Centralized { .. } => ServerState::Centralized {},
+      ServerConfig::Centralized { .. } => ServerState::Centralized,
     }
   }
 }
@@ -227,7 +228,7 @@ pub struct RedisClientInner {
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
   // TODO make this generic via the Resolve trait
-  pub resolver:      DefaultResolver,
+  pub resolver: DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.

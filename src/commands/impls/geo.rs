@@ -1,13 +1,11 @@
 use super::*;
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::RedisError,
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use std::convert::TryInto;
-use std::sync::Arc;
 
 static WITH_COORD: &'static str = "WITHCOORD";
 static WITH_DIST: &'static str = "WITHDIST";

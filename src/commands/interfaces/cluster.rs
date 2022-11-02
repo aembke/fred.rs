@@ -1,28 +1,33 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::protocol::types::ClusterRouting;
-use crate::types::{
-  ClusterFailoverFlag, ClusterInfo, ClusterResetFlag, ClusterSetSlotState, FromRedis, MultipleHashSlots, RedisKey,
-  RedisValue,
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike},
+  protocol::types::ClusterRouting,
+  types::{
+    ClusterFailoverFlag,
+    ClusterInfo,
+    ClusterResetFlag,
+    ClusterSetSlotState,
+    FromRedis,
+    MultipleHashSlots,
+    RedisKey,
+    RedisValue,
+  },
+  utils,
 };
-use crate::utils;
 use bytes_utils::Str;
 
 /// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
 pub trait ClusterInterface: ClientLike + Sized {
   /// Read the cached cluster state used for routing commands to the correct cluster nodes.
   fn cached_cluster_state(&self) -> Option<ClusterRouting> {
-    self.inner().cluster_state.load().as_ref().clone()
+    self.inner().with_cluster_state(|state| Ok(state.clone())).ok()
   }
 
   /// Read the number of known primary cluster nodes, or `0` if the cluster state is not known.
   fn num_primary_cluster_nodes(&self) -> usize {
     self
       .inner()
-      .cluster_state
-      .load()
-      .as_ref()
-      .map(|s| s.unique_primary_nodes().len())
+      .with_cluster_state(|state| Ok(state.unique_primary_nodes().len()))
       .unwrap_or(0)
   }
 
@@ -61,7 +66,8 @@ pub trait ClusterInterface: ClientLike + Sized {
 
   /// Read the current cluster node configuration.
   ///
-  /// Note: The client keeps a cached, parsed version of the cluster state in memory available at [cached_cluster_state](Self::cached_cluster_state).
+  /// Note: The client keeps a cached, parsed version of the cluster state in memory available at
+  /// [cached_cluster_state](Self::cached_cluster_state).
   ///
   /// <https://redis.io/commands/cluster-nodes>
   fn cluster_nodes(&self) -> AsyncResult<String> {
@@ -99,7 +105,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     )
   }
 
-  /// This command is useful in order to modify a node's view of the cluster configuration. Specifically it assigns a set of hash slots to the node receiving the command.
+  /// This command is useful in order to modify a node's view of the cluster configuration. Specifically it assigns a
+  /// set of hash slots to the node receiving the command.
   ///
   /// <https://redis.io/commands/cluster-addslots>
   fn cluster_add_slots<S>(&self, slots: S) -> AsyncResult<()>
@@ -142,7 +149,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// The CLUSTER DELSLOTS command asks a particular Redis Cluster node to forget which master is serving the hash slots specified as arguments.
+  /// The CLUSTER DELSLOTS command asks a particular Redis Cluster node to forget which master is serving the hash
+  /// slots specified as arguments.
   ///
   /// <https://redis.io/commands/cluster-delslots>
   fn cluster_del_slots<S>(&self, slots: S) -> AsyncResult<()>
@@ -155,7 +163,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// This command, that can only be sent to a Redis Cluster replica node, forces the replica to start a manual failover of its master instance.
+  /// This command, that can only be sent to a Redis Cluster replica node, forces the replica to start a manual
+  /// failover of its master instance.
   ///
   /// <https://redis.io/commands/cluster-failover>
   fn cluster_failover(&self, flag: Option<ClusterFailoverFlag>) -> AsyncResult<()> {
@@ -164,8 +173,9 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// The command is used in order to remove a node, specified via its node ID, from the set of known nodes of the Redis Cluster node receiving the command.
-  /// In other words the specified node is removed from the nodes table of the node receiving the command.
+  /// The command is used in order to remove a node, specified via its node ID, from the set of known nodes of the
+  /// Redis Cluster node receiving the command. In other words the specified node is removed from the nodes table of
+  /// the node receiving the command.
   ///
   /// <https://redis.io/commands/cluster-forget>
   fn cluster_forget<S>(&self, node_id: S) -> AsyncResult<()>
@@ -206,7 +216,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// CLUSTER MEET is used in order to connect different Redis nodes with cluster support enabled, into a working cluster.
+  /// CLUSTER MEET is used in order to connect different Redis nodes with cluster support enabled, into a working
+  /// cluster.
   ///
   /// <https://redis.io/commands/cluster-meet>
   fn cluster_meet<S>(&self, ip: S, port: u16) -> AsyncResult<()>
@@ -219,8 +230,8 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// The command reconfigures a node as a replica of the specified master. If the node receiving the command is an empty master, as
-  /// a side effect of the command, the node role is changed from master to replica.
+  /// The command reconfigures a node as a replica of the specified master. If the node receiving the command is an
+  /// empty master, as a side effect of the command, the node role is changed from master to replica.
   ///
   /// <https://redis.io/commands/cluster-replicate>
   fn cluster_replicate<S>(&self, node_id: S) -> AsyncResult<()>
@@ -246,9 +257,9 @@ pub trait ClusterInterface: ClientLike + Sized {
     })
   }
 
-  /// Reset a Redis Cluster node, in a more or less drastic way depending on the reset type, that can be hard or soft. Note that
-  /// this command does not work for masters if they hold one or more keys, in that case to completely reset a master node keys
-  /// must be removed first, e.g. by using FLUSHALL first, and then CLUSTER RESET.
+  /// Reset a Redis Cluster node, in a more or less drastic way depending on the reset type, that can be hard or soft.
+  /// Note that this command does not work for masters if they hold one or more keys, in that case to completely
+  /// reset a master node keys must be removed first, e.g. by using FLUSHALL first, and then CLUSTER RESET.
   ///
   /// <https://redis.io/commands/cluster-reset>
   fn cluster_reset(&self, mode: Option<ClusterResetFlag>) -> AsyncResult<()> {

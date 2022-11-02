@@ -1,10 +1,7 @@
 use super::*;
 use crate::{
-  error::RedisErrorKind,
-  modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
-    responders::ResponseKind,
     types::*,
     utils as protocol_utils,
   },
@@ -12,8 +9,6 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
-use std::sync::Arc;
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 value_cmd!(client_id, ClientID);
 value_cmd!(client_info, ClientInfo);

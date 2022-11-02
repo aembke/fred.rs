@@ -105,7 +105,7 @@ pub async fn sismember<C: ClientLike>(
   key: RedisKey,
   member: RedisValue,
 ) -> Result<RedisValue, RedisError> {
-  args_value_cmd(client.inner(), RedisCommandKind::Sismember, vec![key.into(), member]).await
+  args_value_cmd(client, RedisCommandKind::Sismember, vec![key.into(), member]).await
 }
 
 pub async fn smismember<C: ClientLike>(

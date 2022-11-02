@@ -45,5 +45,5 @@ pub async fn slowlog_length<C: ClientLike>(client: C) -> Result<u64, RedisError>
 }
 
 pub async fn slowlog_reset<C: ClientLike>(client: C) -> Result<(), RedisError> {
-  args_ok_cmd(client.inner(), RedisCommandKind::Slowlog, vec![static_val!(RESET)]).await
+  args_ok_cmd(client, RedisCommandKind::Slowlog, vec![static_val!(RESET)]).await
 }

@@ -1,10 +1,9 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::types::*;
+use crate::{
+  protocol::{command::RedisCommandKind, types::*},
+  types::*,
+};
 use bytes_utils::Str;
-use std::sync::Arc;
 
 ok_cmd!(config_resetstat, ConfigResetStat);
 ok_cmd!(config_rewrite, ConfigRewrite);

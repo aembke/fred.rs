@@ -1,20 +1,24 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::hashers::ClusterHash;
-use crate::protocol::responders::ResponseKind;
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::util::sha1_hash;
-use crate::utils;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    hashers::ClusterHash,
+    responders::ResponseKind,
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  util::sha1_hash,
+  utils,
+};
 use bytes_utils::Str;
-use std::convert::TryInto;
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-/// Check that all the keys in an EVAL* command belong to the same server, returning a key slot that maps to that server.
+/// Check that all the keys in an EVAL* command belong to the same server, returning a key slot that maps to that
+/// server.
 pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Result<Option<u16>, RedisError> {
   if inner.config.server.is_clustered() {
     inner.with_cluster_state(|state| {
@@ -153,7 +157,9 @@ pub async fn evalsha<C: ClientLike>(
     }
 
     let mut command: RedisCommand = (RedisCommandKind::EvalSha, args).into();
-    command.hasher = ClusterHash::Custom(custom_key_slot);
+    command.hasher = custom_key_slot
+      .map(|slot| ClusterHash::Custom(slot))
+      .unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -184,7 +190,9 @@ pub async fn eval<C: ClientLike>(
     }
 
     let mut command: RedisCommand = (RedisCommandKind::Eval, args).into();
-    command.hasher = ClusterHash::Custom(custom_key_slot);
+    command.hasher = custom_key_slot
+      .map(|slot| ClusterHash::Custom(slot))
+      .unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })

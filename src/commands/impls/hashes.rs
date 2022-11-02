@@ -1,11 +1,6 @@
 use super::*;
 use crate::{
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
@@ -68,7 +63,7 @@ pub async fn hkeys<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue
 }
 
 pub async fn hlen<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(client.inner(), RedisCommandKind::HLen, key.into()).await
+  one_arg_value_cmd(client, RedisCommandKind::HLen, key.into()).await
 }
 
 pub async fn hmget<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {

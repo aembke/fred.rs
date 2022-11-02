@@ -1,4 +1,9 @@
-use crate::{error::RedisError, protocol::tls::TlsConfig, types::RedisValue, utils as client_utils};
+use crate::{
+  error::RedisError,
+  protocol::tls::TlsConfig,
+  types::{RedisConfig, RedisValue},
+  utils as client_utils,
+};
 use futures::Stream;
 use std::fmt;
 
@@ -50,41 +55,9 @@ impl fmt::Display for Command {
   }
 }
 
-/// Configuration options for the `MONITOR` command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Config {
-  pub host:     String,
-  pub port:     u16,
-  pub username: Option<String>,
-  pub password: Option<String>,
-  #[cfg(feature = "enable-native-tls")]
-  pub tls:      Option<TlsConfig>,
-}
-
-impl Default for Config {
-  #[cfg(feature = "enable-native-tls")]
-  fn default() -> Self {
-    Config {
-      host:     "127.0.0.1".into(),
-      port:     6379,
-      username: None,
-      password: None,
-      tls:      None,
-    }
-  }
-
-  #[cfg(not(feature = "enable-native-tls"))]
-  fn default() -> Self {
-    Config {
-      host:     "127.0.0.1".into(),
-      port:     6379,
-      username: None,
-      password: None,
-    }
-  }
-}
-
 /// Run the [MONITOR](https://redis.io/commands/monitor) command against the provided server.
-pub async fn run(config: Config) -> Result<impl Stream<Item = Command>, RedisError> {
+///
+/// Currently only centralized configurations are supported.
+pub async fn run(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
   utils::start(config).await
 }

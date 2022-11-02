@@ -1,14 +1,12 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::*,
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  types::*,
+  utils,
+};
 use bytes_utils::Str;
 use redis_protocol::resp3::types::Frame;
-use std::sync::Arc;
 
 ok_cmd!(acl_load, AclLoad);
 ok_cmd!(acl_save, AclSave);
@@ -48,7 +46,7 @@ pub async fn acl_getuser<C: ClientLike>(client: C, username: Str) -> Result<Opti
     protocol_utils::parse_acl_getuser_frames(data).map(|u| Some(u))
   } else {
     Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid response frame. Expected array or nil.",
     ))
   }

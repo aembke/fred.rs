@@ -1,11 +1,15 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
 use redis_protocol::resp3::types::Frame;
 use std::sync::Arc;
 
@@ -20,10 +24,7 @@ pub async fn memory_stats<C: ClientLike>(client: C) -> Result<MemoryStats, Redis
   if let Frame::Array { data, .. } = frame {
     protocol_utils::parse_memory_stats(&data)
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected array response.",
-    ))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array response."))
   }
 }
 
