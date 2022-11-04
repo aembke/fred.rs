@@ -179,7 +179,7 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
     .into_iter()
     .enumerate()
     .map(|(idx, mut cmd)| {
-      cmd.response = response.clone();
+      cmd.response = response.duplicate().unwrap_or(ResponseKind::Skip);
       cmd.response.set_expected_index(idx);
       cmd
     })
@@ -196,12 +196,13 @@ async fn send_last(
   commands: VecDeque<RedisCommand>,
 ) -> Result<RedisValue, RedisError> {
   if commands.is_empty() {
-    return Ok(RedisValue::Array(Vec::new()));
+    return Ok(RedisValue::Null);
   }
 
+  let len = commands.len();
   let (tx, rx) = oneshot_channel();
   let mut commands: Vec<RedisCommand> = commands.into_iter().collect();
-  commands[commands.len() - 1].response = ResponseKind::Respond(Some(tx));
+  commands[len - 1].response = ResponseKind::Respond(Some(tx));
   let command = MultiplexerCommand::Pipeline { commands };
 
   let _ = interfaces::send_to_multiplexer(inner, command)?;

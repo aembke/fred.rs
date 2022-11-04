@@ -190,7 +190,7 @@ impl RedisClient {
     K: Into<RedisKey>,
     P: Into<Str>,
   {
-    commands::scan::hscan(&self.inner, key, pattern.into(), count)
+    commands::scan::hscan(&self.inner, key.into(), pattern.into(), count)
   }
 
   /// Incrementally iterate over pages of the set stored at `key`, returning `count` results per page, if specified.
@@ -206,7 +206,7 @@ impl RedisClient {
     K: Into<RedisKey>,
     P: Into<Str>,
   {
-    commands::scan::sscan(&self.inner, key, pattern.into(), count)
+    commands::scan::sscan(&self.inner, key.into(), pattern.into(), count)
   }
 
   /// Incrementally iterate over pages of the sorted set stored at `key`, returning `count` results per page, if
@@ -223,7 +223,7 @@ impl RedisClient {
     K: Into<RedisKey>,
     P: Into<Str>,
   {
-    commands::scan::zscan(&self.inner, key, pattern.into(), count)
+    commands::scan::zscan(&self.inner, key.into(), pattern.into(), count)
   }
 }
 

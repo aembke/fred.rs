@@ -103,7 +103,7 @@ impl Stream for ConnectionKind {
   type Item = Result<ProtocolFrame, RedisError>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-    match self {
+    match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
@@ -127,7 +127,7 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   type Error = RedisError;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self {
+    match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
@@ -137,7 +137,7 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   }
 
   fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
-    match self {
+    match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
@@ -147,7 +147,7 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   }
 
   fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self {
+    match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
@@ -157,7 +157,7 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   }
 
   fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self {
+    match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
@@ -179,22 +179,22 @@ impl Stream for SplitStreamKind {
   type Item = Result<ProtocolFrame, RedisError>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-    match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
+    match self.get_mut() {
+      SplitStreamKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
+      SplitStreamKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_next(cx),
+      SplitStreamKind::NativeTls(ref mut conn) => Pin::new(conn).poll_next(cx),
     }
   }
 
   fn size_hint(&self) -> (usize, Option<usize>) {
     match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).size_hint(),
+      SplitStreamKind::Tcp(ref mut conn) => Pin::new(conn).size_hint(),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).size_hint(),
+      SplitStreamKind::Rustls(ref mut conn) => Pin::new(conn).size_hint(),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).size_hint(),
+      SplitStreamKind::NativeTls(ref mut conn) => Pin::new(conn).size_hint(),
     }
   }
 }
@@ -211,42 +211,42 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
   type Error = RedisError;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
+    match self.get_mut() {
+      SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_ready(cx),
     }
   }
 
   fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
-    match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
+    match self.get_mut() {
+      SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
+      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).start_send(item),
+      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).start_send(item),
     }
   }
 
   fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+    match self.get_mut() {
+      SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
     }
   }
 
   fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-    match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+    match self.get_mut() {
+      SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
     }
   }
 }

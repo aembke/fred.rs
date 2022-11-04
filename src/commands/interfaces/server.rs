@@ -4,6 +4,7 @@ use crate::{
   types::{FromRedis, RespVersion},
   utils,
 };
+use arcstr::ArcStr;
 use bytes_utils::Str;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
@@ -159,5 +160,15 @@ pub trait ServerInterface: ClientLike + Sized {
     async_spawn(self, |_self| async move {
       commands::server::lastsave(_self).await?.convert()
     })
+  }
+
+  /// Read the primary Redis server identifier returned from the sentinel nodes.
+  fn sentinel_primary(&self) -> Option<ArcStr> {
+    self.inner().sentinel_primary()
+  }
+
+  /// Read the set of known sentinel nodes.
+  fn sentinel_nodes(&self) -> Option<Vec<(String, u16)>> {
+    self.inner().read_sentinel_nodes()
   }
 }

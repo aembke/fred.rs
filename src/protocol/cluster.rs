@@ -23,7 +23,7 @@ fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
         Ok(i as u16)
       }
     },
-    RedisValue::String(s) => s.parse::<u16>()?,
+    RedisValue::String(s) => s.parse::<u16>().map_err(|e| e.into()),
     _ => Err(RedisError::new(
       RedisErrorKind::Parse,
       "Could not parse value as cluster slot.",

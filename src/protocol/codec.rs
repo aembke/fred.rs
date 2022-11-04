@@ -2,6 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{types::ProtocolFrame, utils as protocol_utils},
+  utils,
 };
 use bytes::BytesMut;
 use redis_protocol::{
@@ -12,7 +13,10 @@ use redis_protocol::{
     types::{Frame as Resp3Frame, RespVersion, StreamedFrame},
   },
 };
-use std::sync::Arc;
+use std::sync::{
+  atomic::{AtomicBool, AtomicUsize},
+  Arc,
+};
 use tokio_util::codec::{Decoder, Encoder};
 
 #[cfg(feature = "blocking-encoding")]
@@ -121,7 +125,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
 
     if codec.streaming_state.is_some() && frame.is_streaming() {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Cannot start a stream while already inside a stream.",
       ));
     }
@@ -187,7 +191,7 @@ fn resp2_decode_with_fallback(
 pub struct RedisCodec {
   pub name:            ArcStr,
   pub server:          ArcStr,
-  pub version:         Arc<ArcSwap<RespVersion>>,
+  pub resp3:           Arc<AtomicBool>,
   pub streaming_state: Option<StreamedFrame>,
   #[cfg(feature = "metrics")]
   pub req_size_stats:  Arc<RwLock<MovingStats>>,
@@ -200,7 +204,7 @@ impl RedisCodec {
     RedisCodec {
       server:                                     server.clone(),
       name:                                       inner.id.clone(),
-      version:                                    inner.resp_version.clone(),
+      resp3:                                      inner.shared_resp3(),
       streaming_state:                            None,
       #[cfg(feature = "metrics")]
       req_size_stats:                             inner.req_size_stats.clone(),
@@ -210,7 +214,7 @@ impl RedisCodec {
   }
 
   pub fn is_resp3(&self) -> bool {
-    *self.version.as_ref().load().as_ref() == RespVersion::RESP3
+    utils::read_bool_atomic(&self.resp3)
   }
 }
 

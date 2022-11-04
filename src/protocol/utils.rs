@@ -29,7 +29,8 @@ macro_rules! parse_or_zero(
 );
 
 pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
-  if inner.performance.as_ref().load().pipeline {
+  if inner.performance.load().as_ref().auto_pipeline {
+    // TODO make this configurable
     256
   } else {
     1
@@ -71,14 +72,8 @@ pub fn queued_frame() -> Resp3Frame {
 
 pub fn is_ok(frame: &Resp3Frame) -> bool {
   match frame {
-    ProtocolFrame::Resp3(ref frame) => match frame {
-      Resp3Frame::SimpleString { ref data, .. } => data == OK,
-      _ => false,
-    },
-    ProtocolFrame::Resp2(ref frame) => match frame {
-      Resp2Frame::SimpleString(ref data) => data == OK,
-      _ => false,
-    },
+    Resp3Frame::SimpleString { ref data, .. } => data == OK,
+    _ => false,
   }
 }
 
@@ -111,7 +106,7 @@ pub async fn parse_cluster_server(
   let parts: Vec<&str> = server.trim().split(":").collect();
   if parts.len() != 2 {
     return Err(RedisError::new(
-      RedisErrorKind::UrlError,
+      RedisErrorKind::Url,
       "Invalid cluster server name. Expected host:port.",
     ));
   }
@@ -197,10 +192,7 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
     Resp3Frame::Boolean { data, .. } => Ok(data.to_string()),
     Resp3Frame::VerbatimString { data, .. } => Ok(String::from_utf8(data.to_vec())?),
     Resp3Frame::BigNumber { data, .. } => Ok(String::from_utf8(data.to_vec())?),
-    _ => Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected protocol string.",
-    )),
+    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected protocol string.")),
   }
 }
 
@@ -213,7 +205,7 @@ pub fn frame_to_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisE
     Ok((channel, message))
   } else {
     Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid pubsub message frame.",
     ))
   }
@@ -244,7 +236,7 @@ pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), 
     frame_to_pubsub(frame)
   } else {
     Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid pubsub message. Expected push frame.",
     ))
   }
@@ -392,7 +384,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
     Resp3Frame::Map { data, .. } => RedisValue::Map(parse_nested_map(data)?),
     _ => {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Invalid response frame type.",
       ))
     },
@@ -456,7 +448,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
     },
     _ => {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Invalid response frame type.",
       ))
     },
@@ -498,7 +490,7 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
     Resp3Frame::Array { mut data, .. } | Resp3Frame::Push { mut data, .. } => {
       if data.len() > 1 {
         return Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
+          RedisErrorKind::Protocol,
           "Could not convert multiple frames to RedisValue.",
         ));
       } else if data.is_empty() {
@@ -509,19 +501,18 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
       if first_frame.is_array() || first_frame.is_error() {
         // there shouldn't be errors buried in arrays, nor should there be more than one layer of nested arrays
         return Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
+          RedisErrorKind::Protocol,
           "Invalid nested array or error.",
         ));
       }
 
       frame_to_single_result(first_frame)
     },
-    Resp3Frame::Map { .. } | Resp3Frame::Set { .. } => Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Invalid aggregate type.",
-    )),
+    Resp3Frame::Map { .. } | Resp3Frame::Set { .. } => {
+      Err(RedisError::new(RedisErrorKind::Protocol, "Invalid aggregate type."))
+    },
     Resp3Frame::Null => Ok(RedisValue::Null),
-    _ => Err(RedisError::new(RedisErrorKind::ProtocolError, "Unexpected frame kind.")),
+    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Unexpected frame kind.")),
   }
 }
 
@@ -589,7 +580,7 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
       }
       if data.len() % 2 != 0 {
         return Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
+          RedisErrorKind::Protocol,
           "Expected an even number of frames.",
         ));
       }
@@ -606,7 +597,7 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
     },
     Resp3Frame::Map { data, .. } => parse_nested_map(data),
     _ => Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Expected array or map frames.",
     )),
   }
@@ -733,7 +724,7 @@ fn parse_f64(val: &Resp3Frame) -> f64 {
 fn parse_db_memory_stats(data: &Vec<Resp3Frame>) -> Result<DatabaseMemoryStats, RedisError> {
   if data.len() % 2 != 0 {
     return Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid MEMORY STATS database response. Result must have an even number of frames.",
     ));
   }
@@ -789,7 +780,7 @@ fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: &Resp3Fram
 pub fn parse_memory_stats(data: &Vec<Resp3Frame>) -> Result<MemoryStats, RedisError> {
   if data.len() % 2 != 0 {
     return Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid MEMORY STATS response. Result must have an even number of frames.",
     ));
   }
@@ -849,7 +840,7 @@ fn parse_acl_getuser_flag(value: &Resp3Frame) -> Result<Vec<AclUserFlag>, RedisE
     Ok(out)
   } else {
     Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid ACL user flags. Expected array.",
     ))
   }
@@ -870,10 +861,7 @@ fn frames_to_strings(frames: &Resp3Frame) -> Result<Vec<String>, RedisError> {
 
     Ok(out)
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected array of frames.",
-    ))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array of frames."))
   }
 }
 
@@ -889,7 +877,7 @@ fn parse_acl_getuser_field(user: &mut AclUser, key: &str, value: &Resp3Frame) ->
     },
     _ => {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         format!("Invalid ACL GETUSER field: {}", key),
       ))
     },
@@ -930,7 +918,7 @@ pub fn frame_map_or_set_to_nested_array(frame: Resp3Frame) -> Result<Resp3Frame,
 pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, RedisError> {
   if frames.len() % 2 != 0 || frames.len() > 10 {
     return Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Invalid number of response frames.",
     ));
   }
@@ -955,61 +943,41 @@ pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, Redi
 fn parse_slowlog_entry(frames: Vec<Resp3Frame>) -> Result<SlowlogEntry, RedisError> {
   if frames.len() < 4 {
     return Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       "Expected at least 4 response frames.",
     ));
   }
 
   let id = match frames[0] {
     Resp3Frame::Number { ref data, .. } => *data,
-    _ => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected integer ID.")),
+    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer ID.")),
   };
   let timestamp = match frames[1] {
     Resp3Frame::Number { ref data, .. } => *data,
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected integer timestamp.",
-      ))
-    },
+    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer timestamp.")),
   };
   let duration = match frames[2] {
     Resp3Frame::Number { ref data, .. } => *data as u64,
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected integer duration.",
-      ))
-    },
+    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer duration.")),
   };
   let args = match frames[3] {
     Resp3Frame::Array { ref data, .. } => data
       .iter()
       .filter_map(|frame| frame.as_str().map(|s| s.to_owned()))
       .collect(),
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Expected arguments array.",
-      ))
-    },
+    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected arguments array.")),
   };
 
   let (ip, name) = if frames.len() == 6 {
     let ip = match frames[4].as_str() {
       Some(s) => s.to_owned(),
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
-          "Expected IP address string.",
-        ))
-      },
+      None => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected IP address string.")),
     };
     let name = match frames[5].as_str() {
       Some(s) => s.to_owned(),
       None => {
         return Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
+          RedisErrorKind::Protocol,
           "Expected client name string.",
         ))
       },
@@ -1038,7 +1006,7 @@ pub fn parse_slowlog_entries(frames: Vec<Resp3Frame>) -> Result<Vec<SlowlogEntry
       out.push(parse_slowlog_entry(data)?);
     } else {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Expected array of slowlog fields.",
       ));
     }
@@ -1050,10 +1018,7 @@ pub fn parse_slowlog_entries(frames: Vec<Resp3Frame>) -> Result<Vec<SlowlogEntry
 fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
   let parts: Vec<&str> = line.split(":").collect();
   if parts.len() != 2 {
-    return Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected key:value pair.",
-    ));
+    return Err(RedisError::new(RedisErrorKind::Protocol, "Expected key:value pair."));
   }
   let (field, val) = (parts[0], parts[1]);
 
@@ -1061,7 +1026,7 @@ fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), Red
     "cluster_state" => match val.as_ref() {
       "ok" => info.cluster_state = ClusterState::Ok,
       "fail" => info.cluster_state = ClusterState::Fail,
-      _ => return Err(RedisError::new(RedisErrorKind::ProtocolError, "Invalid cluster state.")),
+      _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster state.")),
     },
     "cluster_slots_assigned" => info.cluster_slots_assigned = parse_or_zero!(val, u16),
     "cluster_slots_ok" => info.cluster_slots_ok = parse_or_zero!(val, u16),
@@ -1093,10 +1058,7 @@ pub fn parse_cluster_info(data: Resp3Frame) -> Result<ClusterInfo, RedisError> {
     }
     Ok(out)
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Expected string response.",
-    ))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected string response."))
   }
 }
 
@@ -1108,7 +1070,7 @@ fn frame_to_f64(frame: &Resp3Frame) -> Result<f64, RedisError> {
         utils::redis_string_to_f64(s)
       } else {
         Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
+          RedisErrorKind::Protocol,
           "Expected bulk string or double.",
         ))
       }
@@ -1125,19 +1087,19 @@ pub fn parse_geo_position(frame: &Resp3Frame) -> Result<GeoPosition, RedisError>
       Ok(GeoPosition { longitude, latitude })
     } else {
       Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Expected array with 2 coordinates.",
       ))
     }
   } else {
-    Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected array."))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array."))
   }
 }
 
 fn assert_frame_len(frames: &Vec<Resp3Frame>, len: usize) -> Result<(), RedisError> {
   if frames.len() != len {
     Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
+      RedisErrorKind::Protocol,
       format!("Expected {} frames", len),
     ))
   } else {
@@ -1148,7 +1110,7 @@ fn assert_frame_len(frames: &Vec<Resp3Frame>, len: usize) -> Result<(), RedisErr
 fn parse_geo_member(frame: &Resp3Frame) -> Result<RedisValue, RedisError> {
   frame
     .as_str()
-    .ok_or(RedisError::new(RedisErrorKind::ProtocolError, "Expected string"))
+    .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected string"))
     .map(|s| s.into())
 }
 
@@ -1157,7 +1119,7 @@ fn parse_geo_dist(frame: &Resp3Frame) -> Result<f64, RedisError> {
     Resp3Frame::Double { ref data, .. } => Ok(*data),
     _ => frame
       .as_str()
-      .ok_or(RedisError::new(RedisErrorKind::ProtocolError, "Expected double."))
+      .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected double."))
       .and_then(|s| utils::redis_string_to_f64(s)),
   }
 }
@@ -1166,7 +1128,7 @@ fn parse_geo_hash(frame: &Resp3Frame) -> Result<i64, RedisError> {
   if let Resp3Frame::Number { ref data, .. } = frame {
     Ok(*data)
   } else {
-    Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected integer."))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer."))
   }
 }
 
@@ -1234,7 +1196,7 @@ pub fn parse_georadius_info(
       Some(s) => s.into(),
       None => {
         return Err(RedisError::new(
-          RedisErrorKind::ProtocolError,
+          RedisErrorKind::Protocol,
           "Expected string or array of frames.",
         ))
       },
@@ -1262,7 +1224,7 @@ pub fn parse_georadius_result(
 
     Ok(out)
   } else {
-    Err(RedisError::new(RedisErrorKind::ProtocolError, "Expected array."))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array."))
   }
 }
 
@@ -1306,7 +1268,7 @@ pub fn value_to_zset_result(value: RedisValue) -> Result<Vec<(RedisValue, f64)>,
         Some(f) => f,
         None => {
           return Err(RedisError::new(
-            RedisErrorKind::ProtocolError,
+            RedisErrorKind::Protocol,
             "Could not convert value to floating point number.",
           ))
         },
@@ -1387,9 +1349,11 @@ pub fn args_size(args: &Vec<RedisValue>) -> usize {
 }
 
 fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp3Frame, RedisError> {
-  let auth = if command.args.len() == 2 {
+  let args = command.args();
+
+  let auth = if args.len() == 2 {
     // has username and password
-    let username = match command.args[0].as_bytes_str() {
+    let username = match args[0].as_bytes_str() {
       Some(username) => username,
       None => {
         return Err(RedisError::new(
@@ -1398,7 +1362,7 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
         ));
       },
     };
-    let password = match command.args[1].as_bytes_str() {
+    let password = match args[1].as_bytes_str() {
       Some(password) => password,
       None => {
         return Err(RedisError::new(
@@ -1409,9 +1373,9 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
     };
 
     Some(Auth { username, password })
-  } else if command.args.len() == 1 {
+  } else if args.len() == 1 {
     // just has a password (assume the default user)
-    let password = match command.args[0].as_bytes_str() {
+    let password = match args[0].as_bytes_str() {
       Some(password) => password,
       None => {
         return Err(RedisError::new(
@@ -1433,10 +1397,12 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
 }
 
 pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, RedisError> {
+  let args = command.args();
+
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
       let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
-      let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
+      let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
 
       for part in parts.into_iter() {
         bulk_strings.push(Resp3Frame::BlobString {
@@ -1444,7 +1410,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
           attributes: None,
         });
       }
-      for value in command.args.iter() {
+      for value in args.iter() {
         bulk_strings.push(value_to_outgoing_resp3_frame(value)?);
       }
 
@@ -1453,9 +1419,9 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
         attributes: None,
       })
     },
-    RedisCommandKind::Hello(ref version) => serialize_hello(command, version),
+    RedisCommandKind::_Hello(ref version) => serialize_hello(command, version),
     _ => {
-      let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
+      let mut bulk_strings = Vec::with_capacity(args.len() + 2);
 
       bulk_strings.push(Resp3Frame::BlobString {
         data:       command.kind.cmd_str().into_inner(),
@@ -1468,7 +1434,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
           attributes: None,
         });
       }
-      for value in command.args.iter() {
+      for value in args.iter() {
         bulk_strings.push(value_to_outgoing_resp3_frame(value)?);
       }
 
@@ -1481,28 +1447,30 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 }
 
 pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, RedisError> {
+  let args = command.args();
+
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
       let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
-      let mut bulk_strings = Vec::with_capacity(parts.len() + command.args.len());
+      let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
 
       for part in parts.into_iter() {
         bulk_strings.push(Resp2Frame::BulkString(part.as_bytes().to_vec().into()));
       }
-      for value in command.args.iter() {
+      for value in args.iter() {
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
       }
 
       Ok(Resp2Frame::Array(bulk_strings))
     },
     _ => {
-      let mut bulk_strings = Vec::with_capacity(command.args.len() + 2);
+      let mut bulk_strings = Vec::with_capacity(args.len() + 2);
 
       bulk_strings.push(Resp2Frame::BulkString(command.kind.cmd_str().into_inner()));
       if let Some(subcommand) = command.kind.subcommand_str() {
         bulk_strings.push(Resp2Frame::BulkString(Bytes::from_static(subcommand.as_bytes())));
       }
-      for value in command.args.iter() {
+      for value in args.iter() {
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
       }
 

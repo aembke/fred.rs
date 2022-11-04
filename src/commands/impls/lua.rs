@@ -28,7 +28,7 @@ pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Re
 
         if let Some(server) = state.get_server(key_slot) {
           if let Some(ref cmd_server) = cmd_server {
-            if *cmd_server != server {
+            if cmd_server != server {
               return Err(RedisError::new(
                 RedisErrorKind::Cluster,
                 "All keys must belong to the same cluster node.",

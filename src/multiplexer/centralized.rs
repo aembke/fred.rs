@@ -30,11 +30,11 @@ use tokio::{
   task::JoinHandle,
 };
 
-pub async fn send_command<'a, 'b>(
-  inner: &'a Arc<RedisClientInner>,
-  writer: &'b mut Option<RedisWriter>,
+pub async fn send_command(
+  inner: &Arc<RedisClientInner>,
+  writer: &mut Option<RedisWriter>,
   mut command: RedisCommand,
-) -> Result<Written<'b>, (RedisError, RedisCommand)> {
+) -> Result<Written, (RedisError, RedisCommand)> {
   if let Some(writer) = writer.as_mut() {
     Ok(utils::write_command(inner, writer, command, false).await)
   } else {

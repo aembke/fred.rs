@@ -95,7 +95,7 @@ where
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike + Clone,
-  Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
+  Fut: Future<Output = Result<T, RedisError>> + Send,
   F: FnOnce(C) -> Fut,
   T: Unpin + Send + 'static,
 {
@@ -185,7 +185,11 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
 
   /// Read the RESP version used by the client when communicating with the server.
   fn protocol_version(&self) -> RespVersion {
-    self.inner().resp_version.load().as_ref().clone()
+    if self.inner().is_resp3() {
+      RespVersion::RESP3
+    } else {
+      RespVersion::RESP2
+    }
   }
 
   /// Whether or not the client has a reconnection policy.
@@ -247,8 +251,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
   fn force_reconnection(&self) -> AsyncResult<()> {
-    async_spawn(self, |client| async move {
-      commands::server::force_reconnection(client.inner()).await
+    async_spawn(self, |_self| async move {
+      commands::server::force_reconnection(_self.inner()).await
     })
   }
 
@@ -293,25 +297,27 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams.
   fn quit(&self) -> AsyncResult<()> {
-    async_spawn(self, |client| async move { commands::server::quit(&client).await })
+    async_spawn(self, |_self| async move { commands::server::quit(_self).await })
   }
 
   /// Shut down the server and quit the client.
   ///
   /// <https://redis.io/commands/shutdown>
   fn shutdown(&self, flags: Option<ShutdownFlags>) -> AsyncResult<()> {
-    async_spawn(self, |client| async move {
-      commands::server::shutdown(&client, flags).await
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::server::shutdown(_self, flags).await },
+    )
   }
 
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
   fn ping(&self) -> AsyncResult<()> {
-    async_spawn(self, |client| async move {
-      commands::server::ping(&client).await?.convert()
-    })
+    async_spawn(
+      self,
+      |_self| async move { commands::server::ping(_self).await?.convert() },
+    )
   }
 
   /// Read info about the server.
@@ -321,8 +327,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
   where
     R: FromRedis + Unpin + Send,
   {
-    async_spawn(self, |client| async move {
-      commands::server::info(&client, section).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::server::info(_self, section).await?.convert()
     })
   }
 
@@ -341,8 +347,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     T::Error: Into<RedisError>,
   {
     let args = atry!(utils::try_into_vec(args));
-    async_spawn(self, |client| async move {
-      commands::server::custom(&client, cmd, args).await?.convert()
+    async_spawn(self, |_self| async move {
+      commands::server::custom(_self, cmd, args).await?.convert()
     })
   }
 
@@ -356,8 +362,8 @@ pub trait ClientLike: Clone + Unpin + Send + Sync + Sized {
     T::Error: Into<RedisError>,
   {
     let args = atry!(utils::try_into_vec(args));
-    async_spawn(self, |client| async move {
-      commands::server::custom_raw(&client, cmd, args).await
+    async_spawn(self, |_self| async move {
+      commands::server::custom_raw(_self, cmd, args).await
     })
   }
 }

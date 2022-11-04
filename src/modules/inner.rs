@@ -17,7 +17,10 @@ use parking_lot::RwLock;
 use std::{
   collections::VecDeque,
   ops::DerefMut,
-  sync::{atomic::AtomicUsize, Arc},
+  sync::{
+    atomic::{AtomicBool, AtomicUsize},
+    Arc,
+  },
   time::Duration,
 };
 use tokio::{
@@ -208,8 +211,8 @@ impl ServerState {
 pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id:            ArcStr,
-  /// The RESP version used by the underlying connections.
-  pub resp_version:  ArcSwap<RespVersion>,
+  /// Whether the client uses RESP3.
+  pub resp3:         Arc<AtomicBool>,
   /// The state of the underlying connection.
   pub state:         RwLock<ClientState>,
   /// Client configuration options.
@@ -228,7 +231,7 @@ pub struct RedisClientInner {
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
   // TODO make this generic via the Resolve trait
-  pub resolver: DefaultResolver,
+  pub resolver:      DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
@@ -256,11 +259,15 @@ impl RedisClientInner {
     let notifications = Notifications::new(&id);
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
     let performance = ArcSwap::new(Arc::new(perf));
-    let resp_version = ArcSwap::new(Arc::new(config.version.clone()));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
-    let (command_rx, policy) = (RwLock::new(Some(command_rx)), RwLock::new(policy));
+    let command_rx = RwLock::new(Some(command_rx));
     let backchannel = Arc::new(AsyncRwLock::new(Backchannel::default()));
     let server_state = RwLock::new(ServerState::new(&config));
+    let resp3 = if config.version == RespVersion::RESP3 {
+      Arc::new(AtomicBool::new(true))
+    } else {
+      Arc::new(AtomicBool::new(false))
+    };
 
     Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
@@ -281,7 +288,7 @@ impl RedisClientInner {
       config,
       performance,
       policy,
-      resp_version,
+      resp3,
       notifications,
       resolver,
       id,
@@ -289,7 +296,11 @@ impl RedisClientInner {
   }
 
   pub fn is_pipelined(&self) -> bool {
-    self.performance.as_ref().load().pipeline
+    self.performance.load().as_ref().auto_pipeline
+  }
+
+  pub fn shared_resp3(&self) -> Arc<AtomicBool> {
+    self.resp3.clone()
   }
 
   pub fn log_client_name_fn<F>(&self, level: log::Level, func: F)
@@ -306,13 +317,13 @@ impl RedisClientInner {
   }
 
   pub fn update_cluster_state(&self, state: Option<ClusterRouting>) {
-    if let ServerState::Cluster { ref mut cache } = self.server_state.write() {
+    if let ServerState::Cluster { ref mut cache } = *self.server_state.write() {
       *cache = state;
     }
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
-    if let ServerState::Cluster { ref cache } = self.server_state.read() {
+    if let ServerState::Cluster { ref cache } = *self.server_state.read() {
       cache.map(|state| state.unique_primary_nodes().len()).unwrap_or(1)
     } else {
       1
@@ -323,7 +334,7 @@ impl RedisClientInner {
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    if let ServerState::Cluster { ref cache } = self.server_state.read() {
+    if let ServerState::Cluster { ref cache } = *self.server_state.read() {
       if let Some(state) = cache.as_ref() {
         func(state)
       } else {
@@ -349,13 +360,13 @@ impl RedisClientInner {
   }
 
   pub fn update_sentinel_primary(&self, server: &ArcStr) {
-    if let ServerState::Sentinel { ref mut primary, .. } = self.server_state.write() {
+    if let ServerState::Sentinel { ref mut primary, .. } = *self.server_state.write() {
       *primary = Some(server.clone());
     }
   }
 
   pub fn sentinel_primary(&self) -> Option<ArcStr> {
-    if let ServerState::Sentinel { ref primary, .. } = self.server_state.read() {
+    if let ServerState::Sentinel { ref primary, .. } = *self.server_state.read() {
       primary.clone()
     } else {
       None
@@ -363,13 +374,13 @@ impl RedisClientInner {
   }
 
   pub fn update_sentinel_nodes(&self, nodes: Vec<(String, u16)>) {
-    if let ServerState::Sentinel { ref mut sentinels, .. } = self.server_state.write() {
+    if let ServerState::Sentinel { ref mut sentinels, .. } = *self.server_state.write() {
       *sentinels = nodes;
     }
   }
 
   pub fn read_sentinel_nodes(&self) -> Option<Vec<(String, u16)>> {
-    if let ServerState::Sentinel { ref sentinels, .. } = self.server_state.read() {
+    if let ServerState::Sentinel { ref sentinels, .. } = *self.server_state.read() {
       if sentinels.is_empty() {
         match self.config.server {
           ServerConfig::Sentinel { ref hosts, .. } => Some(hosts.clone()),
@@ -403,11 +414,14 @@ impl RedisClientInner {
   }
 
   pub fn is_resp3(&self) -> bool {
-    *self.resp_version.load().as_ref() == RespVersion::RESP3
+    utils::read_bool_atomic(&self.resp3)
   }
 
   pub fn switch_protocol_versions(&self, version: RespVersion) {
-    self.resp_version.store(Arc::new(version))
+    match version {
+      RespVersion::RESP3 => utils::set_bool_atomic(&self.resp3, true),
+      RespVersion::RESP2 => utils::set_bool_atomic(&self.resp3, false),
+    };
   }
 
   pub fn update_performance_config(&self, config: PerformanceConfig) {
@@ -423,8 +437,12 @@ impl RedisClientInner {
   }
 
   pub fn reset_protocol_version(&self) {
-    let version = self.config.version.clone();
-    self.resp_version.as_ref().store(Arc::new(version));
+    let resp3 = match self.config.version {
+      RespVersion::RESP3 => true,
+      RespVersion::RESP2 => false,
+    };
+
+    utils::set_bool_atomic(&self.resp3, resp3);
   }
 
   pub fn max_command_attempts(&self) -> u32 {

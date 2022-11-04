@@ -61,12 +61,12 @@ pub fn find_cluster_node<'a>(
 }
 
 /// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
-pub async fn send_command<'a>(
+pub async fn send_command(
   inner: &Arc<RedisClientInner>,
-  writers: &'a mut HashMap<ArcStr, RedisWriter>,
+  writers: &mut HashMap<ArcStr, RedisWriter>,
   state: &ClusterRouting,
   mut command: RedisCommand,
-) -> Result<Written<'a>, (RedisError, RedisCommand)> {
+) -> Result<Written, (RedisError, RedisCommand)> {
   let server = match find_cluster_node(inner, state, &command) {
     Some(server) => server,
     None => {

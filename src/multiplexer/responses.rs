@@ -120,10 +120,7 @@ fn parse_pubsub_message(
     // this is safe to do in limited circumstances like this since RESP2 and RESP3 pubsub arrays are similar enough
     protocol_utils::parse_as_resp2_pubsub(frame)
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::ProtocolError,
-      "Invalid pubsub message.",
-    ))
+    Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub message."))
   }
 }
 

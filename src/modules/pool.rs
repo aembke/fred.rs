@@ -26,9 +26,11 @@ pub struct RedisPool {
   inner: Arc<RedisPoolInner>,
 }
 
-impl fmt::Display for RedisPool {
+impl fmt::Debug for RedisPool {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[Redis Pool]")
+    f.debug_struct("RedisPool")
+      .field("size", &self.inner.clients.len())
+      .finish()
   }
 }
 
@@ -54,12 +56,16 @@ impl<'a> From<&'a RedisPool> for RedisClient {
 
 impl RedisPool {
   /// Create a new pool without connecting to the server.
-  // TODO rename the perf config struct and argument names
-  pub fn new(config: RedisConfig, perf: PerformanceConfig, size: usize) -> Result<Self, RedisError> {
+  pub fn new(
+    config: RedisConfig,
+    perf: Option<PerformanceConfig>,
+    policy: Option<ReconnectPolicy>,
+    size: usize,
+  ) -> Result<Self, RedisError> {
     if size > 0 {
       let mut clients = Vec::with_capacity(size);
       for _ in 0 .. size {
-        clients.push(RedisClient::new(config.clone()));
+        clients.push(RedisClient::new(config.clone(), perf.clone(), policy.clone()));
       }
       let last = Arc::new(AtomicUsize::new(0));
 

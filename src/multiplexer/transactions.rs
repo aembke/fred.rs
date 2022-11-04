@@ -139,7 +139,7 @@ pub async fn run(
     _debug!(inner, "Starting transaction {} (attempted: {})", id, attempted);
 
     let server = match multiplexer.find_connection(&commands[0]) {
-      Some(server) => server,
+      Some(server) => server.clone(),
       None => {
         let _ = if inner.config.server.is_clustered() {
           // optimistically sync the cluster, then fall back to a full reconnect
@@ -160,7 +160,7 @@ pub async fn run(
       let mut command = commands[idx].duplicate(ResponseKind::Skip);
       let mut rx = command.create_multiplexer_channel();
 
-      match write_command(inner, multiplexer, server, command, abort_on_error, rx).await {
+      match write_command(inner, multiplexer, &server, command, abort_on_error, rx).await {
         Ok(TransactionResponse::Continue) => {
           idx += 1;
           continue 'inner;
@@ -182,22 +182,11 @@ pub async fn run(
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
-          let delay = if kind == ClusterErrorKind::Moved {
-            Some(inner.with_perf_config(|config| Duration::from_millis(config.cluster_cache_update_delay_ms as u64)))
-          } else {
-            Some(Duration::new(0, 0))
-          };
-
           update_hash_slot(&mut commands, slot);
           if let Err(e) = send_discard(inner, multiplexer, &server, id).await {
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
-
-          let _ = utils::on_reconnect_interval(inner, multiplexer, delay, |inner, multiplexer| async {
-            _debug!(inner, "Following redirect: {:?} {} {}", kind, slot, server);
-            multiplexer.cluster_redirection(kind, slot, &server).await
-          })
-          .await?;
+          let _ = utils::cluster_redirect_with_policy(inner, multiplexer, kind, slot, &server).await?;
 
           attempted += 1;
           continue 'outer;
@@ -208,14 +197,14 @@ pub async fn run(
         },
         Err(error) => {
           // fatal errors that end the transaction
-          let _ = send_discard(inner, multiplexer, server, id).await;
+          let _ = send_discard(inner, multiplexer, &server, id).await;
           let _ = tx.send(Err(error));
           return Ok(());
         },
       }
     }
 
-    match send_exec(inner, multiplexer, server, id).await {
+    match send_exec(inner, multiplexer, &server, id).await {
       Ok(TransactionResponse::Finished(frame)) => {
         let _ = tx.send(Ok(frame));
         return Ok(());
@@ -238,7 +227,7 @@ pub async fn run(
       },
       Ok(TransactionResponse::Redirection((kind, slot, dest))) => {
         // doesn't make sense on EXEC, but return it as an error so it isn't lost
-        let _ = send_discard(inner, multiplexer, server, id).await;
+        let _ = send_discard(inner, multiplexer, &server, id).await;
         let _ = tx.send(Err(RedisError::new(
           RedisErrorKind::Cluster,
           format!("{} {} {}", kind, slot, dest),
@@ -247,12 +236,12 @@ pub async fn run(
       },
       Ok(TransactionResponse::Continue) => {
         _warn!(inner, "Invalid final response to transaction {}", id);
-        let _ = send_discard(inner, multiplexer, server, id).await;
+        let _ = send_discard(inner, multiplexer, &server, id).await;
         let _ = tx.send(Err(RedisError::new_canceled()));
         return Ok(());
       },
       Err(error) => {
-        let _ = send_discard(inner, multiplexer, server, id).await;
+        let _ = send_discard(inner, multiplexer, &server, id).await;
         let _ = tx.send(Err(error));
         return Ok(());
       },

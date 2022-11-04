@@ -76,14 +76,6 @@ pub struct KeyScanInner {
   pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
-impl PartialEq for KeyScanInner {
-  fn eq(&self, other: &KeyScanInner) -> bool {
-    self.cursor == other.cursor
-  }
-}
-
-impl Eq for KeyScanInner {}
-
 impl KeyScanInner {
   /// Update the cursor in place in the arguments.
   pub fn update_cursor(&mut self, cursor: Str) {
@@ -111,14 +103,6 @@ pub struct ValueScanInner {
   pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
-impl PartialEq for ValueScanInner {
-  fn eq(&self, other: &ValueScanInner) -> bool {
-    self.cursor == other.cursor
-  }
-}
-
-impl Eq for ValueScanInner {}
-
 impl ValueScanInner {
   /// Update the cursor in place in the arguments.
   pub fn update_cursor(&mut self, cursor: Str) {
@@ -136,7 +120,7 @@ impl ValueScanInner {
     }
     if data.len() % 2 != 0 {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Invalid HSCAN result. Expected array with an even number of elements.",
       ));
     }
@@ -149,7 +133,7 @@ impl ValueScanInner {
         RedisValue::Bytes(b) => b.into(),
         _ => {
           return Err(RedisError::new(
-            RedisErrorKind::ProtocolError,
+            RedisErrorKind::Protocol,
             "Invalid HSCAN result. Expected string.",
           ))
         },
@@ -167,7 +151,7 @@ impl ValueScanInner {
     }
     if data.len() % 2 != 0 {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Invalid ZSCAN result. Expected array with an even number of elements.",
       ));
     }
@@ -182,7 +166,7 @@ impl ValueScanInner {
         RedisValue::Double(f) => f,
         _ => {
           return Err(RedisError::new(
-            RedisErrorKind::ProtocolError,
+            RedisErrorKind::Protocol,
             "Invalid HSCAN result. Expected a string or number score.",
           ))
         },
@@ -222,9 +206,13 @@ pub struct ReplicaSet {
 /// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
+  /// The start of the hash slot range.
   pub start:   u16,
+  /// The end of the hash slot range.
   pub end:     u16,
+  /// The primary owner, of the form `<host>:<port>`.
   pub primary: ArcStr,
+  /// The internal ID assigned by the server.
   pub id:      ArcStr,
   //#[cfg(feature = "replicas")]
   //#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -254,7 +242,7 @@ impl ClusterRouting {
     let mut out = BTreeMap::new();
 
     for slot in self.data.iter() {
-      out.insert(&slot.server, slot.start);
+      out.insert(&slot.primary, slot.start);
     }
 
     out.into_iter().map(|(_, v)| v).collect()
@@ -265,7 +253,7 @@ impl ClusterRouting {
     let mut out = BTreeSet::new();
 
     for slot in self.data.iter() {
-      out.insert(slot.server.clone());
+      out.insert(slot.primary.clone());
     }
 
     out.into_iter().collect()
@@ -294,7 +282,7 @@ impl ClusterRouting {
       return None;
     }
 
-    protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].server)
+    protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].primary)
   }
 
   // Read the set of replicas that own the provided hash slot.
@@ -337,12 +325,12 @@ impl ClusterRouting {
 
   /// Read a random primary node from the cluster cache.
   pub fn random_node(&self) -> Option<&ArcStr> {
-    self.random_slot().map(|slot| &slot.id)
+    self.random_slot().map(|slot| &slot.primary)
   }
 }
 
 // TODO support custom DNS resolution logic by exposing this in the client.
-/// Default DNS resolver that just uses `to_socket_addrs` under the hood.
+/// Default DNS resolver that uses `to_socket_addrs` under the hood.
 #[derive(Clone, Debug)]
 pub struct DefaultResolver {
   id: ArcStr,

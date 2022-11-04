@@ -44,13 +44,13 @@ pub mod types;
 pub mod utils;
 
 /// The result of an attempt to send a command to the server.
-pub enum Written<'a> {
+pub enum Written {
   /// Apply backpressure to the command before retrying.
   Backpressure((RedisCommand, Backpressure)),
   /// Indicates that the command was sent to the associated server and whether the socket was flushed.
-  Sent((&'a ArcStr, bool)),
+  Sent((ArcStr, bool)),
   /// Disconnect from the provided server and retry the command later.
-  Disconnect((&'a ArcStr, Option<RedisCommand>, RedisError)),
+  Disconnect((ArcStr, Option<RedisCommand>, RedisError)),
   /// Indicates that the result should be ignored since the command will not be retried.
   Ignore,
 }
@@ -66,7 +66,7 @@ pub enum Backpressure {
 
 impl Backpressure {
   /// Apply the backpressure policy.
-  pub async fn run(
+  pub async fn wait(
     self,
     inner: &Arc<RedisClientInner>,
     command: &mut RedisCommand,
@@ -78,8 +78,17 @@ impl Backpressure {
         Ok(None)
       },
       Backpressure::Block => {
-        command.skip_backpressure = true;
-        Ok(Some(command.create_multiplexer_channel()))
+        if !command.has_multiplexer_channel() {
+          _trace!(
+            inner,
+            "Blocking multiplexer for backpressure for {}",
+            command.kind.to_str_debug()
+          );
+          command.skip_backpressure = true;
+          Ok(Some(command.create_multiplexer_channel()))
+        } else {
+          Ok(None)
+        }
       },
     }
   }
@@ -338,7 +347,7 @@ impl Connections {
     &mut self,
     inner: &Arc<RedisClientInner>,
     command: RedisCommand,
-  ) -> Result<Written<'_>, (RedisError, RedisCommand)> {
+  ) -> Result<Written, (RedisError, RedisCommand)> {
     match self {
       Connections::Clustered {
         ref mut writers,
@@ -354,7 +363,7 @@ impl Connections {
     &mut self,
     inner: &Arc<RedisClientInner>,
     command: RedisCommand,
-  ) -> Result<Written<'_>, RedisError> {
+  ) -> Result<Written, RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
       let _ = clustered::send_all_cluster_command(inner, writers, command).await?;
       Ok(Written::Ignore)
@@ -451,14 +460,13 @@ impl Multiplexer {
   }
 
   /// Read the connection identifier for the provided command.
-  pub fn find_connection(&self, command: &RedisCommand) -> Option<&str> {
+  pub fn find_connection(&self, command: &RedisCommand) -> Option<&ArcStr> {
     match self.connections {
-      Connections::Centralized { ref writer } => writer.as_ref().map(|w| w.server.as_str()),
-      Connections::Sentinel { ref writer } => writer.as_ref().map(|w| w.server.as_str()),
-      Connections::Clustered { ref writers, ref cache } => command
-        .cluster_hash()
-        .and_then(|slot| cache.get_server(slot))
-        .map(|s| s.as_str()),
+      Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.server),
+      Connections::Sentinel { ref writer } => writer.as_ref().map(|w| &w.server),
+      Connections::Clustered { ref writers, ref cache } => {
+        command.cluster_hash().and_then(|slot| cache.get_server(slot))
+      },
     }
   }
 
@@ -470,7 +478,7 @@ impl Multiplexer {
   /// * The reader task for that connection will close, sending a `Reconnect` message to the multiplexer.
   ///
   /// Errors are handled internally, but may be returned if the command was queued to run later.
-  pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Written<'_>, RedisError> {
+  pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Written, RedisError> {
     if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
       debug!(
         "{}: Skipping command `{}` after too many failed attempts.",
@@ -594,7 +602,7 @@ impl Multiplexer {
 
     match write_result {
       Written::Disconnect((server, command, error)) => {
-        let buffer = self.connections.disconnect(&inner, Some(server)).await;
+        let buffer = self.connections.disconnect(&inner, Some(&server)).await;
         self.buffer.extend(buffer.into_iter());
 
         if let Some(command) = command {
@@ -707,7 +715,7 @@ impl Multiplexer {
   /// * Connects and sends ASKING to the provided server in response to ASKED
   pub async fn cluster_redirection(
     &mut self,
-    kind: ClusterErrorKind,
+    kind: &ClusterErrorKind,
     slot: u16,
     server: &str,
   ) -> Result<(), RedisError> {
@@ -716,7 +724,7 @@ impl Multiplexer {
       &self.inner.id, kind, slot, server
     );
 
-    if kind == ClusterErrorKind::Moved {
+    if *kind == ClusterErrorKind::Moved {
       let should_sync = self
         .inner
         .with_cluster_state(|state| Ok(state.get_server(slot).map(|owner| server == owner).unwrap_or(true)))
@@ -725,7 +733,7 @@ impl Multiplexer {
       if should_sync {
         let _ = self.sync_cluster().await?;
       }
-    } else if kind == ClusterErrorKind::Ask {
+    } else if *kind == ClusterErrorKind::Ask {
       if !self.connections.has_server_connection(server) {
         let _ = self.connections.add_connection(&self.inner, server).await?;
         self

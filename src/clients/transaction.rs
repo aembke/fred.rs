@@ -116,21 +116,13 @@ impl Transaction {
 
     if let Some(slot) = command.cluster_hash() {
       if let Some(old_slot) = utils::read_mutex(&self.hash_slot) {
-        let (old_server, server) = match self.inner.cluster_state.load().as_ref() {
-          Some(state) => {
-            debug!(
-              "{}: Checking transaction hash slots: {}, {}",
-              &self.inner.id, old_slot, slot
-            );
-            (state.get_server(old_slot).clone(), state.get_server(slot).clone())
-          },
-          None => {
-            return Err(RedisError::new(
-              RedisErrorKind::Cluster,
-              "Missing cluster state routing table.",
-            ))
-          },
-        };
+        let (old_server, server) = self.inner.with_cluster_state(|state| {
+          debug!(
+            "{}: Checking transaction hash slots: {}, {}",
+            &self.inner.id, old_slot, slot
+          );
+          Ok((state.get_server(old_slot).clone(), state.get_server(slot).clone()))
+        })?;
 
         if old_server != server {
           return Err(RedisError::new(
@@ -227,7 +219,7 @@ async fn exec(
   }
   let (tx, rx) = oneshot_channel();
 
-  let commands = commands
+  let commands: Vec<RedisCommand> = commands
     .into_iter()
     .map(|mut command| {
       command.response = ResponseKind::Skip;

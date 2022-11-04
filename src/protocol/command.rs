@@ -50,7 +50,7 @@ use crate::trace::Span;
 /// Use of this interface assumes that a command was **not** pipelined. The reader task may instead
 /// choose to communicate with the multiplexer via the shared command queue if no channel exists on
 /// which to send this command.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub enum MultiplexerResponse {
   /// Continue with the next command.
   Continue,
@@ -499,20 +499,6 @@ impl RedisCommandKind {
     }
   }
 
-  pub fn is_split(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Split(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_close(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Close => true,
-      _ => false,
-    }
-  }
-
   pub fn is_custom(&self) -> bool {
     match *self {
       RedisCommandKind::_Custom(_) => true,
@@ -524,6 +510,16 @@ impl RedisCommandKind {
     match *self {
       RedisCommandKind::Quit | RedisCommandKind::Shutdown => true,
       _ => false,
+    }
+  }
+
+  pub fn custom_hash_slot(&self) -> Option<u16> {
+    match self {
+      RedisCommandKind::_Custom(ref cmd) => cmd.cluster_hash.and_then(|h| match h {
+        ClusterHash::Custom(val) => Some(val),
+        _ => None,
+      }),
+      _ => None,
     }
   }
 
@@ -1319,13 +1315,6 @@ impl RedisCommandKind {
     }
   }
 
-  pub fn custom_key_slot(&self) -> Option<u16> {
-    match *self {
-      RedisCommandKind::_Custom(ref kind) => kind.hash_slot.clone(),
-      _ => None,
-    }
-  }
-
   pub fn is_all_cluster_nodes(&self) -> bool {
     match *self {
       RedisCommandKind::_FlushAllCluster
@@ -1418,7 +1407,7 @@ pub struct RedisCommand {
 impl fmt::Debug for RedisCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisCommand")
-      .field("command", self.kind.to_str_debug())
+      .field("command", &self.kind.to_str_debug())
       .field("attempted", &self.attempted)
       .field("can_pipeline", &self.can_pipeline)
       .field("arguments", &self.args())
@@ -1559,7 +1548,7 @@ impl RedisCommand {
     _trace!(
       inner,
       "Pipeline check {}: {}",
-      self.kind.to_debug_str(),
+      self.kind.to_str_debug(),
       should_pipeline
     );
     should_pipeline
@@ -1653,7 +1642,7 @@ impl RedisCommand {
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
       kind: self.kind.clone(),
-      arguments: self.args.clone(),
+      arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
       transaction_id: self.transaction_id.clone(),
       attempted: self.attempted,
@@ -1719,11 +1708,6 @@ impl RedisCommand {
   /// Hash the arguments according to the command's cluster hash policy.
   pub fn cluster_hash(&self) -> Option<u16> {
     self.kind.custom_hash_slot().or(self.hasher.hash(self.args()))
-  }
-
-  /// Return the custom hash slot for custom commands.
-  pub fn custom_command_hash_slot(&self) -> Option<u16> {
-    self.kind.custom_key_slot()
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
@@ -1830,37 +1814,37 @@ impl fmt::Debug for MultiplexerCommand {
     match self {
       MultiplexerCommand::Ask { server, slot, command } => {
         formatter
-          .field("kind", "Ask")
-          .field("server", server)
-          .field("slot", slot)
-          .field("command", command.kind.to_str_debug());
+          .field("kind", &"Ask")
+          .field("server", &server)
+          .field("slot", &slot)
+          .field("command", &command.kind.to_str_debug());
       },
       MultiplexerCommand::Moved { server, slot, command } => {
         formatter
-          .field("kind", "Moved")
-          .field("server", server)
-          .field("slot", slot)
-          .field("command", command.kind.to_str_debug());
+          .field("kind", &"Moved")
+          .field("server", &server)
+          .field("slot", &slot)
+          .field("command", &command.kind.to_str_debug());
       },
       MultiplexerCommand::Reconnect { server, force, .. } => {
         formatter
-          .field("kind", "Reconnect")
-          .field("server", server)
-          .field("force", force);
+          .field("kind", &"Reconnect")
+          .field("server", &server)
+          .field("force", &force);
       },
       MultiplexerCommand::SyncCluster => {
-        formatter.field("kind", "Sync Cluster");
+        formatter.field("kind", &"Sync Cluster");
       },
       MultiplexerCommand::Transaction { .. } => {
-        formatter.field("kind", "Transaction");
+        formatter.field("kind", &"Transaction");
       },
       MultiplexerCommand::Pipeline { .. } => {
-        formatter.field("kind", "Pipeline");
+        formatter.field("kind", &"Pipeline");
       },
       MultiplexerCommand::Command(command) => {
         formatter
-          .field("kind", "Command")
-          .field("command", command.kind.to_str_debug());
+          .field("kind", &"Command")
+          .field("command", &command.kind.to_str_debug());
       },
     };
 
