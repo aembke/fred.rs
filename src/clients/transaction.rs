@@ -121,7 +121,8 @@ impl Transaction {
             "{}: Checking transaction hash slots: {}, {}",
             &self.inner.id, old_slot, slot
           );
-          Ok((state.get_server(old_slot).clone(), state.get_server(slot).clone()))
+
+          Ok((state.get_server(old_slot).cloned(), state.get_server(slot).cloned()))
         })?;
 
         if old_server != server {

@@ -95,7 +95,7 @@ impl Backchannel {
 
   /// Return the server ID of the existing backchannel connection, if found.
   pub fn current_server(&self) -> Option<ArcStr> {
-    self.transport.map(|t| t.server.clone())
+    self.transport.as_ref().map(|t| t.server.clone())
   }
 
   /// Return a server ID, with the following preferences:

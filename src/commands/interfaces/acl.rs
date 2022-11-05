@@ -1,8 +1,12 @@
-use crate::commands;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue};
-use crate::utils;
+use crate::{
+  commands,
+  interfaces::{async_spawn, AsyncResult, ClientLike, RedisResult},
+  types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue},
+  utils,
+};
 use bytes_utils::Str;
+use sha1::digest::Output;
+use std::future::Future;
 
 /// Functions that implement the [ACL](https://redis.io/commands#server) interface.
 pub trait AclInterface: ClientLike + Sized {
@@ -19,8 +23,8 @@ pub trait AclInterface: ClientLike + Sized {
     })
   }
 
-  /// When Redis is configured to use an ACL file (with the aclfile configuration option), this command will reload the
-  /// ACLs from the file, replacing all the current ACL rules with the ones defined in the file.
+  /// When Redis is configured to use an ACL file (with the aclfile configuration option), this command will reload
+  /// the ACLs from the file, replacing all the current ACL rules with the ones defined in the file.
   ///
   /// <https://redis.io/commands/acl-load>
   fn acl_load(&self) -> AsyncResult<()> {

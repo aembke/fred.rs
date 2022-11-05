@@ -231,7 +231,7 @@ pub struct RedisClientInner {
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
   // TODO make this generic via the Resolve trait
-  pub resolver:      DefaultResolver,
+  pub resolver: DefaultResolver,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
@@ -324,7 +324,10 @@ impl RedisClientInner {
 
   pub fn num_cluster_nodes(&self) -> usize {
     if let ServerState::Cluster { ref cache } = *self.server_state.read() {
-      cache.map(|state| state.unique_primary_nodes().len()).unwrap_or(1)
+      cache
+        .as_ref()
+        .map(|state| state.unique_primary_nodes().len())
+        .unwrap_or(1)
     } else {
       1
     }
@@ -465,6 +468,7 @@ impl RedisClientInner {
     let has_policy = self
       .policy
       .read()
+      .as_ref()
       .map(|policy| policy.should_reconnect())
       .unwrap_or(false);
 

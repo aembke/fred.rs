@@ -1430,7 +1430,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 
       if let Some(subcommand) = command.kind.subcommand_str() {
         bulk_strings.push(Resp3Frame::BlobString {
-          data:       Bytes::from_static(subcommand.as_bytes()),
+          data:       subcommand.into_inner(),
           attributes: None,
         });
       }
@@ -1468,7 +1468,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
 
       bulk_strings.push(Resp2Frame::BulkString(command.kind.cmd_str().into_inner()));
       if let Some(subcommand) = command.kind.subcommand_str() {
-        bulk_strings.push(Resp2Frame::BulkString(Bytes::from_static(subcommand.as_bytes())));
+        bulk_strings.push(Resp2Frame::BulkString(subcommand.into_inner()));
       }
       for value in args.iter() {
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);

@@ -33,11 +33,13 @@ use std::{
 use tokio::sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+pub type RedisResult<T> = Result<T, RedisError>;
+
 /// An enum used to represent the return value from a function that does some fallible synchronous work,
 /// followed by some more fallible async logic inside a tokio task.
 enum AsyncInner<T: Unpin + Send + 'static> {
-  Result(Option<Result<T, RedisError>>),
-  Task(Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>),
+  Result(Option<RedisResult<T>>),
+  Task(Pin<Box<dyn Future<Output = RedisResult<T>> + Send + 'static>>),
 }
 
 /// A wrapper type for return values from async functions implemented in a trait.
@@ -95,13 +97,13 @@ where
 pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
 where
   C: ClientLike + Clone,
-  Fut: Future<Output = Result<T, RedisError>> + Send,
+  Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
   F: FnOnce(C) -> Fut,
   T: Unpin + Send + 'static,
 {
-  let client = client.clone();
+  let _client = client.clone();
   AsyncResult {
-    inner: AsyncInner::Task(Box::pin(func(client))),
+    inner: AsyncInner::Task(Box::pin(func(_client))),
   }
 }
 

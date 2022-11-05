@@ -114,11 +114,11 @@ impl Stream for ConnectionKind {
 
   fn size_hint(&self) -> (usize, Option<usize>) {
     match self {
-      ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).size_hint(),
+      ConnectionKind::Tcp(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).size_hint(),
+      ConnectionKind::Rustls(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).size_hint(),
+      ConnectionKind::NativeTls(ref conn) => conn.size_hint(),
     }
   }
 }
@@ -190,11 +190,11 @@ impl Stream for SplitStreamKind {
 
   fn size_hint(&self) -> (usize, Option<usize>) {
     match self {
-      SplitStreamKind::Tcp(ref mut conn) => Pin::new(conn).size_hint(),
+      SplitStreamKind::Tcp(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-rustls")]
-      SplitStreamKind::Rustls(ref mut conn) => Pin::new(conn).size_hint(),
+      SplitStreamKind::Rustls(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-native-tls")]
-      SplitStreamKind::NativeTls(ref mut conn) => Pin::new(conn).size_hint(),
+      SplitStreamKind::NativeTls(ref conn) => conn.size_hint(),
     }
   }
 }
