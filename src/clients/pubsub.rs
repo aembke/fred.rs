@@ -2,13 +2,16 @@ use crate::{
   clients::RedisClient,
   commands,
   error::RedisError,
-  interfaces::{async_spawn, wrap_async, AsyncResult, AuthInterface, ClientLike, MetricsInterface, PubsubInterface},
+  interfaces::{AuthInterface, ClientLike, MetricsInterface, PubsubInterface, RedisResult},
   modules::inner::RedisClientInner,
-  types::{MultipleStrings, PerformanceConfig, RedisConfig},
+  types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig},
   utils,
 };
 use bytes_utils::Str;
-use futures::{future::join_all, Stream};
+use futures::{
+  future::{join_all, try_join_all},
+  Stream,
+};
 use parking_lot::RwLock;
 use std::{collections::BTreeSet, fmt, fmt::Formatter, mem, sync::Arc};
 use tokio::{sync::mpsc::unbounded_channel, task::JoinHandle};
@@ -44,27 +47,27 @@ enum ReconnectOperation {
   PUnsubscribe,
 }
 
-fn concurrent_op(
+async fn concurrent_op(
   client: &SubscriberClient,
   channels: BTreeSet<Str>,
   operation: ReconnectOperation,
-) -> Vec<AsyncResult<()>> {
+) -> Result<(), RedisError> {
   let client = client.clone();
 
-  channels
+  let ft = channels
     .into_iter()
-    .map(move |val| {
+    .map(move |val| async move {
       let (operation, client) = (operation.clone(), client.clone());
-      wrap_async(|| async move {
-        match operation {
-          ReconnectOperation::Subscribe => client.subscribe(val).await.map(|_| ()),
-          ReconnectOperation::PSubscribe => client.psubscribe(val).await.map(|_| ()),
-          ReconnectOperation::Unsubscribe => client.unsubscribe(val).await.map(|_| ()),
-          ReconnectOperation::PUnsubscribe => client.punsubscribe(val).await.map(|_| ()),
-        }
-      })
+      match operation {
+        ReconnectOperation::Subscribe => client.subscribe(val).await.map(|_| ()),
+        ReconnectOperation::PSubscribe => client.psubscribe(val).await.map(|_| ()),
+        ReconnectOperation::Unsubscribe => client.unsubscribe(val).await.map(|_| ()),
+        ReconnectOperation::PUnsubscribe => client.punsubscribe(val).await.map(|_| ()),
+      }
     })
-    .collect()
+    .collect();
+
+  try_join_all(ft.into_iter()).await.map(|_| ())
 }
 
 /// A subscriber client that will manage subscription state to any pubsub channels or patterns for the caller.
@@ -134,83 +137,84 @@ impl ClientLike for SubscriberClient {
 impl AuthInterface for SubscriberClient {}
 impl MetricsInterface for SubscriberClient {}
 
+#[async_trait(?Send)]
 impl PubsubInterface for SubscriberClient {
-  fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>
+  async fn subscribe<S>(&self, channel: S) -> RedisResult<usize>
   where
     S: Into<Str>,
   {
     into!(channel);
     let cached_channels = self.channels.clone();
-    async_spawn(self, |inner| async move {
-      let result = commands::pubsub::subscribe(&inner, channel.clone()).await;
-      if result.is_ok() {
-        add_to_channels(&cached_channels, channel);
-      }
-      result.and_then(|r| r.convert())
-    })
+
+    let result = commands::pubsub::subscribe(self, channel.clone()).await;
+    if result.is_ok() {
+      add_to_channels(&cached_channels, channel);
+    }
+    result.and_then(|r| r.convert())
   }
 
-  fn psubscribe<S>(&self, patterns: S) -> AsyncResult<Vec<usize>>
+  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
   where
     S: Into<MultipleStrings>,
   {
     into!(patterns);
     let cached_patterns = self.patterns.clone();
-    async_spawn(self, |inner| async move {
-      let result = commands::pubsub::psubscribe(&inner, patterns.clone()).await;
-      if result.is_ok() {
-        for pattern in patterns.inner().into_iter() {
-          if let Some(pattern) = pattern.as_bytes_str() {
-            add_to_channels(&cached_patterns, pattern)
-          }
+
+    let result = commands::pubsub::psubscribe(self, patterns.clone()).await;
+    if result.is_ok() {
+      for pattern in patterns.inner().into_iter() {
+        if let Some(pattern) = pattern.as_bytes_str() {
+          add_to_channels(&cached_patterns, pattern)
         }
       }
-      result.and_then(|r| r.convert())
-    })
+    }
+    result.and_then(|r| r.convert())
   }
 
-  fn unsubscribe<S>(&self, channel: S) -> AsyncResult<usize>
+  async fn unsubscribe<S>(&self, channel: S) -> RedisResult<usize>
   where
     S: Into<Str>,
   {
     into!(channel);
     let cached_channels = self.channels.clone();
-    async_spawn(self, |inner| async move {
-      let result = commands::pubsub::unsubscribe(&inner, channel.clone()).await;
-      if result.is_ok() {
-        remove_from_channels(&cached_channels, &channel);
-      }
-      result.and_then(|r| r.convert())
-    })
+
+    let result = commands::pubsub::unsubscribe(self, channel.clone()).await;
+    if result.is_ok() {
+      remove_from_channels(&cached_channels, &channel);
+    }
+    result.and_then(|r| r.convert())
   }
 
-  fn punsubscribe<S>(&self, patterns: S) -> AsyncResult<Vec<usize>>
+  async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
   where
     S: Into<MultipleStrings>,
   {
     into!(patterns);
     let cached_patterns = self.patterns.clone();
-    async_spawn(self, |inner| async move {
-      let result = commands::pubsub::punsubscribe(&inner, patterns.clone()).await;
-      if result.is_ok() {
-        for pattern in patterns.inner().into_iter() {
-          if let Some(pattern) = pattern.as_bytes_str() {
-            remove_from_channels(&cached_patterns, &pattern)
-          }
+
+    let result = commands::pubsub::punsubscribe(self, patterns.clone()).await;
+    if result.is_ok() {
+      for pattern in patterns.inner().into_iter() {
+        if let Some(pattern) = pattern.as_bytes_str() {
+          remove_from_channels(&cached_patterns, &pattern)
         }
       }
-      result.and_then(|r| r.convert())
-    })
+    }
+    result.and_then(|r| r.convert())
   }
 }
 
 impl SubscriberClient {
   /// Create a new client instance without connecting to the server.
-  pub fn new(config: RedisConfig, performance: Option<PerformanceConfig>) -> SubscriberClient {
+  pub fn new(
+    config: RedisConfig,
+    perf: Option<PerformanceConfig>,
+    policy: Option<ReconnectPolicy>,
+  ) -> SubscriberClient {
     SubscriberClient {
       channels: Arc::new(RwLock::new(BTreeSet::new())),
       patterns: Arc::new(RwLock::new(BTreeSet::new())),
-      inner:    RedisClientInner::new(config, performance.unwrap_or_default()),
+      inner:    RedisClientInner::new(config, perf.unwrap_or_default(), policy),
     }
   }
 
@@ -219,7 +223,11 @@ impl SubscriberClient {
   /// The returned client will not be connected to the server, and it will use new connections after connecting.
   /// However, it will manage the same channel subscriptions as the original client.
   pub fn clone_new(&self) -> Self {
-    let inner = RedisClientInner::new(self.inner.config.as_ref().clone(), self.inner.performance_config());
+    let inner = RedisClientInner::new(
+      self.inner.config.as_ref().clone(),
+      self.inner.performance_config(),
+      self.inner.reconnect_policy(),
+    );
 
     SubscriberClient {
       inner,
@@ -278,11 +286,8 @@ impl SubscriberClient {
     let channels = self.tracked_channels();
     let patterns = self.tracked_patterns();
 
-    let mut channel_tasks = concurrent_op(self, channels, ReconnectOperation::Subscribe);
-    let pattern_tasks = concurrent_op(self, patterns, ReconnectOperation::PSubscribe);
-    channel_tasks.extend(pattern_tasks);
-
-    result_of_vec(join_all(channel_tasks).await)?;
+    let _ = concurrent_op(self, channels, ReconnectOperation::Subscribe).await?;
+    let _ = concurrent_op(self, patterns, ReconnectOperation::PSubscribe).await?;
     Ok(())
   }
 
@@ -291,11 +296,8 @@ impl SubscriberClient {
     let channels = mem::replace(&mut *self.channels.write(), BTreeSet::new());
     let patterns = mem::replace(&mut *self.patterns.write(), BTreeSet::new());
 
-    let mut channel_tasks = concurrent_op(self, channels, ReconnectOperation::Unsubscribe);
-    let pattern_tasks = concurrent_op(self, patterns, ReconnectOperation::PUnsubscribe);
-    channel_tasks.extend(pattern_tasks);
-
-    result_of_vec(join_all(channel_tasks).await)?;
+    let _ = concurrent_op(self, channels, ReconnectOperation::Unsubscribe).await?;
+    let _ = concurrent_op(self, patterns, ReconnectOperation::PUnsubscribe).await?;
     Ok(())
   }
 }

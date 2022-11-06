@@ -1,7 +1,7 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  monitor::{parser, Command, Config},
+  monitor::{parser, Command},
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},

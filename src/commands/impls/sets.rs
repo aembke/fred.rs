@@ -12,7 +12,7 @@ use crate::{
 use std::{convert::TryInto, sync::Arc};
 
 pub async fn sadd<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -30,11 +30,11 @@ pub async fn sadd<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn scard<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn scard<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Scard, key.into()).await
 }
 
-pub async fn sdiff<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn sdiff<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len());
 
@@ -49,7 +49,7 @@ pub async fn sdiff<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<Redis
 }
 
 pub async fn sdiffstore<C: ClientLike>(
-  client: C,
+  client: &C,
   dest: RedisKey,
   keys: MultipleKeys,
 ) -> Result<RedisValue, RedisError> {
@@ -67,7 +67,7 @@ pub async fn sdiffstore<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn sinter<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn sinter<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len());
 
@@ -82,7 +82,7 @@ pub async fn sinter<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<Redi
 }
 
 pub async fn sinterstore<C: ClientLike>(
-  client: C,
+  client: &C,
   dest: RedisKey,
   keys: MultipleKeys,
 ) -> Result<RedisValue, RedisError> {
@@ -101,7 +101,7 @@ pub async fn sinterstore<C: ClientLike>(
 }
 
 pub async fn sismember<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   member: RedisValue,
 ) -> Result<RedisValue, RedisError> {
@@ -109,7 +109,7 @@ pub async fn sismember<C: ClientLike>(
 }
 
 pub async fn smismember<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -127,12 +127,12 @@ pub async fn smismember<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn smembers<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn smembers<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_values_cmd(client, RedisCommandKind::Smembers, key.into()).await
 }
 
 pub async fn smove<C: ClientLike>(
-  client: C,
+  client: &C,
   source: RedisKey,
   dest: RedisKey,
   member: RedisValue,
@@ -141,7 +141,7 @@ pub async fn smove<C: ClientLike>(
   args_value_cmd(client, RedisCommandKind::Smove, args).await
 }
 
-pub async fn spop<C: ClientLike>(client: C, key: RedisKey, count: Option<usize>) -> Result<RedisValue, RedisError> {
+pub async fn spop<C: ClientLike>(client: &C, key: RedisKey, count: Option<usize>) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(key.into());
@@ -157,7 +157,7 @@ pub async fn spop<C: ClientLike>(client: C, key: RedisKey, count: Option<usize>)
 }
 
 pub async fn srandmember<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   count: Option<usize>,
 ) -> Result<RedisValue, RedisError> {
@@ -176,7 +176,7 @@ pub async fn srandmember<C: ClientLike>(
 }
 
 pub async fn srem<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -194,7 +194,7 @@ pub async fn srem<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn sunion<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn sunion<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len());
 
@@ -209,7 +209,7 @@ pub async fn sunion<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<Redi
 }
 
 pub async fn sunionstore<C: ClientLike>(
-  client: C,
+  client: &C,
   dest: RedisKey,
   keys: MultipleKeys,
 ) -> Result<RedisValue, RedisError> {

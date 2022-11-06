@@ -105,8 +105,8 @@ impl Notifications {
   }
 
   pub fn broadcast_reconnect(&self) {
-    if let Err(_) = self.reconnect.send(()) {
-      debug!("{}: Error notifying `on_reconnect` listeners.", self.id);
+    if let Err(e) = self.reconnect.send(()) {
+      debug!("{}: Error notifying `on_reconnect` listeners: {:?}", self.id, e);
     }
   }
 

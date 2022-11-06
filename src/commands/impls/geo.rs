@@ -17,7 +17,7 @@ static BY_RADIUS: &'static str = "BYRADIUS";
 static BY_BOX: &'static str = "BYBOX";
 
 pub async fn geoadd<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   options: Option<SetOptions>,
   changed: bool,
@@ -48,7 +48,7 @@ pub async fn geoadd<C: ClientLike>(
 }
 
 pub async fn geohash<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -68,7 +68,7 @@ pub async fn geohash<C: ClientLike>(
 }
 
 pub async fn geopos<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -88,7 +88,7 @@ pub async fn geopos<C: ClientLike>(
 }
 
 pub async fn geodist<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   src: RedisValue,
   dest: RedisValue,
@@ -112,7 +112,7 @@ pub async fn geodist<C: ClientLike>(
 }
 
 pub async fn georadius<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   position: GeoPosition,
   radius: f64,
@@ -169,7 +169,7 @@ pub async fn georadius<C: ClientLike>(
 }
 
 pub async fn georadiusbymember<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   member: RedisValue,
   radius: f64,
@@ -225,7 +225,7 @@ pub async fn georadiusbymember<C: ClientLike>(
 }
 
 pub async fn geosearch<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   from_member: Option<RedisValue>,
   from_lonlat: Option<GeoPosition>,
@@ -290,7 +290,7 @@ pub async fn geosearch<C: ClientLike>(
 }
 
 pub async fn geosearchstore<C: ClientLike>(
-  client: C,
+  client: &C,
   dest: RedisKey,
   source: RedisKey,
   from_member: Option<RedisValue>,

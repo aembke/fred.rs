@@ -567,8 +567,8 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(feature = "enable-native-tls")]
-      tls: utils::tls_config_from_url(_tls),
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
     })
   }
@@ -604,8 +604,8 @@ impl RedisConfig {
       server,
       username,
       password,
-      #[cfg(feature = "enable-native-tls")]
-      tls: utils::tls_config_from_url(_tls),
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
     })
   }
@@ -664,8 +664,8 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(feature = "enable-native-tls")]
-      tls: utils::tls_config_from_url(_tls),
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
     })
   }

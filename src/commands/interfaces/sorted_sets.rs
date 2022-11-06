@@ -1,46 +1,56 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{
-  AggregateOptions, FromRedis, Limit, MultipleKeys, MultipleValues, MultipleWeights, MultipleZaddValues, Ordering,
-  RedisKey, RedisValue, SetOptions, ZRange, ZSort,
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{ClientLike, RedisResult},
+  types::{
+    AggregateOptions,
+    FromRedis,
+    Limit,
+    MultipleKeys,
+    MultipleValues,
+    MultipleWeights,
+    MultipleZaddValues,
+    Ordering,
+    RedisKey,
+    RedisValue,
+    SetOptions,
+    ZRange,
+    ZSort,
+  },
 };
 use std::convert::TryInto;
 
 /// Functions that implement the [Sorted Sets](https://redis.io/commands#sorted_set) interface.
+#[async_trait]
 pub trait SortedSetsInterface: ClientLike + Sized {
   /// The blocking variant of the ZPOPMIN command.
   ///
   /// <https://redis.io/commands/bzpopmin>
-  fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
+  async fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
   {
     into!(keys);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::bzpopmin(_self, keys, timeout).await?.convert()
-    })
+    commands::sorted_sets::bzpopmin(self, keys, timeout).await?.convert()
   }
 
   /// The blocking variant of the ZPOPMAX command.
   ///
   /// <https://redis.io/commands/bzpopmax>
-  fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> AsyncResult<R>
+  async fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
   {
     into!(keys);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::bzpopmax(_self, keys, timeout).await?.convert()
-    })
+    commands::sorted_sets::bzpopmax(self, keys, timeout).await?.convert()
   }
 
   /// Adds all the specified members with the specified scores to the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zadd>
-  fn zadd<R, K, V>(
+  async fn zadd<R, K, V>(
     &self,
     key: K,
     options: Option<SetOptions>,
@@ -48,211 +58,192 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     changed: bool,
     incr: bool,
     values: V,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<MultipleZaddValues>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<MultipleZaddValues> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(values);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zadd(_self, key, options, ordering, changed, incr, values)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zadd(self, key, options, ordering, changed, incr, values)
+      .await?
+      .convert()
   }
 
   /// Returns the sorted set cardinality (number of elements) of the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zcard>
-  fn zcard<R, K>(&self, key: K) -> AsyncResult<R>
+  async fn zcard<R, K>(&self, key: K) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zcard(_self, key).await?.convert()
-    })
+    commands::sorted_sets::zcard(self, key).await?.convert()
   }
 
   /// Returns the number of elements in the sorted set at `key` with a score between `min` and `max`.
   ///
   /// <https://redis.io/commands/zcount>
-  fn zcount<R, K>(&self, key: K, min: f64, max: f64) -> AsyncResult<R>
+  async fn zcount<R, K>(&self, key: K, min: f64, max: f64) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zcount(_self, key, min, max).await?.convert()
-    })
+    commands::sorted_sets::zcount(self, key, min, max).await?.convert()
   }
 
-  /// This command is similar to ZDIFFSTORE, but instead of storing the resulting sorted set, it is returned to the client.
+  /// This command is similar to ZDIFFSTORE, but instead of storing the resulting sorted set, it is returned to the
+  /// client.
   ///
   /// <https://redis.io/commands/zdiff>
-  fn zdiff<R, K>(&self, keys: K, withscores: bool) -> AsyncResult<R>
+  async fn zdiff<R, K>(&self, keys: K, withscores: bool) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
   {
     into!(keys);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zdiff(_self, keys, withscores).await?.convert()
-    })
+    commands::sorted_sets::zdiff(self, keys, withscores).await?.convert()
   }
 
-  /// Computes the difference between the first and all successive input sorted sets and stores the result in `destination`.
+  /// Computes the difference between the first and all successive input sorted sets and stores the result in
+  /// `destination`.
   ///
   /// <https://redis.io/commands/zdiffstore>
-  fn zdiffstore<R, D, K>(&self, dest: D, keys: K) -> AsyncResult<R>
+  async fn zdiffstore<R, D, K>(&self, dest: D, keys: K) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
+    R: FromRedis,
+    D: Into<RedisKey> + Send,
+    K: Into<MultipleKeys> + Send,
   {
     into!(dest, keys);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zdiffstore(_self, dest, keys).await?.convert()
-    })
+    commands::sorted_sets::zdiffstore(self, dest, keys).await?.convert()
   }
 
   /// Increments the score of `member` in the sorted set stored at `key` by `increment`.
   ///
   /// <https://redis.io/commands/zincrby>
-  fn zincrby<R, K, V>(&self, key: K, increment: f64, member: V) -> AsyncResult<R>
+  async fn zincrby<R, K, V>(&self, key: K, increment: f64, member: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zincrby(_self, key, increment, member)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zincrby(self, key, increment, member)
+      .await?
+      .convert()
   }
 
-  /// This command is similar to ZINTERSTORE, but instead of storing the resulting sorted set, it is returned to the client.
+  /// This command is similar to ZINTERSTORE, but instead of storing the resulting sorted set, it is returned to the
+  /// client.
   ///
   /// <https://redis.io/commands/zinter>
-  fn zinter<R, K, W>(
+  async fn zinter<R, K, W>(
     &self,
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
     withscores: bool,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+    W: Into<MultipleWeights> + Send,
   {
     into!(keys, weights);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zinter(_self, keys, weights, aggregate, withscores)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zinter(self, keys, weights, aggregate, withscores)
+      .await?
+      .convert()
   }
 
-  /// Computes the intersection of the sorted sets given by the specified keys, and stores the result in `destination`.
+  /// Computes the intersection of the sorted sets given by the specified keys, and stores the result in
+  /// `destination`.
   ///
   /// <https://redis.io/commands/zinterstore>
-  fn zinterstore<R, D, K, W>(
+  async fn zinterstore<R, D, K, W>(
     &self,
     dest: D,
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
+    R: FromRedis,
+    D: Into<RedisKey> + Send,
+    K: Into<MultipleKeys> + Send,
+    W: Into<MultipleWeights> + Send,
   {
     into!(dest, keys, weights);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zinterstore(_self, dest, keys, weights, aggregate)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zinterstore(self, dest, keys, weights, aggregate)
+      .await?
+      .convert()
   }
 
-  /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical ordering,
-  /// this command returns the number of elements in the sorted set at key with a value between min and max.
+  /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical
+  /// ordering, this command returns the number of elements in the sorted set at key with a value between min and
+  /// max.
   ///
   /// <https://redis.io/commands/zlexcount>
-  fn zlexcount<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
+  async fn zlexcount<R, K, M, N>(&self, key: K, min: M, max: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zlexcount(_self, key, min, max).await?.convert()
-    })
+    commands::sorted_sets::zlexcount(self, key, min, max).await?.convert()
   }
 
   /// Removes and returns up to count members with the highest scores in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zpopmax>
-  fn zpopmax<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
+  async fn zpopmax<R, K>(&self, key: K, count: Option<usize>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zpopmax(_self, key, count).await?.convert()
-    })
+    commands::sorted_sets::zpopmax(self, key, count).await?.convert()
   }
 
   /// Removes and returns up to count members with the lowest scores in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zpopmin>
-  fn zpopmin<R, K>(&self, key: K, count: Option<usize>) -> AsyncResult<R>
+  async fn zpopmin<R, K>(&self, key: K, count: Option<usize>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zpopmin(_self, key, count).await?.convert()
-    })
+    commands::sorted_sets::zpopmin(self, key, count).await?.convert()
   }
 
   /// When called with just the key argument, return a random element from the sorted set value stored at `key`.
   ///
   /// <https://redis.io/commands/zrandmember>
-  fn zrandmember<R, K>(&self, key: K, count: Option<(i64, bool)>) -> AsyncResult<R>
+  async fn zrandmember<R, K>(&self, key: K, count: Option<(i64, bool)>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrandmember(_self, key, count).await?.convert()
-    })
+    commands::sorted_sets::zrandmember(self, key, count).await?.convert()
   }
 
   /// This command is like ZRANGE, but stores the result in the `destination` key.
   ///
   /// <https://redis.io/commands/zrangestore>
-  fn zrangestore<R, D, S, M, N>(
+  async fn zrangestore<R, D, S, M, N>(
     &self,
     dest: D,
     source: S,
@@ -261,29 +252,27 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     sort: Option<ZSort>,
     rev: bool,
     limit: Option<Limit>,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    D: Into<RedisKey>,
-    S: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    D: Into<RedisKey> + Send,
+    S: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(dest, source);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrangestore(_self, dest, source, min, max, sort, rev, limit)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrangestore(self, dest, source, min, max, sort, rev, limit)
+      .await?
+      .convert()
   }
 
   /// Returns the specified range of elements in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zrange>
-  fn zrange<R, K, M, N>(
+  async fn zrange<R, K, M, N>(
     &self,
     key: K,
     min: M,
@@ -292,158 +281,144 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     rev: bool,
     limit: Option<Limit>,
     withscores: bool,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrange(_self, key, min, max, sort, rev, limit, withscores)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrange(self, key, min, max, sort, rev, limit, withscores)
+      .await?
+      .convert()
   }
 
   /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical
   /// ordering, this command returns all the elements in the sorted set at `key` with a value between `min` and `max`.
   ///
   /// <https://redis.io/commands/zrangebylex>
-  fn zrangebylex<R, K, M, N>(&self, key: K, min: M, max: N, limit: Option<Limit>) -> AsyncResult<R>
+  async fn zrangebylex<R, K, M, N>(&self, key: K, min: M, max: N, limit: Option<Limit>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrangebylex(_self, key, min, max, limit)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrangebylex(self, key, min, max, limit)
+      .await?
+      .convert()
   }
 
   /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical
   /// ordering, this command returns all the elements in the sorted set at `key` with a value between `max` and `min`.
   ///
   /// <https://redis.io/commands/zrevrangebylex>
-  fn zrevrangebylex<R, K, M, N>(&self, key: K, max: M, min: N, limit: Option<Limit>) -> AsyncResult<R>
+  async fn zrevrangebylex<R, K, M, N>(&self, key: K, max: M, min: N, limit: Option<Limit>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(max, min);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrevrangebylex(_self, key, max, min, limit)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrevrangebylex(self, key, max, min, limit)
+      .await?
+      .convert()
   }
 
   /// Returns all the elements in the sorted set at key with a score between `min` and `max` (including elements
   /// with score equal to `min` or `max`).
   ///
   /// <https://redis.io/commands/zrangebyscore>
-  fn zrangebyscore<R, K, M, N>(
+  async fn zrangebyscore<R, K, M, N>(
     &self,
     key: K,
     min: M,
     max: N,
     withscores: bool,
     limit: Option<Limit>,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrangebyscore(_self, key, min, max, withscores, limit)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrangebyscore(self, key, min, max, withscores, limit)
+      .await?
+      .convert()
   }
 
   /// Returns all the elements in the sorted set at `key` with a score between `max` and `min` (including
   /// elements with score equal to `max` or `min`).
   ///
   /// <https://redis.io/commands/zrevrangebyscore>
-  fn zrevrangebyscore<R, K, M, N>(
+  async fn zrevrangebyscore<R, K, M, N>(
     &self,
     key: K,
     max: M,
     min: N,
     withscores: bool,
     limit: Option<Limit>,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(max, min);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrevrangebyscore(_self, key, max, min, withscores, limit)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrevrangebyscore(self, key, max, min, withscores, limit)
+      .await?
+      .convert()
   }
 
   /// Returns the rank of member in the sorted set stored at `key`, with the scores ordered from low to high.
   ///
   /// <https://redis.io/commands/zrank>
-  fn zrank<R, K, V>(&self, key: K, member: V) -> AsyncResult<R>
+  async fn zrank<R, K, V>(&self, key: K, member: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrank(_self, key, member).await?.convert()
-    })
+    commands::sorted_sets::zrank(self, key, member).await?.convert()
   }
 
   /// Removes the specified members from the sorted set stored at `key`. Non existing members are ignored.
   ///
   /// <https://redis.io/commands/zrem>
-  fn zrem<R, K, V>(&self, key: K, members: V) -> AsyncResult<R>
+  async fn zrem<R, K, V>(&self, key: K, members: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrem(_self, key, members).await?.convert()
-    })
+    commands::sorted_sets::zrem(self, key, members).await?.convert()
   }
 
   /// When all the elements in a sorted set are inserted with the same score, in order to force lexicographical
@@ -451,169 +426,152 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// specified by `min` and `max`.
   ///
   /// <https://redis.io/commands/zremrangebylex>
-  fn zremrangebylex<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
+  async fn zremrangebylex<R, K, M, N>(&self, key: K, min: M, max: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zremrangebylex(_self, key, min, max)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zremrangebylex(self, key, min, max)
+      .await?
+      .convert()
   }
 
   /// Removes all elements in the sorted set stored at `key` with rank between `start` and `stop`.
   ///
   /// <https://redis.io/commands/zremrangebyrank>
-  fn zremrangebyrank<R, K>(&self, key: K, start: i64, stop: i64) -> AsyncResult<R>
+  async fn zremrangebyrank<R, K>(&self, key: K, start: i64, stop: i64) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zremrangebyrank(_self, key, start, stop)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zremrangebyrank(self, key, start, stop)
+      .await?
+      .convert()
   }
 
   /// Removes all elements in the sorted set stored at `key` with a score between `min` and `max`.
   ///
   /// <https://redis.io/commands/zremrangebyscore>
-  fn zremrangebyscore<R, K, M, N>(&self, key: K, min: M, max: N) -> AsyncResult<R>
+  async fn zremrangebyscore<R, K, M, N>(&self, key: K, min: M, max: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    M: TryInto<ZRange>,
-    M::Error: Into<RedisError>,
-    N: TryInto<ZRange>,
-    N::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    M: TryInto<ZRange> + Send,
+    M::Error: Into<RedisError> + Send,
+    N: TryInto<ZRange> + Send,
+    N::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(min, max);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zremrangebyscore(_self, key, min, max)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zremrangebyscore(self, key, min, max)
+      .await?
+      .convert()
   }
 
   /// Returns the specified range of elements in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zrevrange>
-  fn zrevrange<R, K>(&self, key: K, start: i64, stop: i64, withscores: bool) -> AsyncResult<R>
+  async fn zrevrange<R, K>(&self, key: K, start: i64, stop: i64, withscores: bool) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
   {
     into!(key);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrevrange(_self, key, start, stop, withscores)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zrevrange(self, key, start, stop, withscores)
+      .await?
+      .convert()
   }
 
   /// Returns the rank of `member` in the sorted set stored at `key`, with the scores ordered from high to low.
   ///
   /// <https://redis.io/commands/zrevrank>
-  fn zrevrank<R, K, V>(&self, key: K, member: V) -> AsyncResult<R>
+  async fn zrevrank<R, K, V>(&self, key: K, member: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zrevrank(_self, key, member).await?.convert()
-    })
+    commands::sorted_sets::zrevrank(self, key, member).await?.convert()
   }
 
   /// Returns the score of `member` in the sorted set at `key`.
   ///
   /// <https://redis.io/commands/zscore>
-  fn zscore<R, K, V>(&self, key: K, member: V) -> AsyncResult<R>
+  async fn zscore<R, K, V>(&self, key: K, member: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(member);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zscore(_self, key, member).await?.convert()
-    })
+    commands::sorted_sets::zscore(self, key, member).await?.convert()
   }
 
-  /// This command is similar to ZUNIONSTORE, but instead of storing the resulting sorted set, it is returned to the client.
+  /// This command is similar to ZUNIONSTORE, but instead of storing the resulting sorted set, it is returned to the
+  /// client.
   ///
   /// <https://redis.io/commands/zunion>
-  fn zunion<K, W>(
+  async fn zunion<K, W>(
     &self,
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
     withscores: bool,
-  ) -> AsyncResult<RedisValue>
+  ) -> RedisResult<RedisValue>
   where
-    K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
+    K: Into<MultipleKeys> + Send,
+    W: Into<MultipleWeights> + Send,
   {
     into!(keys, weights);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zunion(_self, keys, weights, aggregate, withscores).await
-    })
+    commands::sorted_sets::zunion(self, keys, weights, aggregate, withscores).await
   }
 
   /// Computes the union of the sorted sets given by the specified keys, and stores the result in `destination`.
   ///
   /// <https://redis.io/commands/zunionstore>
-  fn zunionstore<R, D, K, W>(
+  async fn zunionstore<R, D, K, W>(
     &self,
     dest: D,
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
-  ) -> AsyncResult<R>
+  ) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    D: Into<RedisKey>,
-    K: Into<MultipleKeys>,
-    W: Into<MultipleWeights>,
+    R: FromRedis,
+    D: Into<RedisKey> + Send,
+    K: Into<MultipleKeys> + Send,
+    W: Into<MultipleWeights> + Send,
   {
     into!(dest, keys, weights);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zunionstore(_self, dest, keys, weights, aggregate)
-        .await?
-        .convert()
-    })
+    commands::sorted_sets::zunionstore(self, dest, keys, weights, aggregate)
+      .await?
+      .convert()
   }
 
   /// Returns the scores associated with the specified members in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zmscore>
-  fn zmscore<R, K, V>(&self, key: K, members: V) -> AsyncResult<R>
+  async fn zmscore<R, K, V>(&self, key: K, members: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<RedisKey>,
-    V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(members);
-    async_spawn(self, |_self| async move {
-      commands::sorted_sets::zmscore(_self, key, members).await?.convert()
-    })
+    commands::sorted_sets::zmscore(self, key, members).await?.convert()
   }
 }

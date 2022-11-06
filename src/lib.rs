@@ -107,13 +107,6 @@ pub mod util {
   }
 }
 
-/// Re-exports for the TLS types used with the TLS interface.
-#[cfg(feature = "enable-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-pub mod tls {
-  pub use native_tls::{Certificate, Identity, Protocol};
-}
-
 pub use crate::modules::{globals, pool};
 
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or

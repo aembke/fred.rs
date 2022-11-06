@@ -19,7 +19,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-pub async fn quit<C: ClientLike>(client: C) -> Result<(), RedisError> {
+pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
 
@@ -30,7 +30,7 @@ pub async fn quit<C: ClientLike>(client: C) -> Result<(), RedisError> {
   Ok(())
 }
 
-pub async fn shutdown<C: ClientLike>(client: C, flags: Option<ShutdownFlags>) -> Result<(), RedisError> {
+pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Shutting down server.");
   inner.notifications.broadcast_close();
@@ -96,14 +96,14 @@ pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), Red
   rx.await?.map(|_| ())
 }
 
-pub async fn flushall<C: ClientLike>(client: C, r#async: bool) -> Result<RedisValue, RedisError> {
+pub async fn flushall<C: ClientLike>(client: &C, r#async: bool) -> Result<RedisValue, RedisError> {
   let args = if r#async { vec![static_val!(ASYNC)] } else { Vec::new() };
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::FlushAll, args))).await?;
 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn flushall_cluster<C: ClientLike>(client: C) -> Result<(), RedisError> {
+pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   if !client.inner().config.server.is_clustered() {
     return flushall(client, false).await.map(|_| ());
   }
@@ -117,17 +117,17 @@ pub async fn flushall_cluster<C: ClientLike>(client: C) -> Result<(), RedisError
   Ok(())
 }
 
-pub async fn ping<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
+pub async fn ping<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, || Ok((RedisCommandKind::Ping, vec![]))).await?;
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn select<C: ClientLike>(client: C, db: u8) -> Result<RedisValue, RedisError> {
+pub async fn select<C: ClientLike>(client: &C, db: u8) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, || Ok((RedisCommandKind::Select, vec![db.into()]))).await?;
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn info<C: ClientLike>(client: C, section: Option<InfoKind>) -> Result<RedisValue, RedisError> {
+pub async fn info<C: ClientLike>(client: &C, section: Option<InfoKind>) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1);
     if let Some(section) = section {
@@ -142,7 +142,7 @@ pub async fn info<C: ClientLike>(client: C, section: Option<InfoKind>) -> Result
 }
 
 pub async fn hello<C: ClientLike>(
-  client: C,
+  client: &C,
   version: RespVersion,
   auth: Option<(String, String)>,
 ) -> Result<(), RedisError> {
@@ -167,7 +167,7 @@ pub async fn hello<C: ClientLike>(
   }
 }
 
-pub async fn auth<C: ClientLike>(client: C, username: Option<String>, password: Str) -> Result<(), RedisError> {
+pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password: Str) -> Result<(), RedisError> {
   let mut args = Vec::with_capacity(2);
   if let Some(username) = username {
     args.push(username.into());
@@ -191,7 +191,7 @@ pub async fn auth<C: ClientLike>(client: C, username: Option<String>, password: 
 }
 
 pub async fn custom<C: ClientLike>(
-  client: C,
+  client: &C,
   cmd: CustomCommand,
   args: Vec<RedisValue>,
 ) -> Result<RedisValue, RedisError> {
@@ -199,7 +199,7 @@ pub async fn custom<C: ClientLike>(
 }
 
 pub async fn custom_raw<C: ClientLike>(
-  client: C,
+  client: &C,
   cmd: CustomCommand,
   args: Vec<RedisValue>,
 ) -> Result<Resp3Frame, RedisError> {
@@ -211,7 +211,7 @@ value_cmd!(bgrewriteaof, BgreWriteAof);
 value_cmd!(bgsave, BgSave);
 
 pub async fn failover<C: ClientLike>(
-  client: C,
+  client: &C,
   to: Option<(String, u16)>,
   force: bool,
   abort: bool,

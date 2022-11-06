@@ -515,10 +515,10 @@ impl RedisCommandKind {
 
   pub fn custom_hash_slot(&self) -> Option<u16> {
     match self {
-      RedisCommandKind::_Custom(ref cmd) => cmd.cluster_hash.as_ref().and_then(|h| match h {
-        ClusterHash::Custom(val) => Some(*val),
+      RedisCommandKind::_Custom(ref cmd) => match cmd.cluster_hash {
+        ClusterHash::Custom(ref val) => Some(*val),
         _ => None,
-      }),
+      },
       _ => None,
     }
   }

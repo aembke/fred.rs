@@ -14,12 +14,12 @@ value_cmd!(cluster_nodes, ClusterNodes);
 ok_cmd!(cluster_saveconfig, ClusterSaveConfig);
 values_cmd!(cluster_slots, ClusterSlots);
 
-pub async fn cluster_info<C: ClientLike>(client: C) -> Result<ClusterInfo, RedisError> {
+pub async fn cluster_info<C: ClientLike>(client: &C) -> Result<ClusterInfo, RedisError> {
   let frame = utils::request_response(client, || Ok((RedisCommandKind::ClusterInfo, vec![]))).await?;
   protocol_utils::parse_cluster_info(frame)
 }
 
-pub async fn cluster_add_slots<C: ClientLike>(client: C, slots: MultipleHashSlots) -> Result<(), RedisError> {
+pub async fn cluster_add_slots<C: ClientLike>(client: &C, slots: MultipleHashSlots) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(slots.len());
 
@@ -35,7 +35,10 @@ pub async fn cluster_add_slots<C: ClientLike>(client: C, slots: MultipleHashSlot
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn cluster_count_failure_reports<C: ClientLike>(client: C, node_id: Str) -> Result<RedisValue, RedisError> {
+pub async fn cluster_count_failure_reports<C: ClientLike>(
+  client: &C,
+  node_id: Str,
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::ClusterCountFailureReports, vec![node_id.into()]))
   })
@@ -43,7 +46,7 @@ pub async fn cluster_count_failure_reports<C: ClientLike>(client: C, node_id: St
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn cluster_count_keys_in_slot<C: ClientLike>(client: C, slot: u16) -> Result<RedisValue, RedisError> {
+pub async fn cluster_count_keys_in_slot<C: ClientLike>(client: &C, slot: u16) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::ClusterCountKeysInSlot, vec![slot.into()]))
   })
@@ -52,7 +55,7 @@ pub async fn cluster_count_keys_in_slot<C: ClientLike>(client: C, slot: u16) -> 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn cluster_del_slots<C: ClientLike>(client: C, slots: MultipleHashSlots) -> Result<(), RedisError> {
+pub async fn cluster_del_slots<C: ClientLike>(client: &C, slots: MultipleHashSlots) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(slots.len());
 
@@ -68,7 +71,10 @@ pub async fn cluster_del_slots<C: ClientLike>(client: C, slots: MultipleHashSlot
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn cluster_failover<C: ClientLike>(client: C, flag: Option<ClusterFailoverFlag>) -> Result<(), RedisError> {
+pub async fn cluster_failover<C: ClientLike>(
+  client: &C,
+  flag: Option<ClusterFailoverFlag>,
+) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     let args = if let Some(flag) = flag {
       vec![flag.to_str().into()]
@@ -84,12 +90,12 @@ pub async fn cluster_failover<C: ClientLike>(client: C, flag: Option<ClusterFail
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn cluster_forget<C: ClientLike>(client: C, node_id: Str) -> Result<(), RedisError> {
+pub async fn cluster_forget<C: ClientLike>(client: &C, node_id: Str) -> Result<(), RedisError> {
   one_arg_ok_cmd(client, RedisCommandKind::ClusterForget, node_id.into()).await
 }
 
 pub async fn cluster_get_keys_in_slot<C: ClientLike>(
-  client: C,
+  client: &C,
   slot: u16,
   count: u64,
 ) -> Result<RedisValue, RedisError> {
@@ -104,23 +110,23 @@ pub async fn cluster_get_keys_in_slot<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn cluster_keyslot<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn cluster_keyslot<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::ClusterKeySlot, key.into()).await
 }
 
-pub async fn cluster_meet<C: ClientLike>(client: C, ip: Str, port: u16) -> Result<(), RedisError> {
+pub async fn cluster_meet<C: ClientLike>(client: &C, ip: Str, port: u16) -> Result<(), RedisError> {
   args_ok_cmd(client, RedisCommandKind::ClusterMeet, vec![ip.into(), port.into()]).await
 }
 
-pub async fn cluster_replicate<C: ClientLike>(client: C, node_id: Str) -> Result<(), RedisError> {
+pub async fn cluster_replicate<C: ClientLike>(client: &C, node_id: Str) -> Result<(), RedisError> {
   one_arg_ok_cmd(client, RedisCommandKind::ClusterReplicate, node_id.into()).await
 }
 
-pub async fn cluster_replicas<C: ClientLike>(client: C, node_id: Str) -> Result<RedisValue, RedisError> {
+pub async fn cluster_replicas<C: ClientLike>(client: &C, node_id: Str) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::ClusterReplicas, node_id.into()).await
 }
 
-pub async fn cluster_reset<C: ClientLike>(client: C, mode: Option<ClusterResetFlag>) -> Result<(), RedisError> {
+pub async fn cluster_reset<C: ClientLike>(client: &C, mode: Option<ClusterResetFlag>) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1);
     if let Some(flag) = mode {
@@ -135,13 +141,13 @@ pub async fn cluster_reset<C: ClientLike>(client: C, mode: Option<ClusterResetFl
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn cluster_set_config_epoch<C: ClientLike>(client: C, epoch: u64) -> Result<(), RedisError> {
+pub async fn cluster_set_config_epoch<C: ClientLike>(client: &C, epoch: u64) -> Result<(), RedisError> {
   let epoch: RedisValue = epoch.try_into()?;
   one_arg_ok_cmd(client, RedisCommandKind::ClusterSetConfigEpoch, epoch).await
 }
 
 pub async fn cluster_setslot<C: ClientLike>(
-  client: C,
+  client: &C,
   slot: u16,
   state: ClusterSetSlotState,
 ) -> Result<(), RedisError> {

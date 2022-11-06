@@ -1,7 +1,7 @@
 use crate::{
   commands,
   error::RedisError,
-  interfaces::{async_spawn, AsyncResult, ClientLike},
+  interfaces::{ClientLike, RedisResult},
   types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue},
 };
 use bytes_utils::Str;
@@ -9,6 +9,7 @@ use std::convert::TryInto;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 /// Functions that implement the [publish-subscribe](https://redis.io/commands#pubsub) interface.
+#[async_trait]
 pub trait PubsubInterface: ClientLike + Sized {
   /// Listen for `(channel, message)` tuples on the publish-subscribe interface. **Keyspace events are not sent on
   /// this interface.**
@@ -35,70 +36,60 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// is subscribed.
   ///
   /// <https://redis.io/commands/subscribe>
-  fn subscribe<S>(&self, channel: S) -> AsyncResult<usize>
+  async fn subscribe<S>(&self, channel: S) -> RedisResult<usize>
   where
-    S: Into<Str>,
+    S: Into<Str> + Send,
   {
     into!(channel);
-    async_spawn(self, |_self| async move {
-      commands::pubsub::subscribe(_self, channel).await?.convert()
-    })
+    commands::pubsub::subscribe(self, channel).await?.convert()
   }
 
   /// Unsubscribe from a channel on the PubSub interface, returning the number of channels to which hte client is
   /// subscribed.
   ///
   /// <https://redis.io/commands/unsubscribe>
-  fn unsubscribe<S>(&self, channel: S) -> AsyncResult<usize>
+  async fn unsubscribe<S>(&self, channel: S) -> RedisResult<usize>
   where
-    S: Into<Str>,
+    S: Into<Str> + Send,
   {
     into!(channel);
-    async_spawn(self, |_self| async move {
-      commands::pubsub::unsubscribe(_self, channel).await?.convert()
-    })
+    commands::pubsub::unsubscribe(self, channel).await?.convert()
   }
 
   /// Subscribes the client to the given patterns.
   ///
   /// <https://redis.io/commands/psubscribe>
-  fn psubscribe<S>(&self, patterns: S) -> AsyncResult<Vec<usize>>
+  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
   where
-    S: Into<MultipleStrings>,
+    S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
-    async_spawn(self, |_self| async move {
-      commands::pubsub::psubscribe(_self, patterns).await?.convert()
-    })
+    commands::pubsub::psubscribe(self, patterns).await?.convert()
   }
 
   /// Unsubscribes the client from the given patterns, or from all of them if none is given.
   ///
   /// <https://redis.io/commands/punsubscribe>
-  fn punsubscribe<S>(&self, patterns: S) -> AsyncResult<Vec<usize>>
+  async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
   where
-    S: Into<MultipleStrings>,
+    S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
-    async_spawn(self, |_self| async move {
-      commands::pubsub::punsubscribe(_self, patterns).await?.convert()
-    })
+    commands::pubsub::punsubscribe(self, patterns).await?.convert()
   }
 
   /// Publish a message on the PubSub interface, returning the number of clients that received the message.
   ///
   /// <https://redis.io/commands/publish>
-  fn publish<R, S, V>(&self, channel: S, message: V) -> AsyncResult<R>
+  async fn publish<R, S, V>(&self, channel: S, message: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    S: Into<Str>,
-    V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    S: Into<Str> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(channel);
     try_into!(message);
-    async_spawn(self, |_self| async move {
-      commands::pubsub::publish(_self, channel, message).await?.convert()
-    })
+    commands::pubsub::publish(self, channel, message).await?.convert()
   }
 }

@@ -92,31 +92,35 @@ pub struct CustomCommand {
   /// The cluster hashing policy to use, if any.
   ///
   /// Cluster clients will use the default policy if not provided.
-  pub cluster_hash: Option<ClusterHash>,
+  pub cluster_hash: ClusterHash,
   /// Whether or not the command should block the connection while waiting on a response.
   pub is_blocking:  bool,
 }
 
 impl CustomCommand {
-  /// create a new custom command.
+  /// Create a new custom command.
   ///
-  /// see the [custom](crate::interfaces::ClientLike::custom) command for more information.
-  pub fn new<C>(cmd: C, cluster_hash: Option<ClusterHash>, is_blocking: bool) -> Self
+  /// See the [custom](crate::interfaces::ClientLike::custom) command for more information.
+  pub fn new<C, H>(cmd: C, cluster_hash: H, is_blocking: bool) -> Self
   where
     C: Into<Str>,
+    H: Into<ClusterHash>,
   {
     CustomCommand {
       cmd: cmd.into(),
-      cluster_hash,
+      cluster_hash: cluster_hash.into(),
       is_blocking,
     }
   }
 
   /// Create a new custom command specified by a `&'static str`.
-  pub fn new_static(cmd: &'static str, cluster_hash: Option<ClusterHash>, is_blocking: bool) -> Self {
+  pub fn new_static<H>(cmd: &'static str, cluster_hash: H, is_blocking: bool) -> Self
+  where
+    H: Into<ClusterHash>,
+  {
     CustomCommand {
       cmd: utils::static_str(cmd),
-      cluster_hash,
+      cluster_hash: cluster_hash.into(),
       is_blocking,
     }
   }
@@ -124,7 +128,7 @@ impl CustomCommand {
 
 /// An enum describing the possible ways in which a Redis cluster can change state.
 ///
-/// See [on_cluster_change](crate::clients::RedisClient::on_cluster_change) for more information.
+/// See [on_cluster_change](crate::interfaces::ClientLike::on_cluster_change) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterStateChange {
   /// A node was added to the cluster.

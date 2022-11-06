@@ -6,7 +6,7 @@ use crate::{
 };
 use std::{convert::TryInto, sync::Arc};
 
-pub async fn hdel<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn hdel<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + fields.len());
     args.push(key.into());
@@ -22,23 +22,23 @@ pub async fn hdel<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys)
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn hexists<C: ClientLike>(client: C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hexists<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = vec![key.into(), field.into()];
   args_value_cmd(client, RedisCommandKind::HExists, args).await
 }
 
-pub async fn hget<C: ClientLike>(client: C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hget<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = vec![key.into(), field.into()];
   args_value_cmd(client, RedisCommandKind::HGet, args).await
 }
 
-pub async fn hgetall<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hgetall<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::HGetAll, vec![key.into()]))).await?;
   Ok(RedisValue::Map(protocol_utils::frame_to_map(frame)?))
 }
 
 pub async fn hincrby<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   field: RedisKey,
   increment: i64,
@@ -48,7 +48,7 @@ pub async fn hincrby<C: ClientLike>(
 }
 
 pub async fn hincrbyfloat<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   field: RedisKey,
   increment: f64,
@@ -57,16 +57,16 @@ pub async fn hincrbyfloat<C: ClientLike>(
   args_value_cmd(client, RedisCommandKind::HIncrByFloat, args).await
 }
 
-pub async fn hkeys<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hkeys<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::HKeys, vec![key.into()]))).await?;
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hlen<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::HLen, key.into()).await
 }
 
-pub async fn hmget<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn hmget<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + fields.len());
     args.push(key.into());
@@ -81,7 +81,7 @@ pub async fn hmget<C: ClientLike>(client: C, key: RedisKey, fields: MultipleKeys
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hmset<C: ClientLike>(client: C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
@@ -97,7 +97,7 @@ pub async fn hmset<C: ClientLike>(client: C, key: RedisKey, values: RedisMap) ->
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn hset<C: ClientLike>(client: C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
@@ -115,7 +115,7 @@ pub async fn hset<C: ClientLike>(client: C, key: RedisKey, values: RedisMap) -> 
 }
 
 pub async fn hsetnx<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   field: RedisKey,
   value: RedisValue,
@@ -129,7 +129,7 @@ pub async fn hsetnx<C: ClientLike>(
 }
 
 pub async fn hrandfield<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   count: Option<(i64, bool)>,
 ) -> Result<RedisValue, RedisError> {
@@ -162,7 +162,7 @@ pub async fn hrandfield<C: ClientLike>(
   }
 }
 
-pub async fn hstrlen<C: ClientLike>(client: C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hstrlen<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::HStrLen, vec![key.into(), field.into()]))
   })
@@ -171,6 +171,6 @@ pub async fn hstrlen<C: ClientLike>(client: C, key: RedisKey, field: RedisKey) -
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn hvals<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hvals<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_values_cmd(client, RedisCommandKind::HVals, key.into()).await
 }

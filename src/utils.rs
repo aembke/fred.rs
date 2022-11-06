@@ -435,7 +435,7 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
 }
 
 /// Send a command to the server using the default response handler.
-pub async fn basic_request_response<C, F, R>(client: C, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
   C: ClientLike,
   R: Into<RedisCommand>,
@@ -455,7 +455,7 @@ where
 
 /// Send a command to the server, with tracing.
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-pub async fn request_response<C, F, R>(client: C, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
   C: ClientLike,
   R: Into<RedisCommand>,
@@ -502,7 +502,7 @@ where
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub async fn request_response<C, F, R>(client: C, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
   C: ClientLike,
   R: Into<RedisCommand>,
@@ -693,12 +693,38 @@ pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }
 
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "enable-native-tls")]
-pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
+use tokio_native_tls::TlsConnector as NativeTlsConnector;
+#[cfg(feature = "enable-rustls")]
+use tokio_rustls::TlsConnector as RustlsConnector;
+
+#[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {
   if tls {
-    Some(TlsConfig::default())
+    TlsConnector::default_native_tls().map(Some)
   } else {
-    None
+    Ok(None)
+  }
+}
+
+#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {
+  if tls {
+    TlsConnector::default_rustls().map(Some)
+  } else {
+    Ok(None)
+  }
+}
+
+#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {
+  // default to native-tls when both are enabled
+  if tls {
+    TlsConnector::default_native_tls().map(Some)
+  } else {
+    Ok(None)
   }
 }
 

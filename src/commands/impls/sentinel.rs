@@ -1,20 +1,37 @@
 use super::*;
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::sentinel::{
-  CKQUORUM, CONFIG, FAILOVER, FLUSHCONFIG, GET_MASTER_ADDR_BY_NAME, INFO_CACHE, MASTER, MASTERS, MONITOR, MYID,
-  PENDING_SCRIPTS, REMOVE, REPLICAS, SENTINELS, SET, SIMULATE_FAILURE,
+use crate::{
+  error::RedisError,
+  modules::inner::RedisClientInner,
+  multiplexer::sentinel::{
+    CKQUORUM,
+    CONFIG,
+    FAILOVER,
+    FLUSHCONFIG,
+    GET_MASTER_ADDR_BY_NAME,
+    INFO_CACHE,
+    MASTER,
+    MASTERS,
+    MONITOR,
+    MYID,
+    PENDING_SCRIPTS,
+    REMOVE,
+    REPLICAS,
+    SENTINELS,
+    SET,
+    SIMULATE_FAILURE,
+  },
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
 };
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
 use bytes_utils::Str;
-use std::net::IpAddr;
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 
-pub async fn config_get<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn config_get<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let args = vec![static_val!(CONFIG), static_val!(GET), name.into()];
     Ok((RedisCommandKind::Sentinel, args))
@@ -24,19 +41,21 @@ pub async fn config_get<C: ClientLike>(client: C, name: Str) -> Result<RedisValu
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn config_set<C: ClientLike>(client: C, name: Str, value: RedisValue) -> Result<RedisValue, RedisError> {
+pub async fn config_set<C: ClientLike>(client: &C, name: Str, value: RedisValue) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!(CONFIG), static_val!(SET), name.into(), value],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!(CONFIG),
+      static_val!(SET),
+      name.into(),
+      value,
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ckquorum<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn ckquorum<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(CKQUORUM), name.into()]))
   })
@@ -45,11 +64,11 @@ pub async fn ckquorum<C: ClientLike>(client: C, name: Str) -> Result<RedisValue,
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn flushconfig<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
+pub async fn flushconfig<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::Sentinel, vec![static_val!(FLUSHCONFIG)]).await
 }
 
-pub async fn failover<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn failover<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(FAILOVER), name.into()]))
   })
@@ -58,27 +77,27 @@ pub async fn failover<C: ClientLike>(client: C, name: Str) -> Result<RedisValue,
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn get_master_addr_by_name<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn get_master_addr_by_name<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!(GET_MASTER_ADDR_BY_NAME), name.into()],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!(GET_MASTER_ADDR_BY_NAME),
+      name.into(),
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn info_cache<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
+pub async fn info_cache<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::Sentinel, vec![static_val!(INFO_CACHE)]).await
 }
 
-pub async fn masters<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
+pub async fn masters<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::Sentinel, vec![static_val!(MASTERS)]).await
 }
 
-pub async fn master<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn master<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(MASTER), name.into()]))
   })
@@ -88,7 +107,7 @@ pub async fn master<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, R
 }
 
 pub async fn monitor<C: ClientLike>(
-  client: C,
+  client: &C,
   name: Str,
   ip: IpAddr,
   port: u16,
@@ -96,25 +115,28 @@ pub async fn monitor<C: ClientLike>(
 ) -> Result<RedisValue, RedisError> {
   let ip = ip.to_string();
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!(MONITOR), name.into(), ip.into(), port.into(), quorum.into()],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!(MONITOR),
+      name.into(),
+      ip.into(),
+      port.into(),
+      quorum.into(),
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn myid<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
+pub async fn myid<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::Sentinel, vec![static_val!(MYID)]).await
 }
 
-pub async fn pending_scripts<C: ClientLike>(client: C) -> Result<RedisValue, RedisError> {
+pub async fn pending_scripts<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::Sentinel, vec![static_val!(PENDING_SCRIPTS)]).await
 }
 
-pub async fn remove<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn remove<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(REMOVE), name.into()]))
   })
@@ -123,7 +145,7 @@ pub async fn remove<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, R
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn replicas<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn replicas<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(REPLICAS), name.into()]))
   })
@@ -132,7 +154,7 @@ pub async fn replicas<C: ClientLike>(client: C, name: Str) -> Result<RedisValue,
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn sentinels<C: ClientLike>(client: C, name: Str) -> Result<RedisValue, RedisError> {
+pub async fn sentinels<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(SENTINELS), name.into()]))
   })
@@ -141,7 +163,7 @@ pub async fn sentinels<C: ClientLike>(client: C, name: Str) -> Result<RedisValue
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn set<C: ClientLike>(client: C, name: Str, options: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn set<C: ClientLike>(client: &C, name: Str, options: RedisMap) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + options.len());
     args.push(static_val!(SET));
@@ -158,19 +180,22 @@ pub async fn set<C: ClientLike>(client: C, name: Str, options: RedisMap) -> Resu
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn simulate_failure<C: ClientLike>(client: C, kind: SentinelFailureKind) -> Result<RedisValue, RedisError> {
+pub async fn simulate_failure<C: ClientLike>(
+  client: &C,
+  kind: SentinelFailureKind,
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::Sentinel,
-      vec![static_val!(SIMULATE_FAILURE), kind.to_str().into()],
-    ))
+    Ok((RedisCommandKind::Sentinel, vec![
+      static_val!(SIMULATE_FAILURE),
+      kind.to_str().into(),
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn reset<C: ClientLike>(client: C, pattern: Str) -> Result<RedisValue, RedisError> {
+pub async fn reset<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Sentinel, vec![static_val!(RESET), pattern.into()]))
   })

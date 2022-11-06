@@ -1,14 +1,18 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
 use std::sync::Arc;
 
 pub async fn pfadd<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -26,13 +30,13 @@ pub async fn pfadd<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn pfcount<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn pfcount<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = keys.inner().into_iter().map(|k| k.into()).collect();
   args_value_cmd(client, RedisCommandKind::Pfcount, args).await
 }
 
 pub async fn pfmerge<C: ClientLike>(
-  client: C,
+  client: &C,
   dest: RedisKey,
   sources: MultipleKeys,
 ) -> Result<RedisValue, RedisError> {

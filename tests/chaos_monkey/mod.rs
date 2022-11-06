@@ -2,19 +2,23 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use fred::clients::RedisClient;
-use fred::error::{RedisError, RedisErrorKind};
-use fred::globals;
-use fred::interfaces::*;
-use fred::types::{PerformanceConfig, RedisConfig, RedisKey, ServerConfig};
+use fred::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  globals,
+  interfaces::*,
+  types::{PerformanceConfig, RedisConfig, RedisKey, ServerConfig},
+};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
-use std::env;
-use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::thread::{self, sleep};
-use std::time::Duration;
+use std::{
+  env,
+  ffi::OsString,
+  path::{Path, PathBuf},
+  sync::Arc,
+  thread::{self, sleep},
+  time::Duration,
+};
 use subprocess::{Popen, PopenConfig, Redirection};
 use tokio::runtime::Builder;
 
@@ -53,7 +57,7 @@ pub fn set_test_kind(clustered: bool) {
 }
 
 struct MoveArgs {
-  pub src: u16,
+  pub src:  u16,
   pub dest: u16,
 }
 
@@ -66,7 +70,7 @@ fn read_path_from_env(env_path: &str) -> String {
         } else {
           panic!("Invalid {}: {} not found.", env_path, s);
         }
-      }
+      },
       Err(_) => panic!("Invalid {} env variable.", env_path),
     },
     None => panic!("Missing {} env variable.", env_path),
@@ -80,14 +84,15 @@ fn env_vars() -> Vec<(OsString, OsString)> {
 async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
   let config = RedisConfig {
     server: ServerConfig::default_clustered(),
-    performance: PerformanceConfig {
-      pipeline: false,
-      ..Default::default()
-    },
     ..Default::default()
   };
-  let client = RedisClient::new(config);
-  let _ = client.connect(None);
+  let perf = PerformanceConfig {
+    auto_pipeline: false,
+    ..Default::default()
+  };
+
+  let client = RedisClient::new(config, Some(perf), None);
+  let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
   let foo = RedisKey::from_static_str("foo");
@@ -97,7 +102,7 @@ async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
   };
   // find dest node from the other nodes
   let destination = client.cached_cluster_state().and_then(|state| loop {
-    let server = state.random_slot().unwrap().server.clone();
+    let server = state.random_slot().unwrap().primary.clone();
 
     let port = server
       .split(":")
@@ -119,7 +124,7 @@ async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
         RedisErrorKind::Unknown,
         "Failed to find a destination node.",
       ))
-    }
+    },
   };
 
   let _ = client.quit().await;
@@ -152,7 +157,7 @@ fn run_command(path: &str, cwd: &str, env: Vec<(OsString, OsString)>) {
   trace!("Stdout: {:?}", out);
   trace!("Stderr: {:?}", err);
 
-  for _ in 0..15 {
+  for _ in 0 .. 15 {
     if let Some(exit_status) = p.poll() {
       trace!("Finished running with {:?}", exit_status);
       break;
@@ -177,7 +182,7 @@ fn move_foo(root_path: &str) {
     Err(e) => {
       warn!("Error reading src/dest ports {:?}", e);
       return;
-    }
+    },
   };
   debug!("Moving foo from {} -> {}", args.src, args.dest);
 
@@ -204,11 +209,10 @@ fn restart_centralized(root_path: &str) {
   cmd_path.push("restart_centralized.sh");
   let path = cmd_path.to_str().unwrap();
 
-  run_command(
-    path,
-    root_path,
-    vec![("WAIT".into(), "1".into()), ("PORT".into(), "6379".into())],
-  );
+  run_command(path, root_path, vec![
+    ("WAIT".into(), "1".into()),
+    ("PORT".into(), "6379".into()),
+  ]);
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -237,7 +241,7 @@ fn run(root_path: String, cli_path: String, server_path: String, create_cluster_
   loop {
     let operation = if TEST_KIND.is_clustered() {
       if count % 2 == 0 {
-        //Operation::RestartCluster
+        // Operation::RestartCluster
         Operation::MoveFoo
       } else {
         Operation::RestartCluster

@@ -25,6 +25,7 @@ Notable breaking changes in 6.x:
 * New [custom command interface](examples/custom.rs) for managing cluster hash slots.
 * Removed or renamed some fields on `RedisConfig`.
 * Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
+  * This usually means changing `next()` to `recv()` in `while let` loops, etc.
 
 ## 5.2.0
 

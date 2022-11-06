@@ -13,7 +13,10 @@ use bytes_utils::Str;
 value_cmd!(client_id, ClientID);
 value_cmd!(client_info, ClientInfo);
 
-pub async fn client_kill<C: ClientLike>(client: C, filters: Vec<ClientKillFilter>) -> Result<RedisValue, RedisError> {
+pub async fn client_kill<C: ClientLike>(
+  client: &C,
+  filters: Vec<ClientKillFilter>,
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(filters.len() * 2);
 
@@ -31,7 +34,7 @@ pub async fn client_kill<C: ClientLike>(client: C, filters: Vec<ClientKillFilter
 }
 
 pub async fn client_list<C: ClientLike>(
-  client: C,
+  client: &C,
   r#type: Option<ClientKillType>,
   ids: Option<Vec<String>>,
 ) -> Result<RedisValue, RedisError> {
@@ -62,7 +65,7 @@ pub async fn client_list<C: ClientLike>(
 }
 
 pub async fn client_pause<C: ClientLike>(
-  client: C,
+  client: &C,
   timeout: i64,
   mode: Option<ClientPauseKind>,
 ) -> Result<(), RedisError> {
@@ -84,7 +87,7 @@ pub async fn client_pause<C: ClientLike>(
 
 value_cmd!(client_getname, ClientGetName);
 
-pub async fn client_setname<C: ClientLike>(client: C, name: Str) -> Result<(), RedisError> {
+pub async fn client_setname<C: ClientLike>(client: &C, name: Str) -> Result<(), RedisError> {
   let inner = client.inner();
   _warn!(
     inner,
@@ -101,7 +104,7 @@ pub async fn client_setname<C: ClientLike>(client: C, name: Str) -> Result<(), R
 
 ok_cmd!(client_unpause, ClientUnpause);
 
-pub async fn client_reply<C: ClientLike>(client: C, flag: ClientReplyFlag) -> Result<(), RedisError> {
+pub async fn client_reply<C: ClientLike>(client: &C, flag: ClientReplyFlag) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::ClientReply, vec![flag.to_str().into()]))
   })
@@ -112,7 +115,7 @@ pub async fn client_reply<C: ClientLike>(client: C, flag: ClientReplyFlag) -> Re
 }
 
 pub async fn client_unblock<C: ClientLike>(
-  client: C,
+  client: &C,
   id: RedisValue,
   flag: Option<ClientUnblockFlag>,
 ) -> Result<RedisValue, RedisError> {
@@ -129,7 +132,7 @@ pub async fn client_unblock<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn unblock_self<C: ClientLike>(client: C, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {
+pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {
   let inner = client.inner();
   let flag = flag.unwrap_or(ClientUnblockFlag::Error);
   let result = utils::interrupt_blocked_connection(inner, flag).await;

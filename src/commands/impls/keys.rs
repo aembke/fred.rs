@@ -1,22 +1,25 @@
 use super::*;
-use crate::error::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
-use std::convert::TryInto;
-use std::sync::Arc;
+use crate::{
+  error::*,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
+use std::{convert::TryInto, sync::Arc};
 
 value_cmd!(randomkey, Randomkey);
 
-pub async fn get<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn get<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_values_cmd(client, RedisCommandKind::Get, key.into()).await
 }
 
 pub async fn set<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   value: RedisValue,
   expire: Option<Expiration>,
@@ -49,7 +52,7 @@ pub async fn set<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn del<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   utils::check_empty_keys(&keys)?;
 
   let args: Vec<RedisValue> = keys.inner().drain(..).map(|k| k.into()).collect();
@@ -57,15 +60,15 @@ pub async fn del<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisVa
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn incr<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn incr<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Incr, key.into()).await
 }
 
-pub async fn decr<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn decr<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Decr, key.into()).await
 }
 
-pub async fn incr_by<C: ClientLike>(client: C, key: RedisKey, val: i64) -> Result<RedisValue, RedisError> {
+pub async fn incr_by<C: ClientLike>(client: &C, key: RedisKey, val: i64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::IncrBy, vec![key.into(), val.into()]))
   })
@@ -74,7 +77,7 @@ pub async fn incr_by<C: ClientLike>(client: C, key: RedisKey, val: i64) -> Resul
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn decr_by<C: ClientLike>(client: C, key: RedisKey, val: i64) -> Result<RedisValue, RedisError> {
+pub async fn decr_by<C: ClientLike>(client: &C, key: RedisKey, val: i64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::DecrBy, vec![key.into(), val.into()]))
   })
@@ -83,7 +86,7 @@ pub async fn decr_by<C: ClientLike>(client: C, key: RedisKey, val: i64) -> Resul
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn incr_by_float<C: ClientLike>(client: C, key: RedisKey, val: f64) -> Result<RedisValue, RedisError> {
+pub async fn incr_by_float<C: ClientLike>(client: &C, key: RedisKey, val: f64) -> Result<RedisValue, RedisError> {
   let val: RedisValue = val.try_into()?;
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::IncrByFloat, vec![key.into(), val]))
@@ -93,19 +96,19 @@ pub async fn incr_by_float<C: ClientLike>(client: C, key: RedisKey, val: f64) ->
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn ttl<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn ttl<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Ttl, key.into()).await
 }
 
-pub async fn pttl<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn pttl<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Pttl, key.into()).await
 }
 
-pub async fn persist<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn persist<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Persist, key.into()).await
 }
 
-pub async fn expire<C: ClientLike>(client: C, key: RedisKey, seconds: i64) -> Result<RedisValue, RedisError> {
+pub async fn expire<C: ClientLike>(client: &C, key: RedisKey, seconds: i64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Expire, vec![key.into(), seconds.into()]))
   })
@@ -114,7 +117,7 @@ pub async fn expire<C: ClientLike>(client: C, key: RedisKey, seconds: i64) -> Re
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn expire_at<C: ClientLike>(client: C, key: RedisKey, timestamp: i64) -> Result<RedisValue, RedisError> {
+pub async fn expire_at<C: ClientLike>(client: &C, key: RedisKey, timestamp: i64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::ExpireAt, vec![key.into(), timestamp.into()]))
   })
@@ -123,7 +126,7 @@ pub async fn expire_at<C: ClientLike>(client: C, key: RedisKey, timestamp: i64) 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn exists<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn exists<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   utils::check_empty_keys(&keys)?;
 
   let frame = utils::request_response(client, move || {
@@ -140,12 +143,12 @@ pub async fn exists<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<Redi
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn dump<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn dump<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_values_cmd(client, RedisCommandKind::Dump, key.into()).await
 }
 
 pub async fn restore<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   ttl: i64,
   serialized: RedisValue,
@@ -183,16 +186,17 @@ pub async fn restore<C: ClientLike>(
 }
 
 pub async fn getrange<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   start: usize,
   end: usize,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::GetRange,
-      vec![key.into(), start.try_into()?, end.try_into()?],
-    ))
+    Ok((RedisCommandKind::GetRange, vec![
+      key.into(),
+      start.try_into()?,
+      end.try_into()?,
+    ]))
   })
   .await?;
 
@@ -200,7 +204,7 @@ pub async fn getrange<C: ClientLike>(
 }
 
 pub async fn setrange<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   offset: u32,
   value: RedisValue,
@@ -213,19 +217,19 @@ pub async fn setrange<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn getset<C: ClientLike>(client: C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
+pub async fn getset<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::GetSet, vec![key.into(), value]).await
 }
 
-pub async fn getdel<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn getdel<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_values_cmd(client, RedisCommandKind::GetDel, key.into()).await
 }
 
-pub async fn strlen<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn strlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Strlen, key.into()).await
 }
 
-pub async fn mget<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   utils::check_empty_keys(&keys)?;
 
   let frame = utils::request_response(client, move || {
@@ -242,7 +246,7 @@ pub async fn mget<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisV
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn mset<C: ClientLike>(client: C, values: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn mset<C: ClientLike>(client: &C, values: RedisMap) -> Result<RedisValue, RedisError> {
   if values.len() == 0 {
     return Err(RedisError::new(
       RedisErrorKind::InvalidArgument,
@@ -265,7 +269,7 @@ pub async fn mset<C: ClientLike>(client: C, values: RedisMap) -> Result<RedisVal
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn msetnx<C: ClientLike>(client: C, values: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn msetnx<C: ClientLike>(client: &C, values: RedisMap) -> Result<RedisValue, RedisError> {
   if values.len() == 0 {
     return Err(RedisError::new(
       RedisErrorKind::InvalidArgument,
@@ -289,7 +293,7 @@ pub async fn msetnx<C: ClientLike>(client: C, values: RedisMap) -> Result<RedisV
 }
 
 pub async fn copy<C: ClientLike>(
-  client: C,
+  client: &C,
   source: RedisKey,
   destination: RedisKey,
   db: Option<u8>,
@@ -315,7 +319,7 @@ pub async fn copy<C: ClientLike>(
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn watch<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<(), RedisError> {
+pub async fn watch<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<(), RedisError> {
   let args = keys.inner().into_iter().map(|k| k.into()).collect();
   args_ok_cmd(client, RedisCommandKind::Watch, args).await
 }

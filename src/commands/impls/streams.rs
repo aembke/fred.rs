@@ -37,7 +37,7 @@ fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
 }
 
 pub async fn xinfo_consumers<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   groupname: Str,
 ) -> Result<RedisValue, RedisError> {
@@ -50,13 +50,13 @@ pub async fn xinfo_consumers<C: ClientLike>(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xinfo_groups<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn xinfo_groups<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::XinfoGroups, vec![key.into()]))).await?;
   protocol_utils::frame_to_results_raw(frame)
 }
 
 pub async fn xinfo_stream<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   full: bool,
   count: Option<u64>,
@@ -81,7 +81,7 @@ pub async fn xinfo_stream<C: ClientLike>(
 }
 
 pub async fn xadd<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   nomkstream: bool,
   cap: XCap,
@@ -110,7 +110,7 @@ pub async fn xadd<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xtrim<C: ClientLike>(client: C, key: RedisKey, cap: XCap) -> Result<RedisValue, RedisError> {
+pub async fn xtrim<C: ClientLike>(client: &C, key: RedisKey, cap: XCap) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
     args.push(key.into());
@@ -123,7 +123,7 @@ pub async fn xtrim<C: ClientLike>(client: C, key: RedisKey, cap: XCap) -> Result
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xdel<C: ClientLike>(client: C, key: RedisKey, ids: MultipleStrings) -> Result<RedisValue, RedisError> {
+pub async fn xdel<C: ClientLike>(client: &C, key: RedisKey, ids: MultipleStrings) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + ids.len());
     args.push(key.into());
@@ -139,7 +139,7 @@ pub async fn xdel<C: ClientLike>(client: C, key: RedisKey, ids: MultipleStrings)
 }
 
 pub async fn xrange<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   start: RedisValue,
   end: RedisValue,
@@ -164,7 +164,7 @@ pub async fn xrange<C: ClientLike>(
 }
 
 pub async fn xrevrange<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   end: RedisValue,
   start: RedisValue,
@@ -188,12 +188,12 @@ pub async fn xrevrange<C: ClientLike>(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xlen<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn xlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Xlen, key.into()).await
 }
 
 pub async fn xread<C: ClientLike>(
-  client: C,
+  client: &C,
   count: Option<u64>,
   block: Option<u64>,
   keys: MultipleKeys,
@@ -239,7 +239,7 @@ pub async fn xread<C: ClientLike>(
 }
 
 pub async fn xgroup_create<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   groupname: Str,
   id: XID,
@@ -262,7 +262,7 @@ pub async fn xgroup_create<C: ClientLike>(
 }
 
 pub async fn xgroup_createconsumer<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   groupname: Str,
   consumername: Str,
@@ -280,7 +280,7 @@ pub async fn xgroup_createconsumer<C: ClientLike>(
 }
 
 pub async fn xgroup_delconsumer<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   groupname: Str,
   consumername: Str,
@@ -298,7 +298,7 @@ pub async fn xgroup_delconsumer<C: ClientLike>(
 }
 
 pub async fn xgroup_destroy<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   groupname: Str,
 ) -> Result<RedisValue, RedisError> {
@@ -311,7 +311,7 @@ pub async fn xgroup_destroy<C: ClientLike>(
 }
 
 pub async fn xgroup_setid<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   groupname: Str,
   id: XID,
@@ -329,7 +329,7 @@ pub async fn xgroup_setid<C: ClientLike>(
 }
 
 pub async fn xreadgroup<C: ClientLike>(
-  client: C,
+  client: &C,
   group: Str,
   consumer: Str,
   count: Option<u64>,
@@ -383,7 +383,7 @@ pub async fn xreadgroup<C: ClientLike>(
 }
 
 pub async fn xack<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   group: Str,
   ids: MultipleIDs,
@@ -404,7 +404,7 @@ pub async fn xack<C: ClientLike>(
 }
 
 pub async fn xclaim<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   group: Str,
   consumer: Str,
@@ -453,7 +453,7 @@ pub async fn xclaim<C: ClientLike>(
 }
 
 pub async fn xautoclaim<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   group: Str,
   consumer: Str,
@@ -486,7 +486,7 @@ pub async fn xautoclaim<C: ClientLike>(
 }
 
 pub async fn xpending<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   group: Str,
   cmd_args: XPendingArgs,

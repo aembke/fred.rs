@@ -1,14 +1,17 @@
 use super::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::command::{RedisCommand, RedisCommandKind};
-use crate::protocol::types::*;
-use crate::protocol::utils as protocol_utils;
-use crate::types::*;
-use crate::utils;
-use std::convert::TryInto;
-use std::sync::Arc;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    types::*,
+    utils as protocol_utils,
+  },
+  types::*,
+  utils,
+};
+use std::{convert::TryInto, sync::Arc};
 
-pub async fn blpop<C: ClientLike>(client: C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
+pub async fn blpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
   let timeout: RedisValue = timeout.try_into()?;
 
   let frame = utils::request_response(client, move || {
@@ -25,7 +28,7 @@ pub async fn blpop<C: ClientLike>(client: C, keys: MultipleKeys, timeout: f64) -
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn brpop<C: ClientLike>(client: C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
+pub async fn brpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
   let timeout: RedisValue = timeout.try_into()?;
 
   let frame = utils::request_response(client, move || {
@@ -43,7 +46,7 @@ pub async fn brpop<C: ClientLike>(client: C, keys: MultipleKeys, timeout: f64) -
 }
 
 pub async fn brpoplpush<C: ClientLike>(
-  client: C,
+  client: &C,
   source: RedisKey,
   destination: RedisKey,
   timeout: f64,
@@ -51,10 +54,11 @@ pub async fn brpoplpush<C: ClientLike>(
   let timeout: RedisValue = timeout.try_into()?;
 
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::BrPopLPush,
-      vec![source.into(), destination.into(), timeout],
-    ))
+    Ok((RedisCommandKind::BrPopLPush, vec![
+      source.into(),
+      destination.into(),
+      timeout,
+    ]))
   })
   .await?;
 
@@ -62,7 +66,7 @@ pub async fn brpoplpush<C: ClientLike>(
 }
 
 pub async fn blmove<C: ClientLike>(
-  client: C,
+  client: &C,
   source: RedisKey,
   destination: RedisKey,
   source_direction: LMoveDirection,
@@ -87,34 +91,36 @@ pub async fn blmove<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn lindex<C: ClientLike>(client: C, key: RedisKey, index: i64) -> Result<RedisValue, RedisError> {
+pub async fn lindex<C: ClientLike>(client: &C, key: RedisKey, index: i64) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = vec![key.into(), index.into()];
   args_value_cmd(client, RedisCommandKind::LIndex, args).await
 }
 
 pub async fn linsert<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   location: ListLocation,
   pivot: RedisValue,
   element: RedisValue,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::LInsert,
-      vec![key.into(), location.to_str().into(), pivot, element],
-    ))
+    Ok((RedisCommandKind::LInsert, vec![
+      key.into(),
+      location.to_str().into(),
+      pivot,
+      element,
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn llen<C: ClientLike>(client: C, key: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn llen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::LLen, key.into()).await
 }
 
-pub async fn lpop<C: ClientLike>(client: C, key: RedisKey, count: Option<usize>) -> Result<RedisValue, RedisError> {
+pub async fn lpop<C: ClientLike>(client: &C, key: RedisKey, count: Option<usize>) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(key.into());
@@ -131,7 +137,7 @@ pub async fn lpop<C: ClientLike>(client: C, key: RedisKey, count: Option<usize>)
 }
 
 pub async fn lpos<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   element: RedisValue,
   rank: Option<i64>,
@@ -164,7 +170,7 @@ pub async fn lpos<C: ClientLike>(
 }
 
 pub async fn lpush<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -184,7 +190,7 @@ pub async fn lpush<C: ClientLike>(
 }
 
 pub async fn lpushx<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -204,7 +210,7 @@ pub async fn lpushx<C: ClientLike>(
 }
 
 pub async fn lrange<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   start: i64,
   stop: i64,
@@ -214,7 +220,7 @@ pub async fn lrange<C: ClientLike>(
 }
 
 pub async fn lrem<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   count: i64,
   element: RedisValue,
@@ -224,7 +230,7 @@ pub async fn lrem<C: ClientLike>(
 }
 
 pub async fn lset<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   index: i64,
   element: RedisValue,
@@ -233,12 +239,17 @@ pub async fn lset<C: ClientLike>(
   args_value_cmd(client, RedisCommandKind::LSet, args).await
 }
 
-pub async fn ltrim<C: ClientLike>(client: C, key: RedisKey, start: i64, stop: i64) -> Result<RedisValue, RedisError> {
+pub async fn ltrim<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  start: i64,
+  stop: i64,
+) -> Result<RedisValue, RedisError> {
   let args = vec![key.into(), start.into(), stop.into()];
   args_value_cmd(client, RedisCommandKind::LTrim, args).await
 }
 
-pub async fn rpop<C: ClientLike>(client: C, key: RedisKey, count: Option<usize>) -> Result<RedisValue, RedisError> {
+pub async fn rpop<C: ClientLike>(client: &C, key: RedisKey, count: Option<usize>) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(key.into());
@@ -254,13 +265,17 @@ pub async fn rpop<C: ClientLike>(client: C, key: RedisKey, count: Option<usize>)
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn rpoplpush<C: ClientLike>(client: C, source: RedisKey, dest: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn rpoplpush<C: ClientLike>(
+  client: &C,
+  source: RedisKey,
+  dest: RedisKey,
+) -> Result<RedisValue, RedisError> {
   let args = vec![source.into(), dest.into()];
   args_value_cmd(client, RedisCommandKind::Rpoplpush, args).await
 }
 
 pub async fn lmove<C: ClientLike>(
-  client: C,
+  client: &C,
   source: RedisKey,
   dest: RedisKey,
   source_direction: LMoveDirection,
@@ -282,7 +297,7 @@ pub async fn lmove<C: ClientLike>(
 }
 
 pub async fn rpush<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
@@ -302,7 +317,7 @@ pub async fn rpush<C: ClientLike>(
 }
 
 pub async fn rpushx<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {

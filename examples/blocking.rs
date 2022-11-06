@@ -9,11 +9,11 @@ async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init();
 
   let config = RedisConfig::default();
-  let publisher_client = RedisClient::new(config.clone());
-  let subscriber_client = RedisClient::new(config.clone());
+  let publisher_client = RedisClient::new(config.clone(), None, None);
+  let subscriber_client = RedisClient::new(config.clone(), None, None);
 
-  let _ = publisher_client.connect(None);
-  let _ = subscriber_client.connect(None);
+  let _ = publisher_client.connect();
+  let _ = subscriber_client.connect();
   let _ = publisher_client.wait_for_connect().await?;
   let _ = subscriber_client.wait_for_connect().await?;
 
@@ -25,7 +25,7 @@ async fn main() -> Result<(), RedisError> {
     Ok::<(), RedisError>(())
   });
 
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = publisher_client.rpush("foo", idx).await?;
     sleep(Duration::from_millis(1000)).await;
   }

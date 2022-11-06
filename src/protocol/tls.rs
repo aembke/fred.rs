@@ -19,6 +19,7 @@ pub use tokio_native_tls::native_tls;
 #[cfg(feature = "enable-rustls")]
 pub use tokio_rustls::rustls;
 
+/// An enum for interacting with various TLS libraries and interfaces.
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
 #[derive(Clone)]
 pub enum TlsConnector {

@@ -3,7 +3,6 @@ use crate::{
   interfaces,
   interfaces::{
     AclInterface,
-    AsyncResult,
     AuthInterface,
     ClientInterface,
     ClientLike,
@@ -52,8 +51,9 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
 ///
-/// This struct can also be used to ensure that a series of commands run at least once without interruption from other
-/// tasks that share the underlying client.
+/// The `auto_pipeline` flag on the [PerformanceConfig](crate::types::PerformanceConfig) determines whether
+/// the client will pipeline commands across tasks whereas this struct is used to pipeline commands within one task. A
+/// sequence of commands in a `Pipeline` or `Transaction` cannot be interrupted by other tasks.
 pub struct Pipeline {
   commands: Arc<Mutex<VecDeque<RedisCommand>>>,
   inner:    Arc<RedisClientInner>,
@@ -146,11 +146,9 @@ impl Pipeline {
   /// Send the pipeline and respond with only the result of the last command.
   ///
   /// ```rust no_run no_compile
-  /// let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
-  ///
   /// let pipeline = client.pipeline();
-  /// let _ = pipeline.get("foo").await?; // returns when the command is queued in memory
-  /// let _ = pipeline.get("bar").await?; // returns when the command is queued in memory
+  /// let _ = pipeline.incr("foo").await?; // returns when the command is queued in memory
+  /// let _ = pipeline.incr("foo").await?; // returns when the command is queued in memory
   ///
   /// let result: i64 = pipeline.last().await?;
   /// assert_eq!(results, 2);

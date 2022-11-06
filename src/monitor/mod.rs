@@ -1,6 +1,5 @@
 use crate::{
   error::RedisError,
-  protocol::tls::TlsConfig,
   types::{RedisConfig, RedisValue},
   utils as client_utils,
 };

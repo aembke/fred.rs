@@ -1,8 +1,10 @@
 use super::utils::read_env_var;
-use fred::clients::RedisClient;
-use fred::error::RedisError;
-use fred::interfaces::*;
-use fred::types::{AclUserFlag, RedisConfig};
+use fred::{
+  clients::RedisClient,
+  error::RedisError,
+  interfaces::*,
+  types::{AclUserFlag, RedisConfig},
+};
 
 // the docker image we use for sentinel tests doesn't allow for configuring users, just passwords,
 // so for the tests here we just use an empty username so it uses the `default` user
@@ -32,13 +34,16 @@ pub async fn should_auth_as_test_user(client: RedisClient, _: RedisConfig) -> Re
 }
 
 // note: currently this only works in CI against the centralized server
-pub async fn should_auth_as_test_user_via_config(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_auth_as_test_user_via_config(
+  client: RedisClient,
+  mut config: RedisConfig,
+) -> Result<(), RedisError> {
   let (username, password) = check_env_creds();
   if let Some(password) = password {
     config.username = username;
     config.password = Some(password);
-    let client = RedisClient::new(config);
-    let _ = client.connect(None);
+    let client = RedisClient::new(config, None, None);
+    let _ = client.connect();
     let _ = client.wait_for_connect().await?;
     let _: () = client.get("foo").await?;
   }

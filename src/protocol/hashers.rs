@@ -53,8 +53,26 @@ impl From<Option<u16>> for ClusterHash {
   fn from(hash_slot: Option<u16>) -> Self {
     match hash_slot {
       Some(slot) => ClusterHash::Custom(slot),
-      None => ClusterHash::Random,
+      None => ClusterHash::FirstKey,
     }
+  }
+}
+
+impl From<u16> for ClusterHash {
+  fn from(slot: u16) -> Self {
+    ClusterHash::Custom(slot)
+  }
+}
+
+impl From<&str> for ClusterHash {
+  fn from(d: &str) -> Self {
+    ClusterHash::Custom(redis_keyslot(d.as_bytes()))
+  }
+}
+
+impl From<&[u8]> for ClusterHash {
+  fn from(d: &[u8]) -> Self {
+    ClusterHash::Custom(redis_keyslot(d))
   }
 }
 

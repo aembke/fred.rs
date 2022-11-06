@@ -1,7 +1,7 @@
 use crate::{
   commands,
   error::{RedisError, RedisErrorKind},
-  interfaces::{async_spawn, AsyncResult, ClientLike},
+  interfaces::{ClientLike, RedisResult},
   types::{
     ClientKillFilter,
     ClientKillType,
@@ -18,6 +18,7 @@ use bytes_utils::Str;
 use std::{collections::HashMap, sync::Arc};
 
 /// Functions that implement the [CLIENT](https://redis.io/commands#connection) interface.
+#[async_trait]
 pub trait ClientInterface: ClientLike + Sized {
   /// Return the ID of the current connection.
   ///
@@ -25,74 +26,62 @@ pub trait ClientInterface: ClientLike + Sized {
   /// [connection_ids](Self::connection_ids) for  more information.
   ///
   /// <https://redis.io/commands/client-id>
-  fn client_id<R>(&self) -> AsyncResult<R>
+  async fn client_id<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |_self| async move {
-      commands::client::client_id(_self).await?.convert()
-    })
+    commands::client::client_id(self).await?.convert()
   }
 
   /// Read the connection IDs for the active connections to each server.
   ///
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
   ///
-  /// Note: despite being async this function will usually return cached information from the client if possible.
-  fn connection_ids(&self) -> AsyncResult<HashMap<ArcStr, i64>> {
-    async_spawn(self, |_self| async move {
-      Ok(_self.inner().backchannel.write().await.connection_ids.clone())
-    })
+  /// Note: despite being async this function will return cached information from the client if possible.
+  async fn connection_ids(&self) -> HashMap<ArcStr, i64> {
+    self.inner().backchannel.read().await.connection_ids.clone()
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable
   /// format.
   ///
   /// <https://redis.io/commands/client-info>
-  fn client_info<R>(&self) -> AsyncResult<R>
+  async fn client_info<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |_self| async move {
-      commands::client::client_info(_self).await?.convert()
-    })
+    commands::client::client_info(self).await?.convert()
   }
 
   /// Close a given connection or set of connections.
   ///
   /// <https://redis.io/commands/client-kill>
-  fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> AsyncResult<R>
+  async fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |_self| async move {
-      commands::client::client_kill(_self, filters).await?.convert()
-    })
+    commands::client::client_kill(self, filters).await?.convert()
   }
 
   /// The CLIENT LIST command returns information and statistics about the client connections server in a mostly human
   /// readable format.
   ///
   /// <https://redis.io/commands/client-list>
-  fn client_list<R, I>(&self, r#type: Option<ClientKillType>, ids: Option<Vec<String>>) -> AsyncResult<R>
+  async fn client_list<R, I>(&self, r#type: Option<ClientKillType>, ids: Option<Vec<String>>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |_self| async move {
-      commands::client::client_list(_self, r#type, ids).await?.convert()
-    })
+    commands::client::client_list(self, r#type, ids).await?.convert()
   }
 
   /// The CLIENT GETNAME returns the name of the current connection as set by CLIENT SETNAME.
   ///
   /// <https://redis.io/commands/client-getname>
-  fn client_getname<R>(&self) -> AsyncResult<R>
+  async fn client_getname<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |_self| async move {
-      commands::client::client_getname(_self).await?.convert()
-    })
+    commands::client::client_getname(self).await?.convert()
   }
 
   /// Assign a name to the current connection.
@@ -101,44 +90,35 @@ pub trait ClientInterface: ClientLike + Sized {
   /// connections. Use `self.id() to read the automatically generated name.**
   ///
   /// <https://redis.io/commands/client-setname>
-  fn client_setname<S>(&self, name: S) -> AsyncResult<()>
+  async fn client_setname<S>(&self, name: S) -> RedisResult<()>
   where
-    S: Into<Str>,
+    S: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |_self| async move {
-      commands::client::client_setname(_self, name).await
-    })
+    commands::client::client_setname(self, name).await
   }
 
   /// CLIENT PAUSE is a connections control command able to suspend all the Redis clients for the specified amount of
   /// time (in milliseconds).
   ///
   /// <https://redis.io/commands/client-pause>
-  fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> AsyncResult<()> {
-    async_spawn(self, |_self| async move {
-      commands::client::client_pause(_self, timeout, mode).await
-    })
+  async fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> RedisResult<()> {
+    commands::client::client_pause(self, timeout, mode).await
   }
 
   /// CLIENT UNPAUSE is used to resume command processing for all clients that were paused by CLIENT PAUSE.
   ///
   /// <https://redis.io/commands/client-unpause>
-  fn client_unpause(&self) -> AsyncResult<()> {
-    async_spawn(
-      self,
-      |_self| async move { commands::client::client_unpause(_self).await },
-    )
+  async fn client_unpause(&self) -> RedisResult<()> {
+    commands::client::client_unpause(self).await
   }
 
   /// The CLIENT REPLY command controls whether the server will reply the client's commands. The following modes are
   /// available:
   ///
   /// <https://redis.io/commands/client-reply>
-  fn client_reply(&self, flag: ClientReplyFlag) -> AsyncResult<()> {
-    async_spawn(self, |_self| async move {
-      commands::client::client_reply(_self, flag).await
-    })
+  async fn client_reply(&self, flag: ClientReplyFlag) -> RedisResult<()> {
+    commands::client::client_reply(self, flag).await
   }
 
   /// This command can unblock, from a different connection, a client blocked in a blocking operation, such as for
@@ -147,21 +127,17 @@ pub trait ClientInterface: ClientLike + Sized {
   /// Note: this command is sent on a backchannel connection and will work even when the main connection is blocked.
   ///
   /// <https://redis.io/commands/client-unblock>
-  fn client_unblock<R, S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> AsyncResult<R>
+  async fn client_unblock<R, S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    S: Into<RedisValue>,
+    R: FromRedis,
+    S: Into<RedisValue> + Send,
   {
     into!(id);
-    async_spawn(self, |_self| async move {
-      commands::client::client_unblock(_self, id, flag).await?.convert()
-    })
+    commands::client::client_unblock(self, id, flag).await?.convert()
   }
 
   /// A convenience function to unblock any blocked connection on this client.
-  fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> AsyncResult<()> {
-    async_spawn(self, |_self| async move {
-      commands::client::unblock_self(_self, flag).await
-    })
+  async fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> RedisResult<()> {
+    commands::client::unblock_self(self, flag).await
   }
 }

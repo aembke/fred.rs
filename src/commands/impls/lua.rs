@@ -53,11 +53,11 @@ pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Re
   }
 }
 
-pub async fn script_load<C: ClientLike>(client: C, script: Str) -> Result<RedisValue, RedisError> {
+pub async fn script_load<C: ClientLike>(client: &C, script: Str) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::ScriptLoad, script.into()).await
 }
 
-pub async fn script_load_cluster<C: ClientLike>(client: C, script: Str) -> Result<RedisValue, RedisError> {
+pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Result<RedisValue, RedisError> {
   if !client.inner().config.server.is_clustered() {
     return script_load(client, script).await;
   }
@@ -74,7 +74,7 @@ pub async fn script_load_cluster<C: ClientLike>(client: C, script: Str) -> Resul
 
 ok_cmd!(script_kill, ScriptKill);
 
-pub async fn script_kill_cluster<C: ClientLike>(client: C) -> Result<(), RedisError> {
+pub async fn script_kill_cluster<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   if !client.inner().config.server.is_clustered() {
     return script_kill(client).await;
   }
@@ -88,7 +88,7 @@ pub async fn script_kill_cluster<C: ClientLike>(client: C) -> Result<(), RedisEr
   Ok(())
 }
 
-pub async fn script_flush<C: ClientLike>(client: C, r#async: bool) -> Result<(), RedisError> {
+pub async fn script_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     let arg = static_val!(if r#async { ASYNC } else { SYNC });
     Ok((RedisCommandKind::ScriptFlush, vec![arg]))
@@ -99,7 +99,7 @@ pub async fn script_flush<C: ClientLike>(client: C, r#async: bool) -> Result<(),
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn script_flush_cluster<C: ClientLike>(client: C, r#async: bool) -> Result<(), RedisError> {
+pub async fn script_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> Result<(), RedisError> {
   if !client.inner().config.server.is_clustered() {
     return script_flush(client, r#async).await;
   }
@@ -115,7 +115,7 @@ pub async fn script_flush_cluster<C: ClientLike>(client: C, r#async: bool) -> Re
   Ok(())
 }
 
-pub async fn script_exists<C: ClientLike>(client: C, hashes: MultipleStrings) -> Result<RedisValue, RedisError> {
+pub async fn script_exists<C: ClientLike>(client: &C, hashes: MultipleStrings) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let args = hashes.inner().into_iter().map(|s| s.into()).collect();
     Ok((RedisCommandKind::ScriptExists, args))
@@ -125,7 +125,7 @@ pub async fn script_exists<C: ClientLike>(client: C, hashes: MultipleStrings) ->
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn script_debug<C: ClientLike>(client: C, flag: ScriptDebugFlag) -> Result<(), RedisError> {
+pub async fn script_debug<C: ClientLike>(client: &C, flag: ScriptDebugFlag) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::ScriptDebug, vec![flag.to_str().into()]))
   })
@@ -136,7 +136,7 @@ pub async fn script_debug<C: ClientLike>(client: C, flag: ScriptDebugFlag) -> Re
 }
 
 pub async fn evalsha<C: ClientLike>(
-  client: C,
+  client: &C,
   hash: Str,
   keys: MultipleKeys,
   cmd_args: MultipleValues,
@@ -169,7 +169,7 @@ pub async fn evalsha<C: ClientLike>(
 }
 
 pub async fn eval<C: ClientLike>(
-  client: C,
+  client: &C,
   script: Str,
   keys: MultipleKeys,
   cmd_args: MultipleValues,

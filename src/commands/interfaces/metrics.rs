@@ -1,5 +1,4 @@
-use crate::interfaces::ClientLike;
-use crate::utils;
+use crate::{interfaces::ClientLike, utils};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::Stats;
@@ -8,7 +7,8 @@ use crate::modules::metrics::Stats;
 pub trait MetricsInterface: ClientLike + Sized {
   /// Read the number of request redeliveries.
   ///
-  /// This is the number of times a request had to be sent again due to a connection closing while waiting on a response.
+  /// This is the number of times a request had to be sent again due to a connection closing while waiting on a
+  /// response.
   fn read_redelivery_count(&self) -> usize {
     self.inner().counters.read_redelivery_count()
   }
@@ -25,8 +25,9 @@ pub trait MetricsInterface: ClientLike + Sized {
 
   /// Read latency metrics across all commands.
   ///
-  /// This metric reflects the total latency experienced by callers, including time spent waiting in memory to be written and network latency.
-  /// Features such as automatic reconnect, `reconnect-on-auth-error`, and frame serialization time can all affect these values.
+  /// This metric reflects the total latency experienced by callers, including time spent waiting in memory to be
+  /// written and network latency. Features such as automatic reconnect, `reconnect-on-auth-error`, and frame
+  /// serialization time can all affect these values.
   #[cfg(feature = "metrics")]
   #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
   fn read_latency_metrics(&self) -> Stats {
@@ -42,8 +43,9 @@ pub trait MetricsInterface: ClientLike + Sized {
 
   /// Read network latency metrics across all commands.
   ///
-  /// This metric only reflects time spent waiting on a response. It will factor in reconnect time if a response doesn't arrive due to a connection
-  /// closing, but it does not factor in the time a command spends waiting to be written, serialization time, backpressure, etc.  
+  /// This metric only reflects time spent waiting on a response. It will factor in reconnect time if a response
+  /// doesn't arrive due to a connection closing, but it does not include the time a command spends waiting to be
+  /// written, serialization time, backpressure, etc.
   #[cfg(feature = "metrics")]
   #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
   fn read_network_latency_metrics(&self) -> Stats {

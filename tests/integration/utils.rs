@@ -1,14 +1,14 @@
 #![allow(unused_macros)]
 
 use crate::chaos_monkey::set_test_kind;
-use fred::clients::RedisClient;
-use fred::error::RedisError;
-use fred::interfaces::*;
-use fred::types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig};
+use fred::{
+  clients::RedisClient,
+  error::RedisError,
+  interfaces::*,
+  types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
+};
 use redis_protocol::resp3::prelude::RespVersion;
-use std::default::Default;
-use std::env;
-use std::future::Future;
+use std::{default::Default, env, future::Future};
 
 #[cfg(feature = "chaos-monkey")]
 const RECONNECT_DELAY: u32 = 500;
@@ -81,28 +81,28 @@ where
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::Sentinel {
-      hosts: vec![
+      hosts:        vec![
         (read_sentinel_hostname(), 26379),
         (read_sentinel_hostname(), 26380),
         (read_sentinel_hostname(), 26381),
       ],
       service_name: "redis-sentinel-main".into(),
       // TODO fix this so sentinel-tests can run without sentinel-auth
-      username: None,
-      password: Some(read_sentinel_password()),
-    },
-    performance: PerformanceConfig {
-      pipeline,
-      default_command_timeout_ms: 10_000,
-      ..Default::default()
+      username:     None,
+      password:     Some(read_sentinel_password()),
     },
     password: Some(read_redis_password()),
     ..Default::default()
   };
-  let client = RedisClient::new(config.clone());
+  let perf = PerformanceConfig {
+    auto_pipeline: pipeline,
+    default_command_timeout_ms: 10_000,
+    ..Default::default()
+  };
+  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
 
-  let _jh = client.connect(Some(policy));
+  let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _: () = client.flushall(false).await.expect("Failed to flushall");
@@ -125,17 +125,18 @@ where
       hosts: vec![(host, port)],
     },
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    performance: PerformanceConfig {
-      pipeline,
-      default_command_timeout_ms: 10_000,
-      ..Default::default()
-    },
     ..Default::default()
   };
-  let client = RedisClient::new(config.clone());
+  let perf = PerformanceConfig {
+    auto_pipeline: pipeline,
+    default_command_timeout_ms: 10_000,
+    ..Default::default()
+  };
+
+  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
 
-  let _jh = client.connect(Some(policy));
+  let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _: () = client.flushall_cluster().await.expect("Failed to flushall");
@@ -156,17 +157,17 @@ where
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::Centralized { host, port },
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    performance: PerformanceConfig {
-      pipeline,
-      default_command_timeout_ms: 10_000,
-      ..Default::default()
-    },
     ..Default::default()
   };
-  let client = RedisClient::new(config.clone());
+  let perf = PerformanceConfig {
+    auto_pipeline: pipeline,
+    default_command_timeout_ms: 10_000,
+    ..Default::default()
+  };
+  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
 
-  let _jh = client.connect(Some(policy));
+  let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
   let _: () = client.flushall(false).await.expect("Failed to flushall");

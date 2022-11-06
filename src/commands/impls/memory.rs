@@ -17,7 +17,7 @@ value_cmd!(memory_doctor, MemoryDoctor);
 value_cmd!(memory_malloc_stats, MemoryMallocStats);
 ok_cmd!(memory_purge, MemoryPurge);
 
-pub async fn memory_stats<C: ClientLike>(client: C) -> Result<MemoryStats, RedisError> {
+pub async fn memory_stats<C: ClientLike>(client: &C) -> Result<MemoryStats, RedisError> {
   let response = utils::request_response(client, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?;
 
   let frame = protocol_utils::frame_map_or_set_to_nested_array(response)?;
@@ -29,7 +29,7 @@ pub async fn memory_stats<C: ClientLike>(client: C) -> Result<MemoryStats, Redis
 }
 
 pub async fn memory_usage<C: ClientLike>(
-  client: C,
+  client: &C,
   key: RedisKey,
   samples: Option<u32>,
 ) -> Result<RedisValue, RedisError> {

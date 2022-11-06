@@ -748,6 +748,7 @@ impl RedisWriter {
   /// Conditionally flush the sink based on the feed count.
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     if utils::read_atomic(&self.counters.feed_count) > 0 {
+      trace!("Flushing socket to {}", self.server);
       let _ = self.flush().await?;
     }
     Ok(())

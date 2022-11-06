@@ -1065,6 +1065,11 @@ impl<'a> RedisValue {
     }
   }
 
+  /// Convert a `RedisValue` to `Vec<(RedisValue, f64)>`, if possible.
+  pub fn into_zset_result(self) -> Result<Vec<(RedisValue, f64)>, RedisError> {
+    protocol_utils::value_to_zset_result(self)
+  }
+
   /// Convert this value to an array if it's an array or map.
   ///
   /// If the value is not an array or map this returns a single-element array containing the current value.
@@ -1238,11 +1243,9 @@ impl<'a> RedisValue {
   /// possible for callers to utilize `RedisValue` types in such a way that the underlying data is never moved or
   /// copied.
   ///
-  /// If performance is a concern and callers do not need to modify the underlying data it is recommended that callers
-  /// convert to `Str` or `Bytes` whenever possible. If callers do not want to take a dependency on the `Bytes`
-  /// ecosystem types, or the values need to be mutated, then callers should use other types such as `String`,
-  /// `Vec<u8>`, etc. It should be noted however that conversion to these other types will result in at least a move,
-  /// if not a copy, of the underlying data.
+  /// If the values are huge or performance is a concern and callers do not need to modify the underlying data it is
+  /// recommended to convert to `Str` or `Bytes` whenever possible. Converting to `String`, `Vec<u8>`, etc will
+  /// result in at least a move, if not a copy, of the underlying data.
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
     R: FromRedis,
