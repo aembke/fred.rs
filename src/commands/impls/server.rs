@@ -8,14 +8,12 @@ use crate::{
   protocol::{
     command::{MultiplexerCommand, RedisCommand, RedisCommandKind},
     responders::ResponseKind,
-    types::*,
     utils as protocol_utils,
   },
   types::*,
   utils,
 };
 use bytes_utils::Str;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
 

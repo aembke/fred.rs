@@ -1,4 +1,4 @@
-use crate::{interfaces::ClientLike, utils};
+use crate::interfaces::ClientLike;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::Stats;

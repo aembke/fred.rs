@@ -2,7 +2,6 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   types::{MemoryStats, RedisKey},
-  utils,
 };
 
 /// Functions that implement the [Memory](https://redis.io/commands#server) interface.

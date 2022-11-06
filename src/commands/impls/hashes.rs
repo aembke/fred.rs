@@ -4,7 +4,7 @@ use crate::{
   types::*,
   utils,
 };
-use std::{convert::TryInto, sync::Arc};
+use std::convert::TryInto;
 
 pub async fn hdel<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {

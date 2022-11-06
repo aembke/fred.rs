@@ -12,7 +12,6 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
-use pretty_env_logger::env_logger::fmt::Color::Red;
 use std::{borrow::Cow, sync::Arc};
 
 /// The types of values supported by the [type](https://redis.io/commands/type) command.

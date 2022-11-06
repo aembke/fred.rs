@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-  protocol::{command::RedisCommandKind, types::*},
-  types::*,
-};
+use crate::{protocol::command::RedisCommandKind, types::*};
 use bytes_utils::Str;
 
 ok_cmd!(config_resetstat, ConfigResetStat);

@@ -1,7 +1,4 @@
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::RedisValue,
-};
+use crate::types::RedisValue;
 use redis_protocol::redis_keyslot;
 
 fn hash_value(value: &RedisValue) -> Option<u16> {

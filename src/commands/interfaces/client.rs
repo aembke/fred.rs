@@ -1,6 +1,5 @@
 use crate::{
   commands,
-  error::{RedisError, RedisErrorKind},
   interfaces::{ClientLike, RedisResult},
   types::{
     ClientKillFilter,
@@ -11,11 +10,10 @@ use crate::{
     FromRedis,
     RedisValue,
   },
-  utils,
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// Functions that implement the [CLIENT](https://redis.io/commands#connection) interface.
 #[async_trait]

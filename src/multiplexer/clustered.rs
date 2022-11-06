@@ -6,16 +6,7 @@ use crate::{
   multiplexer::{responses, types::ClusterChange, utils, Connections, Written},
   protocol::{
     command::{ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand, RedisCommandKind},
-    connection::{
-      self,
-      CommandBuffer,
-      Counters,
-      RedisTransport,
-      RedisWriter,
-      SharedBuffer,
-      SplitRedisStream,
-      SplitStreamKind,
-    },
+    connection::{self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders,
     responders::ResponseKind,
     types::ClusterRouting,
@@ -23,22 +14,14 @@ use crate::{
     utils::server_to_parts,
   },
   types::ClusterStateChange,
-  utils as client_utils,
 };
 use arcstr::ArcStr;
-use futures::{
-  future::{join_all, try_join_all},
-  StreamExt,
-  TryStreamExt,
-};
+use futures::TryStreamExt;
 use std::{
-  collections::{BTreeSet, HashMap, VecDeque},
+  collections::{BTreeSet, HashMap},
   sync::Arc,
 };
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 
 pub fn find_cluster_node<'a>(
   inner: &Arc<RedisClientInner>,
@@ -105,7 +88,7 @@ pub async fn send_command(
 pub async fn send_all_cluster_command(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<ArcStr, RedisWriter>,
-  mut command: RedisCommand,
+  command: RedisCommand,
 ) -> Result<(), RedisError> {
   let num_nodes = writers.len();
   let mut responder = match command.response.duplicate() {
@@ -191,6 +174,7 @@ pub fn broadcast_cluster_change(inner: &Arc<RedisClientInner>, changes: &Cluster
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
+#[allow(unused_assignments)]
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,
@@ -497,7 +481,7 @@ pub async fn cluster_slots_backchannel(
         let mut transport = connect_any(inner, old_hosts).await?;
         let frame = transport.request_response(command, inner.is_resp3()).await?;
         let host = transport.default_host.clone();
-        inner.update_backchannel(transport);
+        inner.update_backchannel(transport).await;
 
         (frame, host)
       } else {
@@ -509,7 +493,7 @@ pub async fn cluster_slots_backchannel(
       let mut transport = connect_any(inner, old_hosts).await?;
       let frame = transport.request_response(command, inner.is_resp3()).await?;
       let host = transport.default_host.clone();
-      inner.update_backchannel(transport);
+      inner.update_backchannel(transport).await;
 
       (frame, host)
     };

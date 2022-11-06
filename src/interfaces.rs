@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::{commands as multiplexer_commands, utils as multiplexer_utils},
+  multiplexer::commands as multiplexer_commands,
   protocol::command::{MultiplexerCommand, RedisCommand},
   types::{
     ClientState,
@@ -20,18 +20,9 @@ use crate::{
   },
   utils,
 };
-use futures::Stream;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::{
-  convert::TryInto,
-  future::Future,
-  ops::Mul,
-  pin::Pin,
-  sync::Arc,
-  task::{Context, Poll},
-};
-use tokio::sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use std::{convert::TryInto, sync::Arc};
+use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -134,7 +125,7 @@ pub(crate) fn send_to_multiplexer(
   command: MultiplexerCommand,
 ) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
-  if let Err(mut e) = inner.command_tx.send(command) {
+  if let Err(e) = inner.command_tx.send(command) {
     _error!(inner, "Fatal error sending command to multiplexer.");
     inner.counters.decr_cmd_buffer_len();
 

@@ -1,17 +1,11 @@
 use super::*;
 use crate::{
   error::*,
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
 use redis_protocol::resp3::types::Frame;
-use std::sync::Arc;
 
 value_cmd!(memory_doctor, MemoryDoctor);
 value_cmd!(memory_malloc_stats, MemoryMallocStats);

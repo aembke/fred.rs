@@ -4,36 +4,23 @@ use crate::{
   multiplexer::{responses, utils, Connections, Written},
   prelude::{RedisError, Resp3Frame},
   protocol::{
-    command::{MultiplexerResponse, RedisCommand, ResponseSender},
+    command::{MultiplexerResponse, RedisCommand},
     connection,
-    connection::{
-      CommandBuffer,
-      Counters,
-      RedisReader,
-      RedisWriter,
-      SharedBuffer,
-      SplitRedisStream,
-      SplitStreamKind,
-    },
+    connection::{CommandBuffer, Counters, RedisWriter, SharedBuffer, SplitStreamKind},
     responders::{self, ResponseKind},
-    types::{KeyScanInner, ValueScanInner},
     utils as protocol_utils,
   },
   types::ServerConfig,
 };
 use arcstr::ArcStr;
 use futures::TryStreamExt;
-use parking_lot::Mutex;
-use std::sync::{atomic::AtomicUsize, Arc};
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  task::JoinHandle,
-};
+use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 pub async fn send_command(
   inner: &Arc<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
-  mut command: RedisCommand,
+  command: RedisCommand,
 ) -> Result<Written, (RedisError, RedisCommand)> {
   if let Some(writer) = writer.as_mut() {
     Ok(utils::write_command(inner, writer, command, false).await)
@@ -44,6 +31,7 @@ pub async fn send_command(
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
+#[allow(unused_assignments)]
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,

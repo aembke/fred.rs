@@ -2,21 +2,18 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue},
-  utils,
 };
 use bytes_utils::Str;
-use sha1::digest::Output;
-use std::future::Future;
 
 /// Functions that implement the [ACL](https://redis.io/commands#server) interface.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait AclInterface: ClientLike + Sized {
   /// Create an ACL user with the specified rules or modify the rules of an existing user.
   ///
   /// <https://redis.io/commands/acl-setuser>
   async fn acl_setuser<S>(&self, username: S, rules: Vec<AclRule>) -> RedisResult<()>
   where
-    S: Into<Str>,
+    S: Into<Str> + Send,
   {
     into!(username);
     commands::acl::acl_setuser(self, username, rules).await
@@ -63,7 +60,7 @@ pub trait AclInterface: ClientLike + Sized {
   /// <https://redis.io/commands/acl-getuser>
   async fn acl_getuser<S>(&self, username: S) -> RedisResult<Option<AclUser>>
   where
-    S: Into<Str>,
+    S: Into<Str> + Send,
   {
     into!(username);
     commands::acl::acl_getuser(self, username).await
@@ -75,7 +72,7 @@ pub trait AclInterface: ClientLike + Sized {
   async fn acl_deluser<R, S>(&self, usernames: S) -> RedisResult<R>
   where
     R: FromRedis,
-    S: Into<MultipleStrings>,
+    S: Into<MultipleStrings> + Send,
   {
     into!(usernames);
     commands::acl::acl_deluser(self, usernames).await?.convert()

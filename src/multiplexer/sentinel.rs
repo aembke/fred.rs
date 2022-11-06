@@ -1,33 +1,24 @@
+#![allow(dead_code)]
+
 use crate::{
   error::{RedisError, RedisErrorKind},
   globals::globals,
   modules::inner::RedisClientInner,
-  multiplexer::{centralized, utils, Connections, Counters},
+  multiplexer::{centralized, Connections},
   protocol::{
-    codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter},
+    connection::{self, CommandBuffer, RedisTransport, RedisWriter},
     utils as protocol_utils,
   },
-  types::{ClientState, RedisValue, Resolve, ServerConfig},
-  utils as client_utils,
+  types::{RedisValue, ServerConfig},
 };
-use parking_lot::RwLock;
 use std::{
-  collections::{HashMap, HashSet, VecDeque},
-  net::SocketAddr,
+  collections::{HashMap, HashSet},
   sync::Arc,
 };
-use tokio::{net::TcpStream, sync::RwLock as AsyncRwLock};
-use tokio_util::codec::Framed;
 
 #[cfg(feature = "enable-native-tls")]
 use crate::protocol::tls;
-
-/// The amount of time to wait when trying to connect to the redis server.
-///
-/// This is a different timeout than the timeout connecting to the sentinel, which is controlled via a global setting.
-const DEFAULT_CONNECTION_TIMEOUT_MS: u64 = 30_000;
 
 pub static CONFIG: &'static str = "CONFIG";
 pub static SET: &'static str = "SET";
@@ -45,18 +36,6 @@ pub static REMOVE: &'static str = "REMOVE";
 pub static REPLICAS: &'static str = "REPLICAS";
 pub static SENTINELS: &'static str = "SENTINELS";
 pub static SIMULATE_FAILURE: &'static str = "SIMULATE-FAILURE";
-
-macro_rules! try_continue (
-  ($inner:ident, $expr:expr) => {
-    match $expr {
-      Ok(v) => v,
-      Err(e) => {
-        _warn!($inner, "{:?}", e);
-        continue;
-      }
-    }
-  }
-);
 
 macro_rules! stry (
   ($expr:expr) => {
@@ -294,12 +273,12 @@ async fn update_cached_client_state(
   inner: &Arc<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   mut sentinel: RedisTransport,
-  mut transport: RedisTransport,
+  transport: RedisTransport,
 ) -> Result<(), RedisError> {
   let sentinels = read_sentinels(inner, &mut sentinel).await?;
   inner.update_sentinel_nodes(sentinels);
   inner.update_sentinel_primary(&transport.server);
-  update_sentinel_backchannel(inner, &transport).await;
+  let _ = update_sentinel_backchannel(inner, &transport).await;
 
   let (_, _writer) = connection::split_and_initialize(inner, transport, centralized::spawn_reader_task)?;
   *writer = Some(_writer);

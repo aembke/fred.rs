@@ -2,7 +2,6 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   types::SlowlogEntry,
-  utils,
 };
 
 /// Functions that implement the [slowlog](https://redis.io/commands#server) interface.

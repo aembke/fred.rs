@@ -1,16 +1,11 @@
 use super::*;
 use crate::{
   error::*,
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
-use std::{convert::TryInto, sync::Arc};
+use std::convert::TryInto;
 
 value_cmd!(randomkey, Randomkey);
 

@@ -2,7 +2,6 @@ use super::*;
 use crate::{
   protocol::{
     command::{RedisCommand, RedisCommandKind},
-    types::*,
     utils as protocol_utils,
   },
   types::*,

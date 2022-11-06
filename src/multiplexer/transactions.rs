@@ -16,8 +16,7 @@ use crate::{
   },
   types::ClusterHash,
 };
-use std::{future::Future, sync::Arc, time::Duration};
-use tokio::sync::oneshot::channel as oneshot_channel;
+use std::sync::Arc;
 
 /// An internal enum describing the result of an attempt to send a transaction command.
 #[derive(Debug)]
@@ -44,7 +43,7 @@ async fn write_command(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
   server: &str,
-  mut command: RedisCommand,
+  command: RedisCommand,
   abort_on_error: bool,
   rx: MultiplexerReceiver,
 ) -> Result<TransactionResponse, RedisError> {
@@ -158,7 +157,7 @@ pub async fn run(
 
     'inner: while idx < commands.len() {
       let mut command = commands[idx].duplicate(ResponseKind::Skip);
-      let mut rx = command.create_multiplexer_channel();
+      let rx = command.create_multiplexer_channel();
 
       match write_command(inner, multiplexer, &server, command, abort_on_error, rx).await {
         Ok(TransactionResponse::Continue) => {

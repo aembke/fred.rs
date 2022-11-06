@@ -1,34 +1,25 @@
 use super::utils as protocol_utils;
 use crate::{
-  clients::RedisClient,
   error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
   protocol::cluster,
   types::*,
   utils,
-  utils::{set_locked, take_locked},
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
-use parking_lot::{Mutex, RwLock};
 use rand::Rng;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
 use std::{
-  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+  collections::{BTreeMap, BTreeSet, HashMap},
   convert::TryInto,
-  fmt,
   net::{SocketAddr, ToSocketAddrs},
-  sync::{atomic::AtomicUsize, Arc},
-  time::Instant,
 };
-use tokio::sync::{mpsc::UnboundedSender, oneshot::Sender as OneshotSender};
+use tokio::sync::mpsc::UnboundedSender;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
 
-#[cfg(not(feature = "full-tracing"))]
-use crate::trace::disabled::Span as FakeSpan;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -84,7 +75,7 @@ impl KeyScanInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    self.tx.send(Err(error));
+    let _ = self.tx.send(Err(error));
   }
 }
 
@@ -111,7 +102,7 @@ impl ValueScanInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    self.tx.send(Err(error));
+    let _ = self.tx.send(Err(error));
   }
 
   pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {

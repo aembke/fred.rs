@@ -1,16 +1,11 @@
 use super::*;
 use crate::{
   error::*,
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
-use std::{convert::TryInto, sync::Arc};
+use std::convert::TryInto;
 
 fn new_range_error(kind: &Option<ZSort>) -> Result<(), RedisError> {
   if let Some(ref sort) = *kind {

@@ -2,36 +2,21 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, MultiplexerReceiver, RedisCommand, RedisCommandKind},
-    connection::{self, CommandBuffer, Counters, RedisTransport, RedisWriter},
+    command::{ClusterErrorKind, MultiplexerReceiver, RedisCommand},
+    connection::{self, CommandBuffer, Counters, RedisWriter},
     responders::ResponseKind,
     types::ClusterRouting,
-    utils::{parse_cluster_error, server_to_parts},
+    utils::server_to_parts,
   },
-  types::{ClientState, RedisConfig, ServerConfig},
-  utils as client_utils,
 };
-use arc_swap::ArcSwap;
 use arcstr::ArcStr;
-use futures::future::{join_all, try_join_all};
-use parking_lot::{Mutex, RwLock};
+use futures::future::try_join_all;
 use std::{
-  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
-  future::Future,
-  sync::{
-    atomic::{AtomicBool, AtomicUsize},
-    Arc,
-  },
-  time::{Duration, Instant},
+  collections::{HashMap, VecDeque},
+  sync::Arc,
+  time::Duration,
 };
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  sync::{
-    broadcast::Sender as BroadcastSender,
-    oneshot::{channel as oneshot_channel, Sender as OneshotSender},
-    RwLock as AsyncRwLock,
-  },
-};
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub mod centralized;
 pub mod clustered;
@@ -222,11 +207,7 @@ impl Connections {
           VecDeque::new()
         }
       },
-      Connections::Clustered {
-        ref mut writers,
-        ref mut cache,
-        ..
-      } => {
+      Connections::Clustered { ref mut writers, .. } => {
         let mut out = VecDeque::new();
 
         if let Some(server) = server {
@@ -260,11 +241,7 @@ impl Connections {
           VecDeque::new()
         }
       },
-      Connections::Clustered {
-        ref mut writers,
-        ref mut cache,
-        ..
-      } => {
+      Connections::Clustered { ref mut writers, .. } => {
         let mut out = VecDeque::new();
         for (_, writer) in writers.drain() {
           _debug!(inner, "Disconnecting from {}", writer.server);
@@ -433,40 +410,12 @@ impl Multiplexer {
     }
   }
 
-  /// Read the cluster state, if known.
-  pub fn cluster_state(&self) -> Option<&ClusterRouting> {
-    if let Connections::Clustered { ref cache, .. } = self.connections {
-      Some(cache)
-    } else {
-      None
-    }
-  }
-
-  /// Queue the command to run later.
-  ///
-  /// The internal buffer is drained whenever a `Reconnect` or `Sync` command is processed.
-  pub fn queue_command(&mut self, command: RedisCommand) {
-    self.buffer.push_back(command);
-  }
-
-  /// Drain and return the buffered commands.
-  pub fn take_command_buffer(&mut self) -> VecDeque<RedisCommand> {
-    self.buffer.drain(..).collect()
-  }
-
-  /// Whether the multiplexer has buffered commands that need to be retried.
-  pub fn has_buffered_commands(&self) -> bool {
-    self.buffer.len() > 0
-  }
-
   /// Read the connection identifier for the provided command.
   pub fn find_connection(&self, command: &RedisCommand) -> Option<&ArcStr> {
     match self.connections {
       Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.server),
       Connections::Sentinel { ref writer } => writer.as_ref().map(|w| &w.server),
-      Connections::Clustered { ref writers, ref cache } => {
-        command.cluster_hash().and_then(|slot| cache.get_server(slot))
-      },
+      Connections::Clustered { ref cache, .. } => command.cluster_hash().and_then(|slot| cache.get_server(slot)),
     }
   }
 
@@ -521,7 +470,7 @@ impl Multiplexer {
       server
     );
 
-    let mut writer = match self.connections.get_connection_mut(server) {
+    let writer = match self.connections.get_connection_mut(server) {
       Some(writer) => writer,
       None => {
         let err = RedisError::new(
@@ -587,7 +536,7 @@ impl Multiplexer {
 
     let is_blocking = command.blocks_connection();
     let write_result = {
-      let mut writer = match self.connections.get_connection_mut(server) {
+      let writer = match self.connections.get_connection_mut(server) {
         Some(writer) => writer,
         None => {
           return Err(RedisError::new(
@@ -672,7 +621,10 @@ impl Multiplexer {
             failed_command = Some(command);
           }
 
-          warn!("{}: Disconnect while replaying command: {:?}", self.inner.id, error);
+          warn!(
+            "{}: Disconnect from {} while replaying command: {:?}",
+            self.inner.id, server, error
+          );
           self.disconnect_all().await; // triggers a reconnect if needed
           break;
         },

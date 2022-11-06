@@ -12,7 +12,6 @@ use crate::{
     RedisKey,
     RedisValue,
   },
-  utils,
 };
 use bytes_utils::Str;
 

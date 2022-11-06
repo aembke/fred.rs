@@ -1,9 +1,7 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   interfaces::ClientLike,
   modules::inner::RedisClientInner,
-  multiplexer::{sentinel, utils as multiplexer_utils, Multiplexer},
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     responders::ResponseKind,
@@ -11,7 +9,6 @@ use crate::{
   },
   types::*,
 };
-use arcstr::ArcStr;
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
@@ -28,7 +25,6 @@ use std::{
   convert::TryInto,
   f64,
   mem,
-  ops::DerefMut,
   sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -36,10 +32,7 @@ use std::{
   time::Duration,
 };
 use tokio::{
-  sync::{
-    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
-    RwLock as AsyncRwLock,
-  },
+  sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
   time::sleep,
 };
 use url::Url;
@@ -72,14 +65,6 @@ pub fn static_str(s: &'static str) -> Str {
 /// Create a `Bytes` from static bytes without copying.
 pub fn static_bytes(b: &'static [u8]) -> Bytes {
   Bytes::from_static(b)
-}
-
-pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
-  config.read().server.is_clustered()
-}
-
-pub fn is_sentinel(config: &RwLock<RedisConfig>) -> bool {
-  config.read().server.is_sentinel()
 }
 
 pub fn f64_eq(lhs: f64, rhs: f64) -> bool {
@@ -167,45 +152,9 @@ pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
 }
 
-pub fn pattern_pubsub_counts(result: Vec<RedisValue>) -> Result<Vec<usize>, RedisError> {
-  let mut out = Vec::with_capacity(result.len() / 3);
-
-  if result.len() > 0 {
-    let mut idx = 2;
-    while idx < result.len() {
-      out.push(match result[idx] {
-        RedisValue::Integer(ref i) => {
-          if *i < 0 {
-            return Err(RedisError::new(
-              RedisErrorKind::Unknown,
-              "Invalid pattern pubsub channel count response.",
-            ));
-          } else {
-            *i as usize
-          }
-        },
-        _ => {
-          return Err(RedisError::new(
-            RedisErrorKind::Unknown,
-            "Invalid pattern pubsub response.",
-          ))
-        },
-      });
-
-      idx += 3;
-    }
-  }
-
-  Ok(out)
-}
-
 pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
   let mut state_guard = state.write();
   *state_guard = new_state;
-}
-
-pub fn read_client_state(state: &RwLock<ClientState>) -> ClientState {
-  state.read().clone()
 }
 
 pub fn check_and_set_client_state(
@@ -231,10 +180,6 @@ pub fn set_bool_atomic(val: &Arc<AtomicBool>, new: bool) -> bool {
   val.swap(new, Ordering::SeqCst)
 }
 
-pub fn cas_bool_atomic(val: &Arc<AtomicBool>, current: bool, new: bool) -> Result<bool, bool> {
-  val.compare_exchange(current, new, Ordering::SeqCst, Ordering::Acquire)
-}
-
 pub fn decr_atomic(size: &Arc<AtomicUsize>) -> usize {
   size.fetch_sub(1, Ordering::AcqRel).saturating_sub(1)
 }
@@ -251,24 +196,8 @@ pub fn set_atomic(size: &Arc<AtomicUsize>, val: usize) -> usize {
   size.swap(val, Ordering::SeqCst)
 }
 
-pub fn set_locked<T>(locked: &RwLock<T>, value: T) -> T {
-  mem::replace(&mut *locked.write(), value)
-}
-
-pub async fn set_locked_async<T>(locked: &AsyncRwLock<T>, value: T) -> T {
-  mem::replace(&mut *locked.write().await, value)
-}
-
-pub fn take_locked<T>(locked: &RwLock<Option<T>>) -> Option<T> {
-  locked.write().take()
-}
-
 pub fn read_locked<T: Clone>(locked: &RwLock<T>) -> T {
   locked.read().clone()
-}
-
-pub fn is_locked_some<T>(locked: &RwLock<Option<T>>) -> bool {
-  locked.read().is_some()
 }
 
 pub fn read_mutex<T: Clone>(locked: &Mutex<T>) -> T {
@@ -281,21 +210,6 @@ pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
 
 pub fn take_mutex<T>(locked: &Mutex<Option<T>>) -> Option<T> {
   locked.lock().take()
-}
-
-pub fn is_mutex_some<T>(locked: &Mutex<Option<T>>) -> bool {
-  locked.lock().is_some()
-}
-
-pub fn check_and_set_none<T>(locked: &RwLock<Option<T>>, value: T) -> bool {
-  let mut guard = locked.write();
-
-  if guard.is_some() {
-    false
-  } else {
-    *guard = Some(value);
-    true
-  }
 }
 
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {

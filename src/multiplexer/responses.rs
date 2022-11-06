@@ -1,30 +1,18 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::{utils, Counters},
-  protocol::{
-    types::{ValueScanInner, ValueScanResult},
-    utils as protocol_utils,
-    utils::{frame_to_error, frame_to_single_result},
-  },
+  protocol::{command::RedisCommand, utils as protocol_utils},
   trace,
-  types::{HScanResult, KeyspaceEvent, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
-  utils as client_utils,
+  types::{KeyspaceEvent, RedisValue},
 };
 use arcstr::ArcStr;
-use bytes_utils::Str;
-use parking_lot::{Mutex, RwLock};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::{
-  collections::{BTreeMap, BTreeSet, VecDeque},
-  sync::Arc,
-};
+use std::sync::Arc;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::command::RedisCommand;
 #[cfg(feature = "metrics")]
 use std::cmp;
 #[cfg(feature = "metrics")]
@@ -195,14 +183,6 @@ fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(_frame: &Resp3Frame) -> Option<RedisError> {
   None
-}
-
-/// Whether or not the response is a QUEUED response to a command within a transaction.
-fn response_is_queued(frame: &Resp3Frame) -> bool {
-  match frame {
-    Resp3Frame::SimpleString { ref data, .. } => data == "QUEUED",
-    _ => false,
-  }
 }
 
 #[cfg(feature = "custom-reconnect-errors")]

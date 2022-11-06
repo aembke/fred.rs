@@ -24,15 +24,12 @@ use crate::{
     TransactionInterface,
   },
   modules::inner::RedisClientInner,
-  multiplexer::types::ClusterChange,
   prelude::{ClientLike, StreamsInterface},
   types::*,
-  utils,
 };
 use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, sync::Arc};
-use tokio::sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel};
 
 /// The primary Redis client struct.
 #[derive(Clone)]

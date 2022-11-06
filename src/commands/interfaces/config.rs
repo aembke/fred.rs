@@ -3,7 +3,6 @@ use crate::{
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, RedisValue},
-  utils,
 };
 use bytes_utils::Str;
 use std::convert::TryInto;

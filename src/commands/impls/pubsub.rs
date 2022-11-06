@@ -1,18 +1,14 @@
 use super::*;
 use crate::{
-  error::*,
-  modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     responders::ResponseKind,
-    types::*,
     utils as protocol_utils,
   },
   types::*,
   utils,
 };
 use bytes_utils::Str;
-use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub async fn subscribe<C: ClientLike>(client: &C, channel: Str) -> Result<RedisValue, RedisError> {

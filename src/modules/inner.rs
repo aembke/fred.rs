@@ -1,5 +1,4 @@
 use crate::{
-  clients::RedisClient,
   error::*,
   modules::backchannel::Backchannel,
   protocol::{
@@ -10,12 +9,11 @@ use crate::{
   types::*,
   utils,
 };
-use arc_swap::{ArcSwap, ArcSwapOption};
+use arc_swap::ArcSwap;
 use arcstr::ArcStr;
 use futures::future::{select, Either};
 use parking_lot::RwLock;
 use std::{
-  collections::VecDeque,
   ops::DerefMut,
   sync::{
     atomic::{AtomicBool, AtomicUsize},
@@ -27,10 +25,8 @@ use tokio::{
   sync::{
     broadcast::{self, Sender as BroadcastSender},
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    oneshot::Sender as OneshotSender,
     RwLock as AsyncRwLock,
   },
-  task::JoinHandle,
   time::sleep,
 };
 

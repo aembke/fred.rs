@@ -303,11 +303,6 @@ impl RedisError {
     RedisError::new(RedisErrorKind::Canceled, "Canceled.")
   }
 
-  /// Create a new empty Timeout error.
-  pub(crate) fn new_timeout() -> Self {
-    RedisError::new(RedisErrorKind::Timeout, "")
-  }
-
   /// Create a new parse error with the provided details.
   pub(crate) fn new_parse<T>(details: T) -> Self
   where

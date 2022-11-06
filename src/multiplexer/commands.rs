@@ -1,46 +1,15 @@
 use crate::{
-  clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
-  multiplexer::{transactions, utils, utils::reconnect_once, Backpressure, Multiplexer, Written},
-  protocol::{
-    command::{
-      MultiplexerCommand,
-      MultiplexerReceiver,
-      MultiplexerResponse,
-      RedisCommand,
-      RedisCommandKind,
-      ResponseSender,
-    },
-    responders::ResponseKind,
-    utils as protocol_utils,
-    utils::pretty_error,
-  },
-  trace,
-  types::{ClientState, ClusterHash, ReconnectPolicy, ServerConfig},
+  multiplexer::{transactions, utils, Backpressure, Multiplexer, Written},
+  protocol::command::{MultiplexerCommand, MultiplexerReceiver, MultiplexerResponse, RedisCommand, ResponseSender},
+  types::{ClientState, ClusterHash},
   utils as client_utils,
-  utils::decr_atomic,
 };
 use arcstr::ArcStr;
-use futures::future::{select, Either};
-use parking_lot::Mutex;
-use redis_protocol::{redis_keyslot, resp3::types::Frame as Resp3Frame};
-use std::{
-  collections::VecDeque,
-  ops::{DerefMut, Mul},
-  sync::Arc,
-  time::Duration,
-};
-use tokio::{
-  self,
-  sync::{
-    mpsc::{unbounded_channel, UnboundedReceiver},
-    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
-  },
-  time::sleep,
-};
+use redis_protocol::resp3::types::Frame as Resp3Frame;
+use std::sync::Arc;
 
-use crate::multiplexer::utils::next_reconnection_delay;
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 

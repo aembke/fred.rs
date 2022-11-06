@@ -6,21 +6,18 @@ use crate::{
     connection::OK,
     types::{ProtocolFrame, *},
   },
-  types::{RedisConfig, Resolve, ServerConfig, QUEUED, *},
+  types::*,
   utils,
   utils::redis_string_to_f64,
 };
-use arcstr::ArcStr;
 use bytes::Bytes;
 use bytes_utils::Str;
-use futures::AsyncBufReadExt;
-use parking_lot::RwLock;
 use redis_protocol::{
   resp2::types::Frame as Resp2Frame,
   resp3::types::{Auth, Frame as Resp3Frame, FrameMap, PUBSUB_PUSH_PREFIX},
 };
 use semver::Version;
-use std::{borrow::Cow, collections::HashMap, convert::TryInto, net::SocketAddr, ops::Deref, str, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
 
 macro_rules! parse_or_zero(
   ($data:ident, $t:ty) => {
@@ -38,6 +35,7 @@ pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
 }
 
 /// Read the major redis version, assuming version 6 if a version is not provided.
+#[allow(dead_code)]
 pub fn major_redis_version(version: &Option<Version>) -> u8 {
   version.as_ref().map(|v| v.major as u8).unwrap_or(6)
 }
@@ -52,14 +50,6 @@ pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String)
     Ok((kind, slot, server))
   } else {
     Err(RedisError::new(RedisErrorKind::Protocol, "Expected cluster error."))
-  }
-}
-
-pub fn null_frame(is_resp3: bool) -> ProtocolFrame {
-  if is_resp3 {
-    ProtocolFrame::Resp2(Resp2Frame::Null)
-  } else {
-    ProtocolFrame::Resp3(Resp3Frame::Null)
   }
 }
 
@@ -85,45 +75,12 @@ pub fn is_null(frame: &Resp3Frame) -> bool {
   }
 }
 
-#[cfg(not(feature = "enable-native-tls"))]
-pub fn uses_tls(_: &Arc<RedisClientInner>) -> bool {
-  false
-}
-
 pub fn server_to_parts(server: &str) -> Result<(&str, u16), RedisError> {
   let parts: Vec<&str> = server.split(":").collect();
   if parts.len() < 2 {
     return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));
   }
   Ok((parts[0], parts[1].parse::<u16>()?))
-}
-
-/// Parse a cluster server string to read the (domain, IP address/port).
-pub async fn parse_cluster_server(
-  inner: &Arc<RedisClientInner>,
-  server: &str,
-) -> Result<(String, SocketAddr), RedisError> {
-  let parts: Vec<&str> = server.trim().split(":").collect();
-  if parts.len() != 2 {
-    return Err(RedisError::new(
-      RedisErrorKind::Url,
-      "Invalid cluster server name. Expected host:port.",
-    ));
-  }
-
-  let port = parts[1].parse::<u16>()?;
-  let addr = inner.resolver.resolve(parts[0].to_owned(), port).await?;
-
-  Ok((parts[0].to_owned(), addr))
-}
-
-/// Server hostnames/IP addresses can have a cport suffix of the form `@1122` that needs to be removed.
-fn remove_cport_suffix(server: &str) -> &str {
-  if let Some(first) = server.split("@").next() {
-    return first;
-  }
-
-  server
 }
 
 pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<usize> {

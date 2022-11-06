@@ -4,12 +4,10 @@ use crate::{
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    responders,
-    types::{ClusterRouting, ProtocolFrame},
+    types::ProtocolFrame,
     utils as protocol_utils,
-    utils::{frame_into_string, pretty_error},
   },
-  types::{ClientState, InfoKind, Resolve},
+  types::{InfoKind, Resolve},
   utils as client_utils,
   utils,
 };
@@ -19,40 +17,28 @@ use futures::{
   stream::{SplitSink, SplitStream, StreamExt},
   Sink,
   Stream,
-  TryStream,
 };
-use parking_lot::{Mutex, RwLock};
-use redis_protocol::{
-  resp2::types::Frame as Resp2Frame,
-  resp3::types::{Frame as Resp3Frame, RespVersion},
-};
+use parking_lot::Mutex;
+use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
 use std::{
   collections::VecDeque,
-  convert::TryInto,
   fmt,
-  mem,
   net::SocketAddr,
   pin::Pin,
   str,
-  sync::{
-    atomic::{AtomicBool, AtomicUsize},
-    Arc,
-  },
+  sync::{atomic::AtomicUsize, Arc},
   task::{Context, Poll},
-  time::Instant,
 };
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  net::TcpStream,
-  task::JoinHandle,
-};
+use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::{self, TlsConnector};
 #[cfg(feature = "monitor")]
 use crate::types::ServerConfig;
+#[cfg(feature = "enable-rustls")]
+use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::{TlsConnector as NativeTlsConnector, TlsStream as NativeTlsStream};
 #[cfg(feature = "enable-rustls")]
@@ -81,17 +67,17 @@ impl ConnectionKind {
   /// Split the connection.
   pub fn split(self) -> (SplitSinkKind, SplitStreamKind) {
     match self {
-      ConnectionKind::Tcp(mut conn) => {
+      ConnectionKind::Tcp(conn) => {
         let (sink, stream) = conn.split();
         (SplitSinkKind::Tcp(sink), SplitStreamKind::Tcp(stream))
       },
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(mut conn) => {
+      ConnectionKind::Rustls(conn) => {
         let (sink, stream) = conn.split();
         (SplitSinkKind::Rustls(sink), SplitStreamKind::Rustls(stream))
       },
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(mut conn) => {
+      ConnectionKind::NativeTls(conn) => {
         let (sink, stream) = conn.split();
         (SplitSinkKind::NativeTls(sink), SplitStreamKind::NativeTls(stream))
       },
@@ -480,6 +466,7 @@ impl RedisTransport {
     let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()]);
     let result = self.request_response(command, inner.is_resp3()).await?;
     let result = match result {
+      Resp3Frame::SimpleString { data, .. } => String::from_utf8(data.to_vec())?,
       Resp3Frame::BlobString { data, .. } => String::from_utf8(data.to_vec())?,
       Resp3Frame::SimpleError { data, .. } => {
         _warn!(inner, "Failed to read server version: {:?}", data);
@@ -509,6 +496,7 @@ impl RedisTransport {
       }
     });
 
+    _debug!(inner, "Read server version {:?}", self.version);
     Ok(())
   }
 
@@ -769,7 +757,7 @@ impl RedisWriter {
   }
 
   /// Put a command at the back of the command queue.
-  pub async fn push_command(&self, cmd: RedisCommand) {
+  pub fn push_command(&self, cmd: RedisCommand) {
     self.buffer.lock().push_back(cmd);
   }
 

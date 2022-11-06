@@ -1,15 +1,9 @@
 use super::*;
 use crate::{
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
-use std::sync::Arc;
 
 pub async fn pfadd<C: ClientLike>(
   client: &C,

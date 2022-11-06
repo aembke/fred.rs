@@ -2,18 +2,11 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   multiplexer::Connections,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    connection,
-    connection::RedisTransport,
-    types::ProtocolFrame,
-    utils as protocol_utils,
-  },
-  types::Resolve,
+  protocol::{command::RedisCommand, connection, connection::RedisTransport, utils as protocol_utils},
 };
 use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 /// A struct wrapping a separate connection to the server or cluster for client or cluster management commands.
 #[derive(Default)]
@@ -59,7 +52,6 @@ impl Backchannel {
   }
 
   /// Remove the blocked flag.
-  // TODO make sure this is called when needed
   pub fn set_unblocked(&mut self) {
     self.blocked = None;
   }

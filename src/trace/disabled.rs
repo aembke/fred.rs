@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use crate::modules::inner::RedisClientInner;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]

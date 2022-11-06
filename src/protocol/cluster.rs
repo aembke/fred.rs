@@ -1,18 +1,10 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    connection::RedisTransport,
-    types::{ClusterRouting, ProtocolFrame, SlotRange},
-    utils as protocol_utils,
-  },
-  types::{RedisKey, RedisMap, RedisValue, Resolve},
+  protocol::types::SlotRange,
+  types::RedisValue,
 };
 use arcstr::ArcStr;
-use bytes_utils::Str;
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
-use tokio::io::{AsyncRead, AsyncWrite};
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
 fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
   match value {
@@ -148,7 +140,7 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
   let slot_ranges: Vec<Vec<RedisValue>> = frame.convert()?;
   let mut out: Vec<SlotRange> = Vec::with_capacity(slot_ranges.len());
 
-  for mut slot_range in slot_ranges.into_iter() {
+  for slot_range in slot_ranges.into_iter() {
     out.push(parse_cluster_slot_nodes(slot_range, default_host)?);
   }
 
@@ -156,45 +148,10 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
   Ok(out)
 }
 
-pub async fn read_cluster_slots(
-  transport: &mut RedisTransport,
-  inner: &Arc<RedisClientInner>,
-) -> Result<ClusterRouting, RedisError> {
-  _debug!(inner, "Reading cluster slots from {}", transport.server);
-  let cmd = RedisCommand::new(RedisCommandKind::ClusterSlots, vec![]);
-  let response = transport.request_response(cmd, inner.is_resp3()).await?;
-  let response = protocol_utils::frame_to_results_raw(response)?;
-
-  let mut cache = ClusterRouting::new();
-  cache.rebuild(response, transport.default_host.as_str())?;
-  Ok(cache)
-}
-
-pub async fn read_cluster_state(
-  transport: &mut RedisTransport,
-  inner: &Arc<RedisClientInner>,
-) -> Result<ClusterRouting, RedisError> {
-  let major_version = protocol_utils::major_redis_version(&transport.version);
-
-  if major_version < 3 {
-    return Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Invalid Redis version. Cluster support requires >=3.0.0.",
-    ));
-  } else if major_version <= 6 {
-    read_cluster_slots(transport, inner).await
-  } else {
-    // TODO implement CLUSTER SHARDS now that CLUSTER SLOTS is deprecated in v7
-    // read_cluster_shards(transport, inner).await
-    read_cluster_slots(transport, inner).await
-  }
-}
-
 #[cfg(test)]
 mod tests {
   use super::*;
   use crate::protocol::types::SlotRange;
-  use std::collections::HashMap;
 
   #[test]
   fn should_parse_cluster_slots_example_metadata_hostnames() {

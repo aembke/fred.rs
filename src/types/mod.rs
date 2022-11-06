@@ -1,13 +1,9 @@
 use crate::error::RedisError;
 pub use crate::modules::response::{FromRedis, FromRedisKey};
 pub use arcstr::ArcStr;
-use parking_lot::RwLock;
 pub use redis_protocol::resp3::types::{Frame, RespVersion};
-use std::{collections::VecDeque, net::SocketAddr};
-use tokio::{
-  sync::mpsc::{UnboundedReceiver, UnboundedSender},
-  task::JoinHandle,
-};
+use std::net::SocketAddr;
+use tokio::task::JoinHandle;
 
 mod acl;
 mod args;

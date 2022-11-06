@@ -10,43 +10,28 @@ use crate::{
     ConfigInterface,
     GeoInterface,
     HashesInterface,
-    HeartbeatInterface,
     HyperloglogInterface,
     KeysInterface,
     ListInterface,
-    LuaInterface,
     MemoryInterface,
-    MetricsInterface,
     PubsubInterface,
-    Resp3Frame,
     ServerInterface,
     SetsInterface,
     SlowlogInterface,
     SortedSetsInterface,
     StreamsInterface,
-    TransactionInterface,
   },
   modules::{inner::RedisClientInner, response::FromRedis},
-  prelude::{ReconnectPolicy, RedisConfig, RedisValue},
+  prelude::RedisValue,
   protocol::{
     command::{MultiplexerCommand, RedisCommand},
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  types::{
-    ClientState,
-    ConnectHandle,
-    CustomCommand,
-    Frame,
-    InfoKind,
-    PerformanceConfig,
-    RespVersion,
-    ShutdownFlags,
-  },
   utils,
 };
-use parking_lot::{Mutex, RwLock};
-use std::{collections::VecDeque, convert::TryInto, fmt, fmt::Formatter, sync::Arc};
+use parking_lot::Mutex;
+use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).

@@ -1,8 +1,7 @@
 use fred::{
   prelude::*,
-  types::{ClusterHash, CustomCommand, RedisKey},
+  types::{CustomCommand, RedisKey},
 };
-use redis_protocol::resp3::types::Frame;
 use std::convert::TryInto;
 
 fn get_hash_slot(client: &RedisClient, key: &'static str) -> (RedisKey, Option<u16>) {

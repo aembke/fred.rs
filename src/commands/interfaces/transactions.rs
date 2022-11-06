@@ -1,10 +1,8 @@
 use crate::{
   clients::Transaction,
   commands,
-  error::{RedisError, RedisErrorKind},
   interfaces::{ClientLike, RedisResult},
   types::MultipleKeys,
-  utils,
 };
 
 /// Functions that implement the [transactions](https://redis.io/commands#transactions) interface.

@@ -1,24 +1,21 @@
 use crate::{
-  commands,
   error::{RedisError, RedisErrorKind},
   interfaces,
   interfaces::*,
   modules::inner::RedisClientInner,
-  prelude::{ReconnectPolicy, RedisConfig, RedisValue},
+  prelude::RedisValue,
   protocol::{
     command::{MultiplexerCommand, RedisCommand, RedisCommandKind},
     hashers::ClusterHash,
     responders::ResponseKind,
     utils as protocol_utils,
-    utils::frame_to_results_raw,
   },
-  types::{ClientState, ConnectHandle, CustomCommand, FromRedis, InfoKind, PerformanceConfig, ShutdownFlags},
+  types::FromRedis,
   utils,
 };
 use arcstr::ArcStr;
-use parking_lot::{Mutex, RwLock};
-use redis_protocol::resp3::prelude::RespVersion;
-use std::{collections::VecDeque, convert::TryInto, fmt, sync::Arc};
+use parking_lot::Mutex;
+use std::{collections::VecDeque, fmt, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A client struct for commands in a `MULTI`/`EXEC` transaction block.

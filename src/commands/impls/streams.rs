@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
   error::RedisError,
-  modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     hashers::ClusterHash,
@@ -21,8 +20,7 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
-use redis_protocol::redis_keyslot;
-use std::{convert::TryInto, sync::Arc};
+use std::convert::TryInto;
 
 fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
   if let Some((kind, trim, threshold, limit)) = cap.into_parts() {

@@ -806,8 +806,8 @@ impl ServerConfig {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
-  use crate::{prelude::ServerConfig, types::RedisConfig};
+  #[allow(unused_imports)]
+  use crate::{prelude::ServerConfig, types::RedisConfig, utils};
 
   #[test]
   fn should_parse_centralized_url() {
@@ -880,7 +880,7 @@ mod tests {
       database: Some(1),
       username: Some("username".into()),
       password: Some("password".into()),
-      tls: utils::tls_config_from_url(true),
+      tls: utils::tls_config_from_url(true).unwrap(),
       ..RedisConfig::default()
     };
 
@@ -959,7 +959,7 @@ mod tests {
       server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
       username: Some("username".into()),
       password: Some("password".into()),
-      tls: utils::tls_config_from_url(true),
+      tls: utils::tls_config_from_url(true).unwrap(),
       ..RedisConfig::default()
     };
 
@@ -1017,7 +1017,7 @@ mod tests {
       username: Some("username".into()),
       password: Some("password".into()),
       database: Some(1),
-      tls: utils::tls_config_from_url(true),
+      tls: utils::tls_config_from_url(true).unwrap(),
       ..RedisConfig::default()
     };
 

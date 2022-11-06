@@ -1,15 +1,10 @@
 use super::*;
 use crate::{
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
-use std::{convert::TryInto, sync::Arc};
+use std::convert::TryInto;
 
 pub async fn blpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
   let timeout: RedisValue = timeout.try_into()?;

@@ -100,20 +100,10 @@ pub fn scan(
   let (tx, rx) = unbounded_channel();
 
   let hash_slot = if inner.config.server.is_clustered() {
-    let result = inner.with_cluster_state(|state| {
-      Ok(if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
-        Some(redis_keyslot(pattern.as_bytes()))
-      } else {
-        None
-      })
-    });
-
-    match result {
-      Ok(slot) => slot,
-      Err(e) => {
-        early_error(&tx, e);
-        return UnboundedReceiverStream::new(rx);
-      },
+    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
+      Some(redis_keyslot(pattern.as_bytes()))
+    } else {
+      None
     }
   } else {
     None

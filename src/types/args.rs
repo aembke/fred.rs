@@ -20,12 +20,10 @@ use std::{
   mem,
   ops::{Deref, DerefMut},
   str,
-  sync::Arc,
 };
 
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
-use url::quirks::hash;
 
 static_str!(TRUE_STR, "true");
 static_str!(FALSE_STR, "false");

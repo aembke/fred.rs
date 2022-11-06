@@ -1,10 +1,9 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
-  modules::{inner::RedisClientInner, metrics::MovingStats},
+  modules::inner::RedisClientInner,
   protocol::{
     command::{MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender},
-    connection::SharedBuffer,
     types::{KeyScanInner, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
@@ -13,29 +12,21 @@ use crate::{
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
-use core::fmt;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use std::{
-  cmp,
-  collections::vec_deque::VecDeque,
-  fmt::Formatter,
   iter::repeat,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
-  time::Instant,
 };
 
-const LAST_CURSOR: &'static str = "0";
+#[cfg(feature = "metrics")]
+use crate::modules::metrics::MovingStats;
+#[cfg(feature = "metrics")]
+use parking_lot::RwLock;
+#[cfg(feature = "metrics")]
+use std::{cmp, time::Instant};
 
-// TODO
-// make a ReplicaClient struct that has an added field for replica state
-// override send_command on this struct to add a replica flag on the command before sending it
-// put all this behind a feature flag
-// add cluster support behind the ff that looks up replicas on reads if possible
-// defer to the caller to only use read commands
-// put a note in the docs about consistency checks with WAIT, etc
-// put a `replicas(&self)` function on RedisClient that shares the underlying connections
-// put checks in here so it only works on clustered clients with the FF set
+const LAST_CURSOR: &'static str = "0";
 
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
@@ -225,7 +216,7 @@ fn respond_locked(
 
 fn add_buffered_frame(buffer: &Arc<Mutex<Vec<Resp3Frame>>>, index: usize, frame: Resp3Frame) {
   let mut guard = buffer.lock();
-  let mut buffer_ref = guard.deref_mut();
+  let buffer_ref = guard.deref_mut();
 
   buffer_ref[index] = frame;
 }
@@ -617,7 +608,9 @@ pub fn respond_value_scan(
 
   _trace!(inner, "Sending value scan result with {} values", values.len());
   if let Err(e) = send_value_scan_result(inner, scanner, &command, values, can_continue) {
-    scan_stream.send(Err(e));
+    if let Err(_) = scan_stream.send(Err(e)) {
+      _warn!(inner, "Error sending scan result.");
+    }
   }
 
   Ok(())

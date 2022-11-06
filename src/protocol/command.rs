@@ -1,49 +1,28 @@
 use crate::{
-  clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  protocol::{
-    connection::SharedBuffer,
-    hashers::ClusterHash,
-    responders::ResponseKind,
-    types::{ClusterRouting, KeyScanInner, ProtocolFrame, ValueScanInner},
-    utils as protocol_utils,
-  },
+  protocol::{hashers::ClusterHash, responders::ResponseKind, types::ProtocolFrame, utils as protocol_utils},
   trace,
-  types::{CustomCommand, RedisConfig, RedisValue},
+  types::{CustomCommand, RedisValue},
   utils as client_utils,
   utils,
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;
-use lazy_static::lazy_static;
-use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
-use semver::Op;
-use std::{
-  borrow::Cow,
-  collections::VecDeque,
-  convert::TryFrom,
-  env::args,
-  fmt,
-  fmt::Formatter,
-  mem,
-  str,
-  sync::{atomic::AtomicUsize, Arc},
-  time::Instant,
-};
+use std::{convert::TryFrom, fmt, fmt::Formatter, mem, str, sync::Arc};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
 
-#[cfg(not(feature = "full-tracing"))]
-use crate::trace::disabled::Span as FakeSpan;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::Span;
+#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+use std::time::Instant;
 
 /// A command interface for communication between connection reader tasks and the multiplexer.
 ///
@@ -1707,7 +1686,19 @@ impl RedisCommand {
 
   /// Hash the arguments according to the command's cluster hash policy.
   pub fn cluster_hash(&self) -> Option<u16> {
-    self.kind.custom_hash_slot().or(self.hasher.hash(self.args()))
+    self
+      .kind
+      .custom_hash_slot()
+      .or(self.scan_hash_slot())
+      .or(self.hasher.hash(self.args()))
+  }
+
+  /// Read the custom hash slot assigned to a scan operation.
+  pub fn scan_hash_slot(&self) -> Option<u16> {
+    match self.response {
+      ResponseKind::KeyScan(ref inner) => inner.hash_slot.clone(),
+      _ => None,
+    }
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).

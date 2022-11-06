@@ -4,27 +4,23 @@ use crate::{
   protocol::{types::ProtocolFrame, utils as protocol_utils},
   utils,
 };
+use arcstr::ArcStr;
 use bytes::BytesMut;
 use redis_protocol::{
   resp2::{decode::decode_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::Frame as Resp2Frame},
   resp3::{
     decode::streaming::decode_mut as resp3_decode,
     encode::complete::encode_bytes as resp3_encode,
-    types::{Frame as Resp3Frame, RespVersion, StreamedFrame},
+    types::{Frame as Resp3Frame, StreamedFrame},
   },
 };
-use std::sync::{
-  atomic::{AtomicBool, AtomicUsize},
-  Arc,
-};
+use std::sync::{atomic::AtomicBool, Arc};
 use tokio_util::codec::{Decoder, Encoder};
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use arc_swap::ArcSwap;
-use arcstr::ArcStr;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
 

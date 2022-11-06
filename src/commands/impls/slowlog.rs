@@ -1,17 +1,11 @@
 use super::*;
 use crate::{
   error::*,
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
 use redis_protocol::resp3::types::Frame;
-use std::sync::Arc;
 
 pub async fn slowlog_get<C: ClientLike>(client: &C, count: Option<i64>) -> Result<Vec<SlowlogEntry>, RedisError> {
   let frame = utils::request_response(client, move || {

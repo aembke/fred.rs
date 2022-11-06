@@ -2,7 +2,6 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, RespVersion},
-  utils,
 };
 use arcstr::ArcStr;
 use bytes_utils::Str;

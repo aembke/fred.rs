@@ -1,47 +1,21 @@
 use crate::{
-  clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::{responses, types::ClusterChange, utils, Backpressure, Connections, Counters, Multiplexer, Written},
+  multiplexer::{utils, Backpressure, Counters, Multiplexer, Written},
   protocol::{
-    command::{ClusterErrorKind, MultiplexerResponse, RedisCommand, RedisCommandKind},
-    connection::{self, CommandBuffer, RedisReader, RedisTransport, RedisWriter, SharedBuffer},
-    responders,
+    command::{ClusterErrorKind, MultiplexerResponse, RedisCommand},
+    connection::{RedisWriter, SharedBuffer},
     responders::ResponseKind,
     types::*,
-    utils as protocol_utils,
   },
-  trace,
   types::*,
   utils as client_utils,
 };
-use arcstr::ArcStr;
-use futures::{future::Either, pin_mut, select, FutureExt, StreamExt, TryFutureExt, TryStreamExt};
-use log::Level;
-use parking_lot::{Mutex, RwLock};
-use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::{
-  cmp,
-  collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
-  future::Future,
-  mem,
-  ops::DerefMut,
-  str,
-  sync::Arc,
-  time::{Duration, Instant},
-};
-use tokio::{
-  self,
-  io::{AsyncRead, AsyncWrite},
-  sync::{
-    broadcast::{channel as broadcast_channel, Receiver as BroadcastReceiver},
-    mpsc::UnboundedSender,
-    oneshot::{channel as oneshot_channel, Sender as OneshotSender},
-    RwLock as AsyncRwLock,
-  },
-};
+use std::{cmp, str, sync::Arc, time::Duration};
+use tokio::{self, sync::oneshot::channel as oneshot_channel};
 
-const DEFAULT_BROADCAST_CAPACITY: usize = 16;
+#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+use crate::trace;
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure(
@@ -189,7 +163,9 @@ pub fn check_blocked_multiplexer(inner: &Arc<RedisClientInner>, buffer: &SharedB
     .clone()
     .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
 
-  tx.send(MultiplexerResponse::ConnectionClosed((error, command)));
+  if let Err(_) = tx.send(MultiplexerResponse::ConnectionClosed((error, command))) {
+    _warn!(inner, "Failed to send multiplexer connection closed error.");
+  }
 }
 
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
