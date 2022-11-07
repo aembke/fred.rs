@@ -22,7 +22,6 @@ use std::{
   str,
 };
 
-use crate::prelude::RedisValue::{Null, Queued};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 

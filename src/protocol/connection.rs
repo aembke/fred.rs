@@ -34,15 +34,13 @@ use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::protocol::tls::{self, TlsConnector};
-#[cfg(feature = "monitor")]
-use crate::types::ServerConfig;
+use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::{TlsConnector as NativeTlsConnector, TlsStream as NativeTlsStream};
+use tokio_native_tls::TlsStream as NativeTlsStream;
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::{client::TlsStream as RustlsStream, rustls::ServerName, TlsConnector as RustlsConnector};
+use tokio_rustls::{client::TlsStream as RustlsStream, rustls::ServerName};
 
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";

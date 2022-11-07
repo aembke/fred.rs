@@ -19,8 +19,6 @@ use crate::globals::globals;
 
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::trace::Span;
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use std::time::Instant;
 
@@ -1383,6 +1381,9 @@ pub struct RedisCommand {
   pub skip_backpressure: bool,
   /// The internal ID of a transaction.
   pub transaction_id:    Option<u64>,
+  /// Whether to route the command to a replica, if possible.
+  #[cfg(feature = "replicas")]
+  pub use_replica:       bool,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
   pub created:           Instant,

@@ -1,14 +1,10 @@
 use crate::{
-  clients::redis::RedisClient,
   interfaces::*,
   modules::inner::RedisClientInner,
   types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
 };
-use futures::{Stream, StreamExt};
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{default::Default, fmt, sync::Arc};
-use tokio::sync::mpsc::unbounded_channel;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;

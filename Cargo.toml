@@ -99,6 +99,7 @@ monitor = ["nom"]
 sentinel-client = []
 sentinel-auth = []
 no-client-setname = []
+replicas = []
 # Testing Features
 sentinel-tests = []
 chaos-monkey = ["custom-reconnect-errors"]

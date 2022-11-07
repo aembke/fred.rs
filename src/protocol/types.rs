@@ -17,14 +17,6 @@ use std::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
-#[cfg(feature = "blocking-encoding")]
-use crate::globals::globals;
-
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::trace::CommandTraces;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::trace::Span;
-
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
 #[derive(Debug)]

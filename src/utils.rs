@@ -37,6 +37,8 @@ use tokio::{
 };
 use url::Url;
 
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::protocol::tls::TlsConnector;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -606,13 +608,6 @@ pub fn check_tls_features() {}
 pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }
-
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::protocol::tls::TlsConnector;
-#[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::TlsConnector as NativeTlsConnector;
-#[cfg(feature = "enable-rustls")]
-use tokio_rustls::TlsConnector as RustlsConnector;
 
 #[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
 pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {

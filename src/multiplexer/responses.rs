@@ -11,8 +11,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
-#[cfg(feature = "metrics")]
-use std::{cmp, time::Instant};
 
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
 const KEYEVENT_PREFIX: &'static str = "__keyevent@";

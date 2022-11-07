@@ -140,6 +140,4 @@ pub trait PubsubInterface: ClientLike + Sized {
 
   // TODO
   // pubsub channels, pubsub numpat, pubsub numsum, pubsub shardchannels, pubsub shardnumsub
-  // special case 3-element arrays/push on the responder that start with psubscribe, punsubscribe, ssubscribe,
-  // sunsubscribe where the last command kind doesn't match
 }

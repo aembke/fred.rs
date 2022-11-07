@@ -1,8 +1,4 @@
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::RedisConfig,
-};
-use parking_lot::RwLock;
+use crate::error::{RedisError, RedisErrorKind};
 use std::{
   convert::{TryFrom, TryInto},
   env,
@@ -19,13 +15,7 @@ use tokio_native_tls::native_tls::{
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::rustls::{
-  client::{WantsClientCert, WantsTransparencyPolicyOrClientCert},
-  Certificate,
-  ClientConfig as RustlsClientConfig,
-  ConfigBuilder,
-  RootCertStore,
-};
+use tokio_rustls::rustls::{Certificate, ClientConfig as RustlsClientConfig, RootCertStore};
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;
 

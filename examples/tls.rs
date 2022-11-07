@@ -18,10 +18,19 @@ fn create_tls_config() -> TlsConnector {
 
 #[cfg(feature = "enable-rustls")]
 fn create_tls_config() -> TlsConnector {
-  use tokio_rustls::rustls::{client::WantsClientCert, ClientConfig as RustlsClientConfig, ConfigBuilder};
+  use tokio_rustls::rustls::{
+    client::WantsClientCert,
+    ClientConfig as RustlsClientConfig,
+    ConfigBuilder,
+    RootCertStore,
+  };
 
-  let connector = RustlsClientConfig::builder().with_safe_defaults().with_no_client_auth();
-  TlsConnector::from(connector)
+  TlsConnector::from(
+    RustlsClientConfig::builder()
+      .with_safe_defaults()
+      .with_root_certificates(RootCertStore::empty())
+      .with_no_client_auth(),
+  )
 }
 
 #[tokio::main]

@@ -2,8 +2,9 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   multiplexer::{utils, Backpressure, Counters, Multiplexer, Written},
+  prelude::Resp3Frame,
   protocol::{
-    command::{ClusterErrorKind, MultiplexerResponse, RedisCommand},
+    command::{ClusterErrorKind, MultiplexerResponse, RedisCommand, RedisCommandKind},
     connection::{RedisWriter, SharedBuffer},
     responders::ResponseKind,
     types::*,
@@ -11,13 +12,12 @@ use crate::{
   types::*,
   utils as client_utils,
 };
+use redis_protocol::resp3::types::PUBSUB_PUSH_PREFIX;
 use std::{cmp, str, sync::Arc, time::Duration};
 use tokio::{self, sync::oneshot::channel as oneshot_channel};
 
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use crate::trace;
-use crate::{prelude::Resp3Frame, protocol::command::RedisCommandKind};
-use redis_protocol::{resp2::types::PUBSUB_PREFIX, resp3::types::PUBSUB_PUSH_PREFIX};
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use std::time::Instant;
 

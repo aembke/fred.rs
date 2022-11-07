@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-A high level async Redis client for Rust built on Tokio and Futures. 
+An async Redis client for Rust built on Tokio and Futures. 
 
 ## Example 
 
@@ -17,11 +17,12 @@ use fred::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
+  let perf = PerformanceConfig::default();
   let policy = ReconnectPolicy::default();
-  let client = RedisClient::new(config);
+  let client = RedisClient::new(config, perf, Some(policy));
   
   // connect to the server, returning a handle to the task that drives the connection
-  let _ = client.connect(Some(policy));
+  let jh = client.connect();
   let _ = client.wait_for_connect().await?;
  
   // convert responses to many common Rust types
@@ -37,6 +38,7 @@ async fn main() -> Result<(), RedisError> {
   assert_eq!(foo.as_str().unwrap(), "bar");
   
   let _ = client.quit().await?;
+  let _ = jh.await;
   Ok(())
 }
 ```
@@ -61,15 +63,17 @@ cargo add fred
 * Supports Lua scripts. 
 * Supports streaming results from the `MONITOR` command. 
 * Supports custom commands provided by third party modules. 
-* Supports TLS connections.
+* Supports TLS connections via `native-tls` and/or `rustls`.
 * Supports streaming interfaces for scanning functions.
-* Options to automatically [pipeline](https://redis.io/topics/pipelining) requests when possible.
+* Options to automatically [pipeline](https://redis.io/topics/pipelining) requests across tasks when possible.
+* An interface to manually [pipeline](https://redis.io/topics/pipelining) requests within a task.
 * Automatically retry requests under bad network conditions.
-* Built-in tracking for network latency and payload size metrics.
+* Optional built-in tracking for network latency and payload size metrics.
 * An optional client pooling interface to round-robin requests among a pool of clients.
 * An optional sentinel client for interacting directly with sentinel nodes to manually fail over servers, etc.
 * An optional pubsub subscriber client that will automatically manage channel subscriptions.
-* Optional built in support for JSON values.
+* An optional interface for routing commands to replica nodes.
+* Optional support for JSON values.
 
 **Note: Fred requires Tokio 1.x or above. Actix users must be using 4.x or above as a result.**
 
@@ -89,12 +93,13 @@ When a client is initialized it will generate a unique client name with a prefix
 
 | Name                    | Default | Description                                                                                                                                                                                                                                                                         |
 |-------------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| enable-tls              |    x    | Enable TLS support. This requires OpenSSL (or equivalent) dependencies.                                                                                                                                                                                                             |
-| vendored-tls            |         | Enable TLS support, using vendored OpenSSL (or equivalent) dependencies, if possible.                                                                                                                                                                                               |
-| ignore-auth-error       |    x    | Ignore auth errors that occur when a password is supplied but not required.                                                                                                                                                                                                         |
+| enable-native-tls       |         | Enable TLS support via [native-tls](https://crates.io/crates/native-tls).                                                                                                                                                                                                                                              |
+| enable-rustls           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls).                                                                                                                                                                                                                                                  |
+| vendored-openssl        |         | Enable the `native-tls/vendored` feature, if possible.                                                                                                                                                                                                                              |
+| ignore-auth-error       | x       | Ignore auth errors that occur when a password is supplied but not required.                                                                                                                                                                                                         |
 | metrics                 |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                                                                                                                                 |
 | reconnect-on-auth-error |         | A NOAUTH error is treated the same as a general connection failure and the client will reconnect based on the reconnection policy. This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache. |
-| pool-prefer-active      |    x    | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                                                                                                                                                                 |
+| pool-prefer-active      | x       | Prefer connected clients over clients in a disconnected state when using the `RedisPool` interface.                                                                                                                                                                                 |
 | full-tracing            |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data so a partial tracing feature is also provided.                                                                                                                                                    |
 | partial-tracing         |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency. Note: this has a non-trivial impact on [performance](./bin/pipeline_test/README.md#Examples).                                                             |
 | blocking-encoding       |         | Use a blocking task for encoding or decoding frames over a [certain size](./src/modules/globals.rs). This can be useful for clients that send or receive large payloads, but will only work when used with a multi-thread Tokio runtime.                                            |
@@ -106,6 +111,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | subscriber-client       |         | Enable a higher level subscriber client that manages channel subscription state for callers.                                                                                                                                                                                        |
 | serde-json              |         | Enable an interface to automatically convert Redis types to JSON.                                                                                                                                                                                                                   |
 | no-client-setname       |         | Disable the automatic `CLIENT SETNAME` command used to associate server logs with client logs.                                                                                                                                                                                      |
+| replicas                |         | Enable an interface for interacting with replica nodes.                                                                                                                                                                                                                             |
 
 ## Environment Variables
 
@@ -114,21 +120,13 @@ When a client is initialized it will generate a unique client name with a prefix
 | FRED_DISABLE_CERT_VERIFICATION    | `false` | Disable certificate verification when using TLS features.                                |
 | FRED_DISABLE_HOST_VERIFICATION    | `false` | Disable host verification when using TLS features.                                       |
 
-## Pipelining
-
-The caller can toggle [pipelining](https://redis.io/topics/pipelining) via flags on the `RedisConfig` provided to a client to enable automatic pipelining for commands whenever possible. These settings can drastically affect performance on both the server and client, but further performance tuning may be necessary to avoid issues such as using too much memory on the client or server while buffering commands.
-
-This module also contains a [separate test application](bin/pipeline_test) that can be used to demonstrate the effects of pipelining. This test application also contains some helpful information on how to use the tracing features.
-
 ## ACL & Authentication
 
 Prior to the introduction of ACL commands in Redis version 6 clients would authenticate with a single password. If callers are not using the ACL interface, or using Redis version <=5.x, they should configure the client to automatically authenticate by using the `password` field on the `RedisConfig` and leaving the `username` field as `None`. 
 
 If callers are using ACLs and Redis version >=6.x they can configure the client to automatically authenticate by using the `username` and `password` fields on the provided `RedisConfig`. 
 
-**It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER NODES`.** Callers can still change users via the `AUTH` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
-
-If this is not possible callers need to ensure that the default user can run the two commands above. Additionally, it is recommended to move any calls to the `AUTH` or `HELLO` command inside the `on_reconnect` block.
+**It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER SLOTS`.** Callers can still change users via the `AUTH` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
 
 ## Redis Sentinel
 

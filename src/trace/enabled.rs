@@ -1,7 +1,6 @@
 use crate::{
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, utils as protocol_utils},
-  utils,
 };
 use redis_protocol::resp3::types::Frame;
 use std::{fmt, sync::Arc};

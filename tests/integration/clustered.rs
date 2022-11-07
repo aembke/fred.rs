@@ -28,7 +28,6 @@ mod multi {
   cluster_test!(multi, should_run_get_set_trx);
   cluster_test_panic!(multi, should_fail_with_hashslot_error);
   cluster_test_panic!(multi, should_run_error_get_set_trx);
-  cluster_test!(multi, should_use_cluster_slot_with_publish);
 }
 
 mod other {
