@@ -14,6 +14,7 @@ use arcstr::ArcStr;
 use futures::future::{select, Either};
 use parking_lot::RwLock;
 use std::{
+  collections::HashMap,
   ops::DerefMut,
   sync::{
     atomic::{AtomicBool, AtomicUsize},
@@ -182,12 +183,17 @@ pub enum ServerState {
     sentinels: Vec<(String, u16)>,
     /// The server host/port resolved from the sentinel nodes, if known.
     primary:   Option<ArcStr>,
+    #[cfg(feature = "replicas")]
+    replicas:  HashMap<ArcStr, ArcStr>,
   },
   Cluster {
     /// The cached cluster routing table.
     cache: Option<ClusterRouting>,
   },
-  Centralized,
+  Centralized {
+    #[cfg(feature = "replicas")]
+    replicas: HashMap<ArcStr, ArcStr>,
+  },
 }
 
 impl ServerState {
@@ -196,10 +202,15 @@ impl ServerState {
     match config.server {
       ServerConfig::Clustered { .. } => ServerState::Cluster { cache: None },
       ServerConfig::Sentinel { ref hosts, .. } => ServerState::Sentinel {
-        sentinels: hosts.clone(),
-        primary:   None,
+        sentinels:                             hosts.clone(),
+        primary:                               None,
+        #[cfg(feature = "replicas")]
+        replicas:                              HashMap::new(),
       },
-      ServerConfig::Centralized { .. } => ServerState::Centralized,
+      ServerConfig::Centralized { .. } => ServerState::Centralized {
+        #[cfg(feature = "replicas")]
+        replicas:                              HashMap::new(),
+      },
     }
   }
 }
@@ -390,6 +401,20 @@ impl RedisClientInner {
       }
     } else {
       None
+    }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn update_replicas(&self, new_replicas: HashMap<ArcStr, ArcStr>) {
+    match self.server_state.write() {
+      ServerState::Sentinel { ref mut replicas, .. } => {
+        *replicas = new_replicas;
+      },
+      ServerState::Centralized { ref mut replicas, .. } => {
+        *replicas = new_replicas;
+      },
+      // clustered replicas are derived from the routing table
+      _ => {},
     }
   }
 

@@ -6,3 +6,6 @@ tests/tmp/*
 dump.rdb
 appendonly.aof
 test_users.acl
+centralized_server.log
+redis_centralized.conf
+redis_server.pid

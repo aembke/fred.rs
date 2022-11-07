@@ -1,5 +1,4 @@
 use crate::{
-  clients::Pipeline,
   commands,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
@@ -69,11 +68,18 @@ pub trait ClientLike: Clone + Send + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
+  /// Helper function to intercept and modify a command without affecting how it is sent to the connection layer.
+  #[doc(hidden)]
+  fn change_command(&self, _: &mut RedisCommand) {}
+
+  /// Helper function to intercept and customize how a command is sent to the connection layer.
   #[doc(hidden)]
   fn send_command<C>(&self, command: C) -> Result<(), RedisError>
   where
     C: Into<RedisCommand>,
   {
+    let mut command: RedisCommand = command.into();
+    self.change_command(&mut command);
     default_send_command(&self.inner(), command)
   }
 
@@ -262,14 +268,6 @@ pub trait ClientLike: Clone + Send + Sized {
   {
     let args = utils::try_into_vec(args)?;
     commands::server::custom_raw(self, cmd, args).await
-  }
-}
-
-/// An interface for sending a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
-pub trait PipelineInterface: ClientLike {
-  /// Send a series of commands in a [pipeline](crate::clients::Pipeline).
-  fn pipeline(&self) -> Pipeline {
-    self.inner().into()
   }
 }
 

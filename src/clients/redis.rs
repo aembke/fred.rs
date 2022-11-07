@@ -1,4 +1,5 @@
 use crate::{
+  clients::Pipeline,
   commands,
   error::{RedisError, RedisErrorKind},
   interfaces::{
@@ -16,7 +17,6 @@ use crate::{
     LuaInterface,
     MemoryInterface,
     MetricsInterface,
-    PipelineInterface,
     PubsubInterface,
     ServerInterface,
     SetsInterface,
@@ -31,6 +31,9 @@ use crate::{
 use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, sync::Arc};
+
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
 
 /// The primary Redis client struct.
 #[derive(Clone)]
@@ -82,7 +85,6 @@ impl SetsInterface for RedisClient {}
 impl SortedSetsInterface for RedisClient {}
 impl HeartbeatInterface for RedisClient {}
 impl StreamsInterface for RedisClient {}
-impl PipelineInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
@@ -223,6 +225,20 @@ impl RedisClient {
     P: Into<Str>,
   {
     commands::scan::zscan(&self.inner, key.into(), pattern.into(), count)
+  }
+
+  /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
+  pub fn pipeline(&self) -> Pipeline<RedisClient> {
+    Pipeline::from(self.clone())
+  }
+
+  /// Create a client that interacts with replica nodes.
+  ///
+  /// Note: This interface will share and expand the underlying connections, if necessary.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub fn replicas(&self) -> Replicas {
+    Replicas::from(&self.inner)
   }
 }
 

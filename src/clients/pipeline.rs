@@ -39,56 +39,63 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 /// The `auto_pipeline` flag on the [PerformanceConfig](crate::types::PerformanceConfig) determines whether
 /// the client will pipeline commands across tasks whereas this struct is used to pipeline commands within one task. A
 /// sequence of commands in a `Pipeline` or `Transaction` cannot be interrupted by other tasks.
-pub struct Pipeline {
+pub struct Pipeline<C: ClientLike> {
   commands: Arc<Mutex<VecDeque<RedisCommand>>>,
-  inner:    Arc<RedisClientInner>,
+  client:   C,
 }
 
 #[doc(hidden)]
-impl Clone for Pipeline {
+impl<C: ClientLike> Clone for Pipeline<C> {
   fn clone(&self) -> Self {
     Pipeline {
       commands: self.commands.clone(),
-      inner:    self.inner.clone(),
+      client:   self.client.clone(),
     }
   }
 }
 
-impl fmt::Debug for Pipeline {
+impl<C: ClientLike> fmt::Debug for Pipeline<C> {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("Pipeline")
-      .field("client", &self.inner.id)
+      .field("client", &self.client.inner().id)
       .field("length", &self.commands.lock().len())
       .finish()
   }
 }
 
 #[doc(hidden)]
-impl From<&Arc<RedisClientInner>> for Pipeline {
-  fn from(inner: &Arc<RedisClientInner>) -> Self {
+impl<C: ClientLike> From<C> for Pipeline<C> {
+  fn from(client: C) -> Self {
     Pipeline {
-      inner:    inner.clone(),
+      client,
       commands: Arc::new(Mutex::new(VecDeque::new())),
     }
   }
 }
 
-impl ClientLike for Pipeline {
+impl<C: ClientLike> ClientLike for Pipeline<C> {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {
-    &self.inner
+    &self.client.inner()
   }
 
   #[doc(hidden)]
-  fn send_command<C>(&self, command: C) -> Result<(), RedisError>
+  fn change_command(&self, command: &mut RedisCommand) {
+    self.client.change_command(command);
+  }
+
+  #[doc(hidden)]
+  fn send_command<T>(&self, command: T) -> Result<(), RedisError>
   where
-    C: Into<RedisCommand>,
+    T: Into<RedisCommand>,
   {
     let mut command: RedisCommand = command.into();
+    self.change_command(&mut command);
+
     if let Some(tx) = command.take_responder() {
       trace!(
         "{}: Respond early to {} command in pipeline.",
-        &self.inner.id,
+        &self.client.inner().id,
         command.kind.to_str_debug()
       );
       let _ = tx.send(Ok(protocol_utils::queued_frame()));
@@ -99,25 +106,25 @@ impl ClientLike for Pipeline {
   }
 }
 
-impl AclInterface for Pipeline {}
-impl ClientInterface for Pipeline {}
-impl ClusterInterface for Pipeline {}
-impl PubsubInterface for Pipeline {}
-impl ConfigInterface for Pipeline {}
-impl GeoInterface for Pipeline {}
-impl HashesInterface for Pipeline {}
-impl HyperloglogInterface for Pipeline {}
-impl KeysInterface for Pipeline {}
-impl ListInterface for Pipeline {}
-impl MemoryInterface for Pipeline {}
-impl AuthInterface for Pipeline {}
-impl ServerInterface for Pipeline {}
-impl SlowlogInterface for Pipeline {}
-impl SetsInterface for Pipeline {}
-impl SortedSetsInterface for Pipeline {}
-impl StreamsInterface for Pipeline {}
+impl<C: AclInterface> AclInterface for Pipeline<C> {}
+impl<C: ClientInterface> ClientInterface for Pipeline<C> {}
+impl<C: ClusterInterface> ClusterInterface for Pipeline<C> {}
+impl<C: PubsubInterface> PubsubInterface for Pipeline<C> {}
+impl<C: ConfigInterface> ConfigInterface for Pipeline<C> {}
+impl<C: GeoInterface> GeoInterface for Pipeline<C> {}
+impl<C: HashesInterface> HashesInterface for Pipeline<C> {}
+impl<C: HyperloglogInterface> HyperloglogInterface for Pipeline<C> {}
+impl<C: KeysInterface> KeysInterface for Pipeline<C> {}
+impl<C: ListInterface> ListInterface for Pipeline<C> {}
+impl<C: MemoryInterface> MemoryInterface for Pipeline<C> {}
+impl<C: AuthInterface> AuthInterface for Pipeline<C> {}
+impl<C: ServerInterface> ServerInterface for Pipeline<C> {}
+impl<C: SlowlogInterface> SlowlogInterface for Pipeline<C> {}
+impl<C: SetsInterface> SetsInterface for Pipeline<C> {}
+impl<C: SortedSetsInterface> SortedSetsInterface for Pipeline<C> {}
+impl<C: StreamsInterface> StreamsInterface for Pipeline<C> {}
 
-impl Pipeline {
+impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.
   ///
   /// ```rust no_run no_compile
@@ -135,7 +142,7 @@ impl Pipeline {
     R: FromRedis,
   {
     let commands = { self.commands.lock().drain(..).collect() };
-    send_all(&self.inner, commands).await?.convert()
+    send_all(self.client.inner(), commands).await?.convert()
   }
 
   /// Send the pipeline and respond with only the result of the last command.
@@ -153,7 +160,7 @@ impl Pipeline {
     R: FromRedis,
   {
     let commands = { self.commands.lock().drain(..).collect() };
-    send_last(&self.inner, commands).await?.convert()
+    send_last(self.client.inner(), commands).await?.convert()
   }
 }
 

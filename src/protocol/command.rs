@@ -1430,6 +1430,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
+      #[cfg(feature = "replicas")]
+      use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1452,6 +1454,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
+      #[cfg(feature = "replicas")]
+      use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1474,6 +1478,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
+      #[cfg(feature = "replicas")]
+      use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1497,6 +1503,8 @@ impl RedisCommand {
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
+      #[cfg(feature = "replicas")]
+      use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1518,6 +1526,8 @@ impl RedisCommand {
       can_pipeline: false,
       skip_backpressure: true,
       transaction_id: None,
+      #[cfg(feature = "replicas")]
+      use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1641,6 +1651,8 @@ impl RedisCommand {
       skip_backpressure: self.skip_backpressure,
       multiplexer_tx: None,
       response,
+      #[cfg(feature = "replicas")]
+      use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
       created: self.created.clone(),
       #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
