@@ -42,7 +42,7 @@ use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::{TlsConnector as NativeTlsConnector, TlsStream as NativeTlsStream};
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::{rustls::ServerName, TlsConnector as RustlsConnector, TlsStream as RustlsStream};
+use tokio_rustls::{client::TlsStream as RustlsStream, rustls::ServerName, TlsConnector as RustlsConnector};
 
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";
@@ -338,7 +338,7 @@ impl RedisTransport {
     let server = ArcStr::from(format!("{}:{}", host, port));
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host, port).await?;
+    let addr = inner.resolver.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `native-tls` connection to {} at {}:{}",
@@ -387,7 +387,7 @@ impl RedisTransport {
     let server = ArcStr::from(format!("{}:{}", host, port));
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host, port).await?;
+    let addr = inner.resolver.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `rustls` connection to {} at {}:{}",

@@ -3,14 +3,29 @@ use crate::{
   types::RedisConfig,
 };
 use parking_lot::RwLock;
-use std::{convert::TryFrom, env, fmt, fmt::Formatter, sync::Arc};
+use std::{
+  convert::{TryFrom, TryInto},
+  env,
+  fmt,
+  fmt::Formatter,
+  sync::Arc,
+};
 
 #[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::native_tls::TlsConnectorBuilder as NativeTlsConnectorBuilder;
+use tokio_native_tls::native_tls::{
+  TlsConnector as NativeTlsConnector,
+  TlsConnectorBuilder as NativeTlsConnectorBuilder,
+};
 #[cfg(feature = "enable-native-tls")]
-use tokio_native_tls::TlsConnector as NativeTlsConnector;
+use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::rustls::{client::WantsClientCert, ClientConfig as RustlsClientConfig, ConfigBuilder};
+use tokio_rustls::rustls::{
+  client::{WantsClientCert, WantsTransparencyPolicyOrClientCert},
+  Certificate,
+  ClientConfig as RustlsClientConfig,
+  ConfigBuilder,
+  RootCertStore,
+};
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;
 
@@ -25,20 +40,28 @@ pub use tokio_rustls::rustls;
 pub enum TlsConnector {
   #[cfg(feature = "enable-native-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-  Native(NativeTlsConnector),
+  Native(TokioNativeTlsConnector),
   #[cfg(feature = "enable-rustls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
   Rustls(RustlsConnector),
 }
+
+impl PartialEq for TlsConnector {
+  fn eq(&self, _: &Self) -> bool {
+    true
+  }
+}
+
+impl Eq for TlsConnector {}
 
 impl fmt::Debug for TlsConnector {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("TlsConnector")
       .field("kind", match self {
         #[cfg(feature = "enable-native-tls")]
-        TlsConnector::Native(_) => "Native",
+        TlsConnector::Native(_) => &"Native",
         #[cfg(feature = "enable-rustls")]
-        TlsConnector::Rustls(_) => "Rustls",
+        TlsConnector::Rustls(_) => &"Rustls",
       })
       .finish()
   }
@@ -52,7 +75,7 @@ impl TlsConnector {
   #[cfg(feature = "enable-native-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
   pub fn default_native_tls() -> Result<Self, RedisError> {
-    let mut builder = NativeTlsConnectorBuilder::builder();
+    let mut builder = NativeTlsConnector::builder();
 
     if should_disable_cert_verification() {
       builder.danger_accept_invalid_certs(true);
@@ -61,17 +84,31 @@ impl TlsConnector {
       builder.danger_accept_invalid_hostnames(true);
     }
 
-    build.try_into()
+    builder.try_into()
   }
 
-  /// Create a default TLS connector with the `rustls` module with safe defaults.
+  /// Create a default TLS connector with the `rustls` module with safe defaults and system certs via [rustls-native-certs](https://github.com/rustls/rustls-native-certs).
+  ///
+  /// Note: From the `rustls-native-certs` docs:
+  ///
+  /// > This function can be expensive: on some platforms it involves loading and parsing a ~300KB disk file. It's
+  /// > therefore prudent to call this sparingly.
   #[cfg(feature = "enable-rustls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
   pub fn default_rustls() -> Result<Self, RedisError> {
-    RustlsClientConfig::builder()
-      .with_safe_defaults()
-      .with_no_client_auth()
-      .into()
+    let system_certs = rustls_native_certs::load_native_certs()?;
+    let mut cert_store = RootCertStore::empty();
+    for system_cert in system_certs.into_iter() {
+      let _ = cert_store.add(&Certificate(system_cert.0))?;
+    }
+
+    Ok(
+      RustlsClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(cert_store)
+        .with_no_client_auth()
+        .into(),
+    )
   }
 }
 
@@ -83,7 +120,7 @@ impl TryFrom<NativeTlsConnectorBuilder> for TlsConnector {
   fn try_from(builder: NativeTlsConnectorBuilder) -> Result<Self, Self::Error> {
     let connector = builder
       .build()
-      .map(|t| NativeTlsConnector::from(t))
+      .map(|t| TokioNativeTlsConnector::from(t))
       .map_err(|e| RedisError::new(RedisErrorKind::Tls, format!("{:?}", e)))?;
     Ok(TlsConnector::Native(connector))
   }
@@ -93,6 +130,14 @@ impl TryFrom<NativeTlsConnectorBuilder> for TlsConnector {
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 impl From<NativeTlsConnector> for TlsConnector {
   fn from(connector: NativeTlsConnector) -> Self {
+    TlsConnector::Native(TokioNativeTlsConnector::from(connector))
+  }
+}
+
+#[cfg(feature = "enable-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
+impl From<TokioNativeTlsConnector> for TlsConnector {
+  fn from(connector: TokioNativeTlsConnector) -> Self {
     TlsConnector::Native(connector)
   }
 }

@@ -321,7 +321,9 @@ pub async fn process_response_frame(
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   let mut command = {
-    match buffer.lock().pop_front() {
+    let mut guard = buffer.lock();
+
+    let command = match guard.pop_front() {
       Some(command) => command,
       None => {
         _debug!(
@@ -332,6 +334,13 @@ pub async fn process_response_frame(
         );
         return Ok(());
       },
+    };
+
+    if utils::should_drop_extra_pubsub_frame(inner, &command, &frame) {
+      guard.push_front(command);
+      return Ok(());
+    } else {
+      command
     }
   };
   counters.decr_in_flight();

@@ -17,9 +17,6 @@ use std::{
   sync::Arc,
 };
 
-#[cfg(feature = "enable-native-tls")]
-use crate::protocol::tls;
-
 pub static CONFIG: &'static str = "CONFIG";
 pub static SET: &'static str = "SET";
 pub static CKQUORUM: &'static str = "CKQUORUM";

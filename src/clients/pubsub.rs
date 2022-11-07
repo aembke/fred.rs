@@ -2,14 +2,15 @@ use crate::{
   clients::RedisClient,
   commands,
   error::RedisError,
-  interfaces::{AuthInterface, ClientLike, MetricsInterface, PubsubInterface, RedisResult},
+  interfaces::{AuthInterface, ClientLike, MetricsInterface, PipelineInterface, PubsubInterface, RedisResult},
   modules::inner::RedisClientInner,
+  prelude::FromRedis,
   types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig},
   utils,
 };
 use bytes_utils::Str;
 use futures::{
-  future::{join_all, try_join_all},
+  future::{join_all, try_join_all, FutureExt},
   Stream,
 };
 use parking_lot::RwLock;
@@ -18,57 +19,6 @@ use tokio::{sync::mpsc::unbounded_channel, task::JoinHandle};
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
-
-fn from_redis_client(client: RedisClient, channels: &ChannelSet, patterns: &ChannelSet) -> SubscriberClient {
-  SubscriberClient {
-    inner:    client.inner,
-    patterns: patterns.clone(),
-    channels: channels.clone(),
-  }
-}
-
-fn result_of_vec(vec: Vec<Result<(), RedisError>>) -> Result<(), RedisError> {
-  vec.into_iter().collect()
-}
-
-fn add_to_channels(channels: &ChannelSet, channel: Str) {
-  channels.write().insert(channel);
-}
-
-fn remove_from_channels(channels: &ChannelSet, channel: &str) {
-  channels.write().remove(channel);
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum ReconnectOperation {
-  Subscribe,
-  PSubscribe,
-  Unsubscribe,
-  PUnsubscribe,
-}
-
-async fn concurrent_op(
-  client: &SubscriberClient,
-  channels: BTreeSet<Str>,
-  operation: ReconnectOperation,
-) -> Result<(), RedisError> {
-  let client = client.clone();
-
-  let ft = channels
-    .into_iter()
-    .map(move |val| async move {
-      let (operation, client) = (operation.clone(), client.clone());
-      match operation {
-        ReconnectOperation::Subscribe => client.subscribe(val).await.map(|_| ()),
-        ReconnectOperation::PSubscribe => client.psubscribe(val).await.map(|_| ()),
-        ReconnectOperation::Unsubscribe => client.unsubscribe(val).await.map(|_| ()),
-        ReconnectOperation::PUnsubscribe => client.punsubscribe(val).await.map(|_| ()),
-      }
-    })
-    .collect();
-
-  try_join_all(ft.into_iter()).await.map(|_| ())
-}
 
 /// A subscriber client that will manage subscription state to any pubsub channels or patterns for the caller.
 ///
@@ -137,66 +87,71 @@ impl ClientLike for SubscriberClient {
 impl AuthInterface for SubscriberClient {}
 impl MetricsInterface for SubscriberClient {}
 
-#[async_trait(?Send)]
+#[async_trait]
 impl PubsubInterface for SubscriberClient {
-  async fn subscribe<S>(&self, channel: S) -> RedisResult<usize>
+  async fn subscribe<R, S>(&self, channel: S) -> RedisResult<R>
   where
-    S: Into<Str>,
+    R: FromRedis,
+    S: Into<Str> + Send,
   {
     into!(channel);
-    let cached_channels = self.channels.clone();
 
     let result = commands::pubsub::subscribe(self, channel.clone()).await;
     if result.is_ok() {
-      add_to_channels(&cached_channels, channel);
+      self.channels.write().insert(channel);
     }
+
     result.and_then(|r| r.convert())
   }
 
-  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
+  async fn psubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
   where
-    S: Into<MultipleStrings>,
+    R: FromRedis,
+    S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
-    let cached_patterns = self.patterns.clone();
 
     let result = commands::pubsub::psubscribe(self, patterns.clone()).await;
     if result.is_ok() {
+      let mut guard = self.patterns.write();
+
       for pattern in patterns.inner().into_iter() {
         if let Some(pattern) = pattern.as_bytes_str() {
-          add_to_channels(&cached_patterns, pattern)
+          guard.insert(pattern);
         }
       }
     }
     result.and_then(|r| r.convert())
   }
 
-  async fn unsubscribe<S>(&self, channel: S) -> RedisResult<usize>
+  async fn unsubscribe<R, S>(&self, channel: S) -> RedisResult<R>
   where
-    S: Into<Str>,
+    R: FromRedis,
+    S: Into<Str> + Send,
   {
     into!(channel);
-    let cached_channels = self.channels.clone();
 
     let result = commands::pubsub::unsubscribe(self, channel.clone()).await;
     if result.is_ok() {
-      remove_from_channels(&cached_channels, &channel);
+      let _ = self.channels.write().remove(&channel);
     }
     result.and_then(|r| r.convert())
   }
 
-  async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
+  async fn punsubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
   where
-    S: Into<MultipleStrings>,
+    R: FromRedis,
+    S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
-    let cached_patterns = self.patterns.clone();
 
     let result = commands::pubsub::punsubscribe(self, patterns.clone()).await;
     if result.is_ok() {
+      let mut guard = self.patterns.write();
+
       for pattern in patterns.inner().into_iter() {
         if let Some(pattern) = pattern.as_bytes_str() {
-          remove_from_channels(&cached_patterns, &pattern)
+          let _ = guard.remove(&pattern);
         }
       }
     }
@@ -236,32 +191,17 @@ impl SubscriberClient {
     }
   }
 
-  /// Listen for reconnection notifications.
-  ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to
-  /// select the right database again, re-subscribe to channels, etc.
-  ///
-  /// A reconnection event is also triggered upon first connecting to the server.
-  pub fn on_reconnect(&self) -> impl Stream<Item = Self> {
-    let (tx, rx) = unbounded_channel();
-    self.inner().reconnect_tx.write().push_back(tx);
-
-    let channels = self.channels.clone();
-    let patterns = self.patterns.clone();
-    UnboundedReceiverStream::new(rx).map(move |client| from_redis_client(client, &channels, &patterns))
-  }
-
   /// Spawn a task that will automatically re-subscribe to any channels or channel patterns used by the client.
   pub fn manage_subscriptions(&self) -> JoinHandle<()> {
     let _self = self.clone();
     tokio::spawn(async move {
       let mut stream = _self.on_reconnect();
 
-      while let Some(client) = stream.next().await {
-        if let Err(error) = client.resubscribe_all().await {
+      while let Ok(_) = stream.recv().await {
+        if let Err(error) = _self.resubscribe_all().await {
           error!(
             "{}: Failed to resubscribe to channels or patterns: {:?}",
-            client.id(),
+            _self.id(),
             error
           );
         }
@@ -279,15 +219,20 @@ impl SubscriberClient {
     self.patterns.read().clone()
   }
 
-  /// Re-subscribe to any tracked channels and patterns concurrently.
+  /// Re-subscribe to any tracked channels and patterns.
   ///
   /// This can be used to sync the client's subscriptions with the server after calling `QUIT`, then `connect`, etc.
   pub async fn resubscribe_all(&self) -> Result<(), RedisError> {
     let channels = self.tracked_channels();
     let patterns = self.tracked_patterns();
 
-    let _ = concurrent_op(self, channels, ReconnectOperation::Subscribe).await?;
-    let _ = concurrent_op(self, patterns, ReconnectOperation::PSubscribe).await?;
+    for channel in channels.into_iter() {
+      let _ = self.subscribe(channel).await?;
+    }
+    for pattern in patterns.into_iter() {
+      let _ = self.psubscribe(pattern).await?;
+    }
+
     Ok(())
   }
 
@@ -296,8 +241,13 @@ impl SubscriberClient {
     let channels = mem::replace(&mut *self.channels.write(), BTreeSet::new());
     let patterns = mem::replace(&mut *self.patterns.write(), BTreeSet::new());
 
-    let _ = concurrent_op(self, channels, ReconnectOperation::Unsubscribe).await?;
-    let _ = concurrent_op(self, patterns, ReconnectOperation::PUnsubscribe).await?;
+    for channel in channels.into_iter() {
+      let _ = self.unsubscribe(channel).await?;
+    }
+    for pattern in patterns.into_iter() {
+      let _ = self.punsubscribe(pattern).await?;
+    }
+
     Ok(())
   }
 }

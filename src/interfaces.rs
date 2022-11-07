@@ -1,4 +1,5 @@
 use crate::{
+  clients::Pipeline,
   commands,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
@@ -26,90 +27,6 @@ use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
-
-// An enum used to represent the return value from a function that does some fallible synchronous work,
-// followed by some more fallible async logic inside a tokio task.
-// enum AsyncInner<T: Unpin + Send + 'static> {
-// Result(Option<RedisResult<T>>),
-// Task(Pin<Box<dyn Future<Output = RedisResult<T>> + Send + 'static>>),
-// }
-//
-// A wrapper type for return values from async functions implemented in a trait.
-// pub struct AsyncResult<T: Unpin + Send + 'static> {
-// inner: AsyncInner<T>,
-// }
-//
-// #[doc(hidden)]
-// impl<T, E> From<Result<T, E>> for AsyncResult<T>
-// where
-// T: Unpin + Send + 'static,
-// E: Into<RedisError>,
-// {
-// fn from(value: Result<T, E>) -> Self {
-// AsyncResult {
-// inner: AsyncInner::Result(Some(value.map_err(|e| e.into()))),
-// }
-// }
-// }
-//
-// #[doc(hidden)]
-// impl<T> From<Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>> for AsyncResult<T>
-// where
-// T: Unpin + Send + 'static,
-// {
-// fn from(f: Pin<Box<dyn Future<Output = Result<T, RedisError>> + Send + 'static>>) -> Self {
-// AsyncResult {
-// inner: AsyncInner::Task(f),
-// }
-// }
-// }
-//
-// impl<T> Future for AsyncResult<T>
-// where
-// T: Unpin + Send + 'static,
-// {
-// type Output = Result<T, RedisError>;
-//
-// fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-// match self.get_mut().inner {
-// AsyncInner::Result(ref mut output) => {
-// if let Some(value) = output.take() {
-// Poll::Ready(value)
-// } else {
-// error!("Tried calling poll on an AsyncResult::Result more than once.");
-// Poll::Ready(Err(RedisError::new_canceled()))
-// }
-// },
-// AsyncInner::Task(ref mut fut) => Pin::new(fut).poll(cx),
-// }
-// }
-// }
-//
-// Run a function in the context of an async block, returning an `AsyncResult` that wraps a trait object.
-// pub(crate) fn async_spawn<C, F, Fut, T>(client: &C, func: F) -> AsyncResult<T>
-// where
-// C: ClientLike + Clone,
-// Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
-// F: FnOnce(C) -> Fut,
-// T: Unpin + Send + 'static,
-// {
-// let _client = client.clone();
-// AsyncResult {
-// inner: AsyncInner::Task(Box::pin(func(_client))),
-// }
-// }
-//
-// Run a function and wrap the result in an `AsyncResult` trait object.
-// pub(crate) fn wrap_async<F, Fut, T>(func: F) -> AsyncResult<T>
-// where
-// Fut: Future<Output = Result<T, RedisError>> + Send + 'static,
-// F: FnOnce() -> Fut,
-// T: Unpin + Send + 'static,
-// {
-// AsyncResult {
-// inner: AsyncInner::Task(Box::pin(func())),
-// }
-// }
 
 /// Send a single `RedisCommand` to the multiplexer.
 pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
@@ -345,6 +262,14 @@ pub trait ClientLike: Clone + Send + Sized {
   {
     let args = utils::try_into_vec(args)?;
     commands::server::custom_raw(self, cmd, args).await
+  }
+}
+
+/// An interface for sending a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
+pub trait PipelineInterface: ClientLike {
+  /// Send a series of commands in a [pipeline](crate::clients::Pipeline).
+  fn pipeline(&self) -> Pipeline {
+    self.inner().into()
   }
 }
 

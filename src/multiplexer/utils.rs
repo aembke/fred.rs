@@ -16,6 +16,10 @@ use tokio::{self, sync::oneshot::channel as oneshot_channel};
 
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use crate::trace;
+use crate::{prelude::Resp3Frame, protocol::command::RedisCommandKind};
+use redis_protocol::{resp2::types::PUBSUB_PREFIX, resp3::types::PUBSUB_PUSH_PREFIX};
+#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+use std::time::Instant;
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure(
@@ -193,6 +197,53 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
     .collect();
 
   *guard = commands;
+}
+
+/// Check whether to drop the frame if it was sent in response to a pubsub command as a part of an unknown number of
+/// response frames.
+///
+/// This is a special case for when PUNSUBSCRIBE or SUNSUBSCRIBE are called without arguments, which has the effect of
+/// unsubscribing from every channel and sending one message per channel to the client in response.
+pub fn should_drop_extra_pubsub_frame(
+  inner: &Arc<RedisClientInner>,
+  command: &RedisCommand,
+  frame: &Resp3Frame,
+) -> bool {
+  let from_unsubscribe = match frame {
+    Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
+      if data.len() >= 3 && data.len() <= 4 {
+        // check for ["pubsub", "punsubscribe"|"sunsubscribe", ..] or ["punsubscribe"|"sunsubscribe", ..]
+        (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
+          && data[1]
+            .as_str()
+            .map(|s| s == "punsubscribe" || s == "sunsubscribe")
+            .unwrap_or(false))
+          || (data[0]
+            .as_str()
+            .map(|s| s == "punsubscribe" || s == "sunsubscribe")
+            .unwrap_or(false))
+      } else {
+        false
+      }
+    },
+    _ => return false,
+  };
+
+  let should_drop = if from_unsubscribe {
+    match command.kind {
+      // frame is from an unsubscribe call and the current frame expects it, so don't drop it
+      RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => false,
+      // frame is from an unsubscribe call and the current command does not expect it, so drop it
+      _ => true,
+    }
+  } else {
+    false
+  };
+
+  if should_drop {
+    _debug!(inner, "Dropping extra unsubscribe response.");
+  }
+  should_drop
 }
 
 /// Compare server identifiers of the form `<host>|<ip>:<port>` and `:<port>`, using `default_host` if a host/ip is

@@ -83,44 +83,44 @@ impl Notifications {
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
-    if let Err(e) = self.errors.send(error) {
-      debug!("{}: Error notifying `on_error` listeners: {:?}", self.id, e);
+    if let Err(_) = self.errors.send(error) {
+      debug!("{}: No `on_error` listener.", self.id);
     }
   }
 
   pub fn broadcast_pubsub(&self, channel: String, message: RedisValue) {
     if let Err(_) = self.pubsub.send((channel, message)) {
-      debug!("{}: Error notifying `on_message` listeners.", self.id);
+      debug!("{}: No `on_message` listeners.", self.id);
     }
   }
 
   pub fn broadcast_keyspace(&self, event: KeyspaceEvent) {
     if let Err(_) = self.keyspace.send(event) {
-      debug!("{}: Error notifying `on_keyspace_event` listeners.", self.id);
+      debug!("{}: No `on_keyspace_event` listeners.", self.id);
     }
   }
 
   pub fn broadcast_reconnect(&self) {
-    if let Err(e) = self.reconnect.send(()) {
-      debug!("{}: Error notifying `on_reconnect` listeners: {:?}", self.id, e);
+    if let Err(_) = self.reconnect.send(()) {
+      debug!("{}: No `on_reconnect` listeners.", self.id);
     }
   }
 
   pub fn broadcast_cluster_change(&self, changes: Vec<ClusterStateChange>) {
     if let Err(_) = self.cluster_change.send(changes) {
-      debug!("{}: Error notifying `on_cluster_change` listeners.", self.id);
+      debug!("{}: No `on_cluster_change` listeners.", self.id);
     }
   }
 
   pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
     if let Err(_) = self.connect.send(result) {
-      debug!("{}: Error notifying `on_connect` listeners.", self.id);
+      debug!("{}: No `on_connect` listeners.", self.id);
     }
   }
 
   pub fn broadcast_close(&self) {
     if let Err(_) = self.close.send(()) {
-      debug!("{}: Error notifying `close` listeners.", self.id);
+      debug!("{}: No `close` listeners.", self.id);
     }
   }
 }

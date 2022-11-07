@@ -80,7 +80,7 @@ pub fn create_args_span(_parent: Option<TraceId>) -> FakeSpan {
 
 #[cfg(feature = "full-tracing")]
 pub fn create_queued_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
-  let buf_len = utils::read_atomic(&inner.cmd_buffer_len);
+  let buf_len = inner.counters.read_cmd_buffer_len();
   span!(parent: parent, Level::DEBUG, "queued", buf_len)
 }
 

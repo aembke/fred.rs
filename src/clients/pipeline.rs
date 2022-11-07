@@ -63,6 +63,16 @@ impl fmt::Debug for Pipeline {
   }
 }
 
+#[doc(hidden)]
+impl From<&Arc<RedisClientInner>> for Pipeline {
+  fn from(inner: &Arc<RedisClientInner>) -> Self {
+    Pipeline {
+      inner:    inner.clone(),
+      commands: Arc::new(Mutex::new(VecDeque::new())),
+    }
+  }
+}
+
 impl ClientLike for Pipeline {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {

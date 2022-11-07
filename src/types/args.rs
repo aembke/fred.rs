@@ -22,6 +22,7 @@ use std::{
   str,
 };
 
+use crate::prelude::RedisValue::{Null, Queued};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
@@ -291,7 +292,8 @@ impl<'a> From<&'a [u8]> for RedisKey {
 }
 
 // doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what
-// to do with `Vec<u8>`. impl From<Vec<u8>> for RedisKey {
+// to do with `Vec<u8>`.
+// impl From<Vec<u8>> for RedisKey {
 // fn from(b: Vec<u8>) -> Self {
 // RedisKey { key: b.into() }
 // }
@@ -303,16 +305,16 @@ impl From<String> for RedisKey {
   }
 }
 
-impl<'a> From<&'a str> for RedisKey {
-  fn from(s: &'a str) -> Self {
+impl From<&str> for RedisKey {
+  fn from(s: &str) -> Self {
     RedisKey {
       key: s.as_bytes().to_vec().into(),
     }
   }
 }
 
-impl<'a> From<&'a String> for RedisKey {
-  fn from(s: &'a String) -> Self {
+impl From<&String> for RedisKey {
+  fn from(s: &String) -> Self {
     RedisKey { key: s.clone().into() }
   }
 }
@@ -323,8 +325,14 @@ impl From<Str> for RedisKey {
   }
 }
 
-impl<'a> From<&'a RedisKey> for RedisKey {
-  fn from(k: &'a RedisKey) -> RedisKey {
+impl From<&Str> for RedisKey {
+  fn from(s: &Str) -> Self {
+    RedisKey { key: s.inner().clone() }
+  }
+}
+
+impl From<&RedisKey> for RedisKey {
+  fn from(k: &RedisKey) -> RedisKey {
     k.clone()
   }
 }

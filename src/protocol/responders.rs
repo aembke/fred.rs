@@ -181,7 +181,7 @@ fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut RedisCo
   if let Some(sent) = command.network_start.take() {
     sample_latency(&inner.network_latency_stats, sent);
   }
-  sample_latency(&inner.latency_stats, command.command.sent);
+  sample_latency(&inner.latency_stats, command.created.clone());
 }
 
 #[cfg(not(feature = "metrics"))]

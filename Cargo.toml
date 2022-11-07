@@ -43,6 +43,7 @@ tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
 tokio-rustls = { version = "0.23", optional = true }
+rustls-native-certs = { version = "0.6", optional = true }
 
 [dev-dependencies]
 prometheus = "0.12"
@@ -84,7 +85,7 @@ serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []
 ignore-auth-error = []
-enable-rustls = ["tokio-rustls"]
+enable-rustls = ["tokio-rustls", "rustls-native-certs"]
 enable-native-tls = ["native-tls", "tokio-native-tls"]
 vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
 reconnect-on-auth-error = []

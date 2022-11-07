@@ -376,6 +376,9 @@ pub enum RedisCommandKind {
   Sscan,
   Hscan,
   Zscan,
+  Spublish,
+  Ssubscribe,
+  Sunsubscribe,
   // Commands with custom state or commands that don't map directly to the server's command interface.
   _Hello(RespVersion),
   _AuthAllCluster,
@@ -771,6 +774,9 @@ impl RedisCommandKind {
       RedisCommandKind::ScriptFlush => "SCRIPT FLUSH",
       RedisCommandKind::ScriptKill => "SCRIPT KILL",
       RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
+      RedisCommandKind::Spublish => "SPUBLISH",
+      RedisCommandKind::Ssubscribe => "SSUBSCRIBE",
+      RedisCommandKind::Sunsubscribe => "SUNSUBSCRIBE",
       RedisCommandKind::_AuthAllCluster => "AUTH ALL CLUSTER",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
       RedisCommandKind::_FlushAllCluster => "FLUSHALL CLUSTER",
@@ -1047,6 +1053,9 @@ impl RedisCommandKind {
       | RedisCommandKind::_ScriptFlushCluster
       | RedisCommandKind::_ScriptKillCluster
       | RedisCommandKind::_ScriptLoadCluster => "SCRIPT",
+      RedisCommandKind::Spublish => "SPUBLISH",
+      RedisCommandKind::Ssubscribe => "SSUBSCRIBE",
+      RedisCommandKind::Sunsubscribe => "SUNSUBSCRIBE",
       RedisCommandKind::Scan => "SCAN",
       RedisCommandKind::Sscan => "SSCAN",
       RedisCommandKind::Hscan => "HSCAN",
@@ -1330,6 +1339,8 @@ impl RedisCommandKind {
         // make it easier to handle multiple potentially out-of-band responses
         RedisCommandKind::Psubscribe
         | RedisCommandKind::Punsubscribe
+        | RedisCommandKind::Ssubscribe
+        | RedisCommandKind::Sunsubscribe
         // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
         | RedisCommandKind::Eval
         | RedisCommandKind::EvalSha

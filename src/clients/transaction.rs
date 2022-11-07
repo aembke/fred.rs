@@ -27,8 +27,8 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 /// let _ = trx.get("foo").await?; // returns QUEUED
 /// let _ = trx.get("bar").await?; // returns QUEUED
 ///
-/// let result: (i64, i64) = trx.exec(false).await?;
-/// assert_eq!(results, (1, 2));
+/// let (foo, bar): (i64, i64) = trx.exec(false).await?;
+/// assert_eq!((foo, bar), (1, 2));
 /// ```
 pub struct Transaction {
   id:        u64,

@@ -391,8 +391,8 @@ where
     let mut command: RedisCommand = func()?.into();
     command.response = ResponseKind::Respond(Some(tx));
 
-    let req_size = protocol_utils::args_size(&command.args);
-    args_span.record("num_args", &command.args.len());
+    let req_size = protocol_utils::args_size(&command.args());
+    args_span.record("num_args", &command.args().len());
     let _ = disallow_nested_values(&command)?;
     (command, rx, req_size)
   };

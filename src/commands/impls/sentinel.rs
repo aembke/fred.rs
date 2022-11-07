@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
   error::RedisError,
-  modules::inner::RedisClientInner,
   multiplexer::sentinel::{
     CKQUORUM,
     CONFIG,
@@ -20,16 +19,12 @@ use crate::{
     SET,
     SIMULATE_FAILURE,
   },
-  protocol::{
-    command::{RedisCommand, RedisCommandKind},
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
 use bytes_utils::Str;
-use std::{net::IpAddr, sync::Arc};
+use std::net::IpAddr;
 
 pub async fn config_get<C: ClientLike>(client: &C, name: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {

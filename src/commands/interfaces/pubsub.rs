@@ -32,24 +32,24 @@ pub trait PubsubInterface: ClientLike + Sized {
     self.inner().notifications.keyspace.subscribe()
   }
 
-  /// Subscribe to a channel on the publish-subscribe interface, returning the number of channels to which the client
-  /// is subscribed.
+  /// Subscribe to a channel on the publish-subscribe interface.
   ///
   /// <https://redis.io/commands/subscribe>
-  async fn subscribe<S>(&self, channel: S) -> RedisResult<usize>
+  async fn subscribe<R, S>(&self, channel: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(channel);
     commands::pubsub::subscribe(self, channel).await?.convert()
   }
 
-  /// Unsubscribe from a channel on the PubSub interface, returning the number of channels to which hte client is
-  /// subscribed.
+  /// Unsubscribe from a channel on the PubSub interface.
   ///
   /// <https://redis.io/commands/unsubscribe>
-  async fn unsubscribe<S>(&self, channel: S) -> RedisResult<usize>
+  async fn unsubscribe<R, S>(&self, channel: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(channel);
@@ -59,8 +59,9 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// Subscribes the client to the given patterns.
   ///
   /// <https://redis.io/commands/psubscribe>
-  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
+  async fn psubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
@@ -69,9 +70,12 @@ pub trait PubsubInterface: ClientLike + Sized {
 
   /// Unsubscribes the client from the given patterns, or from all of them if none is given.
   ///
+  /// If no channels are provided this command returns an empty array.
+  ///
   /// <https://redis.io/commands/punsubscribe>
-  async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<Vec<usize>>
+  async fn punsubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
@@ -92,4 +96,50 @@ pub trait PubsubInterface: ClientLike + Sized {
     try_into!(message);
     commands::pubsub::publish(self, channel, message).await?.convert()
   }
+
+  /// Subscribes the client to the specified shard channels.
+  ///
+  /// <https://redis.io/commands/ssubscribe/>
+  async fn ssubscribe<R, C>(&self, channels: C) -> RedisResult<R>
+  where
+    R: FromRedis,
+    C: Into<MultipleStrings> + Send,
+  {
+    into!(channels);
+    commands::pubsub::ssubscribe(self, channels).await?.convert()
+  }
+
+  /// Unsubscribes the client from the given shard channels, or from all of them if none is given.
+  ///
+  /// If no channels are provided this command returns an empty array.
+  ///
+  /// <https://redis.io/commands/sunsubscribe/>
+  async fn sunsubscribe<R, C>(&self, channels: C) -> RedisResult<R>
+  where
+    R: FromRedis,
+    C: Into<MultipleStrings> + Send,
+  {
+    into!(channels);
+    commands::pubsub::sunsubscribe(self, channels).await?.convert()
+  }
+
+  /// Posts a message to the given shard channel.
+  ///
+  /// <https://redis.io/commands/spublish/>
+  async fn spublish<R, S, V>(&self, channel: S, message: V) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    into!(channel);
+    try_into!(message);
+    commands::pubsub::spublish(self, channel, message).await?.convert()
+  }
+
+  // TODO
+  // pubsub channels, pubsub numpat, pubsub numsum, pubsub shardchannels, pubsub shardnumsub
+  // special case 3-element arrays/push on the responder that start with psubscribe, punsubscribe, ssubscribe,
+  // sunsubscribe where the last command kind doesn't match
 }

@@ -298,6 +298,10 @@ impl Default for BackpressureConfig {
 pub struct PerformanceConfig {
   /// Whether or not the client should automatically pipeline commands across tasks when possible.
   ///
+  /// The [Pipeline](crate::clients::Pipeline) interface can be used to pipeline commands __within__ one task,
+  /// whereas this flag can automatically pipeline commands __across__ tasks. This can have a huge positive impact on
+  /// performance in applications that share one client/connection across multiple tasks.
+  ///
   /// Default: `true`
   pub auto_pipeline:                 bool,
   /// The maximum number of times the client will attempt to send a command.

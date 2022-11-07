@@ -12,11 +12,7 @@ use std::sync::Arc;
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
-use crate::modules::metrics::MovingStats;
-#[cfg(feature = "metrics")]
-use std::cmp;
-#[cfg(feature = "metrics")]
-use std::time::Instant;
+use std::{cmp, time::Instant};
 
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
 const KEYEVENT_PREFIX: &'static str = "__keyevent@";
@@ -91,7 +87,7 @@ fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
     (data.len() == 3 || data.len() == 4)
       && data[0]
         .as_str()
-        .map(|s| s == "message" || s == "pmessage")
+        .map(|s| s == "message" || s == "pmessage" || s == "smessage")
         .unwrap_or(false),
   )
 }
@@ -167,7 +163,7 @@ pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_error() {
-    match frame_to_single_result(frame.clone()) {
+    match protocol_utils::frame_to_single_result(frame.clone()) {
       Ok(_) => None,
       Err(e) => match e.kind() {
         RedisErrorKind::Auth => Some(e),
@@ -192,7 +188,7 @@ fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Fra
       if data.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", data);
         let error = protocol_utils::pretty_error(data);
-        utils::emit_error(inner, &error);
+        inner.notifications.broadcast_error(error.clone());
         return Some(error);
       }
     }

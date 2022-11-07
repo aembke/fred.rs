@@ -153,8 +153,43 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
   }
 }
 
+/// Parse the frame from a shard pubsub channel.
+pub fn parse_shard_pubsub_frame(frame: &Resp3Frame) -> Option<(String, RedisValue)> {
+  match frame {
+    Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
+      if data.len() >= 3 && data.len() <= 5 {
+        let has_either_prefix = (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
+          && data[1].as_str().map(|s| s == "smessage").unwrap_or(false))
+          || (data[0].as_str().map(|s| s == "smessage").unwrap_or(false));
+
+        if has_either_prefix {
+          let channel = match data[data.len() - 2].to_string() {
+            Some(channel) => channel,
+            None => return None,
+          };
+          let message = match frame_to_single_result(data[data.len() - 1].clone()) {
+            Ok(message) => message,
+            Err(_) => return None,
+          };
+
+          Some((channel, message))
+        } else {
+          None
+        }
+      } else {
+        None
+      }
+    },
+    _ => None,
+  }
+}
+
 /// Convert the frame to a `(channel, message)` tuple from the pubsub interface.
 pub fn frame_to_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisError> {
+  if let Some((channel, message)) = parse_shard_pubsub_frame(&frame) {
+    return Ok((channel, message));
+  }
+
   if let Ok((channel, message)) = frame.parse_as_pubsub() {
     let channel = frame_into_string(channel)?;
     let message = frame_to_single_result(message)?;
@@ -173,6 +208,10 @@ pub fn frame_to_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisE
 /// This can be useful in cases where the codec layer automatically upgrades to RESP3,
 /// but the contents of the pubsub message still use the RESP2 format.
 pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<(String, RedisValue), RedisError> {
+  if let Some((channel, message)) = parse_shard_pubsub_frame(&frame) {
+    return Ok((channel, message));
+  }
+
   // there's a few ways to do this, but i don't want to re-implement the logic in redis_protocol.
   // the main difference between resp2 and resp3 here is the presence of a "pubsub" string at the
   // beginning of the push array, so we just add that to the front here.
@@ -804,21 +843,27 @@ fn parse_acl_getuser_flag(value: &Resp3Frame) -> Result<Vec<AclUserFlag>, RedisE
 }
 
 fn frames_to_strings(frames: &Resp3Frame) -> Result<Vec<String>, RedisError> {
-  if let Resp3Frame::Array { ref data, .. } = frames {
-    let mut out = Vec::with_capacity(data.len());
+  match frames {
+    Resp3Frame::Array { ref data, .. } => {
+      let mut out = Vec::with_capacity(data.len());
 
-    for frame in data.iter() {
-      let val = match frame.as_str() {
-        Some(v) => v.to_owned(),
-        None => continue,
-      };
+      for frame in data.iter() {
+        let val = match frame.as_str() {
+          Some(v) => v.to_owned(),
+          None => continue,
+        };
 
-      out.push(val);
-    }
+        out.push(val);
+      }
 
-    Ok(out)
-  } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array of frames."))
+      Ok(out)
+    },
+    Resp3Frame::SimpleString { ref data, .. } => Ok(vec![String::from_utf8(data.to_vec())?]),
+    Resp3Frame::BlobString { ref data, .. } => Ok(vec![String::from_utf8(data.to_vec())?]),
+    _ => Err(RedisError::new(
+      RedisErrorKind::Protocol,
+      "Expected string or array of frames.",
+    )),
   }
 }
 
@@ -833,10 +878,7 @@ fn parse_acl_getuser_field(user: &mut AclUser, key: &str, value: &Resp3Frame) ->
       }
     },
     _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        format!("Invalid ACL GETUSER field: {}", key),
-      ))
+      debug!("Skip ACL GETUSER field: {}", key);
     },
   };
 
@@ -873,7 +915,7 @@ pub fn frame_map_or_set_to_nested_array(frame: Resp3Frame) -> Result<Resp3Frame,
 }
 
 pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, RedisError> {
-  if frames.len() % 2 != 0 || frames.len() > 10 {
+  if frames.len() % 2 != 0 {
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Invalid number of response frames.",
