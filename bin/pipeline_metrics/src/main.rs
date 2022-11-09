@@ -2,10 +2,11 @@
 extern crate log;
 extern crate pretty_env_logger;
 
-use clap::{load_yaml, App, ArgMatches};
+use clap::{load_yaml, App};
+use csv::WriterBuilder;
 use indicatif::ProgressBar;
-use std::sync::Arc;
-use subprocess::{Popen, PopenConfig};
+use std::time::Duration;
+use subprocess::{Popen, PopenConfig, Redirection};
 
 struct Argv {
   pub count:             u64,
@@ -94,8 +95,8 @@ fn run_command(argv: &Argv, bar: &ProgressBar, concurrency: u32, pool: u32) -> M
     "cargo".into(),
     "run".into(),
     "--release".into(),
-    "-p".into(),
-    "../pipeline_test".into(),
+    "--manifest-path".into(),
+    "../pipeline_test/Cargo.toml".into(),
     "--".into(),
     "-q".into(),
     "-h".into(),
@@ -115,14 +116,28 @@ fn run_command(argv: &Argv, bar: &ProgressBar, concurrency: u32, pool: u32) -> M
   } else {
     "no-pipeline".into()
   });
+  debug!("Running command: {:?}", parts);
 
-  let mut process = Popen::create(&["cargo", "update"], PopenConfig::default()).expect("Failed to spawn process");
-  let _ = process.wait().expect("Failed to wait on subprocess.");
+  let mut process = Popen::create(&parts, PopenConfig {
+    stdout: Redirection::Pipe,
+    stderr: Redirection::Pipe,
+    ..Default::default()
+  })
+  .expect("Failed to spawn process");
+  if process
+    .wait_timeout(Duration::from_secs(60))
+    .expect("Failed to wait on subprocess.")
+    .is_none()
+  {
+    panic!("Timeout running with pool: {}, concurrency: {}", pool, concurrency);
+  }
   let (throughput, _) = process.communicate(None).expect("Failed to read process output");
+  debug!("Recv output: {:?}", throughput);
   bar.inc(1);
 
   let throughput = throughput
     .expect("Missing output")
+    .trim()
     .parse::<f64>()
     .expect("Failed to parse output");
   Metrics {
@@ -133,14 +148,28 @@ fn run_command(argv: &Argv, bar: &ProgressBar, concurrency: u32, pool: u32) -> M
 }
 
 fn print_output(data: Vec<Metrics>) {
-  unimplemented!()
+  let mut wtr = WriterBuilder::new().from_writer(vec![]);
+  let _ = wtr.write_record(&["concurrency", "pool", "throughput"]);
+
+  for metrics in data.into_iter() {
+    let _ = wtr.write_record(&[
+      metrics.concurrency.to_string(),
+      metrics.pool.to_string(),
+      metrics.throughput.to_string(),
+    ]);
+  }
+
+  println!(
+    "{}",
+    String::from_utf8(wtr.into_inner().expect("Failed to write CSV.")).expect("Failed to convert CSV to string.")
+  );
 }
 
 fn main() {
   pretty_env_logger::init();
   let argv = parse_argv();
-  let concurrency_runs = (argv.concurrency_range.1 - argv.concurrency_range.0) / argv.concurrency_step;
-  let pool_runs = (argv.pool_range.1 - argv.pool_range.0) / argv.pool_step;
+  let concurrency_runs = (argv.concurrency_range.1 - argv.concurrency_range.0 + 1) / argv.concurrency_step;
+  let pool_runs = (argv.pool_range.1 - argv.pool_range.0 + 1) / argv.pool_step;
   let bar = ProgressBar::new((concurrency_runs * pool_runs) as u64);
 
   let mut output = Vec::with_capacity((concurrency_runs * pool_runs) as usize);
@@ -152,12 +181,14 @@ fn main() {
     while concurrency <= argv.concurrency_range.1 {
       debug!("Running with concurrency: {}, pool: {}", concurrency, pool);
 
-      run_command(&argv, &bar, concurrency, pool);
+      let metrics = run_command(&argv, &bar, concurrency, pool);
+      output.push(metrics);
       concurrency += argv.concurrency_step;
     }
 
     pool += argv.pool_step;
   }
+  bar.finish();
 
   print_output(output);
 }

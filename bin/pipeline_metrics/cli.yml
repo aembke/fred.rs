@@ -41,7 +41,7 @@ args:
       value_name: "RANGE (X-Y)"
       help: The number of concurrent tasks used to run commands.
       takes_value: true
-      default_value: "1..15000"
+      default_value: "1-1000"
   - pool-step:
       long: pool-step
       value_name: "NUMBER"

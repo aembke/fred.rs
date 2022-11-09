@@ -1,0 +1,14 @@
+Clustered
+=========
+
+# Pipeline
+
+```
+cargo run --release -- --cluster -c 500000 -P 1-30 --pool-step 3 -C 1-15000 --concurrency-step 30 pipeline
+```
+
+# No Pipeline
+
+```
+cargo run --release -- --cluster -c 500000 -P 1-30 --pool-step 3 -C 1-15000 --concurrency-step 30 no-pipeline
+```
