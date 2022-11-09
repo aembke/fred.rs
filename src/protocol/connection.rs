@@ -759,6 +759,11 @@ impl RedisWriter {
     self.buffer.lock().push_back(cmd);
   }
 
+  /// Pop the most recent command off the back of the queue.
+  pub fn pop_recent_command(&self) -> Option<RedisCommand> {
+    self.buffer.lock().pop_back()
+  }
+
   /// Force close the connection.
   ///
   /// Returns the in-flight commands that had not received a response.

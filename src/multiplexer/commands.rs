@@ -33,6 +33,7 @@ async fn handle_multiplexer_response(
       },
     };
 
+    _trace!(inner, "Recv multiplexer response.");
     match response {
       MultiplexerResponse::Continue => Ok(None),
       MultiplexerResponse::Ask((slot, server, mut command)) => {
@@ -96,9 +97,9 @@ async fn write_with_backpressure(
         Ok(Some(rx)) => Some(rx),
         Ok(None) => {
           if command.should_auto_pipeline(inner, force_pipeline) {
-            Some(command.create_multiplexer_channel())
-          } else {
             None
+          } else {
+            Some(command.create_multiplexer_channel())
           }
         },
         Err(e) => {
@@ -108,9 +109,9 @@ async fn write_with_backpressure(
       },
       None => {
         if command.should_auto_pipeline(inner, force_pipeline) {
-          Some(command.create_multiplexer_channel())
-        } else {
           None
+        } else {
+          Some(command.create_multiplexer_channel())
         }
       },
     };

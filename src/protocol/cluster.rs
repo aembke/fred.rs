@@ -86,6 +86,30 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Res
   }
 }
 
+/// Read the node block with format `<hostname>|null, <port>, <id>, [metadata]`
+fn parse_node_block(data: &Vec<RedisValue>, default_host: &str) -> Option<(String, u16, ArcStr, ArcStr)> {
+  if data.len() < 3 {
+    return None;
+  }
+
+  let hostname = match parse_cluster_slot_hostname(&data, default_host) {
+    Ok(host) => host,
+    Err(_) => return None,
+  };
+  let port: u16 = match parse_as_u16(data[1].clone()) {
+    Ok(port) => port,
+    Err(_) => return None,
+  };
+  let primary = ArcStr::from(format!("{}:{}", hostname, port));
+  let id = if let Some(s) = data[2].as_str() {
+    ArcStr::from(s.as_ref().to_string())
+  } else {
+    return None;
+  };
+
+  Some((hostname, port, primary, id))
+}
+
 /// Parse the cluster slot range and associated server blocks.
 fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str) -> Result<SlotRange, RedisError> {
   if slot_range.len() < 3 {
@@ -100,37 +124,40 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
   let end = parse_as_u16(slot_range.pop().unwrap())?;
 
   // the third value is the primary node, following values are optional replica nodes
-  let (primary, id) = {
-    // length checked above. format is `<hostname>|null, <port>, <id>, [metadata]`
-    let server_block: Vec<RedisValue> = slot_range.pop().unwrap().convert()?;
-    if server_block.len() < 3 {
+  // length checked above. format is `<hostname>|null, <port>, <id>, [metadata]`
+  let server_block: Vec<RedisValue> = slot_range.pop().unwrap().convert()?;
+  let (primary, id) = match parse_node_block(&server_block, default_host) {
+    Some((_, _, p, i)) => (p, i),
+    None => {
+      trace!("Failed to parse CLUSTER SLOTS response: {:?}", server_block);
       return Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        "Invalid CLUSTER SLOTS server block.",
+        RedisErrorKind::Cluster,
+        "Invalid CLUSTER SLOTS response.",
       ));
-    }
+    },
+  };
 
-    let hostname = parse_cluster_slot_hostname(&server_block, default_host)?;
-    let port: u16 = parse_as_u16(server_block[1].clone())?;
-    let primary = ArcStr::from(format!("{}:{}", hostname, port));
-    let id = if let Some(s) = server_block[2].as_str() {
-      ArcStr::from(s.as_ref().to_string())
-    } else {
-      return Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        "Invalid CLUSTER SLOTS node ID.",
-      ));
+  let mut replicas = Vec::with_capacity(slot_range.len());
+  while let Some(server_block) = slot_range.pop() {
+    let server_block: Vec<RedisValue> = match server_block.convert() {
+      Ok(b) => b,
+      Err(_) => continue,
+    };
+    let server = match parse_node_block(&server_block, default_host) {
+      Some((_, _, s, _)) => s,
+      None => continue,
     };
 
-    (primary, id)
-  };
-  // TODO parse replica nodes from remaining elements in `slot_range`
+    replicas.push(server)
+  }
 
   Ok(SlotRange {
     start,
     end,
     primary,
     id,
+    #[cfg(feature = "replicas")]
+    replicas,
   })
 }
 

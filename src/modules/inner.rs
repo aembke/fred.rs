@@ -213,6 +213,130 @@ impl ServerState {
       },
     }
   }
+
+  pub fn update_cluster_state(&mut self, state: Option<ClusterRouting>) {
+    if let ServerState::Cluster { ref mut cache } = *self {
+      *cache = state;
+    }
+  }
+
+  pub fn num_cluster_nodes(&self) -> usize {
+    if let ServerState::Cluster { ref cache } = *self {
+      cache
+        .as_ref()
+        .map(|state| state.unique_primary_nodes().len())
+        .unwrap_or(1)
+    } else {
+      1
+    }
+  }
+
+  pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
+  where
+    F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
+  {
+    if let ServerState::Cluster { ref cache } = *self {
+      if let Some(state) = cache.as_ref() {
+        func(state)
+      } else {
+        Err(RedisError::new(
+          RedisErrorKind::Cluster,
+          "Missing cluster routing state.",
+        ))
+      }
+    } else {
+      Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Missing cluster routing state.",
+      ))
+    }
+  }
+
+  pub fn update_sentinel_primary(&mut self, server: &ArcStr) {
+    if let ServerState::Sentinel { ref mut primary, .. } = *self {
+      *primary = Some(server.clone());
+    }
+  }
+
+  pub fn sentinel_primary(&self) -> Option<ArcStr> {
+    if let ServerState::Sentinel { ref primary, .. } = *self {
+      primary.clone()
+    } else {
+      None
+    }
+  }
+
+  pub fn update_sentinel_nodes(&mut self, server: &ArcStr, nodes: Vec<(String, u16)>) {
+    if let ServerState::Sentinel {
+      ref mut sentinels,
+      ref mut primary,
+      ..
+    } = *self
+    {
+      *primary = Some(server.clone());
+      *sentinels = nodes;
+    }
+  }
+
+  pub fn read_sentinel_nodes(&self, config: &ServerConfig) -> Option<Vec<(String, u16)>> {
+    if let ServerState::Sentinel { ref sentinels, .. } = *self {
+      if sentinels.is_empty() {
+        match config {
+          ServerConfig::Sentinel { ref hosts, .. } => Some(hosts.clone()),
+          _ => None,
+        }
+      } else {
+        Some(sentinels.clone())
+      }
+    } else {
+      None
+    }
+  }
+
+  /// Update the replica state for centralized or sentinel clients.
+  ///
+  /// Cluster replication state is determined by the cluster routing table.
+  #[cfg(feature = "replicas")]
+  pub fn update_replicas(&mut self, new_replicas: HashMap<ArcStr, ArcStr>) {
+    match *self {
+      ServerState::Sentinel { ref mut replicas, .. } => {
+        *replicas = new_replicas;
+      },
+      ServerState::Centralized { ref mut replicas, .. } => {
+        *replicas = new_replicas;
+      },
+      // clustered replicas are derived from the routing table
+      _ => {},
+    }
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub fn update_replicas(&mut self, _: HashMap<ArcStr, ArcStr>) {}
+
+  /// Read the mapping of replica server IDs to primary server IDs.
+  #[cfg(feature = "replicas")]
+  pub fn replicas(&self) -> Option<HashMap<ArcStr, ArcStr>> {
+    match *self {
+      ServerState::Sentinel { ref replicas, .. } => Some(replicas.clone()),
+      ServerState::Centralized { ref replicas, .. } => Some(replicas.clone()),
+      // clustered replica state is derived from the routing table
+      ServerState::Cluster { ref cache } => cache.and_then(|cache| {
+        let mut out = HashMap::with_capacity(cache.slots().len());
+        for slot in cache.slots() {
+          for replica in slot.replicas.iter() {
+            out.insert(replica.clone(), slot.primary.clone());
+          }
+        }
+
+        Some(out)
+      }),
+    }
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub fn replicas(&self) -> Option<HashMap<ArcStr, ArcStr>> {
+    None
+  }
 }
 
 pub struct RedisClientInner {
@@ -323,42 +447,15 @@ impl RedisClientInner {
     self.id.as_str()
   }
 
-  pub fn update_cluster_state(&self, state: Option<ClusterRouting>) {
-    if let ServerState::Cluster { ref mut cache } = *self.server_state.write() {
-      *cache = state;
-    }
-  }
-
   pub fn num_cluster_nodes(&self) -> usize {
-    if let ServerState::Cluster { ref cache } = *self.server_state.read() {
-      cache
-        .as_ref()
-        .map(|state| state.unique_primary_nodes().len())
-        .unwrap_or(1)
-    } else {
-      1
-    }
+    self.server_state.read().num_cluster_nodes()
   }
 
   pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    if let ServerState::Cluster { ref cache } = *self.server_state.read() {
-      if let Some(state) = cache.as_ref() {
-        func(state)
-      } else {
-        Err(RedisError::new(
-          RedisErrorKind::Cluster,
-          "Missing cluster routing state.",
-        ))
-      }
-    } else {
-      Err(RedisError::new(
-        RedisErrorKind::Cluster,
-        "Missing cluster routing state.",
-      ))
-    }
+    self.server_state.read().with_cluster_state(func)
   }
 
   pub fn with_perf_config<F, R>(&self, func: F) -> R
@@ -367,55 +464,6 @@ impl RedisClientInner {
   {
     let guard = self.performance.load();
     func(guard.as_ref())
-  }
-
-  pub fn update_sentinel_primary(&self, server: &ArcStr) {
-    if let ServerState::Sentinel { ref mut primary, .. } = *self.server_state.write() {
-      *primary = Some(server.clone());
-    }
-  }
-
-  pub fn sentinel_primary(&self) -> Option<ArcStr> {
-    if let ServerState::Sentinel { ref primary, .. } = *self.server_state.read() {
-      primary.clone()
-    } else {
-      None
-    }
-  }
-
-  pub fn update_sentinel_nodes(&self, nodes: Vec<(String, u16)>) {
-    if let ServerState::Sentinel { ref mut sentinels, .. } = *self.server_state.write() {
-      *sentinels = nodes;
-    }
-  }
-
-  pub fn read_sentinel_nodes(&self) -> Option<Vec<(String, u16)>> {
-    if let ServerState::Sentinel { ref sentinels, .. } = *self.server_state.read() {
-      if sentinels.is_empty() {
-        match self.config.server {
-          ServerConfig::Sentinel { ref hosts, .. } => Some(hosts.clone()),
-          _ => None,
-        }
-      } else {
-        Some(sentinels.clone())
-      }
-    } else {
-      None
-    }
-  }
-
-  #[cfg(feature = "replicas")]
-  pub fn update_replicas(&self, new_replicas: HashMap<ArcStr, ArcStr>) {
-    match self.server_state.write() {
-      ServerState::Sentinel { ref mut replicas, .. } => {
-        *replicas = new_replicas;
-      },
-      ServerState::Centralized { ref mut replicas, .. } => {
-        *replicas = new_replicas;
-      },
-      // clustered replicas are derived from the routing table
-      _ => {},
-    }
   }
 
   #[cfg(feature = "partial-tracing")]

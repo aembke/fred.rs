@@ -19,6 +19,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
+#[cfg(feature = "replicas")]
+use std::sync::{atomic::AtomicUsize, Arc};
+
 #[derive(Debug)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
@@ -162,62 +165,88 @@ impl ValueScanInner {
   }
 }
 
-/// A container for replica server IDs that can also act as an unbounded iterator.
+/// A container for round-robin routing to replica server IDs.
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaSet {
-  servers: Vec<ArcStr>,
-  next:    usize,
+  /// A map of primary server IDs to a counter and set of replica server IDs.
+  servers: HashMap<ArcStr, (usize, Vec<ArcStr>)>,
 }
 
-// #[cfg(feature = "replicas")]
-// #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-// impl ReplicaSet {
-// Read the replica server ID that should handle the next command.
-// pub fn next(&mut self) -> Option<&ArcStr> {
-// if self.servers.is_empty() {
-// return None;
-// }
-//
-// let val = self.next;
-// self.next = self.next.wrapping_add(1);
-// Some(&self.servers[val % self.servers.len()])
-// }
-// }
-//
+#[cfg(feature = "replicas")]
+impl ReplicaSet {
+  /// Create a new empty replica set.
+  pub fn new() -> ReplicaSet {
+    ReplicaSet {
+      servers: HashMap::new(),
+    }
+  }
+
+  /// Update the replica set in place via the parsed CLUSTER SLOTS command output.
+  pub fn update(&mut self, slots: &Vec<SlotRange>) {
+    self.servers.clear();
+    for slot in slots.iter() {
+      let mut entry = self.servers.entry(slot.primary.clone()).or_insert((0, Vec::new()));
+      entry.1.extend(slot.replicas.clone());
+    }
+    self.servers.shrink_to_fit();
+  }
+
+  /// Read the server ID of the next replica that should receive a command.
+  pub fn next_replica(&mut self, primary: &str) -> Option<&ArcStr> {
+    self.servers.get_mut(primary).and_then(|(idx, replicas)| {
+      *idx += 1;
+      replicas.get(idx % replicas.len())
+    })
+  }
+
+  /// Read the set of all known replica nodes.
+  pub fn all_replicas(&self) -> Vec<ArcStr> {
+    let mut out = Vec::with_capacity(self.servers.len());
+    for (_, (_, replicas)) in self.servers.iter() {
+      for replica in replicas.iter() {
+        out.push(replica.clone());
+      }
+    }
+
+    out
+  }
+}
+
 /// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start:   u16,
+  pub start:    u16,
   /// The end of the hash slot range.
-  pub end:     u16,
+  pub end:      u16,
   /// The primary owner, of the form `<host>:<port>`.
-  pub primary: ArcStr,
+  pub primary:  ArcStr,
   /// The internal ID assigned by the server.
-  pub id:      ArcStr,
-  //#[cfg(feature = "replicas")]
-  //#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  // pub replicas: Option<ReplicaSet>,
+  pub id:       ArcStr,
+  /// The set of replica nodes for the slot range.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub replicas: Vec<ArcStr>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
 pub struct ClusterRouting {
-  data: Vec<SlotRange>,
-}
-
-impl From<Vec<SlotRange>> for ClusterRouting {
-  fn from(data: Vec<SlotRange>) -> Self {
-    ClusterRouting { data }
-  }
+  data:     Vec<SlotRange>,
+  #[cfg(feature = "replicas")]
+  replicas: ReplicaSet,
 }
 
 impl ClusterRouting {
-  /// Create a new, empty cache.
+  /// Create a new empty routing table.
   pub fn new() -> Self {
-    ClusterRouting { data: Vec::new() }
+    ClusterRouting {
+      data:                                  Vec::new(),
+      #[cfg(feature = "replicas")]
+      replicas:                              ReplicaSet::new(),
+    }
   }
 
   /// Read a set of unique hash slots that each map to a different primary/main node in the cluster.
@@ -247,11 +276,23 @@ impl ClusterRouting {
     self.data.clear();
   }
 
-  /// Rebuild the cache in place with the output of a CLUSTER NODES command.
+  /// Rebuild the cache in place with the output of a `CLUSTER SLOTS` command.
   pub fn rebuild(&mut self, cluster_slots: RedisValue, default_host: &str) -> Result<(), RedisError> {
     self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;
     self.data.sort_by(|a, b| a.start.cmp(&b.start));
     Ok(())
+  }
+
+  /// Rebuild the replica index in place via the current cluster slot mappings.
+  #[cfg(feature = "replicas")]
+  pub fn rebuild_replicas(&mut self) {
+    self.replicas.update(&self.data);
+  }
+
+  /// Read the next replica that should receive a command instead of `primary`.
+  #[cfg(feature = "replicas")]
+  pub fn next_replica(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
+    self.replicas.next_replica(primary.as_str())
   }
 
   /// Calculate the cluster hash slot for the provided key.
@@ -259,7 +300,7 @@ impl ClusterRouting {
     redis_protocol::redis_keyslot(key)
   }
 
-  /// Find the server that owns the provided hash slot.
+  /// Find the primary server that owns the provided hash slot.
   pub fn get_server(&self, slot: u16) -> Option<&ArcStr> {
     if self.data.is_empty() {
       return None;
@@ -268,31 +309,13 @@ impl ClusterRouting {
     protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].primary)
   }
 
-  // Read the set of replicas that own the provided hash slot.
-  // #[cfg(feature = "replicas")]
-  // #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  // pub fn read_replicas(&mut self, slot: u16) -> Option<&mut ReplicaSet> {
-  // if self.data.is_empty() {
-  // return None;
-  // }
-  //
-  // protocol_utils::binary_search(&self.data, slot).and_then(|idx| self.data[idx].replicas.as_mut())
-  // }
-  //
-  // Read the replica server ID that should handle the next command.
-  // #[cfg(feature = "replicas")]
-  // #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  // pub fn next_replica(&mut self, slot: u16) -> Option<&ArcStr> {
-  // self.read_replicas(slot).and_then(|r| r.next())
-  // }
-
   /// Read the number of hash slot ranges in the cluster.
   pub fn len(&self) -> usize {
     self.data.len()
   }
 
   /// Read the hash slot ranges in the cluster.
-  pub fn slots(&self) -> &Vec<SlotRange> {
+  pub fn slots(&self) -> &[SlotRange] {
     &self.data
   }
 

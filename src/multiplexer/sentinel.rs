@@ -119,7 +119,7 @@ fn read_sentinel_nodes_and_auth(
   inner: &Arc<RedisClientInner>,
 ) -> Result<(Vec<(String, u16)>, (Option<String>, Option<String>)), RedisError> {
   let (username, password) = read_sentinel_auth(inner)?;
-  let hosts = match inner.read_sentinel_nodes() {
+  let hosts = match inner.server_state.read().read_sentinel_nodes(&inner.config.server) {
     Some(hosts) => hosts,
     None => {
       return Err(RedisError::new(
@@ -273,8 +273,10 @@ async fn update_cached_client_state(
   transport: RedisTransport,
 ) -> Result<(), RedisError> {
   let sentinels = read_sentinels(inner, &mut sentinel).await?;
-  inner.update_sentinel_nodes(sentinels);
-  inner.update_sentinel_primary(&transport.server);
+  inner
+    .server_state
+    .write()
+    .update_sentinel_nodes(&transport.server, sentinels);
   let _ = update_sentinel_backchannel(inner, &transport).await;
 
   let (_, _writer) = connection::split_and_initialize(inner, transport, centralized::spawn_reader_task)?;

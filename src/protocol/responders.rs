@@ -14,6 +14,7 @@ use arcstr::ArcStr;
 use bytes_utils::Str;
 use parking_lot::Mutex;
 use std::{
+  fmt,
   iter::repeat,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
@@ -23,6 +24,7 @@ use std::{
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
+use std::fmt::Formatter;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
@@ -73,6 +75,19 @@ pub enum ResponseKind {
   ValueScan(ValueScanInner),
   /// Handle the response as a page of keys from a SCAN command.
   KeyScan(KeyScanInner),
+}
+
+impl fmt::Debug for ResponseKind {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", match self {
+      ResponseKind::Skip => "Skip",
+      ResponseKind::Buffer { .. } => "Buffer",
+      ResponseKind::Multiple { .. } => "Multiple",
+      ResponseKind::Respond(_) => "Respond",
+      ResponseKind::KeyScan(_) => "KeyScan",
+      ResponseKind::ValueScan(_) => "ValueScan",
+    })
+  }
 }
 
 impl ResponseKind {
@@ -464,9 +479,9 @@ pub fn respond_multiple(
     let result = Err(protocol_utils::frame_to_error(&frame).unwrap_or(RedisError::new_canceled()));
     respond_locked(inner, &tx, result);
   } else {
-    let received = client_utils::incr_atomic(&received);
+    let recv = client_utils::incr_atomic(&received);
 
-    if received == expected {
+    if recv == expected {
       command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
 
       if command.kind.is_hello() {
@@ -485,10 +500,12 @@ pub fn respond_multiple(
       _trace!(
         inner,
         "Waiting on {} more responses to `multiple` command",
-        expected - received
+        expected - recv
       );
       // do not unblock the multiplexer here
 
+      // need to reconstruct the responder state
+      command.response = ResponseKind::Multiple { tx, received, expected };
       return Ok(Some(command));
     }
   }

@@ -1,5 +1,6 @@
 use crate::{
   commands,
+  error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, RespVersion},
 };
@@ -144,13 +145,26 @@ pub trait ServerInterface: ClientLike {
     commands::server::lastsave(self).await?.convert()
   }
 
+  /// This command blocks the current client until all the previous write commands are successfully transferred and
+  /// acknowledged by at least the specified number of replicas. If the timeout, specified in milliseconds, is
+  /// reached, the command returns even if the specified number of replicas were not yet reached.
+  ///
+  /// <https://redis.io/commands/wait/>
+  async fn wait<R>(&self, numreplicas: i64, timeout: i64) -> Result<R, RedisError>
+  where
+    R: FromRedis,
+  {
+    commands::server::wait(self, numreplicas, timeout).await?.convert()
+  }
+
   /// Read the primary Redis server identifier returned from the sentinel nodes.
   fn sentinel_primary(&self) -> Option<ArcStr> {
-    self.inner().sentinel_primary()
+    self.inner().server_state.read().sentinel_primary()
   }
 
   /// Read the set of known sentinel nodes.
   fn sentinel_nodes(&self) -> Option<Vec<(String, u16)>> {
-    self.inner().read_sentinel_nodes()
+    let inner = self.inner();
+    inner.server_state.read().read_sentinel_nodes(&inner.config.server)
   }
 }

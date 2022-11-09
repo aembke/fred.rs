@@ -82,7 +82,7 @@ pub async fn should_xinfo_streams(client: RedisClient, _: RedisConfig) -> Result
 
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let mut result: HashMap<String, RedisValue> = client.xinfo_stream("foo{1}", true, None).await?;
-  assert_eq!(result.len(), 6);
+  assert!(result.len() >= 6);
   assert_eq!(result.get("length"), Some(&RedisValue::Integer(0)));
 
   let groups: HashMap<String, RedisValue> = result.remove("groups").unwrap().convert()?;

@@ -27,9 +27,10 @@ use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
 ///
 /// All commands sent via this interface will use a replica node, if possible. The underlying connections are shared
 /// with the main client in order to maintain an up-to-date view of the system in the event that replicas change or
-/// are promoted.
+/// are promoted. The cached replica routing table will be updated on the client when following cluster redirections
+/// or when any connection closes.
 ///
-/// Note: Be careful. [Redis replication is asynchronous](https://redis.io/docs/management/replication/).
+/// Note: [Redis replication is asynchronous](https://redis.io/docs/management/replication/).
 #[derive(Clone)]
 pub struct Replicas {
   inner: Arc<RedisClientInner>,
@@ -78,7 +79,7 @@ impl StreamsInterface for Replicas {}
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.
   pub fn nodes(&self) -> HashMap<ArcStr, ArcStr> {
-    unimplemented!()
+    self.inner.server_state.read().replicas().unwrap_or_default()
   }
 
   /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).

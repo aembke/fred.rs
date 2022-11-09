@@ -320,6 +320,7 @@ pub async fn process_response_frame(
   counters: &Counters,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
+  _trace!(inner, "Parsing response frame from {}", server);
   let mut command = {
     let mut guard = buffer.lock();
 
@@ -374,6 +375,7 @@ pub async fn process_response_frame(
     }
   }
 
+  _trace!(inner, "Handling clustered response kind: {:?}", command.response);
   match command.take_response() {
     ResponseKind::Skip | ResponseKind::Respond(None) => {
       command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
@@ -528,7 +530,7 @@ pub async fn sync(
     // send `CLUSTER SLOTS` to any of the cluster nodes via a backchannel
     let state = cluster_slots_backchannel(inner, Some(&*cache)).await?;
     // update the cached routing table
-    inner.update_cluster_state(Some(state.clone()));
+    inner.server_state.write().update_cluster_state(Some(state.clone()));
     *cache = state.clone();
 
     // detect changes to the cluster topology

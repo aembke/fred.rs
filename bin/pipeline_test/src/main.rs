@@ -14,45 +14,52 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::{App, ArgMatches};
-use fred::globals;
-use fred::pool::RedisPool;
-use fred::prelude::*;
-use fred::types::{BackpressureConfig, PerformanceConfig};
-use opentelemetry::global;
-use opentelemetry::sdk::trace::{self, IdGenerator, Sampler};
-use std::default::Default;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::thread::{self, JoinHandle as ThreadJoinHandle};
-use tokio::runtime::Builder;
-use tokio::task::JoinHandle;
-use tokio::time::Instant;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::Registry;
+use fred::{
+  pool::RedisPool,
+  prelude::*,
+  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig},
+};
+use indicatif::ProgressBar;
+use opentelemetry::{
+  global,
+  sdk::trace::{self, IdGenerator, Sampler},
+};
+use rand::{self, distributions::Alphanumeric, Rng};
+use std::{
+  default::Default,
+  sync::{atomic::AtomicUsize, Arc},
+  thread::{self, JoinHandle as ThreadJoinHandle},
+};
+use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
+use tracing_subscriber::{layer::SubscriberExt, Registry};
 
 static DEFAULT_COMMAND_COUNT: usize = 10_000;
 static DEFAULT_CONCURRENCY: usize = 10;
 static DEFAULT_HOST: &'static str = "127.0.0.1";
 static DEFAULT_PORT: u16 = 6379;
-static TEST_KEY: &'static str = "foo";
 
 mod utils;
 
 #[derive(Debug)]
 struct Argv {
-  pub tracing: bool,
-  pub count: usize,
-  pub tasks: usize,
-  pub host: String,
-  pub port: u16,
+  pub cluster:  bool,
+  pub tracing:  bool,
+  pub count:    usize,
+  pub tasks:    usize,
+  pub host:     String,
+  pub port:     u16,
   pub pipeline: bool,
-  pub pool: usize,
+  pub pool:     usize,
+  pub quiet:    bool,
 }
 
 fn parse_argv() -> Arc<Argv> {
   let yaml = load_yaml!("../cli.yml");
   let matches = App::from_yaml(yaml).get_matches();
   let tracing = matches.is_present("tracing");
+  let cluster = matches.is_present("cluster");
+  let quiet = matches.is_present("quiet");
+
   let count = matches
     .value_of("count")
     .map(|v| {
@@ -84,6 +91,8 @@ fn parse_argv() -> Arc<Argv> {
   let pipeline = matches.subcommand_matches("pipeline").is_some();
 
   Arc::new(Argv {
+    cluster,
+    quiet,
     tracing,
     count,
     tasks,
@@ -92,6 +101,14 @@ fn parse_argv() -> Arc<Argv> {
     pipeline,
     pool,
   })
+}
+
+pub fn random_string(len: usize) -> String {
+  rand::thread_rng()
+    .sample_iter(&Alphanumeric)
+    .take(len)
+    .map(char::from)
+    .collect()
 }
 
 pub fn setup_tracing(enable: bool) -> ThreadJoinHandle<()> {
@@ -139,15 +156,24 @@ pub fn setup_tracing(enable: bool) -> ThreadJoinHandle<()> {
 }
 
 fn spawn_client_task(
+  bar: &Option<ProgressBar>,
   client: &RedisClient,
   counter: &Arc<AtomicUsize>,
   argv: &Arc<Argv>,
 ) -> JoinHandle<Result<(), RedisError>> {
-  let (client, counter, argv) = (client.clone(), counter.clone(), argv.clone());
+  let (bar, client, counter, argv) = (bar.clone(), client.clone(), counter.clone(), argv.clone());
 
   tokio::spawn(async move {
+    let key = random_string(15);
+    let mut expected = 0;
+
     while utils::incr_atomic(&counter) < argv.count {
-      let _: () = client.incr(TEST_KEY).await?;
+      expected += 1;
+      let actual: i64 = client.incr(&key).await?;
+      if let Some(ref bar) = bar {
+        bar.inc(1);
+      }
+      // assert_eq!(actual, expected);
     }
 
     Ok(())
@@ -165,30 +191,44 @@ fn main() {
   let output = sch.block_on(async move {
     let counter = Arc::new(AtomicUsize::new(0));
     let config = RedisConfig {
-      server: ServerConfig::new_centralized(&argv.host, argv.port),
-      performance: PerformanceConfig {
-        pipeline: argv.pipeline,
-        backpressure: BackpressureConfig {
-          max_in_flight_commands: 100_000_000,
-          ..Default::default()
-        },
+      server: if argv.cluster {
+        ServerConfig::Clustered {
+          hosts: vec![(argv.host.clone(), argv.port)],
+        }
+      } else {
+        ServerConfig::new_centralized(&argv.host, argv.port)
+      },
+      ..Default::default()
+    };
+    let perf = PerformanceConfig {
+      auto_pipeline: argv.pipeline,
+      backpressure: BackpressureConfig {
+        policy: BackpressurePolicy::Drain,
+        max_in_flight_commands: 100_000_000,
         ..Default::default()
       },
       ..Default::default()
     };
-    let pool = RedisPool::new(config, argv.pool)?;
+
+    let pool = RedisPool::new(config, Some(perf), None, argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
-    let _ = pool.connect(None);
+    let _ = pool.connect();
     let _ = pool.wait_for_connect().await?;
     info!("Connected to {}:{}.", argv.host, argv.port);
-    let _ = pool.del(TEST_KEY).await?;
+    let _ = pool.flushall_cluster().await?;
 
     info!("Starting commands...");
     let started = Instant::now();
     let mut tasks = Vec::with_capacity(argv.tasks);
-    for _ in 0..argv.tasks {
-      tasks.push(spawn_client_task(pool.next(), &counter, &argv));
+    let bar = if argv.quiet {
+      None
+    } else {
+      Some(ProgressBar::new(argv.count as u64))
+    };
+
+    for _ in 0 .. argv.tasks {
+      tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
     }
 
     for task in tasks.into_iter() {
@@ -196,14 +236,21 @@ fn main() {
     }
     let duration = Instant::now().duration_since(started);
     let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
-    println!(
-      "Performed {} operations in: {:?}. Throughput: {} req/sec",
-      argv.count,
-      duration,
-      (argv.count as f64 / duration_sec) as u32
-    );
+    if let Some(bar) = bar {
+      bar.finish();
+    }
 
-    let _ = pool.del(TEST_KEY).await?;
+    if argv.quiet {
+      println!("{}", (argv.count as f64 / duration_sec) as u32);
+    } else {
+      println!(
+        "Performed {} operations in: {:?}. Throughput: {} req/sec",
+        argv.count,
+        duration,
+        (argv.count as f64 / duration_sec) as u32
+      );
+    }
+    let _ = pool.flushall_cluster().await?;
     global::shutdown_tracer_provider();
 
     Ok::<_, RedisError>(())

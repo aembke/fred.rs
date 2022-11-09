@@ -242,3 +242,12 @@ pub async fn failover<C: ClientLike>(
 }
 
 value_cmd!(lastsave, LastSave);
+
+pub async fn wait<C: ClientLike>(client: &C, numreplicas: i64, timeout: i64) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    Ok((RedisCommandKind::Wait, vec![numreplicas.into(), timeout.into()]))
+  })
+  .await?;
+
+  protocol_utils::frame_to_single_result(frame)
+}

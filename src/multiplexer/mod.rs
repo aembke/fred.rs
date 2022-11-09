@@ -28,6 +28,9 @@ pub mod transactions;
 pub mod types;
 pub mod utils;
 
+#[cfg(feature = "replicas")]
+use crate::protocol::types::ReplicaSet;
+
 /// The result of an attempt to send a command to the server.
 pub enum Written {
   /// Apply backpressure to the command before retrying.
@@ -76,6 +79,70 @@ impl Backpressure {
         }
       },
     }
+  }
+}
+
+/// A struct for routing commands to replica nodes.
+#[cfg(feature = "replicas")]
+pub struct Replicas {
+  writers: HashMap<ArcStr, RedisWriter>,
+  routing: ReplicaSet,
+}
+
+#[cfg(feature = "replicas")]
+impl Replicas {
+  pub fn new() -> Replicas {
+    Replicas {
+      writers: HashMap::new(),
+      routing: ReplicaSet::new(),
+    }
+  }
+
+  /// Update the replica routing state in place with a new replica set, connecting to any new replica nodes if needed.
+  pub async fn update(&mut self, inner: &Arc<RedisClientInner>, replicas: ReplicaSet) -> Result<(), RedisError> {
+    self.writers.clear();
+    self.routing = replicas;
+
+    for replica in self.routing.all_replicas() {
+      let (host, port) = server_to_parts(&replica)?;
+      _debug!(inner, "Setting up replica connection to {}", replica);
+      let mut transport = connection::create(inner, host.to_owned(), port, None).await?;
+      let _ = transport.setup(inner).await?;
+
+      let handler = if inner.config.server.is_clustered() {
+        clustered::spawn_reader_task
+      } else {
+        centralized::spawn_reader_task
+      };
+      let (_, writer) = connection::split_and_initialize(inner, transport, handler)?;
+
+      self.writers.insert(replica, writer);
+    }
+
+    Ok(())
+  }
+
+  /// Check and flush all the sockets managed by the replica routing state.
+  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
+    for (_, writer) in self.writers.iter_mut() {
+      let _ = writer.check_and_flush().await?;
+    }
+
+    Ok(())
+  }
+
+  /// Send a command to one of the replicas associated with the provided primary server ID.
+  pub async fn write_command(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    primary: &ArcStr,
+    command: RedisCommand,
+  ) -> Result<Written, (RedisError, RedisCommand)> {
+    if !command.use_replica {
+      return Err((RedisError::new_canceled(), command));
+    }
+
+    unimplemented!()
   }
 }
 
@@ -495,8 +562,21 @@ impl Multiplexer {
       },
     };
 
+    let blocks_connection = command.blocks_connection();
     // always flush the socket in this case
+    writer.push_command(command);
     if let Err(e) = writer.write_frame(frame, true).await {
+      let command = match writer.pop_recent_command() {
+        Some(cmd) => cmd,
+        None => {
+          error!(
+            "{}: Failed to take recent command off queue after write failure.",
+            self.inner.id
+          );
+          return Ok(());
+        },
+      };
+
       debug!(
         "{}: Error sending command {}: {:?}",
         self.inner.id,
@@ -505,16 +585,9 @@ impl Multiplexer {
       );
       Err((e, command))
     } else {
-      if command.blocks_connection() {
+      if blocks_connection {
         self.inner.backchannel.write().await.set_blocked(&writer.server);
       }
-
-      trace!(
-        "{}: Successfully sent command {}",
-        self.inner.id,
-        command.kind.to_str_debug()
-      );
-      writer.push_command(command);
       Ok(())
     }
   }

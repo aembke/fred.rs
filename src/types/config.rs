@@ -358,25 +358,25 @@ pub struct RedisConfig {
   /// difficult.
   ///
   /// Default: `true`
-  pub fail_fast: bool,
+  pub fail_fast:    bool,
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking
   /// command.
   ///
   /// Default: `Blocking::Block`
-  pub blocking:  Blocking,
+  pub blocking:     Blocking,
   /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
   /// be `None`.
   ///
   /// Default: `None`
-  pub username:  Option<String>,
+  pub username:     Option<String>,
   /// An optional password for the client to use when authenticating.
   ///
   /// Default: `None`
-  pub password:  Option<String>,
+  pub password:     Option<String>,
   /// Connection configuration for the server(s).
   ///
   /// Default: `Centralized(localhost, 6379)`
-  pub server:    ServerConfig,
+  pub server:       ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
   /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
@@ -387,7 +387,7 @@ pub struct RedisConfig {
   /// has a slightly different type system than RESP2.
   ///
   /// Default: `RESP2`
-  pub version:   RespVersion,
+  pub version:      RespVersion,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
   /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect`
@@ -395,7 +395,7 @@ pub struct RedisConfig {
   /// the `on_reconnect` block.
   ///
   /// Default: `None`
-  pub database:  Option<u8>,
+  pub database:     Option<u8>,
   /// TLS configuration options.
   ///
   /// See the `tls` examples on Github for more information.
@@ -403,13 +403,19 @@ pub struct RedisConfig {
   /// Default: None
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls:       Option<TlsConnector>,
+  pub tls:          Option<TlsConnector>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   bool,
+  pub tracing:      bool,
+  /// Whether to discover and support commands against replica nodes.
+  ///
+  /// Default: `false`
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub use_replicas: bool,
 }
 
 impl Default for RedisConfig {
@@ -426,6 +432,8 @@ impl Default for RedisConfig {
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: false,
+      #[cfg(feature = "replicas")]
+      use_replicas: false,
     }
   }
 }

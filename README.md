@@ -72,7 +72,6 @@ cargo add fred
 * An optional client pooling interface to round-robin requests among a pool of clients.
 * An optional sentinel client for interacting directly with sentinel nodes to manually fail over servers, etc.
 * An optional pubsub subscriber client that will automatically manage channel subscriptions.
-* An optional interface for routing commands to replica nodes.
 * Optional support for JSON values.
 
 **Note: Fred requires Tokio 1.x or above. Actix users must be using 4.x or above as a result.**
@@ -111,7 +110,6 @@ When a client is initialized it will generate a unique client name with a prefix
 | subscriber-client       |         | Enable a higher level subscriber client that manages channel subscription state for callers.                                                                                                                                                                                        |
 | serde-json              |         | Enable an interface to automatically convert Redis types to JSON.                                                                                                                                                                                                                   |
 | no-client-setname       |         | Disable the automatic `CLIENT SETNAME` command used to associate server logs with client logs.                                                                                                                                                                                      |
-| replicas                |         | Enable an interface for interacting with replica nodes.                                                                                                                                                                                                                             |
 
 ## Environment Variables
 

@@ -1,6 +1,7 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::{RedisKey, RedisValue, QUEUED},
+  types::{RedisKey, RedisValue, NIL, QUEUED},
+  utils,
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -9,8 +10,6 @@ use std::{
   hash::{BuildHasher, Hash},
 };
 
-#[cfg(feature = "serde-json")]
-use crate::utils;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
@@ -162,10 +161,7 @@ impl FromRedis for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(String): {:?}", value);
     if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to string.",
-      ))
+      Ok(NIL.to_owned())
     } else {
       value
         .into_string()
@@ -178,10 +174,7 @@ impl FromRedis for Str {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(Str): {:?}", value);
     if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to string.",
-      ))
+      Ok(utils::static_str(NIL))
     } else {
       value
         .into_bytes_str()
@@ -328,6 +321,7 @@ where
       return Err(RedisError::new_parse("Cannot convert to map."));
     };
 
+    debug_type!("FromRedis(HashMap<K,V>) Map: {:?}", as_map);
     as_map
       .inner()
       .into_iter()

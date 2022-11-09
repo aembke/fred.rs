@@ -32,8 +32,8 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, sync::Arc};
 
-#[cfg(feature = "replicas")]
-use crate::clients::Replicas;
+//#[cfg(feature = "replicas")]
+// use crate::clients::Replicas;
 
 /// The primary Redis client struct.
 #[derive(Clone)]
@@ -232,14 +232,14 @@ impl RedisClient {
     Pipeline::from(self.clone())
   }
 
-  /// Create a client that interacts with replica nodes.
-  ///
-  /// Note: This interface will share and expand the underlying connections, if necessary.
-  #[cfg(feature = "replicas")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub fn replicas(&self) -> Replicas {
-    Replicas::from(&self.inner)
-  }
+  // /// Create a client that interacts with replica nodes.
+  // ///
+  // /// Note: This interface will share and expand the underlying connections, if necessary.
+  //#[cfg(feature = "replicas")]
+  //#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  // pub fn replicas(&self) -> Replicas {
+  //  Replicas::from(&self.inner)
+  // }
 }
 
 #[cfg(test)]

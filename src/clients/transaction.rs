@@ -125,7 +125,7 @@ impl Transaction {
         if old_server != server {
           return Err(RedisError::new(
             RedisErrorKind::Cluster,
-            "All transaction commands must map to the same cluster node.",
+            "All transaction commands must use the same cluster node.",
           ));
         }
       } else {

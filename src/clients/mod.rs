@@ -17,8 +17,8 @@ mod pubsub;
 #[cfg_attr(docsrs, doc(cfg(feature = "subscriber-client")))]
 pub use pubsub::SubscriberClient;
 
-#[cfg(feature = "replicas")]
-mod replica;
-#[cfg(feature = "replicas")]
-#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-pub use replica::Replicas;
+//#[cfg(feature = "replicas")]
+// mod replica;
+//#[cfg(feature = "replicas")]
+//#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+// pub use replica::Replicas;

@@ -126,7 +126,23 @@ pub async fn write_command(
     },
   };
 
+  _trace!(
+    inner,
+    "Sending command {} to {}",
+    command.kind.to_str_debug(),
+    writer.server
+  );
+  // TODO i don't think we need to hold a lock across this await point...
+  writer.push_command(command);
   if let Err(e) = writer.write_frame(frame, should_flush).await {
+    let mut command = match writer.pop_recent_command() {
+      Some(cmd) => cmd,
+      None => {
+        _error!(inner, "Failed to take recent command off queue after write failure.");
+        return Written::Ignore;
+      },
+    };
+
     _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
     if command.should_send_write_error(inner) {
       command.respond_to_caller(Err(e.clone()));
@@ -136,8 +152,6 @@ pub async fn write_command(
       Written::Disconnect((writer.server.clone(), Some(command), e))
     }
   } else {
-    _trace!(inner, "Successfully sent command {}", command.kind.to_str_debug());
-    writer.push_command(command);
     Written::Sent((writer.server.clone(), should_flush))
   }
 }
