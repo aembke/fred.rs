@@ -281,7 +281,7 @@ where
           Ok(vec![T::from_value(RedisValue::String(string))?])
         }
       },
-      RedisValue::Array(values) => T::from_values(values),
+      RedisValue::Array(values) => values.into_iter().map(|x| T::from_value(x)).collect(),
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
         let out = Vec::with_capacity(map.len() * 2);
