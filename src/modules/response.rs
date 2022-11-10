@@ -1,18 +1,19 @@
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::{RedisKey, RedisValue, QUEUED},
-};
-use bytes::Bytes;
-use bytes_utils::Str;
 use std::{
   collections::{BTreeMap, BTreeSet, HashMap, HashSet},
   hash::{BuildHasher, Hash},
 };
 
-#[cfg(feature = "serde-json")]
-use crate::utils;
+use bytes::Bytes;
+use bytes_utils::Str;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
+
+#[cfg(feature = "serde-json")]
+use crate::utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::{RedisKey, RedisValue, QUEUED},
+};
 
 macro_rules! debug_type(
   ($($arg:tt)*) => {
@@ -269,9 +270,8 @@ where
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
     debug_type!("FromRedis(Vec<T>): {:?}", value);
     match value {
-      RedisValue::Bytes(bytes) => {
-        T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
-      },
+      RedisValue::Bytes(bytes) => T::from_owned_bytes(bytes.to_vec())
+        .ok_or(RedisError::new_parse("Cannot convert from bytes")),
       RedisValue::String(string) => {
         // hacky way to check if T is bytes without consuming `string`
         if T::from_owned_bytes(vec![]).is_some() {
@@ -280,8 +280,18 @@ where
         } else {
           Ok(vec![T::from_value(RedisValue::String(string))?])
         }
-      },
-      RedisValue::Array(values) => values.into_iter().map(|x| T::from_value(x)).collect(),
+      }
+      RedisValue::Array(values) => {
+        if values.len() > 0 {
+          if let RedisValue::Array(_) = &values[0] {
+            values.into_iter().map(|x| T::from_value(x)).collect()
+          } else {
+            T::from_values(values)
+          }
+        } else {
+          Ok(vec![])
+        }
+      }
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
         let out = Vec::with_capacity(map.len() * 2);
@@ -298,7 +308,7 @@ where
             Ok(out)
           })
         })
-      },
+      }
       RedisValue::Null => Ok(vec![]),
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
       RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
@@ -317,7 +327,10 @@ where
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(HashMap<K,V>): {:?}", value);
     if value.is_null() {
-      return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to map."));
+      return Err(RedisError::new(
+        RedisErrorKind::NotFound,
+        "Cannot convert nil to map.",
+      ));
     }
 
     let as_map = if value.is_array() || value.is_map() {
@@ -343,7 +356,11 @@ where
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(HashSet<V>): {:?}", value);
-    value.into_array().into_iter().map(|v| V::from_value(v)).collect()
+    value
+      .into_array()
+      .into_iter()
+      .map(|v| V::from_value(v))
+      .collect()
   }
 }
 
@@ -376,7 +393,11 @@ where
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(BTreeSet<V>): {:?}", value);
-    value.into_array().into_iter().map(|v| V::from_value(v)).collect()
+    value
+      .into_array()
+      .into_iter()
+      .map(|v| V::from_value(v))
+      .collect()
   }
 }
 
@@ -395,7 +416,7 @@ macro_rules! impl_from_redis_tuple {
         if let RedisValue::Array(mut values) = v {
           let mut n = 0;
           $(let $name = (); n += 1;)*
-          debug_type!("FromRedis({}-tuple): {:?}", n, values);
+            debug_type!("FromRedis({}-tuple): {:?}", n, values);
           if values.len() != n {
             return Err(RedisError::new_parse("Invalid tuple dimension."));
           }
@@ -404,8 +425,8 @@ macro_rules! impl_from_redis_tuple {
           values.reverse();
           Ok(($({let $name = (); values
             .pop()
-            .ok_or(RedisError::new_parse("Expected value, found none."))?
-            .convert()?
+              .ok_or(RedisError::new_parse("Expected value, found none."))?
+              .convert()?
           },)*))
         }else{
           Err(RedisError::new_parse("Could not convert to tuple."))
@@ -416,7 +437,7 @@ macro_rules! impl_from_redis_tuple {
       fn from_values(mut values: Vec<RedisValue>) -> Result<Vec<($($name,)*)>, RedisError> {
         let mut n = 0;
         $(let $name = (); n += 1;)*
-        debug_type!("FromRedis({}-tuple): {:?}", n, values);
+          debug_type!("FromRedis({}-tuple): {:?}", n, values);
         if values.len() % n != 0 {
           return Err(RedisError::new_parse("Invalid tuple dimension."))
         }
@@ -426,14 +447,14 @@ macro_rules! impl_from_redis_tuple {
         for chunk in values.chunks_exact_mut(n) {
           match chunk {
             [$($name),*] => out.push(($($name.take().convert()?),*),),
-             _ => unreachable!(),
+            _ => unreachable!(),
           }
         }
 
         Ok(out)
       }
     }
-    impl_from_redis_peel!($($name,)*);
+  impl_from_redis_peel!($($name,)*);
   )
 }
 
@@ -469,7 +490,7 @@ impl FromRedis for Value {
         } else {
           s.to_string().into()
         }
-      },
+      }
       RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
       RedisValue::Integer(i) => i.into(),
       RedisValue::Double(f) => f.into(),
@@ -480,7 +501,7 @@ impl FromRedis for Value {
           out.push(Self::from_value(value)?);
         }
         Value::Array(out)
-      },
+      }
       RedisValue::Map(v) => {
         let mut out = Map::with_capacity(v.len());
         for (key, value) in v.inner().into_iter() {
@@ -492,7 +513,7 @@ impl FromRedis for Value {
           out.insert(key, value);
         }
         Value::Object(out)
-      },
+      }
     };
 
     Ok(value)
@@ -509,9 +530,16 @@ impl FromRedis for RedisKey {
       RedisValue::Bytes(b) => b.into(),
       RedisValue::Queued => RedisKey::from_static_str(QUEUED),
       RedisValue::Map(_) | RedisValue::Array(_) => {
-        return Err(RedisError::new_parse("Cannot convert aggregate type to key."))
-      },
-      RedisValue::Null => return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to key.")),
+        return Err(RedisError::new_parse(
+          "Cannot convert aggregate type to key.",
+        ))
+      }
+      RedisValue::Null => {
+        return Err(RedisError::new(
+          RedisErrorKind::NotFound,
+          "Cannot convert nil to key.",
+        ))
+      }
     };
 
     Ok(key)
@@ -586,8 +614,9 @@ impl FromRedisKey for Bytes {
 
 #[cfg(test)]
 mod tests {
-  use crate::{error::RedisError, types::RedisValue};
   use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+  use crate::{error::RedisError, types::RedisValue};
 
   #[test]
   fn should_convert_null() {
@@ -710,7 +739,9 @@ mod tests {
 
   #[test]
   fn should_convert_bytes() {
-    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into()).convert().unwrap();
+    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into())
+      .convert()
+      .unwrap();
     assert_eq!(_foo, "foo".as_bytes().to_vec());
     let _foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
     assert_eq!(_foo, "foo".as_bytes().to_vec());
@@ -722,15 +753,18 @@ mod tests {
 
   #[test]
   fn should_convert_arrays() {
-    let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert().unwrap();
+    let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()])
+      .convert()
+      .unwrap();
     assert_eq!(foo, vec!["a".to_owned(), "b".to_owned()]);
   }
 
   #[test]
   fn should_convert_hash_maps() {
-    let foo: HashMap<String, u16> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
-      .convert()
-      .unwrap();
+    let foo: HashMap<String, u16> =
+      RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
+        .convert()
+        .unwrap();
 
     let mut expected = HashMap::new();
     expected.insert("a".to_owned(), 1);
@@ -740,7 +774,9 @@ mod tests {
 
   #[test]
   fn should_convert_hash_sets() {
-    let foo: HashSet<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert().unwrap();
+    let foo: HashSet<String> = RedisValue::Array(vec!["a".into(), "b".into()])
+      .convert()
+      .unwrap();
 
     let mut expected = HashSet::new();
     expected.insert("a".to_owned());
@@ -750,9 +786,10 @@ mod tests {
 
   #[test]
   fn should_convert_btree_maps() {
-    let foo: BTreeMap<String, u16> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
-      .convert()
-      .unwrap();
+    let foo: BTreeMap<String, u16> =
+      RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
+        .convert()
+        .unwrap();
 
     let mut expected = BTreeMap::new();
     expected.insert("a".to_owned(), 1);
@@ -762,7 +799,9 @@ mod tests {
 
   #[test]
   fn should_convert_btree_sets() {
-    let foo: BTreeSet<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert().unwrap();
+    let foo: BTreeSet<String> = RedisValue::Array(vec!["a".into(), "b".into()])
+      .convert()
+      .unwrap();
 
     let mut expected = BTreeSet::new();
     expected.insert("a".to_owned());
@@ -772,15 +811,18 @@ mod tests {
 
   #[test]
   fn should_convert_tuples() {
-    let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert().unwrap();
+    let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()])
+      .convert()
+      .unwrap();
     assert_eq!(foo, ("a".to_owned(), 1));
   }
 
   #[test]
   fn should_convert_array_tuples() {
-    let foo: Vec<(String, i64)> = RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
-      .convert()
-      .unwrap();
+    let foo: Vec<(String, i64)> =
+      RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()])
+        .convert()
+        .unwrap();
     assert_eq!(foo, vec![("a".to_owned(), 1), ("b".to_owned(), 2)]);
   }
 }
