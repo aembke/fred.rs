@@ -7,7 +7,9 @@ The [metrics](metrics) folder contains the output of running the script against 
 
 The cluster configuration uses the default cluster configuration provided by Redis (3 primary nodes with one replica each), all running locally.
 
-It may also be interesting to watch `htop` while this runs to see the effect on your machine.
+It may also be interesting to watch `htop` while this runs to see the effect on your machine. 
+
+Since the Redis server is running locally we can largely discount the effect of network latency, but this is still useful to understand how concurrent tasks interact with various connection pooling configurations. It's also somewhat useful to find race conditions.
 
 ## Examples
 
