@@ -219,7 +219,6 @@ fn main() {
     let _ = pool.flushall_cluster().await?;
 
     info!("Starting commands...");
-    let started = Instant::now();
     let mut tasks = Vec::with_capacity(argv.tasks);
     let bar = if argv.quiet {
       None
@@ -227,13 +226,12 @@ fn main() {
       Some(ProgressBar::new(argv.count as u64))
     };
 
+    let started = Instant::now();
     for _ in 0 .. argv.tasks {
       tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
     }
+    let _ = futures::future::try_join_all(tasks).await?;
 
-    for task in tasks.into_iter() {
-      let _ = task.await?;
-    }
     let duration = Instant::now().duration_since(started);
     let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
     if let Some(bar) = bar {

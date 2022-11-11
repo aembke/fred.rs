@@ -111,35 +111,35 @@ jobs:
     docker:
       - image: cimg/rust:1.62.0
     environment:
-      REDIS_VERSION: 7.0.2
+      REDIS_VERSION: 7.0.5
     steps:
       - test_default_features
   test-no-features-7.0:
     docker:
       - image: cimg/rust:1.62.0
     environment:
-      REDIS_VERSION: 7.0.2
+      REDIS_VERSION: 7.0.5
     steps:
       - test_no_features
   test-all-features-7.0:
     docker:
       - image: cimg/rust:1.62.0
     environment:
-      REDIS_VERSION: 7.0.2
+      REDIS_VERSION: 7.0.5
     steps:
       - test_all_features
   test-cluster-tls-features-7.0:
     docker:
       - image: cimg/rust:1.62.0
     environment:
-      REDIS_VERSION: 7.0.2
+      REDIS_VERSION: 7.0.5
     steps:
       - test_tls_cluster
   test-cluster-rustls-features-7.0:
     docker:
       - image: cimg/rust:1.62.0
     environment:
-      REDIS_VERSION: 7.0.2
+      REDIS_VERSION: 7.0.5
     steps:
       - test_rustls_cluster
   test-default-6.2:
@@ -174,7 +174,7 @@ jobs:
     docker:
       - image: cimg/rust:1.62.0
     environment:
-      REDIS_VERSION: 7.0.2
+      REDIS_VERSION: 7.0.5
     steps:
       - test_sentinel
   test-docs:

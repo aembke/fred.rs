@@ -8,6 +8,7 @@ use crate::{
     types::ClusterRouting,
     utils::server_to_parts,
   },
+  trace,
 };
 use arcstr::ArcStr;
 use futures::future::try_join_all;
@@ -62,10 +63,14 @@ impl Backpressure {
     match self {
       Backpressure::Error(e) => Err(e),
       Backpressure::Wait(duration) => {
+        _debug!(inner, "Backpressure policy (wait): {}ms", duration.as_millis());
+        trace::backpressure_event(&command, Some(duration.as_millis()));
         let _ = inner.wait_with_interrupt(duration).await?;
         Ok(None)
       },
       Backpressure::Block => {
+        _debug!(inner, "Backpressure (block)");
+        trace::backpressure_event(&command, None);
         if !command.has_multiplexer_channel() {
           _trace!(
             inner,

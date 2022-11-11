@@ -24,7 +24,7 @@ async fn handle_multiplexer_response(
   rx: Option<MultiplexerReceiver>,
 ) -> Result<Option<RedisCommand>, RedisError> {
   if let Some(rx) = rx {
-    _trace!(inner, "Waiting on multiplexer channel.");
+    _debug!(inner, "Waiting on multiplexer channel.");
     let response = match rx.await {
       Ok(response) => response,
       Err(e) => {
@@ -33,7 +33,7 @@ async fn handle_multiplexer_response(
       },
     };
 
-    _trace!(inner, "Recv multiplexer response.");
+    _debug!(inner, "Recv multiplexer response.");
     match response {
       MultiplexerResponse::Continue => Ok(None),
       MultiplexerResponse::Ask((slot, server, mut command)) => {
@@ -126,7 +126,7 @@ async fn write_with_backpressure(
         continue;
       },
       Ok(Written::Disconnect((server, command, error))) => {
-        _debug!(inner, "Handle disconnect backpressure for {} from {:?}", server, error);
+        _debug!(inner, "Handle disconnect for {} from {:?}", server, error);
         let commands = multiplexer.connections.disconnect(inner, Some(&server)).await;
         multiplexer.buffer.extend(commands);
         if let Some(command) = command {

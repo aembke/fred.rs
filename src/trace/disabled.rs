@@ -33,4 +33,4 @@ pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Spa
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn backpressure_event(_cmd: &RedisCommand, _duration: u128) {}
+pub fn backpressure_event(_cmd: &RedisCommand, _: Option<u128>) {}
