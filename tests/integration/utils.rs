@@ -180,14 +180,14 @@ macro_rules! centralized_test_panic(
     #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       mod resp2 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, false).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
@@ -196,14 +196,14 @@ macro_rules! centralized_test_panic(
       }
 
       mod resp3 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, true).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
@@ -214,14 +214,14 @@ macro_rules! centralized_test_panic(
 
     #[cfg(feature="sentinel-tests")]
     mod $name {
-      #[tokio::test]
+      #[tokio::test(flavor = "multi_thread")]
       #[should_panic]
       async fn sentinel_pipelined() {
         let _ = pretty_env_logger::try_init();
         crate::integration::utils::run_sentinel(crate::integration::$module::$name, true).await;
       }
 
-      #[tokio::test]
+      #[tokio::test(flavor = "multi_thread")]
       #[should_panic]
       async fn sentinel_no_pipeline() {
         let _ = pretty_env_logger::try_init();
@@ -236,14 +236,14 @@ macro_rules! cluster_test_panic(
     #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       mod resp2 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, false).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
@@ -252,14 +252,14 @@ macro_rules! cluster_test_panic(
       }
 
       mod resp3 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, true).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
@@ -275,13 +275,13 @@ macro_rules! centralized_test(
     #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       mod resp2 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, false).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, false, false).await;
@@ -289,13 +289,13 @@ macro_rules! centralized_test(
       }
 
       mod resp3 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, true).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, false, true).await;
@@ -305,13 +305,13 @@ macro_rules! centralized_test(
 
     #[cfg(feature="sentinel-tests")]
     mod $name {
-      #[tokio::test]
+      #[tokio::test(flavor = "multi_thread")]
       async fn sentinel_pipelined() {
         let _ = pretty_env_logger::try_init();
         crate::integration::utils::run_sentinel(crate::integration::$module::$name, true).await;
       }
 
-      #[tokio::test]
+      #[tokio::test(flavor = "multi_thread")]
       async fn sentinel_no_pipeline() {
         let _ = pretty_env_logger::try_init();
         crate::integration::utils::run_sentinel(crate::integration::$module::$name, false).await;
@@ -325,13 +325,13 @@ macro_rules! cluster_test(
     #[cfg(not(feature="sentinel-tests"))]
     mod $name {
       mod resp2 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, false).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, false, false).await;
@@ -339,13 +339,13 @@ macro_rules! cluster_test(
       }
 
       mod resp3 {
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, true).await;
         }
 
-        #[tokio::test]
+        #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, false, true).await;

@@ -2,8 +2,9 @@ use fred::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::*,
+  pool::RedisPool,
   prelude::{Blocking, RedisValue},
-  types::{ClientUnblockFlag, RedisConfig, RedisKey, RedisMap, ServerConfig},
+  types::{BackpressureConfig, ClientUnblockFlag, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig},
 };
 use parking_lot::RwLock;
 use redis_protocol::resp3::types::RespVersion;
@@ -11,7 +12,10 @@ use std::{
   collections::{BTreeMap, BTreeSet, HashMap},
   convert::TryInto,
   mem,
-  sync::Arc,
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
   time::Duration,
 };
 use tokio::time::sleep;
@@ -25,6 +29,10 @@ fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
 
 fn array_to_set<T: Ord>(vals: Vec<T>) -> BTreeSet<T> {
   vals.into_iter().collect()
+}
+
+pub fn incr_atomic(size: &Arc<AtomicUsize>) -> usize {
+  size.fetch_add(1, Ordering::AcqRel).saturating_add(1)
 }
 
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -216,5 +224,54 @@ pub async fn should_safely_change_protocols_repeatedly(
   let _ = mem::replace(&mut *done.write(), true);
 
   let _ = jh.await?;
+  Ok(())
+}
+
+// test to repro an intermittent race condition found while stress testing the client
+#[allow(dead_code)]
+pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  config.blocking = Blocking::Block;
+  let perf = PerformanceConfig {
+    auto_pipeline: true,
+    // default_command_timeout_ms: 20_000,
+    backpressure: BackpressureConfig {
+      max_in_flight_commands: 100_000_000,
+      ..Default::default()
+    },
+    ..Default::default()
+  };
+  let pool = RedisPool::new(config, Some(perf), None, 28)?;
+  let _ = pool.connect();
+  let _ = pool.wait_for_connect().await?;
+
+  let num_tasks = 11641;
+  let mut tasks = Vec::with_capacity(num_tasks);
+  let counter = Arc::new(AtomicUsize::new(0));
+
+  for idx in 0 .. num_tasks {
+    let client = pool.next().clone();
+    let counter = counter.clone();
+
+    tasks.push(tokio::spawn(async move {
+      let key = format!("foo-{}", idx);
+
+      let mut expected = 0;
+      while incr_atomic(&counter) < 50_000_000 {
+        let actual: i64 = client.incr(&key).await?;
+        expected += 1;
+        if actual != expected {
+          return Err(RedisError::new(
+            RedisErrorKind::Unknown,
+            format!("Expected {}, found {}", expected, actual),
+          ));
+        }
+      }
+
+      println!("Task {} finished.", idx);
+      Ok::<_, RedisError>(())
+    }));
+  }
+  let _ = futures::future::try_join_all(tasks).await?;
+
   Ok(())
 }

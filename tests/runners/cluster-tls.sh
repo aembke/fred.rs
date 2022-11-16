@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="enable-tls ignore-auth-error"
+FEATURES="enable-native-tls ignore-auth-error"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

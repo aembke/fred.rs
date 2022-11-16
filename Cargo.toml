@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 arcstr = "1.1"
 arc-swap = "1.5"
 tokio = { version = "1", features = ["net", "sync", "rt", "rt-multi-thread", "macros"] }
-tokio-util = { version = "0.6", features = ["codec"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 cfg-if = "1.0.0"
 bytes = "1.1"
 bytes-utils = "0.1"

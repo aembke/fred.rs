@@ -22,7 +22,9 @@ USAGE:
     pipeline_test [FLAGS] [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
+        --cluster    Whether or not to assume a clustered deployment.
         --help       Prints help information
+    -q, --quiet      Print a single output describing the throughput as req/sec.
     -t, --tracing    Whether or not to enable tracing via a local Jeager instance. See tests/docker-compose.yml to start
                      up a local Jaeger instance.
     -V, --version    Prints version information
@@ -30,8 +32,7 @@ FLAGS:
 OPTIONS:
     -C, --concurrency <NUMBER>    The number of concurrent tasks used to run commands. [default: 10]
     -c, --count <NUMBER>          The number of commands to run. [default: 10000]
-    -h, --host <STRING>           The hostname of the redis server. The script assumes a centralized deployment.
-                                  [default: 127.0.0.1]
+    -h, --host <STRING>           The hostname of the redis server. [default: 127.0.0.1]
     -P, --pool <NUMBER>           The number of clients in the redis connection pool. [default: 1]
     -p, --port <NUMBER>           The port for the redis server. [default: 6379]
 
@@ -39,7 +40,6 @@ SUBCOMMANDS:
     help           Prints this message or the help of the given subcommand(s)
     no-pipeline    Run the test without pipelining.
     pipeline       Run the test with pipelining.
-
 ```
 
 ## Running
@@ -51,7 +51,7 @@ RUST_LOG=pipeline_test=info cargo run --release -- <your args>
 
 ## Implementation
 
-The script works by emulating a common use case similar to a web application. Clients like this are commonly shared among a potentially large number of concurrent request handler functions where each request uses the same underlying pool of clients. 
+The script works by emulating a common use case similar to a web application. Clients like this are commonly shared among a potentially large number of concurrent request handler tasks where each request task uses the same underlying pool of clients. 
 
 The `-P` argument controls the size of the underlying shared client/connection pool, and the `-C` argument controls the number of concurrent requests to emulate (with the assumption that each request runs in a separate tokio task).
 
