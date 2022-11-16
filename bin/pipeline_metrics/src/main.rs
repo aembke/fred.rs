@@ -125,7 +125,7 @@ fn run_command(argv: &Argv, bar: &ProgressBar, concurrency: u32, pool: u32) -> M
   })
   .expect("Failed to spawn process");
   if process
-    .wait_timeout(Duration::from_secs(60))
+    .wait_timeout(Duration::from_secs(120))
     .expect("Failed to wait on subprocess.")
     .is_none()
   {
@@ -180,6 +180,12 @@ fn main() {
 
     while concurrency <= argv.concurrency_range.1 {
       debug!("Running with concurrency: {}, pool: {}", concurrency, pool);
+
+      if concurrency < pool {
+        bar.inc(1);
+        concurrency += argv.concurrency_step;
+        continue;
+      }
 
       let metrics = run_command(&argv, &bar, concurrency, pool);
       output.push(metrics);
