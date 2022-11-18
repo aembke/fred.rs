@@ -110,6 +110,6 @@ pub fn backpressure_event(cmd: &RedisCommand, duration: Option<u128>) {
   if let Some(duration) = duration {
     event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure duration_ms={}", duration);
   } else {
-    event!(parent: cmd.traces.cmd_id.cloen(), Level::INFO, "backpressure drain");
+    event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure drain");
   }
 }

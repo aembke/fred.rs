@@ -797,6 +797,12 @@ pub async fn create(
 ) -> Result<RedisTransport, RedisError> {
   let timeout = timeout_ms.unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
 
+  _trace!(
+    inner,
+    "Checking connection type. Native-tls: {}, Rustls: {}",
+    inner.config.uses_native_tls(),
+    inner.config.uses_rustls()
+  );
   if inner.config.uses_native_tls() {
     utils::apply_timeout(RedisTransport::new_native_tls(inner, host, port), timeout).await
   } else if inner.config.uses_rustls() {

@@ -15,7 +15,7 @@
 
 ### Updating from 5.x
 
-Notable breaking changes in 6.x:
+New or breaking changes in 6.x:
 
 * New TLS feature flags: `enable-rustls` and `enable-native-tls`.
 * New TLS configuration process: see the [example](examples/tls.rs).
@@ -26,6 +26,7 @@ Notable breaking changes in 6.x:
 * Removed or renamed some fields on `RedisConfig`.
 * Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
   * This usually means changing `next()` to `recv()` in `while let` loops, etc.
+* The `FromRedis` trait converts `RedisValue::Null` to `"nil"`.
 
 ## 5.2.0
 

@@ -1,24 +1,37 @@
 #![allow(unused_macros)]
+#![allow(unused_imports)]
 
 use crate::chaos_monkey::set_test_kind;
 use fred::{
   clients::RedisClient,
   error::RedisError,
   interfaces::*,
-  types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig, TlsConnector},
+  types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
 };
 use redis_protocol::resp3::prelude::RespVersion;
-use std::{default::Default, env, future::Future};
+use std::{convert::TryInto, default::Default, env, fs, future::Future};
 
 #[cfg(feature = "chaos-monkey")]
 const RECONNECT_DELAY: u32 = 500;
 #[cfg(not(feature = "chaos-monkey"))]
 const RECONNECT_DELAY: u32 = 1000;
 
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+use fred::types::TlsConnector;
+#[cfg(feature = "enable-native-tls")]
+use tokio_native_tls::native_tls::{
+  Certificate as NativeTlsCertificate,
+  Identity,
+  TlsConnector as NativeTlsConnector,
+};
+#[cfg(feature = "enable-rustls")]
+use tokio_rustls::rustls::{Certificate, ClientConfig, ConfigBuilder, PrivateKey, RootCertStore, WantsVerifier};
+
 pub fn read_env_var(name: &str) -> Option<String> {
   env::var_os(name).and_then(|s| s.into_string().ok())
 }
 
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 fn read_ci_tls_env() -> bool {
   match env::var_os("FRED_CI_TLS") {
     Some(s) => match s.into_string() {
@@ -82,11 +95,81 @@ fn read_sentinel_hostname() -> String {
   }
 }
 
-// TODO need to make the client connect via hostname.
-/// Read the (root cert, client cert, client key) tuple from the test/tmp/creds directory.
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[allow(dead_code)]
+struct TlsCreds {
+  root_cert_der:   Vec<u8>,
+  root_cert_pem:   Vec<u8>,
+  client_cert_der: Vec<u8>,
+  client_cert_pem: Vec<u8>,
+  client_key_der:  Vec<u8>,
+  client_key_pem:  Vec<u8>,
+}
+
+/// Read the (root cert.pem, root cert.der, client cert.pem, client cert.der, client key.pem, client key.der) tuple
+/// from the test/tmp/creds directory.
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-fn read_tls_creds() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-  unimplemented!()
+fn read_tls_creds() -> TlsCreds {
+  let creds_path = read_env_var("FRED_TEST_TLS_CREDS").expect("Failed to read TLS path from env");
+  let root_cert_pem_path = format!("{}/ca.pem", creds_path);
+  let root_cert_der_path = format!("{}/ca.crt", creds_path);
+  let client_cert_pem_path = format!("{}/client.pem", creds_path);
+  let client_cert_der_path = format!("{}/client.crt", creds_path);
+  let client_key_der_path = format!("{}/client.key", creds_path);
+  let client_key_pem_path = format!("{}/client.pem", creds_path);
+
+  let root_cert_pem = fs::read(&root_cert_pem_path).expect("Failed to read root cert pem");
+  let root_cert_der = fs::read(&root_cert_der_path).expect("Failed to read root cert der");
+  let client_cert_pem = fs::read(&client_cert_pem_path).expect("Failed to read client cert pem");
+  let client_cert_der = fs::read(&client_cert_der_path).expect("Failed to read client cert der");
+  let client_key_der = fs::read(&client_key_der_path).expect("Failed to read client key der");
+  let client_key_pem = fs::read(&client_key_pem_path).expect("Failed to read client key pem");
+
+  TlsCreds {
+    root_cert_pem,
+    root_cert_der,
+    client_cert_der,
+    client_cert_pem,
+    client_key_pem,
+    client_key_der,
+  }
+}
+
+#[cfg(feature = "enable-rustls")]
+fn create_rustls_config() -> TlsConnector {
+  let creds = read_tls_creds();
+  let mut root_store = RootCertStore::empty();
+  let _ = root_store
+    .add(&Certificate(creds.root_cert_der.clone()))
+    .expect("Failed adding to rustls root cert store");
+  let cert_chain = vec![Certificate(creds.client_cert_der), Certificate(creds.root_cert_der)];
+
+  ClientConfig::builder()
+    .with_safe_defaults()
+    .with_root_certificates(root_store)
+    .with_single_cert(cert_chain, PrivateKey(creds.client_key_der))
+    .expect("Failed to build rustls client config")
+    .into()
+}
+
+#[cfg(feature = "enable-native-tls")]
+fn create_native_tls_config() -> TlsConnector {
+  let creds = read_tls_creds();
+
+  let root_cert = NativeTlsCertificate::from_pem(&creds.root_cert_pem).expect("Failed to parse root cert");
+  let mut builder = NativeTlsConnector::builder();
+  builder.add_root_certificate(root_cert);
+
+  let mut client_cert_chain = Vec::with_capacity(creds.client_cert_pem.len() + creds.root_cert_pem.len());
+  // client_cert_chain.extend(&creds.client_cert_pem);
+  client_cert_chain.extend(&creds.root_cert_pem);
+  client_cert_chain.extend(&creds.client_cert_pem);
+
+  let identity =
+    Identity::from_pkcs8(&client_cert_chain, &creds.client_key_pem).expect("Failed to create client identity");
+  builder.identity(identity);
+
+  builder.try_into().expect("Failed to build native-tls connector")
 }
 
 fn create_server_config(cluster: bool) -> ServerConfig {
@@ -135,13 +218,11 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   }
 
   debug!("Creating rustls test config...");
-  let (root_cert, client_cert, client_key) = read_tls_creds();
-
-  // TODO create rustls config for mTLS
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
+    tls: Some(create_rustls_config()),
     ..Default::default()
   };
   let perf = PerformanceConfig {
@@ -160,11 +241,11 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   }
 
   debug!("Creating native-tls test config...");
-  // TODO create native-tls config for mTLS
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
+    tls: Some(create_native_tls_config()),
     ..Default::default()
   };
   let perf = PerformanceConfig {
@@ -249,6 +330,7 @@ where
   let (config, perf) = create_redis_config(false, pipeline, resp3);
   let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
+  println!("CONFIG {:?}", config);
 
   let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");

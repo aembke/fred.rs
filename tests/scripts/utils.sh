@@ -154,6 +154,10 @@ function generate_cluster_credentials {
   openssl genrsa -out client.key 2048
   openssl req -new -key client.key -out client.csr -subj '/CN=client.example.com'
   openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem
+  # need the client cert in DER format for rustls
+  openssl x509 -outform der -in client.pem -out client.crt
+  # need the client key in PEM format for native-tls
+  openssl rsa -inform der -in client.key -outform pem -out client.pem
 
   echo "Generating key pairs for each cluster node..."
   CERT_PORT=$TLS_CLUSTER_PORT

@@ -678,8 +678,6 @@ mod tests {
 
   #[test]
   fn should_return_not_found_with_null_strings_and_bools() {
-    let result: Result<String, RedisError> = RedisValue::Null.convert();
-    assert!(result.unwrap_err().is_not_found());
     let result: Result<bool, RedisError> = RedisValue::Null.convert();
     assert!(result.unwrap_err().is_not_found());
   }

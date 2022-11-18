@@ -12,6 +12,13 @@ done
 
 FEATURES="enable-rustls ignore-auth-error"
 
+FRED_REDIS_CENTRALIZED_HOST="example.com"
+FRED_REDIS_CENTRALIZED_PORT="6379"
+FRED_REDIS_CLUSTER_HOST="node-30001.example.com"
+FRED_REDIS_CLUSTER_PORT="30001"
+FRED_TEST_TLS_CREDS=$PWD/tests/tmp/creds
+FRED_CI_TLS="true"
+
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"
 else

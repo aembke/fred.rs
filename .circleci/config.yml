@@ -1,6 +1,13 @@
 version: 2
 
 commands:
+  modify_etc_hosts:
+    steps:
+      - run:
+          name: Modify /etc/hosts
+          command: |
+            sudo tee -a /etc/hosts \<<<'127.0.0.1 example.com client.example.com node-30001.example.com node-30002.example.com node-30003.example.com node-30004.example.com node-30005.example.com node-30006.example.com'
+            cat /etc/hosts
   install_openssl:
     steps:
       - run:
@@ -91,6 +98,7 @@ commands:
     steps:
       - checkout
       - setup_host
+      - modify_etc_hosts
       - run:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh
@@ -101,6 +109,7 @@ commands:
     steps:
       - checkout
       - setup_host
+      - modify_etc_hosts
       - run:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh

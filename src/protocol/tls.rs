@@ -78,11 +78,6 @@ impl TlsConnector {
   }
 
   /// Create a default TLS connector with the `rustls` module with safe defaults and system certs via [rustls-native-certs](https://github.com/rustls/rustls-native-certs).
-  ///
-  /// Note: From the `rustls-native-certs` docs:
-  ///
-  /// > This function can be expensive: on some platforms it involves loading and parsing a ~300KB disk file. It's
-  /// > therefore prudent to call this sparingly.
   #[cfg(feature = "enable-rustls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
   pub fn default_rustls() -> Result<Self, RedisError> {
