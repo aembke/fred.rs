@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# there must be a 6 port buffer between this and the non-tls starting cluster port
-TLS_CLUSTER_PORT=40000
+TLS_CLUSTER_PORT=30000
 
 function check_root_dir {
   if [ ! -d "./tests/tmp" ]; then

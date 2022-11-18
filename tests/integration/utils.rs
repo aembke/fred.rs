@@ -5,7 +5,7 @@ use fred::{
   clients::RedisClient,
   error::RedisError,
   interfaces::*,
-  types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
+  types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig, TlsConnector},
 };
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{default::Default, env, future::Future};
@@ -17,6 +17,19 @@ const RECONNECT_DELAY: u32 = 1000;
 
 pub fn read_env_var(name: &str) -> Option<String> {
   env::var_os(name).and_then(|s| s.into_string().ok())
+}
+
+fn read_ci_tls_env() -> bool {
+  match env::var_os("FRED_CI_TLS") {
+    Some(s) => match s.into_string() {
+      Ok(s) => match s.as_ref() {
+        "t" | "true" | "TRUE" | "1" => true,
+        _ => false,
+      },
+      Err(_) => false,
+    },
+    None => false,
+  }
 }
 
 fn read_fail_fast_env() -> bool {
@@ -69,6 +82,100 @@ fn read_sentinel_hostname() -> String {
   }
 }
 
+// TODO need to make the client connect via hostname.
+/// Read the (root cert, client cert, client key) tuple from the test/tmp/creds directory.
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+fn read_tls_creds() -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+  unimplemented!()
+}
+
+fn create_server_config(cluster: bool) -> ServerConfig {
+  if cluster {
+    let (host, port) = read_redis_cluster_host();
+    ServerConfig::Clustered {
+      hosts: vec![(host, port)],
+    }
+  } else {
+    let (host, port) = read_redis_centralized_host();
+    ServerConfig::Centralized { host, port }
+  }
+}
+
+fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+  let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
+    server: create_server_config(cluster),
+    version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
+    ..Default::default()
+  };
+  let perf = PerformanceConfig {
+    auto_pipeline: pipeline,
+    default_command_timeout_ms: 10_000,
+    ..Default::default()
+  };
+
+  (config, perf)
+}
+
+#[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+  create_normal_redis_config(cluster, pipeline, resp3)
+}
+
+#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+  // if both are enabled then don't use either since all the tests assume one or the other
+  create_normal_redis_config(cluster, pipeline, resp3)
+}
+
+#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
+fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+  if !read_ci_tls_env() {
+    return create_normal_redis_config(cluster, pipeline, resp3);
+  }
+
+  debug!("Creating rustls test config...");
+  let (root_cert, client_cert, client_key) = read_tls_creds();
+
+  // TODO create rustls config for mTLS
+  let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
+    server: create_server_config(cluster),
+    version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
+    ..Default::default()
+  };
+  let perf = PerformanceConfig {
+    auto_pipeline: pipeline,
+    default_command_timeout_ms: 10_000,
+    ..Default::default()
+  };
+
+  (config, perf)
+}
+
+#[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
+fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+  if !read_ci_tls_env() {
+    return create_normal_redis_config(cluster, pipeline, resp3);
+  }
+
+  debug!("Creating native-tls test config...");
+  // TODO create native-tls config for mTLS
+  let config = RedisConfig {
+    fail_fast: read_fail_fast_env(),
+    server: create_server_config(cluster),
+    version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
+    ..Default::default()
+  };
+  let perf = PerformanceConfig {
+    auto_pipeline: pipeline,
+    default_command_timeout_ms: 10_000,
+    ..Default::default()
+  };
+
+  (config, perf)
+}
+
 #[cfg(all(feature = "sentinel-tests", not(feature = "chaos-monkey")))]
 pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
 where
@@ -118,20 +225,7 @@ where
   set_test_kind(true);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
-  let (host, port) = read_redis_cluster_host();
-  let config = RedisConfig {
-    fail_fast: read_fail_fast_env(),
-    server: ServerConfig::Clustered {
-      hosts: vec![(host, port)],
-    },
-    version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    ..Default::default()
-  };
-  let perf = PerformanceConfig {
-    auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
-    ..Default::default()
-  };
+  let (config, perf) = create_redis_config(true, pipeline, resp3);
 
   let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
@@ -152,18 +246,7 @@ where
   set_test_kind(false);
 
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
-  let (host, port) = read_redis_centralized_host();
-  let config = RedisConfig {
-    fail_fast: read_fail_fast_env(),
-    server: ServerConfig::Centralized { host, port },
-    version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    ..Default::default()
-  };
-  let perf = PerformanceConfig {
-    auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
-    ..Default::default()
-  };
+  let (config, perf) = create_redis_config(false, pipeline, resp3);
   let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
 

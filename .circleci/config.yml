@@ -18,6 +18,7 @@ commands:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
       - save_cache:
+          # FIXME come up with a better caching scope here
           key: redis-build-cache-{{ .Branch }}
           paths:
             - tests/tmp
@@ -34,7 +35,6 @@ commands:
   setup_host:
     steps:
       - install_openssl
-      - install_redis
       - install_cargo_nextest
       - clear_git_cache
   setup_docker_compose:
@@ -60,6 +60,7 @@ commands:
     steps:
       - checkout
       - setup_host
+      - install_redis
       - run:
           name: Run tests with default features
           command: tests/runners/default-features.sh
@@ -67,6 +68,7 @@ commands:
     steps:
       - checkout
       - setup_host
+      - install_redis
       - run:
           name: Run tests with all features
           command: tests/runners/all-features.sh
@@ -74,6 +76,7 @@ commands:
     steps:
       - checkout
       - setup_host
+      - install_redis
       - run:
           name: Run tests with no features
           command: tests/runners/no-features.sh
