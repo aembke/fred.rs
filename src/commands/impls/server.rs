@@ -62,14 +62,12 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
   Ok(
     servers
       .into_iter()
-      .filter_map(|server| {
-        let (host, port) = match protocol_utils::server_to_parts(&server) {
-          Ok((host, port)) => (host.to_owned(), port),
-          Err(_) => {
-            _debug!(inner, "Failed to parse server {}", server);
-            return None;
-          },
-        };
+      .map(|server| {
+        let host = server
+          .tls_server_name
+          .map(|server| server.as_str().to_owned())
+          .unwrap_or(server.host.as_str().to_owned());
+        let port = server.port.clone();
 
         let mut config = inner.config.as_ref().clone();
         config.server = ServerConfig::Centralized { host, port };

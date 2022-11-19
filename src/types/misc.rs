@@ -1,5 +1,5 @@
 pub use crate::protocol::hashers::ClusterHash;
-use crate::utils;
+use crate::{types::Server, utils};
 use bytes_utils::Str;
 use std::{collections::HashMap, fmt};
 
@@ -134,12 +134,12 @@ pub enum ClusterStateChange {
   /// A node was added to the cluster.
   ///
   /// This implies that hash slots were also probably rebalanced.
-  Add((String, u16)),
+  Add(Server),
   /// A node was removed from the cluster.
   ///
   /// This implies that hash slots were also probably rebalanced.
-  Remove((String, u16)),
-  /// Hash slots were rebalanced across the cluster.
+  Remove(Server),
+  /// Hash slots were rebalanced across the cluster and/or local routing state was updated.
   Rebalance,
 }
 

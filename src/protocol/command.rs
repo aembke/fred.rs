@@ -8,7 +8,6 @@ use crate::{
   utils as client_utils,
   utils,
 };
-use arcstr::ArcStr;
 use bytes_utils::Str;
 use redis_protocol::resp3::types::RespVersion;
 use std::{convert::TryFrom, fmt, fmt::Formatter, mem, str, sync::Arc};
@@ -17,6 +16,7 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
 
+use crate::protocol::types::Server;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1814,7 +1814,7 @@ pub enum MultiplexerCommand {
   ///
   /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
-    server: Option<ArcStr>,
+    server: Option<Server>,
     force:  bool,
     tx:     Option<ResponseSender>,
   },

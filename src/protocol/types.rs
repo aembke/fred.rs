@@ -11,15 +11,18 @@ use rand::Rng;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
 use std::{
+  cmp::Ordering,
   collections::{BTreeMap, BTreeSet, HashMap},
   convert::TryInto,
-  net::{SocketAddr, ToSocketAddrs},
+  fmt::{Display, Formatter},
+  hash::{Hash, Hasher},
+  net::{IpAddr, SocketAddr, ToSocketAddrs},
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
-use crate::modules::inner::RedisClientInner;
+use crate::{modules::inner::RedisClientInner, protocol::utils::server_to_parts};
 #[cfg(feature = "replicas")]
 use std::sync::{atomic::AtomicUsize, Arc};
 
@@ -49,6 +52,81 @@ impl From<Resp2Frame> for ProtocolFrame {
 impl From<Resp3Frame> for ProtocolFrame {
   fn from(frame: Resp3Frame) -> Self {
     ProtocolFrame::Resp3(frame)
+  }
+}
+
+/// State necessary to identify or connect to a server.
+#[derive(Debug, Clone)]
+pub struct Server {
+  pub host:            ArcStr,
+  pub port:            u16,
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  pub tls_server_name: Option<ArcStr>,
+}
+
+impl Server {
+  /// Create a new server from the address parts.
+  pub(crate) fn new(host: &str, port: u16) -> Server {
+    Server {
+      host: ArcStr::from(host),
+      port,
+      tls_server_name: None,
+    }
+  }
+
+  /// Create a new server struct from a `host:port` string and the default host that sent the last command.
+  pub(crate) fn from_parts(server: &str, default_host: &str) -> Option<Server> {
+    server_to_parts(server).ok().map(|(host, port)| {
+      let host = if host.is_empty() {
+        ArcStr::from(default_host)
+      } else {
+        ArcStr::from(host)
+      };
+
+      Server {
+        host,
+        port,
+        tls_server_name: None,
+      }
+    })
+  }
+}
+
+impl Display for Server {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}:{}", self.host, self.port)
+  }
+}
+
+impl PartialEq for Server {
+  fn eq(&self, other: &Self) -> bool {
+    self.host == other.host && self.port == other.port
+  }
+}
+
+impl Eq for Server {}
+
+impl Hash for Server {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.host.hash(state);
+    self.port.hash(state);
+  }
+}
+
+impl PartialOrd for Server {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+impl Ord for Server {
+  fn cmp(&self, other: &Self) -> Ordering {
+    let host_ord = self.host.cmp(&other.host);
+    if host_ord == Ordering::Equal {
+      self.port.cmp(&other.port)
+    } else {
+      host_ord
+    }
   }
 }
 
@@ -219,23 +297,17 @@ impl ReplicaSet {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start:           u16,
+  pub start:    u16,
   /// The end of the hash slot range.
-  pub end:             u16,
-  /// The primary owner, of the form `<host>:<port>`.
-  pub primary:         ArcStr,
+  pub end:      u16,
+  /// The primary server owner.
+  pub primary:  Server,
   /// The internal ID assigned by the server.
-  pub id:              ArcStr,
+  pub id:       ArcStr,
   /// The set of replica nodes for the slot range.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replicas:        Vec<ArcStr>,
-  /// The hostname to use during the TLS handshake.
-  ///
-  /// See [TlsHostMapping](crate::types::TlsHostMapping) for more information.
-  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls_server_name: Option<ArcStr>,
+  pub replicas: Vec<ArcStr>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
@@ -268,7 +340,7 @@ impl ClusterRouting {
   }
 
   /// Read the set of unique primary nodes in the cluster.
-  pub fn unique_primary_nodes(&self) -> Vec<ArcStr> {
+  pub fn unique_primary_nodes(&self) -> Vec<Server> {
     let mut out = BTreeSet::new();
 
     for slot in self.data.iter() {
@@ -315,7 +387,7 @@ impl ClusterRouting {
   }
 
   /// Find the primary server that owns the provided hash slot.
-  pub fn get_server(&self, slot: u16) -> Option<&ArcStr> {
+  pub fn get_server(&self, slot: u16) -> Option<&Server> {
     if self.data.is_empty() {
       return None;
     }
@@ -344,7 +416,7 @@ impl ClusterRouting {
   }
 
   /// Read a random primary node from the cluster cache.
-  pub fn random_node(&self) -> Option<&ArcStr> {
+  pub fn random_node(&self) -> Option<&Server> {
     self.random_slot().map(|slot| &slot.primary)
   }
 }

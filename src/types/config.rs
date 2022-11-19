@@ -12,6 +12,8 @@ pub use tokio_native_tls::native_tls;
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
 pub use tokio_rustls::rustls;
 
+pub use crate::protocol::types::Server;
+
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
 

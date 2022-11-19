@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   multiplexer::Connections,
-  protocol::{command::RedisCommand, connection, connection::RedisTransport, utils as protocol_utils},
+  protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server, utils as protocol_utils},
 };
 use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -14,8 +14,7 @@ use std::{collections::HashMap, sync::Arc};
 async fn check_and_create_transport(
   backchannel: &mut Backchannel,
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
-  tls_server_name: &Option<ArcStr>,
+  server: &Server,
 ) -> Result<bool, RedisError> {
   if let Some(ref mut transport) = backchannel.transport {
     if &transport.server == server {
@@ -27,8 +26,14 @@ async fn check_and_create_transport(
   }
   backchannel.transport = None;
 
-  let (host, port) = protocol_utils::server_to_parts(server)?;
-  let transport = connection::create(inner, host.to_owned(), port, None, tls_server_name).await?;
+  let transport = connection::create(
+    inner,
+    server.host.as_str().to_owned(),
+    server.port,
+    None,
+    server.tls_server_name.as_ref(),
+  )
+  .await?;
   backchannel.transport = Some(transport);
 
   Ok(true)
@@ -40,15 +45,15 @@ pub struct Backchannel {
   /// A connection to any of the servers.
   pub transport:      Option<RedisTransport>,
   /// An identifier for the blocked connection, if any.
-  pub blocked:        Option<ArcStr>,
+  pub blocked:        Option<Server>,
   /// A map of server IDs to connection IDs, as managed by the multiplexer.
-  pub connection_ids: HashMap<ArcStr, i64>,
+  pub connection_ids: HashMap<Server, i64>,
 }
 
 impl Backchannel {
   /// Check if the current server matches the provided server, and disconnect.
   // TODO does this need to disconnect whenever the caller manually changes the RESP protocol mode?
-  pub async fn check_and_disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&ArcStr>) {
+  pub async fn check_and_disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&Server>) {
     let should_close = self
       .current_server()
       .map(|current| server.map(|server| *server == current).unwrap_or(true))
@@ -68,12 +73,12 @@ impl Backchannel {
   }
 
   /// Read the connection ID for the provided server.
-  pub fn connection_id(&self, server: &ArcStr) -> Option<i64> {
+  pub fn connection_id(&self, server: &Server) -> Option<i64> {
     self.connection_ids.get(server).cloned()
   }
 
   /// Set the blocked flag to the provided server.
-  pub fn set_blocked(&mut self, server: &ArcStr) {
+  pub fn set_blocked(&mut self, server: &Server) {
     self.blocked = Some(server.clone());
   }
 
@@ -83,7 +88,7 @@ impl Backchannel {
   }
 
   /// Remove the blocked flag only if the server matches the blocked server.
-  pub fn check_and_set_unblocked(&mut self, server: &ArcStr) {
+  pub fn check_and_set_unblocked(&mut self, server: &Server) {
     let should_remove = self.blocked.as_ref().map(|blocked| blocked == server).unwrap_or(false);
     if should_remove {
       self.set_unblocked();
@@ -107,12 +112,12 @@ impl Backchannel {
   }
 
   /// Return the server ID of the blocked client connection, if found.
-  pub fn blocked_server(&self) -> Option<ArcStr> {
+  pub fn blocked_server(&self) -> Option<Server> {
     self.blocked.clone()
   }
 
   /// Return the server ID of the existing backchannel connection, if found.
-  pub fn current_server(&self) -> Option<ArcStr> {
+  pub fn current_server(&self) -> Option<Server> {
     self.transport.as_ref().map(|t| t.server.clone())
   }
 
@@ -121,7 +126,7 @@ impl Backchannel {
   /// 1. The server ID of the existing connection, if any.
   /// 2. The blocked server ID, if any.
   /// 3. A random server ID from the multiplexer's connection map.
-  pub fn any_server(&self) -> Option<ArcStr> {
+  pub fn any_server(&self) -> Option<Server> {
     self
       .current_server()
       .or(self.blocked_server())
@@ -142,10 +147,9 @@ impl Backchannel {
   pub async fn request_response(
     &mut self,
     inner: &Arc<RedisClientInner>,
-    server: &ArcStr,
+    server: &Server,
     command: RedisCommand,
   ) -> Result<Resp3Frame, RedisError> {
-    // TODO how to get the tls server name here? add a tls_server_name fn to this struct?
     let _ = check_and_create_transport(self, inner, server).await?;
 
     if let Some(ref mut transport) = self.transport {
@@ -178,7 +182,7 @@ impl Backchannel {
     inner: &Arc<RedisClientInner>,
     command: &RedisCommand,
     use_blocked: bool,
-  ) -> Result<ArcStr, RedisError> {
+  ) -> Result<Server, RedisError> {
     if use_blocked {
       if let Some(server) = self.blocked.as_ref() {
         Ok(server.clone())

@@ -262,17 +262,20 @@ pub fn should_drop_extra_pubsub_frame(
 
 /// Compare server identifiers of the form `<host>|<ip>:<port>` and `:<port>`, using `default_host` if a host/ip is
 /// not provided.
-// TODO unit test this
-pub fn compare_servers(lhs: &str, rhs: &str, default_host: &str) -> bool {
-  let lhs_parts: Vec<&str> = lhs.split(":").collect();
-  let rhs_parts: Vec<&str> = rhs.split(":").collect();
-  if lhs_parts.is_empty() || rhs_parts.is_empty() {
-    error!("Invalid server identifier(s): {} == {}", lhs, rhs);
-    return false;
+// TODO get rid of this, change Server to merge default_host when created
+pub fn compare_servers(lhs: &Server, rhs: &Server, default_host: &str) -> bool {
+  if lhs.host.is_empty() && rhs.host.is_empty() {
+    lhs.port == rhs.port
+  } else if !lhs.host.is_empty() && !rhs.host.is_empty() {
+    lhs == rhs
+  } else if lhs.host.is_empty() && !rhs.host.is_empty() {
+    unimplemented!()
+  } else {
   }
 
-  if lhs_parts.len() == 2 && rhs_parts.len() == 2 {
+  if !lhs.host.is_empty() && !rhs.host.is_empty() {
     lhs == rhs
+    // FIXME
   } else if lhs_parts.len() == 2 && rhs_parts.len() == 1 {
     lhs_parts[0] == default_host && lhs_parts[1] == rhs_parts[0]
   } else if lhs_parts.len() == 1 && rhs_parts.len() == 2 {

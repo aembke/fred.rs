@@ -22,6 +22,7 @@ use std::{
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use crate::protocol::types::Server;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
 use std::fmt::Formatter;
@@ -431,7 +432,7 @@ fn send_value_scan_result(
 /// Respond to the caller with the default response policy.
 pub fn respond_to_caller(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   mut command: RedisCommand,
   tx: ResponseSender,
   frame: Resp3Frame,
@@ -459,7 +460,7 @@ pub fn respond_to_caller(
 /// expected.
 pub fn respond_multiple(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   mut command: RedisCommand,
   received: Arc<AtomicUsize>,
   expected: usize,
@@ -517,7 +518,7 @@ pub fn respond_multiple(
 /// the shared buffer.
 pub fn respond_buffer(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   mut command: RedisCommand,
   received: Arc<AtomicUsize>,
   expected: usize,
@@ -558,7 +559,7 @@ pub fn respond_buffer(
 /// Respond to the caller of a key scanning operation.
 pub fn respond_key_scan(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   mut command: RedisCommand,
   mut scanner: KeyScanInner,
   frame: Resp3Frame,
@@ -598,7 +599,7 @@ pub fn respond_key_scan(
 /// Respond to the caller of a value scanning operation.
 pub fn respond_value_scan(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   mut command: RedisCommand,
   mut scanner: ValueScanInner,
   frame: Resp3Frame,

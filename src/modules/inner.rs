@@ -35,6 +35,7 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use crate::protocol::types::Server;
 
 pub type CommandSender = UnboundedSender<MultiplexerCommand>;
 pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
@@ -545,7 +546,7 @@ impl RedisClientInner {
     has_policy && utils::read_locked(&self.state) != ClientState::Disconnecting
   }
 
-  pub fn send_reconnect(&self, server: Option<ArcStr>, force: bool, tx: Option<ResponseSender>) {
+  pub fn send_reconnect(&self, server: Option<Server>, force: bool, tx: Option<ResponseSender>) {
     debug!("{}: Sending reconnect message to multiplexer for {:?}", self.id, server);
     let result = self
       .command_tx

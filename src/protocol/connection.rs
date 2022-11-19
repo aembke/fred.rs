@@ -35,6 +35,7 @@ use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
+use crate::protocol::types::Server;
 use sha1::digest::generic_array::functional::FunctionalSequence;
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
@@ -282,36 +283,37 @@ impl Counters {
 
 pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
-  pub server:          ArcStr,
+  pub server:       Server,
   /// The parsed `SocketAddr` for the connection.
-  pub addr:            SocketAddr,
+  pub addr:         SocketAddr,
   /// The hostname used to initialize the connection.
-  pub default_host:    ArcStr,
+  pub default_host: ArcStr,
   /// The network connection.
-  pub transport:       ConnectionKind,
+  pub transport:    ConnectionKind,
   /// The connection/client ID from the CLIENT ID command.
-  pub id:              Option<i64>,
+  pub id:           Option<i64>,
   /// The server version.
-  pub version:         Option<Version>,
+  pub version:      Option<Version>,
   /// Counters for the connection state.
-  pub counters:        Counters,
-  /// The hostname used during the TLS handshake.
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  pub tls_server_name: Option<ArcStr>,
+  pub counters:     Counters,
 }
 
 impl RedisTransport {
   pub async fn new_tcp(inner: &Arc<RedisClientInner>, host: String, port: u16) -> Result<RedisTransport, RedisError> {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
-    let server = ArcStr::from(format!("{}:{}", host, port));
+    let server = Server {
+      host: ArcStr::from(&host),
+      port,
+      tls_server_name: None,
+    };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
     let addr = inner.resolver.resolve(host, port).await?;
     _debug!(
       inner,
       "Creating TCP connection to {} at {}:{}",
-      server,
+      host,
       addr.ip(),
       addr.port()
     );
@@ -326,8 +328,6 @@ impl RedisTransport {
       id,
       version,
       transport,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls_server_name: None,
     })
   }
 
@@ -336,7 +336,7 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
-    server_name: &Option<ArcStr>,
+    server_name: Option<&ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
     let connector = match inner.config.tls {
       Some(ref config) => match config.connector {
@@ -348,18 +348,23 @@ impl RedisTransport {
 
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
-    let server = ArcStr::from(format!("{}:{}", host, port));
+    let tls_server_name = server_name.map(|s| s.as_str()).unwrap_or(host.as_str());
+
+    let server = Server {
+      host: ArcStr::from(&host),
+      tls_server_name: Some(ArcStr::from(tls_server_name)),
+      port,
+    };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
     let addr = inner.resolver.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `native-tls` connection to {} at {}:{}",
-      server,
+      host,
       addr.ip(),
       addr.port()
     );
-    let tls_server_name = server_name.as_ref().map(|s| s.as_str()).unwrap_or(host.as_str());
 
     let socket = TcpStream::connect(addr).await?;
     _debug!(inner, "native-tls handshake with server name/host: {}", tls_server_name);
@@ -374,8 +379,6 @@ impl RedisTransport {
       id,
       version,
       transport,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls_server_name: server_name.as_ref().map(|s| s.clone()),
     })
   }
 
@@ -384,7 +387,7 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
-    _: &Option<ArcStr>,
+    _: Option<&ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
     RedisTransport::new_tcp(inner, host, port).await
   }
@@ -394,7 +397,7 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
-    server_name: &Option<ArcStr>,
+    server_name: Option<&ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
     let connector = match inner.config.tls {
       Some(ref config) => match config.connector {
@@ -406,26 +409,28 @@ impl RedisTransport {
 
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
-    let server = ArcStr::from(format!("{}:{}", host, port));
+    let tls_server_name = server_name.map(|s| s.as_str()).unwrap_or(host.as_str());
+    let server = Server {
+      host: ArcStr::from(&host),
+      tls_server_name: Some(ArcStr::from(tls_server_name)),
+      port,
+    };
+
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
     let addr = inner.resolver.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `rustls` connection to {} at {}:{}",
-      server,
+      host,
       addr.ip(),
       addr.port()
     );
     let socket = TcpStream::connect(addr).await?;
+    let server_name: ServerName = tls_server_name.try_into()?;
 
-    let tls_server_name: ServerName = server_name
-      .as_ref()
-      .map(|s| s.as_str())
-      .unwrap_or(host.as_str())
-      .try_into()?;
     _debug!(inner, "rustls handshake with server name/host: {:?}", tls_server_name);
-    let socket = connector.clone().connect(tls_server_name, socket).await?;
+    let socket = connector.clone().connect(server_name, socket).await?;
     let transport = ConnectionKind::Rustls(Framed::new(socket, codec));
 
     Ok(RedisTransport {
@@ -436,8 +441,6 @@ impl RedisTransport {
       id,
       version,
       transport,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls_server_name: server_name.as_ref().map(|s| s.clone()),
     })
   }
 
@@ -446,7 +449,7 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
-    _: &Option<ArcStr>,
+    _: Option<&ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
     RedisTransport::new_tcp(inner, host, port).await
   }
@@ -680,8 +683,6 @@ impl RedisTransport {
       addr: addr.clone(),
       buffer: buffer.clone(),
       reader: None,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls_server_name: self.tls_server_name,
     };
     let reader = RedisReader {
       stream: Some(stream),
@@ -696,7 +697,7 @@ impl RedisTransport {
 
 pub struct RedisReader {
   pub stream:   Option<SplitStreamKind>,
-  pub server:   ArcStr,
+  pub server:   Server,
   pub buffer:   SharedBuffer,
   pub counters: Counters,
   pub task:     Option<JoinHandle<Result<(), RedisError>>>,
@@ -730,17 +731,15 @@ impl RedisReader {
 }
 
 pub struct RedisWriter {
-  pub sink:            SplitSinkKind,
-  pub server:          ArcStr,
-  pub default_host:    ArcStr,
-  pub addr:            SocketAddr,
-  pub buffer:          SharedBuffer,
-  pub version:         Option<Version>,
-  pub id:              Option<i64>,
-  pub counters:        Counters,
-  pub reader:          Option<RedisReader>,
-  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-  pub tls_server_name: Option<ArcStr>,
+  pub sink:         SplitSinkKind,
+  pub server:       Server,
+  pub default_host: ArcStr,
+  pub addr:         SocketAddr,
+  pub buffer:       SharedBuffer,
+  pub version:      Option<Version>,
+  pub id:           Option<i64>,
+  pub counters:     Counters,
+  pub reader:       Option<RedisReader>,
 }
 
 impl fmt::Debug for RedisWriter {
@@ -825,7 +824,7 @@ pub async fn create(
   host: String,
   port: u16,
   timeout_ms: Option<u64>,
-  tls_server_name: &Option<ArcStr>,
+  tls_server_name: Option<&ArcStr>,
 ) -> Result<RedisTransport, RedisError> {
   let timeout = timeout_ms.unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
 
@@ -853,12 +852,12 @@ pub fn split_and_initialize<F>(
   inner: &Arc<RedisClientInner>,
   transport: RedisTransport,
   func: F,
-) -> Result<(ArcStr, RedisWriter), RedisError>
+) -> Result<(Server, RedisWriter), RedisError>
 where
   F: FnOnce(
     &Arc<RedisClientInner>,
     SplitStreamKind,
-    &ArcStr,
+    &Server,
     &SharedBuffer,
     &Counters,
   ) -> JoinHandle<Result<(), RedisError>>,

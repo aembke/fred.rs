@@ -9,6 +9,7 @@ use crate::{
     ClientUnblockFlag,
     FromRedis,
     RedisValue,
+    Server,
   },
 };
 use arcstr::ArcStr;
@@ -36,7 +37,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
   ///
   /// Note: despite being async this function will return cached information from the client if possible.
-  async fn connection_ids(&self) -> HashMap<ArcStr, i64> {
+  async fn connection_ids(&self) -> HashMap<Server, i64> {
     self.inner().backchannel.read().await.connection_ids.clone()
   }
 

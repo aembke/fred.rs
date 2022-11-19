@@ -5,7 +5,7 @@ use crate::{
     command::{ClusterErrorKind, MultiplexerReceiver, RedisCommand},
     connection::{self, CommandBuffer, Counters, RedisWriter},
     responders::ResponseKind,
-    types::ClusterRouting,
+    types::{ClusterRouting, Server},
     utils::server_to_parts,
   },
   trace,
@@ -37,9 +37,9 @@ pub enum Written {
   /// Apply backpressure to the command before retrying.
   Backpressure((RedisCommand, Backpressure)),
   /// Indicates that the command was sent to the associated server and whether the socket was flushed.
-  Sent((ArcStr, bool)),
+  Sent((Server, bool)),
   /// Disconnect from the provided server and retry the command later.
-  Disconnect((ArcStr, Option<RedisCommand>, RedisError)),
+  Disconnect((Server, Option<RedisCommand>, RedisError)),
   /// Indicates that the result should be ignored since the command will not be retried.
   Ignore,
 }
@@ -111,7 +111,7 @@ impl Replicas {
     for replica in self.routing.all_replicas() {
       let (host, port) = server_to_parts(&replica)?;
       _debug!(inner, "Setting up replica connection to {}", replica);
-      let mut transport = connection::create(inner, host.to_owned(), port, None).await?;
+      let mut transport = connection::create(inner, host.to_owned(), port, None, None).await?;
       let _ = transport.setup(inner).await?;
 
       let handler = if inner.config.server.is_clustered() {
@@ -160,7 +160,7 @@ pub enum Connections {
     /// The cached cluster routing table used for mapping keys to server IDs.
     cache:   ClusterRouting,
     /// A map of server IDs and connections.
-    writers: HashMap<ArcStr, RedisWriter>,
+    writers: HashMap<Server, RedisWriter>,
   },
   Sentinel {
     /// The connection to the primary server.
@@ -184,8 +184,8 @@ impl Connections {
     }
   }
 
-  /// Whether or not the connection map has a connection to the provided `host:port`.
-  pub fn has_server_connection(&self, server: &str) -> bool {
+  /// Whether or not the connection map has a connection to the provided server`.
+  pub fn has_server_connection(&self, server: &Server) -> bool {
     match self {
       Connections::Centralized { ref writer } => writer
         .as_ref()
@@ -208,7 +208,7 @@ impl Connections {
   }
 
   /// Get the connection writer half for the provided server.
-  pub fn get_connection_mut(&mut self, server: &str) -> Option<&mut RedisWriter> {
+  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut RedisWriter> {
     match self {
       Connections::Centralized { ref mut writer } => writer.as_mut().and_then(|writer| {
         if utils::compare_servers(&writer.server, server, &writer.default_host) {
@@ -258,7 +258,7 @@ impl Connections {
   }
 
   /// Read the counters associated with a connection to a server.
-  pub fn counters(&self, server: Option<&ArcStr>) -> Option<&Counters> {
+  pub fn counters(&self, server: Option<&Server>) -> Option<&Counters> {
     match self {
       Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.counters),
       Connections::Sentinel { ref writer, .. } => writer.as_ref().map(|w| &w.counters),
@@ -269,7 +269,7 @@ impl Connections {
   }
 
   /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
-  pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&ArcStr>) -> CommandBuffer {
+  pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&Server>) -> CommandBuffer {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer.take() {
@@ -334,7 +334,7 @@ impl Connections {
   }
 
   /// Read a map of connection IDs (via `CLIENT ID`) for each inner connection.
-  pub fn connection_ids(&self) -> HashMap<ArcStr, i64> {
+  pub fn connection_ids(&self) -> HashMap<Server, i64> {
     let mut out = HashMap::new();
 
     match self {
@@ -425,13 +425,13 @@ impl Connections {
   }
 
   /// Check if the provided `server` node owns the provided `slot`.
-  pub fn check_cluster_owner(&self, slot: u16, server: &str) -> bool {
+  pub fn check_cluster_owner(&self, slot: u16, server: &Server) -> bool {
     match self {
       Connections::Clustered { ref cache, .. } => cache
         .get_server(slot)
         .map(|owner| {
           trace!("Comparing cached cluster owner for {}: {} == {}", slot, owner, server);
-          owner.as_str() == server
+          owner == server
         })
         .unwrap_or(false),
       _ => false,
@@ -439,10 +439,16 @@ impl Connections {
   }
 
   /// Connect or reconnect to the provided `host:port`.
-  pub async fn add_connection(&mut self, inner: &Arc<RedisClientInner>, server: &str) -> Result<(), RedisError> {
+  pub async fn add_connection(&mut self, inner: &Arc<RedisClientInner>, server: &Server) -> Result<(), RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
-      let (host, port) = server_to_parts(server)?;
-      let mut transport = connection::create(inner, host.to_owned(), port, None).await?;
+      let mut transport = connection::create(
+        inner,
+        server.host.as_str().to_owned(),
+        server.port,
+        None,
+        server.tls_server_name.as_ref(),
+      )
+      .await?;
       let _ = transport.setup(inner).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, clustered::spawn_reader_task)?;
@@ -483,7 +489,7 @@ impl Multiplexer {
   }
 
   /// Read the connection identifier for the provided command.
-  pub fn find_connection(&self, command: &RedisCommand) -> Option<&ArcStr> {
+  pub fn find_connection(&self, command: &RedisCommand) -> Option<&Server> {
     match self.connections {
       Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.server),
       Connections::Sentinel { ref writer } => writer.as_ref().map(|w| &w.server),
@@ -533,7 +539,7 @@ impl Multiplexer {
   pub async fn write_direct(
     &mut self,
     mut command: RedisCommand,
-    server: &str,
+    server: &Server,
   ) -> Result<(), (RedisError, RedisCommand)> {
     debug!(
       "{}: Direct write `{}` command to {}",
@@ -601,10 +607,8 @@ impl Multiplexer {
   /// command to run later if needed.
   ///
   /// The associated connection will be dropped if needed.
-  pub async fn write_once(&mut self, command: RedisCommand, server: &str) -> Result<(), RedisError> {
-    // clean this up
+  pub async fn write_once(&mut self, command: RedisCommand, server: &Server) -> Result<(), RedisError> {
     let inner = self.inner.clone();
-
     _debug!(
       inner,
       "Writing `{}` command once to {}",

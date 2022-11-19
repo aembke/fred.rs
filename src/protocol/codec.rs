@@ -32,6 +32,7 @@ fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 pub use crate::protocol::debug::log_resp2_frame;
 #[cfg(feature = "network-logs")]
 pub use crate::protocol::debug::log_resp3_frame;
+use crate::protocol::types::Server;
 
 #[cfg(feature = "metrics")]
 fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
@@ -186,7 +187,7 @@ fn resp2_decode_with_fallback(
 
 pub struct RedisCodec {
   pub name:            ArcStr,
-  pub server:          ArcStr,
+  pub server:          Server,
   pub resp3:           Arc<AtomicBool>,
   pub streaming_state: Option<StreamedFrame>,
   #[cfg(feature = "metrics")]
@@ -196,7 +197,7 @@ pub struct RedisCodec {
 }
 
 impl RedisCodec {
-  pub fn new(inner: &Arc<RedisClientInner>, server: &ArcStr) -> Self {
+  pub fn new(inner: &Arc<RedisClientInner>, server: &Server) -> Self {
     RedisCodec {
       server:                                     server.clone(),
       name:                                       inner.id.clone(),

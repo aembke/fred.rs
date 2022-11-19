@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 
 #[cfg(feature = "replicas")]
 use crate::protocol::command::RedisCommandKind;
+use crate::protocol::types::Server;
 
 pub async fn send_command(
   inner: &Arc<RedisClientInner>,
@@ -38,7 +39,7 @@ pub async fn send_command(
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,
-  server: &ArcStr,
+  server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
 ) -> JoinHandle<Result<(), RedisError>> {
@@ -87,7 +88,7 @@ pub fn spawn_reader_task(
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 pub async fn process_response_frame(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
   frame: Resp3Frame,
@@ -264,7 +265,7 @@ pub async fn initialize_connection(
         ServerConfig::Centralized { ref host, ref port } => (host.to_owned(), *port),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
-      let mut transport = connection::create(inner, host, port, None, &None).await?;
+      let mut transport = connection::create(inner, host, port, None, None).await?;
       let _ = transport.setup(inner).await?;
 
       // let replicas = sync_replicas(inner, &mut transport).await?;

@@ -9,7 +9,7 @@ use crate::{
     connection::{self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders,
     responders::ResponseKind,
-    types::ClusterRouting,
+    types::{ClusterRouting, Server, SlotRange},
     utils as protocol_utils,
     utils::server_to_parts,
   },
@@ -18,7 +18,7 @@ use crate::{
 use arcstr::ArcStr;
 use futures::TryStreamExt;
 use std::{
-  collections::{BTreeSet, HashMap},
+  collections::{BTreeMap, BTreeSet, HashMap},
   sync::Arc,
 };
 use tokio::task::JoinHandle;
@@ -27,7 +27,7 @@ pub fn find_cluster_node<'a>(
   inner: &Arc<RedisClientInner>,
   state: &'a ClusterRouting,
   command: &RedisCommand,
-) -> Option<&'a ArcStr> {
+) -> Option<&'a Server> {
   command
     .cluster_hash()
     .and_then(|slot| state.get_server(slot))
@@ -46,7 +46,7 @@ pub fn find_cluster_node<'a>(
 /// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
 pub async fn send_command(
   inner: &Arc<RedisClientInner>,
-  writers: &mut HashMap<ArcStr, RedisWriter>,
+  writers: &mut HashMap<Server, RedisWriter>,
   state: &ClusterRouting,
   mut command: RedisCommand,
 ) -> Result<Written, (RedisError, RedisCommand)> {
@@ -87,7 +87,7 @@ pub async fn send_command(
 /// Note: if any of the commands fail to send the entire command is interrupted.
 pub async fn send_all_cluster_command(
   inner: &Arc<RedisClientInner>,
-  writers: &mut HashMap<ArcStr, RedisWriter>,
+  writers: &mut HashMap<Server, RedisWriter>,
   command: RedisCommand,
 ) -> Result<(), RedisError> {
   let num_nodes = writers.len();
@@ -127,7 +127,7 @@ pub async fn send_all_cluster_command(
 
 pub fn parse_cluster_changes(
   cluster_state: &ClusterRouting,
-  writers: &HashMap<ArcStr, RedisWriter>,
+  writers: &HashMap<Server, RedisWriter>,
 ) -> ClusterChange {
   let mut old_servers = BTreeSet::new();
   let mut new_servers = BTreeSet::new();
@@ -147,20 +147,12 @@ pub fn broadcast_cluster_change(inner: &Arc<RedisClientInner>, changes: &Cluster
   let mut added: Vec<ClusterStateChange> = changes
     .add
     .iter()
-    .filter_map(|server| {
-      protocol_utils::server_to_parts(server)
-        .ok()
-        .map(|(h, p)| ClusterStateChange::Add((h.to_owned(), p)))
-    })
+    .map(|server| ClusterStateChange::Add(server.clone()))
     .collect();
   let removed: Vec<ClusterStateChange> = changes
     .remove
     .iter()
-    .filter_map(|server| {
-      protocol_utils::server_to_parts(server)
-        .ok()
-        .map(|(h, p)| ClusterStateChange::Remove((h.to_owned(), p)))
-    })
+    .map(|server| ClusterStateChange::Remove(server.clone()))
     .collect();
 
   let changes = if added.is_empty() && removed.is_empty() {
@@ -178,7 +170,7 @@ pub fn broadcast_cluster_change(inner: &Arc<RedisClientInner>, changes: &Cluster
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,
-  server: &ArcStr,
+  server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
 ) -> JoinHandle<Result<(), RedisError>> {
@@ -315,7 +307,7 @@ fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisComman
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 pub async fn process_response_frame(
   inner: &Arc<RedisClientInner>,
-  server: &ArcStr,
+  server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
   frame: Resp3Frame,
@@ -408,30 +400,32 @@ pub async fn process_response_frame(
 /// Try connecting to any node in the provided `RedisConfig` or `old_servers`.
 pub async fn connect_any(
   inner: &Arc<RedisClientInner>,
-  old_servers: Vec<ArcStr>,
+  old_cache: Option<&[SlotRange]>,
 ) -> Result<RedisTransport, RedisError> {
-  let mut all_servers: BTreeSet<(String, u16)> = old_servers
-    .into_iter()
-    .filter_map(|server| {
-      server_to_parts(&server)
-        .ok()
-        .map(|(host, port)| (host.to_owned(), port))
-    })
-    .collect();
-  all_servers.extend(
-    inner
-      .config
-      .server
-      .hosts()
-      .into_iter()
-      .map(|(host, port)| (host.to_owned(), port)),
-  );
+  let mut all_servers: BTreeSet<Server> = if let Some(old_cache) = old_cache {
+    old_cache.iter().map(|slot_range| slot_range.primary.clone()).collect()
+  } else {
+    BTreeSet::new()
+  };
+  all_servers.extend(inner.config.server.hosts().into_iter().map(|(host, port)| Server {
+    host: ArcStr::from(host),
+    port,
+    tls_server_name: None,
+  }));
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
-  // TODO where to get the tls server name for this?
   let num_servers = all_servers.len();
-  for (idx, (host, port)) in all_servers.into_iter().enumerate() {
-    let mut connection = try_or_continue!(connection::create(inner, host, port, None).await);
+  for (idx, server) in all_servers.into_iter().enumerate() {
+    let mut connection = try_or_continue!(
+      connection::create(
+        inner,
+        server.host.to_owned(),
+        server.port,
+        None,
+        server.tls_server_name.as_ref()
+      )
+      .await
+    );
     let _ = try_or_continue!(connection.setup(inner).await);
 
     _debug!(
@@ -463,34 +457,33 @@ pub async fn cluster_slots_backchannel(
   let (response, host) = {
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
 
-    let frame = {
+    let backchannel_result = {
       // try to use the existing backchannel connection first
       let mut backchannel = inner.backchannel.write().await;
-      if let Some(server) = backchannel.current_server() {
-        if let Some(ref transport) = backchannel.transport {
-          let default_host = transport.default_host.clone();
+      if let Some(ref mut transport) = backchannel.transport {
+        let default_host = transport.default_host.clone();
 
-          backchannel
-            .request_response(inner, &server, command)
-            .await
-            .ok()
-            .map(|frame| (frame, default_host))
-        } else {
-          None
-        }
+        transport
+          .request_response(command, inner.is_resp3())
+          .await
+          .ok()
+          .map(|frame| (frame, default_host))
       } else {
         None
       }
     };
+    if backchannel_result.is_none() {
+      inner.backchannel.write().await.check_and_disconnect(inner, None).await;
+    }
 
     // failing the backchannel, try to connect to any of the user-provided hosts or the last known cluster nodes
-    let old_hosts = cache.map(|cache| cache.unique_primary_nodes()).unwrap_or(Vec::new());
+    let old_cache = cache.map(|cache| cache.slots());
 
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
-    let (frame, host) = if let Some((frame, host)) = frame {
+    let (frame, host) = if let Some((frame, host)) = backchannel_result {
       if frame.is_error() {
         // try connecting to any of the nodes, then try again
-        let mut transport = connect_any(inner, old_hosts).await?;
+        let mut transport = connect_any(inner, old_cache).await?;
         let frame = transport.request_response(command, inner.is_resp3()).await?;
         let host = transport.default_host.clone();
         inner.update_backchannel(transport).await;
@@ -502,7 +495,7 @@ pub async fn cluster_slots_backchannel(
       }
     } else {
       // try connecting to any of the nodes, then try again
-      let mut transport = connect_any(inner, old_hosts).await?;
+      let mut transport = connect_any(inner, old_cache).await?;
       let frame = transport.request_response(command, inner.is_resp3()).await?;
       let host = transport.default_host.clone();
       inner.update_backchannel(transport).await;
@@ -555,8 +548,14 @@ pub async fn sync(
     // connect to each of the new nodes
     for server in changes.add.into_iter() {
       _debug!(inner, "Connecting to cluster node {}", server);
-      let (host, port) = protocol_utils::server_to_parts(&server)?;
-      let mut transport = connection::create(inner, host.to_owned(), port, None).await?;
+      let mut transport = connection::create(
+        inner,
+        server.host.as_str().to_owned(),
+        server.port,
+        None,
+        server.tls_server_name.as_ref(),
+      )
+      .await?;
       let _ = transport.setup(inner).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;

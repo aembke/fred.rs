@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
+use crate::protocol::types::Server;
 
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
 const KEYEVENT_PREFIX: &'static str = "__keyevent@";
@@ -212,7 +213,7 @@ pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -
 }
 
 /// Handle an error in the reader task that should end the connection.
-pub fn handle_reader_error(inner: &Arc<RedisClientInner>, server: &ArcStr, error: Option<RedisError>) {
+pub fn handle_reader_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   if inner.should_reconnect() {
     inner.send_reconnect(Some(server.clone()), false, None);
   }
