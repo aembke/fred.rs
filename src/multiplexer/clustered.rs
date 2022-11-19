@@ -428,6 +428,7 @@ pub async fn connect_any(
   );
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
+  // TODO where to get the tls server name for this?
   let num_servers = all_servers.len();
   for (idx, (host, port)) in all_servers.into_iter().enumerate() {
     let mut connection = try_or_continue!(connection::create(inner, host, port, None).await);
@@ -511,10 +512,11 @@ pub async fn cluster_slots_backchannel(
 
     (protocol_utils::frame_to_results_raw(frame)?, host)
   };
+  _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
 
   let mut new_cache = ClusterRouting::new();
   _debug!(inner, "Rebuilding cluster state from host: {}", host);
-  new_cache.rebuild(response, host.as_str())?;
+  new_cache.rebuild(inner, response, host.as_str())?;
   Ok(new_cache)
 }
 

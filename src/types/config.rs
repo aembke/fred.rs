@@ -4,7 +4,7 @@ use url::Url;
 
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
-pub use crate::protocol::tls::TlsConnector;
+pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 pub use tokio_native_tls::native_tls;
@@ -403,7 +403,7 @@ pub struct RedisConfig {
   /// Default: None
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls:          Option<TlsConnector>,
+  pub tls:          Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`

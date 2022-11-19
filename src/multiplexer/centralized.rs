@@ -264,7 +264,7 @@ pub async fn initialize_connection(
         ServerConfig::Centralized { ref host, ref port } => (host.to_owned(), *port),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
-      let mut transport = connection::create(inner, host, port, None).await?;
+      let mut transport = connection::create(inner, host, port, None, &None).await?;
       let _ = transport.setup(inner).await?;
 
       // let replicas = sync_replicas(inner, &mut transport).await?;

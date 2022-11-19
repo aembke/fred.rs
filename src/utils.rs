@@ -38,7 +38,7 @@ use tokio::{
 use url::Url;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::protocol::tls::TlsConnector;
+use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -610,28 +610,28 @@ pub fn check_tls_features() {
 }
 
 #[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
-pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   if tls {
-    TlsConnector::default_native_tls().map(Some)
+    TlsConnector::default_native_tls().map(|c| Some(c.into()))
   } else {
     Ok(None)
   }
 }
 
 #[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
-pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   if tls {
-    TlsConnector::default_rustls().map(Some)
+    TlsConnector::default_rustls().map(|c| Some(c.into()))
   } else {
     Ok(None)
   }
 }
 
 #[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
-pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConnector>, RedisError> {
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   // default to native-tls when both are enabled
   if tls {
-    TlsConnector::default_native_tls().map(Some)
+    TlsConnector::default_native_tls().map(|c| Some(c.into()))
   } else {
     Ok(None)
   }

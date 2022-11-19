@@ -136,7 +136,7 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
   };
 
   let inner = RedisClientInner::new(config, perf, None);
-  let mut connection = connection::create(&inner, host, port, None).await?;
+  let mut connection = connection::create(&inner, host, port, None, &None).await?;
   let _ = connection.setup(&inner).await?;
   let connection = send_monitor_command(&inner, connection).await?;
 

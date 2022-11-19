@@ -47,6 +47,7 @@ rustls-native-certs = { version = "0.6", optional = true }
 
 [dev-dependencies]
 prometheus = "0.12"
+base64 = "0.13"
 subprocess = "0.2.7"
 
 [lib]

@@ -9,7 +9,7 @@ use fred::{
   types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
 };
 use redis_protocol::resp3::prelude::RespVersion;
-use std::{convert::TryInto, default::Default, env, fs, future::Future};
+use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future};
 
 #[cfg(feature = "chaos-monkey")]
 const RECONNECT_DELAY: u32 = 500;
@@ -17,7 +17,7 @@ const RECONNECT_DELAY: u32 = 500;
 const RECONNECT_DELAY: u32 = 1000;
 
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-use fred::types::TlsConnector;
+use fred::types::{TlsConfig, TlsConnector};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
   Certificate as NativeTlsCertificate,
@@ -102,8 +102,15 @@ struct TlsCreds {
   root_cert_pem:   Vec<u8>,
   client_cert_der: Vec<u8>,
   client_cert_pem: Vec<u8>,
-  client_key_der:  Vec<u8>,
+  // client_key_der:  Vec<u8>,
   client_key_pem:  Vec<u8>,
+}
+
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+fn check_file_contents(value: &Vec<u8>, msg: &str) {
+  if value.is_empty() {
+    panic!("Invalid empty TLS file: {}", msg);
+  }
 }
 
 /// Read the (root cert.pem, root cert.der, client cert.pem, client cert.der, client key.pem, client key.der) tuple
@@ -115,15 +122,22 @@ fn read_tls_creds() -> TlsCreds {
   let root_cert_der_path = format!("{}/ca.crt", creds_path);
   let client_cert_pem_path = format!("{}/client.pem", creds_path);
   let client_cert_der_path = format!("{}/client.crt", creds_path);
-  let client_key_der_path = format!("{}/client.key", creds_path);
-  let client_key_pem_path = format!("{}/client.pem", creds_path);
+  // let client_key_der_path = format!("{}/client.key", creds_path);
+  let client_key_pem_path = format!("{}/client.key8", creds_path);
 
   let root_cert_pem = fs::read(&root_cert_pem_path).expect("Failed to read root cert pem");
   let root_cert_der = fs::read(&root_cert_der_path).expect("Failed to read root cert der");
   let client_cert_pem = fs::read(&client_cert_pem_path).expect("Failed to read client cert pem");
   let client_cert_der = fs::read(&client_cert_der_path).expect("Failed to read client cert der");
-  let client_key_der = fs::read(&client_key_der_path).expect("Failed to read client key der");
+  // let client_key_der = fs::read(&client_key_der_path).expect("Failed to read client key der");
   let client_key_pem = fs::read(&client_key_pem_path).expect("Failed to read client key pem");
+
+  check_file_contents(&root_cert_pem, "root cert pem");
+  check_file_contents(&root_cert_der, "root cert der");
+  check_file_contents(&client_cert_pem, "client cert pem");
+  check_file_contents(&client_cert_der, "client cert der");
+  check_file_contents(&client_key_pem, "client key pem");
+  // check_file_contents(&client_key_der, "client key der");
 
   TlsCreds {
     root_cert_pem,
@@ -131,7 +145,7 @@ fn read_tls_creds() -> TlsCreds {
     client_cert_der,
     client_cert_pem,
     client_key_pem,
-    client_key_der,
+    // client_key_der,
   }
 }
 
@@ -147,7 +161,7 @@ fn create_rustls_config() -> TlsConnector {
   ClientConfig::builder()
     .with_safe_defaults()
     .with_root_certificates(root_store)
-    .with_single_cert(cert_chain, PrivateKey(creds.client_key_der))
+    .with_single_cert(cert_chain, PrivateKey(creds.client_key_pem))
     .expect("Failed to build rustls client config")
     .into()
 }
@@ -161,9 +175,8 @@ fn create_native_tls_config() -> TlsConnector {
   builder.add_root_certificate(root_cert);
 
   let mut client_cert_chain = Vec::with_capacity(creds.client_cert_pem.len() + creds.root_cert_pem.len());
-  // client_cert_chain.extend(&creds.client_cert_pem);
-  client_cert_chain.extend(&creds.root_cert_pem);
   client_cert_chain.extend(&creds.client_cert_pem);
+  client_cert_chain.extend(&creds.root_cert_pem);
 
   let identity =
     Identity::from_pkcs8(&client_cert_chain, &creds.client_key_pem).expect("Failed to create client identity");
@@ -222,7 +235,10 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    tls: Some(create_rustls_config()),
+    tls: Some(TlsConfig {
+      connector:        create_rustls_config(),
+      use_default_host: true,
+    }),
     ..Default::default()
   };
   let perf = PerformanceConfig {
@@ -245,7 +261,10 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
-    tls: Some(create_native_tls_config()),
+    tls: Some(TlsConfig {
+      connector:        create_native_tls_config(),
+      use_default_host: true,
+    }),
     ..Default::default()
   };
   let perf = PerformanceConfig {

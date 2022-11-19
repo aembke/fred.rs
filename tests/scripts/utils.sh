@@ -146,23 +146,25 @@ function generate_cluster_credentials {
 
   echo "Generating CA key pair..."
   openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=*.example.com'
-  openssl x509 -trustout -signkey ca.key -days 90 -req -in ca.csr -out ca.pem
-  # need the CA cert in DER format too
+  openssl x509 -signkey ca.key -days 90 -req -in ca.csr -out ca.pem
+  # need the CA cert in DER format for rustls
   openssl x509 -outform der -in ca.pem -out ca.crt
 
   echo "Generating client key pair..."
+  # native-tls wants a PKCS#8 key, rustls works with PKCS#1 or PKCS#8, and redis-cli wants a PKCS#1 key
   openssl genrsa -out client.key 2048
+  openssl pkey -in client.key -out client.key8
+
   openssl req -new -key client.key -out client.csr -subj '/CN=client.example.com'
   openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem
   # need the client cert in DER format for rustls
   openssl x509 -outform der -in client.pem -out client.crt
-  # need the client key in PEM format for native-tls
-  openssl rsa -inform der -in client.key -outform pem -out client.pem
 
   echo "Generating key pairs for each cluster node..."
   CERT_PORT=$TLS_CLUSTER_PORT
   for i in `seq 1 6`; do
     CERT_PORT=$((CERT_PORT+1))
+    # redis-server wants a PKCS#1 key
     openssl genrsa -out "node-$CERT_PORT.key" 2048
     openssl req -new -key "node-$CERT_PORT.key" -out "node-$CERT_PORT.csr" -subj "/CN=node-$CERT_PORT.example.com"
     openssl x509 -req -days 90 -sha256 -in "node-$CERT_PORT.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$CERT_PORT.pem"

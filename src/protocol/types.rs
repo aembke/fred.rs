@@ -19,6 +19,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
+use crate::modules::inner::RedisClientInner;
 #[cfg(feature = "replicas")]
 use std::sync::{atomic::AtomicUsize, Arc};
 
@@ -218,17 +219,23 @@ impl ReplicaSet {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start:    u16,
+  pub start:           u16,
   /// The end of the hash slot range.
-  pub end:      u16,
+  pub end:             u16,
   /// The primary owner, of the form `<host>:<port>`.
-  pub primary:  ArcStr,
+  pub primary:         ArcStr,
   /// The internal ID assigned by the server.
-  pub id:       ArcStr,
+  pub id:              ArcStr,
   /// The set of replica nodes for the slot range.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replicas: Vec<ArcStr>,
+  pub replicas:        Vec<ArcStr>,
+  /// The hostname to use during the TLS handshake.
+  ///
+  /// See [TlsHostMapping](crate::types::TlsHostMapping) for more information.
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  pub tls_server_name: Option<ArcStr>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
@@ -272,26 +279,33 @@ impl ClusterRouting {
   }
 
   /// Clear the cached state of the cluster.
-  pub fn clear(&mut self) {
+  pub(crate) fn clear(&mut self) {
     self.data.clear();
   }
 
   /// Rebuild the cache in place with the output of a `CLUSTER SLOTS` command.
-  pub fn rebuild(&mut self, cluster_slots: RedisValue, default_host: &str) -> Result<(), RedisError> {
+  pub(crate) fn rebuild(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    mut cluster_slots: RedisValue,
+    default_host: &str,
+  ) -> Result<(), RedisError> {
     self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;
     self.data.sort_by(|a, b| a.start.cmp(&b.start));
+
+    cluster::modify_cluster_slot_hostnames(inner, &mut self.data, default_host);
     Ok(())
   }
 
   /// Rebuild the replica index in place via the current cluster slot mappings.
   #[cfg(feature = "replicas")]
-  pub fn rebuild_replicas(&mut self) {
+  pub(crate) fn rebuild_replicas(&mut self) {
     self.replicas.update(&self.data);
   }
 
   /// Read the next replica that should receive a command instead of `primary`.
   #[cfg(feature = "replicas")]
-  pub fn next_replica(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
+  pub(crate) fn next_replica(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
     self.replicas.next_replica(primary.as_str())
   }
 

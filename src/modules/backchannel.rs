@@ -8,6 +8,32 @@ use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{collections::HashMap, sync::Arc};
 
+/// Check if an existing connection can be used to the provided `server`, otherwise create a new one.
+///
+/// Returns whether a new connection was created.
+async fn check_and_create_transport(
+  backchannel: &mut Backchannel,
+  inner: &Arc<RedisClientInner>,
+  server: &ArcStr,
+  tls_server_name: &Option<ArcStr>,
+) -> Result<bool, RedisError> {
+  if let Some(ref mut transport) = backchannel.transport {
+    if &transport.server == server {
+      if transport.ping(inner).await.is_ok() {
+        _debug!(inner, "Using existing backchannel connection to {}", server);
+        return Ok(false);
+      }
+    }
+  }
+  backchannel.transport = None;
+
+  let (host, port) = protocol_utils::server_to_parts(server)?;
+  let transport = connection::create(inner, host.to_owned(), port, None, tls_server_name).await?;
+  backchannel.transport = Some(transport);
+
+  Ok(true)
+}
+
 /// A struct wrapping a separate connection to the server or cluster for client or cluster management commands.
 #[derive(Default)]
 pub struct Backchannel {
@@ -110,31 +136,6 @@ impl Backchannel {
       .unwrap_or(false)
   }
 
-  /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.
-  ///
-  /// Returns whether a new connection was created.
-  pub async fn check_and_create_transport(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    server: &ArcStr,
-  ) -> Result<bool, RedisError> {
-    if let Some(ref mut transport) = self.transport {
-      if &transport.server == server {
-        if transport.ping(inner).await.is_ok() {
-          _debug!(inner, "Using existing backchannel connection to {}", server);
-          return Ok(false);
-        }
-      }
-    }
-    self.transport = None;
-
-    let (host, port) = protocol_utils::server_to_parts(server)?;
-    let transport = connection::create(inner, host.to_owned(), port, None).await?;
-    self.transport = Some(transport);
-
-    Ok(true)
-  }
-
   /// Send the provided command to the provided server, creating a new connection if needed.
   ///
   /// If a new connection is created this function also sets it on `self` before returning.
@@ -144,7 +145,8 @@ impl Backchannel {
     server: &ArcStr,
     command: RedisCommand,
   ) -> Result<Resp3Frame, RedisError> {
-    let _ = self.check_and_create_transport(inner, server).await?;
+    // TODO how to get the tls server name here? add a tls_server_name fn to this struct?
+    let _ = check_and_create_transport(self, inner, server).await?;
 
     if let Some(ref mut transport) = self.transport {
       _debug!(

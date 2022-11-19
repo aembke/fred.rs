@@ -35,6 +35,7 @@ use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
+use sha1::digest::generic_array::functional::FunctionalSequence;
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
@@ -281,19 +282,22 @@ impl Counters {
 
 pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
-  pub server:       ArcStr,
+  pub server:          ArcStr,
   /// The parsed `SocketAddr` for the connection.
-  pub addr:         SocketAddr,
+  pub addr:            SocketAddr,
   /// The hostname used to initialize the connection.
-  pub default_host: ArcStr,
+  pub default_host:    ArcStr,
   /// The network connection.
-  pub transport:    ConnectionKind,
+  pub transport:       ConnectionKind,
   /// The connection/client ID from the CLIENT ID command.
-  pub id:           Option<i64>,
+  pub id:              Option<i64>,
   /// The server version.
-  pub version:      Option<Version>,
+  pub version:         Option<Version>,
   /// Counters for the connection state.
-  pub counters:     Counters,
+  pub counters:        Counters,
+  /// The hostname used during the TLS handshake.
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  pub tls_server_name: Option<ArcStr>,
 }
 
 impl RedisTransport {
@@ -322,6 +326,8 @@ impl RedisTransport {
       id,
       version,
       transport,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls_server_name: None,
     })
   }
 
@@ -330,7 +336,16 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
+    server_name: &Option<ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
+    let connector = match inner.config.tls {
+      Some(ref config) => match config.connector {
+        TlsConnector::Native(ref connector) => connector.clone(),
+        _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
+      },
+      None => return RedisTransport::new_tcp(inner, host, port).await,
+    };
+
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
@@ -344,25 +359,24 @@ impl RedisTransport {
       addr.ip(),
       addr.port()
     );
+    let tls_server_name = server_name.as_ref().map(|s| s.as_str()).unwrap_or(host.as_str());
+
     let socket = TcpStream::connect(addr).await?;
+    _debug!(inner, "native-tls handshake with server name/host: {}", tls_server_name);
+    let socket = connector.clone().connect(tls_server_name, socket).await?;
+    let transport = ConnectionKind::NativeTls(Framed::new(socket, codec));
 
-    match inner.config.tls {
-      Some(TlsConnector::Native(ref connector)) => {
-        let socket = connector.clone().connect(&host, socket).await?;
-        let transport = ConnectionKind::NativeTls(Framed::new(socket, codec));
-
-        Ok(RedisTransport {
-          server,
-          default_host,
-          counters,
-          addr,
-          id,
-          version,
-          transport,
-        })
-      },
-      _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
-    }
+    Ok(RedisTransport {
+      server,
+      default_host,
+      counters,
+      addr,
+      id,
+      version,
+      transport,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls_server_name: server_name.as_ref().map(|s| s.clone()),
+    })
   }
 
   #[cfg(not(feature = "enable-native-tls"))]
@@ -370,6 +384,7 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
+    _: &Option<ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
     RedisTransport::new_tcp(inner, host, port).await
   }
@@ -379,7 +394,16 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
+    server_name: &Option<ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
+    let connector = match inner.config.tls {
+      Some(ref config) => match config.connector {
+        TlsConnector::Rustls(ref connector) => connector.clone(),
+        _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
+      },
+      None => return RedisTransport::new_tcp(inner, host, port).await,
+    };
+
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let server = ArcStr::from(format!("{}:{}", host, port));
@@ -395,24 +419,26 @@ impl RedisTransport {
     );
     let socket = TcpStream::connect(addr).await?;
 
-    match inner.config.tls {
-      Some(TlsConnector::Rustls(ref connector)) => {
-        let server_name: ServerName = host.as_str().try_into()?;
-        let socket = connector.clone().connect(server_name, socket).await?;
-        let transport = ConnectionKind::Rustls(Framed::new(socket, codec));
+    let tls_server_name: ServerName = server_name
+      .as_ref()
+      .map(|s| s.as_str())
+      .unwrap_or(host.as_str())
+      .try_into()?;
+    _debug!(inner, "rustls handshake with server name/host: {:?}", tls_server_name);
+    let socket = connector.clone().connect(tls_server_name, socket).await?;
+    let transport = ConnectionKind::Rustls(Framed::new(socket, codec));
 
-        Ok(RedisTransport {
-          server,
-          counters,
-          default_host,
-          addr,
-          id,
-          version,
-          transport,
-        })
-      },
-      _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
-    }
+    Ok(RedisTransport {
+      server,
+      counters,
+      default_host,
+      addr,
+      id,
+      version,
+      transport,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls_server_name: server_name.as_ref().map(|s| s.clone()),
+    })
   }
 
   #[cfg(not(feature = "enable-rustls"))]
@@ -420,6 +446,7 @@ impl RedisTransport {
     inner: &Arc<RedisClientInner>,
     host: String,
     port: u16,
+    _: &Option<ArcStr>,
   ) -> Result<RedisTransport, RedisError> {
     RedisTransport::new_tcp(inner, host, port).await
   }
@@ -653,6 +680,8 @@ impl RedisTransport {
       addr: addr.clone(),
       buffer: buffer.clone(),
       reader: None,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls_server_name: self.tls_server_name,
     };
     let reader = RedisReader {
       stream: Some(stream),
@@ -701,15 +730,17 @@ impl RedisReader {
 }
 
 pub struct RedisWriter {
-  pub sink:         SplitSinkKind,
-  pub server:       ArcStr,
-  pub default_host: ArcStr,
-  pub addr:         SocketAddr,
-  pub buffer:       SharedBuffer,
-  pub version:      Option<Version>,
-  pub id:           Option<i64>,
-  pub counters:     Counters,
-  pub reader:       Option<RedisReader>,
+  pub sink:            SplitSinkKind,
+  pub server:          ArcStr,
+  pub default_host:    ArcStr,
+  pub addr:            SocketAddr,
+  pub buffer:          SharedBuffer,
+  pub version:         Option<Version>,
+  pub id:              Option<i64>,
+  pub counters:        Counters,
+  pub reader:          Option<RedisReader>,
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+  pub tls_server_name: Option<ArcStr>,
 }
 
 impl fmt::Debug for RedisWriter {
@@ -794,6 +825,7 @@ pub async fn create(
   host: String,
   port: u16,
   timeout_ms: Option<u64>,
+  tls_server_name: &Option<ArcStr>,
 ) -> Result<RedisTransport, RedisError> {
   let timeout = timeout_ms.unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
 
@@ -804,9 +836,13 @@ pub async fn create(
     inner.config.uses_rustls()
   );
   if inner.config.uses_native_tls() {
-    utils::apply_timeout(RedisTransport::new_native_tls(inner, host, port), timeout).await
+    utils::apply_timeout(
+      RedisTransport::new_native_tls(inner, host, port, tls_server_name),
+      timeout,
+    )
+    .await
   } else if inner.config.uses_rustls() {
-    utils::apply_timeout(RedisTransport::new_rustls(inner, host, port), timeout).await
+    utils::apply_timeout(RedisTransport::new_rustls(inner, host, port, tls_server_name), timeout).await
   } else {
     utils::apply_timeout(RedisTransport::new_tcp(inner, host, port), timeout).await
   }

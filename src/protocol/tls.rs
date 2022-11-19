@@ -1,12 +1,17 @@
 use crate::error::{RedisError, RedisErrorKind};
+use bytes_utils::Str;
 use std::{
+  collections::HashMap,
   convert::{TryFrom, TryInto},
   env,
   fmt,
-  fmt::Formatter,
+  fmt::{Debug, Formatter},
+  net::IpAddr,
   sync::Arc,
 };
 
+#[cfg(feature = "enable-native-tls")]
+pub use tokio_native_tls::native_tls;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
   TlsConnector as NativeTlsConnector,
@@ -15,14 +20,74 @@ use tokio_native_tls::native_tls::{
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
 #[cfg(feature = "enable-rustls")]
+pub use tokio_rustls::rustls;
+#[cfg(feature = "enable-rustls")]
 use tokio_rustls::rustls::{Certificate, ClientConfig as RustlsClientConfig, RootCertStore};
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;
 
-#[cfg(feature = "enable-native-tls")]
-pub use tokio_native_tls::native_tls;
-#[cfg(feature = "enable-rustls")]
-pub use tokio_rustls::rustls;
+/// A trait used for mapping IP addresses to hostnames when processing the `CLUSTER SLOTS` response.
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+pub trait HostMapping: Send + Debug {
+  /// Map the provided IP address to a hostname that should be used during the TLS handshake.
+  ///
+  /// The `default_host` argument represents the hostname of the node that returned the `CLUSTER SLOTS` response.
+  ///
+  /// If `None` is returned the client will use the IP address as the server name.
+  fn map(&self, ip: &IpAddr, default_host: &str) -> Option<String>;
+}
+
+/// An optional enum used to describe how the client should modify or map IP addresses and hostnames in a clustered
+/// deployment.
+///
+/// This is only necessary to use with a clustered deployment. Centralized or sentinel deployments should use `None`.
+///
+/// More information can be found [here](https://github.com/mna/redisc/issues/13) and [here](https://github.com/lettuce-io/lettuce-core/issues/1454#issuecomment-707537384).
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+#[derive(Clone, Debug)]
+pub enum TlsHostMapping {
+  /// Do not modify or replace hostnames or IP addresses in the `CLUSTER SLOTS` response.
+  ///
+  /// Default
+  None,
+  /// Replace any IP addresses in the `CLUSTER SLOTS` response with the hostname of the node that returned
+  /// the `CLUSTER SLOTS` response.
+  ///
+  /// If the `CLUSTER SLOTS` response contains hostnames alongside IP addresses (via the `metadata` block) then
+  /// those hostnames will be used instead. However, this is a relatively new Redis feature and it's likely some
+  /// configurations will not expose this information.
+  DefaultHost,
+  /// Provide a custom mapping from IP address to hostname to be used in a manner similar to a reverse DNS lookup.
+  Custom(Arc<dyn HostMapping>),
+}
+
+impl TlsHostMapping {
+  pub(crate) fn map(&self, value: &IpAddr, default_host: &str) -> Option<String> {
+    match self {
+      TlsHostMapping::None => None,
+      TlsHostMapping::DefaultHost => Some(default_host.to_owned()),
+      TlsHostMapping::Custom(ref inner) => inner.map(value, &default_host),
+    }
+  }
+}
+
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+#[derive(Clone, Debug)]
+pub struct TlsConfig {
+  /// The TLS connector from either `native-tls` or `rustls`.
+  pub connector: TlsConnector,
+  /// The hostname modification or mapping policy to use when discovering and connecting to cluster nodes.
+  pub hostnames: TlsHostMapping,
+}
+
+impl<C: Into<TlsConnector>> From<C> for TlsConfig {
+  fn from(connector: C) -> Self {
+    TlsConfig {
+      connector: connector.into(),
+      hostnames: TlsHostMapping::None,
+    }
+  }
+}
 
 /// An enum for interacting with various TLS libraries and interfaces.
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
@@ -44,7 +109,7 @@ impl PartialEq for TlsConnector {
 
 impl Eq for TlsConnector {}
 
-impl fmt::Debug for TlsConnector {
+impl Debug for TlsConnector {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("TlsConnector")
       .field("kind", match self {

@@ -1,10 +1,21 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
   protocol::types::SlotRange,
   types::RedisValue,
 };
 use arcstr::ArcStr;
 use std::{collections::HashMap, net::IpAddr, str::FromStr};
+
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::protocol::{
+  tls::{HostMapping, TlsHostMapping},
+  utils::server_to_parts,
+};
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use bytes_utils::Str;
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use std::sync::Arc;
 
 fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
   match value {
@@ -158,6 +169,8 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
     id,
     #[cfg(feature = "replicas")]
     replicas,
+    #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+    tls_server_name: None,
   })
 }
 
@@ -175,13 +188,100 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
   Ok(out)
 }
 
+/// Modify the `CLUSTER SLOTS` command according to the hostname mapping policy in the `TlsHostMapping`.
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut Vec<SlotRange>, default_host: &str) {
+  let policy = match inner.config.tls {
+    Some(ref config) => &config.hostnames,
+    None => {
+      _trace!(inner, "Skip modifying TLS hostnames.");
+      return;
+    },
+  };
+  if policy == TlsHostMapping::None {
+    _trace!(inner, "Skip modifying TLS hostnames.");
+    return;
+  }
+
+  for slot_range in ranges.iter_mut() {
+    let ip = match server_to_parts(&slot_range.primary) {
+      Ok((host, _)) => match IpAddr::from_str(host) {
+        Ok(ip) => ip,
+        Err(_) => continue,
+      },
+      Err(e) => {
+        _debug!(inner, "Failed to parse CLUSTER SLOTS primary hostname: {}", e);
+        continue;
+      },
+    };
+
+    if let Some(tls_server_name) = policy.map(&ip, default_host) {
+      _debug!(inner, "Mapping {} to {} for TLS handshake.", ip, tls_server_name);
+      slot_range.tls_server_name = Some(ArcStr::from(tls_server_name));
+    }
+  }
+}
+
+#[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, _: &mut Vec<SlotRange>, _: &str) {
+  _trace!(inner, "Skip modifying TLS hostnames.")
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  use crate::protocol::tls::{HostMapping, TlsHostMapping};
   use crate::protocol::types::SlotRange;
 
-  #[test]
-  fn should_parse_cluster_slots_example_metadata_hostnames() {
+  fn fake_cluster_slots_without_metadata() -> RedisValue {
+    let first_slot_range = RedisValue::Array(vec![
+      0.into(),
+      5460.into(),
+      RedisValue::Array(vec![
+        "127.0.0.1".into(),
+        30001.into(),
+        "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+      ]),
+      RedisValue::Array(vec![
+        "127.0.0.1".into(),
+        30004.into(),
+        "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
+      ]),
+    ]);
+    let second_slot_range = RedisValue::Array(vec![
+      5461.into(),
+      10922.into(),
+      RedisValue::Array(vec![
+        "127.0.0.1".into(),
+        30002.into(),
+        "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+      ]),
+      RedisValue::Array(vec![
+        "127.0.0.1".into(),
+        30005.into(),
+        "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
+      ]),
+    ]);
+    let third_slot_range = RedisValue::Array(vec![
+      10923.into(),
+      16383.into(),
+      RedisValue::Array(vec![
+        "127.0.0.1".into(),
+        30003.into(),
+        "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+      ]),
+      RedisValue::Array(vec![
+        "127.0.0.1".into(),
+        30006.into(),
+        "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
+      ]),
+    ]);
+
+    RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range])
+  }
+
+  fn fake_cluster_slots_with_metadata() -> RedisValue {
     let first_slot_range = RedisValue::Array(vec![
       0.into(),
       5460.into(),
@@ -230,27 +330,68 @@ mod tests {
         RedisValue::Array(vec!["hostname".into(), "host-6.redis.example.com".into()]),
       ]),
     ]);
-    let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
+
+    RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range])
+  }
+
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[derive(Debug)]
+  struct FakeHostMapper;
+
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  impl HostMapping for FakeHostMapper {
+    fn map(&self, ip: &IpAddr, default_host: &str) -> Option<String> {
+      Some("foobarbaz".into())
+    }
+  }
+
+  #[test]
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  fn should_modify_cluster_slot_hostnames_default_host_without_metadata() {
+    unimplemented!()
+  }
+
+  #[test]
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  fn should_modify_cluster_slot_hostnames_default_host_with_metadata() {
+    unimplemented!()
+  }
+
+  #[test]
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  fn should_modify_cluster_slot_hostnames_custom() {
+    unimplemented!()
+  }
+
+  #[test]
+  fn should_parse_cluster_slots_example_metadata_hostnames() {
+    let input = fake_cluster_slots_with_metadata();
 
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
+        start: 0,
+        end: 5460,
         primary: "host-1.redis.example.com:30001".into(),
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
+        start: 5461,
+        end: 10922,
         primary: "host-3.redis.example.com:30002".into(),
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
+        start: 10923,
+        end: 16383,
         primary: "host-5.redis.example.com:30003".into(),
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
     ];
     assert_eq!(actual, expected);
@@ -258,69 +399,33 @@ mod tests {
 
   #[test]
   fn should_parse_cluster_slots_example_no_metadata() {
-    let first_slot_range = RedisValue::Array(vec![
-      0.into(),
-      5460.into(),
-      RedisValue::Array(vec![
-        "127.0.0.1".into(),
-        30001.into(),
-        "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
-      ]),
-      RedisValue::Array(vec![
-        "127.0.0.1".into(),
-        30004.into(),
-        "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
-      ]),
-    ]);
-    let second_slot_range = RedisValue::Array(vec![
-      5461.into(),
-      10922.into(),
-      RedisValue::Array(vec![
-        "127.0.0.1".into(),
-        30002.into(),
-        "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
-      ]),
-      RedisValue::Array(vec![
-        "127.0.0.1".into(),
-        30005.into(),
-        "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
-      ]),
-    ]);
-    let third_slot_range = RedisValue::Array(vec![
-      10923.into(),
-      16383.into(),
-      RedisValue::Array(vec![
-        "127.0.0.1".into(),
-        30003.into(),
-        "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
-      ]),
-      RedisValue::Array(vec![
-        "127.0.0.1".into(),
-        30006.into(),
-        "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
-      ]),
-    ]);
-    let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
+    let input = fake_cluster_slots_without_metadata();
 
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
+        start: 0,
+        end: 5460,
         primary: "127.0.0.1:30001".into(),
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
+        start: 5461,
+        end: 10922,
         primary: "127.0.0.1:30002".into(),
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
+        start: 10923,
+        end: 16383,
         primary: "127.0.0.1:30003".into(),
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
     ];
     assert_eq!(actual, expected);
@@ -381,22 +486,28 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
+        start: 0,
+        end: 5460,
         primary: "127.0.0.1:30001".into(),
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
+        start: 5461,
+        end: 10922,
         primary: "127.0.0.1:30002".into(),
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
+        start: 10923,
+        end: 16383,
         primary: "127.0.0.1:30003".into(),
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
     ];
     assert_eq!(actual, expected);
@@ -457,22 +568,28 @@ mod tests {
     let actual = parse_cluster_slots(input, "fake-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
+        start: 0,
+        end: 5460,
         primary: "fake-host:30001".into(),
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
+        start: 5461,
+        end: 10922,
         primary: "fake-host:30002".into(),
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
+        start: 10923,
+        end: 16383,
         primary: "fake-host:30003".into(),
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        tls_server_name: None,
       },
     ];
     assert_eq!(actual, expected);
