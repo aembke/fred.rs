@@ -41,6 +41,8 @@ mod other {
   cluster_test!(other, should_manually_unblock);
   cluster_test!(other, should_error_when_blocked);
   cluster_test!(other, should_safely_change_protocols_repeatedly);
+  cluster_test!(other, should_pipeline_all);
+  cluster_test!(other, should_pipeline_last);
 }
 
 mod pool {

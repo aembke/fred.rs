@@ -1,5 +1,7 @@
 #![allow(unused_macros)]
 #![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
 
 use crate::chaos_monkey::set_test_kind;
 use fred::{
@@ -16,6 +18,7 @@ const RECONNECT_DELAY: u32 = 500;
 #[cfg(not(feature = "chaos-monkey"))]
 const RECONNECT_DELAY: u32 = 1000;
 
+use fred::types::TlsHostMapping;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector};
 #[cfg(feature = "enable-native-tls")]
@@ -236,8 +239,8 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     tls: Some(TlsConfig {
-      connector:        create_rustls_config(),
-      use_default_host: true,
+      connector: create_rustls_config(),
+      hostnames: TlsHostMapping::DefaultHost,
     }),
     ..Default::default()
   };
@@ -249,6 +252,8 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
 
   (config, perf)
 }
+
+// TODO can't run centralized tests with tls currently...
 
 #[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
 fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
@@ -262,8 +267,8 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     tls: Some(TlsConfig {
-      connector:        create_native_tls_config(),
-      use_default_host: true,
+      connector: create_native_tls_config(),
+      hostnames: TlsHostMapping::DefaultHost,
     }),
     ..Default::default()
   };

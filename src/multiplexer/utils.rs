@@ -13,7 +13,7 @@ use crate::{
   utils as client_utils,
 };
 use redis_protocol::resp3::types::PUBSUB_PUSH_PREFIX;
-use std::{cmp, str, sync::Arc, time::Duration};
+use std::{cmp, sync::Arc, time::Duration};
 use tokio::{self, sync::oneshot::channel as oneshot_channel};
 
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -260,31 +260,6 @@ pub fn should_drop_extra_pubsub_frame(
   should_drop
 }
 
-/// Compare server identifiers of the form `<host>|<ip>:<port>` and `:<port>`, using `default_host` if a host/ip is
-/// not provided.
-// TODO get rid of this, change Server to merge default_host when created
-pub fn compare_servers(lhs: &Server, rhs: &Server, default_host: &str) -> bool {
-  if lhs.host.is_empty() && rhs.host.is_empty() {
-    lhs.port == rhs.port
-  } else if !lhs.host.is_empty() && !rhs.host.is_empty() {
-    lhs == rhs
-  } else if lhs.host.is_empty() && !rhs.host.is_empty() {
-    unimplemented!()
-  } else {
-  }
-
-  if !lhs.host.is_empty() && !rhs.host.is_empty() {
-    lhs == rhs
-    // FIXME
-  } else if lhs_parts.len() == 2 && rhs_parts.len() == 1 {
-    lhs_parts[0] == default_host && lhs_parts[1] == rhs_parts[0]
-  } else if lhs_parts.len() == 1 && rhs_parts.len() == 2 {
-    rhs_parts[0] == default_host && rhs_parts[1] == lhs_parts[0]
-  } else {
-    lhs == rhs
-  }
-}
-
 /// Read the next reconnection delay for the client.
 pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration, RedisError> {
   inner
@@ -352,7 +327,7 @@ pub async fn cluster_redirect_with_policy(
   multiplexer: &mut Multiplexer,
   kind: ClusterErrorKind,
   slot: u16,
-  server: &str,
+  server: &Server,
 ) -> Result<(), RedisError> {
   let mut delay = inner.with_perf_config(|perf| Duration::from_millis(perf.cluster_cache_update_delay_ms as u64));
 
@@ -378,7 +353,7 @@ pub async fn cluster_redirect_with_policy(
 pub async fn send_asking_with_policy(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: &str,
+  server: &Server,
   slot: u16,
 ) -> Result<(), RedisError> {
   let mut delay = inner.with_perf_config(|perf| Duration::from_millis(perf.cluster_cache_update_delay_ms as u64));

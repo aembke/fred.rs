@@ -14,7 +14,7 @@ use crate::{
     },
     responders::ResponseKind,
   },
-  types::ClusterHash,
+  types::{ClusterHash, Server},
 };
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ enum TransactionResponse {
   /// Returned in response to a write error or a connection closing.
   Retry(RedisError),
   /// Send `DISCARD` and retry the entire transaction against the provided server/hash slot.
-  Redirection((ClusterErrorKind, u16, String)),
+  Redirection((ClusterErrorKind, u16, Server)),
   /// Finish the transaction with the associated response.
   Finished(Resp3Frame),
   /// Continue the transaction.
@@ -42,7 +42,7 @@ enum TransactionResponse {
 async fn write_command(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: &str,
+  server: &Server,
   command: RedisCommand,
   abort_on_error: bool,
   rx: MultiplexerReceiver,
@@ -85,7 +85,7 @@ async fn write_command(
 async fn send_exec(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: &str,
+  server: &Server,
   id: u64,
 ) -> Result<TransactionResponse, RedisError> {
   let mut command = RedisCommand::new(RedisCommandKind::Exec, vec![]);
@@ -101,7 +101,7 @@ async fn send_exec(
 async fn send_discard(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: &str,
+  server: &Server,
   id: u64,
 ) -> Result<TransactionResponse, RedisError> {
   let mut command = RedisCommand::new(RedisCommandKind::Discard, vec![]);

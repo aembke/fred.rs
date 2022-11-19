@@ -183,7 +183,7 @@ pub enum ServerState {
     /// An updated set of known sentinel nodes.
     sentinels: Vec<(String, u16)>,
     /// The server host/port resolved from the sentinel nodes, if known.
-    primary:   Option<ArcStr>,
+    primary:   Option<Server>,
     #[cfg(feature = "replicas")]
     replicas:  HashMap<ArcStr, ArcStr>,
   },
@@ -253,13 +253,13 @@ impl ServerState {
     }
   }
 
-  pub fn update_sentinel_primary(&mut self, server: &ArcStr) {
+  pub fn update_sentinel_primary(&mut self, server: &Server) {
     if let ServerState::Sentinel { ref mut primary, .. } = *self {
       *primary = Some(server.clone());
     }
   }
 
-  pub fn sentinel_primary(&self) -> Option<ArcStr> {
+  pub fn sentinel_primary(&self) -> Option<Server> {
     if let ServerState::Sentinel { ref primary, .. } = *self {
       primary.clone()
     } else {
@@ -267,7 +267,7 @@ impl ServerState {
     }
   }
 
-  pub fn update_sentinel_nodes(&mut self, server: &ArcStr, nodes: Vec<(String, u16)>) {
+  pub fn update_sentinel_nodes(&mut self, server: &Server, nodes: Vec<(String, u16)>) {
     if let ServerState::Sentinel {
       ref mut sentinels,
       ref mut primary,
@@ -530,7 +530,7 @@ impl RedisClientInner {
     self.performance.load().default_command_timeout_ms
   }
 
-  pub async fn set_blocked_server(&self, server: &ArcStr) {
+  pub async fn set_blocked_server(&self, server: &Server) {
     self.backchannel.write().await.set_blocked(server);
   }
 

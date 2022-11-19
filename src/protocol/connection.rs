@@ -4,7 +4,7 @@ use crate::{
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    types::ProtocolFrame,
+    types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
   types::{InfoKind, Resolve},
@@ -35,8 +35,6 @@ use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
-use crate::protocol::types::Server;
-use sha1::digest::generic_array::functional::FunctionalSequence;
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
@@ -313,7 +311,7 @@ impl RedisTransport {
     _debug!(
       inner,
       "Creating TCP connection to {} at {}:{}",
-      host,
+      server.host,
       addr.ip(),
       addr.port()
     );

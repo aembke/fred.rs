@@ -2,9 +2,8 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   multiplexer::Connections,
-  protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server, utils as protocol_utils},
+  protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
 };
-use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{collections::HashMap, sync::Arc};
 
@@ -26,7 +25,7 @@ async fn check_and_create_transport(
   }
   backchannel.transport = None;
 
-  let transport = connection::create(
+  let mut transport = connection::create(
     inner,
     server.host.as_str().to_owned(),
     server.port,
@@ -34,6 +33,7 @@ async fn check_and_create_transport(
     server.tls_server_name.as_ref(),
   )
   .await?;
+  let _ = transport.setup(inner).await?;
   backchannel.transport = Some(transport);
 
   Ok(true)

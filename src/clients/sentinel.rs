@@ -7,7 +7,7 @@ use redis_protocol::resp3::prelude::RespVersion;
 use std::{default::Default, fmt, sync::Arc};
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::protocol::tls::TlsConnector;
+use crate::types::TlsConfig;
 
 /// Configuration options for sentinel clients.
 #[derive(Clone, Debug)]
@@ -37,7 +37,7 @@ pub struct SentinelConfig {
   /// Default: `None`
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls:      Option<TlsConnector>,
+  pub tls:      Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`

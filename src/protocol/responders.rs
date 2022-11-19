@@ -10,7 +10,6 @@ use crate::{
   types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
   utils as client_utils,
 };
-use arcstr::ArcStr;
 use bytes_utils::Str;
 use parking_lot::Mutex;
 use std::{

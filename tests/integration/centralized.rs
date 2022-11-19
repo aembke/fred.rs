@@ -39,6 +39,8 @@ mod other {
   centralized_test!(other, should_error_when_blocked);
   centralized_test!(other, should_smoke_test_from_redis_impl);
   centralized_test!(other, should_safely_change_protocols_repeatedly);
+  centralized_test!(other, should_pipeline_all);
+  centralized_test!(other, should_pipeline_last);
   // centralized_test!(other, should_test_high_concurrency_pool);
 }
 

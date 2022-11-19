@@ -5,7 +5,6 @@ use crate::{
   trace,
   types::{KeyspaceEvent, RedisValue},
 };
-use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 

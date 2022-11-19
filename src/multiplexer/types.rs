@@ -1,5 +1,4 @@
 use crate::protocol::types::Server;
-use arcstr::ArcStr;
 
 /// Options describing how to change connections in a cluster.
 #[derive(Clone, Debug, Eq, PartialEq)]

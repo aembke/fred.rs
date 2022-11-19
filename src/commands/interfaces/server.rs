@@ -2,9 +2,8 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, RespVersion},
+  types::{FromRedis, RespVersion, Server},
 };
-use arcstr::ArcStr;
 use bytes_utils::Str;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
@@ -158,7 +157,7 @@ pub trait ServerInterface: ClientLike {
   }
 
   /// Read the primary Redis server identifier returned from the sentinel nodes.
-  fn sentinel_primary(&self) -> Option<ArcStr> {
+  fn sentinel_primary(&self) -> Option<Server> {
     self.inner().server_state.read().sentinel_primary()
   }
 

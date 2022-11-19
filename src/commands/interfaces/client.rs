@@ -12,7 +12,6 @@ use crate::{
     Server,
   },
 };
-use arcstr::ArcStr;
 use bytes_utils::Str;
 use std::collections::HashMap;
 

@@ -5,7 +5,6 @@ use crate::{
   types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED},
   utils,
 };
-use arcstr::ArcStr;
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
@@ -22,6 +21,7 @@ use std::{
   str,
 };
 
+use crate::types::Server;
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
@@ -212,7 +212,7 @@ impl RedisKey {
 
   /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is
   /// known.
-  pub fn cluster_owner<C>(&self, client: &C) -> Option<ArcStr>
+  pub fn cluster_owner<C>(&self, client: &C) -> Option<Server>
   where
     C: ClientLike,
   {

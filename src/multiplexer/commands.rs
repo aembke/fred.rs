@@ -6,10 +6,10 @@ use crate::{
   types::{ClientState, ClusterHash},
   utils as client_utils,
 };
-use arcstr::ArcStr;
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 
+use crate::types::Server;
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 
@@ -217,7 +217,7 @@ async fn process_pipeline(
 async fn process_ask(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: String,
+  server: Server,
   slot: u16,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
@@ -259,7 +259,7 @@ async fn process_ask(
 async fn process_moved(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: String,
+  server: Server,
   slot: u16,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
@@ -301,7 +301,7 @@ async fn process_moved(
 async fn process_reconnect(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
-  server: Option<ArcStr>,
+  server: Option<Server>,
   force: bool,
   tx: Option<ResponseSender>,
 ) -> Result<(), RedisError> {

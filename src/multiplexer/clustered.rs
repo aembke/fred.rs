@@ -11,14 +11,13 @@ use crate::{
     responders::ResponseKind,
     types::{ClusterRouting, Server, SlotRange},
     utils as protocol_utils,
-    utils::server_to_parts,
   },
   types::ClusterStateChange,
 };
 use arcstr::ArcStr;
 use futures::TryStreamExt;
 use std::{
-  collections::{BTreeMap, BTreeSet, HashMap},
+  collections::{BTreeSet, HashMap},
   sync::Arc,
 };
 use tokio::task::JoinHandle;
@@ -184,7 +183,6 @@ pub fn spawn_reader_task(
       let frame = match reader.try_next().await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
-          // FIXME make sure try_next return this when the connection closes without an error
           last_error = None;
           break;
         },
@@ -225,8 +223,13 @@ pub fn spawn_reader_task(
 /// command queue if appropriate.
 ///
 /// Note: Cluster errors within a transaction can only be handled via the blocking multiplexer channel.
-fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisCommand, frame: Resp3Frame) {
-  let (kind, slot, server) = match frame.as_str() {
+fn process_cluster_error(
+  inner: &Arc<RedisClientInner>,
+  server: &Server,
+  mut command: RedisCommand,
+  frame: Resp3Frame,
+) {
+  let (kind, slot, server_str) = match frame.as_str() {
     Some(data) => match protocol_utils::parse_cluster_error(data) {
       Ok(result) => result,
       Err(e) => {
@@ -238,6 +241,18 @@ fn process_cluster_error(inner: &Arc<RedisClientInner>, mut command: RedisComman
     None => {
       command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
       command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster error.")));
+      return;
+    },
+  };
+  let server = match Server::from_parts(&server_str, &server.host) {
+    Some(server) => server,
+    None => {
+      _warn!(inner, "Invalid server field in cluster error: {}", server_str);
+      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_caller(Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Invalid cluster redirection error.",
+      )));
       return;
     },
   };
@@ -346,7 +361,7 @@ pub async fn process_response_frame(
       command.kind.to_str_debug(),
       server
     );
-    process_cluster_error(inner, command, frame);
+    process_cluster_error(inner, server, command, frame);
     return Ok(());
   }
 
@@ -419,7 +434,7 @@ pub async fn connect_any(
     let mut connection = try_or_continue!(
       connection::create(
         inner,
-        server.host.to_owned(),
+        server.host.as_str().to_owned(),
         server.port,
         None,
         server.tls_server_name.as_ref()

@@ -1,7 +1,8 @@
 use super::utils as protocol_utils;
 use crate::{
   error::{RedisError, RedisErrorKind},
-  protocol::cluster,
+  modules::inner::RedisClientInner,
+  protocol::{cluster, utils::server_to_parts},
   types::*,
   utils,
 };
@@ -16,15 +17,15 @@ use std::{
   convert::TryInto,
   fmt::{Display, Formatter},
   hash::{Hash, Hasher},
-  net::{IpAddr, SocketAddr, ToSocketAddrs},
+  net::{SocketAddr, ToSocketAddrs},
+  sync::Arc,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
-use crate::{modules::inner::RedisClientInner, protocol::utils::server_to_parts};
 #[cfg(feature = "replicas")]
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::atomic::AtomicUsize;
 
 #[derive(Debug)]
 pub enum ProtocolFrame {
@@ -65,15 +66,6 @@ pub struct Server {
 }
 
 impl Server {
-  /// Create a new server from the address parts.
-  pub(crate) fn new(host: &str, port: u16) -> Server {
-    Server {
-      host: ArcStr::from(host),
-      port,
-      tls_server_name: None,
-    }
-  }
-
   /// Create a new server struct from a `host:port` string and the default host that sent the last command.
   pub(crate) fn from_parts(server: &str, default_host: &str) -> Option<Server> {
     server_to_parts(server).ok().map(|(host, port)| {
@@ -350,16 +342,11 @@ impl ClusterRouting {
     out.into_iter().collect()
   }
 
-  /// Clear the cached state of the cluster.
-  pub(crate) fn clear(&mut self) {
-    self.data.clear();
-  }
-
   /// Rebuild the cache in place with the output of a `CLUSTER SLOTS` command.
   pub(crate) fn rebuild(
     &mut self,
     inner: &Arc<RedisClientInner>,
-    mut cluster_slots: RedisValue,
+    cluster_slots: RedisValue,
     default_host: &str,
   ) -> Result<(), RedisError> {
     self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;

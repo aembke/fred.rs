@@ -6,11 +6,9 @@ use crate::{
     connection::{self, CommandBuffer, Counters, RedisWriter},
     responders::ResponseKind,
     types::{ClusterRouting, Server},
-    utils::server_to_parts,
   },
   trace,
 };
-use arcstr::ArcStr;
 use futures::future::try_join_all;
 use std::{
   collections::{HashMap, VecDeque},
@@ -187,17 +185,13 @@ impl Connections {
   /// Whether or not the connection map has a connection to the provided server`.
   pub fn has_server_connection(&self, server: &Server) -> bool {
     match self {
-      Connections::Centralized { ref writer } => writer
-        .as_ref()
-        .map(|writer| utils::compare_servers(&writer.server, server, &writer.default_host))
-        .unwrap_or(false),
-      Connections::Sentinel { ref writer } => writer
-        .as_ref()
-        .map(|writer| utils::compare_servers(&writer.server, server, &writer.default_host))
-        .unwrap_or(false),
+      Connections::Centralized { ref writer } => {
+        writer.as_ref().map(|writer| writer.server == *server).unwrap_or(false)
+      },
+      Connections::Sentinel { ref writer } => writer.as_ref().map(|writer| writer.server == *server).unwrap_or(false),
       Connections::Clustered { ref writers, .. } => {
         for (_, writer) in writers.iter() {
-          if utils::compare_servers(&writer.server, server, &writer.default_host) {
+          if writer.server == *server {
             return true;
           }
         }
@@ -210,27 +204,21 @@ impl Connections {
   /// Get the connection writer half for the provided server.
   pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut RedisWriter> {
     match self {
-      Connections::Centralized { ref mut writer } => writer.as_mut().and_then(|writer| {
-        if utils::compare_servers(&writer.server, server, &writer.default_host) {
-          Some(writer)
-        } else {
-          None
-        }
-      }),
-      Connections::Sentinel { ref mut writer } => writer.as_mut().and_then(|writer| {
-        if utils::compare_servers(&writer.server, server, &writer.default_host) {
-          Some(writer)
-        } else {
-          None
-        }
-      }),
-      Connections::Clustered { ref mut writers, .. } => writers.iter_mut().find_map(|(_, writer)| {
-        if utils::compare_servers(&writer.server, server, &writer.default_host) {
-          Some(writer)
-        } else {
-          None
-        }
-      }),
+      Connections::Centralized { ref mut writer } => {
+        writer
+          .as_mut()
+          .and_then(|writer| if writer.server == *server { Some(writer) } else { None })
+      },
+      Connections::Sentinel { ref mut writer } => {
+        writer
+          .as_mut()
+          .and_then(|writer| if writer.server == *server { Some(writer) } else { None })
+      },
+      Connections::Clustered { ref mut writers, .. } => {
+        writers
+          .iter_mut()
+          .find_map(|(_, writer)| if writer.server == *server { Some(writer) } else { None })
+      },
     }
   }
 
@@ -733,12 +721,9 @@ impl Multiplexer {
   }
 
   /// Returns whether or not the provided `server` owns the provided `slot`.
-  pub fn cluster_node_owns_slot(&self, slot: u16, server: &str) -> bool {
+  pub fn cluster_node_owns_slot(&self, slot: u16, server: &Server) -> bool {
     match self.connections {
-      Connections::Clustered { ref cache, .. } => cache
-        .get_server(slot)
-        .map(|node| node.as_str() == server)
-        .unwrap_or(false),
+      Connections::Clustered { ref cache, .. } => cache.get_server(slot).map(|node| node == server).unwrap_or(false),
       _ => false,
     }
   }
@@ -751,7 +736,7 @@ impl Multiplexer {
     &mut self,
     kind: &ClusterErrorKind,
     slot: u16,
-    server: &str,
+    server: &Server,
   ) -> Result<(), RedisError> {
     debug!(
       "{}: Handling cluster redirect {:?} {} {}",

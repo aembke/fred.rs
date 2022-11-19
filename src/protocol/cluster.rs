@@ -1,22 +1,14 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::types::SlotRange,
+  protocol::types::{Server, SlotRange},
   types::RedisValue,
 };
 use arcstr::ArcStr;
-use std::{collections::HashMap, net::IpAddr, str::FromStr};
+use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
-use crate::protocol::types::Server;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::protocol::{
-  tls::{HostMapping, TlsHostMapping},
-  utils::server_to_parts,
-};
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use bytes_utils::Str;
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use std::sync::Arc;
+use crate::protocol::tls::TlsHostMapping;
 
 fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
   match value {
@@ -154,7 +146,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
     tls_server_name: None,
   };
 
-  let mut _replicas = Vec::with_capacity(slot_range.len());
+  // let mut _replicas = Vec::with_capacity(slot_range.len());
   // while let Some(server_block) = slot_range.pop() {
   // let server_block: Vec<RedisValue> = match server_block.convert() {
   // Ok(b) => b,
@@ -175,7 +167,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
     primary,
     id,
     #[cfg(feature = "replicas")]
-    replicas: _replicas,
+    replicas: Vec::new(),
   })
 }
 
@@ -193,6 +185,20 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
   Ok(out)
 }
 
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &str) {
+  for slot_range in ranges.iter_mut() {
+    let ip = match IpAddr::from_str(&slot_range.primary.host) {
+      Ok(ip) => ip,
+      Err(_) => continue,
+    };
+
+    if let Some(tls_server_name) = policy.map(&ip, default_host) {
+      slot_range.primary.tls_server_name = Some(ArcStr::from(tls_server_name));
+    }
+  }
+}
+
 /// Modify the `CLUSTER SLOTS` command according to the hostname mapping policy in the `TlsHostMapping`.
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut Vec<SlotRange>, default_host: &str) {
@@ -203,22 +209,12 @@ pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut
       return;
     },
   };
-  if policy == TlsHostMapping::None {
+  if *policy == TlsHostMapping::None {
     _trace!(inner, "Skip modifying TLS hostnames.");
     return;
   }
 
-  for slot_range in ranges.iter_mut() {
-    let ip = match IpAddr::from_str(&slot_range.primary.host) {
-      Ok(ip) => ip,
-      Err(_) => continue,
-    };
-
-    if let Some(tls_server_name) = policy.map(&ip, default_host) {
-      _debug!(inner, "Mapping {} to {} for TLS handshake.", ip, tls_server_name);
-      slot_range.primary.tls_server_name = Some(ArcStr::from(tls_server_name));
-    }
-  }
+  replace_tls_server_names(policy, ranges, default_host);
 }
 
 #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
@@ -232,6 +228,17 @@ mod tests {
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   use crate::protocol::tls::{HostMapping, TlsHostMapping};
   use crate::protocol::types::SlotRange;
+
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[derive(Debug)]
+  struct FakeHostMapper;
+
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  impl HostMapping for FakeHostMapper {
+    fn map(&self, _: &IpAddr, _: &str) -> Option<String> {
+      Some("foobarbaz".into())
+    }
+  }
 
   fn fake_cluster_slots_without_metadata() -> RedisValue {
     let first_slot_range = RedisValue::Array(vec![
@@ -333,33 +340,47 @@ mod tests {
     RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range])
   }
 
+  #[test]
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  #[derive(Debug)]
-  struct FakeHostMapper;
+  fn should_modify_cluster_slot_hostnames_default_host_without_metadata() {
+    let policy = TlsHostMapping::DefaultHost;
+    let fake_data = fake_cluster_slots_without_metadata();
+    let mut ranges = parse_cluster_slots(fake_data, "default-host").unwrap();
+    replace_tls_server_names(&policy, &mut ranges, "default-host");
 
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  impl HostMapping for FakeHostMapper {
-    fn map(&self, ip: &IpAddr, default_host: &str) -> Option<String> {
-      Some("foobarbaz".into())
+    for slot_range in ranges.iter() {
+      assert_ne!(slot_range.primary.host, "default-host");
+      assert_eq!(slot_range.primary.tls_server_name, Some("default-host".into()));
     }
   }
 
   #[test]
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  fn should_modify_cluster_slot_hostnames_default_host_without_metadata() {
-    unimplemented!()
-  }
+  fn should_not_modify_cluster_slot_hostnames_default_host_with_metadata() {
+    let policy = TlsHostMapping::DefaultHost;
+    let fake_data = fake_cluster_slots_with_metadata();
+    let mut ranges = parse_cluster_slots(fake_data, "default-host").unwrap();
+    replace_tls_server_names(&policy, &mut ranges, "default-host");
 
-  #[test]
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  fn should_modify_cluster_slot_hostnames_default_host_with_metadata() {
-    unimplemented!()
+    for slot_range in ranges.iter() {
+      assert_ne!(slot_range.primary.host, "default-host");
+      // since there's a metadata hostname then expect that instead of the default host
+      assert_ne!(slot_range.primary.tls_server_name, Some("default-host".into()));
+    }
   }
 
   #[test]
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   fn should_modify_cluster_slot_hostnames_custom() {
-    unimplemented!()
+    let policy = TlsHostMapping::Custom(Arc::new(FakeHostMapper));
+    let fake_data = fake_cluster_slots_without_metadata();
+    let mut ranges = parse_cluster_slots(fake_data, "default-host").unwrap();
+    replace_tls_server_names(&policy, &mut ranges, "default-host");
+
+    for slot_range in ranges.iter() {
+      assert_ne!(slot_range.primary.host, "default-host");
+      assert_eq!(slot_range.primary.tls_server_name, Some("foobarbaz".into()));
+    }
   }
 
   #[test]
@@ -592,7 +613,6 @@ mod tests {
           port:            30001,
           tls_server_name: None,
         },
-        primary: "fake-host:30001".into(),
         id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       },
       SlotRange {

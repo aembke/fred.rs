@@ -10,10 +10,9 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  types::FromRedis,
+  types::{FromRedis, Server},
   utils,
 };
-use arcstr::ArcStr;
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
@@ -179,7 +178,7 @@ impl Transaction {
   }
 
   /// Read the server ID against which this transaction will run, if known.
-  pub fn cluster_node(&self) -> Option<ArcStr> {
+  pub fn cluster_node(&self) -> Option<Server> {
     utils::read_mutex(&self.hash_slot).and_then(|slot| {
       self
         .inner

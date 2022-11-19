@@ -275,3 +275,33 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
 
   Ok(())
 }
+
+pub async fn should_pipeline_all(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+
+  let result: RedisValue = pipeline.set("foo", 1, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.set("bar", 2, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.incr("foo").await?;
+  assert!(result.is_queued());
+
+  let result: ((), (), i64) = pipeline.all().await?;
+  assert_eq!(result.2, 2);
+  Ok(())
+}
+
+pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+
+  let result: RedisValue = pipeline.set("foo", 1, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.set("bar", 2, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.incr("foo").await?;
+  assert!(result.is_queued());
+
+  let result: i64 = pipeline.last().await?;
+  assert_eq!(result, 2);
+  Ok(())
+}

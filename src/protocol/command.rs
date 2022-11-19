@@ -37,12 +37,12 @@ pub enum MultiplexerResponse {
   ///
   /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
   /// may fall back to communication via the command channel in the context of pipelined commands.
-  Ask((u16, String, RedisCommand)),
+  Ask((u16, Server, RedisCommand)),
   /// Retry the command immediately against the provided server, updating the cached routing table first.
   ///
   /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
   /// may fall back to communication via the command channel in the context of pipelined commands.
-  Moved((u16, String, RedisCommand)),
+  Moved((u16, Server, RedisCommand)),
   /// Indicate to the multiplexer that the provided transaction command failed with the associated error.
   ///
   /// The multiplexer is responsible for responding to the caller with the error, if needed. Transaction commands are
@@ -55,21 +55,6 @@ pub enum MultiplexerResponse {
   /// This is only used for non-pipelined commands where the multiplexer task is blocked on a response before
   /// checking the next command.
   ConnectionClosed((RedisError, RedisCommand)),
-}
-
-impl MultiplexerResponse {
-  /// Create a cluster error response message to the multiplexer from a response frame.
-  pub fn from_cluster_error(frame: Resp3Frame, command: RedisCommand) -> Result<Self, RedisError> {
-    let (kind, slot, server) = match frame.as_str() {
-      Some(s) => protocol_utils::parse_cluster_error(s)?,
-      None => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected cluster error.")),
-    };
-
-    Ok(match kind {
-      ClusterErrorKind::Ask => MultiplexerResponse::Ask((slot, server, command)),
-      ClusterErrorKind::Moved => MultiplexerResponse::Moved((slot, server, command)),
-    })
-  }
 }
 
 /// A channel for communication between connection reader tasks and futures returned to the caller.
@@ -1797,7 +1782,7 @@ pub enum MultiplexerCommand {
   /// the client will **not** increment the command's write attempt counter.
   Moved {
     slot:    u16,
-    server:  String,
+    server:  Server,
     command: RedisCommand,
   },
   /// Retry a command after an `ASK` error.
@@ -1807,7 +1792,7 @@ pub enum MultiplexerCommand {
   /// This is typically used instead of `MultiplexerResponse::Ask` when a command was pipelined.
   Ask {
     slot:    u16,
-    server:  String,
+    server:  Server,
     command: RedisCommand,
   },
   /// Initiate a reconnection to the provided server, or all servers.

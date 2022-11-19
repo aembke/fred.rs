@@ -1,7 +1,5 @@
 use crate::error::{RedisError, RedisErrorKind};
-use bytes_utils::Str;
 use std::{
-  collections::HashMap,
   convert::{TryFrom, TryInto},
   env,
   fmt,
@@ -28,7 +26,7 @@ use tokio_rustls::TlsConnector as RustlsConnector;
 
 /// A trait used for mapping IP addresses to hostnames when processing the `CLUSTER SLOTS` response.
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-pub trait HostMapping: Send + Debug {
+pub trait HostMapping: Send + Sync + Debug {
   /// Map the provided IP address to a hostname that should be used during the TLS handshake.
   ///
   /// The `default_host` argument represents the hostname of the node that returned the `CLUSTER SLOTS` response.
@@ -71,8 +69,29 @@ impl TlsHostMapping {
   }
 }
 
+impl PartialEq for TlsHostMapping {
+  fn eq(&self, other: &Self) -> bool {
+    match self {
+      TlsHostMapping::None => match other {
+        TlsHostMapping::None => true,
+        _ => false,
+      },
+      TlsHostMapping::DefaultHost => match other {
+        TlsHostMapping::DefaultHost => true,
+        _ => false,
+      },
+      TlsHostMapping::Custom(_) => match other {
+        TlsHostMapping::Custom(_) => true,
+        _ => false,
+      },
+    }
+  }
+}
+
+impl Eq for TlsHostMapping {}
+
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TlsConfig {
   /// The TLS connector from either `native-tls` or `rustls`.
   pub connector: TlsConnector,

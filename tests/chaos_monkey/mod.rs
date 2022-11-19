@@ -97,21 +97,13 @@ async fn read_foo_src_and_dest() -> Result<(u16, u16), RedisError> {
 
   let foo = RedisKey::from_static_str("foo");
   let owner = match foo.cluster_owner(&client) {
-    Some(server) => server.split(":").skip(1).next().unwrap().parse::<u16>()?,
+    Some(server) => server.port,
     None => return Err(RedisError::new(RedisErrorKind::Unknown, "Failed to find owner")),
   };
   // find dest node from the other nodes
   let destination = client.cached_cluster_state().and_then(|state| loop {
     let server = state.random_slot().unwrap().primary.clone();
-
-    let port = server
-      .split(":")
-      .skip(1)
-      .next()
-      .unwrap()
-      .parse::<u16>()
-      .ok()
-      .and_then(|port| if port == owner { None } else { Some(port) });
+    let port = if server.port == owner { None } else { Some(server.port) };
 
     if let Some(port) = port {
       return Some(port);

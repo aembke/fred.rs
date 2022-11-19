@@ -137,7 +137,12 @@ async fn read_sentinels(
   inner: &Arc<RedisClientInner>,
   sentinel: &mut RedisTransport,
 ) -> Result<Vec<(String, u16)>, RedisError> {
-  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![static_val!(SENTINELS)]);
+  let service_name = read_service_name(inner)?;
+
+  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
+    static_val!(SENTINELS),
+    service_name.into(),
+  ]);
   let frame = sentinel.request_response(command, false).await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
   _trace!(inner, "Read sentinel `sentinels` response: {:?}", response);
@@ -157,7 +162,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
 
   for (host, port) in hosts.into_iter() {
     _debug!(inner, "Connecting to sentinel {}:{}", host, port);
-    let mut transport = try_or_continue!(connection::create(inner, host, port, Some(timeout)).await);
+    let mut transport = try_or_continue!(connection::create(inner, host, port, Some(timeout), None).await);
     let _ = try_or_continue!(
       transport
         .authenticate(&inner.id, username.clone(), password.clone(), false)
@@ -173,21 +178,23 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
   ))
 }
 
+fn read_service_name(inner: &Arc<RedisClientInner>) -> Result<String, RedisError> {
+  match inner.config.server {
+    ServerConfig::Sentinel { ref service_name, .. } => Ok(service_name.to_owned()),
+    _ => Err(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Missing sentinel service name.",
+    )),
+  }
+}
+
 /// Read the `(host, port)` tuple for the primary Redis server, as identified by the `SENTINEL
 /// get-master-addr-by-name` command, then return a connection to that node.
 async fn discover_primary_node(
   inner: &Arc<RedisClientInner>,
   sentinel: &mut RedisTransport,
 ) -> Result<RedisTransport, RedisError> {
-  let service_name = match inner.config.server {
-    ServerConfig::Sentinel { ref service_name, .. } => service_name,
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Sentinel,
-        "Missing sentinel service name.",
-      ))
-    },
-  };
+  let service_name = read_service_name(inner)?;
   let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
     static_val!(GET_MASTER_ADDR_BY_NAME),
     service_name.into(),
@@ -203,7 +210,7 @@ async fn discover_primary_node(
     stry!(response.convert())
   };
 
-  let mut transport = stry!(connection::create(inner, host, port, None).await);
+  let mut transport = stry!(connection::create(inner, host, port, None, None).await);
   let _ = stry!(transport.setup(inner).await);
   Ok(transport)
 }
