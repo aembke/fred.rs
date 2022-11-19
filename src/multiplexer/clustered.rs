@@ -430,19 +430,28 @@ pub async fn connect_any(
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
   let num_servers = all_servers.len();
+  let mut last_error = None;
   for (idx, server) in all_servers.into_iter().enumerate() {
-    let mut connection = try_or_continue!(
-      connection::create(
-        inner,
-        server.host.as_str().to_owned(),
-        server.port,
-        None,
-        server.tls_server_name.as_ref()
-      )
-      .await
-    );
-    let _ = try_or_continue!(connection.setup(inner).await);
+    let connection = connection::create(
+      inner,
+      server.host.as_str().to_owned(),
+      server.port,
+      None,
+      server.tls_server_name.as_ref(),
+    )
+    .await;
+    let mut connection = match connection {
+      Ok(connection) => connection,
+      Err(e) => {
+        last_error = Some(e);
+        continue;
+      },
+    };
 
+    if let Err(e) = connection.setup(inner).await {
+      last_error = Some(e);
+      continue;
+    }
     _debug!(
       inner,
       "Connected to {} ({}/{})",
@@ -453,10 +462,10 @@ pub async fn connect_any(
     return Ok(connection);
   }
 
-  Err(RedisError::new(
+  Err(last_error.unwrap_or(RedisError::new(
     RedisErrorKind::Cluster,
     "Failed connecting to any cluster node.",
-  ))
+  )))
 }
 
 /// Run the `CLUSTER SLOTS` command on the backchannel, creating a new connection if needed.

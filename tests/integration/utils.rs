@@ -34,8 +34,7 @@ pub fn read_env_var(name: &str) -> Option<String> {
   env::var_os(name).and_then(|s| s.into_string().ok())
 }
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-fn read_ci_tls_env() -> bool {
+pub fn read_ci_tls_env() -> bool {
   match env::var_os("FRED_CI_TLS") {
     Some(s) => match s.into_string() {
       Ok(s) => match s.as_ref() {
@@ -105,7 +104,7 @@ struct TlsCreds {
   root_cert_pem:   Vec<u8>,
   client_cert_der: Vec<u8>,
   client_cert_pem: Vec<u8>,
-  // client_key_der:  Vec<u8>,
+  client_key_der:  Vec<u8>,
   client_key_pem:  Vec<u8>,
 }
 
@@ -125,14 +124,14 @@ fn read_tls_creds() -> TlsCreds {
   let root_cert_der_path = format!("{}/ca.crt", creds_path);
   let client_cert_pem_path = format!("{}/client.pem", creds_path);
   let client_cert_der_path = format!("{}/client.crt", creds_path);
-  // let client_key_der_path = format!("{}/client.key", creds_path);
+  let client_key_der_path = format!("{}/client_key.der", creds_path);
   let client_key_pem_path = format!("{}/client.key8", creds_path);
 
   let root_cert_pem = fs::read(&root_cert_pem_path).expect("Failed to read root cert pem");
   let root_cert_der = fs::read(&root_cert_der_path).expect("Failed to read root cert der");
   let client_cert_pem = fs::read(&client_cert_pem_path).expect("Failed to read client cert pem");
   let client_cert_der = fs::read(&client_cert_der_path).expect("Failed to read client cert der");
-  // let client_key_der = fs::read(&client_key_der_path).expect("Failed to read client key der");
+  let client_key_der = fs::read(&client_key_der_path).expect("Failed to read client key der");
   let client_key_pem = fs::read(&client_key_pem_path).expect("Failed to read client key pem");
 
   check_file_contents(&root_cert_pem, "root cert pem");
@@ -140,7 +139,7 @@ fn read_tls_creds() -> TlsCreds {
   check_file_contents(&client_cert_pem, "client cert pem");
   check_file_contents(&client_cert_der, "client cert der");
   check_file_contents(&client_key_pem, "client key pem");
-  // check_file_contents(&client_key_der, "client key der");
+  check_file_contents(&client_key_der, "client key der");
 
   TlsCreds {
     root_cert_pem,
@@ -148,7 +147,7 @@ fn read_tls_creds() -> TlsCreds {
     client_cert_der,
     client_cert_pem,
     client_key_pem,
-    // client_key_der,
+    client_key_der,
   }
 }
 
@@ -164,7 +163,7 @@ fn create_rustls_config() -> TlsConnector {
   ClientConfig::builder()
     .with_safe_defaults()
     .with_root_certificates(root_store)
-    .with_single_cert(cert_chain, PrivateKey(creds.client_key_pem))
+    .with_single_cert(cert_chain, PrivateKey(creds.client_key_der))
     .expect("Failed to build rustls client config")
     .into()
 }
@@ -372,6 +371,10 @@ macro_rules! centralized_test_panic(
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
+          if crate::integration::utils::read_ci_tls_env() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, false).await;
         }
@@ -379,6 +382,10 @@ macro_rules! centralized_test_panic(
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
+          if crate::integration::utils::read_ci_tls_env() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, false, false).await;
         }
@@ -388,6 +395,10 @@ macro_rules! centralized_test_panic(
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
+          if crate::integration::utils::read_ci_tls_env() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, true).await;
         }
@@ -395,6 +406,10 @@ macro_rules! centralized_test_panic(
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
+          if crate::integration::utils::read_ci_tls_env() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, false, true).await;
         }
@@ -466,12 +481,20 @@ macro_rules! centralized_test(
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
+          if crate::integration::utils::read_ci_tls_env() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, false).await;
         }
 
         #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
+          if crate::integration::utils::read_ci_tls_env() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, false, false).await;
         }
@@ -480,12 +503,20 @@ macro_rules! centralized_test(
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
+          if crate::integration::utils::read_ci_tls_env() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, true, true).await;
         }
 
         #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
+          if crate::integration::utils::read_ci_tls_env() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_centralized(crate::integration::$module::$name, false, true).await;
         }

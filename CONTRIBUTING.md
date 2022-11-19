@@ -9,17 +9,12 @@ This document gives some background on how the library is structured and how to 
 * Run rustfmt before submitting any changes.
 * Clean up any compiler warnings.
 * Submit PRs against the `develop` branch.
-* Use the `async/await` syntax rather than `impl Future`, etc.
+* Use the `async` syntax rather than `impl Future` where possible.
 
 ## TODO List
 
-* Add a feature flag for redis v7 changes (GET, XAUTOCLAIM, etc)
 * Implement any missing commands.
 * Support unix domain sockets.
-
-## Goals
-
-## Design 
 
 # Adding Commands
 

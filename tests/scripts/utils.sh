@@ -151,9 +151,11 @@ function generate_cluster_credentials {
   openssl x509 -outform der -in ca.pem -out ca.crt
 
   echo "Generating client key pair..."
-  # native-tls wants a PKCS#8 key, rustls works with PKCS#1 or PKCS#8, and redis-cli wants a PKCS#1 key
+  # native-tls wants a PKCS#8 key and redis-cli wants a PKCS#1 key
   openssl genrsa -out client.key 2048
   openssl pkey -in client.key -out client.key8
+  # rustls needs it in DER format
+  openssl rsa -in client.key -inform pem -out client_key.der -outform der
 
   openssl req -new -key client.key -out client.csr -subj '/CN=client.example.com'
   openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem
@@ -166,8 +168,11 @@ function generate_cluster_credentials {
     CERT_PORT=$((CERT_PORT+1))
     # redis-server wants a PKCS#1 key
     openssl genrsa -out "node-$CERT_PORT.key" 2048
-    openssl req -new -key "node-$CERT_PORT.key" -out "node-$CERT_PORT.csr" -subj "/CN=node-$CERT_PORT.example.com"
-    openssl x509 -req -days 90 -sha256 -in "node-$CERT_PORT.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$CERT_PORT.pem"
+    # create SAN entries for all the other nodes
+    openssl req -new -key "node-$CERT_PORT.key" -out "node-$CERT_PORT.csr" -config "$ROOT/tests/scripts/tls/node-$CERT_PORT.cnf"
+    # might not work on os x with native-tls (https://github.com/sfackler/rust-native-tls/issues/143)
+    openssl x509 -req -days 90 -sha256 -in "node-$CERT_PORT.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$CERT_PORT.pem" \
+     -extensions req_ext -extfile "$ROOT/tests/scripts/tls/node-$CERT_PORT.cnf"
   done
 
   echo "Printing subject for each cert..."

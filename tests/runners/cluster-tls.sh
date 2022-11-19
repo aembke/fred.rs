@@ -19,6 +19,9 @@ export FRED_REDIS_CLUSTER_PORT="30001"
 export FRED_TEST_TLS_CREDS=$PWD/tests/tmp/creds
 export FRED_CI_TLS="true"
 
+# https://github.com/sfackler/rust-native-tls/issues/143
+echo "This may not work on Mac"
+
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"
 else
