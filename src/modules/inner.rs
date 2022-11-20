@@ -13,6 +13,7 @@ use arc_swap::ArcSwap;
 use arcstr::ArcStr;
 use futures::future::{select, Either};
 use parking_lot::RwLock;
+use semver::Version;
 use std::{
   collections::HashMap,
   ops::DerefMut,
@@ -180,6 +181,7 @@ impl ClientCounters {
 /// Added state associated with different server deployment types.
 pub enum ServerState {
   Sentinel {
+    version:   Option<Version>,
     /// An updated set of known sentinel nodes.
     sentinels: Vec<(String, u16)>,
     /// The server host/port resolved from the sentinel nodes, if known.
@@ -188,10 +190,12 @@ pub enum ServerState {
     replicas:  HashMap<ArcStr, ArcStr>,
   },
   Cluster {
+    version: Option<Version>,
     /// The cached cluster routing table.
-    cache: Option<ClusterRouting>,
+    cache:   Option<ClusterRouting>,
   },
   Centralized {
+    version:  Option<Version>,
     #[cfg(feature = "replicas")]
     replicas: HashMap<ArcStr, ArcStr>,
   },
@@ -201,28 +205,55 @@ impl ServerState {
   /// Create a new, empty server state cache.
   pub fn new(config: &RedisConfig) -> Self {
     match config.server {
-      ServerConfig::Clustered { .. } => ServerState::Cluster { cache: None },
+      ServerConfig::Clustered { .. } => ServerState::Cluster {
+        version: None,
+        cache:   None,
+      },
       ServerConfig::Sentinel { ref hosts, .. } => ServerState::Sentinel {
+        version:                               None,
         sentinels:                             hosts.clone(),
         primary:                               None,
         #[cfg(feature = "replicas")]
         replicas:                              HashMap::new(),
       },
       ServerConfig::Centralized { .. } => ServerState::Centralized {
+        version:                               None,
         #[cfg(feature = "replicas")]
         replicas:                              HashMap::new(),
       },
     }
   }
 
+  pub fn set_server_version(&mut self, new_version: Version) {
+    match self {
+      ServerState::Cluster { ref mut version, .. } => {
+        *version = Some(new_version);
+      },
+      ServerState::Centralized { ref mut version, .. } => {
+        *version = Some(new_version);
+      },
+      ServerState::Sentinel { ref mut version, .. } => {
+        *version = Some(new_version);
+      },
+    }
+  }
+
+  pub fn server_version(&self) -> Option<Version> {
+    match self {
+      ServerState::Cluster { ref version, .. } => version.clone(),
+      ServerState::Centralized { ref version, .. } => version.clone(),
+      ServerState::Sentinel { ref version, .. } => version.clone(),
+    }
+  }
+
   pub fn update_cluster_state(&mut self, state: Option<ClusterRouting>) {
-    if let ServerState::Cluster { ref mut cache } = *self {
+    if let ServerState::Cluster { ref mut cache, .. } = *self {
       *cache = state;
     }
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
-    if let ServerState::Cluster { ref cache } = *self {
+    if let ServerState::Cluster { ref cache, .. } = *self {
       cache
         .as_ref()
         .map(|state| state.unique_primary_nodes().len())
@@ -236,7 +267,7 @@ impl ServerState {
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    if let ServerState::Cluster { ref cache } = *self {
+    if let ServerState::Cluster { ref cache, .. } = *self {
       if let Some(state) = cache.as_ref() {
         func(state)
       } else {
@@ -321,7 +352,7 @@ impl ServerState {
       ServerState::Sentinel { ref replicas, .. } => Some(replicas.clone()),
       ServerState::Centralized { ref replicas, .. } => Some(replicas.clone()),
       // clustered replica state is derived from the routing table
-      ServerState::Cluster { ref cache } => cache.and_then(|cache| {
+      ServerState::Cluster { ref cache, .. } => cache.and_then(|cache| {
         let mut out = HashMap::with_capacity(cache.slots().len());
         for slot in cache.slots() {
           for replica in slot.replicas.iter() {

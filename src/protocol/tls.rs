@@ -1,6 +1,5 @@
-use crate::error::{RedisError, RedisErrorKind};
+use crate::error::RedisError;
 use std::{
-  convert::{TryFrom, TryInto},
   env,
   fmt,
   fmt::{Debug, Formatter},
@@ -8,6 +7,10 @@ use std::{
   sync::Arc,
 };
 
+#[cfg(feature = "enable-native-tls")]
+use crate::error::RedisErrorKind;
+#[cfg(feature = "enable-native-tls")]
+use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "enable-native-tls")]
 pub use tokio_native_tls::native_tls;
 #[cfg(feature = "enable-native-tls")]
@@ -31,7 +34,7 @@ pub trait HostMapping: Send + Sync + Debug {
   ///
   /// The `default_host` argument represents the hostname of the node that returned the `CLUSTER SLOTS` response.
   ///
-  /// If `None` is returned the client will use the IP address as the server name.
+  /// If `None` is returned the client will use the IP address as the server name during the TLS handshake.
   fn map(&self, ip: &IpAddr, default_host: &str) -> Option<String>;
 }
 
@@ -90,6 +93,21 @@ impl PartialEq for TlsHostMapping {
 
 impl Eq for TlsHostMapping {}
 
+/// TLS configuration for a client.
+///
+/// Note: the `hostnames` field is only necessary to use with certain clustered deployments.
+///
+/// ```rust no_compile no_run
+/// let config = TlsConfig {
+///   // or use `TlsConnector::default_rustls()`
+///   connector: TlsConnector::default_native_tls(),
+///   hostnames: TlsHostMapping::None
+/// };
+///
+/// // or use the shorthand
+/// let config: TlsConfig = TlsConnector::default_native_tls()?.into();
+/// let config: TlsConfig = TlsConnector::default_rustls()?.into();
+/// ```
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TlsConfig {
@@ -227,6 +245,7 @@ impl From<RustlsConnector> for TlsConnector {
   }
 }
 
+#[cfg(feature = "enable-native-tls")]
 pub fn should_disable_cert_verification() -> bool {
   match env::var_os("FRED_DISABLE_CERT_VERIFICATION") {
     Some(s) => match s.into_string() {
@@ -240,6 +259,7 @@ pub fn should_disable_cert_verification() -> bool {
   }
 }
 
+#[cfg(feature = "enable-native-tls")]
 pub fn should_disable_host_verification() -> bool {
   match env::var_os("FRED_DISABLE_HOST_VERIFICATION") {
     Some(s) => match s.into_string() {

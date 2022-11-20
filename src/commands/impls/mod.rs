@@ -49,6 +49,8 @@ pub static TIME: &'static str = "TIME";
 pub static RETRYCOUNT: &'static str = "RETRYCOUNT";
 pub static JUSTID: &'static str = "JUSTID";
 pub static SAMPLES: &'static str = "SAMPLES";
+pub static LIBRARYNAME: &'static str = "LIBRARYNAME";
+pub static WITHCODE: &'static str = "WITHCODE";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the
 /// caller.

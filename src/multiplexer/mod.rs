@@ -29,6 +29,8 @@ pub mod utils;
 
 #[cfg(feature = "replicas")]
 use crate::protocol::types::ReplicaSet;
+#[cfg(feature = "replicas")]
+use arcstr::ArcStr;
 
 /// The result of an attempt to send a command to the server.
 pub enum Written {

@@ -362,6 +362,16 @@ pub enum RedisCommandKind {
   Spublish,
   Ssubscribe,
   Sunsubscribe,
+  Fcall,
+  FcallRO,
+  FunctionDelete,
+  FunctionDump,
+  FunctionFlush,
+  FunctionKill,
+  FunctionList,
+  FunctionLoad,
+  FunctionRestore,
+  FunctionStats,
   // Commands with custom state or commands that don't map directly to the server's command interface.
   _Hello(RespVersion),
   _AuthAllCluster,
@@ -766,6 +776,16 @@ impl RedisCommandKind {
       RedisCommandKind::_ScriptFlushCluster => "SCRIPT FLUSH CLUSTER",
       RedisCommandKind::_ScriptLoadCluster => "SCRIPT LOAD CLUSTER",
       RedisCommandKind::_ScriptKillCluster => "SCRIPT Kill CLUSTER",
+      RedisCommandKind::Fcall => "FCALL",
+      RedisCommandKind::FcallRO => "FCALL_RO",
+      RedisCommandKind::FunctionDelete => "FUNCTION DELETE",
+      RedisCommandKind::FunctionDump => "FUNCTION DUMP",
+      RedisCommandKind::FunctionFlush => "FUNCTION FLUSH",
+      RedisCommandKind::FunctionKill => "FUNCTION KILL",
+      RedisCommandKind::FunctionList => "FUNCTION LIST",
+      RedisCommandKind::FunctionLoad => "FUNCTION LOAD",
+      RedisCommandKind::FunctionRestore => "FUNCTION RESTORE",
+      RedisCommandKind::FunctionStats => "FUNCTION STATS",
       RedisCommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
@@ -1043,6 +1063,16 @@ impl RedisCommandKind {
       RedisCommandKind::Sscan => "SSCAN",
       RedisCommandKind::Hscan => "HSCAN",
       RedisCommandKind::Zscan => "ZSCAN",
+      RedisCommandKind::Fcall => "FCALL",
+      RedisCommandKind::FcallRO => "FCALL_RO",
+      RedisCommandKind::FunctionDelete
+      | RedisCommandKind::FunctionDump
+      | RedisCommandKind::FunctionFlush
+      | RedisCommandKind::FunctionKill
+      | RedisCommandKind::FunctionList
+      | RedisCommandKind::FunctionLoad
+      | RedisCommandKind::FunctionRestore
+      | RedisCommandKind::FunctionStats => "FUNCTION",
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
@@ -1124,6 +1154,14 @@ impl RedisCommandKind {
       RedisCommandKind::XgroupDelConsumer => "DELCONSUMER",
       RedisCommandKind::XgroupDestroy => "DESTROY",
       RedisCommandKind::XgroupSetId => "SETID",
+      RedisCommandKind::FunctionDelete => "DELETE",
+      RedisCommandKind::FunctionDump => "DUMP",
+      RedisCommandKind::FunctionFlush => "FLUSH",
+      RedisCommandKind::FunctionKill => "KILL",
+      RedisCommandKind::FunctionList => "LIST",
+      RedisCommandKind::FunctionLoad => "LOAD",
+      RedisCommandKind::FunctionRestore => "RESTORE",
+      RedisCommandKind::FunctionStats => "STATS",
       _ => return None,
     };
 
@@ -1278,6 +1316,8 @@ impl RedisCommandKind {
       | RedisCommandKind::BlMove
       | RedisCommandKind::BzPopMin
       | RedisCommandKind::BzPopMax
+      | RedisCommandKind::Fcall
+      | RedisCommandKind::FcallRO
       | RedisCommandKind::Wait => true,
       // can be changed by the BLOCKING args
       RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => false,
@@ -1309,6 +1349,8 @@ impl RedisCommandKind {
       | RedisCommandKind::Discard
       | RedisCommandKind::Eval
       | RedisCommandKind::EvalSha
+      | RedisCommandKind::Fcall
+      | RedisCommandKind::FcallRO
       | RedisCommandKind::_Custom(_) => true,
       _ => false,
     }
@@ -1328,6 +1370,8 @@ impl RedisCommandKind {
         | RedisCommandKind::Eval
         | RedisCommandKind::EvalSha
         | RedisCommandKind::Auth
+        | RedisCommandKind::Fcall
+        | RedisCommandKind::FcallRO
         // makes it easier to avoid decoding in-flight responses with the wrong codec logic
         | RedisCommandKind::_Hello(_) => false,
         _ => true,
@@ -1337,7 +1381,9 @@ impl RedisCommandKind {
 
   pub fn is_eval(&self) -> bool {
     match *self {
-      RedisCommandKind::EvalSha | RedisCommandKind::Eval => true,
+      RedisCommandKind::EvalSha | RedisCommandKind::Eval | RedisCommandKind::Fcall | RedisCommandKind::FcallRO => {
+        true
+      },
       _ => false,
     }
   }

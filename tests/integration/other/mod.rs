@@ -126,6 +126,8 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
 }
 
 pub async fn should_split_clustered_connection(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+  // in clustered mode tests there's only one known host, and everything runs locally
+  let expected_hostname = client.client_config().server.hosts().pop().unwrap().0.to_owned();
   let clients = client.split_cluster()?;
 
   let actual = clients
@@ -142,9 +144,9 @@ pub async fn should_split_clustered_connection(client: RedisClient, _config: Red
     });
 
   let mut expected = BTreeSet::new();
-  expected.insert("127.0.0.1:30001".to_owned());
-  expected.insert("127.0.0.1:30002".to_owned());
-  expected.insert("127.0.0.1:30003".to_owned());
+  expected.insert(format!("{}:30001", expected_hostname));
+  expected.insert(format!("{}:30002", expected_hostname));
+  expected.insert(format!("{}:30003", expected_hostname));
 
   assert_eq!(actual, expected);
 

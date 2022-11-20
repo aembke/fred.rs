@@ -13,6 +13,7 @@ use crate::{
   util::sha1_hash,
   utils,
 };
+use bytes::Bytes;
 use bytes_utils::Str;
 use std::{convert::TryInto, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
@@ -200,3 +201,162 @@ pub async fn eval<C: ClientLike>(
 
   protocol_utils::frame_to_results(frame)
 }
+
+pub async fn fcall<C: ClientLike>(
+  client: &C,
+  func: Str,
+  keys: MultipleKeys,
+  args: MultipleValues,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut arguments = Vec::with_capacity(keys.len() + args.len() + 2);
+    let mut custom_key_slot = None;
+
+    arguments.push(func.into());
+    arguments.push(keys.len().try_into()?);
+
+    for key in keys.inner().into_iter() {
+      custom_key_slot = Some(key.cluster_hash());
+      arguments.push(key.into());
+    }
+    for arg in args.inner().into_iter() {
+      arguments.push(arg);
+    }
+
+    let mut command: RedisCommand = (RedisCommandKind::Fcall, arguments).into();
+    command.hasher = custom_key_slot
+      .map(|slot| ClusterHash::Custom(slot))
+      .unwrap_or(ClusterHash::Random);
+    command.can_pipeline = false;
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn fcall_ro<C: ClientLike>(
+  client: &C,
+  func: Str,
+  keys: MultipleKeys,
+  args: MultipleValues,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut arguments = Vec::with_capacity(keys.len() + args.len() + 2);
+    let mut custom_key_slot = None;
+
+    arguments.push(func.into());
+    arguments.push(keys.len().try_into()?);
+
+    for key in keys.inner().into_iter() {
+      custom_key_slot = Some(key.cluster_hash());
+      arguments.push(key.into());
+    }
+    for arg in args.inner().into_iter() {
+      arguments.push(arg);
+    }
+
+    let mut command: RedisCommand = (RedisCommandKind::FcallRO, arguments).into();
+    command.hasher = custom_key_slot
+      .map(|slot| ClusterHash::Custom(slot))
+      .unwrap_or(ClusterHash::Random);
+    command.can_pipeline = false;
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn function_delete<C: ClientLike>(client: &C, library_name: Str) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    Ok((RedisCommandKind::FunctionDelete, vec![library_name.into()]))
+  })
+  .await?;
+
+  protocol_utils::frame_to_single_result(frame)
+}
+
+pub async fn function_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let args = if r#async {
+      vec![static_val!(ASYNC)]
+    } else {
+      vec![static_val!(SYNC)]
+    };
+
+    Ok((RedisCommandKind::FunctionFlush, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_single_result(frame)
+}
+
+pub async fn function_kill<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
+  // use backchannel
+  unimplemented!()
+}
+
+pub async fn function_list<C: ClientLike>(
+  client: &C,
+  library_name: Option<Str>,
+  withcode: bool,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(3);
+
+    if let Some(library_name) = library_name {
+      args.push(static_val!(LIBRARYNAME));
+      args.push(library_name.into());
+    }
+    if withcode {
+      args.push(static_val!(WITHCODE));
+    }
+
+    Ok((RedisCommandKind::FunctionList, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(2);
+    if replace {
+      args.push(static_val!(REPLACE));
+    }
+    args.push(code.into());
+
+    Ok((RedisCommandKind::FunctionLoad, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_single_result(frame)
+}
+
+pub async fn function_restore<C: ClientLike>(
+  client: &C,
+  serialized: Bytes,
+  policy: FnPolicy,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(2);
+    args.push(serialized.into());
+    if let Some(policy) = policy {
+      args.push(policy.to_str().into());
+    }
+
+    Ok((RedisCommandKind::FunctionRestore, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_single_result(frame)
+}
+
+pub async fn function_stats<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
+  // use backchannel
+  unimplemented!()
+}
+
+value_cmd!(function_dump, FunctionDump);

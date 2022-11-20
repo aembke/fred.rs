@@ -5,11 +5,7 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
-use std::{
-  collections::HashMap,
-  convert::{TryFrom, TryInto},
-  fmt,
-};
+use std::{collections::HashMap, convert::TryFrom, fmt};
 
 /// Arguments passed to the SHUTDOWN command.
 ///
@@ -417,6 +413,12 @@ pub enum FnPolicy {
   Replace,
 }
 
+impl Default for FnPolicy {
+  fn default() -> Self {
+    FnPolicy::Append
+  }
+}
+
 impl FnPolicy {
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
@@ -425,13 +427,9 @@ impl FnPolicy {
       FnPolicy::Replace => "REPLACE",
     })
   }
-}
 
-impl<S: Into<Str>> TryFrom<S> for FnPolicy {
-  type Error = RedisError;
-
-  fn try_from(value: S) -> Result<Self, Self::Error> {
-    Ok(match value.into().as_ref() {
+  pub(crate) fn from_str(s: &str) -> Result<Self, RedisError> {
+    Ok(match s.as_ref() {
       "flush" | "FLUSH" => FnPolicy::Flush,
       "append" | "APPEND" => FnPolicy::Append,
       "replace" | "REPLACE" => FnPolicy::Replace,
@@ -445,135 +443,43 @@ impl<S: Into<Str>> TryFrom<S> for FnPolicy {
   }
 }
 
-/// The offset multiplier for the [BITCOUNT](https://redis.io/commands/bitcount/) command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum BitIndex {
-  Bit,
-  Byte,
-}
-
-impl BitIndex {
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      BitIndex::Bit => "BIT",
-      BitIndex::Byte => "BYTE",
-    })
-  }
-}
-
-impl<S: Into<Str>> TryFrom<S> for BitIndex {
+// have to implement these for specific types to avoid conflicting with the core Into implementation
+impl TryFrom<&str> for FnPolicy {
   type Error = RedisError;
 
-  fn try_from(value: S) -> Result<Self, Self::Error> {
-    Ok(match value.into().as_ref() {
-      "bit" | "BIT" => BitIndex::Bit,
-      "byte" | "BYTE" => BitIndex::Byte,
-      _ => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Invalid bit index.")),
-    })
+  fn try_from(value: &str) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(value)
   }
 }
 
-/// The overflow policy for certain bitmap commands.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Overflow {
-  Wrap,
-  Saturate,
-  Fail,
-}
-
-impl Overflow {
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      Overflow::Wrap => "WRAP",
-      Overflow::Saturate => "SAT",
-      Overflow::Fail => "FAIL",
-    })
-  }
-}
-
-impl<S: Into<Str>> TryFrom<S> for Overflow {
+impl TryFrom<&String> for FnPolicy {
   type Error = RedisError;
 
-  fn try_from(value: S) -> Result<Self, Self::Error> {
-    Ok(match value.into().as_ref() {
-      "wrap" | "WRAP" => Overflow::Wrap,
-      "sat" | "SAT" | "saturate" | "SATURATE" => Overflow::Saturate,
-      "fail" | "FAIL" => Overflow::Fail,
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid overflow type.",
-        ))
-      },
-    })
+  fn try_from(value: &String) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(value.as_str())
   }
 }
 
-/// The bitwise operation used in the [bitop](https://redis.io/commands/bitop/) command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Bitop {
-  And,
-  Or,
-  Xor,
-  Not,
-}
-
-impl Bitop {
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      Bitop::And => "AND",
-      Bitop::Or => "OR",
-      Bitop::Xor => "XOR",
-      Bitop::Not => "NOT",
-    })
-  }
-}
-
-impl<S: Into<Str>> TryFrom<S> for Bitop {
+impl TryFrom<String> for FnPolicy {
   type Error = RedisError;
 
-  fn try_from(value: S) -> Result<Self, Self::Error> {
-    Ok(match value.into().as_ref() {
-      "and" | "AND" => Bitop::And,
-      "or" | "OR" => Bitop::Or,
-      "xor" | "XOR" => Bitop::Xor,
-      "not" | "NOT" => Bitop::Not,
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid bitwise operation.",
-        ))
-      },
-    })
+  fn try_from(value: String) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(value.as_str())
   }
 }
 
-/// Arguments for the [bitcount](https://redis.io/commands/bitcount/) command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BitcountRange {
-  pub start: usize,
-  pub end:   usize,
-  pub kind:  Option<BitIndex>,
-}
-
-impl From<(usize, usize)> for BitcountRange {
-  fn from(value: (usize, usize)) -> Self {
-    BitcountRange {
-      start: value.0,
-      end:   value.1,
-      kind:  None,
-    }
-  }
-}
-
-impl<K: TryInto<BitIndex>> TryFrom<(usize, usize, K)> for BitcountRange {
+impl TryFrom<Str> for FnPolicy {
   type Error = RedisError;
 
-  fn try_from(value: (usize, usize, K)) -> Result<Self, Self::Error> {
-    Ok(BitcountRange {
-      start: value.0,
-      end:   value.1,
-      kind:  Some(value.2.try_into()?),
-    })
+  fn try_from(value: Str) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(&value)
+  }
+}
+
+impl TryFrom<&Str> for FnPolicy {
+  type Error = RedisError;
+
+  fn try_from(value: &Str) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(&value)
   }
 }

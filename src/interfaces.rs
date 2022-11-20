@@ -21,6 +21,7 @@ use crate::{
   utils,
 };
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
+use semver::Version;
 use std::{convert::TryInto, sync::Arc};
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
@@ -145,6 +146,11 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Whether or not all underlying connections are healthy.
   fn is_connected(&self) -> bool {
     *self.inner().state.read() == ClientState::Connected
+  }
+
+  /// Read the server version, if known.
+  fn server_version(&self) -> Option<Version> {
+    self.inner().server_state.read().server_version()
   }
 
   /// Connect to the Redis server.

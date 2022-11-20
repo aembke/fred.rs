@@ -18,9 +18,8 @@ const RECONNECT_DELAY: u32 = 500;
 #[cfg(not(feature = "chaos-monkey"))]
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::TlsHostMapping;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-use fred::types::{TlsConfig, TlsConnector};
+use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
   Certificate as NativeTlsCertificate,
@@ -252,8 +251,6 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   (config, perf)
 }
 
-// TODO can't run centralized tests with tls currently...
-
 #[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
 fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   if !read_ci_tls_env() {
@@ -353,7 +350,6 @@ where
   let (config, perf) = create_redis_config(false, pipeline, resp3);
   let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
   let _client = client.clone();
-  println!("CONFIG {:?}", config);
 
   let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");

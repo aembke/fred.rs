@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FnPolicy, FromRedis, MultipleKeys, MultipleStrings, MultipleValues, RedisValue, ScriptDebugFlag},
+  types::{FnPolicy, FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag},
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -120,33 +120,33 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Invoke a function.
   ///
   /// <https://redis.io/commands/fcall/>
-  async fn fcall<R, F, N, K, V>(&self, func: F, numkeys: N, keys: K, args: V) -> RedisResult<R>
+  async fn fcall<R, F, K, V>(&self, func: F, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,
     F: Into<Str> + Send,
-    N: TryInto<RedisValue> + Send,
-    N::Error: Into<RedisError> + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<RedisError> + Send,
   {
-    unimplemented!()
+    into!(func);
+    try_into!(keys, args);
+    commands::lua::fcall(self, func, keys, args).await?.convert()
   }
 
   /// This is a read-only variant of the FCALL command that cannot execute commands that modify data.
   ///
   /// <https://redis.io/commands/fcall_ro/>
-  async fn fcall_ro<R, F, N, K, V>(&self, func: F, numkeys: N, keys: K, args: V) -> RedisResult<R>
+  async fn fcall_ro<R, F, K, V>(&self, func: F, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,
     F: Into<Str> + Send,
-    N: TryInto<RedisValue> + Send,
-    N::Error: Into<RedisError> + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<RedisError> + Send,
   {
-    unimplemented!()
+    into!(func);
+    try_into!(keys, args);
+    commands::lua::fcall_ro(self, func, keys, args).await?.convert()
   }
 
   /// Delete a library and all its functions.
@@ -157,7 +157,8 @@ pub trait FunctionInterface: ClientLike + Sized {
     R: FromRedis,
     S: Into<Str> + Send,
   {
-    unimplemented!()
+    into!(library_name);
+    commands::lua::function_delete(self, library_name).await?.convert()
   }
 
   /// Return the serialized payload of loaded libraries.
@@ -167,7 +168,7 @@ pub trait FunctionInterface: ClientLike + Sized {
   where
     R: FromRedis,
   {
-    unimplemented!()
+    commands::lua::function_dump(self).await?.convert()
   }
 
   /// Deletes all the libraries.
@@ -177,7 +178,7 @@ pub trait FunctionInterface: ClientLike + Sized {
   where
     R: FromRedis,
   {
-    unimplemented!()
+    commands::lua::function_flush(self).await?.convert()
   }
 
   /// Kill a function that is currently executing.
@@ -190,7 +191,7 @@ pub trait FunctionInterface: ClientLike + Sized {
   where
     R: FromRedis,
   {
-    unimplemented!()
+    commands::lua::function_kill(self).await?.convert()
   }
 
   /// Return information about the functions and libraries.
@@ -201,7 +202,10 @@ pub trait FunctionInterface: ClientLike + Sized {
     R: FromRedis,
     S: Into<Str> + Send,
   {
-    unimplemented!()
+    let library_name = library_name.map(|l| l.into());
+    commands::lua::function_list(self, library_name, withcode)
+      .await?
+      .convert()
   }
 
   /// Load a library to Redis.
@@ -212,12 +216,15 @@ pub trait FunctionInterface: ClientLike + Sized {
     R: FromRedis,
     S: Into<Str> + Send,
   {
-    unimplemented!()
+    into!(code);
+    commands::lua::function_load(self, replace, code).await?.convert()
   }
 
   /// Restore libraries from the serialized payload.
   ///
   /// <https://redis.io/commands/function-restore/>
+  ///
+  /// Note: Use `FnPolicy::default()` to use the default function restore policy (`"APPEND"`).
   async fn function_restore<R, B, P>(&self, serialized: B, policy: P) -> RedisResult<R>
   where
     R: FromRedis,
@@ -225,7 +232,11 @@ pub trait FunctionInterface: ClientLike + Sized {
     P: TryInto<FnPolicy> + Send,
     P::Error: Into<RedisError> + Send,
   {
-    unimplemented!()
+    into!(serialized);
+    try_into!(policy);
+    commands::lua::function_restore(self, serialized, policy)
+      .await?
+      .convert()
   }
 
   /// Return information about the function that's currently running and information about the available execution
@@ -238,6 +249,6 @@ pub trait FunctionInterface: ClientLike + Sized {
   where
     R: FromRedis,
   {
-    unimplemented!()
+    commands::lua::function_stats(self).await?.convert()
   }
 }
