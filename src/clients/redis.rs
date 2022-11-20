@@ -8,6 +8,7 @@ use crate::{
     ClientInterface,
     ClusterInterface,
     ConfigInterface,
+    FunctionInterface,
     GeoInterface,
     HashesInterface,
     HeartbeatInterface,
@@ -85,6 +86,7 @@ impl SetsInterface for RedisClient {}
 impl SortedSetsInterface for RedisClient {}
 impl HeartbeatInterface for RedisClient {}
 impl StreamsInterface for RedisClient {}
+impl FunctionInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.

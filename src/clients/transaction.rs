@@ -102,6 +102,7 @@ impl AuthInterface for Transaction {}
 impl ServerInterface for Transaction {}
 impl SetsInterface for Transaction {}
 impl SortedSetsInterface for Transaction {}
+impl FunctionInterface for Transaction {}
 
 impl Transaction {
   /// Check and update the hash slot for the transaction.

@@ -281,7 +281,7 @@ pub use crate::commands::interfaces::{
   hyperloglog::HyperloglogInterface,
   keys::KeysInterface,
   lists::ListInterface,
-  lua::LuaInterface,
+  lua::{FunctionInterface, LuaInterface},
   memory::MemoryInterface,
   metrics::MetricsInterface,
   pubsub::PubsubInterface,

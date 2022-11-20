@@ -8,6 +8,7 @@ use crate::{
     ClientLike,
     ClusterInterface,
     ConfigInterface,
+    FunctionInterface,
     GeoInterface,
     HashesInterface,
     HyperloglogInterface,
@@ -123,6 +124,7 @@ impl<C: SlowlogInterface> SlowlogInterface for Pipeline<C> {}
 impl<C: SetsInterface> SetsInterface for Pipeline<C> {}
 impl<C: SortedSetsInterface> SortedSetsInterface for Pipeline<C> {}
 impl<C: StreamsInterface> StreamsInterface for Pipeline<C> {}
+impl<C: FunctionInterface> FunctionInterface for Pipeline<C> {}
 
 impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.
