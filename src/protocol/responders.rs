@@ -58,7 +58,8 @@ pub enum ResponseKind {
   /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to
   /// the caller.
   ///
-  /// Typically used to handle concurrent responses in a `Pipeline` that may span multiple cluster connections.
+  /// Typically used in `*_cluster` commands or to handle concurrent responses in a `Pipeline` that may span multiple
+  /// cluster connections.
   Buffer {
     /// A shared buffer for response frames.
     frames:   Arc<Mutex<Vec<Resp3Frame>>>,
@@ -425,9 +426,6 @@ fn send_value_scan_result(
   Ok(())
 }
 
-// TODO move this
-// ------------------------------------------- END UTILS --------------------------------------
-
 /// Respond to the caller with the default response policy.
 pub fn respond_to_caller(
   inner: &Arc<RedisClientInner>,
@@ -528,9 +526,11 @@ pub fn respond_buffer(
 ) -> Result<(), RedisError> {
   _trace!(
     inner,
-    "Handling `buffer` response from {} for {}",
+    "Handling `buffer` response from {} for {}. Is error: {}, Index: {}",
     server,
-    command.kind.to_str_debug()
+    command.kind.to_str_debug(),
+    frame.is_error(),
+    index
   );
 
   // errors are buffered like normal frames and are not returned early
@@ -541,7 +541,19 @@ pub fn respond_buffer(
     command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
 
     let frame = merge_multiple_frames(frames.lock().deref_mut());
-    respond_locked(inner, &tx, Ok(frame));
+    if frame.is_error() {
+      let err = match frame.as_str() {
+        Some(s) => protocol_utils::pretty_error(s),
+        None => RedisError::new(
+          RedisErrorKind::Unknown,
+          "Unknown or invalid error from buffered frames.",
+        ),
+      };
+
+      respond_locked(inner, &tx, Err(err));
+    } else {
+      respond_locked(inner, &tx, Ok(frame));
+    }
   } else {
     // more responses are expected
     _trace!(

@@ -277,6 +277,22 @@ pub async fn function_delete<C: ClientLike>(client: &C, library_name: Str) -> Re
   protocol_utils::frame_to_single_result(frame)
 }
 
+pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: Str) -> Result<(), RedisError> {
+  if !client.inner().config.server.is_clustered() {
+    return function_delete(client, library_name).await.map(|_| ());
+  }
+
+  let (tx, rx) = oneshot_channel();
+  let args: Vec<RedisValue> = vec![library_name.into()];
+
+  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let command: RedisCommand = (RedisCommandKind::_FunctionDeleteCluster, args, response).into();
+  let _ = client.send_command(command)?;
+
+  let _ = rx.await??;
+  Ok(())
+}
+
 pub async fn function_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let args = if r#async {
@@ -290,6 +306,26 @@ pub async fn function_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<
   .await?;
 
   protocol_utils::frame_to_single_result(frame)
+}
+
+pub async fn function_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> Result<(), RedisError> {
+  if !client.inner().config.server.is_clustered() {
+    return function_flush(client, r#async).await.map(|_| ());
+  }
+
+  let (tx, rx) = oneshot_channel();
+  let args = if r#async {
+    vec![static_val!(ASYNC)]
+  } else {
+    vec![static_val!(SYNC)]
+  };
+
+  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let command: RedisCommand = (RedisCommandKind::_FunctionFlushCluster, args, response).into();
+  let _ = client.send_command(command)?;
+
+  let _ = rx.await??;
+  Ok(())
 }
 
 pub async fn function_kill<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
@@ -338,6 +374,26 @@ pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) 
   protocol_utils::frame_to_single_result(frame)
 }
 
+pub async fn function_load_cluster<C: ClientLike>(client: &C, replace: bool, code: Str) -> Result<(), RedisError> {
+  if !client.inner().config.server.is_clustered() {
+    return function_load(client, replace, code).await.map(|_| ());
+  }
+
+  let (tx, rx) = oneshot_channel();
+  let mut args: Vec<RedisValue> = Vec::with_capacity(2);
+  if replace {
+    args.push(static_val!(REPLACE));
+  }
+  args.push(code.into());
+
+  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let command: RedisCommand = (RedisCommandKind::_FunctionLoadCluster, args, response).into();
+  let _ = client.send_command(command)?;
+
+  let _ = rx.await??;
+  Ok(())
+}
+
 pub async fn function_restore<C: ClientLike>(
   client: &C,
   serialized: Bytes,
@@ -346,15 +402,33 @@ pub async fn function_restore<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(serialized.into());
-    if let Some(policy) = policy {
-      args.push(policy.to_str().into());
-    }
+    args.push(policy.to_str().into());
 
     Ok((RedisCommandKind::FunctionRestore, args))
   })
   .await?;
 
   protocol_utils::frame_to_single_result(frame)
+}
+
+pub async fn function_restore_cluster<C: ClientLike>(
+  client: &C,
+  serialized: Bytes,
+  policy: FnPolicy,
+) -> Result<(), RedisError> {
+  if !client.inner().config.server.is_clustered() {
+    return function_restore(client, serialized, policy).await.map(|_| ());
+  }
+
+  let (tx, rx) = oneshot_channel();
+  let args: Vec<RedisValue> = vec![serialized.into(), policy.to_str().into()];
+
+  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let command: RedisCommand = (RedisCommandKind::_FunctionRestoreCluster, args, response).into();
+  let _ = client.send_command(command)?;
+
+  let _ = rx.await??;
+  Ok(())
 }
 
 pub async fn function_stats<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {

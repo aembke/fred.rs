@@ -357,9 +357,10 @@ pub async fn process_response_frame(
   if frame.is_moved_or_ask_error() {
     _debug!(
       inner,
-      "Recv MOVED or ASK error for `{}` from {}",
+      "Recv MOVED or ASK error for `{}` from {}: {:?}",
       command.kind.to_str_debug(),
-      server
+      server,
+      frame.as_str()
     );
     process_cluster_error(inner, server, command, frame);
     return Ok(());
@@ -587,13 +588,17 @@ pub async fn sync(
     }
 
     _debug!(inner, "Finish synchronizing cluster connections.");
-    Ok(())
   } else {
-    Err(RedisError::new(
+    return Err(RedisError::new(
       RedisErrorKind::Config,
       "Expected clustered connections.",
-    ))
+    ));
   }
+
+  if let Some(version) = connections.server_version() {
+    inner.server_state.write().set_server_version(version);
+  }
+  Ok(())
 }
 
 /// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on

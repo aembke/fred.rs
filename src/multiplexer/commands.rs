@@ -412,7 +412,11 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   inner.reset_reconnection_attempts();
   let mut multiplexer = Multiplexer::new(inner);
 
-  _debug!(inner, "Initializing multiplexer...");
+  _debug!(
+    inner,
+    "Initializing multiplexer with policy: {:?}",
+    inner.reconnect_policy()
+  );
   if inner.config.fail_fast {
     if let Err(e) = multiplexer.connect().await {
       inner.notifications.broadcast_connect(Err(e.clone()));

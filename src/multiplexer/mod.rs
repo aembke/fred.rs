@@ -31,6 +31,7 @@ pub mod utils;
 use crate::protocol::types::ReplicaSet;
 #[cfg(feature = "replicas")]
 use arcstr::ArcStr;
+use semver::Version;
 
 /// The result of an attempt to send a command to the server.
 pub enum Written {
@@ -241,6 +242,10 @@ impl Connections {
     };
 
     if result.is_ok() {
+      if let Some(version) = self.server_version() {
+        inner.server_state.write().set_server_version(version);
+      }
+
       let mut backchannel = inner.backchannel.write().await;
       backchannel.connection_ids = self.connection_ids();
     }
@@ -255,6 +260,15 @@ impl Connections {
       Connections::Clustered { ref writers, .. } => {
         server.and_then(|server| writers.get(server).map(|w| &w.counters))
       },
+    }
+  }
+
+  /// Read the server version, if known.
+  pub fn server_version(&self) -> Option<Version> {
+    match self {
+      Connections::Centralized { ref writer } => writer.as_ref().and_then(|w| w.version.clone()),
+      Connections::Clustered { ref writers, .. } => writers.iter().find_map(|(_, w)| w.version.clone()),
+      Connections::Sentinel { ref writer, .. } => writer.as_ref().and_then(|w| w.version.clone()),
     }
   }
 

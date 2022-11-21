@@ -380,6 +380,10 @@ pub enum RedisCommandKind {
   _ScriptFlushCluster,
   _ScriptLoadCluster,
   _ScriptKillCluster,
+  _FunctionLoadCluster,
+  _FunctionFlushCluster,
+  _FunctionDeleteCluster,
+  _FunctionRestoreCluster,
   _Custom(CustomCommand),
 }
 
@@ -776,6 +780,10 @@ impl RedisCommandKind {
       RedisCommandKind::_ScriptFlushCluster => "SCRIPT FLUSH CLUSTER",
       RedisCommandKind::_ScriptLoadCluster => "SCRIPT LOAD CLUSTER",
       RedisCommandKind::_ScriptKillCluster => "SCRIPT Kill CLUSTER",
+      RedisCommandKind::_FunctionLoadCluster => "FUNCTION LOAD CLUSTER",
+      RedisCommandKind::_FunctionFlushCluster => "FUNCTION FLUSH CLUSTER",
+      RedisCommandKind::_FunctionDeleteCluster => "FUNCTION DELETE CLUSTER",
+      RedisCommandKind::_FunctionRestoreCluster => "FUNCTION RESTORE CLUSTER",
       RedisCommandKind::Fcall => "FCALL",
       RedisCommandKind::FcallRO => "FCALL_RO",
       RedisCommandKind::FunctionDelete => "FUNCTION DELETE",
@@ -1072,7 +1080,11 @@ impl RedisCommandKind {
       | RedisCommandKind::FunctionList
       | RedisCommandKind::FunctionLoad
       | RedisCommandKind::FunctionRestore
-      | RedisCommandKind::FunctionStats => "FUNCTION",
+      | RedisCommandKind::FunctionStats
+      | RedisCommandKind::_FunctionFlushCluster
+      | RedisCommandKind::_FunctionRestoreCluster
+      | RedisCommandKind::_FunctionDeleteCluster
+      | RedisCommandKind::_FunctionLoadCluster => "FUNCTION",
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
@@ -1162,108 +1174,14 @@ impl RedisCommandKind {
       RedisCommandKind::FunctionLoad => "LOAD",
       RedisCommandKind::FunctionRestore => "RESTORE",
       RedisCommandKind::FunctionStats => "STATS",
+      RedisCommandKind::_FunctionLoadCluster => "LOAD",
+      RedisCommandKind::_FunctionFlushCluster => "FLUSH",
+      RedisCommandKind::_FunctionDeleteCluster => "DELETE",
+      RedisCommandKind::_FunctionRestoreCluster => "RESTORE",
       _ => return None,
     };
 
     Some(utils::static_str(s))
-  }
-
-  pub fn is_script_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ScriptDebug
-      | RedisCommandKind::ScriptExists
-      | RedisCommandKind::ScriptFlush
-      | RedisCommandKind::ScriptKill
-      | RedisCommandKind::_ScriptFlushCluster
-      | RedisCommandKind::_ScriptLoadCluster
-      | RedisCommandKind::_ScriptKillCluster
-      | RedisCommandKind::ScriptLoad => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_acl_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::AclLoad
-      | RedisCommandKind::AclSave
-      | RedisCommandKind::AclList
-      | RedisCommandKind::AclUsers
-      | RedisCommandKind::AclGetUser
-      | RedisCommandKind::AclSetUser
-      | RedisCommandKind::AclDelUser
-      | RedisCommandKind::AclCat
-      | RedisCommandKind::AclGenPass
-      | RedisCommandKind::AclWhoAmI
-      | RedisCommandKind::AclLog
-      | RedisCommandKind::AclHelp => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_cluster_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ClusterAddSlots
-      | RedisCommandKind::ClusterCountFailureReports
-      | RedisCommandKind::ClusterCountKeysInSlot
-      | RedisCommandKind::ClusterDelSlots
-      | RedisCommandKind::ClusterFailOver
-      | RedisCommandKind::ClusterForget
-      | RedisCommandKind::ClusterGetKeysInSlot
-      | RedisCommandKind::ClusterInfo
-      | RedisCommandKind::ClusterKeySlot
-      | RedisCommandKind::ClusterMeet
-      | RedisCommandKind::ClusterNodes
-      | RedisCommandKind::ClusterReplicate
-      | RedisCommandKind::ClusterReset
-      | RedisCommandKind::ClusterSaveConfig
-      | RedisCommandKind::ClusterSetConfigEpoch
-      | RedisCommandKind::ClusterSetSlot
-      | RedisCommandKind::ClusterReplicas
-      | RedisCommandKind::ClusterBumpEpoch
-      | RedisCommandKind::ClusterFlushSlots
-      | RedisCommandKind::ClusterMyID
-      | RedisCommandKind::ClusterSlots => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_client_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ClientGetName
-      | RedisCommandKind::ClientGetRedir
-      | RedisCommandKind::ClientInfo
-      | RedisCommandKind::ClientID
-      | RedisCommandKind::ClientKill
-      | RedisCommandKind::ClientList
-      | RedisCommandKind::ClientPause
-      | RedisCommandKind::ClientUnpause
-      | RedisCommandKind::ClientUnblock
-      | RedisCommandKind::ClientReply
-      | RedisCommandKind::ClientSetname => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_config_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ConfigGet
-      | RedisCommandKind::ConfigRewrite
-      | RedisCommandKind::ConfigSet
-      | RedisCommandKind::ConfigResetStat => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_memory_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::MemoryUsage
-      | RedisCommandKind::MemoryStats
-      | RedisCommandKind::MemoryPurge
-      | RedisCommandKind::MemoryMallocStats
-      | RedisCommandKind::MemoryHelp
-      | RedisCommandKind::MemoryDoctor => true,
-      _ => false,
-    }
   }
 
   pub fn use_random_cluster_node(&self) -> bool {
@@ -1278,32 +1196,6 @@ impl RedisCommandKind {
       | RedisCommandKind::Scan
       | RedisCommandKind::FlushAll
       | RedisCommandKind::FlushDB => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_stream_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::XinfoConsumers
-      | RedisCommandKind::XinfoGroups
-      | RedisCommandKind::XinfoStream
-      | RedisCommandKind::Xadd
-      | RedisCommandKind::Xtrim
-      | RedisCommandKind::Xdel
-      | RedisCommandKind::Xrange
-      | RedisCommandKind::Xrevrange
-      | RedisCommandKind::Xlen
-      | RedisCommandKind::Xread
-      | RedisCommandKind::Xgroupcreate
-      | RedisCommandKind::XgroupCreateConsumer
-      | RedisCommandKind::XgroupDelConsumer
-      | RedisCommandKind::XgroupDestroy
-      | RedisCommandKind::XgroupSetId
-      | RedisCommandKind::Xreadgroup
-      | RedisCommandKind::Xack
-      | RedisCommandKind::Xclaim
-      | RedisCommandKind::Xautoclaim
-      | RedisCommandKind::Xpending => true,
       _ => false,
     }
   }
@@ -1333,7 +1225,11 @@ impl RedisCommandKind {
       | RedisCommandKind::_ScriptFlushCluster
       | RedisCommandKind::_ScriptKillCluster
       | RedisCommandKind::_HelloAllCluster(_)
-      | RedisCommandKind::_ScriptLoadCluster => true,
+      | RedisCommandKind::_ScriptLoadCluster
+      | RedisCommandKind::_FunctionFlushCluster
+      | RedisCommandKind::_FunctionDeleteCluster
+      | RedisCommandKind::_FunctionRestoreCluster
+      | RedisCommandKind::_FunctionLoadCluster => true,
       _ => false,
     }
   }

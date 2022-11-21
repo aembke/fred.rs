@@ -161,6 +161,17 @@ pub trait FunctionInterface: ClientLike + Sized {
     commands::lua::function_delete(self, library_name).await?.convert()
   }
 
+  /// Delete a library and all its functions from each cluster node concurrently.
+  ///
+  /// <https://redis.io/commands/function-delete/>
+  async fn function_delete_cluster<S>(&self, library_name: S) -> RedisResult<()>
+  where
+    S: Into<Str> + Send,
+  {
+    into!(library_name);
+    commands::lua::function_delete_cluster(self, library_name).await
+  }
+
   /// Return the serialized payload of loaded libraries.
   ///
   /// <https://redis.io/commands/function-dump/>
@@ -178,7 +189,14 @@ pub trait FunctionInterface: ClientLike + Sized {
   where
     R: FromRedis,
   {
-    commands::lua::function_flush(self).await?.convert()
+    commands::lua::function_flush(self, r#async).await?.convert()
+  }
+
+  /// Deletes all the libraries on all cluster nodes concurrently.
+  ///
+  /// <https://redis.io/commands/function-flush/>
+  async fn function_flush_cluster(&self, r#async: bool) -> RedisResult<()> {
+    commands::lua::function_flush_cluster(self, r#async).await
   }
 
   /// Kill a function that is currently executing.
@@ -220,6 +238,17 @@ pub trait FunctionInterface: ClientLike + Sized {
     commands::lua::function_load(self, replace, code).await?.convert()
   }
 
+  /// Load a library to Redis on all cluster nodes concurrently.
+  ///
+  /// <https://redis.io/commands/function-load/>
+  async fn function_load_cluster<S>(&self, replace: bool, code: S) -> RedisResult<()>
+  where
+    S: Into<Str> + Send,
+  {
+    into!(code);
+    commands::lua::function_load_cluster(self, replace, code).await
+  }
+
   /// Restore libraries from the serialized payload.
   ///
   /// <https://redis.io/commands/function-restore/>
@@ -237,6 +266,22 @@ pub trait FunctionInterface: ClientLike + Sized {
     commands::lua::function_restore(self, serialized, policy)
       .await?
       .convert()
+  }
+
+  /// Restore libraries from the serialized payload on all cluster nodes concurrently.
+  ///
+  /// <https://redis.io/commands/function-restore/>
+  ///
+  /// Note: Use `FnPolicy::default()` to use the default function restore policy (`"APPEND"`).
+  async fn function_restore_cluster<B, P>(&self, serialized: B, policy: P) -> RedisResult<()>
+  where
+    B: Into<Bytes> + Send,
+    P: TryInto<FnPolicy> + Send,
+    P::Error: Into<RedisError> + Send,
+  {
+    into!(serialized);
+    try_into!(policy);
+    commands::lua::function_restore_cluster(self, serialized, policy).await
   }
 
   /// Return information about the function that's currently running and information about the available execution

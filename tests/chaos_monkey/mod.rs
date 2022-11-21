@@ -260,8 +260,6 @@ fn run(root_path: String, cli_path: String, server_path: String, create_cluster_
 fn start() {
   let _ = pretty_env_logger::try_init_timed();
 
-  globals::set_max_command_attempts(50);
-  globals::set_default_command_timeout(30_000);
   globals::set_custom_reconnect_errors(vec![
     ReconnectError::Loading,
     ReconnectError::ClusterDown,

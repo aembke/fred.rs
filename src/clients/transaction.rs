@@ -71,6 +71,7 @@ impl ClientLike for Transaction {
     C: Into<RedisCommand>,
   {
     let mut command: RedisCommand = command.into();
+    let _ = self.disallow_all_cluster_commands(&command)?;
     // check cluster slot mappings as commands are added
     let _ = self.update_hash_slot(&command)?;
 
@@ -134,6 +135,17 @@ impl Transaction {
     }
 
     Ok(())
+  }
+
+  pub(crate) fn disallow_all_cluster_commands(&self, command: &RedisCommand) -> Result<(), RedisError> {
+    if command.kind.is_all_cluster_nodes() {
+      Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Cannot use concurrent cluster commands inside a transaction.",
+      ))
+    } else {
+      Ok(())
+    }
   }
 
   /// Executes all previously queued commands in a transaction and restores the connection state to normal.

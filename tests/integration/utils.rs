@@ -186,6 +186,16 @@ fn create_native_tls_config() -> TlsConnector {
   builder.try_into().expect("Failed to build native-tls connector")
 }
 
+#[cfg(feature = "chaos-monkey")]
+fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
+  (Some(ReconnectPolicy::new_linear(0, 5000, 500)), 50, false)
+}
+
+#[cfg(not(feature = "chaos-monkey"))]
+fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
+  (Some(ReconnectPolicy::new_constant(300, RECONNECT_DELAY)), 3, true)
+}
+
 fn create_server_config(cluster: bool) -> ServerConfig {
   if cluster {
     let (host, port) = read_redis_cluster_host();
@@ -207,7 +217,7 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
+    default_command_timeout_ms: 20_000,
     ..Default::default()
   };
 
@@ -244,7 +254,7 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
+    default_command_timeout_ms: 20_000,
     ..Default::default()
   };
 
@@ -270,7 +280,7 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
+    default_command_timeout_ms: 20_000,
     ..Default::default()
   };
 
@@ -325,10 +335,12 @@ where
 {
   set_test_kind(true);
 
-  let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
-  let (config, perf) = create_redis_config(true, pipeline, resp3);
+  let (policy, cmd_attempts, fail_fast) = resilience_settings();
+  let (mut config, mut perf) = create_redis_config(true, pipeline, resp3);
+  perf.max_command_attempts = cmd_attempts;
+  config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
+  let client = RedisClient::new(config.clone(), Some(perf), policy);
   let _client = client.clone();
 
   let _jh = client.connect();
@@ -346,9 +358,12 @@ where
 {
   set_test_kind(false);
 
-  let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
-  let (config, perf) = create_redis_config(false, pipeline, resp3);
-  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
+  let (policy, cmd_attempts, fail_fast) = resilience_settings();
+  let (mut config, mut perf) = create_redis_config(false, pipeline, resp3);
+  perf.max_command_attempts = cmd_attempts;
+  config.fail_fast = fail_fast;
+
+  let client = RedisClient::new(config.clone(), Some(perf), policy);
   let _client = client.clone();
 
   let _jh = client.connect();
@@ -586,4 +601,12 @@ macro_rules! check_null(
       panic!("expected {} to be null", $arg);
     }
   } }
+);
+
+macro_rules! check_redis_7 (
+  ($client:ident) => {
+    if $client.server_version().unwrap().major < 7 {
+      return Ok(());
+    }
+  }
 );

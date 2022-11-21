@@ -493,7 +493,9 @@ impl RedisTransport {
     let result = self.request_response(command, inner.is_resp3()).await?;
     let result = match result {
       Resp3Frame::SimpleString { data, .. } => String::from_utf8(data.to_vec())?,
-      Resp3Frame::BlobString { data, .. } => String::from_utf8(data.to_vec())?,
+      Resp3Frame::BlobString { data, .. } | Resp3Frame::VerbatimString { data, .. } => {
+        String::from_utf8(data.to_vec())?
+      },
       Resp3Frame::SimpleError { data, .. } => {
         _warn!(inner, "Failed to read server version: {:?}", data);
         return Ok(());
@@ -504,7 +506,7 @@ impl RedisTransport {
         return Ok(());
       },
       _ => {
-        _warn!(inner, "Invalid INFO response.");
+        _warn!(inner, "Invalid INFO response: {:?}", result.kind());
         return Ok(());
       },
     };
