@@ -28,13 +28,13 @@ pub use lists::*;
 pub use misc::*;
 pub use multiple::*;
 pub use scan::*;
+pub use semver::Version;
 pub use sorted_sets::*;
 pub use streams::*;
 
 #[cfg(feature = "metrics")]
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
-pub use semver::Version;
 
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";

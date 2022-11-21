@@ -293,8 +293,11 @@ pub async fn function_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<
 }
 
 pub async fn function_kill<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
-  // use backchannel
-  unimplemented!()
+  let inner = client.inner();
+  let command = RedisCommand::new(RedisCommandKind::FunctionKill, vec![]);
+
+  let frame = utils::backchannel_request_response(inner, command, true).await?;
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_list<C: ClientLike>(
@@ -355,8 +358,11 @@ pub async fn function_restore<C: ClientLike>(
 }
 
 pub async fn function_stats<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
-  // use backchannel
-  unimplemented!()
+  let inner = client.inner();
+  let command = RedisCommand::new(RedisCommandKind::FunctionStats, vec![]);
+
+  let frame = utils::backchannel_request_response(inner, command, true).await?;
+  protocol_utils::frame_to_results(frame)
 }
 
 value_cmd!(function_dump, FunctionDump);
