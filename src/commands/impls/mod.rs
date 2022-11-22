@@ -51,6 +51,9 @@ pub static JUSTID: &'static str = "JUSTID";
 pub static SAMPLES: &'static str = "SAMPLES";
 pub static LIBRARYNAME: &'static str = "LIBRARYNAME";
 pub static WITHCODE: &'static str = "WITHCODE";
+pub static IDX: &'static str = "IDX";
+pub static MINMATCHLEN: &'static str = "MINMATCHLEN";
+pub static WITHMATCHLEN: &'static str = "WITHMATCHLEN";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the
 /// caller.

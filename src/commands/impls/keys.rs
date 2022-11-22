@@ -55,6 +55,10 @@ pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisV
   protocol_utils::frame_to_single_result(frame)
 }
 
+pub async fn append<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
+  args_value_cmd(client, RedisCommandKind::Append, vec![key.into(), value]).await
+}
+
 pub async fn incr<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_value_cmd(client, RedisCommandKind::Incr, key.into()).await
 }
@@ -320,3 +324,38 @@ pub async fn watch<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<(), 
 }
 
 ok_cmd!(unwatch, Unwatch);
+
+pub async fn lcs<C: ClientLike>(
+  client: &C,
+  key1: RedisKey,
+  key2: RedisKey,
+  len: bool,
+  idx: bool,
+  minmatchlen: Option<i64>,
+  withmatchlen: bool,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(7);
+    args.push(key1.into());
+    args.push(key2.into());
+
+    if len {
+      args.push(static_val!(LEN));
+    }
+    if idx {
+      args.push(static_val!(IDX));
+    }
+    if let Some(minmatchlen) = minmatchlen {
+      args.push(static_val!(MINMATCHLEN));
+      args.push(minmatchlen.into());
+    }
+    if withmatchlen {
+      args.push(static_val!(WITHMATCHLEN));
+    }
+
+    Ok((RedisCommandKind::Lcs, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}

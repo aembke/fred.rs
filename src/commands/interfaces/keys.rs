@@ -189,6 +189,21 @@ pub trait KeysInterface: ClientLike + Sized {
     commands::keys::del(self, keys).await?.convert()
   }
 
+  /// Append `value` to `key` if it's a string.
+  ///
+  /// <https://redis.io/commands/append/>
+  async fn append<R, K, V>(&self, key: K, value: V) -> Result<R, RedisError>
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    into!(key);
+    try_into!(value);
+    commands::keys::append(self, key, value).await?.convert()
+  }
+
   /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the
   /// special value nil is returned.
   ///
@@ -381,5 +396,28 @@ pub trait KeysInterface: ClientLike + Sized {
   {
     into!(keys);
     commands::keys::exists(self, keys).await?.convert()
+  }
+
+  /// Runs the longest common subsequence algorithm on two keys.
+  ///
+  /// <https://redis.io/commands/lcs/>
+  async fn lcs<R, K1, K2>(
+    &self,
+    key1: K1,
+    key2: K2,
+    len: bool,
+    idx: bool,
+    minmatchlen: Option<i64>,
+    withmatchlen: bool,
+  ) -> Result<R, RedisError>
+  where
+    R: FromRedis,
+    K1: Into<RedisKey> + Send,
+    K2: Into<RedisKey> + Send,
+  {
+    into!(key1, key2);
+    commands::keys::lcs(self, key1, key2, len, idx, minmatchlen, withmatchlen)
+      .await?
+      .convert()
   }
 }
