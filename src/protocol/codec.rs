@@ -1,23 +1,26 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::ProtocolFrame;
-use crate::protocol::utils as protocol_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{types::ProtocolFrame, utils as protocol_utils},
+  utils,
+};
+use arcstr::ArcStr;
 use bytes::BytesMut;
-use redis_protocol::resp2::decode::decode_mut as resp2_decode;
-use redis_protocol::resp2::encode::encode_bytes as resp2_encode;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp3::decode::streaming::decode_mut as resp3_decode;
-use redis_protocol::resp3::encode::complete::encode_bytes as resp3_encode;
-use redis_protocol::resp3::types::RespVersion;
-use redis_protocol::resp3::types::{Frame as Resp3Frame, StreamedFrame};
-use std::sync::Arc;
+use redis_protocol::{
+  resp2::{decode::decode_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::Frame as Resp2Frame},
+  resp3::{
+    decode::streaming::decode_mut as resp3_decode,
+    encode::complete::encode_bytes as resp3_encode,
+    types::{Frame as Resp3Frame, StreamedFrame},
+  },
+};
+use std::sync::{atomic::AtomicBool, Arc};
 use tokio_util::codec::{Decoder, Encoder};
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use arc_swap::ArcSwap;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
 
@@ -29,6 +32,7 @@ fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 pub use crate::protocol::debug::log_resp2_frame;
 #[cfg(feature = "network-logs")]
 pub use crate::protocol::debug::log_resp3_frame;
+use crate::protocol::types::Server;
 
 #[cfg(feature = "metrics")]
 fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
@@ -118,7 +122,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
 
     if codec.streaming_state.is_some() && frame.is_streaming() {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Cannot start a stream while already inside a stream.",
       ));
     }
@@ -182,32 +186,32 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name: Arc<String>,
-  pub server: String,
-  pub version: Arc<ArcSwap<RespVersion>>,
+  pub name:            ArcStr,
+  pub server:          Server,
+  pub resp3:           Arc<AtomicBool>,
   pub streaming_state: Option<StreamedFrame>,
   #[cfg(feature = "metrics")]
-  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  pub req_size_stats:  Arc<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
-  pub res_size_stats: Arc<RwLock<MovingStats>>,
+  pub res_size_stats:  Arc<RwLock<MovingStats>>,
 }
 
 impl RedisCodec {
-  pub fn new(inner: &Arc<RedisClientInner>, server: String) -> Self {
+  pub fn new(inner: &Arc<RedisClientInner>, server: &Server) -> Self {
     RedisCodec {
-      server,
-      name: inner.id.clone(),
-      version: inner.resp_version.clone(),
-      streaming_state: None,
+      server:                                     server.clone(),
+      name:                                       inner.id.clone(),
+      resp3:                                      inner.shared_resp3(),
+      streaming_state:                            None,
       #[cfg(feature = "metrics")]
-      req_size_stats: inner.req_size_stats.clone(),
+      req_size_stats:                             inner.req_size_stats.clone(),
       #[cfg(feature = "metrics")]
-      res_size_stats: inner.res_size_stats.clone(),
+      res_size_stats:                             inner.res_size_stats.clone(),
     }
   }
 
   pub fn is_resp3(&self) -> bool {
-    *self.version.as_ref().load().as_ref() == RespVersion::RESP3
+    utils::read_bool_atomic(&self.resp3)
   }
 }
 
@@ -243,8 +247,8 @@ impl Encoder<ProtocolFrame> for RedisCodec {
 }
 
 impl Decoder for RedisCodec {
-  type Item = ProtocolFrame;
   type Error = RedisError;
+  type Item = ProtocolFrame;
 
   #[cfg(not(feature = "blocking-encoding"))]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {

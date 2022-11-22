@@ -1,7 +1,11 @@
-use crate::utils;
+pub use crate::protocol::hashers::ClusterHash;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::Server,
+  utils,
+};
 use bytes_utils::Str;
-use std::collections::HashMap;
-use std::fmt;
+use std::{collections::HashMap, convert::TryFrom, fmt};
 
 /// Arguments passed to the SHUTDOWN command.
 ///
@@ -26,9 +30,9 @@ impl ShutdownFlags {
 /// <https://redis.io/topics/notifications>
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct KeyspaceEvent {
-  pub db: u8,
+  pub db:        u8,
   pub operation: String,
-  pub key: String,
+  pub key:       String,
 }
 
 /// Aggregate options for the [zinterstore](https://redis.io/commands/zinterstore) (and related) commands.
@@ -88,33 +92,39 @@ impl InfoKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CustomCommand {
   /// The command name, sent directly to the server.
-  pub cmd: Str,
-  /// The hash slot to use for the provided command when running against a cluster. If a hash slot is not provided the command will run against a random node in the cluster.
-  pub hash_slot: Option<u16>,
+  pub cmd:          Str,
+  /// The cluster hashing policy to use, if any.
+  ///
+  /// Cluster clients will use the default policy if not provided.
+  pub cluster_hash: ClusterHash,
   /// Whether or not the command should block the connection while waiting on a response.
-  pub is_blocking: bool,
+  pub is_blocking:  bool,
 }
 
 impl CustomCommand {
-  /// create a new custom command.
+  /// Create a new custom command.
   ///
-  /// see the [custom](crate::interfaces::ClientLike::custom) command for more information.
-  pub fn new<C>(cmd: C, hash_slot: Option<u16>, is_blocking: bool) -> Self
+  /// See the [custom](crate::interfaces::ClientLike::custom) command for more information.
+  pub fn new<C, H>(cmd: C, cluster_hash: H, is_blocking: bool) -> Self
   where
     C: Into<Str>,
+    H: Into<ClusterHash>,
   {
     CustomCommand {
       cmd: cmd.into(),
-      hash_slot,
+      cluster_hash: cluster_hash.into(),
       is_blocking,
     }
   }
 
   /// Create a new custom command specified by a `&'static str`.
-  pub fn new_static(cmd: &'static str, hash_slot: Option<u16>, is_blocking: bool) -> Self {
+  pub fn new_static<H>(cmd: &'static str, cluster_hash: H, is_blocking: bool) -> Self
+  where
+    H: Into<ClusterHash>,
+  {
     CustomCommand {
       cmd: utils::static_str(cmd),
-      hash_slot,
+      cluster_hash: cluster_hash.into(),
       is_blocking,
     }
   }
@@ -122,18 +132,18 @@ impl CustomCommand {
 
 /// An enum describing the possible ways in which a Redis cluster can change state.
 ///
-/// See [on_cluster_change](crate::clients::RedisClient::on_cluster_change) for more information.
+/// See [on_cluster_change](crate::interfaces::ClientLike::on_cluster_change) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterStateChange {
   /// A node was added to the cluster.
   ///
   /// This implies that hash slots were also probably rebalanced.
-  Add((String, u16)),
+  Add(Server),
   /// A node was removed from the cluster.
   ///
   /// This implies that hash slots were also probably rebalanced.
-  Remove((String, u16)),
-  /// Hash slots were rebalanced across the cluster.
+  Remove(Server),
+  /// Hash slots were rebalanced across the cluster and/or local routing state was updated.
   Rebalance,
 }
 
@@ -215,7 +225,7 @@ impl fmt::Display for ClientState {
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DatabaseMemoryStats {
-  pub overhead_hashtable_main: u64,
+  pub overhead_hashtable_main:    u64,
   pub overhead_hashtable_expires: u64,
 }
 
@@ -223,7 +233,7 @@ impl Default for DatabaseMemoryStats {
   fn default() -> Self {
     DatabaseMemoryStats {
       overhead_hashtable_expires: 0,
-      overhead_hashtable_main: 0,
+      overhead_hashtable_main:    0,
     }
   }
 }
@@ -233,63 +243,63 @@ impl Default for DatabaseMemoryStats {
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug)]
 pub struct MemoryStats {
-  pub peak_allocated: u64,
-  pub total_allocated: u64,
-  pub startup_allocated: u64,
-  pub replication_backlog: u64,
-  pub clients_slaves: u64,
-  pub clients_normal: u64,
-  pub aof_buffer: u64,
-  pub lua_caches: u64,
-  pub overhead_total: u64,
-  pub keys_count: u64,
-  pub keys_bytes_per_key: u64,
-  pub dataset_bytes: u64,
-  pub dataset_percentage: f64,
-  pub peak_percentage: f64,
-  pub fragmentation: f64,
-  pub fragmentation_bytes: u64,
-  pub rss_overhead_ratio: f64,
-  pub rss_overhead_bytes: u64,
-  pub allocator_allocated: u64,
-  pub allocator_active: u64,
-  pub allocator_resident: u64,
+  pub peak_allocated:                u64,
+  pub total_allocated:               u64,
+  pub startup_allocated:             u64,
+  pub replication_backlog:           u64,
+  pub clients_slaves:                u64,
+  pub clients_normal:                u64,
+  pub aof_buffer:                    u64,
+  pub lua_caches:                    u64,
+  pub overhead_total:                u64,
+  pub keys_count:                    u64,
+  pub keys_bytes_per_key:            u64,
+  pub dataset_bytes:                 u64,
+  pub dataset_percentage:            f64,
+  pub peak_percentage:               f64,
+  pub fragmentation:                 f64,
+  pub fragmentation_bytes:           u64,
+  pub rss_overhead_ratio:            f64,
+  pub rss_overhead_bytes:            u64,
+  pub allocator_allocated:           u64,
+  pub allocator_active:              u64,
+  pub allocator_resident:            u64,
   pub allocator_fragmentation_ratio: f64,
   pub allocator_fragmentation_bytes: u64,
-  pub allocator_rss_ratio: f64,
-  pub allocator_rss_bytes: u64,
-  pub db: HashMap<u16, DatabaseMemoryStats>,
+  pub allocator_rss_ratio:           f64,
+  pub allocator_rss_bytes:           u64,
+  pub db:                            HashMap<u16, DatabaseMemoryStats>,
 }
 
 impl Default for MemoryStats {
   fn default() -> Self {
     MemoryStats {
-      peak_allocated: 0,
-      total_allocated: 0,
-      startup_allocated: 0,
-      replication_backlog: 0,
-      clients_normal: 0,
-      clients_slaves: 0,
-      aof_buffer: 0,
-      lua_caches: 0,
-      overhead_total: 0,
-      keys_count: 0,
-      keys_bytes_per_key: 0,
-      dataset_bytes: 0,
-      dataset_percentage: 0.0,
-      peak_percentage: 0.0,
-      fragmentation: 0.0,
-      fragmentation_bytes: 0,
-      rss_overhead_ratio: 0.0,
-      rss_overhead_bytes: 0,
-      allocator_allocated: 0,
-      allocator_active: 0,
-      allocator_resident: 0,
+      peak_allocated:                0,
+      total_allocated:               0,
+      startup_allocated:             0,
+      replication_backlog:           0,
+      clients_normal:                0,
+      clients_slaves:                0,
+      aof_buffer:                    0,
+      lua_caches:                    0,
+      overhead_total:                0,
+      keys_count:                    0,
+      keys_bytes_per_key:            0,
+      dataset_bytes:                 0,
+      dataset_percentage:            0.0,
+      peak_percentage:               0.0,
+      fragmentation:                 0.0,
+      fragmentation_bytes:           0,
+      rss_overhead_ratio:            0.0,
+      rss_overhead_bytes:            0,
+      allocator_allocated:           0,
+      allocator_active:              0,
+      allocator_resident:            0,
       allocator_fragmentation_ratio: 0.0,
       allocator_fragmentation_bytes: 0,
-      allocator_rss_bytes: 0,
-      allocator_rss_ratio: 0.0,
-      db: HashMap::new(),
+      allocator_rss_bytes:           0,
+      allocator_rss_ratio:           0.0,
+      db:                            HashMap::new(),
     }
   }
 }
@@ -332,12 +342,12 @@ impl Eq for MemoryStats {}
 /// <https://redis.io/commands/slowlog#output-format>
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SlowlogEntry {
-  pub id: i64,
+  pub id:        i64,
   pub timestamp: i64,
-  pub duration: u64,
-  pub args: Vec<String>,
-  pub ip: Option<String>,
-  pub name: Option<String>,
+  pub duration:  u64,
+  pub args:      Vec<String>,
+  pub ip:        Option<String>,
+  pub name:      Option<String>,
 }
 
 /// Flags for the SCRIPT DEBUG command.
@@ -392,5 +402,84 @@ impl SortOrder {
       SortOrder::Asc => "ASC",
       SortOrder::Desc => "DESC",
     })
+  }
+}
+
+/// The policy type for the [FUNCTION RESTORE](https://redis.io/commands/function-restore/) command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FnPolicy {
+  Flush,
+  Append,
+  Replace,
+}
+
+impl Default for FnPolicy {
+  fn default() -> Self {
+    FnPolicy::Append
+  }
+}
+
+impl FnPolicy {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      FnPolicy::Flush => "FLUSH",
+      FnPolicy::Append => "APPEND",
+      FnPolicy::Replace => "REPLACE",
+    })
+  }
+
+  pub(crate) fn from_str(s: &str) -> Result<Self, RedisError> {
+    Ok(match s.as_ref() {
+      "flush" | "FLUSH" => FnPolicy::Flush,
+      "append" | "APPEND" => FnPolicy::Append,
+      "replace" | "REPLACE" => FnPolicy::Replace,
+      _ => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Invalid function restore policy.",
+        ))
+      },
+    })
+  }
+}
+
+// have to implement these for specific types to avoid conflicting with the core Into implementation
+impl TryFrom<&str> for FnPolicy {
+  type Error = RedisError;
+
+  fn try_from(value: &str) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(value)
+  }
+}
+
+impl TryFrom<&String> for FnPolicy {
+  type Error = RedisError;
+
+  fn try_from(value: &String) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(value.as_str())
+  }
+}
+
+impl TryFrom<String> for FnPolicy {
+  type Error = RedisError;
+
+  fn try_from(value: String) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(value.as_str())
+  }
+}
+
+impl TryFrom<Str> for FnPolicy {
+  type Error = RedisError;
+
+  fn try_from(value: Str) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(&value)
+  }
+}
+
+impl TryFrom<&Str> for FnPolicy {
+  type Error = RedisError;
+
+  fn try_from(value: &Str) -> Result<Self, Self::Error> {
+    FnPolicy::from_str(&value)
   }
 }

@@ -8,6 +8,15 @@ args:
       long: tracing
       help: Whether or not to enable tracing via a local Jeager instance. See tests/docker-compose.yml to start up a local Jaeger instance.
       takes_value: false
+  - cluster:
+      long: cluster
+      help: Whether or not to assume a clustered deployment.
+      takes_value: false
+  - quiet:
+      short: q
+      long: quiet
+      help: Print a single output describing the throughput as req/sec.
+      takes_value: false
   - count:
       short: c
       long: count
@@ -26,7 +35,7 @@ args:
       short: h
       long: host
       value_name: "STRING"
-      help: The hostname of the redis server. The script assumes a centralized deployment.
+      help: The hostname of the redis server.
       takes_value: true
       default_value: "127.0.0.1"
   - port:

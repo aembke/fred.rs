@@ -1,17 +1,17 @@
-use fred::prelude::*;
+use fred::{prelude::*, types::Scanner};
 use futures::stream::StreamExt;
 
 static COUNT: u32 = 50;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   Ok(())
 }
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = client.del(format!("foo-{}", idx)).await?;
   }
   Ok(())
@@ -20,9 +20,9 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
-  let client = RedisClient::new(config);
+  let client = RedisClient::new(config, None, None);
 
-  let jh = client.connect(None);
+  let jh = client.connect();
   let _ = client.wait_for_connect().await?;
   let _ = delete_fake_data(&client).await?;
   let _ = create_fake_data(&client).await?;

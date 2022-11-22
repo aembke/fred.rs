@@ -7,41 +7,41 @@ use std::cmp;
 ///
 /// Time units are in milliseconds, data size units are in bytes.
 pub struct Stats {
-  pub min: i64,
-  pub max: i64,
-  pub avg: f64,
-  pub stddev: f64,
+  pub min:     i64,
+  pub max:     i64,
+  pub avg:     f64,
+  pub stddev:  f64,
   pub samples: u64,
-  pub sum: i64,
+  pub sum:     i64,
 }
 
 /// Struct for tracking moving stats about network latency or request/response sizes.
 ///
 /// Time units are in milliseconds, data size units are in bytes.
 pub struct MovingStats {
-  pub min: i64,
-  pub max: i64,
-  pub avg: f64,
+  pub min:      i64,
+  pub max:      i64,
+  pub avg:      f64,
   pub variance: f64,
-  pub samples: u64,
-  pub sum: i64,
-  old_avg: f64,
-  s: f64,
-  old_s: f64,
+  pub samples:  u64,
+  pub sum:      i64,
+  old_avg:      f64,
+  s:            f64,
+  old_s:        f64,
 }
 
 impl Default for MovingStats {
   fn default() -> Self {
     MovingStats {
-      min: 0,
-      max: 0,
-      avg: 0.0,
-      sum: 0,
+      min:      0,
+      max:      0,
+      avg:      0.0,
+      sum:      0,
       variance: 0.0,
-      samples: 0,
-      s: 0.0,
-      old_s: 0.0,
-      old_avg: 0.0,
+      samples:  0,
+      s:        0.0,
+      old_s:    0.0,
+      old_avg:  0.0,
     }
   }
 }
@@ -99,12 +99,12 @@ impl MovingStats {
 impl<'a> From<&'a MovingStats> for Stats {
   fn from(stats: &'a MovingStats) -> Stats {
     Stats {
-      avg: stats.avg,
-      stddev: stats.variance.sqrt(),
-      min: stats.min,
-      max: stats.max,
+      avg:     stats.avg,
+      stddev:  stats.variance.sqrt(),
+      min:     stats.min,
+      max:     stats.max,
       samples: stats.samples as u64,
-      sum: stats.sum,
+      sum:     stats.sum,
     }
   }
 }

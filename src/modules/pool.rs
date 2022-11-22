@@ -1,19 +1,22 @@
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::ClientLike;
-use crate::types::{ConnectHandle, ReconnectPolicy, RedisConfig};
-use crate::utils;
+use crate::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  interfaces::ClientLike,
+  types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig},
+  utils,
+};
 use futures::future::{join_all, try_join_all};
-use std::fmt;
-use std::ops::Deref;
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::{
+  fmt,
+  ops::Deref,
+  sync::{atomic::AtomicUsize, Arc},
+};
 
 /// The inner state used by a `RedisPool`.
 #[derive(Clone)]
 pub(crate) struct RedisPoolInner {
   clients: Vec<RedisClient>,
-  last: Arc<AtomicUsize>,
+  last:    Arc<AtomicUsize>,
 }
 
 /// A struct to pool multiple Redis clients together into one interface that will round-robin requests among clients,
@@ -23,9 +26,11 @@ pub struct RedisPool {
   inner: Arc<RedisPoolInner>,
 }
 
-impl fmt::Display for RedisPool {
+impl fmt::Debug for RedisPool {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[Redis Pool]")
+    f.debug_struct("RedisPool")
+      .field("size", &self.inner.clients.len())
+      .finish()
   }
 }
 
@@ -51,11 +56,16 @@ impl<'a> From<&'a RedisPool> for RedisClient {
 
 impl RedisPool {
   /// Create a new pool without connecting to the server.
-  pub fn new(config: RedisConfig, size: usize) -> Result<Self, RedisError> {
+  pub fn new(
+    config: RedisConfig,
+    perf: Option<PerformanceConfig>,
+    policy: Option<ReconnectPolicy>,
+    size: usize,
+  ) -> Result<Self, RedisError> {
     if size > 0 {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0..size {
-        clients.push(RedisClient::new(config.clone()));
+      for _ in 0 .. size {
+        clients.push(RedisClient::new(config.clone(), perf.clone(), policy.clone()));
       }
       let last = Arc::new(AtomicUsize::new(0));
 
@@ -75,8 +85,8 @@ impl RedisPool {
   /// Connect each client to the server, returning the task driving each connection.
   ///
   /// The caller is responsible for calling `wait_for_connect` or any `on_*` functions on each client.
-  pub fn connect(&self, policy: Option<ReconnectPolicy>) -> Vec<ConnectHandle> {
-    self.inner.clients.iter().map(|c| c.connect(policy.clone())).collect()
+  pub fn connect(&self) -> Vec<ConnectHandle> {
+    self.inner.clients.iter().map(|c| c.connect()).collect()
   }
 
   /// Wait for all the clients to connect to the server.
@@ -97,7 +107,7 @@ impl RedisPool {
   pub fn next(&self) -> &RedisClient {
     let mut idx = utils::incr_atomic(&self.inner.last) % self.inner.clients.len();
 
-    for _ in 0..self.inner.clients.len() {
+    for _ in 0 .. self.inner.clients.len() {
       let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;

@@ -24,7 +24,7 @@ async fn main() -> Result<(), RedisError> {
     username: None,
     // an optional authentication key or password
     password: None,
-    // optional TLS settings (requires the `enable-tls` feature)
+    // optional TLS settings (requires the `enable-native-tls` feature)
     tls: None,
     // whether to enable tracing (only used with `partial-tracing` or `full-tracing` features)
     tracing: false,

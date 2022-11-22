@@ -1,37 +1,31 @@
 use super::utils as protocol_utils;
-use crate::clients::RedisClient;
-use crate::error::{RedisError, RedisErrorKind};
-use crate::modules::inner::RedisClientInner;
-use crate::types::*;
-use crate::utils;
-use crate::utils::{set_locked, take_locked};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{cluster, utils::server_to_parts},
+  types::*,
+  utils,
+};
+use arcstr::ArcStr;
 use bytes_utils::Str;
-use parking_lot::RwLock;
 use rand::Rng;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::resp2_frame_to_resp3;
-use redis_protocol::resp3::types::Frame as Resp3Frame;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
-use std::convert::TryInto;
-use std::fmt;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::sync::Arc;
-use std::time::Instant;
+use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
+use std::{
+  cmp::Ordering,
+  collections::{BTreeMap, BTreeSet, HashMap},
+  convert::TryInto,
+  fmt::{Display, Formatter},
+  hash::{Hash, Hasher},
+  net::{SocketAddr, ToSocketAddrs},
+  sync::Arc,
+};
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::oneshot::Sender as OneshotSender;
-
-#[cfg(feature = "blocking-encoding")]
-use crate::globals::globals;
-
-#[cfg(not(feature = "full-tracing"))]
-use crate::trace::disabled::Span as FakeSpan;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::trace::CommandTraces;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::trace::Span;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
+
+#[cfg(feature = "replicas")]
+use std::sync::atomic::AtomicUsize;
 
 #[derive(Debug)]
 pub enum ProtocolFrame {
@@ -41,8 +35,8 @@ pub enum ProtocolFrame {
 
 impl ProtocolFrame {
   pub fn into_resp3(self) -> Resp3Frame {
-    // since the `RedisValue::convert` logic already accounts for different encodings of maps and sets we can just
-    // change everything to RESP3 above the protocol layer. resp2->resp3 is lossless so this is safe.
+    // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
+    // we can just change everything to RESP3 above the protocol layer
     match self {
       ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
       ProtocolFrame::Resp3(frame) => frame,
@@ -62,125 +56,94 @@ impl From<Resp3Frame> for ProtocolFrame {
   }
 }
 
-#[derive(Clone)]
-pub struct AllNodesResponse {
-  // this state can shared across tasks scheduled in different threads on multi-thread runtimes when we
-  // send commands to all servers at once and wait for all the responses
-  num_nodes: Arc<RwLock<usize>>,
-  resp_tx: Arc<RwLock<Option<OneshotSender<Result<(), RedisError>>>>>,
+/// State necessary to identify or connect to a server.
+#[derive(Debug, Clone)]
+pub struct Server {
+  pub host:            ArcStr,
+  pub port:            u16,
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  pub tls_server_name: Option<ArcStr>,
 }
 
-impl fmt::Debug for AllNodesResponse {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[AllNodesResponse]")
+impl Server {
+  /// Create a new server struct from a `host:port` string and the default host that sent the last command.
+  pub(crate) fn from_parts(server: &str, default_host: &str) -> Option<Server> {
+    server_to_parts(server).ok().map(|(host, port)| {
+      let host = if host.is_empty() {
+        ArcStr::from(default_host)
+      } else {
+        ArcStr::from(host)
+      };
+
+      Server {
+        host,
+        port,
+        tls_server_name: None,
+      }
+    })
   }
 }
 
-impl PartialEq for AllNodesResponse {
-  fn eq(&self, _other: &Self) -> bool {
-    // this doesnt matter, it's here to make the derive(Eq) on RedisCommandKind easier
-    true
+impl Display for Server {
+  fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}:{}", self.host, self.port)
   }
 }
 
-impl Eq for AllNodesResponse {}
-
-impl AllNodesResponse {
-  pub fn new(tx: OneshotSender<Result<(), RedisError>>) -> Self {
-    AllNodesResponse {
-      num_nodes: Arc::new(RwLock::new(0)),
-      resp_tx: Arc::new(RwLock::new(Some(tx))),
-    }
-  }
-
-  pub fn set_num_nodes(&self, num_nodes: usize) {
-    let mut guard = self.num_nodes.write();
-    *guard = num_nodes;
-  }
-
-  pub fn num_nodes(&self) -> usize {
-    self.num_nodes.read().clone()
-  }
-
-  pub fn decr_num_nodes(&self) -> usize {
-    let mut guard = self.num_nodes.write();
-    *guard = guard.saturating_sub(1);
-    *guard
-  }
-
-  pub fn take_tx(&self) -> Option<OneshotSender<Result<(), RedisError>>> {
-    self.resp_tx.write().take()
+impl PartialEq for Server {
+  fn eq(&self, other: &Self) -> bool {
+    self.host == other.host && self.port == other.port
   }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CustomKeySlot {
-  pub key_slot: Option<u16>,
-}
+impl Eq for Server {}
 
-#[derive(Clone)]
-pub struct SplitCommand {
-  // TODO change to mutex
-  pub tx: Arc<RwLock<Option<OneshotSender<Result<Vec<RedisClient>, RedisError>>>>>,
-  pub config: Option<RedisConfig>,
-}
-
-impl fmt::Debug for SplitCommand {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[SplitCommand]")
+impl Hash for Server {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.host.hash(state);
+    self.port.hash(state);
   }
 }
 
-impl PartialEq for SplitCommand {
-  fn eq(&self, other: &SplitCommand) -> bool {
-    self.config == other.config
+impl PartialOrd for Server {
+  fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    Some(self.cmp(other))
   }
 }
 
-impl Eq for SplitCommand {}
-
-#[derive(Clone)]
-pub enum ResponseKind {
-  Blocking { tx: Option<UnboundedSender<Resp3Frame>> },
-  Multiple { count: usize, buffer: VecDeque<Resp3Frame> },
-}
-
-impl fmt::Debug for ResponseKind {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[Response Kind]")
-  }
-}
-
-impl PartialEq for ResponseKind {
-  fn eq(&self, other: &ResponseKind) -> bool {
-    match *self {
-      ResponseKind::Blocking { .. } => match *other {
-        ResponseKind::Blocking { .. } => true,
-        ResponseKind::Multiple { .. } => false,
-      },
-      ResponseKind::Multiple { .. } => match *other {
-        ResponseKind::Blocking { .. } => false,
-        ResponseKind::Multiple { .. } => true,
-      },
+impl Ord for Server {
+  fn cmp(&self, other: &Self) -> Ordering {
+    let host_ord = self.host.cmp(&other.host);
+    if host_ord == Ordering::Equal {
+      self.port.cmp(&other.port)
+    } else {
+      host_ord
     }
   }
 }
-
-impl Eq for ResponseKind {}
 
 pub struct KeyScanInner {
-  pub key_slot: Option<u16>,
-  pub cursor: Str,
-  pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
+  /// The hash slot for the command.
+  pub hash_slot:  Option<u16>,
+  /// The index of the cursor in `args`.
+  pub cursor_idx: usize,
+  /// The arguments sent in each scan command.
+  pub args:       Vec<RedisValue>,
+  /// The sender half of the results channel.
+  pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
-impl PartialEq for KeyScanInner {
-  fn eq(&self, other: &KeyScanInner) -> bool {
-    self.cursor == other.cursor
+impl KeyScanInner {
+  /// Update the cursor in place in the arguments.
+  pub fn update_cursor(&mut self, cursor: Str) {
+    self.args[self.cursor_idx] = cursor.into();
+  }
+
+  /// Send an error on the response stream.
+  pub fn send_error(&self, error: RedisError) {
+    let _ = self.tx.send(Err(error));
   }
 }
-
-impl Eq for KeyScanInner {}
 
 pub enum ValueScanResult {
   SScan(SScanResult),
@@ -189,26 +152,32 @@ pub enum ValueScanResult {
 }
 
 pub struct ValueScanInner {
-  pub cursor: Str,
-  pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
+  /// The index of the cursor argument in `args`.
+  pub cursor_idx: usize,
+  /// The arguments sent in each scan command.
+  pub args:       Vec<RedisValue>,
+  /// The sender half of the results channel.
+  pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
-
-impl PartialEq for ValueScanInner {
-  fn eq(&self, other: &ValueScanInner) -> bool {
-    self.cursor == other.cursor
-  }
-}
-
-impl Eq for ValueScanInner {}
 
 impl ValueScanInner {
+  /// Update the cursor in place in the arguments.
+  pub fn update_cursor(&mut self, cursor: Str) {
+    self.args[self.cursor_idx] = cursor.into();
+  }
+
+  /// Send an error on the response stream.
+  pub fn send_error(&self, error: RedisError) {
+    let _ = self.tx.send(Err(error));
+  }
+
   pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
     if data.is_empty() {
       return Ok(RedisMap::new());
     }
     if data.len() % 2 != 0 {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Invalid HSCAN result. Expected array with an even number of elements.",
       ));
     }
@@ -218,12 +187,13 @@ impl ValueScanInner {
       let value = data.pop().unwrap();
       let key: RedisKey = match data.pop().unwrap() {
         RedisValue::String(s) => s.into(),
+        RedisValue::Bytes(b) => b.into(),
         _ => {
           return Err(RedisError::new(
-            RedisErrorKind::ProtocolError,
+            RedisErrorKind::Protocol,
             "Invalid HSCAN result. Expected string.",
           ))
-        }
+        },
       };
 
       out.insert(key, value);
@@ -238,7 +208,7 @@ impl ValueScanInner {
     }
     if data.len() % 2 != 0 {
       return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
+        RedisErrorKind::Protocol,
         "Invalid ZSCAN result. Expected array with an even number of elements.",
       ));
     }
@@ -250,12 +220,13 @@ impl ValueScanInner {
       let score = match chunk[1].take() {
         RedisValue::String(s) => utils::redis_string_to_f64(&s)?,
         RedisValue::Integer(i) => i as f64,
+        RedisValue::Double(f) => f,
         _ => {
           return Err(RedisError::new(
-            RedisErrorKind::ProtocolError,
-            "Invalid HSCAN result. Expected a string or integer score.",
+            RedisErrorKind::Protocol,
+            "Invalid HSCAN result. Expected a string or number score.",
           ))
-        }
+        },
       };
 
       out.push((value, score));
@@ -265,1579 +236,136 @@ impl ValueScanInner {
   }
 }
 
-#[derive(Eq, PartialEq)]
-pub enum RedisCommandKind {
-  AclLoad,
-  AclSave,
-  AclList,
-  AclUsers,
-  AclGetUser,
-  AclSetUser,
-  AclDelUser,
-  AclCat,
-  AclGenPass,
-  AclWhoAmI,
-  AclLog,
-  AclHelp,
-  Append,
-  Auth,
-  BgreWriteAof,
-  BgSave,
-  BitCount,
-  BitField,
-  BitOp,
-  BitPos,
-  BlPop,
-  BlMove,
-  BrPop,
-  BrPopLPush,
-  BzPopMin,
-  BzPopMax,
-  ClientID,
-  ClientInfo,
-  ClientKill,
-  ClientList,
-  ClientGetName,
-  ClientGetRedir,
-  ClientPause,
-  ClientUnpause,
-  ClientUnblock,
-  ClientReply,
-  ClientSetname,
-  ClusterAddSlots,
-  ClusterCountFailureReports,
-  ClusterCountKeysInSlot,
-  ClusterDelSlots,
-  ClusterFailOver,
-  ClusterForget,
-  ClusterFlushSlots,
-  ClusterGetKeysInSlot,
-  ClusterInfo,
-  ClusterKeySlot,
-  ClusterMeet,
-  ClusterMyID,
-  ClusterNodes,
-  ClusterReplicate,
-  ClusterReset,
-  ClusterSaveConfig,
-  ClusterSetConfigEpoch,
-  ClusterBumpEpoch,
-  ClusterSetSlot,
-  ClusterReplicas,
-  ClusterSlots,
-  ConfigGet,
-  ConfigRewrite,
-  ConfigSet,
-  ConfigResetStat,
-  Copy,
-  DBSize,
-  Decr,
-  DecrBy,
-  Del,
-  Discard,
-  Dump,
-  Echo,
-  Eval(CustomKeySlot),
-  EvalSha(CustomKeySlot),
-  Exec,
-  Exists,
-  Expire,
-  ExpireAt,
-  Failover,
-  FlushAll,
-  FlushDB,
-  GeoAdd,
-  GeoHash,
-  GeoPos,
-  GeoDist,
-  GeoRadius,
-  GeoRadiusByMember,
-  GeoSearch,
-  GeoSearchStore,
-  Get,
-  GetBit,
-  GetDel,
-  GetRange,
-  GetSet,
-  HDel,
-  Hello(RespVersion),
-  HExists,
-  HGet,
-  HGetAll,
-  HIncrBy,
-  HIncrByFloat,
-  HKeys,
-  HLen,
-  HMGet,
-  HMSet,
-  HSet,
-  HSetNx,
-  HStrLen,
-  HVals,
-  HRandField,
-  Incr,
-  IncrBy,
-  IncrByFloat,
-  Info,
-  Keys,
-  LastSave,
-  LIndex,
-  LInsert,
-  LLen,
-  LMove,
-  LPop,
-  LPos,
-  LPush,
-  LPushX,
-  LRange,
-  LRem,
-  LSet,
-  LTrim,
-  MemoryDoctor,
-  MemoryHelp,
-  MemoryMallocStats,
-  MemoryPurge,
-  MemoryStats,
-  MemoryUsage,
-  Mget,
-  Migrate,
-  Monitor,
-  Move,
-  Mset,
-  Msetnx,
-  Multi,
-  Object,
-  Persist,
-  Pexpire,
-  Pexpireat,
-  Pfadd,
-  Pfcount,
-  Pfmerge,
-  Ping,
-  Psetex,
-  Psubscribe(ResponseKind),
-  Pubsub,
-  Pttl,
-  Publish,
-  Punsubscribe(ResponseKind),
-  Quit,
-  Randomkey,
-  Readonly,
-  Readwrite,
-  Rename,
-  Renamenx,
-  Restore,
-  Role,
-  Rpop,
-  Rpoplpush,
-  Rpush,
-  Rpushx,
-  Sadd,
-  Save,
-  Scard,
-  Sdiff,
-  Sdiffstore,
-  Select,
-  Sentinel,
-  Set,
-  Setbit,
-  Setex,
-  Setnx,
-  Setrange,
-  Shutdown,
-  Sinter,
-  Sinterstore,
-  Sismember,
-  Replicaof,
-  Slowlog,
-  Smembers,
-  Smismember,
-  Smove,
-  Sort,
-  Spop,
-  Srandmember,
-  Srem,
-  Strlen,
-  Subscribe,
-  Sunion,
-  Sunionstore,
-  Swapdb,
-  Sync,
-  Time,
-  Touch,
-  Ttl,
-  Type,
-  Unsubscribe,
-  Unlink,
-  Unwatch,
-  Wait,
-  Watch,
-  XinfoConsumers,
-  XinfoGroups,
-  XinfoStream,
-  Xadd,
-  Xtrim,
-  Xdel,
-  Xrange,
-  Xrevrange,
-  Xlen,
-  Xread((bool, Option<u16>)),
-  Xgroupcreate,
-  XgroupCreateConsumer,
-  XgroupDelConsumer,
-  XgroupDestroy,
-  XgroupSetId,
-  Xreadgroup((bool, Option<u16>)),
-  Xack,
-  Xclaim,
-  Xautoclaim,
-  Xpending,
-  Zadd,
-  Zcard,
-  Zcount,
-  Zdiff,
-  Zdiffstore,
-  Zincrby,
-  Zinter,
-  Zinterstore,
-  Zlexcount,
-  Zrandmember,
-  Zrange,
-  Zrangestore,
-  Zrangebylex,
-  Zrangebyscore,
-  Zrank,
-  Zrem,
-  Zremrangebylex,
-  Zremrangebyrank,
-  Zremrangebyscore,
-  Zrevrange,
-  Zrevrangebylex,
-  Zrevrangebyscore,
-  Zrevrank,
-  Zscore,
-  Zmscore,
-  Zunion,
-  Zunionstore,
-  Zpopmax,
-  Zpopmin,
-  ScriptLoad,
-  ScriptDebug,
-  ScriptExists,
-  ScriptFlush,
-  ScriptKill,
-  Scan(KeyScanInner),
-  Sscan(ValueScanInner),
-  Hscan(ValueScanInner),
-  Zscan(ValueScanInner),
-  _Close,
-  _Split(SplitCommand),
-  _AuthAllCluster(AllNodesResponse),
-  _HelloAllCluster((AllNodesResponse, RespVersion)),
-  _FlushAllCluster(AllNodesResponse),
-  _ScriptFlushCluster(AllNodesResponse),
-  _ScriptLoadCluster(AllNodesResponse),
-  _ScriptKillCluster(AllNodesResponse),
-  _Custom(CustomCommand),
+/// A container for round-robin routing to replica server IDs.
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct ReplicaSet {
+  /// A map of primary server IDs to a counter and set of replica server IDs.
+  servers: HashMap<ArcStr, (usize, Vec<ArcStr>)>,
 }
 
-impl fmt::Debug for RedisCommandKind {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "{}", self.to_str_debug())
-  }
-}
-
-impl RedisCommandKind {
-  pub fn is_scan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Scan(_) => true,
-      _ => false,
+#[cfg(feature = "replicas")]
+impl ReplicaSet {
+  /// Create a new empty replica set.
+  pub fn new() -> ReplicaSet {
+    ReplicaSet {
+      servers: HashMap::new(),
     }
   }
 
-  pub fn is_hscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Hscan(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_sscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Sscan(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_zscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Zscan(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_hello(&self) -> bool {
-    match *self {
-      RedisCommandKind::Hello(_) | RedisCommandKind::_HelloAllCluster(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_auth(&self) -> bool {
-    match *self {
-      RedisCommandKind::Auth => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_value_scan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Zscan(_) | RedisCommandKind::Hscan(_) | RedisCommandKind::Sscan(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn has_response_kind(&self) -> bool {
-    match *self {
-      RedisCommandKind::Punsubscribe(_) | RedisCommandKind::Psubscribe(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn has_multiple_response_kind(&self) -> bool {
-    match *self {
-      RedisCommandKind::Punsubscribe(_) | RedisCommandKind::Psubscribe(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn has_blocking_response_kind(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
-      _ => false,
-    }
-  }
-
-  pub fn response_kind(&self) -> Option<&ResponseKind> {
-    match *self {
-      RedisCommandKind::Punsubscribe(ref k) | RedisCommandKind::Psubscribe(ref k) => Some(k),
-      _ => None,
-    }
-  }
-
-  pub fn response_kind_mut(&mut self) -> Option<&mut ResponseKind> {
-    match *self {
-      RedisCommandKind::Punsubscribe(ref mut k) | RedisCommandKind::Psubscribe(ref mut k) => Some(k),
-      _ => None,
-    }
-  }
-
-  pub fn is_multi(&self) -> bool {
-    match *self {
-      RedisCommandKind::Multi => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_exec(&self) -> bool {
-    match *self {
-      RedisCommandKind::Exec => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_discard(&self) -> bool {
-    match *self {
-      RedisCommandKind::Discard => true,
-      _ => false,
-    }
-  }
-
-  pub fn ends_transaction(&self) -> bool {
-    match *self {
-      RedisCommandKind::Exec | RedisCommandKind::Discard => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_mset(&self) -> bool {
-    match *self {
-      RedisCommandKind::Mset | RedisCommandKind::Msetnx => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_split(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Split(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_close(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Close => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_custom(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Custom(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn closes_connection(&self) -> bool {
-    match *self {
-      RedisCommandKind::Quit | RedisCommandKind::Shutdown => true,
-      _ => false,
-    }
-  }
-
-  /// Read the command's protocol string without panicking.
-  pub fn to_str_debug(&self) -> &str {
-    match *self {
-      RedisCommandKind::AclLoad => "ACL LOAD",
-      RedisCommandKind::AclSave => "ACL SAVE",
-      RedisCommandKind::AclList => "ACL LIST",
-      RedisCommandKind::AclUsers => "ACL USERS",
-      RedisCommandKind::AclGetUser => "ACL GETUSER",
-      RedisCommandKind::AclSetUser => "ACL SETUSER",
-      RedisCommandKind::AclDelUser => "ACL DELUSER",
-      RedisCommandKind::AclCat => "ACL CAT",
-      RedisCommandKind::AclGenPass => "ACL GENPASS",
-      RedisCommandKind::AclWhoAmI => "ACL WHOAMI",
-      RedisCommandKind::AclLog => "ACL LOG",
-      RedisCommandKind::AclHelp => "ACL HELP",
-      RedisCommandKind::Append => "APPEND",
-      RedisCommandKind::Auth => "AUTH",
-      RedisCommandKind::BgreWriteAof => "BGREWRITEAOF",
-      RedisCommandKind::BgSave => "BGSAVE",
-      RedisCommandKind::BitCount => "BITCOUNT",
-      RedisCommandKind::BitField => "BITFIELD",
-      RedisCommandKind::BitOp => "BITOP",
-      RedisCommandKind::BitPos => "BITPOS",
-      RedisCommandKind::BlPop => "BLPOP",
-      RedisCommandKind::BlMove => "BLMOVE",
-      RedisCommandKind::BrPop => "BRPOP",
-      RedisCommandKind::BrPopLPush => "BRPOPLPUSH",
-      RedisCommandKind::BzPopMin => "BZPOPMIN",
-      RedisCommandKind::BzPopMax => "BZPOPMAX",
-      RedisCommandKind::ClientID => "CLIENT ID",
-      RedisCommandKind::ClientInfo => "CLIENT INFO",
-      RedisCommandKind::ClientKill => "CLIENT KILL",
-      RedisCommandKind::ClientList => "CLIENT LIST",
-      RedisCommandKind::ClientGetRedir => "CLIENT GETREDIR",
-      RedisCommandKind::ClientGetName => "CLIENT GETNAME",
-      RedisCommandKind::ClientPause => "CLIENT PAUSE",
-      RedisCommandKind::ClientUnpause => "CLIENT UNPAUSE",
-      RedisCommandKind::ClientUnblock => "CLIENT UNBLOCK",
-      RedisCommandKind::ClientReply => "CLIENT REPLY",
-      RedisCommandKind::ClientSetname => "CLIENT SETNAME",
-      RedisCommandKind::ClusterAddSlots => "CLUSTER ADDSLOTS",
-      RedisCommandKind::ClusterCountFailureReports => "CLUSTER COUNT-FAILURE-REPORTS",
-      RedisCommandKind::ClusterCountKeysInSlot => "CLUSTER COUNTKEYSINSLOT",
-      RedisCommandKind::ClusterDelSlots => "CLUSTER DEL SLOTS",
-      RedisCommandKind::ClusterFailOver => "CLUSTER FAILOVER",
-      RedisCommandKind::ClusterForget => "CLUSTER FORGET",
-      RedisCommandKind::ClusterGetKeysInSlot => "CLUSTER GETKEYSINSLOTS",
-      RedisCommandKind::ClusterInfo => "CLUSTER INFO",
-      RedisCommandKind::ClusterKeySlot => "CLUSTER KEYSLOT",
-      RedisCommandKind::ClusterMeet => "CLUSTER MEET",
-      RedisCommandKind::ClusterNodes => "CLUSTER NODES",
-      RedisCommandKind::ClusterReplicate => "CLUSTER REPLICATE",
-      RedisCommandKind::ClusterReset => "CLUSTER RESET",
-      RedisCommandKind::ClusterSaveConfig => "CLUSTER SAVECONFIG",
-      RedisCommandKind::ClusterSetConfigEpoch => "CLUSTER SET-CONFIG-EPOCH",
-      RedisCommandKind::ClusterSetSlot => "CLUSTER SETSLOT",
-      RedisCommandKind::ClusterReplicas => "CLUSTER REPLICAS",
-      RedisCommandKind::ClusterSlots => "CLUSTER SLOTS",
-      RedisCommandKind::ClusterBumpEpoch => "CLUSTER BUMPEPOCH",
-      RedisCommandKind::ClusterFlushSlots => "CLUSTER FLUSHSLOTS",
-      RedisCommandKind::ClusterMyID => "CLUSTER MYID",
-      RedisCommandKind::ConfigGet => "CONFIG GET",
-      RedisCommandKind::ConfigRewrite => "CONFIG REWRITE",
-      RedisCommandKind::ConfigSet => "CONFIG SET",
-      RedisCommandKind::ConfigResetStat => "CONFIG RESETSTAT",
-      RedisCommandKind::Copy => "COPY",
-      RedisCommandKind::DBSize => "DBSIZE",
-      RedisCommandKind::Decr => "DECR",
-      RedisCommandKind::DecrBy => "DECRBY",
-      RedisCommandKind::Del => "DEL",
-      RedisCommandKind::Discard => "DISCARD",
-      RedisCommandKind::Dump => "DUMP",
-      RedisCommandKind::Echo => "ECHO",
-      RedisCommandKind::Eval(_) => "EVAL",
-      RedisCommandKind::EvalSha(_) => "EVALSHA",
-      RedisCommandKind::Exec => "EXEC",
-      RedisCommandKind::Exists => "EXISTS",
-      RedisCommandKind::Expire => "EXPIRE",
-      RedisCommandKind::ExpireAt => "EXPIREAT",
-      RedisCommandKind::Failover => "FAILOVER",
-      RedisCommandKind::FlushAll => "FLUSHALL",
-      RedisCommandKind::FlushDB => "FLUSHDB",
-      RedisCommandKind::GeoAdd => "GEOADD",
-      RedisCommandKind::GeoHash => "GEOHASH",
-      RedisCommandKind::GeoPos => "GEOPOS",
-      RedisCommandKind::GeoDist => "GEODIST",
-      RedisCommandKind::GeoRadius => "GEORADIUS",
-      RedisCommandKind::GeoRadiusByMember => "GEORADIUSBYMEMBER",
-      RedisCommandKind::GeoSearch => "GEOSEARCH",
-      RedisCommandKind::GeoSearchStore => "GEOSEARCHSTORE",
-      RedisCommandKind::Get => "GET",
-      RedisCommandKind::GetDel => "GETDEL",
-      RedisCommandKind::GetBit => "GETBIT",
-      RedisCommandKind::GetRange => "GETRANGE",
-      RedisCommandKind::GetSet => "GETSET",
-      RedisCommandKind::HDel => "HDEL",
-      RedisCommandKind::Hello(_) => "HELLO",
-      RedisCommandKind::HExists => "HEXISTS",
-      RedisCommandKind::HGet => "HGET",
-      RedisCommandKind::HGetAll => "HGETALL",
-      RedisCommandKind::HIncrBy => "HINCRBY",
-      RedisCommandKind::HIncrByFloat => "HINCRBYFLOAT",
-      RedisCommandKind::HKeys => "HKEYS",
-      RedisCommandKind::HLen => "HLEN",
-      RedisCommandKind::HMGet => "HMGET",
-      RedisCommandKind::HMSet => "HMSET",
-      RedisCommandKind::HSet => "HSET",
-      RedisCommandKind::HSetNx => "HSETNX",
-      RedisCommandKind::HStrLen => "HSTRLEN",
-      RedisCommandKind::HRandField => "HRANDFIELD",
-      RedisCommandKind::HVals => "HVALS",
-      RedisCommandKind::Incr => "INCR",
-      RedisCommandKind::IncrBy => "INCRBY",
-      RedisCommandKind::IncrByFloat => "INCRBYFLOAT",
-      RedisCommandKind::Info => "INFO",
-      RedisCommandKind::Keys => "KEYS",
-      RedisCommandKind::LastSave => "LASTSAVE",
-      RedisCommandKind::LIndex => "LINDEX",
-      RedisCommandKind::LInsert => "LINSERT",
-      RedisCommandKind::LLen => "LLEN",
-      RedisCommandKind::LMove => "LMOVE",
-      RedisCommandKind::LPop => "LPOP",
-      RedisCommandKind::LPos => "LPOS",
-      RedisCommandKind::LPush => "LPUSH",
-      RedisCommandKind::LPushX => "LPUSHX",
-      RedisCommandKind::LRange => "LRANGE",
-      RedisCommandKind::LRem => "LREM",
-      RedisCommandKind::LSet => "LSET",
-      RedisCommandKind::LTrim => "LTRIM",
-      RedisCommandKind::MemoryDoctor => "MEMORY DOCTOR",
-      RedisCommandKind::MemoryHelp => "MEMORY HELP",
-      RedisCommandKind::MemoryMallocStats => "MEMORY MALLOC-STATS",
-      RedisCommandKind::MemoryPurge => "MEMORY PURGE",
-      RedisCommandKind::MemoryStats => "MEMORY STATS",
-      RedisCommandKind::MemoryUsage => "MEMORY USAGE",
-      RedisCommandKind::Mget => "MGET",
-      RedisCommandKind::Migrate => "MIGRATE",
-      RedisCommandKind::Monitor => "MONITOR",
-      RedisCommandKind::Move => "MOVE",
-      RedisCommandKind::Mset => "MSET",
-      RedisCommandKind::Msetnx => "MSETNX",
-      RedisCommandKind::Multi => "MULTI",
-      RedisCommandKind::Object => "OBJECT",
-      RedisCommandKind::Persist => "PERSIST",
-      RedisCommandKind::Pexpire => "PEXPIRE",
-      RedisCommandKind::Pexpireat => "PEXPIREAT",
-      RedisCommandKind::Pfadd => "PFADD",
-      RedisCommandKind::Pfcount => "PFCOUNT",
-      RedisCommandKind::Pfmerge => "PFMERGE",
-      RedisCommandKind::Ping => "PING",
-      RedisCommandKind::Psetex => "PSETEX",
-      RedisCommandKind::Psubscribe(_) => "PSUBSCRIBE",
-      RedisCommandKind::Pubsub => "PUBSUB",
-      RedisCommandKind::Pttl => "PTTL",
-      RedisCommandKind::Publish => "PUBLISH",
-      RedisCommandKind::Punsubscribe(_) => "PUNSUBSCRIBE",
-      RedisCommandKind::Quit => "QUIT",
-      RedisCommandKind::Randomkey => "RANDOMKEY",
-      RedisCommandKind::Readonly => "READONLY",
-      RedisCommandKind::Readwrite => "READWRITE",
-      RedisCommandKind::Rename => "RENAME",
-      RedisCommandKind::Renamenx => "RENAMENX",
-      RedisCommandKind::Restore => "RESTORE",
-      RedisCommandKind::Role => "ROLE",
-      RedisCommandKind::Rpop => "RPOP",
-      RedisCommandKind::Rpoplpush => "RPOPLPUSH",
-      RedisCommandKind::Rpush => "RPUSH",
-      RedisCommandKind::Rpushx => "RPUSHX",
-      RedisCommandKind::Sadd => "SADD",
-      RedisCommandKind::Save => "SAVE",
-      RedisCommandKind::Scard => "SCARD",
-      RedisCommandKind::Sdiff => "SDIFF",
-      RedisCommandKind::Sdiffstore => "SDIFFSTORE",
-      RedisCommandKind::Select => "SELECT",
-      RedisCommandKind::Sentinel => "SENTINEL",
-      RedisCommandKind::Set => "SET",
-      RedisCommandKind::Setbit => "SETBIT",
-      RedisCommandKind::Setex => "SETEX",
-      RedisCommandKind::Setnx => "SETNX",
-      RedisCommandKind::Setrange => "SETRANGE",
-      RedisCommandKind::Shutdown => "SHUTDOWN",
-      RedisCommandKind::Sinter => "SINTER",
-      RedisCommandKind::Sinterstore => "SINTERSTORE",
-      RedisCommandKind::Sismember => "SISMEMBER",
-      RedisCommandKind::Replicaof => "REPLICAOF",
-      RedisCommandKind::Slowlog => "SLOWLOG",
-      RedisCommandKind::Smembers => "SMEMBERS",
-      RedisCommandKind::Smismember => "SMISMEMBER",
-      RedisCommandKind::Smove => "SMOVE",
-      RedisCommandKind::Sort => "SORT",
-      RedisCommandKind::Spop => "SPOP",
-      RedisCommandKind::Srandmember => "SRANDMEMBER",
-      RedisCommandKind::Srem => "SREM",
-      RedisCommandKind::Strlen => "STRLEN",
-      RedisCommandKind::Subscribe => "SUBSCRIBE",
-      RedisCommandKind::Sunion => "SUNION",
-      RedisCommandKind::Sunionstore => "SUNIONSTORE",
-      RedisCommandKind::Swapdb => "SWAPDB",
-      RedisCommandKind::Sync => "SYNC",
-      RedisCommandKind::Time => "TIME",
-      RedisCommandKind::Touch => "TOUCH",
-      RedisCommandKind::Ttl => "TTL",
-      RedisCommandKind::Type => "TYPE",
-      RedisCommandKind::Unsubscribe => "UNSUBSCRIBE",
-      RedisCommandKind::Unlink => "UNLINK",
-      RedisCommandKind::Unwatch => "UNWATCH",
-      RedisCommandKind::Wait => "WAIT",
-      RedisCommandKind::Watch => "WATCH",
-      RedisCommandKind::XinfoConsumers => "XINFO CONSUMERS",
-      RedisCommandKind::XinfoGroups => "XINFO GROUPS",
-      RedisCommandKind::XinfoStream => "XINFO STREAM",
-      RedisCommandKind::Xadd => "XADD",
-      RedisCommandKind::Xtrim => "XTRIM",
-      RedisCommandKind::Xdel => "XDEL",
-      RedisCommandKind::Xrange => "XRANGE",
-      RedisCommandKind::Xrevrange => "XREVRANGE",
-      RedisCommandKind::Xlen => "XLEN",
-      RedisCommandKind::Xread(_) => "XREAD",
-      RedisCommandKind::Xgroupcreate => "XGROUP CREATE",
-      RedisCommandKind::XgroupCreateConsumer => "XGROUP CREATECONSUMER",
-      RedisCommandKind::XgroupDelConsumer => "XGROUP DELCONSUMER",
-      RedisCommandKind::XgroupDestroy => "XGROUP DESTROY",
-      RedisCommandKind::XgroupSetId => "XGROUP SETID",
-      RedisCommandKind::Xreadgroup(_) => "XREADGROUP",
-      RedisCommandKind::Xack => "XACK",
-      RedisCommandKind::Xclaim => "XCLAIM",
-      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
-      RedisCommandKind::Xpending => "XPENDING",
-      RedisCommandKind::Zadd => "ZADD",
-      RedisCommandKind::Zcard => "ZCARD",
-      RedisCommandKind::Zcount => "ZCOUNT",
-      RedisCommandKind::Zdiff => "ZDIFF",
-      RedisCommandKind::Zdiffstore => "ZDIFFSTORE",
-      RedisCommandKind::Zincrby => "ZINCRBY",
-      RedisCommandKind::Zinter => "ZINTER",
-      RedisCommandKind::Zinterstore => "ZINTERSTORE",
-      RedisCommandKind::Zlexcount => "ZLEXCOUNT",
-      RedisCommandKind::Zrandmember => "ZRANDMEMBER",
-      RedisCommandKind::Zrange => "ZRANGE",
-      RedisCommandKind::Zrangestore => "ZRANGESTORE",
-      RedisCommandKind::Zrangebylex => "ZRANGEBYLEX",
-      RedisCommandKind::Zrangebyscore => "ZRANGEBYSCORE",
-      RedisCommandKind::Zrank => "ZRANK",
-      RedisCommandKind::Zrem => "ZREM",
-      RedisCommandKind::Zremrangebylex => "ZREMRANGEBYLEX",
-      RedisCommandKind::Zremrangebyrank => "ZREMRANGEBYRANK",
-      RedisCommandKind::Zremrangebyscore => "ZREMRANGEBYSCORE",
-      RedisCommandKind::Zrevrange => "ZREVRANGE",
-      RedisCommandKind::Zrevrangebylex => "ZREVRANGEBYLEX",
-      RedisCommandKind::Zrevrangebyscore => "ZREVRANGEBYSCORE",
-      RedisCommandKind::Zrevrank => "ZREVRANK",
-      RedisCommandKind::Zscore => "ZSCORE",
-      RedisCommandKind::Zmscore => "ZMSCORE",
-      RedisCommandKind::Zunion => "ZUNION",
-      RedisCommandKind::Zunionstore => "ZUNIONSTORE",
-      RedisCommandKind::Zpopmax => "ZPOPMAX",
-      RedisCommandKind::Zpopmin => "ZPOPMIN",
-      RedisCommandKind::Scan(_) => "SCAN",
-      RedisCommandKind::Sscan(_) => "SSCAN",
-      RedisCommandKind::Hscan(_) => "HSCAN",
-      RedisCommandKind::Zscan(_) => "ZSCAN",
-      RedisCommandKind::ScriptDebug => "SCRIPT DEBUG",
-      RedisCommandKind::ScriptExists => "SCRIPT EXISTS",
-      RedisCommandKind::ScriptFlush => "SCRIPT FLUSH",
-      RedisCommandKind::ScriptKill => "SCRIPT KILL",
-      RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
-      RedisCommandKind::_Close => "CLOSE",
-      RedisCommandKind::_Split(_) => "SPLIT",
-      RedisCommandKind::_AuthAllCluster(_) => "AUTH ALL CLUSTER",
-      RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
-      RedisCommandKind::_FlushAllCluster(_) => "FLUSHALL CLUSTER",
-      RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT FLUSH CLUSTER",
-      RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT LOAD CLUSTER",
-      RedisCommandKind::_ScriptKillCluster(_) => "SCRIPT Kill CLUSTER",
-      RedisCommandKind::_Custom(ref kind) => &kind.cmd,
-    }
-  }
-
-  /// Read the protocol string for a command, panicking for internal commands that don't map directly to redis command.
-  pub(crate) fn cmd_str(&self) -> Str {
-    let s = match *self {
-      RedisCommandKind::AclLoad => "ACL",
-      RedisCommandKind::AclSave => "ACL",
-      RedisCommandKind::AclList => "ACL",
-      RedisCommandKind::AclUsers => "ACL",
-      RedisCommandKind::AclGetUser => "ACL",
-      RedisCommandKind::AclSetUser => "ACL",
-      RedisCommandKind::AclDelUser => "ACL",
-      RedisCommandKind::AclCat => "ACL",
-      RedisCommandKind::AclGenPass => "ACL",
-      RedisCommandKind::AclWhoAmI => "ACL",
-      RedisCommandKind::AclLog => "ACL",
-      RedisCommandKind::AclHelp => "ACL",
-      RedisCommandKind::Append => "APPEND",
-      RedisCommandKind::Auth => "AUTH",
-      RedisCommandKind::BgreWriteAof => "BGREWRITEAOF",
-      RedisCommandKind::BgSave => "BGSAVE",
-      RedisCommandKind::BitCount => "BITCOUNT",
-      RedisCommandKind::BitField => "BITFIELD",
-      RedisCommandKind::BitOp => "BITOP",
-      RedisCommandKind::BitPos => "BITPOS",
-      RedisCommandKind::BlPop => "BLPOP",
-      RedisCommandKind::BlMove => "BLMOVE",
-      RedisCommandKind::BrPop => "BRPOP",
-      RedisCommandKind::BrPopLPush => "BRPOPLPUSH",
-      RedisCommandKind::BzPopMin => "BZPOPMIN",
-      RedisCommandKind::BzPopMax => "BZPOPMAX",
-      RedisCommandKind::ClientID => "CLIENT",
-      RedisCommandKind::ClientInfo => "CLIENT",
-      RedisCommandKind::ClientKill => "CLIENT",
-      RedisCommandKind::ClientList => "CLIENT",
-      RedisCommandKind::ClientGetName => "CLIENT",
-      RedisCommandKind::ClientGetRedir => "CLIENT",
-      RedisCommandKind::ClientPause => "CLIENT",
-      RedisCommandKind::ClientUnpause => "CLIENT",
-      RedisCommandKind::ClientUnblock => "CLIENT",
-      RedisCommandKind::ClientReply => "CLIENT",
-      RedisCommandKind::ClientSetname => "CLIENT",
-      RedisCommandKind::ClusterAddSlots => "CLUSTER",
-      RedisCommandKind::ClusterCountFailureReports => "CLUSTER",
-      RedisCommandKind::ClusterCountKeysInSlot => "CLUSTER",
-      RedisCommandKind::ClusterDelSlots => "CLUSTER",
-      RedisCommandKind::ClusterFailOver => "CLUSTER",
-      RedisCommandKind::ClusterForget => "CLUSTER",
-      RedisCommandKind::ClusterGetKeysInSlot => "CLUSTER",
-      RedisCommandKind::ClusterInfo => "CLUSTER",
-      RedisCommandKind::ClusterKeySlot => "CLUSTER",
-      RedisCommandKind::ClusterMeet => "CLUSTER",
-      RedisCommandKind::ClusterNodes => "CLUSTER",
-      RedisCommandKind::ClusterReplicate => "CLUSTER",
-      RedisCommandKind::ClusterReset => "CLUSTER",
-      RedisCommandKind::ClusterSaveConfig => "CLUSTER",
-      RedisCommandKind::ClusterSetConfigEpoch => "CLUSTER",
-      RedisCommandKind::ClusterSetSlot => "CLUSTER",
-      RedisCommandKind::ClusterReplicas => "CLUSTER",
-      RedisCommandKind::ClusterSlots => "CLUSTER",
-      RedisCommandKind::ClusterBumpEpoch => "CLUSTER",
-      RedisCommandKind::ClusterFlushSlots => "CLUSTER",
-      RedisCommandKind::ClusterMyID => "CLUSTER",
-      RedisCommandKind::ConfigGet => "CONFIG",
-      RedisCommandKind::ConfigRewrite => "CONFIG",
-      RedisCommandKind::ConfigSet => "CONFIG",
-      RedisCommandKind::ConfigResetStat => "CONFIG",
-      RedisCommandKind::Copy => "COPY",
-      RedisCommandKind::DBSize => "DBSIZE",
-      RedisCommandKind::Decr => "DECR",
-      RedisCommandKind::DecrBy => "DECRBY",
-      RedisCommandKind::Del => "DEL",
-      RedisCommandKind::Discard => "DISCARD",
-      RedisCommandKind::Dump => "DUMP",
-      RedisCommandKind::Echo => "ECHO",
-      RedisCommandKind::Eval(_) => "EVAL",
-      RedisCommandKind::EvalSha(_) => "EVALSHA",
-      RedisCommandKind::Exec => "EXEC",
-      RedisCommandKind::Exists => "EXISTS",
-      RedisCommandKind::Expire => "EXPIRE",
-      RedisCommandKind::ExpireAt => "EXPIREAT",
-      RedisCommandKind::Failover => "FAILOVER",
-      RedisCommandKind::FlushAll => "FLUSHALL",
-      RedisCommandKind::_FlushAllCluster(_) => "FLUSHALL",
-      RedisCommandKind::FlushDB => "FLUSHDB",
-      RedisCommandKind::GeoAdd => "GEOADD",
-      RedisCommandKind::GeoHash => "GEOHASH",
-      RedisCommandKind::GeoPos => "GEOPOS",
-      RedisCommandKind::GeoDist => "GEODIST",
-      RedisCommandKind::GeoRadius => "GEORADIUS",
-      RedisCommandKind::GeoRadiusByMember => "GEORADIUSBYMEMBER",
-      RedisCommandKind::GeoSearch => "GEOSEARCH",
-      RedisCommandKind::GeoSearchStore => "GEOSEARCHSTORE",
-      RedisCommandKind::Get => "GET",
-      RedisCommandKind::GetDel => "GETDEL",
-      RedisCommandKind::GetBit => "GETBIT",
-      RedisCommandKind::GetRange => "GETRANGE",
-      RedisCommandKind::GetSet => "GETSET",
-      RedisCommandKind::HDel => "HDEL",
-      RedisCommandKind::Hello(_) => "HELLO",
-      RedisCommandKind::HExists => "HEXISTS",
-      RedisCommandKind::HGet => "HGET",
-      RedisCommandKind::HGetAll => "HGETALL",
-      RedisCommandKind::HIncrBy => "HINCRBY",
-      RedisCommandKind::HIncrByFloat => "HINCRBYFLOAT",
-      RedisCommandKind::HKeys => "HKEYS",
-      RedisCommandKind::HLen => "HLEN",
-      RedisCommandKind::HMGet => "HMGET",
-      RedisCommandKind::HMSet => "HMSET",
-      RedisCommandKind::HSet => "HSET",
-      RedisCommandKind::HSetNx => "HSETNX",
-      RedisCommandKind::HStrLen => "HSTRLEN",
-      RedisCommandKind::HRandField => "HRANDFIELD",
-      RedisCommandKind::HVals => "HVALS",
-      RedisCommandKind::Incr => "INCR",
-      RedisCommandKind::IncrBy => "INCRBY",
-      RedisCommandKind::IncrByFloat => "INCRBYFLOAT",
-      RedisCommandKind::Info => "INFO",
-      RedisCommandKind::Keys => "KEYS",
-      RedisCommandKind::LastSave => "LASTSAVE",
-      RedisCommandKind::LIndex => "LINDEX",
-      RedisCommandKind::LInsert => "LINSERT",
-      RedisCommandKind::LLen => "LLEN",
-      RedisCommandKind::LMove => "LMOVE",
-      RedisCommandKind::LPop => "LPOP",
-      RedisCommandKind::LPos => "LPOS",
-      RedisCommandKind::LPush => "LPUSH",
-      RedisCommandKind::LPushX => "LPUSHX",
-      RedisCommandKind::LRange => "LRANGE",
-      RedisCommandKind::LRem => "LREM",
-      RedisCommandKind::LSet => "LSET",
-      RedisCommandKind::LTrim => "LTRIM",
-      RedisCommandKind::MemoryDoctor => "MEMORY",
-      RedisCommandKind::MemoryHelp => "MEMORY",
-      RedisCommandKind::MemoryMallocStats => "MEMORY",
-      RedisCommandKind::MemoryPurge => "MEMORY",
-      RedisCommandKind::MemoryStats => "MEMORY",
-      RedisCommandKind::MemoryUsage => "MEMORY",
-      RedisCommandKind::Mget => "MGET",
-      RedisCommandKind::Migrate => "MIGRATE",
-      RedisCommandKind::Monitor => "MONITOR",
-      RedisCommandKind::Move => "MOVE",
-      RedisCommandKind::Mset => "MSET",
-      RedisCommandKind::Msetnx => "MSETNX",
-      RedisCommandKind::Multi => "MULTI",
-      RedisCommandKind::Object => "OBJECT",
-      RedisCommandKind::Persist => "PERSIST",
-      RedisCommandKind::Pexpire => "PEXPIRE",
-      RedisCommandKind::Pexpireat => "PEXPIREAT",
-      RedisCommandKind::Pfadd => "PFADD",
-      RedisCommandKind::Pfcount => "PFCOUNT",
-      RedisCommandKind::Pfmerge => "PFMERGE",
-      RedisCommandKind::Ping => "PING",
-      RedisCommandKind::Psetex => "PSETEX",
-      RedisCommandKind::Psubscribe(_) => "PSUBSCRIBE",
-      RedisCommandKind::Pubsub => "PUBSUB",
-      RedisCommandKind::Pttl => "PTTL",
-      RedisCommandKind::Publish => "PUBLISH",
-      RedisCommandKind::Punsubscribe(_) => "PUNSUBSCRIBE",
-      RedisCommandKind::Quit => "QUIT",
-      RedisCommandKind::Randomkey => "RANDOMKEY",
-      RedisCommandKind::Readonly => "READONLY",
-      RedisCommandKind::Readwrite => "READWRITE",
-      RedisCommandKind::Rename => "RENAME",
-      RedisCommandKind::Renamenx => "RENAMENX",
-      RedisCommandKind::Restore => "RESTORE",
-      RedisCommandKind::Role => "ROLE",
-      RedisCommandKind::Rpop => "RPOP",
-      RedisCommandKind::Rpoplpush => "RPOPLPUSH",
-      RedisCommandKind::Rpush => "RPUSH",
-      RedisCommandKind::Rpushx => "RPUSHX",
-      RedisCommandKind::Sadd => "SADD",
-      RedisCommandKind::Save => "SAVE",
-      RedisCommandKind::Scard => "SCARD",
-      RedisCommandKind::Sdiff => "SDIFF",
-      RedisCommandKind::Sdiffstore => "SDIFFSTORE",
-      RedisCommandKind::Select => "SELECT",
-      RedisCommandKind::Sentinel => "SENTINEL",
-      RedisCommandKind::Set => "SET",
-      RedisCommandKind::Setbit => "SETBIT",
-      RedisCommandKind::Setex => "SETEX",
-      RedisCommandKind::Setnx => "SETNX",
-      RedisCommandKind::Setrange => "SETRANGE",
-      RedisCommandKind::Shutdown => "SHUTDOWN",
-      RedisCommandKind::Sinter => "SINTER",
-      RedisCommandKind::Sinterstore => "SINTERSTORE",
-      RedisCommandKind::Sismember => "SISMEMBER",
-      RedisCommandKind::Replicaof => "REPLICAOF",
-      RedisCommandKind::Slowlog => "SLOWLOG",
-      RedisCommandKind::Smembers => "SMEMBERS",
-      RedisCommandKind::Smismember => "SMISMEMBER",
-      RedisCommandKind::Smove => "SMOVE",
-      RedisCommandKind::Sort => "SORT",
-      RedisCommandKind::Spop => "SPOP",
-      RedisCommandKind::Srandmember => "SRANDMEMBER",
-      RedisCommandKind::Srem => "SREM",
-      RedisCommandKind::Strlen => "STRLEN",
-      RedisCommandKind::Subscribe => "SUBSCRIBE",
-      RedisCommandKind::Sunion => "SUNION",
-      RedisCommandKind::Sunionstore => "SUNIONSTORE",
-      RedisCommandKind::Swapdb => "SWAPDB",
-      RedisCommandKind::Sync => "SYNC",
-      RedisCommandKind::Time => "TIME",
-      RedisCommandKind::Touch => "TOUCH",
-      RedisCommandKind::Ttl => "TTL",
-      RedisCommandKind::Type => "TYPE",
-      RedisCommandKind::Unsubscribe => "UNSUBSCRIBE",
-      RedisCommandKind::Unlink => "UNLINK",
-      RedisCommandKind::Unwatch => "UNWATCH",
-      RedisCommandKind::Wait => "WAIT",
-      RedisCommandKind::Watch => "WATCH",
-      RedisCommandKind::XinfoConsumers => "XINFO",
-      RedisCommandKind::XinfoGroups => "XINFO",
-      RedisCommandKind::XinfoStream => "XINFO",
-      RedisCommandKind::Xadd => "XADD",
-      RedisCommandKind::Xtrim => "XTRIM",
-      RedisCommandKind::Xdel => "XDEL",
-      RedisCommandKind::Xrange => "XRANGE",
-      RedisCommandKind::Xrevrange => "XREVRANGE",
-      RedisCommandKind::Xlen => "XLEN",
-      RedisCommandKind::Xread(_) => "XREAD",
-      RedisCommandKind::Xgroupcreate => "XGROUP",
-      RedisCommandKind::XgroupCreateConsumer => "XGROUP",
-      RedisCommandKind::XgroupDelConsumer => "XGROUP",
-      RedisCommandKind::XgroupDestroy => "XGROUP",
-      RedisCommandKind::XgroupSetId => "XGROUP",
-      RedisCommandKind::Xreadgroup(_) => "XREADGROUP",
-      RedisCommandKind::Xack => "XACK",
-      RedisCommandKind::Xclaim => "XCLAIM",
-      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
-      RedisCommandKind::Xpending => "XPENDING",
-      RedisCommandKind::Zadd => "ZADD",
-      RedisCommandKind::Zcard => "ZCARD",
-      RedisCommandKind::Zcount => "ZCOUNT",
-      RedisCommandKind::Zdiff => "ZDIFF",
-      RedisCommandKind::Zdiffstore => "ZDIFFSTORE",
-      RedisCommandKind::Zincrby => "ZINCRBY",
-      RedisCommandKind::Zinter => "ZINTER",
-      RedisCommandKind::Zinterstore => "ZINTERSTORE",
-      RedisCommandKind::Zlexcount => "ZLEXCOUNT",
-      RedisCommandKind::Zrandmember => "ZRANDMEMBER",
-      RedisCommandKind::Zrange => "ZRANGE",
-      RedisCommandKind::Zrangestore => "ZRANGESTORE",
-      RedisCommandKind::Zrangebylex => "ZRANGEBYLEX",
-      RedisCommandKind::Zrangebyscore => "ZRANGEBYSCORE",
-      RedisCommandKind::Zrank => "ZRANK",
-      RedisCommandKind::Zrem => "ZREM",
-      RedisCommandKind::Zremrangebylex => "ZREMRANGEBYLEX",
-      RedisCommandKind::Zremrangebyrank => "ZREMRANGEBYRANK",
-      RedisCommandKind::Zremrangebyscore => "ZREMRANGEBYSCORE",
-      RedisCommandKind::Zrevrange => "ZREVRANGE",
-      RedisCommandKind::Zrevrangebylex => "ZREVRANGEBYLEX",
-      RedisCommandKind::Zrevrangebyscore => "ZREVRANGEBYSCORE",
-      RedisCommandKind::Zrevrank => "ZREVRANK",
-      RedisCommandKind::Zscore => "ZSCORE",
-      RedisCommandKind::Zmscore => "ZMSCORE",
-      RedisCommandKind::Zunion => "ZUNION",
-      RedisCommandKind::Zunionstore => "ZUNIONSTORE",
-      RedisCommandKind::Zpopmax => "ZPOPMAX",
-      RedisCommandKind::Zpopmin => "ZPOPMIN",
-      RedisCommandKind::ScriptDebug => "SCRIPT",
-      RedisCommandKind::ScriptExists => "SCRIPT",
-      RedisCommandKind::ScriptFlush => "SCRIPT",
-      RedisCommandKind::ScriptKill => "SCRIPT",
-      RedisCommandKind::ScriptLoad => "SCRIPT",
-      RedisCommandKind::_ScriptFlushCluster(_) => "SCRIPT",
-      RedisCommandKind::_ScriptLoadCluster(_) => "SCRIPT",
-      RedisCommandKind::_ScriptKillCluster(_) => "SCRIPT",
-      RedisCommandKind::Scan(_) => "SCAN",
-      RedisCommandKind::Sscan(_) => "SSCAN",
-      RedisCommandKind::Hscan(_) => "HSCAN",
-      RedisCommandKind::Zscan(_) => "ZSCAN",
-      RedisCommandKind::_AuthAllCluster(_) => "AUTH",
-      RedisCommandKind::_HelloAllCluster(_) => "HELLO",
-      RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
-      RedisCommandKind::_Close | RedisCommandKind::_Split(_) => {
-        panic!("unreachable (redis command)")
-      }
-    };
-
-    utils::static_str(s)
-  }
-
-  /// Read the optional subcommand string for a command.
-  pub fn subcommand_str(&self) -> Option<&'static str> {
-    let s = match *self {
-      RedisCommandKind::ScriptDebug => "DEBUG",
-      RedisCommandKind::ScriptLoad => "LOAD",
-      RedisCommandKind::ScriptKill => "KILL",
-      RedisCommandKind::ScriptFlush => "FLUSH",
-      RedisCommandKind::ScriptExists => "EXISTS",
-      RedisCommandKind::_ScriptFlushCluster(_) => "FLUSH",
-      RedisCommandKind::_ScriptLoadCluster(_) => "LOAD",
-      RedisCommandKind::_ScriptKillCluster(_) => "KILL",
-      RedisCommandKind::AclLoad => "LOAD",
-      RedisCommandKind::AclSave => "SAVE",
-      RedisCommandKind::AclList => "LIST",
-      RedisCommandKind::AclUsers => "USERS",
-      RedisCommandKind::AclGetUser => "GETUSER",
-      RedisCommandKind::AclSetUser => "SETUSER",
-      RedisCommandKind::AclDelUser => "DELUSER",
-      RedisCommandKind::AclCat => "CAT",
-      RedisCommandKind::AclGenPass => "GENPASS",
-      RedisCommandKind::AclWhoAmI => "WHOAMI",
-      RedisCommandKind::AclLog => "LOG",
-      RedisCommandKind::AclHelp => "HELP",
-      RedisCommandKind::ClusterAddSlots => "ADDSLOTS",
-      RedisCommandKind::ClusterCountFailureReports => "COUNT-FAILURE-REPORTS",
-      RedisCommandKind::ClusterCountKeysInSlot => "COUNTKEYSINSLOT",
-      RedisCommandKind::ClusterDelSlots => "DELSLOTS",
-      RedisCommandKind::ClusterFailOver => "FAILOVER",
-      RedisCommandKind::ClusterForget => "FORGET",
-      RedisCommandKind::ClusterGetKeysInSlot => "GETKEYSINSLOT",
-      RedisCommandKind::ClusterInfo => "INFO",
-      RedisCommandKind::ClusterKeySlot => "KEYSLOT",
-      RedisCommandKind::ClusterMeet => "MEET",
-      RedisCommandKind::ClusterNodes => "NODES",
-      RedisCommandKind::ClusterReplicate => "REPLICATE",
-      RedisCommandKind::ClusterReset => "RESET",
-      RedisCommandKind::ClusterSaveConfig => "SAVECONFIG",
-      RedisCommandKind::ClusterSetConfigEpoch => "SET-CONFIG-EPOCH",
-      RedisCommandKind::ClusterSetSlot => "SETSLOT",
-      RedisCommandKind::ClusterReplicas => "REPLICAS",
-      RedisCommandKind::ClusterSlots => "SLOTS",
-      RedisCommandKind::ClusterBumpEpoch => "BUMPEPOCH",
-      RedisCommandKind::ClusterFlushSlots => "FLUSHSLOTS",
-      RedisCommandKind::ClusterMyID => "MYID",
-      RedisCommandKind::ClientID => "ID",
-      RedisCommandKind::ClientInfo => "INFO",
-      RedisCommandKind::ClientKill => "KILL",
-      RedisCommandKind::ClientList => "LIST",
-      RedisCommandKind::ClientGetRedir => "GETREDIR",
-      RedisCommandKind::ClientGetName => "GETNAME",
-      RedisCommandKind::ClientPause => "PAUSE",
-      RedisCommandKind::ClientUnpause => "UNPAUSE",
-      RedisCommandKind::ClientUnblock => "UNBLOCK",
-      RedisCommandKind::ClientReply => "REPLY",
-      RedisCommandKind::ClientSetname => "SETNAME",
-      RedisCommandKind::ConfigGet => "GET",
-      RedisCommandKind::ConfigRewrite => "REWRITE",
-      RedisCommandKind::ConfigSet => "SET",
-      RedisCommandKind::ConfigResetStat => "RESETSTAT",
-      RedisCommandKind::MemoryDoctor => "DOCTOR",
-      RedisCommandKind::MemoryHelp => "HELP",
-      RedisCommandKind::MemoryUsage => "USAGE",
-      RedisCommandKind::MemoryMallocStats => "MALLOC-STATS",
-      RedisCommandKind::MemoryStats => "STATS",
-      RedisCommandKind::MemoryPurge => "PURGE",
-      RedisCommandKind::XinfoConsumers => "CONSUMERS",
-      RedisCommandKind::XinfoGroups => "GROUPS",
-      RedisCommandKind::XinfoStream => "STREAM",
-      RedisCommandKind::Xgroupcreate => "CREATE",
-      RedisCommandKind::XgroupCreateConsumer => "CREATECONSUMER",
-      RedisCommandKind::XgroupDelConsumer => "DELCONSUMER",
-      RedisCommandKind::XgroupDestroy => "DESTROY",
-      RedisCommandKind::XgroupSetId => "SETID",
-      _ => return None,
-    };
-
-    Some(s)
-  }
-
-  pub fn is_script_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ScriptDebug
-      | RedisCommandKind::ScriptExists
-      | RedisCommandKind::ScriptFlush
-      | RedisCommandKind::ScriptKill
-      | RedisCommandKind::_ScriptFlushCluster(_)
-      | RedisCommandKind::_ScriptLoadCluster(_)
-      | RedisCommandKind::_ScriptKillCluster(_)
-      | RedisCommandKind::ScriptLoad => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_acl_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::AclLoad
-      | RedisCommandKind::AclSave
-      | RedisCommandKind::AclList
-      | RedisCommandKind::AclUsers
-      | RedisCommandKind::AclGetUser
-      | RedisCommandKind::AclSetUser
-      | RedisCommandKind::AclDelUser
-      | RedisCommandKind::AclCat
-      | RedisCommandKind::AclGenPass
-      | RedisCommandKind::AclWhoAmI
-      | RedisCommandKind::AclLog
-      | RedisCommandKind::AclHelp => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_cluster_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ClusterAddSlots
-      | RedisCommandKind::ClusterCountFailureReports
-      | RedisCommandKind::ClusterCountKeysInSlot
-      | RedisCommandKind::ClusterDelSlots
-      | RedisCommandKind::ClusterFailOver
-      | RedisCommandKind::ClusterForget
-      | RedisCommandKind::ClusterGetKeysInSlot
-      | RedisCommandKind::ClusterInfo
-      | RedisCommandKind::ClusterKeySlot
-      | RedisCommandKind::ClusterMeet
-      | RedisCommandKind::ClusterNodes
-      | RedisCommandKind::ClusterReplicate
-      | RedisCommandKind::ClusterReset
-      | RedisCommandKind::ClusterSaveConfig
-      | RedisCommandKind::ClusterSetConfigEpoch
-      | RedisCommandKind::ClusterSetSlot
-      | RedisCommandKind::ClusterReplicas
-      | RedisCommandKind::ClusterBumpEpoch
-      | RedisCommandKind::ClusterFlushSlots
-      | RedisCommandKind::ClusterMyID
-      | RedisCommandKind::ClusterSlots => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_client_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ClientGetName
-      | RedisCommandKind::ClientGetRedir
-      | RedisCommandKind::ClientInfo
-      | RedisCommandKind::ClientID
-      | RedisCommandKind::ClientKill
-      | RedisCommandKind::ClientList
-      | RedisCommandKind::ClientPause
-      | RedisCommandKind::ClientUnpause
-      | RedisCommandKind::ClientUnblock
-      | RedisCommandKind::ClientReply
-      | RedisCommandKind::ClientSetname => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_config_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::ConfigGet
-      | RedisCommandKind::ConfigRewrite
-      | RedisCommandKind::ConfigSet
-      | RedisCommandKind::ConfigResetStat => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_memory_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::MemoryUsage
-      | RedisCommandKind::MemoryStats
-      | RedisCommandKind::MemoryPurge
-      | RedisCommandKind::MemoryMallocStats
-      | RedisCommandKind::MemoryHelp
-      | RedisCommandKind::MemoryDoctor => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_stream_command(&self) -> bool {
-    match *self {
-      RedisCommandKind::XinfoConsumers
-      | RedisCommandKind::XinfoGroups
-      | RedisCommandKind::XinfoStream
-      | RedisCommandKind::Xadd
-      | RedisCommandKind::Xtrim
-      | RedisCommandKind::Xdel
-      | RedisCommandKind::Xrange
-      | RedisCommandKind::Xrevrange
-      | RedisCommandKind::Xlen
-      | RedisCommandKind::Xread(_)
-      | RedisCommandKind::Xgroupcreate
-      | RedisCommandKind::XgroupCreateConsumer
-      | RedisCommandKind::XgroupDelConsumer
-      | RedisCommandKind::XgroupDestroy
-      | RedisCommandKind::XgroupSetId
-      | RedisCommandKind::Xreadgroup(_)
-      | RedisCommandKind::Xack
-      | RedisCommandKind::Xclaim
-      | RedisCommandKind::Xautoclaim
-      | RedisCommandKind::Xpending => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_blocking(&self) -> bool {
-    match *self {
-      RedisCommandKind::BlPop
-      | RedisCommandKind::BrPop
-      | RedisCommandKind::BrPopLPush
-      | RedisCommandKind::BlMove
-      | RedisCommandKind::BzPopMin
-      | RedisCommandKind::BzPopMax
-      | RedisCommandKind::Wait => true,
-      RedisCommandKind::Xread((ref blocking, _)) => *blocking,
-      RedisCommandKind::Xreadgroup((ref blocking, _)) => *blocking,
-      RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
-      _ => false,
-    }
-  }
-
-  pub fn custom_key_slot(&self) -> Option<u16> {
-    match *self {
-      RedisCommandKind::Scan(ref inner) => inner.key_slot.clone(),
-      RedisCommandKind::_Custom(ref kind) => kind.hash_slot.clone(),
-      RedisCommandKind::EvalSha(ref slot) => slot.key_slot.clone(),
-      RedisCommandKind::Eval(ref slot) => slot.key_slot.clone(),
-      RedisCommandKind::Xread((_, ref slot)) => slot.clone(),
-      RedisCommandKind::Xreadgroup((_, ref slot)) => slot.clone(),
-      _ => None,
-    }
-  }
-
-  pub fn is_all_cluster_nodes(&self) -> bool {
-    match *self {
-      RedisCommandKind::_FlushAllCluster(_)
-      | RedisCommandKind::_AuthAllCluster(_)
-      | RedisCommandKind::_ScriptFlushCluster(_)
-      | RedisCommandKind::_ScriptKillCluster(_)
-      | RedisCommandKind::_HelloAllCluster(_)
-      | RedisCommandKind::_ScriptLoadCluster(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn is_eval(&self) -> bool {
-    match *self {
-      RedisCommandKind::EvalSha(_) | RedisCommandKind::Eval(_) => true,
-      _ => false,
-    }
-  }
-
-  pub fn all_nodes_response(&self) -> Option<&AllNodesResponse> {
-    match *self {
-      RedisCommandKind::_HelloAllCluster((ref inner, _)) => Some(inner),
-      RedisCommandKind::_AuthAllCluster(ref inner) => Some(inner),
-      RedisCommandKind::_FlushAllCluster(ref inner) => Some(inner),
-      RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(inner),
-      RedisCommandKind::_ScriptLoadCluster(ref inner) => Some(inner),
-      RedisCommandKind::_ScriptKillCluster(ref inner) => Some(inner),
-      _ => None,
-    }
-  }
-
-  pub fn clone_all_nodes(&self) -> Option<Self> {
-    match *self {
-      RedisCommandKind::_HelloAllCluster((ref inner, ref version)) => {
-        Some(RedisCommandKind::_HelloAllCluster((inner.clone(), version.clone())))
-      }
-      RedisCommandKind::_AuthAllCluster(ref inner) => Some(RedisCommandKind::_AuthAllCluster(inner.clone())),
-      RedisCommandKind::_FlushAllCluster(ref inner) => Some(RedisCommandKind::_FlushAllCluster(inner.clone())),
-      RedisCommandKind::_ScriptFlushCluster(ref inner) => Some(RedisCommandKind::_ScriptFlushCluster(inner.clone())),
-      RedisCommandKind::_ScriptLoadCluster(ref inner) => Some(RedisCommandKind::_ScriptLoadCluster(inner.clone())),
-      RedisCommandKind::_ScriptKillCluster(ref inner) => Some(RedisCommandKind::_ScriptKillCluster(inner.clone())),
-      _ => None,
-    }
-  }
-
-  pub fn is_read(&self) -> bool {
-    // TODO finish this and use for sending reads to replicas
-    match *self {
-      _ => false,
-    }
-  }
-}
-
-/// Alias for a sender to notify the caller that a response was received.
-pub type ResponseSender = Option<OneshotSender<Result<Resp3Frame, RedisError>>>;
-
-/// An arbitrary Redis command.
-pub struct RedisCommand {
-  pub kind: RedisCommandKind,
-  pub args: Vec<RedisValue>,
-  /// Sender for notifying the caller that a response was received.
-  pub tx: ResponseSender,
-  /// Number of times the request was sent to the server.
-  pub attempted: usize,
-  /// Time when the command was first initialized.
-  pub sent: Instant,
-  /// Sender for notifying the command processing loop that the command received a response.
-  pub resp_tx: Arc<RwLock<Option<OneshotSender<()>>>>,
-  #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-  pub traces: CommandTraces,
-}
-
-impl fmt::Debug for RedisCommand {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[RedisCommand Kind: {:?}, Args: {:?}]", &self.kind, &self.args)
-  }
-}
-
-impl fmt::Display for RedisCommand {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[RedisCommand: {}]", self.kind.to_str_debug())
-  }
-}
-
-impl RedisCommand {
-  #[cfg(feature = "partial-tracing")]
-  pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>, tx: ResponseSender) -> RedisCommand {
-    RedisCommand {
-      kind,
-      args,
-      tx,
-      traces: CommandTraces::default(),
-      attempted: 0,
-      sent: Instant::now(),
-      resp_tx: Arc::new(RwLock::new(None)),
-    }
-  }
-
-  #[cfg(not(feature = "partial-tracing"))]
-  pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>, tx: ResponseSender) -> RedisCommand {
-    RedisCommand {
-      kind,
-      args,
-      tx,
-      attempted: 0,
-      sent: Instant::now(),
-      resp_tx: Arc::new(RwLock::new(None)),
-    }
-  }
-
-  #[cfg(feature = "partial-tracing")]
-  pub fn duplicate(&self, kind: RedisCommandKind) -> RedisCommand {
-    RedisCommand {
-      kind,
-      attempted: 0,
-      tx: None,
-      args: self.args.clone(),
-      sent: self.sent.clone(),
-      resp_tx: self.resp_tx.clone(),
-      traces: CommandTraces::default(),
-    }
-  }
-
-  #[cfg(not(feature = "partial-tracing"))]
-  pub fn duplicate(&self, kind: RedisCommandKind) -> RedisCommand {
-    RedisCommand {
-      kind,
-      attempted: 0,
-      tx: None,
-      args: self.args.clone(),
-      sent: self.sent.clone(),
-      resp_tx: self.resp_tx.clone(),
-    }
-  }
-
-  #[cfg(feature = "full-tracing")]
-  pub fn take_queued_span(&mut self) -> Option<Span> {
-    self.traces.queued.take()
-  }
-
-  #[cfg(not(feature = "full-tracing"))]
-  pub fn take_queued_span(&mut self) -> Option<FakeSpan> {
-    None
-  }
-
-  pub fn add_resp_tx(&self, tx: OneshotSender<()>) {
-    set_locked(&self.resp_tx, Some(tx));
-  }
-
-  pub fn take_resp_tx(&self) -> Option<OneshotSender<()>> {
-    take_locked(&self.resp_tx)
-  }
-
-  pub fn incr_attempted(&mut self) {
-    self.attempted += 1;
-  }
-
-  pub fn max_attempts_exceeded(&self, inner: &Arc<RedisClientInner>) -> bool {
-    self.attempted >= inner.perf_config.max_command_attempts()
-  }
-
-  /// Convert to a single frame with an array of bulk strings (or null).
-  #[cfg(not(feature = "blocking-encoding"))]
-  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
-    protocol_utils::command_to_frame(self, is_resp3)
-  }
-
-  /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
-  #[cfg(feature = "blocking-encoding")]
-  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
-    let cmd_size = protocol_utils::args_size(&self.args);
-
-    if cmd_size >= globals().blocking_encode_threshold() {
-      trace!("Using blocking task to convert command to frame with size {}", cmd_size);
-      tokio::task::block_in_place(|| protocol_utils::command_to_frame(self, is_resp3))
-    } else {
-      protocol_utils::command_to_frame(self, is_resp3)
-    }
-  }
-
-  /// Commands that do not need to run on a specific host in a cluster.
-  pub fn no_cluster(&self) -> bool {
-    match self.kind {
-      RedisCommandKind::Publish
-      | RedisCommandKind::Subscribe
-      | RedisCommandKind::Unsubscribe
-      | RedisCommandKind::Psubscribe(_)
-      | RedisCommandKind::Punsubscribe(_)
-      | RedisCommandKind::Ping
-      | RedisCommandKind::Info
-      | RedisCommandKind::Scan(_)
-      | RedisCommandKind::FlushAll
-      | RedisCommandKind::FlushDB => true,
-      _ => false,
-    }
-  }
-
-  /// Read the first key in the command, if any.
-  pub fn extract_key(&self) -> Option<&[u8]> {
-    let has_custom_key_location = match self.kind {
-      RedisCommandKind::Xread(_) => true,
-      RedisCommandKind::Xreadgroup(_) => true,
-      _ => false,
-    };
-    if self.no_cluster() || has_custom_key_location {
-      return None;
-    }
-
-    match self.args.first() {
-      Some(RedisValue::String(ref s)) => Some(s.as_bytes()),
-      Some(RedisValue::Bytes(ref b)) => Some(b),
-      Some(_) => match self.args.get(1) {
-        // some commands take a `num_keys` argument first, followed by keys
-        Some(RedisValue::String(ref s)) => Some(s.as_bytes()),
-        Some(RedisValue::Bytes(ref b)) => Some(b),
-        _ => None,
-      },
-      None => None,
-    }
-  }
-
-  pub fn key_slot(&self) -> Option<u16> {
-    self.kind.custom_key_slot()
-  }
-
-  pub fn is_quit(&self) -> bool {
-    match self.kind {
-      RedisCommandKind::Quit => true,
-      _ => false,
-    }
-  }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReplicaNodes {
-  servers: Vec<Arc<String>>,
-  next: usize,
-}
-
-impl ReplicaNodes {
-  // TODO remove when replica support is added
-  #![allow(dead_code)]
-
-  pub fn new(servers: Vec<Arc<String>>) -> ReplicaNodes {
-    ReplicaNodes { servers, next: 0 }
-  }
-
-  pub fn add(&mut self, server: Arc<String>) {
-    self.servers.push(server);
-  }
-
-  pub fn clear(&mut self) {
+  /// Update the replica set in place via the parsed CLUSTER SLOTS command output.
+  pub fn update(&mut self, slots: &Vec<SlotRange>) {
     self.servers.clear();
-    self.next = 0;
+    for slot in slots.iter() {
+      let mut entry = self.servers.entry(slot.primary.clone()).or_insert((0, Vec::new()));
+      entry.1.extend(slot.replicas.clone());
+    }
+    self.servers.shrink_to_fit();
   }
 
-  pub fn next(&mut self) -> Option<Arc<String>> {
-    if self.servers.len() == 0 {
-      return None;
+  /// Read the server ID of the next replica that should receive a command.
+  pub fn next_replica(&mut self, primary: &str) -> Option<&ArcStr> {
+    self.servers.get_mut(primary).and_then(|(idx, replicas)| {
+      *idx += 1;
+      replicas.get(idx % replicas.len())
+    })
+  }
+
+  /// Read the set of all known replica nodes.
+  pub fn all_replicas(&self) -> Vec<ArcStr> {
+    let mut out = Vec::with_capacity(self.servers.len());
+    for (_, (_, replicas)) in self.servers.iter() {
+      for replica in replicas.iter() {
+        out.push(replica.clone());
+      }
     }
 
-    let last = self.next;
-    self.next = (self.next + 1) % self.servers.len();
-
-    self.servers.get(last).cloned()
+    out
   }
 }
 
-/// A slot range and associated cluster node information from the CLUSTER NODES command.
+/// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
-  pub start: u16,
-  pub end: u16,
-  pub server: Arc<String>,
-  pub id: Arc<String>,
-  // TODO cache replicas for each primary and round-robin reads to the replicas + primary, and only send writes to the primary
-  //pub replicas: Option<ReplicaNodes>,
+  /// The start of the hash slot range.
+  pub start:    u16,
+  /// The end of the hash slot range.
+  pub end:      u16,
+  /// The primary server owner.
+  pub primary:  Server,
+  /// The internal ID assigned by the server.
+  pub id:       ArcStr,
+  /// The set of replica nodes for the slot range.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub replicas: Vec<ArcStr>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
-pub struct ClusterKeyCache {
-  // TODO use arcswap here
-  data: Vec<Arc<SlotRange>>,
+pub struct ClusterRouting {
+  data:     Vec<SlotRange>,
+  #[cfg(feature = "replicas")]
+  replicas: ReplicaSet,
 }
 
-impl From<Vec<Arc<SlotRange>>> for ClusterKeyCache {
-  fn from(data: Vec<Arc<SlotRange>>) -> Self {
-    ClusterKeyCache { data }
-  }
-}
-
-impl ClusterKeyCache {
-  /// Create a new cache from the output of CLUSTER NODES, if available.
-  pub fn new(status: Option<&str>) -> Result<ClusterKeyCache, RedisError> {
-    let mut cache = ClusterKeyCache { data: Vec::new() };
-
-    if let Some(status) = status {
-      cache.rebuild(status)?;
+impl ClusterRouting {
+  /// Create a new empty routing table.
+  pub fn new() -> Self {
+    ClusterRouting {
+      data:                                  Vec::new(),
+      #[cfg(feature = "replicas")]
+      replicas:                              ReplicaSet::new(),
     }
-
-    Ok(cache)
   }
 
-  /// Read a set of unique hash slots that each map to a primary/main node in the cluster.
+  /// Read a set of unique hash slots that each map to a different primary/main node in the cluster.
   pub fn unique_hash_slots(&self) -> Vec<u16> {
     let mut out = BTreeMap::new();
 
     for slot in self.data.iter() {
-      out.insert(&slot.server, slot.start);
+      out.insert(&slot.primary, slot.start);
     }
 
     out.into_iter().map(|(_, v)| v).collect()
   }
 
-  /// Read the set of unique primary/main nodes in the cluster.
-  pub fn unique_main_nodes(&self) -> Vec<Arc<String>> {
+  /// Read the set of unique primary nodes in the cluster.
+  pub fn unique_primary_nodes(&self) -> Vec<Server> {
     let mut out = BTreeSet::new();
 
     for slot in self.data.iter() {
-      out.insert(slot.server.clone());
+      out.insert(slot.primary.clone());
     }
 
     out.into_iter().collect()
   }
 
-  /// Clear the cached state of the cluster.
-  pub fn clear(&mut self) {
-    self.data.clear();
+  /// Rebuild the cache in place with the output of a `CLUSTER SLOTS` command.
+  pub(crate) fn rebuild(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    cluster_slots: RedisValue,
+    default_host: &str,
+  ) -> Result<(), RedisError> {
+    self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;
+    self.data.sort_by(|a, b| a.start.cmp(&b.start));
+
+    cluster::modify_cluster_slot_hostnames(inner, &mut self.data, default_host);
+    Ok(())
   }
 
-  /// Rebuild the cache in place with the output of a CLUSTER NODES command.
-  pub fn rebuild(&mut self, status: &str) -> Result<(), RedisError> {
-    if status.trim().is_empty() {
-      error!("Invalid empty CLUSTER NODES response.");
-      return Err(RedisError::new(
-        RedisErrorKind::ProtocolError,
-        "Invalid empty CLUSTER NODES response.",
-      ));
-    }
+  /// Rebuild the replica index in place via the current cluster slot mappings.
+  #[cfg(feature = "replicas")]
+  pub(crate) fn rebuild_replicas(&mut self) {
+    self.replicas.update(&self.data);
+  }
 
-    let mut parsed = protocol_utils::parse_cluster_nodes(status)?;
-    self.data.clear();
-
-    for (_, ranges) in parsed.drain() {
-      for slot in ranges {
-        self.data.push(Arc::new(slot));
-      }
-    }
-    self.data.sort_by(|lhs, rhs| lhs.start.cmp(&rhs.start));
-
-    self.data.shrink_to_fit();
-    Ok(())
+  /// Read the next replica that should receive a command instead of `primary`.
+  #[cfg(feature = "replicas")]
+  pub(crate) fn next_replica(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
+    self.replicas.next_replica(primary.as_str())
   }
 
   /// Calculate the cluster hash slot for the provided key.
@@ -1845,13 +373,13 @@ impl ClusterKeyCache {
     redis_protocol::redis_keyslot(key)
   }
 
-  /// Find the server that owns the provided hash slot.
-  pub fn get_server(&self, slot: u16) -> Option<Arc<SlotRange>> {
+  /// Find the primary server that owns the provided hash slot.
+  pub fn get_server(&self, slot: u16) -> Option<&Server> {
     if self.data.is_empty() {
       return None;
     }
 
-    protocol_utils::binary_search(&self.data, slot)
+    protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].primary)
   }
 
   /// Read the number of hash slot ranges in the cluster.
@@ -1860,31 +388,36 @@ impl ClusterKeyCache {
   }
 
   /// Read the hash slot ranges in the cluster.
-  pub fn slots(&self) -> &Vec<Arc<SlotRange>> {
+  pub fn slots(&self) -> &[SlotRange] {
     &self.data
   }
 
   /// Read a random primary node hash slot range from the cluster cache.
-  pub fn random_slot(&self) -> Option<Arc<SlotRange>> {
+  pub fn random_slot(&self) -> Option<&SlotRange> {
     if self.data.len() > 0 {
-      let idx = rand::thread_rng().gen_range(0..self.data.len());
-      Some(self.data[idx].clone())
+      let idx = rand::thread_rng().gen_range(0 .. self.data.len());
+      Some(&self.data[idx])
     } else {
       None
     }
   }
+
+  /// Read a random primary node from the cluster cache.
+  pub fn random_node(&self) -> Option<&Server> {
+    self.random_slot().map(|slot| &slot.primary)
+  }
 }
 
 // TODO support custom DNS resolution logic by exposing this in the client.
-/// Default DNS resolver that just uses `to_socket_addrs` under the hood.
+/// Default DNS resolver that uses `to_socket_addrs` under the hood.
 #[derive(Clone, Debug)]
 pub struct DefaultResolver {
-  id: Arc<String>,
+  id: ArcStr,
 }
 
 impl DefaultResolver {
   /// Create a new resolver using the system's default DNS resolution.
-  pub fn new(id: &Arc<String>) -> Self {
+  pub fn new(id: &ArcStr) -> Self {
     DefaultResolver { id: id.clone() }
   }
 }

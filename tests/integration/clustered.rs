@@ -20,6 +20,8 @@ mod keys {
   cluster_test!(keys, should_mget_values);
   cluster_test!(keys, should_msetnx_values);
   cluster_test!(keys, should_copy_values);
+
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
@@ -28,7 +30,6 @@ mod multi {
   cluster_test!(multi, should_run_get_set_trx);
   cluster_test_panic!(multi, should_fail_with_hashslot_error);
   cluster_test_panic!(multi, should_run_error_get_set_trx);
-  cluster_test!(multi, should_use_cluster_slot_with_publish);
 }
 
 mod other {
@@ -38,14 +39,22 @@ mod other {
 
   cluster_test!(other, should_split_clustered_connection);
   cluster_test!(other, should_run_flushall_cluster);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_automatically_unblock);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_manually_unblock);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_error_when_blocked);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_safely_change_protocols_repeatedly);
+  cluster_test!(other, should_pipeline_all);
+  cluster_test!(other, should_pipeline_last);
 }
 
 mod pool {
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(pool, should_connect_and_ping_static_pool_single_conn);
+  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
   #[cfg(feature = "fd-tests")]
   cluster_test!(pool, should_connect_and_ping_static_pool_many_conn);
@@ -148,6 +157,15 @@ pub mod lua {
   cluster_test!(lua, should_eval_get_script);
   cluster_test!(lua, should_evalsha_echo_script);
   cluster_test!(lua, should_evalsha_get_script);
+
+  cluster_test!(lua, should_function_load_scripts);
+  cluster_test!(lua, should_function_dump_and_restore);
+  cluster_test!(lua, should_function_flush);
+  cluster_test!(lua, should_function_delete);
+  cluster_test!(lua, should_function_list);
+  cluster_test!(lua, should_function_fcall_getset);
+  cluster_test!(lua, should_function_fcall_echo);
+  cluster_test!(lua, should_function_fcall_ro_echo);
 }
 
 pub mod sorted_sets {

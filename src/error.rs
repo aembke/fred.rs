@@ -1,27 +1,27 @@
-use crate::protocol::types::RedisCommand;
 use bytes_utils::string::Utf8Error as BytesUtf8Error;
 use futures::channel::oneshot::Canceled;
-use redis_protocol::resp2::types::Frame as Resp2Frame;
-use redis_protocol::types::RedisProtocolError;
+use redis_protocol::{resp2::types::Frame as Resp2Frame, types::RedisProtocolError};
 use semver::Error as SemverError;
-use std::borrow::{Borrow, Cow};
-use std::convert::Infallible;
-use std::error::Error;
-use std::fmt;
-use std::fmt::Display;
-use std::io::Error as IoError;
-use std::num::ParseFloatError;
-use std::num::ParseIntError;
-use std::str;
-use std::str::Utf8Error;
-use std::string::FromUtf8Error;
+use std::{
+  borrow::{Borrow, Cow},
+  convert::Infallible,
+  error::Error,
+  fmt,
+  fmt::Display,
+  io::Error as IoError,
+  num::{ParseFloatError, ParseIntError},
+  str,
+  str::Utf8Error,
+  string::FromUtf8Error,
+};
 use tokio::task::JoinError;
 use url::ParseError;
 
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RedisErrorKind {
-  /// A fatal client configuration error. These errors will shutdown a client and break out of any reconnection attempts.
+  /// A fatal client configuration error. These errors will shutdown a client and break out of any reconnection
+  /// attempts.
   Config,
   /// An authentication error.
   Auth,
@@ -32,10 +32,10 @@ pub enum RedisErrorKind {
   /// An invalid argument or set of arguments to a command.
   InvalidArgument,
   /// An invalid URL error.
-  UrlError,
+  Url,
   /// A protocol error such as an invalid or unexpected frame from the server.
-  ProtocolError,
-  /// A TLS error. The `enable-tls` feature must be enabled for this to be used.
+  Protocol,
+  /// A TLS error. The `enable-native-tls` feature must be enabled for this to be used.
   Tls,
   /// An error indicating the request was canceled.
   Canceled,
@@ -43,13 +43,15 @@ pub enum RedisErrorKind {
   Unknown,
   /// A timeout error.
   Timeout,
-  /// An error used to indicate that the cluster's state has changed. These errors will show up on the `on_error` error stream even though the client will automatically attempt to recover.
+  /// An error used to indicate that the cluster's state has changed. These errors will show up on the `on_error`
+  /// error stream even though the client will automatically attempt to recover.
   Cluster,
   /// A parser error.
   Parse,
   /// An error communicating with redis sentinel.
   Sentinel,
-  /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a non-nullable type.
+  /// An error indicating a value was not found, often used when trying to cast a `nil` response from the server to a
+  /// non-nullable type.
   NotFound,
   /// An error indicating that the caller should apply backpressure and retry the command.
   Backpressure,
@@ -62,8 +64,8 @@ impl RedisErrorKind {
       RedisErrorKind::IO => "IO Error",
       RedisErrorKind::InvalidArgument => "Invalid Argument",
       RedisErrorKind::InvalidCommand => "Invalid Command",
-      RedisErrorKind::UrlError => "Url Error",
-      RedisErrorKind::ProtocolError => "Protocol Error",
+      RedisErrorKind::Url => "Url Error",
+      RedisErrorKind::Protocol => "Protocol Error",
       RedisErrorKind::Unknown => "Unknown Error",
       RedisErrorKind::Canceled => "Canceled",
       RedisErrorKind::Cluster => "Cluster Error",
@@ -83,9 +85,7 @@ pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind: RedisErrorKind,
-  /// Command context for the error.
-  context: Option<RedisCommand>,
+  kind:    RedisErrorKind,
 }
 
 impl Clone for RedisError {
@@ -116,7 +116,7 @@ impl fmt::Display for RedisError {
 
 impl From<RedisProtocolError> for RedisError {
   fn from(e: RedisProtocolError) -> Self {
-    RedisError::new(RedisErrorKind::ProtocolError, format!("{}", e))
+    RedisError::new(RedisErrorKind::Protocol, format!("{}", e))
   }
 }
 
@@ -158,7 +158,7 @@ impl From<IoError> for RedisError {
 
 impl From<ParseError> for RedisError {
   fn from(e: ParseError) -> Self {
-    RedisError::new(RedisErrorKind::UrlError, format!("{:?}", e))
+    RedisError::new(RedisErrorKind::Url, format!("{:?}", e))
   }
 }
 
@@ -212,7 +212,7 @@ impl From<JoinError> for RedisError {
 
 impl From<SemverError> for RedisError {
   fn from(e: SemverError) -> Self {
-    RedisError::new(RedisErrorKind::ProtocolError, format!("Invalid Redis version: {:?}", e))
+    RedisError::new(RedisErrorKind::Protocol, format!("Invalid Redis version: {:?}", e))
   }
 }
 
@@ -235,10 +235,34 @@ impl From<Resp2Frame> for RedisError {
   }
 }
 
-#[cfg(feature = "enable-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
+#[cfg(feature = "enable-native-tls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 impl From<native_tls::Error> for RedisError {
   fn from(e: native_tls::Error) -> Self {
+    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+  }
+}
+
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+impl From<tokio_rustls::rustls::Error> for RedisError {
+  fn from(e: tokio_rustls::rustls::Error) -> Self {
+    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+  }
+}
+
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+impl From<tokio_rustls::rustls::client::InvalidDnsNameError> for RedisError {
+  fn from(e: tokio_rustls::rustls::client::InvalidDnsNameError) -> Self {
+    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+  }
+}
+
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+impl From<tokio_rustls::webpki::Error> for RedisError {
+  fn from(e: tokio_rustls::webpki::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
   }
 }
@@ -252,25 +276,7 @@ impl RedisError {
     RedisError {
       kind,
       details: details.into(),
-      context: None,
     }
-  }
-
-  /// Create a new error with the provided command context.
-  pub(crate) fn new_context<T>(kind: RedisErrorKind, details: T, cmd: RedisCommand) -> RedisError
-  where
-    T: Into<Cow<'static, str>>,
-  {
-    RedisError {
-      kind,
-      details: details.into(),
-      context: Some(cmd),
-    }
-  }
-
-  /// Take the command context off the error.
-  pub(crate) fn take_context(&mut self) -> Option<RedisCommand> {
-    self.context.take()
   }
 
   /// Whether or not the error is a Cluster error.
@@ -309,21 +315,29 @@ impl RedisError {
   }
 
   /// Create a new empty Canceled error.
-  pub fn new_canceled() -> RedisError {
+  pub(crate) fn new_canceled() -> Self {
     RedisError::new(RedisErrorKind::Canceled, "Canceled.")
   }
 
-  /// Create a new empty Timeout error.
-  pub fn new_timeout() -> RedisError {
-    RedisError::new(RedisErrorKind::Timeout, "")
-  }
-
   /// Create a new parse error with the provided details.
-  pub(crate) fn new_parse<T>(details: T) -> RedisError
+  pub(crate) fn new_parse<T>(details: T) -> Self
   where
     T: Into<Cow<'static, str>>,
   {
     RedisError::new(RedisErrorKind::Parse, details)
+  }
+
+  /// Create a new default backpressure error.
+  pub(crate) fn new_backpressure() -> Self {
+    RedisError::new(RedisErrorKind::Backpressure, "Max in-flight commands reached.")
+  }
+
+  /// Whether reconnection logic should be skipped in all cases.
+  pub(crate) fn should_not_reconnect(&self) -> bool {
+    match self.kind {
+      RedisErrorKind::Config | RedisErrorKind::Url => true,
+      _ => false,
+    }
   }
 
   /// Whether or not the error is a `Canceled` error.

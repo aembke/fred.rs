@@ -1,10 +1,40 @@
-TLDR
-====
+## 6.0.0
 
-* Versions 3.x were focused on upgrading to Tokio 1.x and async/await
-* Versions 4.x were focused on ergonomics and testing
-* Versions 5.x are focused on feature parity with newer Redis features (streams, RESP3, etc)
-* Versions 6.x will be focused on performance. 
+* Refactored the connection and protocol layer.
+* Add a manual `Pipeline` interface.
+* Rework the `Transaction` interface to buffer commands in memory before EXEC/DISCARD.
+* Switch from `Arc<String>` to `ArcStr` for shared server identifiers.
+* Rework the cluster discovery and failover implementation. 
+* Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
+* Rework the sentinel interface to more reliably handle failover scenarios.
+* Support the `functions` interface.
+* Add some missing commands.
+* Rework the `native-tls` interface to support fully customizable TLS configurations.
+* Add `rustls` support.
+  * Note: both TLS feature flags can be used at the same time.
+* Add CI tests for Redis v7.
+* Add CI tests for clusters with TLS. 
+
+### Updating from 5.x
+
+New or breaking changes in 6.x:
+
+* New TLS feature flags: `enable-rustls` and `enable-native-tls`.
+* New TLS configuration process: see the [example](examples/tls.rs).
+* New [transaction](examples/transactions.rs) interface.
+* New backpressure configuration options, most notably the `Drain` policy. This is now the default.
+* Changed the type and fields on `BackpressurePolicy::Sleep`.
+* New [custom command interface](examples/custom.rs) for managing cluster hash slots.
+* Removed or renamed some fields on `RedisConfig`.
+* Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
+  * This usually means changing `next()` to `recv()` in `while let` loops, etc.
+* The `FromRedis` trait converts `RedisValue::Null` to `"nil"`.
+
+## 5.2.0
+
+* Reduce number of `tokio` features
+* Use 6379 as default cluster port in `from_url`
+* Fix RESP3 auth error (https://github.com/aembke/fred.rs/issues/54)
 
 ## 5.2.0
 

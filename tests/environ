@@ -1,18 +1,22 @@
 #!/bin/bash
 
+if [ -z "REDIS_VERSION" ]; then
+  export REDIS_VERSION=6.2.2
+fi
+
 export RUST_BACKTRACE=full \
-  REDIS_VERSION=6.2.2 \
   REDIS_USERNAME=foo \
   REDIS_PASSWORD=bar \
   REDIS_SENTINEL_PASSWORD=baz \
   FRED_REDIS_CLUSTER_HOST=127.0.0.1 \
   FRED_REDIS_CLUSTER_PORT=30001 \
   FRED_REDIS_CENTRALIZED_HOST=127.0.0.1 \
-  FRED_REDIS_CENTRALIZED_PORT=6379
+  FRED_REDIS_CENTRALIZED_PORT=6379 \
+  FRED_TEST_TLS_CREDS=$PWD/tests/tmp/creds
 
 alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
 
-if [ -z "$CIRCLECI_TESTS" ]; then
+if [ -z "CIRCLECI_TESTS" ]; then
   read -p "Use cargo nextest? [y/n]: " NEXTEST
   if [ "$NEXTEST" = "y" ]; then
     export FRED_CI_NEXTEST=1

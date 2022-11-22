@@ -1,38 +1,38 @@
 [package]
 name = "fred"
-version = "5.2.0"
+version = "6.0.0-beta.1"
 authors = ["Alec Embke <aembke@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "An async Redis client for Rust built on Futures and Tokio."
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 homepage = "https://github.com/aembke/fred.rs"
-keywords = ["redis", "futures", "async", "cluster", "tokio"]
+keywords = ["redis", "async", "cluster", "sentinel"]
 categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
 
 [package.metadata.docs.rs]
-all-features = true
+features = [""]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 arcstr = "1.1"
 arc-swap = "1.5"
-tokio = { version = "1", features = ["net", "sync", "rt", "macros"] }
-tokio-util = { version = "0.6", features = ["codec"] }
+tokio = { version = "1", features = ["net", "sync", "rt", "rt-multi-thread", "macros"] }
+tokio-util = { version = "0.7", features = ["codec"] }
 cfg-if = "1.0.0"
 bytes = "1.1"
 bytes-utils = "0.1"
 futures = "0.3"
-parking_lot = "0.11"
+parking_lot = "0.12"
 lazy_static = "1.4"
 redis-protocol = { version = "4.1", features = ["decode-mut"] }
 log = "0.4"
 pretty_env_logger = "0.4"
-float-cmp = "0.8"
-url = "2.2"
+float-cmp = "0.9"
+url = "2.3"
 tokio-stream = "0.1"
-sha-1 = "0.9"
+sha-1 = "0.10"
 rand = "0.8"
 async-trait = "0.1"
 semver = "1.0"
@@ -42,11 +42,13 @@ tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
+tokio-rustls = { version = "0.23", optional = true }
+rustls-native-certs = { version = "0.6", optional = true }
 
 [dev-dependencies]
 prometheus = "0.12"
+base64 = "0.13"
 subprocess = "0.2.7"
-maplit = "1.0"
 
 [lib]
 doc = true
@@ -78,14 +80,15 @@ name = "serde"
 required-features = ["serde-json"]
 
 [features]
-default = ["ignore-auth-error", "pool-prefer-active", "enable-tls"]
+default = ["ignore-auth-error", "pool-prefer-active"]
 fallback = []
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []
 ignore-auth-error = []
-enable-tls = ["native-tls", "tokio-native-tls"]
-vendored-tls = ["enable-tls", "native-tls/vendored"]
+enable-rustls = ["tokio-rustls", "rustls-native-certs"]
+enable-native-tls = ["native-tls", "tokio-native-tls"]
+vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
 reconnect-on-auth-error = []
 pool-prefer-active = []
 full-tracing = ["partial-tracing", "tracing", "tracing-futures"]
@@ -97,9 +100,7 @@ monitor = ["nom"]
 sentinel-client = []
 sentinel-auth = []
 no-client-setname = []
+replicas = []
 # Testing Features
 sentinel-tests = []
-# a testing feature to randomly stop, restart, and rebalance the cluster while tests are running
 chaos-monkey = ["custom-reconnect-errors"]
-# tests that may not work on some systems that have low file descriptor limits
-fd-tests = []

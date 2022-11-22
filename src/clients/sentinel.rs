@@ -1,29 +1,28 @@
-use crate::clients::redis::RedisClient;
-use crate::interfaces::*;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::tls::TlsConfig;
-use crate::types::{Blocking, PerformanceConfig, RedisConfig, ServerConfig};
-use futures::{Stream, StreamExt};
+use crate::{
+  interfaces::*,
+  modules::inner::RedisClientInner,
+  types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
+};
 use redis_protocol::resp3::prelude::RespVersion;
-use std::default::Default;
-use std::fmt;
-use std::sync::Arc;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use std::{default::Default, fmt, sync::Arc};
+
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::types::TlsConfig;
 
 /// Configuration options for sentinel clients.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub struct SentinelConfig {
   /// The hostname for the sentinel node.
   ///
   /// Default: `127.0.0.1`
-  pub host: String,
+  pub host:     String,
   /// The port on which the sentinel node is listening.
   ///
   /// Default: `26379`
-  pub port: u16,
-  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should be `None`.
+  pub port:     u16,
+  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
+  /// be `None`.
   ///
   /// Default: `None`
   pub username: Option<String>,
@@ -33,16 +32,18 @@ pub struct SentinelConfig {
   pub password: Option<String>,
   /// TLS configuration fields. If `None` the connection will not use TLS.
   ///
+  /// See the `tls` examples on Github for more information.
+  ///
   /// Default: `None`
-  #[cfg(feature = "enable-tls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-tls")))]
-  pub tls: Option<TlsConfig>,
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  pub tls:      Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing: bool,
+  pub tracing:  bool,
 }
 
 impl Default for SentinelConfig {
@@ -52,7 +53,7 @@ impl Default for SentinelConfig {
       port: 26379,
       username: None,
       password: None,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: false,
@@ -69,16 +70,12 @@ impl From<SentinelConfig> for RedisConfig {
         port: config.port,
       },
       fail_fast: true,
-      performance: PerformanceConfig {
-        pipeline: false,
-        ..Default::default()
-      },
       database: None,
       blocking: Blocking::Block,
       username: config.username,
       password: config.password,
       version: RespVersion::RESP2,
-      #[cfg(feature = "enable-tls")]
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls: config.tls,
       #[cfg(feature = "partial-tracing")]
       tracing: config.tracing,
@@ -88,7 +85,10 @@ impl From<SentinelConfig> for RedisConfig {
 
 /// A struct for interacting directly with Sentinel nodes.
 ///
-/// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::RedisClient) interface with a [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a sentinel layer.
+/// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the
+/// sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::RedisClient) interface with a
+/// [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a
+/// sentinel layer.
 ///
 /// See the [sentinel API docs](https://redis.io/topics/sentinel#sentinel-api) for more information.
 #[derive(Clone)]
@@ -120,13 +120,6 @@ impl<'a> From<&'a Arc<RedisClientInner>> for SentinelClient {
   }
 }
 
-#[doc(hidden)]
-impl From<RedisClient> for SentinelClient {
-  fn from(client: RedisClient) -> Self {
-    SentinelClient { inner: client.inner }
-  }
-}
-
 impl SentinelInterface for SentinelClient {}
 impl MetricsInterface for SentinelClient {}
 impl AclInterface for SentinelClient {}
@@ -137,21 +130,13 @@ impl HeartbeatInterface for SentinelClient {}
 
 impl SentinelClient {
   /// Create a new client instance without connecting to the sentinel node.
-  pub fn new(config: SentinelConfig) -> SentinelClient {
+  pub fn new(
+    config: SentinelConfig,
+    perf: Option<PerformanceConfig>,
+    policy: Option<ReconnectPolicy>,
+  ) -> SentinelClient {
     SentinelClient {
-      inner: RedisClientInner::new(config.into()),
+      inner: RedisClientInner::new(config.into(), perf.unwrap_or_default(), policy),
     }
-  }
-
-  /// Listen for reconnection notifications.
-  ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects.
-  ///
-  /// A reconnection event is also triggered upon first connecting to the server.
-  pub fn on_reconnect(&self) -> impl Stream<Item = Self> {
-    let (tx, rx) = unbounded_channel();
-    self.inner.reconnect_tx.write().push_back(tx);
-
-    UnboundedReceiverStream::new(rx).map(|client| client.into())
   }
 }

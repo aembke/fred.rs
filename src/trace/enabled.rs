@@ -1,26 +1,23 @@
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::RedisCommand;
-use crate::protocol::utils as protocol_utils;
-use crate::utils;
+use crate::{
+  modules::inner::RedisClientInner,
+  protocol::{command::RedisCommand, utils as protocol_utils},
+};
 use redis_protocol::resp3::types::Frame;
-use std::fmt;
-use std::sync::Arc;
-use tracing::event;
-use tracing::field::Empty;
+use std::{fmt, sync::Arc};
 pub use tracing::span::Span;
-use tracing::{span, Id as TraceId, Level};
+use tracing::{event, field::Empty, span, Id as TraceId, Level};
 
 #[cfg(not(feature = "full-tracing"))]
 use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
 pub struct CommandTraces {
-  pub cmd_id: Option<TraceId>,
+  pub cmd_id:  Option<TraceId>,
   pub network: Option<Span>,
   #[cfg(feature = "full-tracing")]
-  pub queued: Option<Span>,
+  pub queued:  Option<Span>,
   #[cfg(not(feature = "full-tracing"))]
-  pub queued: Option<FakeSpan>,
+  pub queued:  Option<FakeSpan>,
 }
 
 /// Enter the network span when the command is dropped after receiving a response.
@@ -35,8 +32,8 @@ impl Drop for CommandTraces {
 impl Default for CommandTraces {
   fn default() -> Self {
     CommandTraces {
-      cmd_id: None,
-      queued: None,
+      cmd_id:  None,
+      queued:  None,
       network: None,
     }
   }
@@ -82,7 +79,7 @@ pub fn create_args_span(_parent: Option<TraceId>) -> FakeSpan {
 
 #[cfg(feature = "full-tracing")]
 pub fn create_queued_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
-  let buf_len = utils::read_atomic(&inner.cmd_buffer_len);
+  let buf_len = inner.counters.read_cmd_buffer_len();
   span!(parent: parent, Level::DEBUG, "queued", buf_len)
 }
 
@@ -109,6 +106,10 @@ pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Fak
   FakeSpan {}
 }
 
-pub fn backpressure_event(cmd: &RedisCommand, duration: u128) {
-  event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure duration_ms={}", duration);
+pub fn backpressure_event(cmd: &RedisCommand, duration: Option<u128>) {
+  if let Some(duration) = duration {
+    event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure duration_ms={}", duration);
+  } else {
+    event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure drain");
+  }
 }

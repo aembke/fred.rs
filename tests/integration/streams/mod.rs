@@ -1,8 +1,8 @@
-use fred::prelude::*;
-use fred::types::{XCapKind, XCapTrim, XReadResponse, XReadValue, XID};
-use std::collections::HashMap;
-use std::hash::Hash;
-use std::time::Duration;
+use fred::{
+  prelude::*,
+  types::{XCapKind, XCapTrim, XReadResponse, XReadValue, XID},
+};
+use std::{collections::HashMap, hash::Hash, time::Duration};
 use tokio::time::sleep;
 
 type FakeExpectedValues = Vec<HashMap<String, HashMap<String, usize>>>;
@@ -18,7 +18,7 @@ async fn add_stream_entries(
 ) -> Result<(Vec<String>, FakeExpectedValues), RedisError> {
   let mut ids = Vec::with_capacity(count);
   let mut expected = Vec::with_capacity(count);
-  for idx in 0..count {
+  for idx in 0 .. count {
     let id: String = client.xadd(key, false, None, "*", ("count", idx)).await?;
     ids.push(id.clone());
 
@@ -82,7 +82,7 @@ pub async fn should_xinfo_streams(client: RedisClient, _: RedisConfig) -> Result
 
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let mut result: HashMap<String, RedisValue> = client.xinfo_stream("foo{1}", true, None).await?;
-  assert_eq!(result.len(), 6);
+  assert!(result.len() >= 6);
   assert_eq!(result.get("length"), Some(&RedisValue::Integer(0)));
 
   let groups: HashMap<String, RedisValue> = result.remove("groups").unwrap().convert()?;
@@ -195,7 +195,7 @@ pub async fn should_xdel_multiple_ids_in_a_stream(client: RedisClient, _: RedisC
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
   let (ids, _) = add_stream_entries(&client, "foo{1}", 3).await?;
 
-  let deleted: usize = client.xdel("foo{1}", ids[0..2].to_vec()).await?;
+  let deleted: usize = client.xdel("foo{1}", ids[0 .. 2].to_vec()).await?;
   assert_eq!(deleted, 2);
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 1);
@@ -320,8 +320,8 @@ pub async fn should_xread_multiple_keys_count_2(client: RedisClient, _: RedisCon
   let (bar_ids, bar_inner) = add_stream_entries(&client, "bar{1}", 3).await?;
 
   let mut expected = HashMap::new();
-  expected.insert("foo{1}".into(), foo_inner[1..].to_vec());
-  expected.insert("bar{1}".into(), bar_inner[1..].to_vec());
+  expected.insert("foo{1}".into(), foo_inner[1 ..].to_vec());
+  expected.insert("bar{1}".into(), bar_inner[1 ..].to_vec());
 
   let ids: Vec<XID> = vec![foo_ids[0].as_str().into(), bar_ids[0].as_str().into()];
   let result: HashMap<String, Vec<HashMap<String, HashMap<String, usize>>>> = client
@@ -347,7 +347,7 @@ pub async fn should_xread_with_blocking(client: RedisClient, _: RedisConfig) -> 
 
   let add_client = client.clone_new();
   tokio::spawn(async move {
-    let _ = add_client.connect(None);
+    let _ = add_client.connect();
     let _ = add_client.wait_for_connect().await?;
     sleep(Duration::from_millis(500)).await;
 
@@ -481,7 +481,7 @@ pub async fn should_xreadgroup_block(client: RedisClient, _: RedisConfig) -> Res
 
   let add_client = client.clone_new();
   tokio::spawn(async move {
-    let _ = add_client.connect(None);
+    let _ = add_client.connect();
     let _ = add_client.wait_for_connect().await?;
     sleep(Duration::from_secs(1)).await;
 

@@ -1,22 +1,27 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::interfaces::{ClientLike, Resp3Frame};
-use crate::protocol::connection::OK;
-use crate::protocol::utils as protocol_utils;
-use crate::types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED};
-use crate::utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces::{ClientLike, Resp3Frame},
+  protocol::{connection::OK, utils as protocol_utils},
+  types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED},
+  utils,
+};
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
 use redis_protocol::resp2::types::NULL;
-use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
-use std::convert::{TryFrom, TryInto};
-use std::hash::{Hash, Hasher};
-use std::iter::FromIterator;
-use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use std::{fmt, mem, str};
+use std::{
+  borrow::Cow,
+  collections::{BTreeMap, HashMap, HashSet, VecDeque},
+  convert::{TryFrom, TryInto},
+  fmt,
+  hash::{Hash, Hasher},
+  iter::FromIterator,
+  mem,
+  ops::{Deref, DerefMut},
+  str,
+};
 
+use crate::types::Server;
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
@@ -205,19 +210,19 @@ impl RedisKey {
     redis_protocol::redis_keyslot(&self.key)
   }
 
-  /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is known.
-  pub fn cluster_owner<C>(&self, client: &C) -> Option<Arc<String>>
+  /// Read the `host:port` of the cluster node that owns the key if the client is clustered and the cluster state is
+  /// known.
+  pub fn cluster_owner<C>(&self, client: &C) -> Option<Server>
   where
     C: ClientLike,
   {
-    if utils::is_clustered(&client.inner().config) {
+    if client.is_clustered() {
       let hash_slot = self.cluster_hash();
       client
         .inner()
-        .cluster_state
-        .read()
-        .as_ref()
-        .and_then(|state| state.get_server(hash_slot).map(|slot| slot.server.clone()))
+        .with_cluster_state(|state| Ok(state.get_server(hash_slot).cloned()))
+        .ok()
+        .and_then(|server| server)
     } else {
       None
     }
@@ -266,7 +271,7 @@ impl TryFrom<RedisValue> for RedisKey {
           RedisErrorKind::InvalidArgument,
           "Cannot convert to key.",
         ))
-      }
+      },
     };
 
     Ok(val)
@@ -285,14 +290,13 @@ impl<'a> From<&'a [u8]> for RedisKey {
   }
 }
 
-/*
-// doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what to do with `Vec<u8>`.
-impl From<Vec<u8>> for RedisKey {
-  fn from(b: Vec<u8>) -> Self {
-    RedisKey { key: b.into() }
-  }
-}
-*/
+// doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what
+// to do with `Vec<u8>`.
+// impl From<Vec<u8>> for RedisKey {
+// fn from(b: Vec<u8>) -> Self {
+// RedisKey { key: b.into() }
+// }
+// }
 
 impl From<String> for RedisKey {
   fn from(s: String) -> Self {
@@ -300,16 +304,16 @@ impl From<String> for RedisKey {
   }
 }
 
-impl<'a> From<&'a str> for RedisKey {
-  fn from(s: &'a str) -> Self {
+impl From<&str> for RedisKey {
+  fn from(s: &str) -> Self {
     RedisKey {
       key: s.as_bytes().to_vec().into(),
     }
   }
 }
 
-impl<'a> From<&'a String> for RedisKey {
-  fn from(s: &'a String) -> Self {
+impl From<&String> for RedisKey {
+  fn from(s: &String) -> Self {
     RedisKey { key: s.clone().into() }
   }
 }
@@ -320,8 +324,14 @@ impl From<Str> for RedisKey {
   }
 }
 
-impl<'a> From<&'a RedisKey> for RedisKey {
-  fn from(k: &'a RedisKey) -> RedisKey {
+impl From<&Str> for RedisKey {
+  fn from(s: &Str) -> Self {
+    RedisKey { key: s.inner().clone() }
+  }
+}
+
+impl From<&RedisKey> for RedisKey {
+  fn from(k: &RedisKey) -> RedisKey {
     k.clone()
   }
 }
@@ -365,7 +375,7 @@ impl TryFrom<Value> for RedisKey {
           RedisErrorKind::InvalidArgument,
           "Cannot convert to key from JSON.",
         ))
-      }
+      },
     };
 
     Ok(value)
@@ -761,7 +771,8 @@ impl<'a> RedisValue {
 
   /// Whether or not the value is a `RedisMap`.
   ///
-  /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in RESP2 mode.
+  /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in
+  /// RESP2 mode.
   pub fn is_map(&self) -> bool {
     match *self {
       RedisValue::Map(_) => true,
@@ -769,9 +780,11 @@ impl<'a> RedisValue {
     }
   }
 
-  /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered element is not an aggregate type.
+  /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered
+  /// element is not an aggregate type.
   ///
-  /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps across protocol versions.
+  /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps across protocol
+  /// versions.
   pub fn is_maybe_map(&self) -> bool {
     match *self {
       RedisValue::Map(_) => true,
@@ -797,7 +810,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       RedisValue::String(ref s) => s.parse::<u64>().ok(),
       RedisValue::Array(ref inner) => {
         if inner.len() == 1 {
@@ -805,7 +818,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -821,7 +834,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -835,7 +848,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       RedisValue::String(ref s) => s.parse::<usize>().ok(),
       RedisValue::Array(ref inner) => {
         if inner.len() == 1 {
@@ -843,7 +856,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -860,7 +873,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -880,7 +893,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -903,7 +916,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -926,7 +939,7 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
   }
@@ -1011,14 +1024,9 @@ impl<'a> RedisValue {
         } else {
           None
         }
-      }
+      },
       _ => None,
     }
-  }
-
-  /// Convert the value to an array of `(value, score)` tuples if the redis value is an array result from a sorted set command with scores.
-  pub fn into_zset_result(self) -> Result<Vec<(RedisValue, f64)>, RedisError> {
-    protocol_utils::value_to_zset_result(self)
   }
 
   /// Attempt to convert this value to a Redis map if it's an array with an even number of elements.
@@ -1062,6 +1070,11 @@ impl<'a> RedisValue {
     }
   }
 
+  /// Convert a `RedisValue` to `Vec<(RedisValue, f64)>`, if possible.
+  pub fn into_zset_result(self) -> Result<Vec<(RedisValue, f64)>, RedisError> {
+    protocol_utils::value_to_zset_result(self)
+  }
+
   /// Convert this value to an array if it's an array or map.
   ///
   /// If the value is not an array or map this returns a single-element array containing the current value.
@@ -1076,7 +1089,7 @@ impl<'a> RedisValue {
           out.push(value);
         }
         out
-      }
+      },
       _ => vec![self],
     }
   }
@@ -1094,7 +1107,7 @@ impl<'a> RedisValue {
         } else {
           return None;
         }
-      }
+      },
       RedisValue::Integer(i) => i.to_string().into_bytes(),
       _ => return None,
     };
@@ -1115,7 +1128,7 @@ impl<'a> RedisValue {
         } else {
           return None;
         }
-      }
+      },
       RedisValue::Integer(i) => i.to_string().into(),
       _ => return None,
     };
@@ -1133,16 +1146,19 @@ impl<'a> RedisValue {
 
   /// Flatten adjacent nested arrays to the provided depth.
   ///
-  /// See the [XREAD](crate::interfaces::StreamsInterface::xread) documentation for an example of when this might be useful.
+  /// See the [XREAD](crate::interfaces::StreamsInterface::xread) documentation for an example of when this might be
+  /// useful.
   pub fn flatten_array_values(self, depth: usize) -> Self {
     utils::flatten_nested_array_values(self, depth)
   }
 
-  /// A utility function to convert the response from `XREAD` or `XREADGROUP` into a type with a less verbose type declaration.
+  /// A utility function to convert the response from `XREAD` or `XREADGROUP` into a type with a less verbose type
+  /// declaration.
   ///
   /// This function supports responses in both RESP2 and RESP3 formats.
   ///
-  /// See the [XREAD](crate::interfaces::StreamsInterface::xread) (or `XREADGROUP`) documentation for more information.
+  /// See the [XREAD](crate::interfaces::StreamsInterface::xread) (or `XREADGROUP`) documentation for more
+  /// information.
   pub fn into_xread_response<K1, I, K2, V>(self) -> Result<XReadResponse<K1, I, K2, V>, RedisError>
   where
     K1: FromRedisKey + Hash + Eq,
@@ -1168,7 +1184,9 @@ impl<'a> RedisValue {
   /// A utility function to convert the response from `XAUTOCLAIM` into a type with a less verbose type declaration.
   ///
   /// This function supports responses in both RESP2 and RESP3 formats.
-  // FIXME: this function also needs changes to support the Redis v7 format.
+  ///
+  /// Note: the new (as of Redis 7.x) return value containing message PIDs that were deleted from the PEL are dropped.
+  /// Callers should use `xautoclaim` instead if this data is needed.
   pub fn into_xautoclaim_values<I, K, V>(self) -> Result<(String, Vec<XReadValue<I, K, V>>), RedisError>
   where
     K: FromRedisKey + Hash + Eq,
@@ -1176,16 +1194,17 @@ impl<'a> RedisValue {
     V: FromRedis,
   {
     if let RedisValue::Array(mut values) = self {
-      if values.len() != 2 {
-        warn!("Invalid XAUTOCLAIM response. If you're using Redis 7.x you may need to use xautoclaim instead of xautoclaim_values.");
-        Err(RedisError::new_parse("Expected 2-element array response."))
-      } else {
-        // unwrap checked above
-        let entries = values.pop().unwrap();
-        let cursor: String = values.pop().unwrap().convert()?;
-
-        Ok((cursor, entries.flatten_array_values(1).convert()?))
+      if values.len() == 3 {
+        // convert the redis 7.x response format to the v6 format
+        trace!("Removing the third message PID elements from XAUTOCLAIM response.");
+        values.pop();
       }
+
+      // unwrap checked above
+      let entries = values.pop().unwrap();
+      let cursor: String = values.pop().unwrap().convert()?;
+
+      Ok((cursor, entries.flatten_array_values(1).convert()?))
     } else {
       Err(RedisError::new_parse("Expected array response."))
     }
@@ -1214,26 +1233,24 @@ impl<'a> RedisValue {
   /// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111].into()).convert()?;
   /// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
   /// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
-  /// let foo: HashMap<String, u16> = RedisValue::Array(vec![
-  ///   "a".into(), 1.into(),
-  ///   "b".into(), 2.into()
-  /// ])
-  /// .convert()?;
+  /// let foo: HashMap<String, u16> =
+  ///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
   /// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
-  /// let foo: Vec<(String, i64)> = RedisValue::Array(vec![
-  ///   "a".into(), 1.into(),
-  ///   "b".into(), 2.into()
-  /// ])
-  /// .convert()?;
+  /// let foo: Vec<(String, i64)> =
+  ///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
   /// // ...
   /// ```
   /// **Performance Considerations**
   ///
   /// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html).
   ///
-  /// These values represent views into the buffer that receives data from the Redis server. As a result it is possible for callers to utilize `RedisValue` types in such a way that the underlying data is never moved or copied.
+  /// These values represent views into the buffer that receives data from the Redis server. As a result it is
+  /// possible for callers to utilize `RedisValue` types in such a way that the underlying data is never moved or
+  /// copied.
   ///
-  /// If performance is a concern and callers do not need to modify the underlying data it is recommended that callers convert to `Str` or `Bytes` whenever possible. If callers do not want to take a dependency on the `Bytes` ecosystem types, or the values need to be mutated, then callers should use other types such as `String`, `Vec<u8>`, etc. It should be noted however that conversion to these other types will result in at least a move, if not a copy, of the underlying data.
+  /// If the values are huge or performance is a concern and callers do not need to modify the underlying data it is
+  /// recommended to convert to `Str` or `Bytes` whenever possible. Converting to `String`, `Vec<u8>`, etc will
+  /// result in at least a move, if not a copy, of the underlying data.
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
     R: FromRedis,
@@ -1243,8 +1260,8 @@ impl<'a> RedisValue {
 
   /// Whether or not the value can be hashed.
   ///
-  /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate type can panic,
-  /// and this function can be used to more gracefully handle this situation.
+  /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate
+  /// type can panic, and this function can be used to more gracefully handle this situation.
   pub fn can_hash(&self) -> bool {
     match self.kind() {
       RedisValueKind::String
@@ -1295,7 +1312,7 @@ impl Hash for RedisValue {
         for value in arr.iter() {
           value.hash(state);
         }
-      }
+      },
       _ => panic!("Cannot hash aggregate value."),
     }
   }
@@ -1534,21 +1551,21 @@ impl TryFrom<Value> for RedisValue {
         } else {
           return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Invalid JSON number."));
         }
-      }
+      },
       Value::Array(a) => {
         let mut out = Vec::with_capacity(a.len());
         for value in a.into_iter() {
           out.push(value.try_into()?);
         }
         RedisValue::Array(out)
-      }
+      },
       Value::Object(m) => {
         let mut out: HashMap<RedisKey, RedisValue> = HashMap::with_capacity(m.len());
         for (key, value) in m.into_iter() {
           out.insert(key.into(), value.try_into()?);
         }
         RedisValue::Map(RedisMap { inner: out })
-      }
+      },
     };
 
     Ok(value)

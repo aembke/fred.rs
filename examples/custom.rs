@@ -1,6 +1,7 @@
-use fred::prelude::*;
-use fred::types::{CustomCommand, RedisKey};
-use redis_protocol::resp3::types::Frame;
+use fred::{
+  prelude::*,
+  types::{CustomCommand, RedisKey},
+};
 use std::convert::TryInto;
 
 fn get_hash_slot(client: &RedisClient, key: &'static str) -> (RedisKey, Option<u16>) {
@@ -19,22 +20,20 @@ fn get_hash_slot(client: &RedisClient, key: &'static str) -> (RedisKey, Option<u
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init();
 
-  let client = RedisClient::new(RedisConfig::default());
-  let _ = client.connect(Some(ReconnectPolicy::default()));
+  let client = RedisClient::new(RedisConfig::default(), None, None);
+  let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
   let (key, hash_slot) = get_hash_slot(&client, "ts:carbon_monoxide");
   let args: Vec<RedisValue> = vec![key.into(), 1112596200.into(), 1112603400.into()];
   let cmd = CustomCommand::new_static("TS.RANGE", hash_slot, false);
-  /*
-  >> TS.RANGE ts:carbon_monoxide 1112596200 1112603400
-  1) 1) (integer) 1112596200
-     2) "2.4"
-  2) 1) (integer) 1112599800
-     2) "2.1"
-  3) 1) (integer) 1112603400
-     2) "2.2"
-   */
+  // >> TS.RANGE ts:carbon_monoxide 1112596200 1112603400
+  // 1) 1) (integer) 1112596200
+  // 2) "2.4"
+  // 2) 1) (integer) 1112599800
+  // 2) "2.1"
+  // 3) 1) (integer) 1112603400
+  // 2) "2.2"
   let values: Vec<(i64, f64)> = client.custom(cmd, args).await?;
   println!("TS.RANGE Values: {:?}", values);
 

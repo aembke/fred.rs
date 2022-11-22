@@ -1,15 +1,15 @@
-use crate::error::RedisError;
-use crate::types::RedisValue;
-use crate::utils;
+use crate::{error::RedisError, types::RedisValue, utils};
 use bytes_utils::Str;
-use std::collections::VecDeque;
-use std::convert::{TryFrom, TryInto};
+use std::{
+  collections::VecDeque,
+  convert::{TryFrom, TryInto},
+};
 
 /// A struct describing the longitude and latitude coordinates of a GEO command.
 #[derive(Clone, Debug)]
 pub struct GeoPosition {
   pub longitude: f64,
-  pub latitude: f64,
+  pub latitude:  f64,
 }
 
 impl PartialEq for GeoPosition {
@@ -24,7 +24,7 @@ impl From<(f64, f64)> for GeoPosition {
   fn from(d: (f64, f64)) -> Self {
     GeoPosition {
       longitude: d.0,
-      latitude: d.1,
+      latitude:  d.1,
     }
   }
 }
@@ -53,7 +53,7 @@ impl GeoUnit {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GeoValue {
   pub coordinates: GeoPosition,
-  pub member: RedisValue,
+  pub member:      RedisValue,
 }
 
 impl GeoValue {
@@ -74,9 +74,9 @@ where
     Ok(GeoValue {
       coordinates: GeoPosition {
         longitude: v.0,
-        latitude: v.1,
+        latitude:  v.1,
       },
-      member: utils::try_into(v.2)?,
+      member:      utils::try_into(v.2)?,
     })
   }
 }
@@ -120,19 +120,19 @@ impl From<VecDeque<GeoValue>> for MultipleGeoValues {
 /// A typed struct representing the full output of the GEORADIUS (or similar) command.
 #[derive(Clone, Debug)]
 pub struct GeoRadiusInfo {
-  pub member: RedisValue,
+  pub member:   RedisValue,
   pub position: Option<GeoPosition>,
   pub distance: Option<f64>,
-  pub hash: Option<i64>,
+  pub hash:     Option<i64>,
 }
 
 impl Default for GeoRadiusInfo {
   fn default() -> Self {
     GeoRadiusInfo {
-      member: RedisValue::Null,
+      member:   RedisValue::Null,
       position: None,
       distance: None,
-      hash: None,
+      hash:     None,
     }
   }
 }
