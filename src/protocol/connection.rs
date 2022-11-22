@@ -330,6 +330,7 @@ impl RedisTransport {
   }
 
   #[cfg(feature = "enable-native-tls")]
+  #[allow(unreachable_patterns)]
   pub async fn new_native_tls(
     inner: &Arc<RedisClientInner>,
     host: String,
@@ -391,6 +392,7 @@ impl RedisTransport {
   }
 
   #[cfg(feature = "enable-rustls")]
+  #[allow(unreachable_patterns)]
   pub async fn new_rustls(
     inner: &Arc<RedisClientInner>,
     host: String,

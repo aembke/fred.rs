@@ -455,6 +455,7 @@ impl RedisConfig {
 
   /// Whether or not the client uses a `native-tls` connector.
   #[cfg(feature = "enable-native-tls")]
+  #[allow(unreachable_patterns)]
   pub fn uses_native_tls(&self) -> bool {
     match self.tls {
       Some(ref config) => match config.connector {
@@ -473,6 +474,7 @@ impl RedisConfig {
 
   /// Whether or not the client uses a `rustls` connector.
   #[cfg(feature = "enable-rustls")]
+  #[allow(unreachable_patterns)]
   pub fn uses_rustls(&self) -> bool {
     match self.tls {
       Some(ref config) => match config.connector {
