@@ -1,4 +1,4 @@
-version: 2
+version: 2.1
 
 commands:
   modify_etc_hosts:
@@ -119,28 +119,28 @@ commands:
 
 
 jobs:
-  test-default-7.0:
+  test-default-7_0:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_default_features
-  test-no-features-7.0:
+  test-no-features-7_0:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_no_features
-  test-all-features-7.0:
+  test-all-features-7_0:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_all_features
-  test-cluster-tls-features-7.0:
+  test-cluster-tls-features-7_0:
     docker:
       - image: cimg/rust:1.65.0
     environment:
@@ -148,7 +148,7 @@ jobs:
       FRED_CI_TLS: true
     steps:
       - test_tls_cluster
-  test-cluster-rustls-features-7.0:
+  test-cluster-rustls-features-7_0:
     docker:
       - image: cimg/rust:1.65.0
     environment:
@@ -156,35 +156,35 @@ jobs:
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
-  test-default-6.2:
+  test-default-6_2:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_default_features
-  test-no-features-6.2:
+  test-no-features-6_2:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_no_features
-  test-all-features-6.2:
+  test-all-features-6_2:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_all_features
-  test-sentinel-6.2:
+  test-sentinel-6_2:
     docker:
       - image: cimg/rust:1.65.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_sentinel
-  test-sentinel-7.0:
+  test-sentinel-7_0:
     docker:
       - image: cimg/rust:1.65.0
     environment:
@@ -203,14 +203,14 @@ workflows:
   build:
     jobs:
       # it'd be nice if we could pass parameters or something here
-      - test-default-6.2
-      - test-all-features-6.2
-      - test-no-features-6.2
-      - test-sentinel-6.2
-      - test-default-7.0
-      - test-all-features-7.0
-      - test-no-features-7.0
-      - test-sentinel-7.0
+      - test-default-6_2
+      - test-all-features-6_2
+      - test-no-features-6_2
+      - test-sentinel-6_2
+      - test-default-7_0
+      - test-all-features-7_0
+      - test-no-features-7_0
+      - test-sentinel-7_0
       - test-docs
-      - test-cluster-tls-features-7.0
-      - test-cluster-rustls-features-7.0
+      - test-cluster-tls-features-7_0
+      - test-cluster-rustls-features-7_0

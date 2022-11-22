@@ -7,6 +7,8 @@
 * Rework the cluster discovery and failover implementation. 
 * Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
 * Rework the sentinel interface to more reliably handle failover scenarios.
+* Support the `functions` interface.
+* Add some missing commands.
 * Rework the `native-tls` interface to support fully customizable TLS configurations.
 * Add `rustls` support.
   * Note: both TLS feature flags can be used at the same time.
