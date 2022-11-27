@@ -1680,6 +1680,7 @@ impl RedisCommand {
       RedisCommandKind::Psubscribe
       | RedisCommandKind::Subscribe
       | RedisCommandKind::Unsubscribe => {
+        // TODO: Handle multiple channels/patterns
         if let Some(key) = self.first_key() {
           key.starts_with(b"__keyspace@") ||
           key.starts_with(b"__keyevent@")
