@@ -1673,6 +1673,24 @@ impl RedisCommand {
       protocol_utils::command_to_frame(self, is_resp3)
     }
   }
+
+  // Check if command arguments justify sending it to all cluster nodes
+  pub fn is_all_cluster_nodes(&self) -> bool {
+    match self.kind {
+      RedisCommandKind::Psubscribe
+      | RedisCommandKind::Subscribe
+      | RedisCommandKind::Unsubscribe => {
+        if let Some(key) = self.first_key() {
+          key.starts_with(b"__keyspace@") ||
+          key.starts_with(b"__keyevent@")
+        } else {
+          false
+        }
+
+      },
+      _ => false,
+    }
+  }
 }
 
 /// A message sent from the front-end client to the multiplexer.

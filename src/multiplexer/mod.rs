@@ -523,7 +523,7 @@ impl Multiplexer {
       self.inner.counters.incr_redelivery_count();
     }
 
-    if command.kind.is_all_cluster_nodes() {
+    if command.kind.is_all_cluster_nodes() || command.is_all_cluster_nodes() {
       self.connections.write_all_cluster(&self.inner, command).await
     } else {
       match self.connections.write_command(&self.inner, command).await {
