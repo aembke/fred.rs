@@ -21,7 +21,7 @@ use std::{
   str,
 };
 
-use crate::types::Server;
+use crate::types::{Function, Server};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
@@ -1208,6 +1208,11 @@ impl<'a> RedisValue {
     } else {
       Err(RedisError::new_parse("Expected array response."))
     }
+  }
+
+  /// Parse the value as the response from `FUNCTION LIST`, including only functions with the provided library `name`.
+  pub fn as_functions(&self, name: &str) -> Result<Vec<Function>, RedisError> {
+    utils::value_to_functions(self, name)
   }
 
   /// Convert the value into a `GeoPosition`, if possible.

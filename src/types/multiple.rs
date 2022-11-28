@@ -26,6 +26,10 @@ impl MultipleKeys {
     self.keys
   }
 
+  pub fn into_values(self) -> Vec<RedisValue> {
+    self.keys.into_iter().map(|k| k.into()).collect()
+  }
+
   pub fn len(&self) -> usize {
     self.keys.len()
   }

@@ -24,6 +24,7 @@ use std::{
   collections::HashMap,
   convert::TryInto,
   f64,
+  hash::Hash,
   mem,
   sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -250,6 +251,57 @@ pub fn value_to_geo_pos(value: &RedisValue) -> Result<Option<GeoPosition>, Redis
     }
   } else {
     Ok(None)
+  }
+}
+
+fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
+  if let RedisValue::Array(functions) = value {
+    let mut out = Vec::with_capacity(functions.len());
+    for function_block in functions.iter() {
+      let functions: HashMap<Str, RedisValue> = value.clone().convert()?;
+      let name = match functions.get("name").and_then(|n| n.as_bytes_str()) {
+        Some(name) => name,
+        None => return Err(RedisError::new_parse("Missing function name.")),
+      };
+      let flags: Vec<FunctionFlag> = functions
+        .get("flags")
+        .and_then(|f| {
+          f.into_array()
+            .into_iter()
+            .map(|v| FunctionFlag::from_str(v.as_str().unwrap_or_default().as_ref()))
+            .collect()
+        })
+        .unwrap_or_default();
+
+      out.push(Function { name, flags })
+    }
+
+    Ok(out)
+  } else {
+    Err(RedisError::new_parse("Invalid functions block."))
+  }
+}
+
+pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function>, RedisError> {
+  if let RedisValue::Array(ref libraries) = value {
+    for library in libraries.iter() {
+      let properties: HashMap<Str, RedisValue> = library.clone().convert()?;
+      let should_parse = properties
+        .get("library_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s == name)
+        .unwrap_or(false);
+
+      if should_parse {
+        if let Some(functions) = properties.get("functions") {
+          return parse_functions(functions);
+        }
+      }
+    }
+
+    Err(RedisError::new_parse(format!("Missing library '{}'", name)))
+  } else {
+    Err(RedisError::new_parse("Expected array."))
   }
 }
 
