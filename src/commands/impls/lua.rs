@@ -15,7 +15,7 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
-use std::{convert::TryInto, sync::Arc};
+use std::{convert::TryInto, str, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// Check that all the keys in an EVAL* command belong to the same server, returning a key slot that maps to that
@@ -356,7 +356,7 @@ pub async fn function_list<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results(frame)
+  protocol_utils::frame_to_results_raw(frame)
 }
 
 pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) -> Result<RedisValue, RedisError> {
@@ -374,9 +374,13 @@ pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) 
   protocol_utils::frame_to_single_result(frame)
 }
 
-pub async fn function_load_cluster<C: ClientLike>(client: &C, replace: bool, code: Str) -> Result<(), RedisError> {
+pub async fn function_load_cluster<C: ClientLike>(
+  client: &C,
+  replace: bool,
+  code: Str,
+) -> Result<RedisValue, RedisError> {
   if !client.inner().config.server.is_clustered() {
-    return function_load(client, replace, code).await.map(|_| ());
+    return function_load(client, replace, code).await;
   }
 
   let (tx, rx) = oneshot_channel();
@@ -390,8 +394,25 @@ pub async fn function_load_cluster<C: ClientLike>(client: &C, replace: bool, cod
   let command: RedisCommand = (RedisCommandKind::_FunctionLoadCluster, args, response).into();
   let _ = client.send_command(command)?;
 
-  let _ = rx.await??;
-  Ok(())
+  // each value in the response array is the response from a different primary node
+  match rx.await?? {
+    Frame::Array { mut data, .. } => {
+      if let Some(frame) = data.pop() {
+        protocol_utils::frame_to_single_result(frame)
+      } else {
+        Err(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Missing library name response frame.",
+        ))
+      }
+    },
+    Frame::SimpleError { data, .. } => Err(protocol_utils::pretty_error(&data)),
+    Frame::BlobError { data, .. } => {
+      let parsed = str::from_utf8(&data)?;
+      Err(protocol_utils::pretty_error(parsed))
+    },
+    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Invalid response type.")),
+  }
 }
 
 pub async fn function_restore<C: ClientLike>(
@@ -436,7 +457,7 @@ pub async fn function_stats<C: ClientLike>(client: &C) -> Result<RedisValue, Red
   let command = RedisCommand::new(RedisCommandKind::FunctionStats, vec![]);
 
   let frame = utils::backchannel_request_response(inner, command, true).await?;
-  protocol_utils::frame_to_results(frame)
+  protocol_utils::frame_to_results_raw(frame)
 }
 
 value_cmd!(function_dump, FunctionDump);

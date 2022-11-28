@@ -21,7 +21,7 @@ This document gives some background on how the library is structured and how to 
 The code has the following structure:
 
 * The [commands](src/commands) folder contains the public interface and private implementation for each of the Redis commands, organized by category. This is roughly the same categorization used by the [public docs](https://redis.io/commands/). Each of these public command category interfaces are exposed as a trait with default implementations for each command.
-* The [clients](src/clients) folder contains public client structs that implement and/or override the traits from [the command category traits folder](src/commands/impls). The [interfaces](src/interfaces.rs) file contains the shared traits inherited by most of the command category traits, such as `ClientLike`.  
+* The [clients](src/clients) folder contains public client structs that implement and/or override the traits from [the command category traits folder](src/commands/impls). The [interfaces](src/interfaces.rs) file contains the shared traits required by most of the command category traits, such as `ClientLike`.  
 * The [monitor](src/monitor) folder contains the implementation of the `MONITOR` command and the parser for the response stream.
 * The [protocol](src/protocol) folder contains the implementation of the base `Connection` struct and the logic for splitting a connection to interact with reader and writer halves in separate tasks. The [TLS interface](src/protocol/tls.rs) is also implemented here.
 * The [multiplexer](src/multiplexer) folder contains the logic that implements the sentinel and cluster interfaces. Clients interact with this struct via a message passing interface. The interface exposed by the `Multiplexer` attempts to hide all the complexity associated with sentinel or clustered deployments. 
@@ -101,7 +101,8 @@ pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<Redis
 
 // ...
 
-pub trait KeysInterface: ClientLike + Sized {
+#[async_trait]
+pub trait KeysInterface: ClientLike {
  
   // ...
 

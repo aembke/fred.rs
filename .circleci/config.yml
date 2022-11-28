@@ -13,11 +13,22 @@ commands:
       - run:
           name: Install OpenSSL
           command: sudo apt-get update && sudo apt-get install -y libssl-dev
+  save_cargo_cache:
+    steps:
+      - save_cache:
+          key: fred-cargo-cache-{{ .Branch }}
+          paths:
+            - target
+  restore_cargo_cache:
+    steps:
+      - restore_cache:
+          keys:
+            - fred-cargo-cache-{{ .Branch }}
   install_redis:
     steps:
       - restore_cache:
           keys:
-            - redis-build-cache-{{ .Branch }}
+            - redis-build-cache-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -25,8 +36,7 @@ commands:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
       - save_cache:
-          # FIXME come up with a better caching scope here
-          key: redis-build-cache-{{ .Branch }}
+          key: redis-build-cache-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
           paths:
             - tests/tmp
   install_cargo_nextest:
@@ -43,7 +53,6 @@ commands:
     steps:
       - install_openssl
       - install_cargo_nextest
-      - clear_git_cache
   setup_docker_compose:
     steps:
       - run:
@@ -68,29 +77,36 @@ commands:
       - checkout
       - setup_host
       - install_redis
+      - restore_cargo_cache
       - run:
           name: Run tests with default features
           command: tests/runners/default-features.sh
+      - save_cargo_cache
   test_all_features:
     steps:
       - checkout
       - setup_host
       - install_redis
+      - restore_cargo_cache
       - run:
           name: Run tests with all features
           command: tests/runners/all-features.sh
+      - save_cargo_cache
   test_no_features:
     steps:
       - checkout
       - setup_host
       - install_redis
+      - restore_cargo_cache
       - run:
           name: Run tests with no features
           command: tests/runners/no-features.sh
+      - save_cargo_cache
   test_sentinel:
     steps:
       - checkout
       - setup_docker_compose
+      - restore_cargo_cache
       - run:
           name: Install and run sentinel tests
           command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
@@ -99,24 +115,27 @@ commands:
       - checkout
       - setup_host
       - modify_etc_hosts
+      - restore_cargo_cache
       - run:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh
       - run:
           name: Run cluster tests with native-tls features
           command: tests/runners/cluster-tls.sh
+      - save_cargo_cache
   test_rustls_cluster:
     steps:
       - checkout
       - setup_host
       - modify_etc_hosts
+      - restore_cargo_cache
       - run:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh
       - run:
           name: Run cluster tests with rustls features
           command: tests/runners/cluster-rustls.sh
-
+      - save_cargo_cache
 
 jobs:
   test-default-7_0:

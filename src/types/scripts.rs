@@ -1,10 +1,9 @@
 use crate::{
   clients::RedisClient,
-  interfaces::{ClientLike, FunctionInterface, LuaInterface},
+  interfaces::{FunctionInterface, LuaInterface},
   prelude::{FromRedis, RedisError, RedisErrorKind, RedisResult},
   types::{MultipleKeys, MultipleValues, RedisValue},
   util::sha1_hash,
-  utils,
 };
 use bytes_utils::Str;
 use std::{
@@ -14,6 +13,7 @@ use std::{
   fmt,
   fmt::Formatter,
   hash::{Hash, Hasher},
+  ops::Deref,
 };
 
 /// An interface for caching and running lua scripts.
@@ -86,12 +86,9 @@ impl Script {
 
   /// Call [SCRIPT LOAD](crate::commands::lua::LuaInterface::script_load) on all the associated servers. This must be
   /// called once before calling [evalsha](Self::evalsha).
-  pub async fn load<C>(&self, client: &C) -> RedisResult<()>
-  where
-    C: LuaInterface,
-  {
+  pub async fn load(&self, client: &RedisClient) -> RedisResult<()> {
     if let Some(ref lua) = self.lua {
-      client.script_load_cluster(lua).await.map(|_| ())
+      client.script_load_cluster::<(), _>(lua.clone()).await
     } else {
       Err(RedisError::new(RedisErrorKind::Unknown, "Missing lua script contents."))
     }
@@ -101,12 +98,12 @@ impl Script {
   pub async fn evalsha<R, C, K, V>(&self, client: &C, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,
-    C: LuaInterface,
+    C: LuaInterface + Send + Sync,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<RedisError> + Send,
   {
-    client.evalsha(&self.hash, keys, args).await
+    client.evalsha(self.hash.clone(), keys, args).await
   }
 }
 
@@ -121,7 +118,8 @@ pub enum FunctionFlag {
 }
 
 impl FunctionFlag {
-  pub(crate) fn from_str(s: &str) -> Option<Self> {
+  /// Parse the string representation of the flag.
+  pub fn from_str(s: &str) -> Option<Self> {
     Some(match s {
       "allow-oom" => FunctionFlag::AllowOOM,
       "allow-stale" => FunctionFlag::AllowStale,
@@ -132,7 +130,7 @@ impl FunctionFlag {
     })
   }
 
-  ///
+  /// Convert to the string representation of the flag.
   pub fn to_str(&self) -> &'static str {
     match self {
       FunctionFlag::AllowCrossSlotKeys => "allow-cross-slot-keys",
@@ -149,8 +147,8 @@ impl FunctionFlag {
 /// See the [library documentation](crate::types::Library) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Function {
-  name:  Str,
-  flags: Vec<FunctionFlag>,
+  pub(crate) name:  Str,
+  pub(crate) flags: Vec<FunctionFlag>,
 }
 
 impl fmt::Display for Function {
@@ -200,24 +198,24 @@ impl Function {
   pub async fn fcall<R, C, K, V>(&self, client: &C, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,
-    C: FunctionInterface,
+    C: FunctionInterface + Send + Sync,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<RedisError> + Send,
   {
-    client.fcall(&self.name, keys, args).await
+    client.fcall(self.name.clone(), keys, args).await
   }
 
   /// Send the [fcall_ro](crate::interfaces::FunctionInterface::fcall_ro) command via the provided client.
   pub async fn fcall_ro<R, C, K, V>(&self, client: &C, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,
-    C: FunctionInterface,
+    C: FunctionInterface + Send + Sync,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<RedisError> + Send,
   {
-    client.fcall_ro(&self.name, keys, args).await
+    client.fcall_ro(self.name.clone(), keys, args).await
   }
 }
 
@@ -227,7 +225,7 @@ impl Function {
 /// # use fred::types::{FunctionFlag, Library};
 /// let code = "#!lua name=mylib \n redis.register_function('myfunc', function(keys, args) return \
 ///             args[1] end)";
-/// let library = Library::from_code(client, code, false).await?;
+/// let library = Library::from_code(client, code).await?;
 /// assert_eq!(library.name(), "mylib");
 ///
 /// if let Some(func) = library.functions().get("myfunc") {
@@ -242,7 +240,6 @@ impl Function {
 pub struct Library {
   name:      Str,
   functions: HashMap<Str, Function>,
-  client:    RedisClient,
 }
 
 impl fmt::Display for Library {
@@ -270,23 +267,21 @@ impl PartialOrd for Library {
 }
 
 impl Library {
-  /// Create a new `Library` with the associated name and code, loading it on all the servers and inspecting the contents via the [FUNCTION LIST](https://redis.io/commands/function-list/) command.
+  /// Create a new `Library` with the provided code, loading it on all the servers and inspecting the contents via the [FUNCTION LIST](https://redis.io/commands/function-list/) command.
   ///
   /// This interface will load the library on the server.
-  pub async fn from_code<N, S>(client: &RedisClient, name: N, code: S) -> Result<Self, RedisError>
+  pub async fn from_code<S>(client: &RedisClient, code: S) -> Result<Self, RedisError>
   where
-    N: Into<Str>,
     S: Into<Str>,
   {
-    into!(name, code);
-    let _ = client.function_load_cluster(true, code).await?;
+    let code = code.into();
+    let name: Str = client.function_load_cluster(true, code).await?;
     let functions = client
-      .function_list::<RedisValue, _>(Some(&name), false)
+      .function_list::<RedisValue, _>(Some(name.deref()), false)
       .await?
       .as_functions(&name)?;
 
     Ok(Library {
-      client:    client.clone(),
       name:      name.into(),
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
@@ -301,25 +296,14 @@ impl Library {
   {
     let name = name.into();
     let functions = client
-      .function_list::<RedisValue, _>(Some(&name), false)
+      .function_list::<RedisValue, _>(Some(name.deref()), false)
       .await?
       .as_functions(&name)?;
 
     Ok(Library {
-      client:    client.clone(),
       name:      name.into(),
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
-  }
-
-  /// Read the client associated with this library.
-  pub fn client(&self) -> &RedisClient {
-    &self.client
-  }
-
-  /// Change the client associated with this library.
-  pub fn change_client(&mut self, client: &RedisClient) {
-    self.client = client.clone();
   }
 
   /// Read the name of the library.

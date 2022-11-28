@@ -160,9 +160,15 @@ pub mod lua {
   centralized_test!(lua, should_function_flush);
   centralized_test!(lua, should_function_delete);
   centralized_test!(lua, should_function_list);
+  centralized_test!(lua, should_function_list_multiple);
   centralized_test!(lua, should_function_fcall_getset);
   centralized_test!(lua, should_function_fcall_echo);
   centralized_test!(lua, should_function_fcall_ro_echo);
+
+  centralized_test!(lua, should_create_lua_script_helper_from_code);
+  centralized_test!(lua, should_create_lua_script_helper_from_hash);
+  centralized_test!(lua, should_create_function_from_code);
+  centralized_test!(lua, should_create_function_from_name);
 }
 
 pub mod sorted_sets {

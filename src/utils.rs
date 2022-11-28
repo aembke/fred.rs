@@ -24,7 +24,6 @@ use std::{
   collections::HashMap,
   convert::TryInto,
   f64,
-  hash::Hash,
   mem,
   sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -258,7 +257,7 @@ fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(functions) = value {
     let mut out = Vec::with_capacity(functions.len());
     for function_block in functions.iter() {
-      let functions: HashMap<Str, RedisValue> = value.clone().convert()?;
+      let functions: HashMap<Str, RedisValue> = function_block.clone().convert()?;
       let name = match functions.get("name").and_then(|n| n.as_bytes_str()) {
         Some(name) => name,
         None => return Err(RedisError::new_parse("Missing function name.")),
@@ -266,7 +265,8 @@ fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
       let flags: Vec<FunctionFlag> = functions
         .get("flags")
         .and_then(|f| {
-          f.into_array()
+          f.clone()
+            .into_array()
             .into_iter()
             .map(|v| FunctionFlag::from_str(v.as_str().unwrap_or_default().as_ref()))
             .collect()

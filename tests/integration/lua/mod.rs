@@ -1,6 +1,13 @@
 use bytes::Bytes;
-use fred::{prelude::*, types::FnPolicy, util};
-use std::collections::HashMap;
+use fred::{
+  prelude::*,
+  types::{FnPolicy, Function, Library, Script},
+  util,
+};
+use std::{
+  collections::{BTreeSet, HashMap},
+  ops::Deref,
+};
 
 static ECHO_SCRIPT: &'static str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
 static GET_SCRIPT: &'static str = "return redis.call('get', KEYS[1])";
@@ -23,7 +30,7 @@ pub async fn flush_scripts(client: &RedisClient) -> Result<(), RedisError> {
 
 pub async fn should_load_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script_hash = util::sha1_hash(ECHO_SCRIPT);
-  let hash = client.script_load(ECHO_SCRIPT).await?;
+  let hash: String = client.script_load(ECHO_SCRIPT).await?;
   assert_eq!(hash, script_hash);
 
   Ok(())
@@ -31,7 +38,7 @@ pub async fn should_load_script(client: RedisClient, _: RedisConfig) -> Result<(
 
 pub async fn should_load_script_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script_hash = util::sha1_hash(ECHO_SCRIPT);
-  let hash = client.script_load_cluster(ECHO_SCRIPT).await?;
+  let hash: String = client.script_load_cluster(ECHO_SCRIPT).await?;
   assert_eq!(hash, script_hash);
 
   Ok(())
@@ -117,7 +124,9 @@ pub async fn should_function_dump_and_restore(client: RedisClient, _: RedisConfi
   let _ = client.function_flush_cluster(false).await?;
   let _: () = client.function_restore_cluster(fns, FnPolicy::default()).await?;
 
-  let fns: HashMap<String, RedisValue> = client.function_list(Some("echolib"), false).await?;
+  let mut fns: Vec<HashMap<String, RedisValue>> = client.function_list(Some("echolib"), false).await?;
+  assert_eq!(fns.len(), 1);
+  let fns = fns.pop().expect("Failed to pop function");
   assert_eq!(fns.get("library_name"), Some(&RedisValue::String("echolib".into())));
 
   Ok(())
@@ -158,9 +167,43 @@ pub async fn should_function_list(client: RedisClient, _: RedisConfig) -> Result
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
   let _ = client.function_load_cluster(true, echo_fn).await?;
-  let fns: HashMap<String, RedisValue> = client.function_list(Some("echolib"), false).await?;
+  let getset_fn = include_str!("../../scripts/lua/getset.lua");
+  let _ = client.function_load_cluster(true, getset_fn).await?;
+
+  let mut fns: Vec<HashMap<String, RedisValue>> = client.function_list(Some("echolib"), false).await?;
+  assert_eq!(fns.len(), 1);
+  let fns = fns.pop().expect("Failed to pop function");
   assert_eq!(fns.get("library_name"), Some(&RedisValue::String("echolib".into())));
 
+  Ok(())
+}
+
+pub async fn should_function_list_multiple(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_redis_7!(client);
+
+  let echo_fn = include_str!("../../scripts/lua/echo.lua");
+  let _ = client.function_load_cluster(true, echo_fn).await?;
+  let getset_fn = include_str!("../../scripts/lua/getset.lua");
+  let _ = client.function_load_cluster(true, getset_fn).await?;
+
+  let fns: Vec<HashMap<String, RedisValue>> = client.function_list(None::<String>, false).await?;
+
+  // ordering is not deterministic, so convert to a set of library names
+  let fns: BTreeSet<String> = fns
+    .into_iter()
+    .map(|lib| {
+      lib
+        .get("library_name")
+        .expect("Failed to read library name")
+        .as_string()
+        .expect("Failed to convert to string.")
+    })
+    .collect();
+  let mut expected = BTreeSet::new();
+  expected.insert("echolib".into());
+  expected.insert("getsetlib".into());
+
+  assert_eq!(fns, expected);
   Ok(())
 }
 
@@ -204,5 +247,59 @@ pub async fn should_function_fcall_ro_echo(client: RedisClient, _: RedisConfig) 
     .await?;
   assert_eq!(result, vec!["key1{1}", "key2{1}", "arg1", "arg2"]);
 
+  Ok(())
+}
+
+pub async fn should_create_lua_script_helper_from_code(
+  client: RedisClient,
+  _: RedisConfig,
+) -> Result<(), RedisError> {
+  let script = Script::from_lua(ECHO_SCRIPT);
+  let _ = script.load(&client).await?;
+
+  let result: Vec<RedisValue> = script
+    .evalsha(&client, vec!["foo{1}", "bar{1}"], vec!["3", "4"])
+    .await?;
+  assert_eq!(result, vec!["foo{1}".into(), "bar{1}".into(), "3".into(), "4".into()]);
+  Ok(())
+}
+
+pub async fn should_create_lua_script_helper_from_hash(
+  client: RedisClient,
+  _: RedisConfig,
+) -> Result<(), RedisError> {
+  let hash: String = client.script_load_cluster(ECHO_SCRIPT).await?;
+
+  let script = Script::from_hash(hash);
+  let result: Vec<RedisValue> = script
+    .evalsha(&client, vec!["foo{1}", "bar{1}"], vec!["3", "4"])
+    .await?;
+  assert_eq!(result, vec!["foo{1}".into(), "bar{1}".into(), "3".into(), "4".into()]);
+  Ok(())
+}
+
+pub async fn should_create_function_from_code(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_redis_7!(client);
+  let echo_lib = include_str!("../../scripts/lua/echo.lua");
+
+  let lib = Library::from_code(&client, echo_lib).await?;
+  assert_eq!(lib.name().deref(), "echolib");
+  let func = lib.functions().get("echo").expect("Failed to read echo function");
+
+  let result: Vec<RedisValue> = func.fcall(&client, vec!["foo{1}", "bar{1}"], vec!["3", "4"]).await?;
+  assert_eq!(result, vec!["foo{1}".into(), "bar{1}".into(), "3".into(), "4".into()]);
+  Ok(())
+}
+
+pub async fn should_create_function_from_name(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  check_redis_7!(client);
+  let echo_lib = include_str!("../../scripts/lua/echo.lua");
+  let _: () = client.function_load_cluster(true, echo_lib).await?;
+
+  let lib = Library::from_name(&client, "echolib").await?;
+  let func = lib.functions().get("echo").expect("Failed to read echo function");
+
+  let result: Vec<RedisValue> = func.fcall(&client, vec!["foo{1}", "bar{1}"], vec!["3", "4"]).await?;
+  assert_eq!(result, vec!["foo{1}".into(), "bar{1}".into(), "3".into(), "4".into()]);
   Ok(())
 }

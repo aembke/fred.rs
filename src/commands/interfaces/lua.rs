@@ -14,9 +14,12 @@ pub trait LuaInterface: ClientLike + Sized {
   /// Load a script into the scripts cache, without executing it. After the specified command is loaded into the
   /// script cache it will be callable using EVALSHA with the correct SHA1 digest of the script.
   ///
+  /// Returns the SHA-1 hash of the script.
+  ///
   /// <https://redis.io/commands/script-load>
-  async fn script_load<S>(&self, script: S) -> RedisResult<String>
+  async fn script_load<R, S>(&self, script: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(script);
@@ -24,8 +27,11 @@ pub trait LuaInterface: ClientLike + Sized {
   }
 
   /// A clustered variant of [script_load](Self::script_load) that loads the script on all primary nodes in a cluster.
-  async fn script_load_cluster<S>(&self, script: S) -> RedisResult<String>
+  ///
+  /// Returns the SHA-1 hash of the script.
+  async fn script_load_cluster<R, S>(&self, script: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(script);
@@ -241,12 +247,15 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Load a library to Redis on all cluster nodes concurrently.
   ///
   /// <https://redis.io/commands/function-load/>
-  async fn function_load_cluster<S>(&self, replace: bool, code: S) -> RedisResult<()>
+  async fn function_load_cluster<R, S>(&self, replace: bool, code: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(code);
-    commands::lua::function_load_cluster(self, replace, code).await
+    commands::lua::function_load_cluster(self, replace, code)
+      .await?
+      .convert()
   }
 
   /// Restore libraries from the serialized payload.
