@@ -6,3 +6,7 @@ pub mod metrics;
 /// Client pooling structs.
 pub mod pool;
 pub mod response;
+
+#[cfg(feature = "mocks")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
+pub mod mocks;

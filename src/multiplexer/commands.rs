@@ -2,14 +2,26 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
   multiplexer::{transactions, utils, Backpressure, Multiplexer, Written},
-  protocol::command::{MultiplexerCommand, MultiplexerReceiver, MultiplexerResponse, RedisCommand, ResponseSender},
-  types::{ClientState, ClusterHash},
+  protocol::command::{
+    MultiplexerCommand,
+    MultiplexerReceiver,
+    MultiplexerResponse,
+    RedisCommand,
+    RedisCommandKind,
+    ResponseSender,
+  },
+  types::{ClientState, ClusterHash, RedisValue, Server},
   utils as client_utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+use tokio::time::sleep;
 
-use crate::types::Server;
+#[cfg(feature = "mocks")]
+use crate::{
+  modules::mocks::{MockCommand, Mocks},
+  protocol::utils as protocol_utils,
+};
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 
@@ -351,6 +363,101 @@ async fn process_normal_command(
 }
 
 /// Process any kind of multiplexer command.
+#[cfg(feature = "mocks")]
+fn process_command(inner: &Arc<RedisClientInner>, command: MultiplexerCommand) -> Result<(), RedisError> {
+  match command {
+    MultiplexerCommand::Transaction { commands, tx, .. } => {
+      let mocked = commands.into_iter().skip(1).map(|c| c.to_mocked()).collect();
+
+      match inner.config.mocks.process_transaction(mocked) {
+        Ok(result) => {
+          let _ = tx.send(Ok(protocol_utils::mocked_value_to_frame(result)));
+          Ok(())
+        },
+        Err(err) => {
+          let _ = tx.send(Err(err));
+          Ok(())
+        },
+      }
+    },
+    MultiplexerCommand::Pipeline { mut commands } => {
+      for mut command in commands.into_iter() {
+        let mocked = command.to_mocked();
+        let result = inner
+          .config
+          .mocks
+          .process_command(mocked)
+          .map(|result| protocol_utils::mocked_value_to_frame(result));
+
+        command.respond_to_caller(result);
+      }
+
+      Ok(())
+    },
+    MultiplexerCommand::Command(mut command) => {
+      let result = inner
+        .config
+        .mocks
+        .process_command(command.to_mocked())
+        .map(|result| protocol_utils::mocked_value_to_frame(result));
+      let _ = command.respond_to_caller(result);
+
+      Ok(())
+    },
+    _ => Err(RedisError::new(RedisErrorKind::Unknown, "Unimplemented.")),
+  }
+}
+
+#[cfg(feature = "mocks")]
+async fn process_commands(inner: &Arc<RedisClientInner>, rx: &mut CommandReceiver) -> Result<(), RedisError> {
+  while let Some(command) = rx.recv().await {
+    inner.counters.decr_cmd_buffer_len();
+
+    _trace!(inner, "Recv mock command: {:?}", command);
+    if let Err(e) = process_command(inner, command) {
+      // errors on this interface end the client connection task
+      _error!(inner, "Ending early after error processing mock command: {:?}", e);
+      if e.is_canceled() {
+        break;
+      } else {
+        return Err(e);
+      }
+    }
+  }
+
+  Ok(())
+}
+
+#[cfg(feature = "mocks")]
+pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Connections are already initialized or connecting.",
+    ));
+  }
+
+  _debug!(inner, "Starting mocking layer");
+  let mut rx = match inner.take_command_rx() {
+    Some(rx) => rx,
+    None => {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Redis client is already initialized.",
+      ))
+    },
+  };
+
+  sleep(Duration::from_millis(10)).await;
+  inner.notifications.broadcast_connect(Ok(()));
+  inner.notifications.broadcast_reconnect();
+  let result = process_commands(inner, &mut rx).await;
+  inner.store_command_rx(rx);
+  result
+}
+
+/// Process any kind of multiplexer command.
+#[cfg(not(feature = "mocks"))]
 async fn process_command(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
@@ -377,6 +484,7 @@ async fn process_command(
 }
 
 /// Start processing commands from the client front end.
+#[cfg(not(feature = "mocks"))]
 async fn process_commands(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
@@ -390,8 +498,13 @@ async fn process_commands(
     if let Err(e) = process_command(inner, multiplexer, command).await {
       // errors on this interface end the client connection task
       _error!(inner, "Disconnecting after error processing command: {:?}", e);
-      let _ = multiplexer.disconnect_all().await;
-      return Err(e);
+      if e.is_canceled() {
+        break;
+      } else {
+        let _ = multiplexer.disconnect_all().await;
+        multiplexer.buffer.clear();
+        return Err(e);
+      }
     }
   }
 
@@ -402,6 +515,7 @@ async fn process_commands(
 }
 
 /// Start the command processing stream, initiating new connections in the process.
+#[cfg(not(feature = "mocks"))]
 pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
     return Err(RedisError::new(

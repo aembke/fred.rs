@@ -2,6 +2,11 @@ use crate::{error::RedisError, types::RespVersion, utils};
 use std::cmp;
 use url::Url;
 
+#[cfg(feature = "mocks")]
+use crate::mocks::{Echo, Mocks};
+#[cfg(feature = "mocks")]
+use std::sync::Arc;
+
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
@@ -349,7 +354,7 @@ impl Default for PerformanceConfig {
 }
 
 /// Configuration options for a `RedisClient`.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct RedisConfig {
   /// Whether or not the client should return an error if it cannot connect to the server the first time when being
   /// initialized. If `false` the client will run the reconnect logic if it cannot connect to the server the first
@@ -414,13 +419,27 @@ pub struct RedisConfig {
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing:   bool,
-  ///// Whether to discover and support commands against replica nodes.
-  /////
-  ///// Default: `false`
-  //#[cfg(feature = "replicas")]
-  //#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  // pub use_replicas: bool,
+  /// An optional [mocking layer](crate::mocks) to intercept and process commands.
+  ///
+  /// Default: [Echo](crate::mocks::Echo)
+  #[cfg(feature = "mocks")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
+  pub mocks:     Arc<dyn Mocks>,
 }
+
+impl PartialEq for RedisConfig {
+  fn eq(&self, other: &Self) -> bool {
+    self.server == other.server
+      && self.database == other.database
+      && self.fail_fast == other.fail_fast
+      && self.version == other.version
+      && self.username == other.username
+      && self.password == other.password
+      && self.blocking == other.blocking
+  }
+}
+
+impl Eq for RedisConfig {}
 
 impl Default for RedisConfig {
   fn default() -> Self {
@@ -436,6 +455,8 @@ impl Default for RedisConfig {
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: false,
+      #[cfg(feature = "mocks")]
+      mocks: Arc::new(Echo),
     }
   }
 }

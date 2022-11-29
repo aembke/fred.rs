@@ -80,13 +80,15 @@ pub mod clients;
 pub mod error;
 /// Traits that implement portions of the Redis interface.
 pub mod interfaces;
+#[cfg(feature = "mocks")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
+pub use modules::mocks;
 /// An interface to run the `MONITOR` command.
 #[cfg(feature = "monitor")]
 #[cfg_attr(docsrs, doc(cfg(feature = "monitor")))]
 pub mod monitor;
 /// The structs and enums used by the Redis client.
 pub mod types;
-/// An interface for interacting directly with sentinel nodes.
 
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {

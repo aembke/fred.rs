@@ -84,7 +84,7 @@ impl Script {
     &self.hash
   }
 
-  /// Call [SCRIPT LOAD](crate::commands::lua::LuaInterface::script_load) on all the associated servers. This must be
+  /// Call `SCRIPT LOAD` on all the associated servers. This must be
   /// called once before calling [evalsha](Self::evalsha).
   pub async fn load(&self, client: &RedisClient) -> RedisResult<()> {
     if let Some(ref lua) = self.lua {
@@ -94,7 +94,7 @@ impl Script {
     }
   }
 
-  /// Send [EVALSHA](crate::commands::lua::LuaInterface::evalsha) to the server with the provided arguments.
+  /// Send `EVALSHA` to the server with the provided arguments.
   pub async fn evalsha<R, C, K, V>(&self, client: &C, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,

@@ -668,6 +668,49 @@ pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, R
   Ok(frame)
 }
 
+#[cfg(feature = "mocks")]
+pub fn mocked_value_to_frame(value: RedisValue) -> Resp3Frame {
+  match value {
+    RedisValue::Array(values) => Resp3Frame::Array {
+      data:       values.into_iter().map(|v| mocked_value_to_frame(v)).collect(),
+      attributes: None,
+    },
+    RedisValue::Map(values) => Resp3Frame::Map {
+      data:       values
+        .inner()
+        .into_iter()
+        .map(|(key, value)| (mocked_value_to_frame(key.into()), mocked_value_to_frame(value)))
+        .collect(),
+      attributes: None,
+    },
+    RedisValue::Null => Resp3Frame::Null,
+    RedisValue::Queued => Resp3Frame::SimpleString {
+      data:       Bytes::from_static(QUEUED.as_bytes()),
+      attributes: None,
+    },
+    RedisValue::Bytes(value) => Resp3Frame::BlobString {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::Boolean(value) => Resp3Frame::Boolean {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::Integer(value) => Resp3Frame::Number {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::Double(value) => Resp3Frame::Double {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::String(value) => Resp3Frame::BlobString {
+      data:       value.into_inner(),
+      attributes: None,
+    },
+  }
+}
+
 pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {
   match *value {
     RedisValue::String(ref resp) => {
