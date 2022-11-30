@@ -24,7 +24,7 @@ commands:
           paths:
             - "~/.cache/sccache"
   modify_etc_hosts:
-    steps:g
+    steps:
       - run:
           name: Modify /etc/hosts
           command: |
