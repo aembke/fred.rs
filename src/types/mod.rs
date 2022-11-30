@@ -15,6 +15,7 @@ mod lists;
 mod misc;
 mod multiple;
 mod scan;
+mod scripts;
 mod sorted_sets;
 mod streams;
 
@@ -28,6 +29,7 @@ pub use lists::*;
 pub use misc::*;
 pub use multiple::*;
 pub use scan::*;
+pub use scripts::*;
 pub use semver::Version;
 pub use sorted_sets::*;
 pub use streams::*;

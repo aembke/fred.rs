@@ -228,7 +228,7 @@ impl Operation {
 fn run(root_path: String, cli_path: String, server_path: String, create_cluster_path: String) {
   let mut count = 0;
   debug!("Starting chaos monkey...");
-  sleep(Duration::from_secs(1));
+  sleep(Duration::from_secs(2));
 
   loop {
     let operation = if TEST_KIND.is_clustered() {

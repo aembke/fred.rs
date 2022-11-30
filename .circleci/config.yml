@@ -1,6 +1,43 @@
 version: 2.1
 
 commands:
+  # sccache takes 5 min to install on a 2x4 container
+  save-sccache-build-cache:
+    steps:
+      - save_cache:
+          name: Save the sccache binary cache
+          key: sccahe-binary-cache-{{ arch }}
+          paths:
+            - "~/.cargo/bin/sccache"
+  restore-sccache-build-cache:
+    steps:
+      - restore_cache:
+          name: Restore sccache binary cache
+          key: sccahe-binary-cache-{{ arch }}
+  # https://medium.com/@edouard.oger/rust-caching-on-circleci-using-sccache-c996344f0115
+  setup-sccache:
+    steps:
+      - restore-sccache-build-cache
+      - run:
+          name: Install sccache
+          command: |
+            [ ! -f ~/.cargo/bin/sccache ] && cargo install sccache
+            echo 'export "RUSTC_WRAPPER"="sccache"' >> $BASH_ENV
+            echo 'export "SCCACHE_CACHE_SIZE"="1G"' >> $BASH_ENV
+            sccache --version
+      - save-sccache-build-cache
+  restore-sccache-cache:
+    steps:
+      - restore_cache:
+          name: Restore sccache cache
+          key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}
+  save-sccache-cache:
+    steps:
+      - save_cache:
+          name: Save sccache cache
+          key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
+          paths:
+            - "~/.cache/sccache"
   modify_etc_hosts:
     steps:
       - run:
@@ -17,7 +54,7 @@ commands:
     steps:
       - restore_cache:
           keys:
-            - redis-build-cache-{{ .Branch }}
+            - redis-build-cache-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
@@ -25,8 +62,7 @@ commands:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
       - save_cache:
-          # FIXME come up with a better caching scope here
-          key: redis-build-cache-{{ .Branch }}
+          key: redis-build-cache-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
           paths:
             - tests/tmp
   install_cargo_nextest:
@@ -43,7 +79,6 @@ commands:
     steps:
       - install_openssl
       - install_cargo_nextest
-      - clear_git_cache
   setup_docker_compose:
     steps:
       - run:
@@ -68,29 +103,40 @@ commands:
       - checkout
       - setup_host
       - install_redis
+      - setup-sccache
+      - restore-sccache-cache
       - run:
           name: Run tests with default features
           command: tests/runners/default-features.sh
+      - save-sccache-cache
   test_all_features:
     steps:
       - checkout
       - setup_host
       - install_redis
+      - setup-sccache
+      - restore-sccache-cache
       - run:
           name: Run tests with all features
           command: tests/runners/all-features.sh
+      - save-sccache-cache
   test_no_features:
     steps:
       - checkout
       - setup_host
       - install_redis
+      - setup-sccache
+      - restore-sccache-cache
       - run:
           name: Run tests with no features
           command: tests/runners/no-features.sh
+      - save-sccache-cache
   test_sentinel:
     steps:
       - checkout
       - setup_docker_compose
+      - setup-sccache
+      - restore-sccache-cache
       - run:
           name: Install and run sentinel tests
           command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
@@ -99,24 +145,29 @@ commands:
       - checkout
       - setup_host
       - modify_etc_hosts
+      - setup-sccache
+      - restore-sccache-cache
       - run:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh
       - run:
           name: Run cluster tests with native-tls features
           command: tests/runners/cluster-tls.sh
+      - save-sccache-cache
   test_rustls_cluster:
     steps:
       - checkout
       - setup_host
       - modify_etc_hosts
+      - setup-sccache
+      - restore-sccache-cache
       - run:
           name: Install cluster with TLS
           command: tests/scripts/install_tls_cluster.sh
       - run:
           name: Run cluster tests with rustls features
           command: tests/runners/cluster-rustls.sh
-
+      - save-sccache-cache
 
 jobs:
   test-default-7_0:

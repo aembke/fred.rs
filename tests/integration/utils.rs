@@ -188,7 +188,7 @@ fn create_native_tls_config() -> TlsConnector {
 
 #[cfg(feature = "chaos-monkey")]
 fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
-  (Some(ReconnectPolicy::new_linear(0, 5000, 500)), 50, false)
+  (Some(ReconnectPolicy::new_linear(0, 5000, 1000)), 50, false)
 }
 
 #[cfg(not(feature = "chaos-monkey"))]

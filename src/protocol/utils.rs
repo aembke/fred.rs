@@ -460,6 +460,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
 ///
 /// This function is equivalent to [frame_to_results] but with an added validation layer if the result set is a nested
 /// array, aggregate type, etc.
+#[cfg(not(feature = "mocks"))]
 pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   match frame {
     Resp3Frame::SimpleString { data, .. } => {
@@ -510,6 +511,12 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
     Resp3Frame::Null => Ok(RedisValue::Null),
     _ => Err(RedisError::new(RedisErrorKind::Protocol, "Unexpected frame kind.")),
   }
+}
+
+/// Remove the (often unwanted) validation and parsing layer when using the mocking layer.
+#[cfg(feature = "mocks")]
+pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
+  frame_to_results(frame)
 }
 
 /// Flatten a single nested layer of arrays or sets into one array.
@@ -666,6 +673,49 @@ pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, R
   };
 
   Ok(frame)
+}
+
+#[cfg(feature = "mocks")]
+pub fn mocked_value_to_frame(value: RedisValue) -> Resp3Frame {
+  match value {
+    RedisValue::Array(values) => Resp3Frame::Array {
+      data:       values.into_iter().map(|v| mocked_value_to_frame(v)).collect(),
+      attributes: None,
+    },
+    RedisValue::Map(values) => Resp3Frame::Map {
+      data:       values
+        .inner()
+        .into_iter()
+        .map(|(key, value)| (mocked_value_to_frame(key.into()), mocked_value_to_frame(value)))
+        .collect(),
+      attributes: None,
+    },
+    RedisValue::Null => Resp3Frame::Null,
+    RedisValue::Queued => Resp3Frame::SimpleString {
+      data:       Bytes::from_static(QUEUED.as_bytes()),
+      attributes: None,
+    },
+    RedisValue::Bytes(value) => Resp3Frame::BlobString {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::Boolean(value) => Resp3Frame::Boolean {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::Integer(value) => Resp3Frame::Number {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::Double(value) => Resp3Frame::Double {
+      data:       value,
+      attributes: None,
+    },
+    RedisValue::String(value) => Resp3Frame::BlobString {
+      data:       value.into_inner(),
+      attributes: None,
+    },
+  }
 }
 
 pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {

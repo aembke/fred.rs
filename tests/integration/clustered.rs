@@ -163,9 +163,15 @@ pub mod lua {
   cluster_test!(lua, should_function_flush);
   cluster_test!(lua, should_function_delete);
   cluster_test!(lua, should_function_list);
+  cluster_test!(lua, should_function_list_multiple);
   cluster_test!(lua, should_function_fcall_getset);
   cluster_test!(lua, should_function_fcall_echo);
   cluster_test!(lua, should_function_fcall_ro_echo);
+
+  cluster_test!(lua, should_create_lua_script_helper_from_code);
+  cluster_test!(lua, should_create_lua_script_helper_from_hash);
+  cluster_test!(lua, should_create_function_from_code);
+  cluster_test!(lua, should_create_function_from_name);
 }
 
 pub mod sorted_sets {

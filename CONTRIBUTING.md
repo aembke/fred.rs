@@ -16,21 +16,22 @@ This document gives some background on how the library is structured and how to 
 * Implement any missing commands.
 * Support unix domain sockets.
 
-# Adding Commands
+# File Structure
 
-## New Commands
+The code has the following structure:
 
-## Command Files
+* The [commands](src/commands) folder contains the public interface and private implementation for each of the Redis commands, organized by category. This is roughly the same categorization used by the [public docs](https://redis.io/commands/). Each of these public command category interfaces are exposed as a trait with default implementations for each command.
+* The [clients](src/clients) folder contains public client structs that implement and/or override the traits from [the command category traits folder](src/commands/impls). The [interfaces](src/interfaces.rs) file contains the shared traits required by most of the command category traits, such as `ClientLike`.  
+* The [monitor](src/monitor) folder contains the implementation of the `MONITOR` command and the parser for the response stream.
+* The [protocol](src/protocol) folder contains the implementation of the base `Connection` struct and the logic for splitting a connection to interact with reader and writer halves in separate tasks. The [TLS interface](src/protocol/tls.rs) is also implemented here.
+* The [multiplexer](src/multiplexer) folder contains the logic that implements the sentinel and cluster interfaces. Clients interact with this struct via a message passing interface. The interface exposed by the `Multiplexer` attempts to hide all the complexity associated with sentinel or clustered deployments. 
+* The [trace](src/trace) folder contains the tracing implementation. 
+* The [types](src/types) folder contains the type definitions used by the public interface. The Redis interface is relatively loosely typed but Rust can support more strongly typed interfaces. The types in this module aim to support an optional but more strongly typed interface for callers.
+* The [modules](src/modules) folder contains smaller helper interfaces such as a lazy [Backchannel](src/modules/backchannel.rs) connection interface and the [response type conversion logic](src/modules/response.rs).
 
-### Interfaces Folder
+## Examples 
 
-### Impls Folder
-
-## Type Conversions
-
-## Public Interface
-
-## Example
+## Add A New Command
 
 This example shows how to add `MGET` to the commands.
 
@@ -72,17 +73,25 @@ impl RedisCommandKind {
 2. Create the private function implementing the command in [src/commands/impls/keys.rs](src/commands/impls/keys.rs).
 
 ```rust
-pub async fn mget<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   utils::check_empty_keys(&keys)?;
 
   let frame = utils::request_response(client, move || {
     // time spent here will show up in traces
-    let args = keys.inner().into_iter().map(|k| k.into()).collect();
-    Ok((RedisCommandKind::Mget, args))
+    Ok((RedisCommandKind::Mget, keys.into_values()))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
+}
+```
+
+Or use one of the shorthand helper functions.
+
+```rust
+pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+  utils::check_empty_keys(&keys)?; 
+  args_values_cmd(client, keys.into_values()).await
 }
 ```
 
@@ -92,32 +101,38 @@ pub async fn mget<C: ClientLike>(client: C, keys: MultipleKeys) -> Result<RedisV
 
 // ...
 
-pub trait KeysInterface: ClientLike + Sized {
+#[async_trait]
+pub trait KeysInterface: ClientLike {
  
   // ...
 
   /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the special value nil is returned.
   ///
   /// <https://redis.io/commands/mget>
-  fn mget<R, K>(&self, keys: K) -> AsyncResult<R> 
-    where
-      R: FromRedis + Unpin + Send,
-      K: Into<MultipleKeys>,
+  async fn mget<R, K>(&self, keys: K) -> RedisResult<R> 
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
   {
     into!(keys);
-    async_spawn(self, |inner| async move {
-      commands::keys::mget(&inner, keys).await?.convert()
-    })
+    commands::keys::mget(self, keys).await
   }
-  
   // ...
 }
 ```
 
-Implement the interface on the necessary client structs, if needed.
+4. Implement the interface on the client structs, if needed.
+
+In the [RedisClient](src/clients/redis.rs) file.
 
 ```rust
 impl KeysInterface for RedisClient {}
+```
+
+In the [transaction](src/clients/transaction.rs) file.
+
+```rust
+impl KeysInterface for Transaction {}
 ```
 
 # Adding Tests
@@ -136,7 +151,7 @@ pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(
 
   let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
   for (key, value) in expected.iter() {
-    let _: () = client.set(*key, value.clone(), None, None, false).await?;
+    let _: () = client.set(key, value.clone(), None, None, false).await?;
   }
   let values: Vec<i64> = client.mget(vec!["a{1}", "b{1}", "c{1}"]).await?;
   assert_eq!(values, vec![1, 2, 3]);
@@ -156,7 +171,7 @@ mod keys {
 
 ```
 
-3. Call the tests from the [cluster server tests](tests/integration/cluster.rs).
+3. Call the tests from the [cluster server tests](tests/integration/clustered.rs).
 
 ```rust
 mod keys {

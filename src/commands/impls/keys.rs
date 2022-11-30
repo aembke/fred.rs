@@ -44,7 +44,7 @@ pub async fn set<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -52,7 +52,7 @@ pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisV
 
   let args: Vec<RedisValue> = keys.inner().drain(..).map(|k| k.into()).collect();
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::Del, args))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn append<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {

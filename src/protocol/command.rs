@@ -2,7 +2,12 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  protocol::{hashers::ClusterHash, responders::ResponseKind, types::ProtocolFrame, utils as protocol_utils},
+  protocol::{
+    hashers::ClusterHash,
+    responders::ResponseKind,
+    types::{ProtocolFrame, Server},
+    utils as protocol_utils,
+  },
   trace,
   types::{CustomCommand, RedisValue},
   utils as client_utils,
@@ -15,8 +20,8 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
-
-use crate::protocol::types::Server;
+#[cfg(feature = "mocks")]
+use crate::modules::mocks::MockCommand;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
@@ -1671,6 +1676,15 @@ impl RedisCommand {
       tokio::task::block_in_place(|| protocol_utils::command_to_frame(self, is_resp3))
     } else {
       protocol_utils::command_to_frame(self, is_resp3)
+    }
+  }
+
+  #[cfg(feature = "mocks")]
+  pub fn to_mocked(&self) -> MockCommand {
+    MockCommand {
+      cmd:        self.kind.cmd_str(),
+      subcommand: self.kind.subcommand_str(),
+      args:       self.args().clone(),
     }
   }
 }

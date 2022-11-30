@@ -86,14 +86,14 @@ This feature is disabled by default, but callers can opt-in via the `full-tracin
 
 To enable logs use the environment variable `RUST_LOG` with a value of `trace`, `debug`, `warn`, `error`, or `info`. See the documentation for [env_logger](http://rust-lang-nursery.github.io/log/env_logger/) for more information.
 
-When a client is initialized it will generate a unique client name with a prefix of `fred-`. This name will appear in all logging statements on the client in order to associate client and server operations if logging is enabled on both.
+When a client is initialized it will generate a unique client name with a prefix of `fred-`. This name will appear in all logging statements on the client.
 
 ## Compile Time Features
 
 | Name                    | Default | Description                                                                                                                                                                                                                                                                         |
 |-------------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| enable-native-tls       |         | Enable TLS support via [native-tls](https://crates.io/crates/native-tls).                                                                                                                                                                                                                                              |
-| enable-rustls           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls).                                                                                                                                                                                                                                                  |
+| enable-native-tls       |         | Enable TLS support via [native-tls](https://crates.io/crates/native-tls).                                                                                                                                                                                                           |
+| enable-rustls           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls).                                                                                                                                                                                                                   |
 | vendored-openssl        |         | Enable the `native-tls/vendored` feature, if possible.                                                                                                                                                                                                                              |
 | ignore-auth-error       | x       | Ignore auth errors that occur when a password is supplied but not required.                                                                                                                                                                                                         |
 | metrics                 |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                                                                                                                                 |
@@ -110,6 +110,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | subscriber-client       |         | Enable a higher level subscriber client that manages channel subscription state for callers.                                                                                                                                                                                        |
 | serde-json              |         | Enable an interface to automatically convert Redis types to JSON.                                                                                                                                                                                                                   |
 | no-client-setname       |         | Disable the automatic `CLIENT SETNAME` command used to associate server logs with client logs.                                                                                                                                                                                      |
+| mocks                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                                                                                                                                       |
 
 ## Environment Variables
 
@@ -123,8 +124,6 @@ When a client is initialized it will generate a unique client name with a prefix
 Prior to the introduction of ACL commands in Redis version 6 clients would authenticate with a single password. If callers are not using the ACL interface, or using Redis version <=5.x, they should configure the client to automatically authenticate by using the `password` field on the `RedisConfig` and leaving the `username` field as `None`. 
 
 If callers are using ACLs and Redis version >=6.x they can configure the client to automatically authenticate by using the `username` and `password` fields on the provided `RedisConfig`. 
-
-**It is required that the authentication information provided to the `RedisConfig` allows the client to run `CLIENT SETNAME` and `CLUSTER SLOTS`.** Callers can still change users via the `AUTH` command later, but it recommended to instead use the username and password provided to the `RedisConfig` so that the client can automatically authenticate after reconnecting. 
 
 ## Redis Sentinel
 

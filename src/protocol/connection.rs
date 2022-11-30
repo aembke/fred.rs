@@ -758,15 +758,34 @@ impl fmt::Debug for RedisWriter {
 impl RedisWriter {
   /// Flush the sink and reset the feed counter.
   pub async fn flush(&mut self) -> Result<(), RedisError> {
+    trace!("Flushing socket to {}", self.server);
     let _ = self.sink.flush().await?;
+    trace!("Flushed socket to {}", self.server);
     self.counters.reset_feed_count();
     Ok(())
+  }
+
+  /// Check if the connection is connected and can send frames.
+  pub fn is_working(&self) -> bool {
+    // this is strange, but necessary.
+    //
+    // calling `flush` on the writer half may seem like the best way to test connectivity, but it's a no-op if there's
+    // no bytes to be flushed. this means that you can only get a strong signal on whether a connection is alive if
+    // there's bytes sitting in the underlying buffer. a better way to check this is to look at the reader half to see
+    // if the task driving the stream is finished. if it is then the connection must have been dropped.
+    //
+    // TLDR: only the reader half responds to a connection dropping.
+    self
+      .reader
+      .as_ref()
+      .and_then(|reader| reader.task.as_ref())
+      .map(|task| !task.is_finished())
+      .unwrap_or(false)
   }
 
   /// Conditionally flush the sink based on the feed count.
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     if utils::read_atomic(&self.counters.feed_count) > 0 {
-      trace!("Flushing socket to {}", self.server);
       let _ = self.flush().await?;
     }
     Ok(())

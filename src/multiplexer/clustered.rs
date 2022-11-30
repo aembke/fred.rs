@@ -47,7 +47,7 @@ pub async fn send_command(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<Server, RedisWriter>,
   state: &ClusterRouting,
-  mut command: RedisCommand,
+  command: RedisCommand,
 ) -> Result<Written, (RedisError, RedisCommand)> {
   let server = match find_cluster_node(inner, state, &command) {
     Some(server) => server,
@@ -55,14 +55,10 @@ pub async fn send_command(
       // these errors almost always mean the cluster is misconfigured
       _warn!(
         inner,
-        "Possible cluster misconfiguration. Missing hash slot owner for {:?}",
+        "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
         command.cluster_hash()
       );
-      command.respond_to_caller(Err(RedisError::new(
-        RedisErrorKind::Cluster,
-        "Missing cluster hash slot owner.",
-      )));
-      return Ok(Written::Ignore);
+      return Ok(Written::Sync(command));
     },
   };
 
