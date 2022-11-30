@@ -43,6 +43,8 @@ pub enum Written {
   Disconnect((Server, Option<RedisCommand>, RedisError)),
   /// Indicates that the result should be ignored since the command will not be retried.
   Ignore,
+  /// (Cluster only) Synchronize the cached cluster routing table and retry.
+  Sync(RedisCommand),
 }
 
 pub enum Backpressure {
@@ -186,16 +188,25 @@ impl Connections {
   }
 
   /// Whether or not the connection map has a connection to the provided server`.
-  pub fn has_server_connection(&self, server: &Server) -> bool {
+  ///
+  /// The connection is tested by calling `flush`.
+  pub fn has_server_connection(&mut self, server: &Server) -> bool {
     match self {
-      Connections::Centralized { ref writer } => {
-        writer.as_ref().map(|writer| writer.server == *server).unwrap_or(false)
-      },
-      Connections::Sentinel { ref writer } => writer.as_ref().map(|writer| writer.server == *server).unwrap_or(false),
-      Connections::Clustered { ref writers, .. } => {
-        for (_, writer) in writers.iter() {
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
+        if let Some(writer) = writer.as_mut() {
           if writer.server == *server {
-            return true;
+            writer.is_working()
+          } else {
+            false
+          }
+        } else {
+          false
+        }
+      },
+      Connections::Clustered { ref mut writers, .. } => {
+        for (_, writer) in writers.iter_mut() {
+          if writer.server == *server {
+            return writer.is_working();
           }
         }
 
@@ -650,6 +661,17 @@ impl Multiplexer {
         // the connection error is sent to the caller in `write_command`
         Err(error)
       },
+      Written::Sync(command) => {
+        _debug!(inner, "Missing hash slot. Disconnecting and syncing cluster.");
+        let buffer = self.connections.disconnect_all(&inner).await;
+        self.buffer.extend(buffer.into_iter());
+        self.buffer.push_back(command);
+
+        Err(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Invalid or missing hash slot.",
+        ))
+      },
       Written::Sent((server, flushed)) => {
         trace!("{}: Sent command to {} (flushed: {})", self.inner.id, server, flushed);
         if is_blocking {
@@ -678,6 +700,7 @@ impl Multiplexer {
 
   /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self) -> Result<(), RedisError> {
+    self.disconnect_all().await;
     self.connections.initialize(&self.inner, &mut self.buffer).await
   }
 
@@ -711,6 +734,13 @@ impl Multiplexer {
             "{}: Disconnect from {} while replaying command: {:?}",
             self.inner.id, server, error
           );
+          self.disconnect_all().await; // triggers a reconnect if needed
+          break;
+        },
+        Ok(Written::Sync(command)) => {
+          failed_command = Some(command);
+
+          warn!("{}: Disconnect and re-sync cluster state.", self.inner.id);
           self.disconnect_all().await; // triggers a reconnect if needed
           break;
         },

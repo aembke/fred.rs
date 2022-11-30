@@ -1,0 +1,30 @@
+name: inf_loop
+version: "1.0"
+author: Alec Embke
+about: Run a script that sends `INCR foo` on an interval forever, with an infinite reconnect policy.
+args:
+  - cluster:
+      long: cluster
+      help: Whether or not to use a clustered deployment.
+      takes_value: false
+  - host:
+      short: h
+      long: host
+      value_name: "STRING"
+      help: The hostname of the redis server.
+      takes_value: true
+      default_value: "127.0.0.1"
+  - port:
+      short: p
+      long: port
+      value_name: "NUMBER"
+      help: The port for the redis server.
+      takes_value: true
+      default_value: "6379"
+  - pool:
+      short: P
+      long: pool
+      value_name: "NUMBER"
+      help: The number of clients in the redis connection pool.
+      takes_value: true
+      default_value: "1"

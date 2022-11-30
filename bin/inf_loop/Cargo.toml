@@ -1,0 +1,24 @@
+[package]
+name = "inf_loop"
+version = "0.1.0"
+authors = ["Alec Embke <aembke@gmail.com>"]
+edition = "2018"
+description = "A script to run `INCR foo` in an infinite loop."
+
+[profile.release]
+debug = true
+
+[dependencies]
+clap = { version = "2.33", features = ["yaml"] }
+log = "0.4"
+pretty_env_logger = "0.4"
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+[dependencies.fred]
+path = "../.."
+features = ["ignore-auth-error"]
+default-features = false
+
+[features]
+default = []

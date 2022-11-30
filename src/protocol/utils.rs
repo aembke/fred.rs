@@ -460,6 +460,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
 ///
 /// This function is equivalent to [frame_to_results] but with an added validation layer if the result set is a nested
 /// array, aggregate type, etc.
+#[cfg(not(feature = "mocks"))]
 pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   match frame {
     Resp3Frame::SimpleString { data, .. } => {
@@ -510,6 +511,12 @@ pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisErro
     Resp3Frame::Null => Ok(RedisValue::Null),
     _ => Err(RedisError::new(RedisErrorKind::Protocol, "Unexpected frame kind.")),
   }
+}
+
+/// Remove the (often unwanted) validation and parsing layer when using the mocking layer.
+#[cfg(feature = "mocks")]
+pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
+  frame_to_results(frame)
 }
 
 /// Flatten a single nested layer of arrays or sets into one array.

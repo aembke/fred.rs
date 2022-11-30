@@ -2,26 +2,19 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
   multiplexer::{transactions, utils, Backpressure, Multiplexer, Written},
-  protocol::command::{
-    MultiplexerCommand,
-    MultiplexerReceiver,
-    MultiplexerResponse,
-    RedisCommand,
-    RedisCommandKind,
-    ResponseSender,
-  },
-  types::{ClientState, ClusterHash, RedisValue, Server},
+  protocol::command::{MultiplexerCommand, MultiplexerReceiver, MultiplexerResponse, RedisCommand, ResponseSender},
+  types::{ClientState, ClusterHash, Server},
   utils as client_utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::{sync::Arc, time::Duration};
-use tokio::time::sleep;
+use std::sync::Arc;
 
 #[cfg(feature = "mocks")]
-use crate::{
-  modules::mocks::{MockCommand, Mocks},
-  protocol::utils as protocol_utils,
-};
+use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
+#[cfg(feature = "mocks")]
+use std::time::Duration;
+#[cfg(feature = "mocks")]
+use tokio::time::sleep;
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 
@@ -145,6 +138,13 @@ async fn write_with_backpressure(
           multiplexer.buffer.push_back(command);
         }
 
+        break;
+      },
+      Ok(Written::Sync(command)) => {
+        _debug!(inner, "Perform cluster sync after missing hash slot lookup.");
+        // disconnecting from everything forces the caller into a reconnect loop
+        multiplexer.disconnect_all().await;
+        multiplexer.buffer.push_back(command);
         break;
       },
       Ok(Written::Ignore) => {
@@ -317,10 +317,13 @@ async fn process_reconnect(
   force: bool,
   tx: Option<ResponseSender>,
 ) -> Result<(), RedisError> {
-  _debug!(inner, "Reconnecting to {:?} (force: {})", server, force);
+  _debug!(inner, "Maybe reconnecting to {:?} (force: {})", server, force);
 
   if let Some(server) = server {
-    if multiplexer.connections.has_server_connection(&server) && !force {
+    let has_connection = multiplexer.connections.has_server_connection(&server);
+    _debug!(inner, "Has working connection: {}", has_connection);
+
+    if has_connection && !force {
       _debug!(inner, "Skip reconnecting to {}", server);
       if let Some(tx) = tx {
         let _ = tx.send(Ok(Resp3Frame::Null));
@@ -330,6 +333,7 @@ async fn process_reconnect(
     }
   }
 
+  _debug!(inner, "Starting reconnection loop...");
   if let Err(e) = utils::reconnect_with_policy(inner, multiplexer).await {
     if let Some(tx) = tx {
       let _ = tx.send(Err(e.clone()));
@@ -389,7 +393,7 @@ fn process_command(inner: &Arc<RedisClientInner>, command: MultiplexerCommand) -
           .process_command(mocked)
           .map(|result| protocol_utils::mocked_value_to_frame(result));
 
-        command.respond_to_caller(result);
+        let _ = command.respond_to_caller(result);
       }
 
       Ok(())

@@ -14,25 +14,30 @@
 
 use crate::{
   error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::command::{MultiplexerCommand, RedisCommand},
   types::{RedisKey, RedisValue},
-  utils as client_utils,
 };
 use bytes_utils::Str;
 use parking_lot::Mutex;
 use std::{
-  collections::{BTreeMap, HashMap, VecDeque},
+  collections::{HashMap, VecDeque},
   fmt::Debug,
   sync::Arc,
 };
-use tokio::sync::mpsc::UnboundedReceiver;
 
 /// A wrapper type for the parts of an internal Redis command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MockCommand {
+  /// The first word in the command string. For example:
+  /// * `SET` - `"SET"`
+  /// * `XGROUP CREATE` - `"XGROUP"`
+  /// * `INCRBY` - `"INCRBY"`
   pub cmd:        Str,
+  /// The optional subcommand string (or second word) in the command string. For example:
+  /// * `SET` - `None`
+  /// * `XGROUP CREATE` - `Some("CREATE")`
+  /// * `INCRBY` - `None`
   pub subcommand: Option<Str>,
+  /// The ordered list of arguments to the command.
   pub args:       Vec<RedisValue>,
 }
 
@@ -92,7 +97,7 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 ///     "foo".into(),
 ///     "bar".into(),
 ///     "EX".into(),
-///     "100".into(),
+///     100.into(),
 ///     "NX".into(),
 ///   ];
 ///   assert_eq!(actual, expected);
@@ -107,7 +112,32 @@ impl Mocks for Echo {
   }
 }
 
-/// A struct that implements some of the basic mapping functions.
+/// A struct that implements some of the basic mapping functions. If callers require a mocking layer that stores and
+/// operates on real values then this struct is a good place to start.
+///
+/// Note: This does **not** support expirations or `NX|XX` qualifiers.
+///
+/// ```rust no_run
+/// #[tokio::test]
+/// async fn should_use_echo_mock() {
+///   let config = RedisConfig {
+///     mocks: Arc::new(SimpleMap::new()),
+///     ..Default::default()
+///   };
+///   let client = RedisClient::new(config, None, None);
+///   let _ = client.connect();
+///   let _ = client.wait_for_connect().await.expect("Failed to connect");
+///
+///   let actual: String = client
+///       .set("foo", "bar", None, None, false)
+///       .await
+///       .expect("Failed to call SET");
+///   assert_eq!(actual, "OK");
+///
+///   let actual: String = client.get("foo").await.expect("Failed to call GET");
+///   assert_eq!(actual, "bar");
+/// }
+/// ```
 #[derive(Debug)]
 pub struct SimpleMap {
   values: Mutex<HashMap<RedisKey, RedisValue>>,
@@ -138,17 +168,43 @@ impl SimpleMap {
 
   /// Perform a `GET` operation.
   pub fn get(&self, args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
-    unimplemented!()
+    let key: RedisKey = match args.first() {
+      Some(key) => key.clone().try_into()?,
+      None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Missing key.")),
+    };
+
+    Ok(self.values.lock().get(&key).cloned().unwrap_or(RedisValue::Null))
   }
 
   /// Perform a `SET` operation.
-  pub fn set(&self, args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
-    unimplemented!()
+  pub fn set(&self, mut args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
+    args.reverse();
+    let key: RedisKey = match args.pop() {
+      Some(key) => key.try_into()?,
+      None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Missing key.")),
+    };
+    let value = match args.pop() {
+      Some(value) => value,
+      None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Missing value.")),
+    };
+
+    let _ = self.values.lock().insert(key, value);
+    Ok(RedisValue::new_ok())
   }
 
   /// Perform a `DEL` operation.
   pub fn del(&self, args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
-    unimplemented!()
+    let mut guard = self.values.lock();
+    let mut count = 0;
+
+    for arg in args.into_iter() {
+      let key: RedisKey = arg.try_into()?;
+      if guard.remove(&key).is_some() {
+        count += 1;
+      }
+    }
+
+    Ok(count.into())
   }
 }
 
@@ -164,6 +220,44 @@ impl Mocks for SimpleMap {
 }
 
 /// A mocking layer that buffers the commands internally and returns `QUEUED` to the caller.
+///
+/// ```rust
+/// #[tokio::test]
+/// async fn should_use_echo_mock() {
+///   let buffer = Arc::new(Buffer::new());
+///   let config = RedisConfig {
+///     mocks: buffer.clone(),
+///     ..Default::default()
+///   };
+///   let client = RedisClient::new(config, None, None);
+///   let _ = client.connect();
+///   let _ = client.wait_for_connect().await.expect("Failed to connect");
+///
+///   let actual: String = client
+///     .set("foo", "bar", None, None, false)
+///     .await
+///     .expect("Failed to call SET");
+///   assert_eq!(actual, "QUEUED");
+///
+///   let actual: String = client.get("foo").await.expect("Failed to call GET");
+///   assert_eq!(actual, "QUEUED");
+///
+///   // note: values that act as keys use the `RedisValue::Bytes` variant internally
+///   let expected = vec![
+///     MockCommand {
+///       cmd:        "SET".into(),
+///       subcommand: None,
+///       args:       vec!["foo".as_bytes().into(), "bar".into()],
+///     },
+///     MockCommand {
+///       cmd:        "GET".into(),
+///       subcommand: None,
+///       args:       vec!["foo".as_bytes().into()],
+///     },
+///   ];
+///   assert_eq!(buffer.take(), expected);
+/// }
+/// ```
 #[derive(Debug)]
 pub struct Buffer {
   commands: Mutex<VecDeque<MockCommand>>,
@@ -235,13 +329,13 @@ mod tests {
     interfaces::{ClientLike, KeysInterface},
     mocks::{Buffer, Echo, Mocks, SimpleMap},
     prelude::Expiration,
-    types::{RedisConfig, RedisKey, RedisValue, SetOptions},
+    types::{RedisConfig, RedisValue, SetOptions},
   };
   use tokio::task::JoinHandle;
 
-  async fn create_mock_client<M: Mocks>(mock: M) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
+  async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
     let config = RedisConfig {
-      mocks: Arc::new(mock),
+      mocks,
       ..Default::default()
     };
     let client = RedisClient::new(config, None, None);
@@ -253,19 +347,62 @@ mod tests {
 
   #[tokio::test]
   async fn should_create_mock_config_and_client() {
-    let _ = create_mock_client(Echo).await;
+    let _ = create_mock_client(Arc::new(Echo)).await;
   }
 
   #[tokio::test]
   async fn should_use_echo_mock() {
-    let (client, _) = create_mock_client(Echo).await;
+    let (client, _) = create_mock_client(Arc::new(Echo)).await;
 
     let actual: Vec<RedisValue> = client
       .set("foo", "bar", Some(Expiration::EX(100)), Some(SetOptions::NX), false)
       .await
       .expect("Failed to call SET");
 
-    let expected: Vec<RedisValue> = vec!["foo".into(), "bar".into(), "EX".into(), "100".into(), "NX".into()];
+    let expected: Vec<RedisValue> = vec!["foo".into(), "bar".into(), "EX".into(), 100.into(), "NX".into()];
     assert_eq!(actual, expected);
+  }
+
+  #[tokio::test]
+  async fn should_use_simple_map_mock() {
+    let (client, _) = create_mock_client(Arc::new(SimpleMap::new())).await;
+
+    let actual: String = client
+      .set("foo", "bar", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    assert_eq!(actual, "OK");
+
+    let actual: String = client.get("foo").await.expect("Failed to call GET");
+    assert_eq!(actual, "bar");
+  }
+
+  #[tokio::test]
+  async fn should_use_buffer_mock() {
+    let buffer = Arc::new(Buffer::new());
+    let (client, _) = create_mock_client(buffer.clone()).await;
+
+    let actual: String = client
+      .set("foo", "bar", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    assert_eq!(actual, "QUEUED");
+
+    let actual: String = client.get("foo").await.expect("Failed to call GET");
+    assert_eq!(actual, "QUEUED");
+
+    let expected = vec![
+      MockCommand {
+        cmd:        "SET".into(),
+        subcommand: None,
+        args:       vec!["foo".as_bytes().into(), "bar".into()],
+      },
+      MockCommand {
+        cmd:        "GET".into(),
+        subcommand: None,
+        args:       vec!["foo".as_bytes().into()],
+      },
+    ];
+    assert_eq!(buffer.take(), expected);
   }
 }
