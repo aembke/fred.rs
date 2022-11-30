@@ -1,16 +1,31 @@
 version: 2.1
 
 commands:
+  # sccache takes 5 min to install on a 2x4 container
+  save-sccache-build-cache:
+    steps:
+      - save_cache:
+          name: Save the sccache binary cache
+          key: sccahe-binary-cache-{{ arch }}
+          paths:
+            - "~/.cargo/bin/sccache"
+  restore-sccache-build-cache:
+    steps:
+      - restore_cache:
+          name: Restore sccache binary cache
+          key: sccahe-binary-cache-{{ arch }}
   # https://medium.com/@edouard.oger/rust-caching-on-circleci-using-sccache-c996344f0115
   setup-sccache:
     steps:
+      - restore-sccache-build-cache
       - run:
           name: Install sccache
           command: |
-            cargo install sccache
+            [ ! -f ~/.cargo/bin/sccache ] && cargo install sccache
             echo 'export "RUSTC_WRAPPER"="sccache"' >> $BASH_ENV
             echo 'export "SCCACHE_CACHE_SIZE"="1G"' >> $BASH_ENV
             sccache --version
+      - save-sccache-build-cache
   restore-sccache-cache:
     steps:
       - restore_cache:
