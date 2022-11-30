@@ -11,20 +11,20 @@ commands:
             echo 'export "RUSTC_WRAPPER"="sccache"' >> $BASH_ENV
             echo 'export "SCCACHE_CACHE_SIZE"="1G"' >> $BASH_ENV
             sccache --version
-    restore-sccache-cache:
-      steps:
-        - restore_cache:
-            name: Restore sccache cache
-            key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}
-    save-sccache-cache:
-      steps:
-        - save_cache:
-            name: Save sccache cache
-            key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
-            paths:
-              - "~/.cache/sccache"
-  modify_etc_hosts:
+  restore-sccache-cache:
     steps:
+      - restore_cache:
+          name: Restore sccache cache
+          key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}
+  save-sccache-cache:
+    steps:
+      - save_cache:
+          name: Save sccache cache
+          key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
+          paths:
+            - "~/.cache/sccache"
+  modify_etc_hosts:
+    steps:g
       - run:
           name: Modify /etc/hosts
           command: |
