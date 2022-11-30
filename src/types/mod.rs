@@ -2,7 +2,6 @@ use crate::error::RedisError;
 pub use crate::modules::response::{FromRedis, FromRedisKey};
 pub use arcstr::ArcStr;
 pub use redis_protocol::resp3::types::{Frame, RespVersion};
-use std::net::SocketAddr;
 use tokio::task::JoinHandle;
 
 mod acl;
@@ -38,6 +37,10 @@ pub use streams::*;
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
 
+#[cfg(feature = "dns")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+pub use crate::protocol::types::Resolve;
+
 pub(crate) static QUEUED: &'static str = "QUEUED";
 pub(crate) static NIL: &'static str = "nil";
 
@@ -49,13 +52,3 @@ pub type ConnectHandle = JoinHandle<Result<(), RedisError>>;
 pub type Limit = (i64, i64);
 /// An argument type equivalent to "[LIMIT count]".
 pub type LimitCount = Option<i64>;
-
-/// A trait that can be used to override DNS resolution logic for a client.
-///
-/// Note: using this requires [async-trait](https://crates.io/crates/async-trait).
-// TODO expose this to callers so they can do their own DNS resolution
-#[async_trait]
-pub(crate) trait Resolve: Send + Sync + 'static {
-  /// Resolve a hostname.
-  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError>;
-}

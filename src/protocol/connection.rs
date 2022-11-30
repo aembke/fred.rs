@@ -7,7 +7,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  types::{InfoKind, Resolve},
+  types::InfoKind,
   utils as client_utils,
   utils,
 };
@@ -307,7 +307,7 @@ impl RedisTransport {
     };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host, port).await?;
+    let addr = inner.get_resolver().await.resolve(host, port).await?;
     _debug!(
       inner,
       "Creating TCP connection to {} at {}:{}",
@@ -356,7 +356,7 @@ impl RedisTransport {
     };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host.clone(), port).await?;
+    let addr = inner.get_resolver().await.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `native-tls` connection to {} at {}:{}",
@@ -418,7 +418,7 @@ impl RedisTransport {
 
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host.clone(), port).await?;
+    let addr = inner.get_resolver().await.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `rustls` connection to {} at {}:{}",

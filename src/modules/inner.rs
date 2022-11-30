@@ -36,7 +36,7 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::types::Server;
+use crate::protocol::types::{Resolve, Server};
 
 pub type CommandSender = UnboundedSender<MultiplexerCommand>;
 pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
@@ -393,8 +393,7 @@ pub struct RedisClientInner {
   /// Shared counters.
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
-  // TODO make this generic via the Resolve trait
-  pub resolver: DefaultResolver,
+  pub resolver:      AsyncRwLock<Arc<dyn Resolve>>,
   /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
   pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
@@ -417,7 +416,7 @@ pub struct RedisClientInner {
 impl RedisClientInner {
   pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
     let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
-    let resolver = DefaultResolver::new(&id);
+    let resolver = AsyncRwLock::new(Arc::new(DefaultResolver::new(&id)));
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Notifications::new(&id);
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
@@ -473,6 +472,15 @@ impl RedisClientInner {
     if log_enabled!(level) {
       func(self.id.as_str())
     }
+  }
+
+  pub async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
+    let mut guard = self.resolver.write().await;
+    *guard = resolver;
+  }
+
+  pub async fn get_resolver(&self) -> Arc<dyn Resolve> {
+    self.resolver.read().await.clone()
   }
 
   pub fn client_name(&self) -> &str {
