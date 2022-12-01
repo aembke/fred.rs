@@ -783,16 +783,12 @@ impl RedisWriter {
       .unwrap_or(false)
   }
 
-  /// Conditionally flush the sink based on the feed count.
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
-    if utils::read_atomic(&self.counters.feed_count) > 0 {
-      let _ = self.flush().await?;
-    }
-    Ok(())
-  }
-
   /// Send a command to the server without waiting on the response.
   pub async fn write_frame(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
+    if !self.is_working() {
+      return Err(RedisError::new(RedisErrorKind::IO, "Connection closed."));
+    }
+
     if should_flush {
       let _ = self.sink.send(frame).await?;
       self.counters.reset_feed_count();

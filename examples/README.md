@@ -16,5 +16,6 @@ Examples
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
 * [Serde](./serde.rs) - Use the `serde-json` feature to convert values and responses to JSON automatically.
 * [Custom](./custom.rs) - Send custom commands or operate on RESP protocol frames directly.
+* [DNS](./dns.rs) - Customize the DNS resolution logic. 
 
 Or check out the [tests](../tests/integration) for more examples.

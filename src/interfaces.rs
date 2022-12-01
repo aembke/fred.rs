@@ -139,6 +139,11 @@ pub trait ClientLike: Clone + Send + Sized {
     self.inner().update_performance_config(config);
   }
 
+  /// Read the [PerformanceConfig](crate::types::PerformanceConfig) associated with this client.
+  fn perf_config(&self) -> PerformanceConfig {
+    self.inner().performance_config()
+  }
+
   /// Read the state of the underlying connection(s).
   ///
   /// If running against a cluster the underlying state will reflect the state of the least healthy connection.

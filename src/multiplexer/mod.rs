@@ -133,7 +133,7 @@ impl Replicas {
   /// Check and flush all the sockets managed by the replica routing state.
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     for (_, writer) in self.writers.iter_mut() {
-      let _ = writer.check_and_flush().await?;
+      let _ = writer.flush().await?;
     }
 
     Ok(())
@@ -386,20 +386,20 @@ impl Connections {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer {
-          writer.check_and_flush().await
+          writer.flush().await
         } else {
           Ok(())
         }
       },
       Connections::Sentinel { ref mut writer, .. } => {
         if let Some(writer) = writer {
-          writer.check_and_flush().await
+          writer.flush().await
         } else {
           Ok(())
         }
       },
       Connections::Clustered { ref mut writers, .. } => {
-        try_join_all(writers.values_mut().map(|writer| writer.check_and_flush()))
+        try_join_all(writers.values_mut().map(|writer| writer.flush()))
           .await
           .map(|_| ())
       },

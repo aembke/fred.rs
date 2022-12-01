@@ -371,6 +371,11 @@ impl ServerState {
   }
 }
 
+// TODO make a config option for other defaults and extend this
+fn create_resolver(id: &ArcStr) -> Arc<dyn Resolve> {
+  Arc::new(DefaultResolver::new(id))
+}
+
 pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id:            ArcStr,
@@ -416,7 +421,7 @@ pub struct RedisClientInner {
 impl RedisClientInner {
   pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
     let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
-    let resolver = AsyncRwLock::new(Arc::new(DefaultResolver::new(&id)));
+    let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Notifications::new(&id);
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
