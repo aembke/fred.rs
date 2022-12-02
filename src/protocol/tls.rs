@@ -11,8 +11,6 @@ use crate::error::RedisErrorKind;
 #[cfg(feature = "enable-native-tls")]
 use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "enable-native-tls")]
-use std::env;
-#[cfg(feature = "enable-native-tls")]
 pub use tokio_native_tls::native_tls;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
