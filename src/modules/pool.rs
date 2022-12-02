@@ -2,7 +2,7 @@ use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
-  types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig, Resolve},
+  types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig},
   utils,
 };
 use futures::future::{join_all, try_join_all};
@@ -11,6 +11,9 @@ use std::{
   ops::Deref,
   sync::{atomic::AtomicUsize, Arc},
 };
+
+#[cfg(feature = "dns")]
+use crate::types::Resolve;
 
 /// The inner state used by a `RedisPool`.
 #[derive(Clone)]
