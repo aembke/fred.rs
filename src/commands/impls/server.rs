@@ -21,6 +21,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
 
+  // TODO fix this for clusters
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
   inner.notifications.broadcast_close();
   let _ = utils::request_response(client, || Ok((RedisCommandKind::Quit, vec![]))).await;

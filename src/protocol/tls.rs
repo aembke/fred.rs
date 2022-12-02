@@ -163,21 +163,10 @@ impl Debug for TlsConnector {
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
 impl TlsConnector {
   /// Create a default TLS connector from the `native-tls` module.
-  ///
-  /// The `FRED_DISABLE_CERT_VERIFICATION` and `FRED_DISABLE_HOST_VERIFICATION` environment variables can be used.
   #[cfg(feature = "enable-native-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
   pub fn default_native_tls() -> Result<Self, RedisError> {
-    let mut builder = NativeTlsConnector::builder();
-
-    if should_disable_cert_verification() {
-      builder.danger_accept_invalid_certs(true);
-    }
-    if should_disable_host_verification() {
-      builder.danger_accept_invalid_hostnames(true);
-    }
-
-    builder.try_into()
+    NativeTlsConnector::builder().try_into()
   }
 
   /// Create a default TLS connector with the `rustls` module with safe defaults and system certs via [rustls-native-certs](https://github.com/rustls/rustls-native-certs).
@@ -243,33 +232,5 @@ impl From<RustlsClientConfig> for TlsConnector {
 impl From<RustlsConnector> for TlsConnector {
   fn from(connector: RustlsConnector) -> Self {
     TlsConnector::Rustls(connector)
-  }
-}
-
-#[cfg(feature = "enable-native-tls")]
-pub fn should_disable_cert_verification() -> bool {
-  match env::var_os("FRED_DISABLE_CERT_VERIFICATION") {
-    Some(s) => match s.into_string() {
-      Ok(s) => match s.as_ref() {
-        "1" | "true" | "TRUE" | "yes" => true,
-        _ => false,
-      },
-      Err(_) => false,
-    },
-    None => false,
-  }
-}
-
-#[cfg(feature = "enable-native-tls")]
-pub fn should_disable_host_verification() -> bool {
-  match env::var_os("FRED_DISABLE_HOST_VERIFICATION") {
-    Some(s) => match s.into_string() {
-      Ok(s) => match s.as_ref() {
-        "1" | "true" | "TRUE" | "yes" => true,
-        _ => false,
-      },
-      Err(_) => false,
-    },
-    None => false,
   }
 }

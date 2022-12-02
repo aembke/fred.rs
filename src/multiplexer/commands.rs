@@ -7,14 +7,11 @@ use crate::{
   utils as client_utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
+use tokio::time::sleep;
 
 #[cfg(feature = "mocks")]
 use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
-#[cfg(feature = "mocks")]
-use std::time::Duration;
-#[cfg(feature = "mocks")]
-use tokio::time::sleep;
 #[cfg(feature = "partial-tracing")]
 use tracing_futures::Instrument;
 
@@ -434,6 +431,7 @@ async fn process_commands(inner: &Arc<RedisClientInner>, rx: &mut CommandReceive
 
 #[cfg(feature = "mocks")]
 pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  sleep(Duration::from_millis(10)).await;
   if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
     return Err(RedisError::new(
       RedisErrorKind::Unknown,
@@ -452,7 +450,6 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     },
   };
 
-  sleep(Duration::from_millis(10)).await;
   inner.notifications.broadcast_connect(Ok(()));
   inner.notifications.broadcast_reconnect();
   let result = process_commands(inner, &mut rx).await;
@@ -521,6 +518,7 @@ async fn process_commands(
 /// Start the command processing stream, initiating new connections in the process.
 #[cfg(not(feature = "mocks"))]
 pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  sleep(Duration::from_millis(10)).await;
   if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
     return Err(RedisError::new(
       RedisErrorKind::Unknown,

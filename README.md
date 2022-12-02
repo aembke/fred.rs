@@ -113,13 +113,6 @@ When a client is initialized it will generate a unique client name with a prefix
 | mocks                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                                                                                                                                       |
 | dns                     |         | Enable an interface that allows callers to override the DNS lookup logic.                                                                                                                                                                                                           |
 
-## Environment Variables
-
-|   Name                            | Default | Description                                                                              |
-|-----------------------------------|---------|------------------------------------------------------------------------------------------|
-| FRED_DISABLE_CERT_VERIFICATION    | `false` | Disable certificate verification when using TLS features.                                |
-| FRED_DISABLE_HOST_VERIFICATION    | `false` | Disable host verification when using TLS features.                                       |
-
 ## ACL & Authentication
 
 Prior to the introduction of ACL commands in Redis version 6 clients would authenticate with a single password. If callers are not using the ACL interface, or using Redis version <=5.x, they should configure the client to automatically authenticate by using the `password` field on the `RedisConfig` and leaving the `username` field as `None`. 

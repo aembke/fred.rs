@@ -344,7 +344,7 @@ impl Resolve for TrustDnsResolver {
 
 #[cfg(feature = "dns")]
 pub async fn should_use_trust_dns(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
-  let perf = client.performance_config();
+  let perf = client.perf_config();
   let policy = client.client_reconnect_policy();
 
   if let ServerConfig::Centralized { ref mut host, .. } = config.server {

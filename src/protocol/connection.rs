@@ -770,9 +770,10 @@ impl RedisWriter {
     // this is strange, but necessary.
     //
     // calling `flush` on the writer half may seem like the best way to test connectivity, but it's a no-op if there's
-    // no bytes to be flushed. this means that you can only get a strong signal on whether a connection is alive if
-    // there's bytes sitting in the underlying buffer. a better way to check this is to look at the reader half to see
-    // if the task driving the stream is finished. if it is then the connection must have been dropped.
+    // no bytes to be flushed. additionally, calling `feed` on a dead writer half also seems to always succeed.
+    //
+    // a better way to check this is to look at the reader half to see if the task driving the stream is finished. if
+    // it is then the connection must have been dropped.
     //
     // TLDR: only the reader half responds to a connection dropping.
     self

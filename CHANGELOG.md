@@ -9,11 +9,14 @@
 * Rework the sentinel interface to more reliably handle failover scenarios.
 * Support the `functions` interface.
 * Add some missing commands.
+* Add `Script`, `Library`, and `Function` structs. 
+* Add a DNS configuration interface.
 * Rework the `native-tls` interface to support fully customizable TLS configurations.
 * Add `rustls` support.
   * Note: both TLS feature flags can be used at the same time.
 * Add CI tests for Redis v7.
-* Add CI tests for clusters with TLS. 
+* Add CI tests for clusters with TLS.
+* Add a mocking layer interface.
 
 ### Updating from 5.x
 

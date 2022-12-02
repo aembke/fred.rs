@@ -15,8 +15,10 @@ use std::{
   string::FromUtf8Error,
 };
 use tokio::task::JoinError;
-use trust_dns_resolver::error::ResolveError;
 use url::ParseError;
+
+#[cfg(feature = "dns")]
+use trust_dns_resolver::error::ResolveError;
 
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -270,7 +272,7 @@ impl From<tokio_rustls::webpki::Error> for RedisError {
 
 #[cfg(feature = "dns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-impl From<trust_dns_resolver::error::ResolveError> for RedisError {
+impl From<ResolveError> for RedisError {
   fn from(e: ResolveError) -> Self {
     RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
   }

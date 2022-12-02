@@ -4,13 +4,14 @@ use crate::{
   protocol::{command::RedisCommand, utils as protocol_utils},
   trace,
   types::{KeyspaceEvent, RedisValue},
+  utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
-use crate::protocol::types::Server;
+use crate::{protocol::types::Server, types::ClientState};
 
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
 const KEYEVENT_PREFIX: &'static str = "__keyevent@";
@@ -213,11 +214,14 @@ pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -
 
 /// Handle an error in the reader task that should end the connection.
 pub fn handle_reader_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+  _debug!(inner, "Ending reader task from {} due to {:?}", server, error);
+
   if inner.should_reconnect() {
     inner.send_reconnect(Some(server.clone()), false, None);
   }
-  _debug!(inner, "Ending reader task from {} due to {:?}", server, error);
-  inner
-    .notifications
-    .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
+  if utils::read_locked(&inner.state) != ClientState::Disconnecting {
+    inner
+      .notifications
+      .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
+  }
 }
