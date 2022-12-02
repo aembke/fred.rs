@@ -2,7 +2,7 @@ use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
-  types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig},
+  types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig, Resolve},
   utils,
 };
 use futures::future::{join_all, try_join_all};
@@ -95,6 +95,15 @@ impl RedisPool {
     let _ = try_join_all(futures).await?;
 
     Ok(())
+  }
+
+  /// Override the DNS resolution logic for all clients in the pool.
+  #[cfg(feature = "dns")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  pub async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
+    for client in self.inner.clients.iter() {
+      client.set_resolver(resolver.clone()).await;
+    }
   }
 
   /// Read the size of the pool.
