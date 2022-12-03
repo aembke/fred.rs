@@ -281,19 +281,24 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   });
 
   let mut out = Vec::with_capacity(inner_len);
-  for frame in frames.iter_mut() {
+  // for frame in frames.iter_mut() {
+  for frame in frames.drain(..) {
     // unwrap and return errors early
     if frame.is_error() {
-      return frame.take();
+      // return frame.take();
+      return frame;
     }
 
     match frame {
       Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
+        // for inner_frame in data.iter_mut() {
         for inner_frame in data.into_iter() {
-          out.push(inner_frame.take());
+          // out.push(inner_frame.take());
+          out.push(inner_frame);
         }
       },
-      _ => out.push(frame.take()),
+      //_ => out.push(frame.take()),
+      _ => out.push(frame),
     };
   }
 
@@ -572,7 +577,8 @@ pub fn respond_buffer(
     command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
     _error!(
       inner,
-      "Exiting early after unexpected buffer response index from {}",
+      "Exiting early after unexpected buffer response index from {} with command {}",
+      server,
       command.kind.to_str_debug()
     );
     return Err(RedisError::new(
@@ -581,6 +587,14 @@ pub fn respond_buffer(
     ));
   }
 
+  _trace!(
+    inner,
+    "Checking recv vs expected in buffer response: {} == {} at index: {} from {}",
+    received,
+    expected,
+    index,
+    server
+  );
   if received == expected {
     command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
 

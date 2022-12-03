@@ -23,6 +23,7 @@ use tokio::time::sleep;
 use async_trait::async_trait;
 #[cfg(feature = "dns")]
 use fred::types::Resolve;
+use futures::future::try_join;
 #[cfg(feature = "dns")]
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
@@ -313,6 +314,27 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 
   let result: i64 = pipeline.last().await?;
   assert_eq!(result, 2);
+  Ok(())
+}
+
+pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let other = client.clone();
+  let jh1 = tokio::spawn(async move {
+    for _ in 0 .. 1000 {
+      let _ = other.flushall_cluster().await?;
+    }
+
+    Ok::<_, RedisError>(())
+  });
+  let jh2 = tokio::spawn(async move {
+    for _ in 0 .. 1000 {
+      let _ = client.flushall_cluster().await?;
+    }
+
+    Ok::<_, RedisError>(())
+  });
+
+  let _ = try_join(jh1, jh2).await?;
   Ok(())
 }
 
