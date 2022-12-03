@@ -281,19 +281,19 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   });
 
   let mut out = Vec::with_capacity(inner_len);
-  for frame in frames.drain(..) {
+  for frame in frames.iter_mut() {
     // unwrap and return errors early
     if frame.is_error() {
-      return frame;
+      return frame.take();
     }
 
     match frame {
       Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
         for inner_frame in data.into_iter() {
-          out.push(inner_frame);
+          out.push(inner_frame.take());
         }
       },
-      _ => out.push(frame),
+      _ => out.push(frame.take()),
     };
   }
 
