@@ -176,7 +176,7 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
     .iter()
     .fold(0, |count, cmd| count + cmd.response.expected_response_frames());
 
-  let response = ResponseKind::new_buffer(expected_responses, tx);
+  let response = ResponseKind::new_buffer_with_size(expected_responses, tx);
   let commands: Vec<RedisCommand> = commands
     .into_iter()
     .enumerate()

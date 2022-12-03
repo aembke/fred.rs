@@ -65,7 +65,7 @@ pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Resu
   let hash = sha1_hash(&script);
 
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_ScriptLoadCluster, vec![script.into()], response).into();
   let _ = client.send_command(command)?;
 
@@ -81,7 +81,7 @@ pub async fn script_kill_cluster<C: ClientLike>(client: &C) -> Result<(), RedisE
   }
 
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_ScriptKillCluster, vec![], response).into();
   let _ = client.send_command(command)?;
 
@@ -108,7 +108,7 @@ pub async fn script_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> R
   let (tx, rx) = oneshot_channel();
   let arg = static_val!(if r#async { ASYNC } else { SYNC });
 
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_ScriptFlushCluster, vec![arg], response).into();
   let _ = client.send_command(command)?;
 
@@ -285,7 +285,7 @@ pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: St
   let (tx, rx) = oneshot_channel();
   let args: Vec<RedisValue> = vec![library_name.into()];
 
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionDeleteCluster, args, response).into();
   let _ = client.send_command(command)?;
 
@@ -320,7 +320,7 @@ pub async fn function_flush_cluster<C: ClientLike>(client: &C, r#async: bool) ->
     vec![static_val!(SYNC)]
   };
 
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionFlushCluster, args, response).into();
   let _ = client.send_command(command)?;
 
@@ -390,7 +390,7 @@ pub async fn function_load_cluster<C: ClientLike>(
   }
   args.push(code.into());
 
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionLoadCluster, args, response).into();
   let _ = client.send_command(command)?;
 
@@ -444,7 +444,7 @@ pub async fn function_restore_cluster<C: ClientLike>(
   let (tx, rx) = oneshot_channel();
   let args: Vec<RedisValue> = vec![serialized.into(), policy.to_str().into()];
 
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionRestoreCluster, args, response).into();
   let _ = client.send_command(command)?;
 

@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender},
-    types::{KeyScanInner, ValueScanInner, ValueScanResult},
+    types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
   types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
@@ -14,17 +14,16 @@ use bytes_utils::Str;
 use parking_lot::Mutex;
 use std::{
   fmt,
-  iter::repeat,
+  fmt::Formatter,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
 };
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::types::Server;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
-use std::fmt::Formatter;
+use std::iter::repeat;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
@@ -128,7 +127,17 @@ impl ResponseKind {
     }
   }
 
-  pub fn new_buffer(expected: usize, tx: ResponseSender) -> Self {
+  pub fn new_buffer(tx: ResponseSender) -> Self {
+    ResponseKind::Buffer {
+      frames:   Arc::new(Mutex::new(vec![])),
+      tx:       Arc::new(Mutex::new(Some(tx))),
+      received: Arc::new(AtomicUsize::new(0)),
+      index:    0,
+      expected: 0,
+    }
+  }
+
+  pub fn new_buffer_with_size(expected: usize, tx: ResponseSender) -> Self {
     let frames = repeat(Resp3Frame::Null).take(expected).collect();
     ResponseKind::Buffer {
       frames: Arc::new(Mutex::new(frames)),
@@ -230,11 +239,28 @@ fn respond_locked(
   }
 }
 
-fn add_buffered_frame(buffer: &Arc<Mutex<Vec<Resp3Frame>>>, index: usize, frame: Resp3Frame) {
+fn add_buffered_frame(
+  buffer: &Arc<Mutex<Vec<Resp3Frame>>>,
+  index: usize,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
   let mut guard = buffer.lock();
   let buffer_ref = guard.deref_mut();
 
+  if index >= buffer_ref.len() {
+    debug!(
+      "Unexpected buffer response array index: {}, len: {}",
+      index,
+      buffer_ref.len()
+    );
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Invalid buffer response index.",
+    ));
+  }
+
   buffer_ref[index] = frame;
+  Ok(())
 }
 
 /// Merge multiple potentially nested frames into one flat array of frames.
@@ -535,7 +561,19 @@ pub fn respond_buffer(
 
   // errors are buffered like normal frames and are not returned early
   let received = client_utils::incr_atomic(&received);
-  add_buffered_frame(&frames, index, frame);
+  if let Err(e) = add_buffered_frame(&frames, index, frame) {
+    respond_locked(inner, &tx, Err(e));
+    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+    _error!(
+      inner,
+      "Exiting early after unexpected buffer response index from {}",
+      command.kind.to_str_debug()
+    );
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Invalid buffer response index.",
+    ));
+  }
 
   if received == expected {
     command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);

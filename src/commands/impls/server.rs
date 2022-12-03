@@ -23,7 +23,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
 
   let (tx, rx) = oneshot_channel();
   let command: RedisCommand = if inner.config.server.is_clustered() {
-    let response = ResponseKind::new_buffer(inner.num_cluster_nodes(), tx);
+    let response = ResponseKind::new_buffer(tx);
     (RedisCommandKind::Quit, vec![], response).into()
   } else {
     let response = ResponseKind::Respond(Some(tx));
@@ -49,7 +49,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   };
   let (tx, rx) = oneshot_channel();
   let command: RedisCommand = if inner.config.server.is_clustered() {
-    let response = ResponseKind::new_buffer(inner.num_cluster_nodes(), tx);
+    let response = ResponseKind::new_buffer(tx);
     (RedisCommandKind::Shutdown, args, response).into()
   } else {
     let response = ResponseKind::Respond(Some(tx));
@@ -120,7 +120,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   }
 
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+  let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FlushAllCluster, vec![], response).into();
   let _ = client.send_command(command)?;
 
@@ -166,7 +166,7 @@ pub async fn hello<C: ClientLike>(
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
     let mut command: RedisCommand = RedisCommandKind::_HelloAllCluster(version).into();
-    command.response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+    command.response = ResponseKind::new_buffer(tx);
 
     let _ = client.send_command(command)?;
     let _ = rx.await??;
@@ -187,7 +187,7 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_buffer(client.inner().num_cluster_nodes(), tx);
+    let response = ResponseKind::new_buffer(tx);
     let command: RedisCommand = (RedisCommandKind::_AuthAllCluster, args, response).into();
     let _ = client.send_command(command)?;
 

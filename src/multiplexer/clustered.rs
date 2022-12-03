@@ -18,6 +18,7 @@ use arcstr::ArcStr;
 use futures::TryStreamExt;
 use std::{
   collections::{BTreeSet, HashMap},
+  iter::repeat,
   sync::Arc,
 };
 use tokio::task::JoinHandle;
@@ -83,9 +84,20 @@ pub async fn send_command(
 pub async fn send_all_cluster_command(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<Server, RedisWriter>,
-  command: RedisCommand,
+  mut command: RedisCommand,
 ) -> Result<(), RedisError> {
   let num_nodes = writers.len();
+  if let ResponseKind::Buffer {
+    ref mut frames,
+    ref mut expected,
+    ..
+  } = command.response
+  {
+    *expected = num_nodes;
+
+    let mut guard = frames.lock();
+    *guard = repeat(Resp3Frame::Null).take(num_nodes).collect();
+  }
   let mut responder = match command.response.duplicate() {
     Some(resp) => resp,
     None => {
