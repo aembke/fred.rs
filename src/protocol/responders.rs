@@ -259,6 +259,12 @@ fn add_buffered_frame(
     ));
   }
 
+  trace!(
+    "Add buffered frame {:?} at index {} with length {}",
+    frame.kind(),
+    index,
+    buffer_ref.len()
+  );
   buffer_ref[index] = frame;
   Ok(())
 }

@@ -95,6 +95,12 @@ pub async fn send_all_cluster_command(
   {
     *expected = num_nodes;
 
+    _trace!(
+      inner,
+      "Allocating {} null responses in buffer for {}.",
+      num_nodes,
+      command.kind.to_str_debug()
+    );
     let mut guard = frames.lock();
     *guard = repeat(Resp3Frame::Null).take(num_nodes).collect();
   }
@@ -109,7 +115,7 @@ pub async fn send_all_cluster_command(
   };
 
   for (idx, (server, writer)) in writers.iter_mut().enumerate() {
-    _debug!(inner, "Sending all cluster command to {}", server);
+    _debug!(inner, "Sending all cluster command to {} with index {}", server, idx);
     let mut cmd_responder = responder.duplicate().unwrap_or(ResponseKind::Skip);
     cmd_responder.set_expected_index(idx);
     let mut cmd = command.duplicate(cmd_responder);
