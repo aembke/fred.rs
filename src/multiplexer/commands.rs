@@ -148,6 +148,18 @@ async fn write_with_backpressure(
         _trace!(inner, "Ignore `Written` response.");
         break;
       },
+      Ok(Written::SentAll) => {
+        _trace!(inner, "Sent command to all servers.");
+        let _ = multiplexer.check_and_flush().await;
+        if let Some(mut command) = handle_multiplexer_response(inner, multiplexer, rx).await? {
+          // commands that are sent to all nodes are not retried after a connection closing
+          _warn!(inner, "Responding with canceled error after all nodes command failure.");
+          command.respond_to_caller(Err(RedisError::new_canceled()));
+          break;
+        } else {
+          break;
+        }
+      },
       Ok(Written::Sent((server, flushed))) => {
         _trace!(inner, "Sent command to {}. Flushed: {}", server, flushed);
         if is_blocking {
@@ -212,7 +224,8 @@ async fn process_pipeline(
     command.can_pipeline = true;
     command.skip_backpressure = true;
 
-    if let Err(e) = write_with_backpressure_t(inner, multiplexer, command, true).await {
+    let force_pipeline = !command.kind.is_all_cluster_nodes();
+    if let Err(e) = write_with_backpressure_t(inner, multiplexer, command, force_pipeline).await {
       // if the command cannot be written it will be queued to run later.
       // if a connection is dropped due to an error the reader will send a command to reconnect and retry later.
       _debug!(inner, "Error writing command in pipeline: {:?}", e);

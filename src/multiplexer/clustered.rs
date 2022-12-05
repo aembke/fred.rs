@@ -99,7 +99,7 @@ pub async fn send_all_cluster_command(
       inner,
       "Allocating {} null responses in buffer for {}.",
       num_nodes,
-      command.kind.to_str_debug()
+      command.kind.to_str_debug(),
     );
     let mut guard = frames.lock();
     *guard = repeat(Resp3Frame::Null).take(num_nodes).collect();
@@ -115,7 +115,13 @@ pub async fn send_all_cluster_command(
   };
 
   for (idx, (server, writer)) in writers.iter_mut().enumerate() {
-    _debug!(inner, "Sending all cluster command to {} with index {}", server, idx);
+    _debug!(
+      inner,
+      "Sending all cluster command to {} with index {}, ID: {}",
+      server,
+      idx,
+      command.debug_id()
+    );
     let mut cmd_responder = responder.duplicate().unwrap_or(ResponseKind::Skip);
     cmd_responder.set_expected_index(idx);
     let mut cmd = command.duplicate(cmd_responder);
@@ -271,7 +277,7 @@ fn process_cluster_error(
     },
   };
 
-  if let Some(tx) = command.multiplexer_tx.take() {
+  if let Some(tx) = command.take_multiplexer_tx() {
     let response = match kind {
       ClusterErrorKind::Ask => MultiplexerResponse::Ask((slot, server, command)),
       ClusterErrorKind::Moved => MultiplexerResponse::Moved((slot, server, command)),
@@ -365,6 +371,12 @@ pub async fn process_response_frame(
       command
     }
   };
+  _trace!(
+    inner,
+    "Checking response to {} ({})",
+    command.kind.to_str_debug(),
+    command.debug_id()
+  );
   counters.decr_in_flight();
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
@@ -545,6 +557,12 @@ pub async fn cluster_slots_backchannel(
     (protocol_utils::frame_to_results_raw(frame)?, host)
   };
   _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
+  if response.is_null() {
+    return Err(RedisError::new(
+      RedisErrorKind::Protocol,
+      "Invalid or missing CLUSTER SLOTS response.",
+    ));
+  }
 
   let mut new_cache = ClusterRouting::new();
   _debug!(inner, "Rebuilding cluster state from host: {}", host);

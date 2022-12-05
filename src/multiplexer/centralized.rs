@@ -117,6 +117,12 @@ pub async fn process_response_frame(
       command
     }
   };
+  _trace!(
+    inner,
+    "Checking response to {} ({})",
+    command.kind.to_str_debug(),
+    command.debug_id()
+  );
   counters.decr_in_flight();
   responses::check_and_set_unblocked_flag(inner, &command).await;
 

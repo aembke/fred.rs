@@ -91,7 +91,7 @@ pub fn prepare_command(
   let should_flush = counters.should_send(inner)
     || command.kind.should_flush()
     || command.kind.is_all_cluster_nodes()
-    || command.multiplexer_tx.is_some();
+    || command.has_multiplexer_channel();
 
   Ok((frame, should_flush))
 }
@@ -128,9 +128,10 @@ pub async fn write_command(
 
   _trace!(
     inner,
-    "Sending command {} to {}",
+    "Sending command {} to {}, ID: {}",
     command.kind.to_str_debug(),
-    writer.server
+    writer.server,
+    command.debug_id()
   );
   // TODO i don't think we need to hold a lock across this await point...
   writer.push_command(command);
@@ -159,7 +160,7 @@ pub async fn write_command(
 /// Check the shared connection command buffer to see if the oldest command blocks the multiplexer task on a
 /// response (not pipelined).
 pub fn check_blocked_multiplexer(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
-  let mut command = {
+  let command = {
     let mut guard = buffer.lock();
     let should_pop = guard
       .front()
