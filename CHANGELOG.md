@@ -15,6 +15,7 @@
 * Rework the `native-tls` interface to support fully customizable TLS configurations.
 * Add `rustls` support.
   * Note: both TLS feature flags can be used at the same time.
+* Add an interface for mapping IP addresses back to hostnames for use cases that connect to clusters over TLS.
 * Add CI tests for Redis v7.
 * Add CI tests for clusters with TLS.
 * Add a mocking layer interface.

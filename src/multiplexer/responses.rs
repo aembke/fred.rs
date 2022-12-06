@@ -139,7 +139,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
     },
   };
   if let Some(ref span) = span {
-    span.record("channel", &*message.channel);
+    span.record("channel", &&*message.channel);
   }
 
   if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
