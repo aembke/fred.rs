@@ -11,58 +11,61 @@ use std::sync::Arc;
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
-use crate::{protocol::types::Server, types::ClientState};
+use crate::{
+  protocol::types::Server,
+  types::{ClientState, Message, RedisKey},
+};
 
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
 const KEYEVENT_PREFIX: &'static str = "__keyevent@";
 
-fn parse_keyspace_notification(channel: String, message: RedisValue) -> Result<KeyspaceEvent, (String, RedisValue)> {
+fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
   if channel.starts_with(KEYEVENT_PREFIX) {
     let parts: Vec<&str> = channel.split("@").collect();
     if parts.len() != 2 {
-      return Err((channel, message));
+      return None;
     }
 
     let suffix: Vec<&str> = parts[1].split(":").collect();
     if suffix.len() != 2 {
-      return Err((channel, message));
+      return None;
     }
 
     let db = match suffix[0].replace("__", "").parse::<u8>() {
       Ok(db) => db,
-      Err(_) => return Err((channel, message)),
+      Err(_) => return None,
     };
     let operation = suffix[1].to_owned();
-    let key = match message.as_string() {
-      Some(k) => k,
-      None => return Err((channel, message)),
+    let key: RedisKey = match message.clone().try_into() {
+      Ok(k) => k,
+      Err(_) => return None,
     };
 
-    Ok(KeyspaceEvent { db, key, operation })
+    Some(KeyspaceEvent { db, key, operation })
   } else if channel.starts_with(KEYSPACE_PREFIX) {
     let parts: Vec<&str> = channel.split("@").collect();
     if parts.len() != 2 {
-      return Err((channel, message));
+      return None;
     }
 
     let suffix: Vec<&str> = parts[1].split(":").collect();
     if suffix.len() != 2 {
-      return Err((channel, message));
+      return None;
     }
 
     let db = match suffix[0].replace("__", "").parse::<u8>() {
       Ok(db) => db,
-      Err(_) => return Err((channel, message)),
+      Err(_) => return None,
     };
-    let key = suffix[1].to_owned();
+    let key: RedisKey = suffix[1].to_owned().into();
     let operation = match message.as_string() {
       Some(k) => k,
-      None => return Err((channel, message)),
+      None => return None,
     };
 
-    Ok(KeyspaceEvent { db, key, operation })
+    Some(KeyspaceEvent { db, key, operation })
   } else {
-    Err((channel, message))
+    None
   }
 }
 
@@ -81,22 +84,17 @@ fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
 
   // RESP2 and RESP3 differ in that RESP3 contains an additional "pubsub" string frame at the start
   // so here we check the frame contents according to the RESP2 pubsub rules
-  (
-    false,
-    (data.len() == 3 || data.len() == 4)
-      && data[0]
-        .as_str()
-        .map(|s| s == "message" || s == "pmessage" || s == "smessage")
-        .unwrap_or(false),
-  )
+  let resp3 = (data.len() == 3 || data.len() == 4)
+    && data[0]
+      .as_str()
+      .map(|s| s == "message" || s == "pmessage" || s == "smessage")
+      .unwrap_or(false);
+
+  (false, resp3)
 }
 
 /// Try to parse the frame in either RESP2 or RESP3 pubsub formats.
-fn parse_pubsub_message(
-  frame: Resp3Frame,
-  is_resp3: bool,
-  is_resp2: bool,
-) -> Result<(String, RedisValue), RedisError> {
+fn parse_pubsub_message(frame: Resp3Frame, is_resp3: bool, is_resp2: bool) -> Result<Message, RedisError> {
   if is_resp3 {
     protocol_utils::frame_to_pubsub(frame)
   } else if is_resp2 {
@@ -133,7 +131,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
     parse_pubsub_message(frame, is_resp3_pubsub, is_resp2_pubsub)
   };
 
-  let (channel, message) = match parsed_frame {
+  let message = match parsed_frame {
     Ok(data) => data,
     Err(err) => {
       _warn!(inner, "Invalid message on pubsub interface: {:?}", err);
@@ -141,13 +139,14 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
     },
   };
   if let Some(ref span) = span {
-    span.record("channel", &channel.as_str());
+    span.record("channel", &*message.channel);
   }
 
-  match parse_keyspace_notification(channel, message) {
-    Ok(event) => inner.notifications.broadcast_keyspace(event),
-    Err((channel, message)) => inner.notifications.broadcast_pubsub(channel, message),
-  };
+  if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
+    inner.notifications.broadcast_keyspace(event);
+  } else {
+    inner.notifications.broadcast_pubsub(message);
+  }
 
   None
 }

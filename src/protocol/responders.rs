@@ -595,15 +595,6 @@ pub fn respond_buffer(
   // due to contention on the frame lock and another parallel task moves past the `received==expected` check before
   // this task can add the frame to the buffer.
   let received = client_utils::incr_atomic(&received);
-  _trace!(
-    inner,
-    "Checking recv vs expected in buffer response: {} == {} at index: {} from {}, ID: {}",
-    received,
-    expected,
-    index,
-    server,
-    command.debug_id()
-  );
   if received == expected {
     _trace!(
       inner,

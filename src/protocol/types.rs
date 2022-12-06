@@ -122,6 +122,39 @@ impl Ord for Server {
   }
 }
 
+/// The kind of pubsub message.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MessageKind {
+  /// A message from a `subscribe` command.
+  Message,
+  /// A message from a pattern `psubscribe` command.
+  PMessage,
+  /// A message from a sharded `ssubscribe` command.
+  SMessage,
+}
+
+impl MessageKind {
+  pub(crate) fn from_str(s: &str) -> Option<MessageKind> {
+    Some(match s {
+      "message" => MessageKind::Message,
+      "pmessage" => MessageKind::PMessage,
+      "smessage" => MessageKind::SMessage,
+      _ => return None,
+    })
+  }
+}
+
+/// A [publish-subscribe](https://redis.io/docs/manual/pubsub/) message.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Message {
+  /// The channel on which the message was sent.
+  pub channel: Str,
+  /// The message contents.
+  pub value:   RedisValue,
+  /// The type of message subscription.
+  pub kind:    MessageKind,
+}
+
 pub struct KeyScanInner {
   /// The hash slot for the command.
   pub hash_slot:  Option<u16>,

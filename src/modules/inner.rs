@@ -48,7 +48,7 @@ pub struct Notifications {
   /// A broadcast channel for the `on_error` interface.
   pub errors:         BroadcastSender<RedisError>,
   /// A broadcast channel for the `on_message` interface.
-  pub pubsub:         BroadcastSender<(String, RedisValue)>,
+  pub pubsub:         BroadcastSender<Message>,
   /// A broadcast channel for the `on_keyspace_event` interface.
   pub keyspace:       BroadcastSender<KeyspaceEvent>,
   /// A broadcast channel for the `on_reconnect` interface.
@@ -91,8 +91,8 @@ impl Notifications {
     }
   }
 
-  pub fn broadcast_pubsub(&self, channel: String, message: RedisValue) {
-    if let Err(_) = self.pubsub.send((channel, message)) {
+  pub fn broadcast_pubsub(&self, message: Message) {
+    if let Err(_) = self.pubsub.send(message) {
       debug!("{}: No `on_message` listeners.", self.id);
     }
   }

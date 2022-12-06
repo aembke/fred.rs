@@ -655,14 +655,43 @@ impl RedisTransport {
     }
   }
 
-  /// Authenticate, set the protocol version, set the client name, select the provided database, and cache the
-  /// connection ID and server version.
+  /// Check the `cluster_state` via `CLUSTER INFO`.
+  ///
+  /// Returns an error if the state is not `ok`.
+  pub async fn check_cluster_state(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    if !inner.config.server.is_clustered() {
+      return Ok(());
+    }
+
+    _trace!(inner, "Checking cluster info for {}", self.server);
+    let command = RedisCommand::new(RedisCommandKind::ClusterInfo, vec![]);
+    let response = self.request_response(command, inner.is_resp3()).await?;
+    let response: String = protocol_utils::frame_to_single_result(response)?.convert()?;
+
+    for line in response.lines() {
+      let parts: Vec<&str> = line.split(":").collect();
+      if parts.len() == 2 {
+        if parts[0] == "cluster_state" && parts[1] == "ok" {
+          return Ok(());
+        }
+      }
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::Protocol,
+      "Invalid or missing cluster state.",
+    ))
+  }
+
+  /// Authenticate, set the protocol version, set the client name, select the provided database, cache the
+  /// connection ID and server version, and check the cluster state (if applicable).
   pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     let _ = self.switch_protocols_and_authenticate(inner).await?;
     let _ = self.set_client_name(inner).await?;
     let _ = self.select_database(inner).await?;
     let _ = self.cache_connection_id(inner).await?;
     let _ = self.cache_server_version(inner).await?;
+    let _ = self.check_cluster_state(inner).await?;
 
     Ok(())
   }
