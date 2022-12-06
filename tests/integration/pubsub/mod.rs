@@ -32,12 +32,10 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
 
     let mut count = 0;
     while count < NUM_MESSAGES {
-      if let Ok((channel, message)) = message_stream.recv().await {
-        let message: String = message.convert().unwrap();
-
-        assert_eq!(CHANNEL1, channel);
+      if let Ok(message) = message_stream.recv().await {
+        assert_eq!(CHANNEL1, message.channel);
         if ASSERT_COUNT {
-          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message.value.as_str().unwrap());
         }
         count += 1;
       }
@@ -72,12 +70,10 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
 
     let mut count = 0;
     while count < NUM_MESSAGES {
-      if let Ok((channel, message)) = message_stream.recv().await {
-        let message: String = message.convert().unwrap();
-
-        assert!(subscriber_channels.contains(&channel.as_str()));
+      if let Ok(message) = message_stream.recv().await {
+        assert!(subscriber_channels.contains(&&*message.channel));
         if ASSERT_COUNT {
-          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message.value.as_str().unwrap());
         }
         count += 1;
       }

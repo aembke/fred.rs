@@ -7,6 +7,9 @@ use crate::{
 use bytes_utils::Str;
 use std::{collections::HashMap, convert::TryFrom, fmt};
 
+pub use crate::protocol::types::{Message, MessageKind};
+use crate::types::RedisKey;
+
 /// Arguments passed to the SHUTDOWN command.
 ///
 /// <https://redis.io/commands/shutdown>
@@ -32,7 +35,7 @@ impl ShutdownFlags {
 pub struct KeyspaceEvent {
   pub db:        u8,
   pub operation: String,
-  pub key:       String,
+  pub key:       RedisKey,
 }
 
 /// Aggregate options for the [zinterstore](https://redis.io/commands/zinterstore) (and related) commands.

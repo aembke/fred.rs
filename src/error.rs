@@ -17,6 +17,9 @@ use std::{
 use tokio::task::JoinError;
 use url::ParseError;
 
+#[cfg(feature = "dns")]
+use trust_dns_resolver::error::ResolveError;
+
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RedisErrorKind {
@@ -264,6 +267,14 @@ impl From<tokio_rustls::rustls::client::InvalidDnsNameError> for RedisError {
 impl From<tokio_rustls::webpki::Error> for RedisError {
   fn from(e: tokio_rustls::webpki::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+  }
+}
+
+#[cfg(feature = "dns")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+impl From<ResolveError> for RedisError {
+  fn from(e: ResolveError) -> Self {
+    RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
   }
 }
 

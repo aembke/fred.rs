@@ -9,6 +9,8 @@ The cluster configuration uses the default cluster configuration provided by Red
 
 Since the Redis server is running locally we can largely discount the effect of network latency, but this is still useful to understand how concurrent tasks interact with various connection pooling configurations. 
 
+This module is not intended to be used as a benchmarking tool. You can likely configure it to benchmark more complicated use cases, but the intent is to demonstrate how different configuration options interact with one another. Network latency, backpressure settings, server persistence settings, the overhead of various types of commands, etc, are all ignored for the purposes of these tests. 
+
 ## Examples
 
 To reproduce all the results locally:

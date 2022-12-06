@@ -111,13 +111,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | serde-json              |         | Enable an interface to automatically convert Redis types to JSON.                                                                                                                                                                                                                   |
 | no-client-setname       |         | Disable the automatic `CLIENT SETNAME` command used to associate server logs with client logs.                                                                                                                                                                                      |
 | mocks                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                                                                                                                                       |
-
-## Environment Variables
-
-|   Name                            | Default | Description                                                                              |
-|-----------------------------------|---------|------------------------------------------------------------------------------------------|
-| FRED_DISABLE_CERT_VERIFICATION    | `false` | Disable certificate verification when using TLS features.                                |
-| FRED_DISABLE_HOST_VERIFICATION    | `false` | Disable host verification when using TLS features.                                       |
+| dns                     |         | Enable an interface that allows callers to override the DNS lookup logic.                                                                                                                                                                                                           |
 
 ## ACL & Authentication
 

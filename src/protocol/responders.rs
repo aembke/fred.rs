@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender},
-    types::{KeyScanInner, ValueScanInner, ValueScanResult},
+    types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
   types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
@@ -14,17 +14,16 @@ use bytes_utils::Str;
 use parking_lot::Mutex;
 use std::{
   fmt,
-  iter::repeat,
+  fmt::Formatter,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
 };
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::types::Server;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
-use std::fmt::Formatter;
+use std::iter::repeat;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
@@ -128,7 +127,17 @@ impl ResponseKind {
     }
   }
 
-  pub fn new_buffer(expected: usize, tx: ResponseSender) -> Self {
+  pub fn new_buffer(tx: ResponseSender) -> Self {
+    ResponseKind::Buffer {
+      frames:   Arc::new(Mutex::new(vec![])),
+      tx:       Arc::new(Mutex::new(Some(tx))),
+      received: Arc::new(AtomicUsize::new(0)),
+      index:    0,
+      expected: 0,
+    }
+  }
+
+  pub fn new_buffer_with_size(expected: usize, tx: ResponseSender) -> Self {
     let frames = repeat(Resp3Frame::Null).take(expected).collect();
     ResponseKind::Buffer {
       frames: Arc::new(Mutex::new(frames)),
@@ -230,11 +239,37 @@ fn respond_locked(
   }
 }
 
-fn add_buffered_frame(buffer: &Arc<Mutex<Vec<Resp3Frame>>>, index: usize, frame: Resp3Frame) {
+fn add_buffered_frame(
+  server: &Server,
+  buffer: &Arc<Mutex<Vec<Resp3Frame>>>,
+  index: usize,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
   let mut guard = buffer.lock();
   let buffer_ref = guard.deref_mut();
 
+  if index >= buffer_ref.len() {
+    debug!(
+      "({}) Unexpected buffer response array index: {}, len: {}",
+      server,
+      index,
+      buffer_ref.len()
+    );
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Invalid buffer response index.",
+    ));
+  }
+
+  trace!(
+    "({}) Add buffered frame {:?} at index {} with length {}",
+    server,
+    frame.kind(),
+    index,
+    buffer_ref.len()
+  );
   buffer_ref[index] = frame;
+  Ok(())
 }
 
 /// Merge multiple potentially nested frames into one flat array of frames.
@@ -249,18 +284,23 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   });
 
   let mut out = Vec::with_capacity(inner_len);
+  // for frame in frames.iter_mut() {
   for frame in frames.drain(..) {
     // unwrap and return errors early
     if frame.is_error() {
+      // return frame.take();
       return frame;
     }
 
     match frame {
       Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
+        // for inner_frame in data.iter_mut() {
         for inner_frame in data.into_iter() {
+          // out.push(inner_frame.take());
           out.push(inner_frame);
         }
       },
+      //_ => out.push(frame.take()),
       _ => out.push(frame),
     };
   }
@@ -516,7 +556,7 @@ pub fn respond_multiple(
 pub fn respond_buffer(
   inner: &Arc<RedisClientInner>,
   server: &Server,
-  mut command: RedisCommand,
+  command: RedisCommand,
   received: Arc<AtomicUsize>,
   expected: usize,
   frames: Arc<Mutex<Vec<Resp3Frame>>>,
@@ -526,19 +566,42 @@ pub fn respond_buffer(
 ) -> Result<(), RedisError> {
   _trace!(
     inner,
-    "Handling `buffer` response from {} for {}. Is error: {}, Index: {}",
+    "Handling `buffer` response from {} for {}. Is error: {}, Index: {}, ID: {}",
     server,
     command.kind.to_str_debug(),
     frame.is_error(),
-    index
+    index,
+    command.debug_id()
   );
 
   // errors are buffered like normal frames and are not returned early
-  let received = client_utils::incr_atomic(&received);
-  add_buffered_frame(&frames, index, frame);
-
-  if received == expected {
+  if let Err(e) = add_buffered_frame(&server, &frames, index, frame) {
+    respond_locked(inner, &tx, Err(e));
     command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+    _error!(
+      inner,
+      "Exiting early after unexpected buffer response index from {} with command {}, ID {}",
+      server,
+      command.kind.to_str_debug(),
+      command.debug_id()
+    );
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Invalid buffer response index.",
+    ));
+  }
+
+  // this must come after adding the buffered frame. there's a potential race condition if this task is interrupted
+  // due to contention on the frame lock and another parallel task moves past the `received==expected` check before
+  // this task can add the frame to the buffer.
+  let received = client_utils::incr_atomic(&received);
+  if received == expected {
+    _trace!(
+      inner,
+      "Responding to caller after last buffered response from {}, ID: {}",
+      server,
+      command.debug_id()
+    );
 
     let frame = merge_multiple_frames(frames.lock().deref_mut());
     if frame.is_error() {
@@ -554,12 +617,14 @@ pub fn respond_buffer(
     } else {
       respond_locked(inner, &tx, Ok(frame));
     }
+    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
   } else {
     // more responses are expected
     _trace!(
       inner,
-      "Waiting on {} more responses to all nodes command",
-      expected - received
+      "Waiting on {} more responses to all nodes command, ID: {}",
+      expected - received,
+      command.debug_id()
     );
     // this response type is shared across connections so we do not return the command to be re-queued
   }
@@ -571,7 +636,7 @@ pub fn respond_buffer(
 pub fn respond_key_scan(
   inner: &Arc<RedisClientInner>,
   server: &Server,
-  mut command: RedisCommand,
+  command: RedisCommand,
   mut scanner: KeyScanInner,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
@@ -611,7 +676,7 @@ pub fn respond_key_scan(
 pub fn respond_value_scan(
   inner: &Arc<RedisClientInner>,
   server: &Server,
-  mut command: RedisCommand,
+  command: RedisCommand,
   mut scanner: ValueScanInner,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {

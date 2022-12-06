@@ -39,6 +39,8 @@ pub enum Written {
   Backpressure((RedisCommand, Backpressure)),
   /// Indicates that the command was sent to the associated server and whether the socket was flushed.
   Sent((Server, bool)),
+  /// Indicates that the command was sent to all servers.
+  SentAll,
   /// Disconnect from the provided server and retry the command later.
   Disconnect((Server, Option<RedisCommand>, RedisError)),
   /// Indicates that the result should be ignored since the command will not be retried.
@@ -133,7 +135,7 @@ impl Replicas {
   /// Check and flush all the sockets managed by the replica routing state.
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     for (_, writer) in self.writers.iter_mut() {
-      let _ = writer.check_and_flush().await?;
+      let _ = writer.flush().await?;
     }
 
     Ok(())
@@ -386,20 +388,20 @@ impl Connections {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer {
-          writer.check_and_flush().await
+          writer.flush().await
         } else {
           Ok(())
         }
       },
       Connections::Sentinel { ref mut writer, .. } => {
         if let Some(writer) = writer {
-          writer.check_and_flush().await
+          writer.flush().await
         } else {
           Ok(())
         }
       },
       Connections::Clustered { ref mut writers, .. } => {
-        try_join_all(writers.values_mut().map(|writer| writer.check_and_flush()))
+        try_join_all(writers.values_mut().map(|writer| writer.flush()))
           .await
           .map(|_| ())
       },
@@ -430,7 +432,7 @@ impl Connections {
   ) -> Result<Written, RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
       let _ = clustered::send_all_cluster_command(inner, writers, command).await?;
-      Ok(Written::Ignore)
+      Ok(Written::SentAll)
     } else {
       Err(RedisError::new(
         RedisErrorKind::Config,
@@ -534,7 +536,10 @@ impl Multiplexer {
       self.inner.counters.incr_redelivery_count();
     }
 
-    if command.kind.is_all_cluster_nodes() {
+    let send_all_cluster_nodes = command.kind.is_all_cluster_nodes()
+      || (command.kind.closes_connection() && self.inner.config.server.is_clustered());
+
+    if send_all_cluster_nodes {
       self.connections.write_all_cluster(&self.inner, command).await
     } else {
       match self.connections.write_command(&self.inner, command).await {
@@ -557,10 +562,11 @@ impl Multiplexer {
     server: &Server,
   ) -> Result<(), (RedisError, RedisCommand)> {
     debug!(
-      "{}: Direct write `{}` command to {}",
+      "{}: Direct write `{}` command to {}, ID: {}",
       self.inner.id,
       command.kind.to_str_debug(),
-      server
+      server,
+      command.debug_id()
     );
 
     let writer = match self.connections.get_connection_mut(server) {
@@ -589,6 +595,7 @@ impl Multiplexer {
     };
 
     let blocks_connection = command.blocks_connection();
+
     // always flush the socket in this case
     writer.push_command(command);
     if let Err(e) = writer.write_frame(frame, true).await {
@@ -671,6 +678,10 @@ impl Multiplexer {
           RedisErrorKind::Protocol,
           "Invalid or missing hash slot.",
         ))
+      },
+      Written::SentAll => {
+        let _ = self.check_and_flush().await?;
+        Ok(())
       },
       Written::Sent((server, flushed)) => {
         trace!("{}: Sent command to {} (flushed: {})", self.inner.id, server, flushed);

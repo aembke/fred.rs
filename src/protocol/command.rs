@@ -27,6 +27,20 @@ use crate::trace::CommandTraces;
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use std::time::Instant;
 
+#[cfg(feature = "debug-ids")]
+use lazy_static::lazy_static;
+use parking_lot::Mutex;
+#[cfg(feature = "debug-ids")]
+use std::sync::atomic::AtomicUsize;
+#[cfg(feature = "debug-ids")]
+lazy_static! {
+  static ref COMMAND_COUNTER: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+}
+#[cfg(feature = "debug-ids")]
+pub fn command_counter() -> usize {
+  utils::incr_atomic(&COMMAND_COUNTER)
+}
+
 /// A command interface for communication between connection reader tasks and the multiplexer.
 ///
 /// Use of this interface assumes that a command was **not** pipelined. The reader task may instead
@@ -1305,7 +1319,7 @@ pub struct RedisCommand {
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
   pub arguments:         Vec<RedisValue>,
   /// A oneshot sender used to communicate with the multiplexer.
-  pub multiplexer_tx:    Option<MultiplexerSender>,
+  pub multiplexer_tx:    Arc<Mutex<Option<MultiplexerSender>>>,
   /// The number of times the command was sent to the server.
   pub attempted:         u32,
   /// Whether or not the command can be pipelined.
@@ -1328,6 +1342,9 @@ pub struct RedisCommand {
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
   pub traces:            CommandTraces,
+  /// A counter to differentiate unique commands.
+  #[cfg(feature = "debug-ids")]
+  pub counter:           usize,
 }
 
 impl fmt::Debug for RedisCommand {
@@ -1360,7 +1377,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       arguments,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
-      multiplexer_tx: None,
+      multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1373,6 +1390,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
     }
   }
 }
@@ -1384,7 +1403,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       arguments,
       response: ResponseKind::Respond(Some(tx)),
       hasher: ClusterHash::default(),
-      multiplexer_tx: None,
+      multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1397,6 +1416,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
     }
   }
 }
@@ -1408,7 +1429,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       arguments,
       response,
       hasher: ClusterHash::default(),
-      multiplexer_tx: None,
+      multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1421,6 +1442,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
     }
   }
 }
@@ -1433,7 +1456,7 @@ impl RedisCommand {
       arguments: args,
       response: ResponseKind::Skip,
       hasher: ClusterHash::FirstKey,
-      multiplexer_tx: None,
+      multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1446,6 +1469,8 @@ impl RedisCommand {
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
     }
   }
 
@@ -1456,7 +1481,7 @@ impl RedisCommand {
       arguments: Vec::new(),
       response: ResponseKind::Skip,
       hasher: ClusterHash::Custom(hash_slot),
-      multiplexer_tx: None,
+      multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: false,
       skip_backpressure: true,
@@ -1469,6 +1494,8 @@ impl RedisCommand {
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
     }
   }
 
@@ -1478,6 +1505,7 @@ impl RedisCommand {
       || (inner.is_pipelined()
       && self.can_pipeline
       && self.kind.can_pipeline()
+      && !self.kind.is_all_cluster_nodes()
       // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
       && self.transaction_id.is_none());
 
@@ -1547,15 +1575,16 @@ impl RedisCommand {
   }
 
   /// Create a channel on which to block the multiplexer, returning the receiver.
-  pub fn create_multiplexer_channel(&mut self) -> OneshotReceiver<MultiplexerResponse> {
+  pub fn create_multiplexer_channel(&self) -> OneshotReceiver<MultiplexerResponse> {
     let (tx, rx) = oneshot_channel();
-    self.multiplexer_tx = Some(tx);
+    let mut guard = self.multiplexer_tx.lock();
+    *guard = Some(tx);
     rx
   }
 
   /// Send a message to unblock the multiplexer loop, if necessary.
-  pub fn respond_to_multiplexer(&mut self, inner: &Arc<RedisClientInner>, cmd: MultiplexerResponse) {
-    if let Some(tx) = self.multiplexer_tx.take() {
+  pub fn respond_to_multiplexer(&self, inner: &Arc<RedisClientInner>, cmd: MultiplexerResponse) {
+    if let Some(tx) = self.multiplexer_tx.lock().take() {
       if tx.send(cmd).is_err() {
         _warn!(inner, "Failed to unblock multiplexer loop.");
       }
@@ -1563,13 +1592,13 @@ impl RedisCommand {
   }
 
   /// Take the multiplexer sender from the command.
-  pub fn take_multiplexer_tx(&mut self) -> Option<MultiplexerSender> {
-    self.multiplexer_tx.take()
+  pub fn take_multiplexer_tx(&self) -> Option<MultiplexerSender> {
+    self.multiplexer_tx.lock().take()
   }
 
   /// Whether the command has a channel to the multiplexer.
   pub fn has_multiplexer_channel(&self) -> bool {
-    self.multiplexer_tx.is_some()
+    self.multiplexer_tx.lock().is_some()
   }
 
   /// Clone the command, supporting commands with shared response state.
@@ -1584,7 +1613,7 @@ impl RedisCommand {
       attempted: self.attempted,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
-      multiplexer_tx: None,
+      multiplexer_tx: self.multiplexer_tx.clone(),
       response,
       #[cfg(feature = "replicas")]
       use_replica: self.use_replica,
@@ -1594,6 +1623,8 @@ impl RedisCommand {
       network_start: self.network_start.clone(),
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: self.counter,
     }
   }
 
@@ -1686,6 +1717,16 @@ impl RedisCommand {
       subcommand: self.kind.subcommand_str(),
       args:       self.args().clone(),
     }
+  }
+
+  #[cfg(not(feature = "debug-ids"))]
+  pub fn debug_id(&self) -> usize {
+    0
+  }
+
+  #[cfg(feature = "debug-ids")]
+  pub fn debug_id(&self) -> usize {
+    self.counter
   }
 }
 

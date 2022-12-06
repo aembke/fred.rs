@@ -28,6 +28,9 @@ use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
 
+#[cfg(feature = "dns")]
+use crate::protocol::types::Resolve;
+
 /// Send a single `RedisCommand` to the multiplexer.
 pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
 where
@@ -136,6 +139,11 @@ pub trait ClientLike: Clone + Send + Sized {
     self.inner().update_performance_config(config);
   }
 
+  /// Read the [PerformanceConfig](crate::types::PerformanceConfig) associated with this client.
+  fn perf_config(&self) -> PerformanceConfig {
+    self.inner().performance_config()
+  }
+
   /// Read the state of the underlying connection(s).
   ///
   /// If running against a cluster the underlying state will reflect the state of the least healthy connection.
@@ -151,6 +159,13 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Read the server version, if known.
   fn server_version(&self) -> Option<Version> {
     self.inner().server_state.read().server_version()
+  }
+
+  /// Override the DNS resolution logic for the client.
+  #[cfg(feature = "dns")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
+    self.inner().set_resolver(resolver).await;
   }
 
   /// Connect to the Redis server.

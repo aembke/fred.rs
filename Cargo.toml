@@ -44,6 +44,7 @@ nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
 tokio-rustls = { version = "0.23", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
+trust-dns-resolver = { version =  "0.22", optional = true }
 
 [dev-dependencies]
 prometheus = "0.12"
@@ -79,6 +80,10 @@ required-features = ["subscriber-client"]
 name = "serde"
 required-features = ["serde-json"]
 
+[[example]]
+name = "dns"
+required-features = ["dns"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active"]
 fallback = []
@@ -86,6 +91,7 @@ serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []
 mocks = []
+dns = ["trust-dns-resolver", "trust-dns-resolver/tokio"]
 ignore-auth-error = []
 enable-rustls = ["tokio-rustls", "rustls-native-certs"]
 enable-native-tls = ["native-tls", "tokio-native-tls"]
@@ -103,5 +109,6 @@ sentinel-auth = []
 no-client-setname = []
 replicas = []
 # Testing Features
+debug-ids = []
 sentinel-tests = []
 chaos-monkey = ["custom-reconnect-errors"]

@@ -20,6 +20,15 @@ use std::{
 };
 use tokio::time::sleep;
 
+use async_trait::async_trait;
+#[cfg(feature = "dns")]
+use fred::types::Resolve;
+use futures::future::try_join;
+#[cfg(feature = "dns")]
+use std::net::{IpAddr, SocketAddr};
+#[cfg(feature = "dns")]
+use trust_dns_resolver::{config::*, TokioAsyncResolver};
+
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
     .iter()
@@ -305,5 +314,74 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 
   let result: i64 = pipeline.last().await?;
   assert_eq!(result, 2);
+  Ok(())
+}
+
+pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let other = client.clone();
+  let jh1 = tokio::spawn(async move {
+    for _ in 0 .. 1000 {
+      let _ = other.flushall_cluster().await?;
+    }
+
+    Ok::<_, RedisError>(())
+  });
+  let jh2 = tokio::spawn(async move {
+    for _ in 0 .. 1000 {
+      let _ = client.flushall_cluster().await?;
+    }
+
+    Ok::<_, RedisError>(())
+  });
+
+  let _ = try_join(jh1, jh2).await?;
+  Ok(())
+}
+
+#[cfg(feature = "dns")]
+pub struct TrustDnsResolver(TokioAsyncResolver);
+
+#[cfg(feature = "dns")]
+impl TrustDnsResolver {
+  fn new() -> Self {
+    TrustDnsResolver(TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default()).unwrap())
+  }
+}
+
+#[cfg(feature = "dns")]
+#[async_trait]
+impl Resolve for TrustDnsResolver {
+  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError> {
+    self.0.lookup_ip(&host).await.map_err(|e| e.into()).and_then(|ips| {
+      let ip = match ips.iter().next() {
+        Some(ip) => ip,
+        None => return Err(RedisError::new(RedisErrorKind::IO, "Failed to lookup IP address.")),
+      };
+
+      debug!("Mapped {}:{} to {}:{}", host, port, ip, port);
+      Ok(SocketAddr::new(ip, port))
+    })
+  }
+}
+
+#[cfg(feature = "dns")]
+pub async fn should_use_trust_dns(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  let perf = client.perf_config();
+  let policy = client.client_reconnect_policy();
+
+  if let ServerConfig::Centralized { ref mut host, .. } = config.server {
+    *host = "localhost".into();
+  }
+  if let ServerConfig::Clustered { ref mut hosts } = config.server {
+    hosts[0].0 = "localhost".into();
+  }
+
+  let client = RedisClient::new(config, Some(perf), policy);
+  client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
+
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+  let _ = client.ping().await?;
+  let _ = client.quit().await?;
   Ok(())
 }

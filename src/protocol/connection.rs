@@ -7,7 +7,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  types::{InfoKind, Resolve},
+  types::InfoKind,
   utils as client_utils,
   utils,
 };
@@ -307,7 +307,7 @@ impl RedisTransport {
     };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host, port).await?;
+    let addr = inner.get_resolver().await.resolve(host, port).await?;
     _debug!(
       inner,
       "Creating TCP connection to {} at {}:{}",
@@ -356,7 +356,7 @@ impl RedisTransport {
     };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host.clone(), port).await?;
+    let addr = inner.get_resolver().await.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `native-tls` connection to {} at {}:{}",
@@ -418,7 +418,7 @@ impl RedisTransport {
 
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.resolver.resolve(host.clone(), port).await?;
+    let addr = inner.get_resolver().await.resolve(host.clone(), port).await?;
     _debug!(
       inner,
       "Creating `rustls` connection to {} at {}:{}",
@@ -655,14 +655,43 @@ impl RedisTransport {
     }
   }
 
-  /// Authenticate, set the protocol version, set the client name, select the provided database, and cache the
-  /// connection ID and server version.
+  /// Check the `cluster_state` via `CLUSTER INFO`.
+  ///
+  /// Returns an error if the state is not `ok`.
+  pub async fn check_cluster_state(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    if !inner.config.server.is_clustered() {
+      return Ok(());
+    }
+
+    _trace!(inner, "Checking cluster info for {}", self.server);
+    let command = RedisCommand::new(RedisCommandKind::ClusterInfo, vec![]);
+    let response = self.request_response(command, inner.is_resp3()).await?;
+    let response: String = protocol_utils::frame_to_single_result(response)?.convert()?;
+
+    for line in response.lines() {
+      let parts: Vec<&str> = line.split(":").collect();
+      if parts.len() == 2 {
+        if parts[0] == "cluster_state" && parts[1] == "ok" {
+          return Ok(());
+        }
+      }
+    }
+
+    Err(RedisError::new(
+      RedisErrorKind::Protocol,
+      "Invalid or missing cluster state.",
+    ))
+  }
+
+  /// Authenticate, set the protocol version, set the client name, select the provided database, cache the
+  /// connection ID and server version, and check the cluster state (if applicable).
   pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     let _ = self.switch_protocols_and_authenticate(inner).await?;
     let _ = self.set_client_name(inner).await?;
     let _ = self.select_database(inner).await?;
     let _ = self.cache_connection_id(inner).await?;
     let _ = self.cache_server_version(inner).await?;
+    let _ = self.check_cluster_state(inner).await?;
 
     Ok(())
   }
@@ -770,9 +799,10 @@ impl RedisWriter {
     // this is strange, but necessary.
     //
     // calling `flush` on the writer half may seem like the best way to test connectivity, but it's a no-op if there's
-    // no bytes to be flushed. this means that you can only get a strong signal on whether a connection is alive if
-    // there's bytes sitting in the underlying buffer. a better way to check this is to look at the reader half to see
-    // if the task driving the stream is finished. if it is then the connection must have been dropped.
+    // no bytes to be flushed. additionally, calling `feed` on a dead writer half also seems to always succeed.
+    //
+    // a better way to check this is to look at the reader half to see if the task driving the stream is finished. if
+    // it is then the connection must have been dropped.
     //
     // TLDR: only the reader half responds to a connection dropping.
     self
@@ -783,16 +813,12 @@ impl RedisWriter {
       .unwrap_or(false)
   }
 
-  /// Conditionally flush the sink based on the feed count.
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
-    if utils::read_atomic(&self.counters.feed_count) > 0 {
-      let _ = self.flush().await?;
-    }
-    Ok(())
-  }
-
   /// Send a command to the server without waiting on the response.
   pub async fn write_frame(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
+    if !self.is_working() {
+      return Err(RedisError::new(RedisErrorKind::IO, "Connection closed."));
+    }
+
     if should_flush {
       let _ = self.sink.send(frame).await?;
       self.counters.reset_feed_count();

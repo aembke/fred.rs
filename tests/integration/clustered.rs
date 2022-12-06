@@ -49,6 +49,9 @@ mod other {
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_pipeline_all);
   cluster_test!(other, should_pipeline_last);
+  cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
+  #[cfg(feature = "dns")]
+  cluster_test!(other, should_use_trust_dns);
 }
 
 mod pool {

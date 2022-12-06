@@ -12,6 +12,9 @@ use std::{
   sync::{atomic::AtomicUsize, Arc},
 };
 
+#[cfg(feature = "dns")]
+use crate::types::Resolve;
+
 /// The inner state used by a `RedisPool`.
 #[derive(Clone)]
 pub(crate) struct RedisPoolInner {
@@ -95,6 +98,15 @@ impl RedisPool {
     let _ = try_join_all(futures).await?;
 
     Ok(())
+  }
+
+  /// Override the DNS resolution logic for all clients in the pool.
+  #[cfg(feature = "dns")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  pub async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
+    for client in self.inner.clients.iter() {
+      client.set_resolver(resolver.clone()).await;
+    }
   }
 
   /// Read the size of the pool.

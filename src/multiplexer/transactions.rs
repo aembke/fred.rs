@@ -156,7 +156,7 @@ pub async fn run(
     let mut idx = 0;
 
     'inner: while idx < commands.len() {
-      let mut command = commands[idx].duplicate(ResponseKind::Skip);
+      let command = commands[idx].duplicate(ResponseKind::Skip);
       let rx = command.create_multiplexer_channel();
 
       match write_command(inner, multiplexer, &server, command, abort_on_error, rx).await {

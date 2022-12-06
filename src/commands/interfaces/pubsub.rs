@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, KeyspaceEvent, MultipleStrings, RedisValue},
+  types::{FromRedis, KeyspaceEvent, Message, MultipleStrings, RedisValue},
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
@@ -11,19 +11,20 @@ use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 /// Functions that implement the [publish-subscribe](https://redis.io/commands#pubsub) interface.
 #[async_trait]
 pub trait PubsubInterface: ClientLike + Sized {
-  /// Listen for `(channel, message)` tuples on the publish-subscribe interface. **Keyspace events are not sent on
-  /// this interface.**
+  /// Listen for messages on the publish-subscribe interface.
+  ///
+  /// **Keyspace events are not sent on this interface.**
   ///
   /// If the connection to the Redis server closes for any reason this function does not need to be called again.
   /// Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
-  fn on_message(&self) -> BroadcastReceiver<(String, RedisValue)> {
+  fn on_message(&self) -> BroadcastReceiver<Message> {
     self.inner().notifications.pubsub.subscribe()
   }
 
-  /// Listen for keyspace and keyevent notifications on the publish subscribe interface.
+  /// Listen for keyspace and keyevent notifications on the publish-subscribe interface.
   ///
   /// Callers still need to configure the server and subscribe to the relevant channels, but this interface will
-  /// format the messages automatically.
+  /// parse and format the messages automatically.
   ///
   /// If the connection to the Redis server closes for any reason this function does not need to be called again.
   ///
@@ -138,6 +139,5 @@ pub trait PubsubInterface: ClientLike + Sized {
     commands::pubsub::spublish(self, channel, message).await?.convert()
   }
 
-  // TODO
-  // pubsub channels, pubsub numpat, pubsub numsum, pubsub shardchannels, pubsub shardnumsub
+  // TODO pubsub channels, pubsub numpat, pubsub numsub, pubsub shardchannels, pubsub shardnumsub
 }
