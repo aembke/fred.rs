@@ -1,7 +1,8 @@
-use crate::error::RedisError;
-use crate::protocol::tls::TlsConfig;
-use crate::types::RedisValue;
-use crate::utils as client_utils;
+use crate::{
+  error::RedisError,
+  types::{RedisConfig, RedisValue},
+  utils as client_utils,
+};
 use futures::Stream;
 use std::fmt;
 
@@ -14,15 +15,15 @@ mod utils;
 #[derive(Clone, Debug)]
 pub struct Command {
   /// The command run by the server.
-  pub command: String,
+  pub command:   String,
   /// Arguments passed to the command.
-  pub args: Vec<RedisValue>,
+  pub args:      Vec<RedisValue>,
   /// When the command was run on the server.
   pub timestamp: f64,
   /// The database against which the command was run.
-  pub db: u8,
+  pub db:        u8,
   /// The host and port of the client that ran the command, or `lua` when run from a script.
-  pub client: String,
+  pub client:    String,
 }
 
 impl PartialEq for Command {
@@ -53,41 +54,9 @@ impl fmt::Display for Command {
   }
 }
 
-/// Configuration options for the `MONITOR` command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Config {
-  pub host: String,
-  pub port: u16,
-  pub username: Option<String>,
-  pub password: Option<String>,
-  #[cfg(feature = "enable-tls")]
-  pub tls: Option<TlsConfig>,
-}
-
-impl Default for Config {
-  #[cfg(feature = "enable-tls")]
-  fn default() -> Self {
-    Config {
-      host: "127.0.0.1".into(),
-      port: 6379,
-      username: None,
-      password: None,
-      tls: None,
-    }
-  }
-
-  #[cfg(not(feature = "enable-tls"))]
-  fn default() -> Self {
-    Config {
-      host: "127.0.0.1".into(),
-      port: 6379,
-      username: None,
-      password: None,
-    }
-  }
-}
-
 /// Run the [MONITOR](https://redis.io/commands/monitor) command against the provided server.
-pub async fn run(config: Config) -> Result<impl Stream<Item = Command>, RedisError> {
+///
+/// Currently only centralized configurations are supported.
+pub async fn run(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
   utils::start(config).await
 }

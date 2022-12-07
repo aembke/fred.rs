@@ -1,230 +1,196 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, RedisMap, RedisValue, SentinelFailureKind};
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{ClientLike, RedisResult},
+  types::{FromRedis, RedisMap, RedisValue, SentinelFailureKind},
+};
 use bytes_utils::Str;
-use std::convert::TryInto;
-use std::net::IpAddr;
+use std::{convert::TryInto, net::IpAddr};
 
 /// Functions that implement the [Sentinel](https://redis.io/topics/sentinel#sentinel-commands) interface.
+#[async_trait]
 pub trait SentinelInterface: ClientLike + Sized {
-  /// Check if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the majority needed to authorize the failover.
-  fn ckquorum<R, N>(&self, name: N) -> AsyncResult<R>
+  /// Check if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the
+  /// majority needed to authorize the failover.
+  async fn ckquorum<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::ckquorum(&inner, name).await?.convert()
-    })
+    commands::sentinel::ckquorum(self, name).await?.convert()
   }
 
   /// Force Sentinel to rewrite its configuration on disk, including the current Sentinel state.
-  fn flushconfig<R>(&self) -> AsyncResult<R>
+  async fn flushconfig<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::flushconfig(&inner).await?.convert()
-    })
+    commands::sentinel::flushconfig(self).await?.convert()
   }
 
   /// Force a failover as if the master was not reachable, and without asking for agreement to other Sentinels.
-  fn failover<R, N>(&self, name: N) -> AsyncResult<R>
+  async fn failover<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::failover(&inner, name).await?.convert()
-    })
+    commands::sentinel::failover(self, name).await?.convert()
   }
 
   /// Return the ip and port number of the master with that name.
-  fn get_master_addr_by_name<R, N>(&self, name: N) -> AsyncResult<R>
+  async fn get_master_addr_by_name<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::get_master_addr_by_name(&inner, name)
-        .await?
-        .convert()
-    })
+    commands::sentinel::get_master_addr_by_name(self, name).await?.convert()
   }
 
   /// Return cached INFO output from masters and replicas.
-  fn info_cache<R>(&self) -> AsyncResult<R>
+  async fn info_cache<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::info_cache(&inner).await?.convert()
-    })
+    commands::sentinel::info_cache(self).await?.convert()
   }
 
   /// Show the state and info of the specified master.
-  fn master<R, N>(&self, name: N) -> AsyncResult<R>
+  async fn master<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::master(&inner, name).await?.convert()
-    })
+    commands::sentinel::master(self, name).await?.convert()
   }
 
   /// Show a list of monitored masters and their state.
-  fn masters<R>(&self) -> AsyncResult<R>
+  async fn masters<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::masters(&inner).await?.convert()
-    })
+    commands::sentinel::masters(self).await?.convert()
   }
 
   /// Start Sentinel's monitoring.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
-  fn monitor<R, N>(&self, name: N, ip: IpAddr, port: u16, quorum: u32) -> AsyncResult<R>
+  async fn monitor<R, N>(&self, name: N, ip: IpAddr, port: u16, quorum: u32) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::monitor(&inner, name, ip, port, quorum)
-        .await?
-        .convert()
-    })
+    commands::sentinel::monitor(self, name, ip, port, quorum)
+      .await?
+      .convert()
   }
 
   /// Return the ID of the Sentinel instance.
-  fn myid<R>(&self) -> AsyncResult<R>
+  async fn myid<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::myid(&inner).await?.convert()
-    })
+    commands::sentinel::myid(self).await?.convert()
   }
 
   /// This command returns information about pending scripts.
-  fn pending_scripts<R>(&self) -> AsyncResult<R>
+  async fn pending_scripts<R>(&self) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::pending_scripts(&inner).await?.convert()
-    })
+    commands::sentinel::pending_scripts(self).await?.convert()
   }
 
   /// Stop Sentinel's monitoring.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
-  fn remove<R, N>(&self, name: N) -> AsyncResult<R>
+  async fn remove<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::remove(&inner, name).await?.convert()
-    })
+    commands::sentinel::remove(self, name).await?.convert()
   }
 
   /// Show a list of replicas for this master, and their state.
-  fn replicas<R, N>(&self, name: N) -> AsyncResult<R>
+  async fn replicas<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::replicas(&inner, name).await?.convert()
-    })
+    commands::sentinel::replicas(self, name).await?.convert()
   }
 
   /// Show a list of sentinel instances for this master, and their state.
-  fn sentinels<R, N>(&self, name: N) -> AsyncResult<R>
+  async fn sentinels<R, N>(&self, name: N) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
+    R: FromRedis,
+    N: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::sentinels(&inner, name).await?.convert()
-    })
+    commands::sentinel::sentinels(self, name).await?.convert()
   }
 
   /// Set Sentinel's monitoring configuration.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
-  fn set<R, N, V>(&self, name: N, args: V) -> AsyncResult<R>
+  async fn set<R, N, V>(&self, name: N, args: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    N: Into<Str>,
-    V: TryInto<RedisMap>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    N: Into<Str> + Send,
+    V: TryInto<RedisMap> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(name);
     try_into!(args);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::set(&inner, name, args.into()).await?.convert()
-    })
+    commands::sentinel::set(self, name, args.into()).await?.convert()
   }
 
   /// This command simulates different Sentinel crash scenarios.
-  fn simulate_failure<R>(&self, kind: SentinelFailureKind) -> AsyncResult<R>
+  async fn simulate_failure<R>(&self, kind: SentinelFailureKind) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
+    R: FromRedis,
   {
-    async_spawn(self, |inner| async move {
-      commands::sentinel::simulate_failure(&inner, kind).await?.convert()
-    })
+    commands::sentinel::simulate_failure(self, kind).await?.convert()
   }
 
   /// This command will reset all the masters with matching name.
-  fn reset<R, P>(&self, pattern: P) -> AsyncResult<R>
+  async fn reset<R, P>(&self, pattern: P) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    P: Into<Str>,
+    R: FromRedis,
+    P: Into<Str> + Send,
   {
     into!(pattern);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::reset(&inner, pattern).await?.convert()
-    })
+    commands::sentinel::reset(self, pattern).await?.convert()
   }
 
-  /// Get the current value of a global Sentinel configuration parameter. The specified name may be a wildcard, similar to the Redis CONFIG GET command.
-  fn config_get<R, K>(&self, name: K) -> AsyncResult<R>
+  /// Get the current value of a global Sentinel configuration parameter. The specified name may be a wildcard,
+  /// similar to the Redis CONFIG GET command.
+  async fn config_get<R, K>(&self, name: K) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<Str>,
+    R: FromRedis,
+    K: Into<Str> + Send,
   {
     into!(name);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::config_get(&inner, name).await?.convert()
-    })
+    commands::sentinel::config_get(self, name).await?.convert()
   }
 
   /// Set the value of a global Sentinel configuration parameter.
-  fn config_set<R, K, V>(&self, name: K, value: V) -> AsyncResult<R>
+  async fn config_set<R, K, V>(&self, name: K, value: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    K: Into<Str>,
-    V: TryInto<RedisValue>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    K: Into<Str> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(name);
     try_into!(value);
-    async_spawn(self, |inner| async move {
-      commands::sentinel::config_set(&inner, name, value).await?.convert()
-    })
+    commands::sentinel::config_set(self, name, value).await?.convert()
   }
 }

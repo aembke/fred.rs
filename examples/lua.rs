@@ -1,5 +1,4 @@
-use fred::prelude::*;
-use fred::util as fred_utils;
+use fred::{prelude::*, util as fred_utils};
 
 static SCRIPTS: &'static [&'static str] = &[
   "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",
@@ -11,15 +10,16 @@ static SCRIPTS: &'static [&'static str] = &[
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
-  let client = RedisClient::new(config);
+  let client = RedisClient::new(config, None, None);
 
-  let _jh = client.connect(None);
+  let _jh = client.connect();
   let _ = client.wait_for_connect().await?;
 
   for script in SCRIPTS.iter() {
     let hash = fred_utils::sha1_hash(script);
+    let mut script_exists: Vec<bool> = client.script_exists(&hash).await?;
 
-    if !client.script_exists(&hash).await?.pop().unwrap_or(false) {
+    if !script_exists.pop().unwrap_or(false) {
       let _ = client.script_load(*script).await?;
     }
 

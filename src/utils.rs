@@ -1,33 +1,44 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::globals::globals;
-use crate::modules::inner::RedisClientInner;
-use crate::multiplexer::utils as multiplexer_utils;
-use crate::multiplexer::{sentinel, ConnectionIDs};
-use crate::protocol::types::{RedisCommand, RedisCommandKind};
-use crate::types::*;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces::ClientLike,
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    responders::ResponseKind,
+    utils as protocol_utils,
+  },
+  types::*,
+};
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
-use futures::future::{select, Either};
-use futures::{pin_mut, Future};
-use parking_lot::RwLock;
-use rand::distributions::Alphanumeric;
-use rand::{self, Rng};
+use futures::{
+  future::{select, Either},
+  pin_mut,
+  Future,
+};
+use parking_lot::{Mutex, RwLock};
+use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::ops::DerefMut;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use std::{f64, mem};
-use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
-use tokio::sync::RwLock as AsyncRwLock;
-use tokio::time::sleep;
+use std::{
+  collections::HashMap,
+  convert::TryInto,
+  f64,
+  mem,
+  sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+  },
+  time::Duration,
+};
+use tokio::{
+  sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
+  time::sleep,
+};
 use url::Url;
 
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use crate::protocol::utils as protocol_utils;
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -56,14 +67,6 @@ pub fn static_str(s: &'static str) -> Str {
 /// Create a `Bytes` from static bytes without copying.
 pub fn static_bytes(b: &'static [u8]) -> Bytes {
   Bytes::from_static(b)
-}
-
-pub fn is_clustered(config: &RwLock<RedisConfig>) -> bool {
-  config.read().server.is_clustered()
-}
-
-pub fn is_sentinel(config: &RwLock<RedisConfig>) -> bool {
-  config.read().server.is_sentinel()
 }
 
 pub fn f64_eq(lhs: f64, rhs: f64) -> bool {
@@ -147,56 +150,13 @@ pub fn random_string(len: usize) -> String {
     .collect()
 }
 
-pub fn check_clustered(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  if is_clustered(&inner.config) {
-    Ok(())
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidCommand,
-      "Expected clustered Redis.",
-    ))
-  }
-}
-
-pub fn pattern_pubsub_counts(result: Vec<RedisValue>) -> Result<Vec<usize>, RedisError> {
-  let mut out = Vec::with_capacity(result.len() / 3);
-
-  if result.len() > 0 {
-    let mut idx = 2;
-    while idx < result.len() {
-      out.push(match result[idx] {
-        RedisValue::Integer(ref i) => {
-          if *i < 0 {
-            return Err(RedisError::new(
-              RedisErrorKind::Unknown,
-              "Invalid pattern pubsub channel count response.",
-            ));
-          } else {
-            *i as usize
-          }
-        },
-        _ => {
-          return Err(RedisError::new(
-            RedisErrorKind::Unknown,
-            "Invalid pattern pubsub response.",
-          ))
-        },
-      });
-
-      idx += 3;
-    }
-  }
-
-  Ok(out)
+pub fn random_u64(max: u64) -> u64 {
+  rand::thread_rng().gen_range(0 .. max)
 }
 
 pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
   let mut state_guard = state.write();
   *state_guard = new_state;
-}
-
-pub fn read_client_state(state: &RwLock<ClientState>) -> ClientState {
-  state.read().clone()
 }
 
 pub fn check_and_set_client_state(
@@ -214,20 +174,12 @@ pub fn check_and_set_client_state(
   }
 }
 
-/// Check and set the inner locked value by updating `locked` with `new_value`, returning the old value.
-pub fn check_and_set_bool(locked: &RwLock<bool>, new_value: bool) -> bool {
-  let mut guard = locked.write();
-  let old_value = *guard;
-  *guard = new_value;
-  old_value
+pub fn read_bool_atomic(val: &Arc<AtomicBool>) -> bool {
+  val.load(Ordering::Acquire)
 }
 
-pub fn read_centralized_server(inner: &Arc<RedisClientInner>) -> Option<Arc<String>> {
-  match inner.config.read().server {
-    ServerConfig::Centralized { ref host, ref port } => Some(Arc::new(format!("{}:{}", host, port))),
-    ServerConfig::Sentinel { .. } => inner.sentinel_primary.read().clone(),
-    _ => None,
-  }
+pub fn set_bool_atomic(val: &Arc<AtomicBool>, new: bool) -> bool {
+  val.swap(new, Ordering::SeqCst)
 }
 
 pub fn decr_atomic(size: &Arc<AtomicUsize>) -> usize {
@@ -246,84 +198,20 @@ pub fn set_atomic(size: &Arc<AtomicUsize>, val: usize) -> usize {
   size.swap(val, Ordering::SeqCst)
 }
 
-pub fn set_locked<T>(locked: &RwLock<T>, value: T) -> T {
-  mem::replace(&mut *locked.write(), value)
-}
-
-pub async fn set_locked_async<T>(locked: &AsyncRwLock<T>, value: T) -> T {
-  mem::replace(&mut *locked.write().await, value)
-}
-
-pub fn take_locked<T>(locked: &RwLock<Option<T>>) -> Option<T> {
-  locked.write().take()
-}
-
 pub fn read_locked<T: Clone>(locked: &RwLock<T>) -> T {
   locked.read().clone()
 }
 
-pub fn is_locked_some<T>(locked: &RwLock<Option<T>>) -> bool {
-  locked.read().is_some()
+pub fn read_mutex<T: Clone>(locked: &Mutex<T>) -> T {
+  locked.lock().clone()
 }
 
-pub fn check_and_set_none<T>(locked: &RwLock<Option<T>>, value: T) -> bool {
-  let mut guard = locked.write();
-
-  if guard.is_some() {
-    false
-  } else {
-    *guard = Some(value);
-    true
-  }
+pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
+  mem::replace(&mut *locked.lock(), value)
 }
 
-pub fn disallow_during_transaction(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  if is_locked_some(&inner.multi_block) {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidCommand,
-      "Cannot use command within transaction.",
-    ))
-  } else {
-    Ok(())
-  }
-}
-
-pub fn interrupt_reconnect_sleep(inner: &Arc<RedisClientInner>) {
-  if let Some(jh) = inner.reconnect_sleep_jh.write().take() {
-    jh.abort();
-  }
-}
-
-/// Check whether the client has already sent the MULTI portion of a transaction, and if not return the hash slot describing the server to which it should be sent.
-///
-/// Sending the MULTI portion of a transaction is deferred on clustered clients because we dont know the server to which to send the command until the caller
-/// sends the first command with a key. When we finally have a hash slot we send the MULTI portion first, and then we send the actual user command to start
-/// the transaction.
-pub fn should_send_multi_command(inner: &Arc<RedisClientInner>) -> Option<u16> {
-  if is_clustered(&inner.config) {
-    inner.multi_block.read().as_ref().and_then(|policy| {
-      if !policy.sent_multi {
-        policy.hash_slot.clone()
-      } else {
-        None
-      }
-    })
-  } else {
-    None
-  }
-}
-
-/// Read the MULTI block hash slot, if known.
-pub fn read_multi_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> {
-  if is_clustered(&inner.config) {
-    inner
-      .multi_block
-      .read()
-      .as_ref()
-      .and_then(|policy| policy.hash_slot.clone())
-  } else {
-    None
-  }
+pub fn take_mutex<T>(locked: &Mutex<Option<T>>) -> Option<T> {
+  locked.lock().take()
 }
 
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
@@ -365,47 +253,56 @@ pub fn value_to_geo_pos(value: &RedisValue) -> Result<Option<GeoPosition>, Redis
   }
 }
 
-pub fn update_multi_sent_flag(inner: &Arc<RedisClientInner>, value: bool) {
-  if let Some(ref mut policy) = inner.multi_block.write().deref_mut() {
-    policy.sent_multi = value;
+fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
+  if let RedisValue::Array(functions) = value {
+    let mut out = Vec::with_capacity(functions.len());
+    for function_block in functions.iter() {
+      let functions: HashMap<Str, RedisValue> = function_block.clone().convert()?;
+      let name = match functions.get("name").and_then(|n| n.as_bytes_str()) {
+        Some(name) => name,
+        None => return Err(RedisError::new_parse("Missing function name.")),
+      };
+      let flags: Vec<FunctionFlag> = functions
+        .get("flags")
+        .and_then(|f| {
+          f.clone()
+            .into_array()
+            .into_iter()
+            .map(|v| FunctionFlag::from_str(v.as_str().unwrap_or_default().as_ref()))
+            .collect()
+        })
+        .unwrap_or_default();
+
+      out.push(Function { name, flags })
+    }
+
+    Ok(out)
+  } else {
+    Err(RedisError::new_parse("Invalid functions block."))
   }
 }
 
-pub fn read_transaction_hash_slot(inner: &Arc<RedisClientInner>) -> Option<u16> {
-  inner.multi_block.read().as_ref().and_then(|p| p.hash_slot.clone())
-}
+pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function>, RedisError> {
+  if let RedisValue::Array(ref libraries) = value {
+    for library in libraries.iter() {
+      let properties: HashMap<Str, RedisValue> = library.clone().convert()?;
+      let should_parse = properties
+        .get("library_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s == name)
+        .unwrap_or(false);
 
-pub fn shutdown_listeners(inner: &Arc<RedisClientInner>) {
-  multiplexer_utils::close_connect_tx(&inner.connect_tx);
-  multiplexer_utils::close_error_tx(&inner.error_tx);
-  multiplexer_utils::close_messages_tx(&inner.message_tx);
-  multiplexer_utils::close_keyspace_events_tx(&inner.keyspace_tx);
-  multiplexer_utils::close_reconnect_tx(&inner.reconnect_tx);
-  set_locked(&inner.connection_closed_tx, None);
-}
-
-pub async fn wait_for_connect(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  if read_client_state(&inner.state) == ClientState::Connected {
-    return Ok(());
-  }
-
-  let (tx, rx) = oneshot_channel();
-  inner.connect_tx.write().push_back(tx);
-  rx.await?
-}
-
-pub fn send_command(inner: &Arc<RedisClientInner>, command: RedisCommand) -> Result<(), RedisError> {
-  incr_atomic(&inner.cmd_buffer_len);
-  if let Err(mut e) = inner.command_tx.send(command) {
-    decr_atomic(&inner.cmd_buffer_len);
-    if let Some(tx) = e.0.tx.take() {
-      if let Err(_) = tx.send(Err(RedisError::new(RedisErrorKind::Unknown, "Failed to send command."))) {
-        _error!(inner, "Failed to send command to multiplexer {:?}.", e.0.kind);
+      if should_parse {
+        if let Some(functions) = properties.get("functions") {
+          return parse_functions(functions);
+        }
       }
     }
-  }
 
-  Ok(())
+    Err(RedisError::new_parse(format!("Missing library '{}'", name)))
+  } else {
+    Err(RedisError::new_parse("Expected array."))
+  }
 }
 
 pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
@@ -427,7 +324,7 @@ where
   }
 }
 
-async fn wait_for_response(
+pub async fn wait_for_response(
   rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
   timeout: u64,
 ) -> Result<Resp3Frame, RedisError> {
@@ -435,45 +332,53 @@ async fn wait_for_response(
 }
 
 fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
-  inner.config.read().blocking == Blocking::Error
+  inner.config.blocking == Blocking::Error
 }
 
 fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
-  inner.config.read().blocking == Blocking::Interrupt
+  inner.config.blocking == Blocking::Interrupt
 }
 
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
+  // TODO switch the blocked flag to an AtomicBool to avoid this locked check on each command
   !command.kind.closes_connection() && inner.backchannel.read().await.is_blocked()
 }
 
+/// Interrupt the currently blocked connection (if found) with the provided flag.
 pub async fn interrupt_blocked_connection(
   inner: &Arc<RedisClientInner>,
   flag: ClientUnblockFlag,
 ) -> Result<(), RedisError> {
-  let blocked_server = match inner.backchannel.read().await.blocked.clone() {
-    Some(server) => server,
-    None => return Err(RedisError::new(RedisErrorKind::Unknown, "No blocked connection found.")),
-  };
-  let connection_id = match inner.backchannel.read().await.connection_id(&blocked_server) {
-    Some(id) => id,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Failed to find blocked connection ID.",
-      ))
-    },
+  let connection_id = {
+    let backchannel = inner.backchannel.read().await;
+    let server = match backchannel.blocked_server() {
+      Some(server) => server,
+      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),
+    };
+    let id = match backchannel.connection_id(&server) {
+      Some(id) => id,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::Unknown,
+          "Failed to read connection ID.",
+        ))
+      },
+    };
+
+    id
   };
 
-  backchannel_request_response(inner, true, move || {
-    Ok((
-      RedisCommandKind::ClientUnblock,
-      vec![connection_id.into(), flag.to_str().into()],
-    ))
-  })
-  .await
-  .map(|_| ())
+  let mut args = Vec::with_capacity(2);
+  args.push(connection_id.into());
+  args.push(flag.to_str().into());
+  let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
+
+  let frame = backchannel_request_response(inner, command, true).await?;
+  protocol_utils::frame_to_single_result(frame).map(|_| ())
 }
 
+/// Check the status of the connection (usually before sending a command) to determine whether the connection should
+/// be unblocked automatically.
 async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
   if should_enforce_blocking_policy(inner, &command).await {
     _debug!(
@@ -497,28 +402,36 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
   Ok(())
 }
 
-pub async fn basic_request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
+/// Send a command to the server using the default response handler.
+pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
+  C: ClientLike,
+  R: Into<RedisCommand>,
+  F: FnOnce() -> Result<R, RedisError>,
 {
-  let (kind, args) = func()?;
+  let inner = client.inner();
+  let mut command: RedisCommand = func()?.into();
   let (tx, rx) = oneshot_channel();
-  let command = RedisCommand::new(kind, args, Some(tx));
+  command.response = ResponseKind::Respond(Some(tx));
 
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = disallow_nested_values(&command)?;
-  let _ = send_command(&inner, command)?;
+  let _ = client.send_command(command)?;
 
-  wait_for_response(rx, inner.perf_config.default_command_timeout() as u64).await
+  wait_for_response(rx, inner.default_command_timeout()).await
 }
 
+/// Send a command to the server, with tracing.
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
+  C: ClientLike,
+  R: Into<RedisCommand>,
+  F: FnOnce() -> Result<R, RedisError>,
 {
+  let inner = client.inner();
   if !inner.should_trace() {
-    return basic_request_response(inner, func).await;
+    return basic_request_response(client, func).await;
   }
 
   let cmd_span = trace::create_command_span(inner);
@@ -527,14 +440,13 @@ where
   let (mut command, rx, req_size) = {
     let args_span = trace::create_args_span(cmd_span.id());
     let _enter = args_span.enter();
-
-    let (kind, args) = func()?;
-    let req_size = protocol_utils::args_size(&args);
-    args_span.record("num_args", &args.len());
-
     let (tx, rx) = oneshot_channel();
-    let command = RedisCommand::new(kind, args, Some(tx));
 
+    let mut command: RedisCommand = func()?.into();
+    command.response = ResponseKind::Respond(Some(tx));
+
+    let req_size = protocol_utils::args_size(&command.args());
+    args_span.record("num_args", &command.args().len());
     let _ = disallow_nested_values(&command)?;
     (command, rx, req_size)
   };
@@ -546,8 +458,9 @@ where
   command.traces.queued = Some(queued_span);
 
   let _ = check_blocking_policy(inner, &command).await?;
-  let _ = send_command(&inner, command)?;
-  wait_for_response(rx, inner.perf_config.default_command_timeout() as u64)
+  let _ = client.send_command(command)?;
+
+  wait_for_response(rx, inner.default_command_timeout())
     .and_then(|frame| async move {
       trace::record_response_size(&end_cmd_span, &frame);
       Ok::<_, RedisError>(frame)
@@ -557,210 +470,26 @@ where
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub async fn request_response<F>(inner: &Arc<RedisClientInner>, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
+  C: ClientLike,
+  R: Into<RedisCommand>,
+  F: FnOnce() -> Result<R, RedisError>,
 {
-  basic_request_response(inner, func).await
+  basic_request_response(client, func).await
 }
 
-/// Find the server that should receive a command on the backchannel connection.
+/// Send a command on the backchannel connection.
 ///
-/// If the client is clustered then look for a key in the command to hash, otherwise pick a random node.
-/// If the client is not clustered then use the same server that the client is connected to.
-fn find_backchannel_server(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<Arc<String>, RedisError> {
-  match inner.config.read().server {
-    ServerConfig::Sentinel { .. } => {
-      inner
-        .sentinel_primary
-        .read()
-        .as_ref()
-        .map(|s| s.clone())
-        .ok_or(RedisError::new(
-          RedisErrorKind::Sentinel,
-          "Failed to read sentinel primary server",
-        ))
-    },
-    ServerConfig::Centralized { ref host, ref port } => Ok(Arc::new(format!("{}:{}", host, port))),
-    ServerConfig::Clustered { .. } => {
-      if let Some(key) = command.extract_key() {
-        // hash the key and send the command to that node
-        let hash_slot = redis_protocol::redis_keyslot(&key);
-        let server = match &*inner.cluster_state.read() {
-          Some(ref state) => match state.get_server(hash_slot) {
-            Some(slot) => slot.server.clone(),
-            None => {
-              return Err(RedisError::new(
-                RedisErrorKind::Cluster,
-                "Failed to find cluster node at hash slot.",
-              ))
-            },
-          },
-          None => {
-            return Err(RedisError::new(
-              RedisErrorKind::Cluster,
-              "Failed to find cluster state.",
-            ))
-          },
-        };
-
-        Ok(server)
-      } else {
-        // read a random node from the cluster
-        let server = match &*inner.cluster_state.read() {
-          Some(ref state) => match state.random_slot() {
-            Some(slot) => slot.server.clone(),
-            None => {
-              return Err(RedisError::new(
-                RedisErrorKind::Cluster,
-                "Failed to find read random cluster node.",
-              ))
-            },
-          },
-          None => {
-            return Err(RedisError::new(
-              RedisErrorKind::Cluster,
-              "Failed to find cluster state.",
-            ))
-          },
-        };
-
-        Ok(server)
-      }
-    },
-  }
-}
-
-pub async fn backchannel_request_response<F>(
+/// A new connection may be created.
+pub async fn backchannel_request_response(
   inner: &Arc<RedisClientInner>,
+  command: RedisCommand,
   use_blocked: bool,
-  func: F,
-) -> Result<Resp3Frame, RedisError>
-where
-  F: FnOnce() -> Result<(RedisCommandKind, Vec<RedisValue>), RedisError>,
-{
-  let (kind, args) = func()?;
-  let command = RedisCommand::new(kind, args, None);
-  let _ = disallow_nested_values(&command)?;
-
-  let blocked_server = inner.backchannel.read().await.blocked.clone();
-
-  if let Some(ref blocked_server) = blocked_server {
-    // if we're clustered and only one server is blocked then send the command to the blocked server
-    _debug!(
-      inner,
-      "Backchannel: Using blocked server {} for {}",
-      blocked_server,
-      command.kind.to_str_debug()
-    );
-
-    inner
-      .backchannel
-      .write()
-      .await
-      .request_response(inner, blocked_server, command, use_blocked)
-      .await
-  } else {
-    // otherwise no connections are blocked
-    let server = find_backchannel_server(inner, &command)?;
-    _debug!(
-      inner,
-      "Backchannel: Sending to backchannel server {}: {}",
-      server,
-      command.kind.to_str_debug()
-    );
-
-    inner
-      .backchannel
-      .write()
-      .await
-      .request_response(inner, &server, command, use_blocked)
-      .await
-  }
-}
-
-pub async fn read_connection_ids(inner: &Arc<RedisClientInner>) -> Option<HashMap<Arc<String>, i64>> {
-  inner
-    .backchannel
-    .read()
-    .await
-    .connection_ids
-    .as_ref()
-    .and_then(|connection_ids| match connection_ids {
-      ConnectionIDs::Clustered(ref connection_ids) => {
-        Some(connection_ids.read().iter().map(|(k, v)| (k.clone(), *v)).collect())
-      },
-      ConnectionIDs::Centralized(connection_id) => {
-        if let Some(id) = connection_id.read().as_ref() {
-          let mut out = HashMap::with_capacity(1);
-          let server = match read_centralized_server(inner) {
-            Some(server) => server,
-            None => return None,
-          };
-
-          out.insert(server, *id);
-          Some(out)
-        } else {
-          None
-        }
-      },
-    })
-}
-
-pub fn read_sentinel_host(inner: &Arc<RedisClientInner>) -> Result<(Vec<(String, u16)>, String), RedisError> {
-  match inner.config.read().server {
-    #[cfg(not(feature = "sentinel-auth"))]
-    ServerConfig::Sentinel {
-      ref hosts,
-      ref service_name,
-    } => Ok((hosts.clone(), service_name.to_owned())),
-    #[cfg(feature = "sentinel-auth")]
-    ServerConfig::Sentinel {
-      ref hosts,
-      ref service_name,
-      ..
-    } => Ok((hosts.clone(), service_name.to_owned())),
-    _ => Err(RedisError::new(RedisErrorKind::Config, "Expected sentinel config.")),
-  }
-}
-
-pub async fn update_sentinel_nodes(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-  let (hosts, service_name) = read_sentinel_host(inner)?;
-  let timeout = globals().sentinel_connection_timeout_ms() as u64;
-
-  for (host, port) in hosts.into_iter() {
-    _debug!(inner, "Updating sentinel nodes from {}:{}...", host, port);
-
-    let transport = match sentinel::connect_to_sentinel(inner, &host, port, timeout).await {
-      Ok(transport) => transport,
-      Err(e) => {
-        _warn!(
-          inner,
-          "Failed to connect to sentinel {}:{} with error: {:?}",
-          host,
-          port,
-          e
-        );
-        continue;
-      },
-    };
-    if let Err(e) = sentinel::update_sentinel_nodes(inner, transport, &service_name).await {
-      _warn!(
-        inner,
-        "Failed to read sentinel nodes from {}:{} with error: {:?}",
-        host,
-        port,
-        e
-      );
-    } else {
-      return Ok(());
-    }
-  }
-
-  Err(RedisError::new(
-    RedisErrorKind::Sentinel,
-    "Failed to read sentinel nodes from any known sentinel.",
-  ))
+) -> Result<Resp3Frame, RedisError> {
+  let mut backchannel = inner.backchannel.write().await;
+  let server = backchannel.find_server(inner, &command, use_blocked)?;
+  backchannel.request_response(inner, &server, command).await
 }
 
 pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
@@ -775,7 +504,7 @@ pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
 }
 
 pub fn disallow_nested_values(cmd: &RedisCommand) -> Result<(), RedisError> {
-  for arg in cmd.args.iter() {
+  for arg in cmd.args().iter() {
     if arg.is_map() || arg.is_array() {
       return Err(RedisError::new(
         RedisErrorKind::InvalidArgument,
@@ -812,7 +541,7 @@ pub fn clustered_scan_pattern_has_hash_tag(inner: &Arc<RedisClientInner>, patter
   if has_wildcard {
     _warn!(
       inner,
-      "Found wildcard in scan pattern hash tag. You're probably not scanning the correct node."
+      "Found wildcard in scan pattern hash tag. You may not be scanning the correct node."
     );
   }
 
@@ -842,7 +571,7 @@ where
 }
 
 pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
-  delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
+  delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
 }
 
 pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
@@ -924,20 +653,39 @@ pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
   }
 }
 
-#[cfg(feature = "enable-tls")]
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 pub fn check_tls_features() {}
 
-#[cfg(not(feature = "enable-tls"))]
+#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
 pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }
 
-#[cfg(feature = "enable-tls")]
-pub fn tls_config_from_url(tls: bool) -> Option<TlsConfig> {
+#[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   if tls {
-    Some(TlsConfig::default())
+    TlsConnector::default_native_tls().map(|c| Some(c.into()))
   } else {
-    None
+    Ok(None)
+  }
+}
+
+#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
+  if tls {
+    TlsConnector::default_rustls().map(|c| Some(c.into()))
+  } else {
+    Ok(None)
+  }
+}
+
+#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
+  // default to native-tls when both are enabled
+  if tls {
+    TlsConnector::default_native_tls().map(|c| Some(c.into()))
+  } else {
+    Ok(None)
   }
 }
 
@@ -986,7 +734,7 @@ pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {
   } else if parts.is_empty() {
     return Ok(None);
   }
-  // gracefully handle empty paths with a / prefix
+  // handle empty paths with a / prefix
   if parts[0].trim() == "" {
     return Ok(None);
   }
@@ -1065,10 +813,8 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::error::RedisError;
-  use crate::types::RedisValue;
-  use std::convert::TryInto;
-  use std::fmt::Debug;
+  use crate::{error::RedisError, types::RedisValue};
+  use std::{convert::TryInto, fmt::Debug};
 
   fn m<V>(v: V) -> RedisValue
   where

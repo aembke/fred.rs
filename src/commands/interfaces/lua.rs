@@ -1,94 +1,86 @@
-use crate::commands;
-use crate::error::RedisError;
-use crate::interfaces::{async_spawn, AsyncResult, ClientLike};
-use crate::types::{FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag};
-use crate::utils;
+use crate::{
+  commands,
+  error::RedisError,
+  interfaces::{ClientLike, RedisResult},
+  types::{FnPolicy, FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag},
+};
+use bytes::Bytes;
 use bytes_utils::Str;
 use std::convert::TryInto;
 
 /// Functions that implement the [lua](https://redis.io/commands#lua) interface.
+#[async_trait]
 pub trait LuaInterface: ClientLike + Sized {
-  /// Load a script into the scripts cache, without executing it. After the specified command is loaded into the script cache it will be callable using EVALSHA with the correct SHA1 digest of the script.
+  /// Load a script into the scripts cache, without executing it. After the specified command is loaded into the
+  /// script cache it will be callable using EVALSHA with the correct SHA1 digest of the script.
+  ///
+  /// Returns the SHA-1 hash of the script.
   ///
   /// <https://redis.io/commands/script-load>
-  fn script_load<S>(&self, script: S) -> AsyncResult<String>
+  async fn script_load<R, S>(&self, script: S) -> RedisResult<R>
   where
-    S: Into<Str>,
+    R: FromRedis,
+    S: Into<Str> + Send,
   {
     into!(script);
-    async_spawn(self, |inner| async move {
-      commands::lua::script_load(&inner, script).await?.convert()
-    })
+    commands::lua::script_load(self, script).await?.convert()
   }
 
   /// A clustered variant of [script_load](Self::script_load) that loads the script on all primary nodes in a cluster.
-  fn script_load_cluster<S>(&self, script: S) -> AsyncResult<String>
+  ///
+  /// Returns the SHA-1 hash of the script.
+  async fn script_load_cluster<R, S>(&self, script: S) -> RedisResult<R>
   where
-    S: Into<Str>,
+    R: FromRedis,
+    S: Into<Str> + Send,
   {
     into!(script);
-    async_spawn(self, |inner| async move {
-      commands::lua::script_load_cluster(&inner, script).await?.convert()
-    })
+    commands::lua::script_load_cluster(self, script).await?.convert()
   }
 
   /// Kills the currently executing Lua script, assuming no write operation was yet performed by the script.
   ///
   /// <https://redis.io/commands/script-kill>
-  fn script_kill(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_kill(&inner).await
-    })
+  async fn script_kill(&self) -> RedisResult<()> {
+    commands::lua::script_kill(self).await
   }
 
-  /// A clustered variant of the [script_kill](Self::script_kill) command that issues the command to all primary nodes in the cluster.
-  fn script_kill_cluster(&self) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_kill_cluster(&inner).await
-    })
+  /// A clustered variant of the [script_kill](Self::script_kill) command that issues the command to all primary nodes
+  /// in the cluster.
+  async fn script_kill_cluster(&self) -> RedisResult<()> {
+    commands::lua::script_kill_cluster(self).await
   }
 
   /// Flush the Lua scripts cache.
   ///
   /// <https://redis.io/commands/script-flush>
-  fn script_flush(&self, r#async: bool) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_flush(&inner, r#async).await
-    })
+  async fn script_flush(&self, r#async: bool) -> RedisResult<()> {
+    commands::lua::script_flush(self, r#async).await
   }
 
-  /// A clustered variant of [script_flush](Self::script_flush) that flushes the script cache on all primary nodes in the cluster.
-  fn script_flush_cluster(&self, r#async: bool) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_flush_cluster(&inner, r#async).await
-    })
+  /// A clustered variant of [script_flush](Self::script_flush) that flushes the script cache on all primary nodes in
+  /// the cluster.
+  async fn script_flush_cluster(&self, r#async: bool) -> RedisResult<()> {
+    commands::lua::script_flush_cluster(self, r#async).await
   }
 
   /// Returns information about the existence of the scripts in the script cache.
   ///
   /// <https://redis.io/commands/script-exists>
-  fn script_exists<H>(&self, hashes: H) -> AsyncResult<Vec<bool>>
+  async fn script_exists<R, H>(&self, hashes: H) -> RedisResult<R>
   where
-    H: Into<MultipleStrings>,
+    R: FromRedis,
+    H: Into<MultipleStrings> + Send,
   {
     into!(hashes);
-    async_spawn(self, |inner| async move {
-      commands::lua::script_exists(&inner, hashes).await
-    })
+    commands::lua::script_exists(self, hashes).await?.convert()
   }
 
   /// Set the debug mode for subsequent scripts executed with EVAL.
   ///
   /// <https://redis.io/commands/script-debug>
-  fn script_debug(&self, flag: ScriptDebugFlag) -> AsyncResult<()> {
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::script_debug(&inner, flag).await
-    })
+  async fn script_debug(&self, flag: ScriptDebugFlag) -> RedisResult<()> {
+    commands::lua::script_debug(self, flag).await
   }
 
   /// Evaluates a script cached on the server side by its SHA1 digest.
@@ -96,20 +88,17 @@ pub trait LuaInterface: ClientLike + Sized {
   /// <https://redis.io/commands/evalsha>
   ///
   /// **Note: Use `None` to represent an empty set of keys or args.**
-  fn evalsha<R, S, K, V>(&self, hash: S, keys: K, args: V) -> AsyncResult<R>
+  async fn evalsha<R, S, K, V>(&self, hash: S, keys: K, args: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    S: Into<Str>,
-    K: Into<MultipleKeys>,
-    V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    S: Into<Str> + Send,
+    K: Into<MultipleKeys> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(hash, keys);
     try_into!(args);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::evalsha(&inner, hash, keys, args).await?.convert()
-    })
+    commands::lua::evalsha(self, hash, keys, args).await?.convert()
   }
 
   /// Evaluate a Lua script on the server.
@@ -117,19 +106,203 @@ pub trait LuaInterface: ClientLike + Sized {
   /// <https://redis.io/commands/eval>
   ///
   /// **Note: Use `None` to represent an empty set of keys or args.**
-  fn eval<R, S, K, V>(&self, script: S, keys: K, args: V) -> AsyncResult<R>
+  async fn eval<R, S, K, V>(&self, script: S, keys: K, args: V) -> RedisResult<R>
   where
-    R: FromRedis + Unpin + Send,
-    S: Into<Str>,
-    K: Into<MultipleKeys>,
-    V: TryInto<MultipleValues>,
-    V::Error: Into<RedisError>,
+    R: FromRedis,
+    S: Into<Str> + Send,
+    K: Into<MultipleKeys> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(script, keys);
     try_into!(args);
-    async_spawn(self, |inner| async move {
-      utils::disallow_during_transaction(&inner)?;
-      commands::lua::eval(&inner, script, keys, args).await?.convert()
-    })
+    commands::lua::eval(self, script, keys, args).await?.convert()
+  }
+}
+
+/// Functions implementing the [function interface](https://redis.io/docs/manual/programmability/functions-intro/).
+#[async_trait]
+pub trait FunctionInterface: ClientLike + Sized {
+  /// Invoke a function.
+  ///
+  /// <https://redis.io/commands/fcall/>
+  async fn fcall<R, F, K, V>(&self, func: F, keys: K, args: V) -> RedisResult<R>
+  where
+    R: FromRedis,
+    F: Into<Str> + Send,
+    K: Into<MultipleKeys> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    into!(func);
+    try_into!(keys, args);
+    commands::lua::fcall(self, func, keys, args).await?.convert()
+  }
+
+  /// This is a read-only variant of the FCALL command that cannot execute commands that modify data.
+  ///
+  /// <https://redis.io/commands/fcall_ro/>
+  async fn fcall_ro<R, F, K, V>(&self, func: F, keys: K, args: V) -> RedisResult<R>
+  where
+    R: FromRedis,
+    F: Into<Str> + Send,
+    K: Into<MultipleKeys> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    into!(func);
+    try_into!(keys, args);
+    commands::lua::fcall_ro(self, func, keys, args).await?.convert()
+  }
+
+  /// Delete a library and all its functions.
+  ///
+  /// <https://redis.io/commands/function-delete/>
+  async fn function_delete<R, S>(&self, library_name: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+  {
+    into!(library_name);
+    commands::lua::function_delete(self, library_name).await?.convert()
+  }
+
+  /// Delete a library and all its functions from each cluster node concurrently.
+  ///
+  /// <https://redis.io/commands/function-delete/>
+  async fn function_delete_cluster<S>(&self, library_name: S) -> RedisResult<()>
+  where
+    S: Into<Str> + Send,
+  {
+    into!(library_name);
+    commands::lua::function_delete_cluster(self, library_name).await
+  }
+
+  /// Return the serialized payload of loaded libraries.
+  ///
+  /// <https://redis.io/commands/function-dump/>
+  async fn function_dump<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::lua::function_dump(self).await?.convert()
+  }
+
+  /// Deletes all the libraries.
+  ///
+  /// <https://redis.io/commands/function-flush/>
+  async fn function_flush<R>(&self, r#async: bool) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::lua::function_flush(self, r#async).await?.convert()
+  }
+
+  /// Deletes all the libraries on all cluster nodes concurrently.
+  ///
+  /// <https://redis.io/commands/function-flush/>
+  async fn function_flush_cluster(&self, r#async: bool) -> RedisResult<()> {
+    commands::lua::function_flush_cluster(self, r#async).await
+  }
+
+  /// Kill a function that is currently executing.
+  ///
+  /// Note: This command runs on a backchannel connection to the server in order to take effect as quickly as
+  /// possible.
+  ///
+  /// <https://redis.io/commands/function-kill/>
+  async fn function_kill<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::lua::function_kill(self).await?.convert()
+  }
+
+  /// Return information about the functions and libraries.
+  ///
+  /// <https://redis.io/commands/function-list/>
+  async fn function_list<R, S>(&self, library_name: Option<S>, withcode: bool) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+  {
+    let library_name = library_name.map(|l| l.into());
+    commands::lua::function_list(self, library_name, withcode)
+      .await?
+      .convert()
+  }
+
+  /// Load a library to Redis.
+  ///
+  /// <https://redis.io/commands/function-load/>
+  async fn function_load<R, S>(&self, replace: bool, code: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+  {
+    into!(code);
+    commands::lua::function_load(self, replace, code).await?.convert()
+  }
+
+  /// Load a library to Redis on all cluster nodes concurrently.
+  ///
+  /// <https://redis.io/commands/function-load/>
+  async fn function_load_cluster<R, S>(&self, replace: bool, code: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+  {
+    into!(code);
+    commands::lua::function_load_cluster(self, replace, code)
+      .await?
+      .convert()
+  }
+
+  /// Restore libraries from the serialized payload.
+  ///
+  /// <https://redis.io/commands/function-restore/>
+  ///
+  /// Note: Use `FnPolicy::default()` to use the default function restore policy (`"APPEND"`).
+  async fn function_restore<R, B, P>(&self, serialized: B, policy: P) -> RedisResult<R>
+  where
+    R: FromRedis,
+    B: Into<Bytes> + Send,
+    P: TryInto<FnPolicy> + Send,
+    P::Error: Into<RedisError> + Send,
+  {
+    into!(serialized);
+    try_into!(policy);
+    commands::lua::function_restore(self, serialized, policy)
+      .await?
+      .convert()
+  }
+
+  /// Restore libraries from the serialized payload on all cluster nodes concurrently.
+  ///
+  /// <https://redis.io/commands/function-restore/>
+  ///
+  /// Note: Use `FnPolicy::default()` to use the default function restore policy (`"APPEND"`).
+  async fn function_restore_cluster<B, P>(&self, serialized: B, policy: P) -> RedisResult<()>
+  where
+    B: Into<Bytes> + Send,
+    P: TryInto<FnPolicy> + Send,
+    P::Error: Into<RedisError> + Send,
+  {
+    into!(serialized);
+    try_into!(policy);
+    commands::lua::function_restore_cluster(self, serialized, policy).await
+  }
+
+  /// Return information about the function that's currently running and information about the available execution
+  /// engines.
+  ///
+  /// Note: This command runs on a backchannel connection to the server.
+  ///
+  /// <https://redis.io/commands/function-stats/>
+  async fn function_stats<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::lua::function_stats(self).await?.convert()
   }
 }

@@ -1,8 +1,7 @@
-use fred::prelude::*;
-use futures::StreamExt;
+use fred::{interfaces::PubsubInterface, prelude::*};
+use futures::{Stream, StreamExt};
 use std::time::Duration;
 use tokio::time::sleep;
-use fred::interfaces::PubsubInterface;
 
 const CHANNEL1: &'static str = "foo";
 const CHANNEL2: &'static str = "bar";
@@ -10,7 +9,8 @@ const CHANNEL3: &'static str = "baz";
 const FAKE_MESSAGE: &'static str = "wibble";
 const NUM_MESSAGES: i64 = 20;
 
-// when using chaos monkey pubsub messages can be lost since they're fire and forget and these arent stored in aof files
+// when using chaos monkey pubsub messages can be lost since they're fire and forget and these arent stored in aof
+// files
 #[cfg(feature = "chaos-monkey")]
 const EXTRA_MESSAGES: i64 = 10;
 #[cfg(not(feature = "chaos-monkey"))]
@@ -23,8 +23,7 @@ const ASSERT_COUNT: bool = true;
 
 pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let subscriber_client = client.clone_new();
-  let policy = client.client_reconnect_policy();
-  let _ = subscriber_client.connect(policy);
+  let _ = subscriber_client.connect();
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.subscribe(CHANNEL1).await?;
 
@@ -33,12 +32,10 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
 
     let mut count = 0;
     while count < NUM_MESSAGES {
-      if let Some((channel, message)) = message_stream.next().await {
-        let message: String = message.convert().unwrap();
-
-        assert_eq!(CHANNEL1, channel);
+      if let Ok(message) = message_stream.recv().await {
+        assert_eq!(CHANNEL1, message.channel);
         if ASSERT_COUNT {
-          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message.value.as_str().unwrap());
         }
         count += 1;
       }
@@ -47,7 +44,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..NUM_MESSAGES + EXTRA_MESSAGES {
+  for idx in 0 .. NUM_MESSAGES + EXTRA_MESSAGES {
     // https://redis.io/commands/publish#return-value
     let _: () = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
@@ -64,8 +61,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   let subscriber_channels = channels.clone();
 
   let subscriber_client = client.clone_new();
-  let policy = client.client_reconnect_policy();
-  let _ = subscriber_client.connect(policy);
+  let _ = subscriber_client.connect();
   let _ = subscriber_client.wait_for_connect().await?;
   let _ = subscriber_client.psubscribe(channels.clone()).await?;
 
@@ -74,12 +70,10 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
 
     let mut count = 0;
     while count < NUM_MESSAGES {
-      if let Some((channel, message)) = message_stream.next().await {
-        let message: String = message.convert().unwrap();
-
-        assert!(subscriber_channels.contains(&channel.as_str()));
+      if let Ok(message) = message_stream.recv().await {
+        assert!(subscriber_channels.contains(&&*message.channel));
         if ASSERT_COUNT {
-          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message);
+          assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message.value.as_str().unwrap());
         }
         count += 1;
       }
@@ -88,7 +82,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..NUM_MESSAGES + EXTRA_MESSAGES {
+  for idx in 0 .. NUM_MESSAGES + EXTRA_MESSAGES {
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value

@@ -72,6 +72,16 @@ macro_rules! atry (
   }
 );
 
+/// Similar to `try`/`?`, but `continue` instead of breaking out with an error.  
+macro_rules! try_or_continue (
+  ($expr:expr) => {
+    match $expr {
+      Ok(val) => val,
+      Err(_) => continue
+    }
+  }
+);
+
 macro_rules! static_str(
   ($name:ident, $val:expr) => {
     lazy_static::lazy_static! {
@@ -132,18 +142,18 @@ macro_rules! into (
 );
 
 macro_rules! try_into (
-  ($val:ident) => (let $val = atry!(to!($val)););
+  ($val:ident) => (let $val = to!($val)?;);
   ($v1:ident, $v2:ident) => (
-    let ($v1, $v2) = (atry!(to!($v1)), atry!(to!($v2)));
+    let ($v1, $v2) = (to!($v1)?, to!($v2)?);
   );
   ($v1:ident, $v2:ident, $v3:ident) => (
-    let ($v1, $v2, $v3) = (atry!(to!($v1)), atry!(to!($v2)), atry!(to!($v3)));
+    let ($v1, $v2, $v3) = (to!($v1)?, to!($v2)?, to!($v3)?);
   );
   ($v1:ident, $v2:ident, $v3:ident, $v4:ident) => (
-    let ($v1, $v2, $v3, $v4) = (atry!(to!($v1)), atry!(to!($v2)), atry!(to!($v3)), atry!(to!($v4)));
+    let ($v1, $v2, $v3, $v4) = (to!($v1)?, to!($v2)?, to!($v3)?, to!($v4)?);
   );
   ($v1:ident, $v2:ident, $v3:ident, $v4:ident, $v5:ident) => (
-    let ($v1, $v2, $v3, $v4, $v5) = (atry!(to!($v1)), atry!(to!($v2)), atry!(to!($v3)), atry!(to!($v4)), atry!(to!($v5)));
+    let ($v1, $v2, $v3, $v4, $v5) = (to!($v1)?, to!($v2)?, to!($v3)?, to!($v4)?, to!($v5)?);
   );
   // add to this as needed
 );

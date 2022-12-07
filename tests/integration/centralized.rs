@@ -20,6 +20,8 @@ mod keys {
   centralized_test!(keys, should_mget_values);
   centralized_test!(keys, should_msetnx_values);
   centralized_test!(keys, should_copy_values);
+
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
@@ -34,15 +36,28 @@ mod other {
   #[cfg(all(not(feature = "chaos-monkey"), feature = "metrics"))]
   centralized_test!(other, should_track_size_stats);
 
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_automatically_unblock);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_manually_unblock);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_error_when_blocked);
   centralized_test!(other, should_smoke_test_from_redis_impl);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_safely_change_protocols_repeatedly);
+  centralized_test!(other, should_pipeline_all);
+  centralized_test!(other, should_pipeline_last);
+  centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
+
+  #[cfg(feature = "dns")]
+  centralized_test!(other, should_use_trust_dns);
+  // centralized_test!(other, should_test_high_concurrency_pool);
 }
 
 mod pool {
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
+  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
   #[cfg(feature = "fd-tests")]
   centralized_test!(pool, should_connect_and_ping_static_pool_many_conn);
@@ -143,6 +158,21 @@ pub mod lua {
   centralized_test!(lua, should_eval_get_script);
   centralized_test!(lua, should_evalsha_echo_script);
   centralized_test!(lua, should_evalsha_get_script);
+
+  centralized_test!(lua, should_function_load_scripts);
+  centralized_test!(lua, should_function_dump_and_restore);
+  centralized_test!(lua, should_function_flush);
+  centralized_test!(lua, should_function_delete);
+  centralized_test!(lua, should_function_list);
+  centralized_test!(lua, should_function_list_multiple);
+  centralized_test!(lua, should_function_fcall_getset);
+  centralized_test!(lua, should_function_fcall_echo);
+  centralized_test!(lua, should_function_fcall_ro_echo);
+
+  centralized_test!(lua, should_create_lua_script_helper_from_code);
+  centralized_test!(lua, should_create_lua_script_helper_from_hash);
+  centralized_test!(lua, should_create_function_from_code);
+  centralized_test!(lua, should_create_function_from_name);
 }
 
 pub mod sorted_sets {

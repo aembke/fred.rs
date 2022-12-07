@@ -1,16 +1,14 @@
-use crate::modules::inner::RedisClientInner;
-use crate::monitor::Command;
-use crate::types::RedisValue;
-use nom::bytes::complete::{escaped as nom_escaped, tag as nom_tag, take as nom_take, take_until as nom_take_until};
-use nom::character::complete::none_of as nom_none_of;
-use nom::combinator::{map_res as nom_map_res, opt as nom_opt};
-use nom::multi::many0 as nom_many0;
-use nom::sequence::{delimited as nom_delimited, preceded as nom_preceded, terminated as nom_terminated};
-use nom::IResult;
-use redis_protocol::resp3::types::Frame as Resp3Frame;
-use redis_protocol::types::RedisParseError;
-use std::str;
-use std::sync::Arc;
+use crate::{modules::inner::RedisClientInner, monitor::Command, types::RedisValue};
+use nom::{
+  bytes::complete::{escaped as nom_escaped, tag as nom_tag, take as nom_take, take_until as nom_take_until},
+  character::complete::none_of as nom_none_of,
+  combinator::{map_res as nom_map_res, opt as nom_opt},
+  multi::many0 as nom_many0,
+  sequence::{delimited as nom_delimited, preceded as nom_preceded, terminated as nom_terminated},
+  IResult,
+};
+use redis_protocol::{resp3::types::Frame as Resp3Frame, types::RedisParseError};
+use std::{str, sync::Arc};
 
 const EMPTY_SPACE: &'static str = " ";
 const RIGHT_BRACKET: &'static str = "]";
@@ -128,7 +126,7 @@ pub fn parse(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Command
     _ => {
       _warn!(inner, "Unexpected frame type on monitor stream: {:?}", frame.kind());
       return None;
-    }
+    },
   };
 
   log_frame(inner, frame_bytes);
@@ -137,18 +135,17 @@ pub fn parse(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Command
 
 #[cfg(test)]
 mod tests {
-  use crate::monitor::parser::d_parse_frame;
-  use crate::monitor::Command;
+  use crate::monitor::{parser::d_parse_frame, Command};
 
   #[test]
   fn should_parse_frame_without_spaces_or_quotes() {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"SET\" \"foo\" \"2\"";
     let expected = Command {
       timestamp: 1631469940.785623,
-      db: 0,
-      client: "127.0.0.1:46998".into(),
-      command: "SET".into(),
-      args: vec!["foo".into(), "2".into()],
+      db:        0,
+      client:    "127.0.0.1:46998".into(),
+      command:   "SET".into(),
+      args:      vec!["foo".into(), "2".into()],
     };
 
     let actual = d_parse_frame(input.as_bytes()).unwrap();
@@ -160,10 +157,10 @@ mod tests {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"SET\" \"foo bar\" \"2\"";
     let expected = Command {
       timestamp: 1631469940.785623,
-      db: 0,
-      client: "127.0.0.1:46998".into(),
-      command: "SET".into(),
-      args: vec!["foo bar".into(), "2".into()],
+      db:        0,
+      client:    "127.0.0.1:46998".into(),
+      command:   "SET".into(),
+      args:      vec!["foo bar".into(), "2".into()],
     };
 
     let actual = d_parse_frame(input.as_bytes()).unwrap();
@@ -172,13 +169,14 @@ mod tests {
 
   #[test]
   fn should_parse_frame_with_inner_quotes() {
-    let input = "1631475365.563304 [0 127.0.0.1:47438] \"SET\" \"foo\" \"0 - \\\"abc\\\"\" \"1 - \\\"def\\\"\" \"2 - \\\"ghi\\\" \\\"jkl\\\"\"";
+    let input = "1631475365.563304 [0 127.0.0.1:47438] \"SET\" \"foo\" \"0 - \\\"abc\\\"\" \"1 - \\\"def\\\"\" \"2 \
+                 - \\\"ghi\\\" \\\"jkl\\\"\"";
     let expected = Command {
       timestamp: 1631475365.563304,
-      db: 0,
-      client: "127.0.0.1:47438".into(),
-      command: "SET".into(),
-      args: vec![
+      db:        0,
+      client:    "127.0.0.1:47438".into(),
+      command:   "SET".into(),
+      args:      vec![
         "foo".into(),
         "0 - \\\"abc\\\"".into(),
         "1 - \\\"def\\\"".into(),
@@ -195,10 +193,10 @@ mod tests {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"KEYS\"";
     let expected = Command {
       timestamp: 1631469940.785623,
-      db: 0,
-      client: "127.0.0.1:46998".into(),
-      command: "KEYS".into(),
-      args: vec![],
+      db:        0,
+      client:    "127.0.0.1:46998".into(),
+      command:   "KEYS".into(),
+      args:      vec![],
     };
 
     let actual = d_parse_frame(input.as_bytes()).unwrap();

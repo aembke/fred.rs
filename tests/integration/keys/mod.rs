@@ -1,14 +1,13 @@
-use fred::clients::RedisClient;
-use fred::error::RedisError;
-use fred::interfaces::*;
-use fred::pool::RedisPool;
-use fred::types::{Expiration, ReconnectPolicy, RedisConfig, RedisMap, RedisValue};
-use futures::pin_mut;
-use futures::StreamExt;
-use std::collections::HashMap;
-use std::time::Duration;
-use tokio;
-use tokio::time::sleep;
+use fred::{
+  clients::RedisClient,
+  error::RedisError,
+  interfaces::*,
+  pool::RedisPool,
+  types::{Expiration, ReconnectPolicy, RedisConfig, RedisMap, RedisValue},
+};
+use futures::{pin_mut, StreamExt};
+use std::{collections::HashMap, time::Duration};
+use tokio::{self, time::sleep};
 
 pub async fn should_set_and_get_a_value(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo");
@@ -294,8 +293,8 @@ pub async fn should_get_keys_from_pool_in_a_stream(
 ) -> Result<(), RedisError> {
   let _ = client.set("foo", "bar", None, None, false).await?;
 
-  let pool = RedisPool::new(config, 5)?;
-  let _ = pool.connect(Some(ReconnectPolicy::default()));
+  let pool = RedisPool::new(config, None, None, 5)?;
+  let _ = pool.connect();
   let _ = pool.wait_for_connect().await?;
 
   let stream =

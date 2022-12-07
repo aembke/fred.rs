@@ -1,12 +1,15 @@
-use crate::error::{RedisError, RedisErrorKind};
-use crate::types::{RedisKey, RedisValue, QUEUED};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::{RedisKey, RedisValue, NIL, QUEUED},
+  utils,
+};
 use bytes::Bytes;
 use bytes_utils::Str;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::hash::{BuildHasher, Hash};
+use std::{
+  collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+  hash::{BuildHasher, Hash},
+};
 
-#[cfg(feature = "serde-json")]
-use crate::utils;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
@@ -98,7 +101,8 @@ macro_rules! impl_unsigned_number (
 
 /// A trait used to convert various forms of [RedisValue](crate::types::RedisValue) into different types.
 ///
-/// See the [convert](crate::types::RedisValue::convert) documentation for important information regarding performance considerations and examples.
+/// See the [convert](crate::types::RedisValue::convert) documentation for important information regarding performance
+/// considerations and examples.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -157,10 +161,7 @@ impl FromRedis for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(String): {:?}", value);
     if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to string.",
-      ))
+      Ok(NIL.to_owned())
     } else {
       value
         .into_string()
@@ -173,10 +174,7 @@ impl FromRedis for Str {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(Str): {:?}", value);
     if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to string.",
-      ))
+      Ok(utils::static_str(NIL))
     } else {
       value
         .into_bytes_str()
@@ -266,7 +264,7 @@ where
     match value {
       RedisValue::Bytes(bytes) => {
         T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
-      }
+      },
       RedisValue::String(string) => {
         // hacky way to check if T is bytes without consuming `string`
         if T::from_owned_bytes(vec![]).is_some() {
@@ -275,7 +273,7 @@ where
         } else {
           Ok(vec![T::from_value(RedisValue::String(string))?])
         }
-      }
+      },
       RedisValue::Array(values) => T::from_values(values),
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
@@ -293,7 +291,7 @@ where
             Ok(out)
           })
         })
-      }
+      },
       RedisValue::Null => Ok(vec![]),
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
       RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
@@ -323,6 +321,7 @@ where
       return Err(RedisError::new_parse("Cannot convert to map."));
     };
 
+    debug_type!("FromRedis(HashMap<K,V>) Map: {:?}", as_map);
     as_map
       .inner()
       .into_iter()
@@ -464,7 +463,7 @@ impl FromRedis for Value {
         } else {
           s.to_string().into()
         }
-      }
+      },
       RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
       RedisValue::Integer(i) => i.into(),
       RedisValue::Double(f) => f.into(),
@@ -475,7 +474,7 @@ impl FromRedis for Value {
           out.push(Self::from_value(value)?);
         }
         Value::Array(out)
-      }
+      },
       RedisValue::Map(v) => {
         let mut out = Map::with_capacity(v.len());
         for (key, value) in v.inner().into_iter() {
@@ -487,7 +486,7 @@ impl FromRedis for Value {
           out.insert(key, value);
         }
         Value::Object(out)
-      }
+      },
     };
 
     Ok(value)
@@ -505,7 +504,7 @@ impl FromRedis for RedisKey {
       RedisValue::Queued => RedisKey::from_static_str(QUEUED),
       RedisValue::Map(_) | RedisValue::Array(_) => {
         return Err(RedisError::new_parse("Cannot convert aggregate type to key."))
-      }
+      },
       RedisValue::Null => return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to key.")),
     };
 
@@ -581,8 +580,7 @@ impl FromRedisKey for Bytes {
 
 #[cfg(test)]
 mod tests {
-  use crate::error::RedisError;
-  use crate::types::RedisValue;
+  use crate::{error::RedisError, types::RedisValue};
   use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
   #[test]
@@ -680,8 +678,6 @@ mod tests {
 
   #[test]
   fn should_return_not_found_with_null_strings_and_bools() {
-    let result: Result<String, RedisError> = RedisValue::Null.convert();
-    assert!(result.unwrap_err().is_not_found());
     let result: Result<bool, RedisError> = RedisValue::Null.convert();
     assert!(result.unwrap_err().is_not_found());
   }

@@ -1,7 +1,12 @@
-use fred::prelude::*;
-use fred::types::{BackpressureConfig, PerformanceConfig, RespVersion};
+use fred::{
+  prelude::*,
+  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig, RespVersion, TlsConfig},
+};
 use futures::stream::StreamExt;
-use std::default::Default;
+use std::{default::Default, sync::Arc};
+
+#[cfg(feature = "mocks")]
+use fred::mocks::Echo;
 
 const DATABASE: u8 = 2;
 
@@ -20,60 +25,72 @@ async fn main() -> Result<(), RedisError> {
     server: ServerConfig::new_centralized("127.0.0.1", 6379),
     // how to handle commands sent while a connection is blocked
     blocking: Blocking::Block,
-    // an optional username, if using ACL rules. use "default" if you need to specify a username but have not configured ACL rules.
+    // an optional username, if using ACL rules. use "default" if you need to specify a username but have not
+    // configured ACL rules.
     username: None,
     // an optional authentication key or password
     password: None,
-    // optional TLS settings (requires the `enable-tls` feature)
-    tls: None,
-    // whether to enable tracing (only used with `partial-tracing` or `full-tracing` features)
-    tracing: false,
     // the protocol version to use. note: upgrading an existing codebase to RESP3 can be non-trivial. be careful.
     version: RespVersion::RESP2,
     // the database to automatically select after connecting or reconnecting
     database: Some(DATABASE),
-    // performance tuning options
-    performance: PerformanceConfig {
-      // whether or not to automatically pipeline commands
-      pipeline: true,
-      // the max number of frames to feed into a socket before flushing it
-      max_feed_count: 1000,
-      // a default timeout to apply to all commands (0 means no timeout)
-      default_command_timeout_ms: 0,
-      // the amount of time to wait before rebuilding the client's cached cluster state after a MOVED or ASK error.
-      cluster_cache_update_delay_ms: 10,
-      // the maximum number of times to retry commands when connections close unexpectedly
-      max_command_attempts: 3,
-      // backpressure config options
-      backpressure: BackpressureConfig {
-        // whether to disable automatic backpressure features
-        disable_auto_backpressure: false,
-        // whether to disable scaling backpressure `sleep` durations based on the number of in-flight commands
-        disable_backpressure_scaling: false,
-        // the minimum amount of time to `sleep` when applying automatic backpressure
-        min_sleep_duration_ms: 100,
-        // the max number of in-flight commands before applying backpressure or returning backpressure errors
-        max_in_flight_commands: 5000,
-      },
+    //  TLS configuration options
+    #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+    tls: None,
+    // Whether or not to enable tracing for this client.
+    #[cfg(feature = "partial-tracing")]
+    tracing: false,
+    // An optional mocking layer to intercept and process commands.
+    #[cfg(feature = "mocks")]
+    mocks: Arc::new(Echo),
+  };
+  // example showing a full kitchen sink configuration for performance tuning options
+  let perf = PerformanceConfig {
+    // whether or not to automatically pipeline commands across tasks
+    auto_pipeline:                 true,
+    // the max number of frames to feed into a socket before flushing it
+    max_feed_count:                1000,
+    // a default timeout to apply to all commands (0 means no timeout)
+    default_command_timeout_ms:    0,
+    // the amount of time to wait before rebuilding the client's cached cluster state after a MOVED or ASK error.
+    cluster_cache_update_delay_ms: 10,
+    // the maximum number of times to retry commands when connections close unexpectedly
+    max_command_attempts:          3,
+    // backpressure config options
+    backpressure:                  BackpressureConfig {
+      // whether to disable automatic backpressure features
+      disable_auto_backpressure: false,
+      // the max number of in-flight commands before applying backpressure or returning backpressure errors
+      max_in_flight_commands:    5000,
+      // the policy to apply when the max in-flight commands count is reached
+      policy:                    BackpressurePolicy::Drain,
     },
   };
+
   // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
-  let client = RedisClient::new(config);
+  let client = RedisClient::new(config, Some(perf), Some(policy));
 
-  // run a function when the connection closes unexpectedly
-  tokio::spawn(client.on_error().for_each(|e| async move {
-    println!("Client disconnected with error: {:?}", e);
-  }));
-  // run a function whenever the client reconnects
-  tokio::spawn(client.on_reconnect().for_each(move |client| async move {
-    println!("Client {} reconnected.", client.id());
-  }));
+  // spawn tasks that listen for connection close or reconnect events
+  let mut error_rx = client.on_error();
+  let mut reconnect_rx = client.on_reconnect();
 
-  let connection_task = client.connect(Some(policy));
+  tokio::spawn(async move {
+    while let Some(error) = error_rx.recv() {
+      println!("Client disconnected with error: {:?}", error);
+    }
+  });
+  tokio::spawn(async move {
+    while let Some(_) = reconnect_rx.recv() {
+      println!("Client reconnected.");
+    }
+  });
+
+  // the task driving the connection(s) can be managed directly
+  let connection_task = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  // declare types on response values
+  // convert response types to most common rust types
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);
 
@@ -85,12 +102,11 @@ async fn main() -> Result<(), RedisError> {
   println!("Foo: {:?}", client.get::<String, _>("foo").await?);
 
   // update performance config options as needed
-  let mut perf_config = client.client_config().performance;
+  let mut perf_config = client.perf_config();
   perf_config.max_command_attempts = 100;
+  perf_config.max_feed_count = 1000;
   client.update_perf_config(perf_config);
 
   let _ = client.quit().await?;
-  // or manage the connection task directly if needed. however, calling `quit` or `shutdown` also ends the connection task.
-  connection_task.abort();
   Ok(())
 }

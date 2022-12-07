@@ -80,6 +80,38 @@ There are 4 environment variables that can be used to control the host/port for 
 
 Callers can change these, but need to ensure the ACL rules are properly configured on the servers. A user with the name `$REDIS_USERNAME` and password `$REDIS_PASSWORD` needs full access to run any command. The installation scripts will automatically set these rules, but if callers use a different server they may need to manually create this user.
 
+## TLS
+
+There are some scripts to set up and run a cluster with TLS features enabled.
+
+Note: These scripts use ports 30001-30006, which likely conflict with the non-TLS scripts above. 
+
+### Setup
+
+```
+export REDIS_VERSION=7.0.5
+cd path/to/fred.rs
+. ./tests/environ
+./tests/scripts/install_tls_cluster.sh
+```
+
+The setup script will mint key pairs for a CA, the client, and one per cluster node. Each cluster node cert has a different CN and SAN entries for every other node's hostname.
+
+The nodes use hostnames of `node-$PORT.example.com`, and the setup script will prompt the caller to modify `/etc/hosts`. If callers don't want to do this they will need to configure DNS entries for each of these hostnames in some other way.
+
+### Running TLS Tests
+
+There are two scripts that run tests - one for `native-tls` and one for `rustls`. 
+
+```
+# native-tls
+./tests/runners/cluster-tls.sh
+# rustls
+./tests/runners/cluster-rustls.sh
+```
+
+Note: The `native-tls` tests [may not work on OS X (Mac)](https://github.com/sfackler/rust-native-tls/issues/143).
+
 ## Adding Tests
 
 Adding tests is straightforward with the help of some macros and utility functions.

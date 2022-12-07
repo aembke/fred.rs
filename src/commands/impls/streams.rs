@@ -1,16 +1,26 @@
 use super::*;
-use crate::error::RedisError;
-use crate::modules::inner::RedisClientInner;
-use crate::protocol::types::RedisCommandKind;
-use crate::protocol::utils as protocol_utils;
-use crate::types::{
-  MultipleIDs, MultipleKeys, MultipleOrderedPairs, MultipleStrings, RedisKey, RedisValue, XCap, XPendingArgs, XID,
+use crate::{
+  error::RedisError,
+  protocol::{
+    command::{RedisCommand, RedisCommandKind},
+    hashers::ClusterHash,
+    utils as protocol_utils,
+  },
+  types::{
+    MultipleIDs,
+    MultipleKeys,
+    MultipleOrderedPairs,
+    MultipleStrings,
+    RedisKey,
+    RedisValue,
+    XCap,
+    XPendingArgs,
+    XID,
+  },
+  utils,
 };
-use crate::utils;
 use bytes_utils::Str;
-use redis_protocol::redis_keyslot;
 use std::convert::TryInto;
-use std::sync::Arc;
 
 fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
   if let Some((kind, trim, threshold, limit)) = cap.into_parts() {
@@ -24,12 +34,12 @@ fn encode_cap(args: &mut Vec<RedisValue>, cap: XCap) {
   }
 }
 
-pub async fn xinfo_consumers(
-  inner: &Arc<RedisClientInner>,
+pub async fn xinfo_consumers<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   groupname: Str,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let args = vec![key.into(), groupname.into()];
     Ok((RedisCommandKind::XinfoConsumers, args))
   })
@@ -38,18 +48,18 @@ pub async fn xinfo_consumers(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xinfo_groups(inner: &Arc<RedisClientInner>, key: RedisKey) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || Ok((RedisCommandKind::XinfoGroups, vec![key.into()]))).await?;
+pub async fn xinfo_groups<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || Ok((RedisCommandKind::XinfoGroups, vec![key.into()]))).await?;
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xinfo_stream(
-  inner: &Arc<RedisClientInner>,
+pub async fn xinfo_stream<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   full: bool,
   count: Option<u64>,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(4);
     args.push(key.into());
 
@@ -68,15 +78,15 @@ pub async fn xinfo_stream(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xadd(
-  inner: &Arc<RedisClientInner>,
+pub async fn xadd<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   nomkstream: bool,
   cap: XCap,
   id: XID,
   fields: MultipleOrderedPairs,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(8 + (fields.len() * 2));
     args.push(key.into());
 
@@ -98,8 +108,8 @@ pub async fn xadd(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xtrim(inner: &Arc<RedisClientInner>, key: RedisKey, cap: XCap) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+pub async fn xtrim<C: ClientLike>(client: &C, key: RedisKey, cap: XCap) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
     args.push(key.into());
     encode_cap(&mut args, cap);
@@ -111,12 +121,8 @@ pub async fn xtrim(inner: &Arc<RedisClientInner>, key: RedisKey, cap: XCap) -> R
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xdel(
-  inner: &Arc<RedisClientInner>,
-  key: RedisKey,
-  ids: MultipleStrings,
-) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+pub async fn xdel<C: ClientLike>(client: &C, key: RedisKey, ids: MultipleStrings) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + ids.len());
     args.push(key.into());
 
@@ -130,14 +136,14 @@ pub async fn xdel(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xrange(
-  inner: &Arc<RedisClientInner>,
+pub async fn xrange<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   start: RedisValue,
   end: RedisValue,
   count: Option<u64>,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(5);
     args.push(key.into());
     args.push(start);
@@ -155,14 +161,14 @@ pub async fn xrange(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xrevrange(
-  inner: &Arc<RedisClientInner>,
+pub async fn xrevrange<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   end: RedisValue,
   start: RedisValue,
   count: Option<u64>,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(5);
     args.push(key.into());
     args.push(end);
@@ -180,19 +186,19 @@ pub async fn xrevrange(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xlen(inner: &Arc<RedisClientInner>, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(inner, RedisCommandKind::Xlen, key.into()).await
+pub async fn xlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::Xlen, key.into()).await
 }
 
-pub async fn xread(
-  inner: &Arc<RedisClientInner>,
+pub async fn xread<C: ClientLike>(
+  client: &C,
   count: Option<u64>,
   block: Option<u64>,
   keys: MultipleKeys,
   ids: MultipleIDs,
 ) -> Result<RedisValue, RedisError> {
-  let is_clustered = utils::is_clustered(&inner.config);
-  let frame = utils::request_response(inner, move || {
+  let is_clustered = client.inner().config.server.is_clustered();
+  let frame = utils::request_response(client, move || {
     let is_blocking = block.is_some();
     let mut hash_slot = None;
     let mut args = Vec::with_capacity(5 + keys.len() + ids.len());
@@ -205,12 +211,13 @@ pub async fn xread(
       args.push(static_val!(BLOCK));
       args.push(block.try_into()?);
     }
-
     args.push(static_val!(STREAMS));
+
     for (idx, key) in keys.inner().into_iter().enumerate() {
-      // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say something
+      // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say
+      // something
       if is_clustered && idx == 0 {
-        hash_slot = Some(redis_keyslot(key.as_bytes()));
+        hash_slot = Some(ClusterHash::Offset(args.len()));
       }
 
       args.push(key.into());
@@ -219,21 +226,24 @@ pub async fn xread(
       args.push(id.into_str().into());
     }
 
-    Ok((RedisCommandKind::Xread((is_blocking, hash_slot)), args))
+    let mut command: RedisCommand = (RedisCommandKind::Xread, args).into();
+    command.can_pipeline = !is_blocking;
+    command.hasher = hash_slot.unwrap_or(ClusterHash::Random);
+    Ok(command)
   })
   .await?;
 
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xgroup_create(
-  inner: &Arc<RedisClientInner>,
+pub async fn xgroup_create<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   groupname: Str,
   id: XID,
   mkstream: bool,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(4);
     args.push(key.into());
     args.push(groupname.into());
@@ -249,46 +259,48 @@ pub async fn xgroup_create(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xgroup_createconsumer(
-  inner: &Arc<RedisClientInner>,
+pub async fn xgroup_createconsumer<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   groupname: Str,
   consumername: Str,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::XgroupCreateConsumer,
-      vec![key.into(), groupname.into(), consumername.into()],
-    ))
+  let frame = utils::request_response(client, move || {
+    Ok((RedisCommandKind::XgroupCreateConsumer, vec![
+      key.into(),
+      groupname.into(),
+      consumername.into(),
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xgroup_delconsumer(
-  inner: &Arc<RedisClientInner>,
+pub async fn xgroup_delconsumer<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   groupname: Str,
   consumername: Str,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::XgroupDelConsumer,
-      vec![key.into(), groupname.into(), consumername.into()],
-    ))
+  let frame = utils::request_response(client, move || {
+    Ok((RedisCommandKind::XgroupDelConsumer, vec![
+      key.into(),
+      groupname.into(),
+      consumername.into(),
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xgroup_destroy(
-  inner: &Arc<RedisClientInner>,
+pub async fn xgroup_destroy<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   groupname: Str,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::XgroupDestroy, vec![key.into(), groupname.into()]))
   })
   .await?;
@@ -296,25 +308,26 @@ pub async fn xgroup_destroy(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xgroup_setid(
-  inner: &Arc<RedisClientInner>,
+pub async fn xgroup_setid<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   groupname: Str,
   id: XID,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
-    Ok((
-      RedisCommandKind::XgroupSetId,
-      vec![key.into(), groupname.into(), id.into_str().into()],
-    ))
+  let frame = utils::request_response(client, move || {
+    Ok((RedisCommandKind::XgroupSetId, vec![
+      key.into(),
+      groupname.into(),
+      id.into_str().into(),
+    ]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xreadgroup(
-  inner: &Arc<RedisClientInner>,
+pub async fn xreadgroup<C: ClientLike>(
+  client: &C,
   group: Str,
   consumer: Str,
   count: Option<u64>,
@@ -323,8 +336,8 @@ pub async fn xreadgroup(
   keys: MultipleKeys,
   ids: MultipleIDs,
 ) -> Result<RedisValue, RedisError> {
-  let is_clustered = utils::is_clustered(&inner.config);
-  let frame = utils::request_response(inner, move || {
+  let is_clustered = client.inner().config.server.is_clustered();
+  let frame = utils::request_response(client, move || {
     let is_blocking = block.is_some();
     let mut hash_slot = None;
 
@@ -348,7 +361,7 @@ pub async fn xreadgroup(
     args.push(static_val!(STREAMS));
     for (idx, key) in keys.inner().into_iter().enumerate() {
       if is_clustered && idx == 0 {
-        hash_slot = Some(redis_keyslot(key.as_bytes()));
+        hash_slot = Some(ClusterHash::Offset(args.len()));
       }
 
       args.push(key.into());
@@ -357,20 +370,23 @@ pub async fn xreadgroup(
       args.push(id.into_str().into());
     }
 
-    Ok((RedisCommandKind::Xreadgroup((is_blocking, hash_slot)), args))
+    let mut command: RedisCommand = (RedisCommandKind::Xreadgroup, args).into();
+    command.can_pipeline = !is_blocking;
+    command.hasher = hash_slot.unwrap_or(ClusterHash::Random);
+    Ok(command)
   })
   .await?;
 
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xack(
-  inner: &Arc<RedisClientInner>,
+pub async fn xack<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   group: Str,
   ids: MultipleIDs,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + ids.len());
     args.push(key.into());
     args.push(group.into());
@@ -385,8 +401,8 @@ pub async fn xack(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn xclaim(
-  inner: &Arc<RedisClientInner>,
+pub async fn xclaim<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   group: Str,
   consumer: Str,
@@ -398,7 +414,7 @@ pub async fn xclaim(
   force: bool,
   justid: bool,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(12 + ids.len());
     args.push(key.into());
     args.push(group.into());
@@ -434,8 +450,8 @@ pub async fn xclaim(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xautoclaim(
-  inner: &Arc<RedisClientInner>,
+pub async fn xautoclaim<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   group: Str,
   consumer: Str,
@@ -444,7 +460,7 @@ pub async fn xautoclaim(
   count: Option<u64>,
   justid: bool,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(8);
     args.push(key.into());
     args.push(group.into());
@@ -467,13 +483,13 @@ pub async fn xautoclaim(
   protocol_utils::frame_to_results_raw(frame)
 }
 
-pub async fn xpending(
-  inner: &Arc<RedisClientInner>,
+pub async fn xpending<C: ClientLike>(
+  client: &C,
   key: RedisKey,
   group: Str,
   cmd_args: XPendingArgs,
 ) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(inner, move || {
+  let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(8);
     args.push(key.into());
     args.push(group.into());

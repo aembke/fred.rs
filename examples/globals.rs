@@ -1,5 +1,4 @@
-use fred::globals;
-use fred::prelude::*;
+use fred::{globals, prelude::*};
 
 #[cfg(feature = "custom-reconnect-errors")]
 use globals::ReconnectError;
@@ -8,9 +7,9 @@ use globals::ReconnectError;
 async fn main() -> Result<(), RedisError> {
   // note: in fred v5 the majority of the performance options were moved from the globals to the `RedisConfig`
   let config = RedisConfig::default();
-  let client = RedisClient::new(config);
+  let client = RedisClient::new(config, None, None);
 
-  let jh = client.connect(None);
+  let jh = client.connect();
   if let Err(error) = client.wait_for_connect().await {
     println!("Client failed to connect with error: {:?}", error);
   }

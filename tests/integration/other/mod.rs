@@ -1,17 +1,33 @@
-use fred::clients::RedisClient;
-use fred::error::{RedisError, RedisErrorKind};
-use fred::interfaces::*;
-use fred::prelude::{Blocking, RedisValue};
-use fred::types::{ClientUnblockFlag, RedisConfig, RedisKey, RedisMap, ServerConfig};
+use fred::{
+  clients::RedisClient,
+  error::{RedisError, RedisErrorKind},
+  interfaces::*,
+  pool::RedisPool,
+  prelude::{Blocking, RedisValue},
+  types::{BackpressureConfig, ClientUnblockFlag, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig},
+};
 use parking_lot::RwLock;
 use redis_protocol::resp3::types::RespVersion;
-use std::collections::HashMap;
-use std::collections::{BTreeMap, BTreeSet};
-use std::convert::TryInto;
-use std::mem;
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+  collections::{BTreeMap, BTreeSet, HashMap},
+  convert::TryInto,
+  mem,
+  sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+  },
+  time::Duration,
+};
 use tokio::time::sleep;
+
+use async_trait::async_trait;
+#[cfg(feature = "dns")]
+use fred::types::Resolve;
+use futures::future::try_join;
+#[cfg(feature = "dns")]
+use std::net::{IpAddr, SocketAddr};
+#[cfg(feature = "dns")]
+use trust_dns_resolver::{config::*, TokioAsyncResolver};
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
@@ -22,6 +38,10 @@ fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
 
 fn array_to_set<T: Ord>(vals: Vec<T>) -> BTreeSet<T> {
   vals.into_iter().collect()
+}
+
+pub fn incr_atomic(size: &Arc<AtomicUsize>) -> usize {
+  size.fetch_add(1, Ordering::AcqRel).saturating_add(1)
 }
 
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -56,8 +76,8 @@ pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConf
 
 pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Interrupt;
-  let client = RedisClient::new(config);
-  let _ = client.connect(None);
+  let client = RedisClient::new(config, None, None);
+  let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
   let unblock_client = client.clone();
@@ -73,7 +93,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
 }
 
 pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let connections_ids = client.connection_ids().await?;
+  let connections_ids = client.connection_ids().await;
   let unblock_client = client.clone();
 
   let _ = tokio::spawn(async move {
@@ -94,8 +114,8 @@ pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Res
 
 pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Error;
-  let client = RedisClient::new(config);
-  let _ = client.connect(None);
+  let client = RedisClient::new(config, None, None);
+  let _ = client.connect();
   let _ = client.wait_for_connect().await?;
   let error_client = client.clone();
 
@@ -115,7 +135,9 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
 }
 
 pub async fn should_split_clustered_connection(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
-  let clients = client.split_cluster().await?;
+  // in clustered mode tests there's only one known host, and everything runs locally
+  let expected_hostname = client.client_config().server.hosts().pop().unwrap().0.to_owned();
+  let clients = client.split_cluster()?;
 
   let actual = clients
     .iter()
@@ -131,9 +153,9 @@ pub async fn should_split_clustered_connection(client: RedisClient, _config: Red
     });
 
   let mut expected = BTreeSet::new();
-  expected.insert("127.0.0.1:30001".to_owned());
-  expected.insert("127.0.0.1:30002".to_owned());
-  expected.insert("127.0.0.1:30003".to_owned());
+  expected.insert(format!("{}:30001", expected_hostname));
+  expected.insert(format!("{}:30002", expected_hostname));
+  expected.insert(format!("{}:30003", expected_hostname));
 
   assert_eq!(actual, expected);
 
@@ -166,12 +188,12 @@ pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) 
 pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let count: i64 = 200;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   let _ = client.flushall_cluster().await?;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
     assert!(value.is_none());
   }
@@ -192,14 +214,16 @@ pub async fn should_safely_change_protocols_repeatedly(
       if *other_done.read() {
         return Ok::<_, RedisError>(());
       }
+      // force a non-static lifetime
+      let foo = String::from("foo");
 
-      let _ = other.incr("foo").await?;
+      let _ = other.incr(&foo).await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
 
   // switch protocols every half second
-  for idx in 0..20 {
+  for idx in 0 .. 20 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
@@ -211,5 +235,153 @@ pub async fn should_safely_change_protocols_repeatedly(
   let _ = mem::replace(&mut *done.write(), true);
 
   let _ = jh.await?;
+  Ok(())
+}
+
+// test to repro an intermittent race condition found while stress testing the client
+#[allow(dead_code)]
+pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  config.blocking = Blocking::Block;
+  let perf = PerformanceConfig {
+    auto_pipeline: true,
+    // default_command_timeout_ms: 20_000,
+    backpressure: BackpressureConfig {
+      max_in_flight_commands: 100_000_000,
+      ..Default::default()
+    },
+    ..Default::default()
+  };
+  let pool = RedisPool::new(config, Some(perf), None, 28)?;
+  let _ = pool.connect();
+  let _ = pool.wait_for_connect().await?;
+
+  let num_tasks = 11641;
+  let mut tasks = Vec::with_capacity(num_tasks);
+  let counter = Arc::new(AtomicUsize::new(0));
+
+  for idx in 0 .. num_tasks {
+    let client = pool.next().clone();
+    let counter = counter.clone();
+
+    tasks.push(tokio::spawn(async move {
+      let key = format!("foo-{}", idx);
+
+      let mut expected = 0;
+      while incr_atomic(&counter) < 50_000_000 {
+        let actual: i64 = client.incr(&key).await?;
+        expected += 1;
+        if actual != expected {
+          return Err(RedisError::new(
+            RedisErrorKind::Unknown,
+            format!("Expected {}, found {}", expected, actual),
+          ));
+        }
+      }
+
+      println!("Task {} finished.", idx);
+      Ok::<_, RedisError>(())
+    }));
+  }
+  let _ = futures::future::try_join_all(tasks).await?;
+
+  Ok(())
+}
+
+pub async fn should_pipeline_all(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+
+  let result: RedisValue = pipeline.set("foo", 1, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.set("bar", 2, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.incr("foo").await?;
+  assert!(result.is_queued());
+
+  let result: ((), (), i64) = pipeline.all().await?;
+  assert_eq!(result.2, 2);
+  Ok(())
+}
+
+pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+
+  let result: RedisValue = pipeline.set("foo", 1, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.set("bar", 2, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.incr("foo").await?;
+  assert!(result.is_queued());
+
+  let result: i64 = pipeline.last().await?;
+  assert_eq!(result, 2);
+  Ok(())
+}
+
+pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let other = client.clone();
+  let jh1 = tokio::spawn(async move {
+    for _ in 0 .. 1000 {
+      let _ = other.flushall_cluster().await?;
+    }
+
+    Ok::<_, RedisError>(())
+  });
+  let jh2 = tokio::spawn(async move {
+    for _ in 0 .. 1000 {
+      let _ = client.flushall_cluster().await?;
+    }
+
+    Ok::<_, RedisError>(())
+  });
+
+  let _ = try_join(jh1, jh2).await?;
+  Ok(())
+}
+
+#[cfg(feature = "dns")]
+pub struct TrustDnsResolver(TokioAsyncResolver);
+
+#[cfg(feature = "dns")]
+impl TrustDnsResolver {
+  fn new() -> Self {
+    TrustDnsResolver(TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default()).unwrap())
+  }
+}
+
+#[cfg(feature = "dns")]
+#[async_trait]
+impl Resolve for TrustDnsResolver {
+  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError> {
+    self.0.lookup_ip(&host).await.map_err(|e| e.into()).and_then(|ips| {
+      let ip = match ips.iter().next() {
+        Some(ip) => ip,
+        None => return Err(RedisError::new(RedisErrorKind::IO, "Failed to lookup IP address.")),
+      };
+
+      debug!("Mapped {}:{} to {}:{}", host, port, ip, port);
+      Ok(SocketAddr::new(ip, port))
+    })
+  }
+}
+
+#[cfg(feature = "dns")]
+pub async fn should_use_trust_dns(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  let perf = client.perf_config();
+  let policy = client.client_reconnect_policy();
+
+  if let ServerConfig::Centralized { ref mut host, .. } = config.server {
+    *host = "localhost".into();
+  }
+  if let ServerConfig::Clustered { ref mut hosts } = config.server {
+    hosts[0].0 = "localhost".into();
+  }
+
+  let client = RedisClient::new(config, Some(perf), policy);
+  client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
+
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+  let _ = client.ping().await?;
+  let _ = client.quit().await?;
   Ok(())
 }

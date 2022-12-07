@@ -1,77 +1,86 @@
-version: 2
-jobs:
-  test-default:
-    docker:
-      - image: cimg/rust:1.57.0
+version: 2.1
+
+commands:
+  # sccache takes 5 min to install on a 2x4 container
+  save-sccache-build-cache:
     steps:
-      - checkout
+      - save_cache:
+          name: Save the sccache binary cache
+          key: sccahe-binary-cache-{{ arch }}
+          paths:
+            - "~/.cargo/bin/sccache"
+  restore-sccache-build-cache:
+    steps:
+      - restore_cache:
+          name: Restore sccache binary cache
+          key: sccahe-binary-cache-{{ arch }}
+  # https://medium.com/@edouard.oger/rust-caching-on-circleci-using-sccache-c996344f0115
+  setup-sccache:
+    steps:
+      - restore-sccache-build-cache
+      - run:
+          name: Install sccache
+          command: |
+            [ ! -f ~/.cargo/bin/sccache ] && cargo install sccache
+            echo 'export "RUSTC_WRAPPER"="sccache"' >> $BASH_ENV
+            echo 'export "SCCACHE_CACHE_SIZE"="1G"' >> $BASH_ENV
+            sccache --version
+      - save-sccache-build-cache
+  restore-sccache-cache:
+    steps:
+      - restore_cache:
+          name: Restore sccache cache
+          key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}
+  save-sccache-cache:
+    steps:
+      - save_cache:
+          name: Save sccache cache
+          key: sccache-cache-stable-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
+          paths:
+            - "~/.cache/sccache"
+  modify_etc_hosts:
+    steps:
+      - run:
+          name: Modify /etc/hosts
+          command: |
+            sudo tee -a /etc/hosts \<<<'127.0.0.1 example.com client.example.com node-30001.example.com node-30002.example.com node-30003.example.com node-30004.example.com node-30005.example.com node-30006.example.com'
+            cat /etc/hosts
+  install_openssl:
+    steps:
       - run:
           name: Install OpenSSL
           command: sudo apt-get update && sudo apt-get install -y libssl-dev
+  install_redis:
+    steps:
+      - restore_cache:
+          keys:
+            - redis-build-cache-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
       - run:
           name: Install redis centralized
           command: tests/scripts/install_redis_centralized.sh
       - run:
           name: Install redis cluster
           command: tests/scripts/install_redis_clustered.sh
+      - save_cache:
+          key: redis-build-cache-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
+          paths:
+            - tests/tmp
+  install_cargo_nextest:
+    steps:
       - run:
           name: Install cargo-nextest
           command: tests/scripts/install_cargo_nextest.sh
+  clear_git_cache:
+    steps:
       - run:
           name: Clear the cargo git cache
           command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-      - run:
-          name: Run tests with default features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/default-features.sh
-  test-no-features:
-    docker:
-      - image: cimg/rust:1.57.0
+  setup_host:
     steps:
-      - checkout
-      - run:
-          name: Install OpenSSL
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev
-      - run:
-          name: Install redis centralized
-          command: tests/scripts/install_redis_centralized.sh
-      - run:
-          name: Install redis cluster
-          command: tests/scripts/install_redis_clustered.sh
-      - run:
-          name: Install cargo-nextest
-          command: tests/scripts/install_cargo_nextest.sh
-      - run:
-          name: Clear the cargo git cache
-          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-      - run:
-          name: Run tests with no features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/no-features.sh
-  test-all-features:
-    docker:
-      - image: cimg/rust:1.57.0
+      - install_openssl
+      - install_cargo_nextest
+  setup_docker_compose:
     steps:
-      - checkout
-      - run:
-          name: Install redis centralized
-          command: tests/scripts/install_redis_centralized.sh
-      - run:
-          name: Install redis cluster
-          command: tests/scripts/install_redis_clustered.sh
-      - run:
-          name: Install cargo-nextest
-          command: tests/scripts/install_cargo_nextest.sh
-      - run:
-          name: Clear the cargo git cache
-          command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-      - run:
-          name: Run tests with all features
-          command: cargo clean && eval `ssh-agent` && ssh-add ~/.ssh/id_rsa && tests/runners/all-features.sh
-          no_output_timeout: 20m
-  test-sentinel:
-    docker:
-      - image: cimg/rust:1.57.0
-    steps:
-      - checkout
       - run:
           name: Install Docker Compose
           environment:
@@ -81,27 +90,178 @@ jobs:
             chmod +x ~/docker-compose
             sudo mv ~/docker-compose /usr/local/bin/docker-compose
       - setup_remote_docker
-      - run:
-          name: Install and run sentinel tests
-          command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
-  test-docs:
-    docker:
-      - image: cimg/rust:1.57.0
+  build_docs:
     steps:
-      - checkout
       - run:
           name: Install nightly
           command: rustup install nightly
       - run:
           name: Build documentation
           command: tests/doc.sh
+  test_default_features:
+    steps:
+      - checkout
+      - setup_host
+      - install_redis
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Run tests with default features
+          command: tests/runners/default-features.sh
+      - save-sccache-cache
+  test_all_features:
+    steps:
+      - checkout
+      - setup_host
+      - install_redis
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Run tests with all features
+          command: tests/runners/all-features.sh
+      - save-sccache-cache
+  test_no_features:
+    steps:
+      - checkout
+      - setup_host
+      - install_redis
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Run tests with no features
+          command: tests/runners/no-features.sh
+      - save-sccache-cache
+  test_sentinel:
+    steps:
+      - checkout
+      - setup_docker_compose
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Install and run sentinel tests
+          command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
+  test_tls_cluster:
+    steps:
+      - checkout
+      - setup_host
+      - modify_etc_hosts
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Install cluster with TLS
+          command: tests/scripts/install_tls_cluster.sh
+      - run:
+          name: Run cluster tests with native-tls features
+          command: tests/runners/cluster-tls.sh
+      - save-sccache-cache
+  test_rustls_cluster:
+    steps:
+      - checkout
+      - setup_host
+      - modify_etc_hosts
+      - setup-sccache
+      - restore-sccache-cache
+      - run:
+          name: Install cluster with TLS
+          command: tests/scripts/install_tls_cluster.sh
+      - run:
+          name: Run cluster tests with rustls features
+          command: tests/runners/cluster-rustls.sh
+      - save-sccache-cache
+
+jobs:
+  test-default-7_0:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 7.0.5
+    steps:
+      - test_default_features
+  test-no-features-7_0:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 7.0.5
+    steps:
+      - test_no_features
+  test-all-features-7_0:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 7.0.5
+    steps:
+      - test_all_features
+  test-cluster-tls-features-7_0:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 7.0.5
+      FRED_CI_TLS: true
+    steps:
+      - test_tls_cluster
+  test-cluster-rustls-features-7_0:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 7.0.5
+      FRED_CI_TLS: true
+    steps:
+      - test_rustls_cluster
+  test-default-6_2:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_default_features
+  test-no-features-6_2:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_no_features
+  test-all-features-6_2:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_all_features
+  test-sentinel-6_2:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 6.2.2
+    steps:
+      - test_sentinel
+  test-sentinel-7_0:
+    docker:
+      - image: cimg/rust:1.65.0
+    environment:
+      REDIS_VERSION: 7.0.5
+    steps:
+      - test_sentinel
+  test-docs:
+    docker:
+      - image: cimg/rust:1.65.0
+    steps:
+      - checkout
+      - build_docs
 
 workflows:
   version: 2
   build:
     jobs:
-      - test-default
-      - test-all-features
-      - test-no-features
-      - test-sentinel
+      # it'd be nice if we could pass parameters or something here
+      - test-default-6_2
+      - test-all-features-6_2
+      - test-no-features-6_2
+      - test-sentinel-6_2
+      - test-default-7_0
+      - test-all-features-7_0
+      - test-no-features-7_0
+      - test-sentinel-7_0
       - test-docs
+      - test-cluster-tls-features-7_0
+      - test-cluster-rustls-features-7_0

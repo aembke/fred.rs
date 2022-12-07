@@ -1,16 +1,16 @@
-use std::sync::Arc;
+use crate::protocol::types::Server;
 
 /// Options describing how to change connections in a cluster.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClusterChange {
-  pub add: Vec<Arc<String>>,
-  pub remove: Vec<Arc<String>>,
+  pub add:    Vec<Server>,
+  pub remove: Vec<Server>,
 }
 
 impl Default for ClusterChange {
   fn default() -> Self {
     ClusterChange {
-      add: Vec::new(),
+      add:    Vec::new(),
       remove: Vec::new(),
     }
   }
