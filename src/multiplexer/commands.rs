@@ -165,7 +165,7 @@ async fn write_with_backpressure(
         if is_blocking {
           inner.backchannel.write().await.set_blocked(&server);
         }
-        if flushed {
+        if !flushed {
           let _ = multiplexer.check_and_flush().await;
         }
 
