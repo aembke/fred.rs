@@ -12,7 +12,7 @@ use tokio::time::sleep;
 
 #[cfg(feature = "mocks")]
 use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
-#[cfg(feature = "partial-tracing")]
+#[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
 /// Wait for the response from the reader task, handling cluster redirections if needed.
