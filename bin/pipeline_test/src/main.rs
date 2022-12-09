@@ -38,6 +38,7 @@ use std::{
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::Registry;
+use crate::tracing_subscriber::Layer;
 
 static DEFAULT_COMMAND_COUNT: usize = 10_000;
 static DEFAULT_CONCURRENCY: usize = 10;
@@ -128,9 +129,16 @@ pub fn setup_tracing(enable: bool) {}
 pub fn setup_tracing(enable: bool) {
   if enable {
     info!("Starting stdout tracing...");
-    let tracer = stdout::new_pipeline().install_simple();
-    let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-    let subscriber = Registry::default().with(telemetry);
+    // let tracer = stdout::new_pipeline().install_simple();
+    let layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_ansi(false)
+        .event_format(tracing_subscriber::fmt::format().pretty())
+        .with_thread_names(true)
+        .with_level(true)
+        .with_line_number(true)
+        .with_filter(tracing_subscriber::filter::LevelFilter::TRACE);
+    let subscriber = Registry::default().with(layer);
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set global tracing subscriber");
   }
 }
@@ -216,6 +224,7 @@ fn main() {
     };
     let perf = PerformanceConfig {
       auto_pipeline: argv.pipeline,
+      default_command_timeout_ms: 5000,
       backpressure: BackpressureConfig {
         policy: BackpressurePolicy::Drain,
         max_in_flight_commands: 100_000_000,
@@ -224,7 +233,9 @@ fn main() {
       ..Default::default()
     };
 
-    let pool = RedisPool::new(config, Some(perf), None, argv.pool)?;
+    let reconnection_policy = ReconnectPolicy::new_constant(0, 500);
+
+    let pool = RedisPool::new(config, Some(perf), Some(reconnection_policy), argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
     let _ = pool.connect();
