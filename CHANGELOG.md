@@ -48,6 +48,12 @@ New or breaking changes in 6.x:
 * Use 6379 as default cluster port in `from_url`
 * Fix RESP3 auth error (https://github.com/aembke/fred.rs/issues/54)
 
+## 5.2.0
+
+* Reduce number of `tokio` features
+* Use 6379 as default cluster port in `from_url`
+* Fix RESP3 auth error (https://github.com/aembke/fred.rs/issues/54)
+
 ## 5.1.0
 
 * Update `redis-protocol` and `nom`

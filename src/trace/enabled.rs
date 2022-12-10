@@ -46,6 +46,7 @@ impl fmt::Debug for CommandTraces {
 }
 
 pub fn set_network_span(command: &mut RedisCommand, flush: bool) {
+  trace!("Setting network span from command {}", command.debug_id());
   let span = fspan!(command, "wait_for_response", flush);
   let _ = span.in_scope(|| {});
   command.traces.network = Some(span);
@@ -92,7 +93,7 @@ pub fn create_queued_span(_parent: Option<TraceId>, _inner: &Arc<RedisClientInne
 pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Span {
   span!(
     parent: None,
-    Level::INFO,
+    Level::DEBUG,
     "parse_pubsub",
     module = "fred",
     client_id = &inner.id.as_str(),

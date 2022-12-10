@@ -52,6 +52,9 @@ mod other {
   #[cfg(feature = "dns")]
   centralized_test!(other, should_use_trust_dns);
   // centralized_test!(other, should_test_high_concurrency_pool);
+
+  #[cfg(feature = "partial-tracing")]
+  centralized_test!(other, should_use_tracing_get_set);
 }
 
 mod pool {

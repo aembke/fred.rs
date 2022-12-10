@@ -50,7 +50,7 @@ macro_rules! _info(
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 macro_rules! fspan (
   ($cmd:ident, $($arg:tt)*) => {
-    tracing::span!(parent: $cmd.traces.cmd_id.clone(), tracing::Level::DEBUG, $($arg)*)
+    tracing::span!(parent: $cmd.traces.cmd_id.clone(), tracing::Level::INFO, $($arg)*)
   }
 );
 

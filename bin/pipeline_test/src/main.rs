@@ -22,8 +22,13 @@ use fred::{
 use indicatif::ProgressBar;
 use opentelemetry::{
   global,
-  sdk::trace::{self, IdGenerator, Sampler},
+  sdk::{
+    export::trace::stdout,
+    runtime::{Runtime, Tokio},
+    trace::{self, RandomIdGenerator, Sampler, TraceRuntime},
+  },
 };
+use opentelemetry_jaeger::JaegerTraceRuntime;
 use rand::{self, distributions::Alphanumeric, Rng};
 use std::{
   default::Default,
@@ -31,7 +36,7 @@ use std::{
   thread::{self, JoinHandle as ThreadJoinHandle},
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
-use tracing_subscriber::{layer::SubscriberExt, Registry};
+use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 
 static DEFAULT_COMMAND_COUNT: usize = 10_000;
 static DEFAULT_CONCURRENCY: usize = 10;
@@ -111,48 +116,60 @@ pub fn random_string(len: usize) -> String {
     .collect()
 }
 
-pub fn setup_tracing(enable: bool) -> ThreadJoinHandle<()> {
-  thread::spawn(move || {
-    let sampler = if enable {
-      info!("Starting tracing...");
-      Sampler::AlwaysOn
-    } else {
-      Sampler::AlwaysOff
-    };
+#[cfg(all(
+  not(feature = "partial-tracing"),
+  not(feature = "stdout-tracing"),
+  not(feature = "full-tracing")
+))]
+pub fn setup_tracing(enable: bool) {}
 
-    let basic_sch = match Builder::new_current_thread().enable_all().build() {
-      Ok(sch) => sch,
-      Err(e) => panic!("Error initializing tracing tokio scheduler: {:?}", e),
-    };
-    let _ = basic_sch.block_on(async {
-      global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
-      let jaeger_install = opentelemetry_jaeger::new_pipeline()
-        .with_service_name("pipeline-test")
-        .with_collector_endpoint("http://localhost:14268/api/traces")
-        .with_trace_config(
-          trace::config()
-            .with_sampler(sampler)
-            .with_id_generator(IdGenerator::default())
-            .with_max_attributes_per_span(32),
-        )
-        .install_batch(opentelemetry::runtime::Tokio);
+#[cfg(feature = "stdout-tracing")]
+pub fn setup_tracing(enable: bool) {
+  if enable {
+    info!("Starting stdout tracing...");
+    let layer = tracing_subscriber::fmt::layer()
+      .with_writer(std::io::stdout)
+      .with_ansi(false)
+      .event_format(tracing_subscriber::fmt::format().pretty())
+      .with_thread_names(true)
+      .with_level(true)
+      .with_line_number(true)
+      .with_filter(tracing_subscriber::filter::LevelFilter::TRACE);
+    let subscriber = Registry::default().with(layer);
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set global tracing subscriber");
+  }
+}
 
-      let tracer = match jaeger_install {
-        Ok(t) => t,
-        Err(e) => panic!("Fatal error initializing tracing: {:?}", e),
-      };
+#[cfg(any(feature = "partial-tracing", feature = "full-tracing"))]
+pub fn setup_tracing(enable: bool) {
+  let sampler = if enable {
+    info!("Starting tracing...");
+    Sampler::AlwaysOn
+  } else {
+    Sampler::AlwaysOff
+  };
 
-      let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
-      let subscriber = Registry::default().with(telemetry);
-      let _tracing_guard = tracing::subscriber::set_global_default(subscriber);
+  global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+  let jaeger_install = opentelemetry_jaeger::new_agent_pipeline()
+    .with_service_name("pipeline-test")
+    .with_trace_config(
+      trace::config()
+        .with_sampler(sampler)
+        .with_id_generator(RandomIdGenerator::default())
+        .with_max_attributes_per_span(32),
+    )
+    .install_simple();
 
-      info!("Initialized opentelemetry-jaeger pipeline.");
-      std::future::pending::<()>().await
-    });
+  let tracer = match jaeger_install {
+    Ok(t) => t,
+    Err(e) => panic!("Fatal error initializing tracing: {:?}", e),
+  };
 
-    warn!("Exiting jaeger tokio runtime thread.");
-    ()
-  })
+  let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+  let subscriber = Registry::default().with(telemetry);
+  tracing::subscriber::set_global_default(subscriber).expect("Failed to set global tracing subscriber");
+
+  info!("Initialized opentelemetry-jaeger pipeline.");
 }
 
 fn spawn_client_task(
@@ -176,7 +193,7 @@ fn spawn_client_task(
       // assert_eq!(actual, expected);
     }
 
-    Ok(())
+    Ok::<_, RedisError>(())
   })
 }
 
@@ -185,10 +202,10 @@ fn main() {
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
-  let _ = setup_tracing(argv.tracing);
   let sch = Builder::new_multi_thread().enable_all().build().unwrap();
-
   let output = sch.block_on(async move {
+    setup_tracing(argv.tracing);
+
     let counter = Arc::new(AtomicUsize::new(0));
     let config = RedisConfig {
       server: if argv.cluster {
@@ -198,10 +215,13 @@ fn main() {
       } else {
         ServerConfig::new_centralized(&argv.host, argv.port)
       },
+      #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
+      tracing: argv.tracing,
       ..Default::default()
     };
     let perf = PerformanceConfig {
       auto_pipeline: argv.pipeline,
+      default_command_timeout_ms: 5000,
       backpressure: BackpressureConfig {
         policy: BackpressurePolicy::Drain,
         max_in_flight_commands: 100_000_000,
@@ -209,8 +229,9 @@ fn main() {
       },
       ..Default::default()
     };
+    let policy = ReconnectPolicy::new_constant(0, 500);
 
-    let pool = RedisPool::new(config, Some(perf), None, argv.pool)?;
+    let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
     let _ = pool.connect();
@@ -230,7 +251,10 @@ fn main() {
     for _ in 0 .. argv.tasks {
       tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
     }
-    let _ = futures::future::try_join_all(tasks).await?;
+    if let Err(e) = futures::future::try_join_all(tasks).await {
+      println!("Finished with error: {:?}", e);
+      std::process::exit(1);
+    }
 
     let duration = Instant::now().duration_since(started);
     let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
@@ -254,6 +278,6 @@ fn main() {
     Ok::<_, RedisError>(())
   });
   if let Err(e) = output {
-    eprintln!("Script finished with error: {:?}", e);
+    eprintln!("Finished with error: {:?}", e);
   }
 }

@@ -13,7 +13,11 @@ docker-compose -f /path/to/fred/tests/docker-compose.yml up
 
 Then navigate to <http://localhost:16686>.
 
-**Be sure to add `--features partial-tracing` to enable tracing.** By default this module does not compile any tracing features.
+By default this module does not compile any tracing features, but there are 3 flags that can toggle how tracing is configured.
+
+* `partial-tracing` - Enables `fred/partial-tracing` and emits traces to a local jaeger instance.
+* `full-tracing` - Enables `fred/full-tracing` and emits traces to a local jaeger instance.
+* `stdout-tracing` - Enables `fred/partial-tracing` and emits traces to stdout.
 
 ## Arguments
 

@@ -214,16 +214,14 @@ pub async fn should_safely_change_protocols_repeatedly(
       if *other_done.read() {
         return Ok::<_, RedisError>(());
       }
-      // force a non-static lifetime
       let foo = String::from("foo");
-
       let _ = other.incr(&foo).await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
 
   // switch protocols every half second
-  for idx in 0 .. 20 {
+  for idx in 0 .. 15 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
@@ -320,14 +318,14 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let other = client.clone();
   let jh1 = tokio::spawn(async move {
-    for _ in 0 .. 1000 {
+    for _ in 0 .. 200 {
       let _ = other.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
   });
   let jh2 = tokio::spawn(async move {
-    for _ in 0 .. 1000 {
+    for _ in 0 .. 200 {
       let _ = client.flushall_cluster().await?;
     }
 
@@ -335,6 +333,20 @@ pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: Red
   });
 
   let _ = try_join(jh1, jh2).await?;
+  Ok(())
+}
+
+#[cfg(feature = "partial-tracing")]
+pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  config.tracing = true;
+  let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
+  let client = RedisClient::new(config, Some(perf), policy);
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+
+  check_null!(client, "foo");
+  let _: () = client.set("foo", "bar", None, None, false).await?;
+  assert_eq!(client.get::<String, _>("foo").await?, "bar");
   Ok(())
 }
 

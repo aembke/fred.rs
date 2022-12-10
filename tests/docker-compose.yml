@@ -5,6 +5,7 @@ services:
     image: "jaegertracing/all-in-one:latest"
     environment:
       - "COLLECTOR_ZIPKIN_HOST_PORT=:9411"
+      - "COLLECTOR_OTLP_ENABLED=true"
     ports:
       - "5775:5775/udp"
       - "6831:6831/udp"
@@ -14,6 +15,8 @@ services:
       - "14268:14268"
       - "14250:14250"
       - "9411:9411"
+      - "4318:4318"
+      - "4317:4317"
 
 
 
