@@ -103,6 +103,22 @@ pub async fn write_command(
   mut command: RedisCommand,
   force_flush: bool,
 ) -> Written {
+  _trace!(
+    inner,
+    "Writing command {}. Timed out: {}, Force flush: {}",
+    command.debug_id(),
+    client_utils::read_bool_atomic(&command.timed_out),
+    force_flush
+  );
+  if client_utils::read_bool_atomic(&command.timed_out) {
+    _debug!(
+      inner,
+      "Ignore writing timed out command: {}",
+      command.kind.to_str_debug()
+    );
+    return Written::Ignore;
+  }
+
   match check_backpressure(inner, &writer.counters, &command) {
     Ok(Some(backpressure)) => {
       _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());

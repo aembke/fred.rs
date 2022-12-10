@@ -8,8 +8,10 @@ use crate::{
     types::{ClusterRouting, Server},
   },
   trace,
+  utils as client_utils,
 };
 use futures::future::try_join_all;
+use semver::Version;
 use std::{
   collections::{HashMap, VecDeque},
   sync::Arc,
@@ -31,7 +33,6 @@ pub mod utils;
 use crate::protocol::types::ReplicaSet;
 #[cfg(feature = "replicas")]
 use arcstr::ArcStr;
-use semver::Version;
 
 /// The result of an attempt to send a command to the server.
 pub enum Written {
@@ -414,6 +415,8 @@ impl Connections {
     inner: &Arc<RedisClientInner>,
     command: RedisCommand,
   ) -> Result<Written, (RedisError, RedisCommand)> {
+    _trace!(inner, "Writing command {}", command.debug_id());
+
     match self {
       Connections::Clustered {
         ref mut writers,
@@ -545,7 +548,7 @@ impl Multiplexer {
       match self.connections.write_command(&self.inner, command).await {
         Ok(result) => Ok(result),
         Err((error, command)) => {
-          self.buffer.push_back(command);
+          self.buffer_command(command);
           Err(error)
         },
       }
@@ -656,7 +659,7 @@ impl Multiplexer {
     match write_result {
       Written::Disconnect((server, command, error)) => {
         let buffer = self.connections.disconnect(&inner, Some(&server)).await;
-        self.buffer.extend(buffer.into_iter());
+        self.buffer_commands(buffer);
 
         if let Some(command) = command {
           _debug!(
@@ -671,8 +674,8 @@ impl Multiplexer {
       Written::Sync(command) => {
         _debug!(inner, "Missing hash slot. Disconnecting and syncing cluster.");
         let buffer = self.connections.disconnect_all(&inner).await;
-        self.buffer.extend(buffer.into_iter());
-        self.buffer.push_back(command);
+        self.buffer_commands(buffer);
+        self.buffer_command(command);
 
         Err(RedisError::new(
           RedisErrorKind::Protocol,
@@ -706,7 +709,35 @@ impl Multiplexer {
   /// reconnection, if necessary.
   pub async fn disconnect_all(&mut self) {
     let commands = self.connections.disconnect_all(&self.inner).await;
-    self.buffer.extend(commands);
+    self.buffer_commands(commands);
+  }
+
+  /// Add the provided commands to the retry buffer.
+  pub fn buffer_commands(&mut self, commands: VecDeque<RedisCommand>) {
+    for command in commands.into_iter() {
+      self.buffer_command(command);
+    }
+  }
+
+  /// Add the provided command to the retry buffer.
+  pub fn buffer_command(&mut self, command: RedisCommand) {
+    trace!(
+      "{}: Adding {} ({}) command to retry buffer.",
+      self.inner.id,
+      command.kind.to_str_debug(),
+      command.debug_id()
+    );
+    self.buffer.push_back(command);
+  }
+
+  /// Clear all the commands in the retry buffer.
+  pub fn clear_retry_buffer(&mut self) {
+    trace!(
+      "{}: Clearing retry buffer with {} commands.",
+      self.inner.id,
+      self.buffer.len()
+    );
+    self.buffer.clear();
   }
 
   /// Connect to the server(s), discarding any previous connection state.
@@ -729,10 +760,19 @@ impl Multiplexer {
   /// If a command cannot be written the underlying connections will close and the unsent commands will remain on the
   /// internal buffer.
   pub async fn retry_buffer(&mut self) {
-    let mut commands: Vec<RedisCommand> = self.buffer.drain(..).collect();
+    let mut commands: VecDeque<RedisCommand> = self.buffer.drain(..).collect();
     let mut failed_command = None;
 
     for mut command in commands.drain(..) {
+      if client_utils::read_bool_atomic(&command.timed_out) {
+        debug!(
+          "{}: Ignore retrying timed out command: {}",
+          self.inner.id,
+          command.kind.to_str_debug()
+        );
+        continue;
+      }
+
       command.skip_backpressure = true;
 
       match self.write_command(command).await {
@@ -767,9 +807,9 @@ impl Multiplexer {
     }
 
     if let Some(command) = failed_command {
-      self.buffer.push_back(command);
+      self.buffer_command(command);
     }
-    self.buffer.extend(commands.into_iter());
+    self.buffer_commands(commands);
   }
 
   /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.

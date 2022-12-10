@@ -130,9 +130,9 @@ async fn write_with_backpressure(
       Ok(Written::Disconnect((server, command, error))) => {
         _debug!(inner, "Handle disconnect for {} from {:?}", server, error);
         let commands = multiplexer.connections.disconnect(inner, Some(&server)).await;
-        multiplexer.buffer.extend(commands);
+        multiplexer.buffer_commands(commands);
         if let Some(command) = command {
-          multiplexer.buffer.push_back(command);
+          multiplexer.buffer_command(command);
         }
 
         break;
@@ -141,7 +141,7 @@ async fn write_with_backpressure(
         _debug!(inner, "Perform cluster sync after missing hash slot lookup.");
         // disconnecting from everything forces the caller into a reconnect loop
         multiplexer.disconnect_all().await;
-        multiplexer.buffer.push_back(command);
+        multiplexer.buffer_command(command);
         break;
       },
       Ok(Written::Ignore) => {
@@ -516,7 +516,7 @@ async fn process_commands(
         break;
       } else {
         let _ = multiplexer.disconnect_all().await;
-        multiplexer.buffer.clear();
+        multiplexer.clear_retry_buffer();
         return Err(e);
       }
     }
@@ -524,7 +524,7 @@ async fn process_commands(
 
   _debug!(inner, "Disconnecting after command stream closes.");
   let _ = multiplexer.disconnect_all().await;
-  multiplexer.buffer.clear();
+  multiplexer.clear_retry_buffer();
   Ok(())
 }
 

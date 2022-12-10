@@ -36,7 +36,14 @@ pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C)
 where
   C: Into<RedisCommand>,
 {
-  send_to_multiplexer(inner, command.into().into())
+  let command: RedisCommand = command.into();
+  _trace!(
+    inner,
+    "Sending command {} ({}) to multiplexer.",
+    command.kind.to_str_debug(),
+    command.debug_id()
+  );
+  send_to_multiplexer(inner, command.into())
 }
 
 /// Send a `MultiplexerCommand` to the multiplexer.

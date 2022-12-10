@@ -8,6 +8,7 @@ use crate::{
     utils as protocol_utils,
   },
   types::*,
+  utils,
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -16,6 +17,7 @@ use futures::{
   future::{select, Either},
   pin_mut,
   Future,
+  TryFutureExt,
 };
 use parking_lot::{Mutex, RwLock};
 use rand::{self, distributions::Alphanumeric, Rng};
@@ -41,8 +43,6 @@ use url::Url;
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-use futures::TryFutureExt;
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -414,11 +414,17 @@ where
   let (tx, rx) = oneshot_channel();
   command.response = ResponseKind::Respond(Some(tx));
 
+  let timed_out = command.timed_out.clone();
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = disallow_nested_values(&command)?;
   let _ = client.send_command(command)?;
 
-  wait_for_response(rx, inner.default_command_timeout()).await
+  wait_for_response(rx, inner.default_command_timeout())
+    .map_err(move |error| {
+      utils::set_bool_atomic(&timed_out, true);
+      error
+    })
+    .await
 }
 
 /// Send a command to the server, with tracing.
@@ -454,6 +460,14 @@ where
   cmd_span.record("req_size", &req_size);
 
   let queued_span = trace::create_queued_span(cmd_span.id(), inner);
+  let timed_out = command.timed_out.clone();
+  _trace!(
+    inner,
+    "Setting command trace ID: {:?} for {} ({})",
+    cmd_span.id(),
+    command.kind.to_str_debug(),
+    command.debug_id()
+  );
   command.traces.cmd_id = cmd_span.id();
   command.traces.queued = Some(queued_span);
 
@@ -461,6 +475,10 @@ where
   let _ = client.send_command(command)?;
 
   wait_for_response(rx, inner.default_command_timeout())
+    .map_err(move |error| {
+      utils::set_bool_atomic(&timed_out, true);
+      error
+    })
     .and_then(|frame| async move {
       trace::record_response_size(&end_cmd_span, &frame);
       Ok::<_, RedisError>(frame)

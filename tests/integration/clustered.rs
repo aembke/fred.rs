@@ -52,6 +52,8 @@ mod other {
   cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
   #[cfg(feature = "dns")]
   cluster_test!(other, should_use_trust_dns);
+  #[cfg(feature = "partial-tracing")]
+  cluster_test!(other, should_use_tracing_get_set);
 }
 
 mod pool {

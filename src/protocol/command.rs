@@ -15,7 +15,14 @@ use crate::{
 };
 use bytes_utils::Str;
 use redis_protocol::resp3::types::RespVersion;
-use std::{convert::TryFrom, fmt, fmt::Formatter, mem, str, sync::Arc};
+use std::{
+  convert::TryFrom,
+  fmt,
+  fmt::Formatter,
+  mem,
+  str,
+  sync::{atomic::AtomicBool, Arc},
+};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
 #[cfg(feature = "blocking-encoding")]
@@ -1330,6 +1337,8 @@ pub struct RedisCommand {
   pub skip_backpressure: bool,
   /// The internal ID of a transaction.
   pub transaction_id:    Option<u64>,
+  /// Whether the command has timed out from the perspective of the caller.
+  pub timed_out:         Arc<AtomicBool>,
   /// Whether to route the command to a replica, if possible.
   #[cfg(feature = "replicas")]
   pub use_replica:       bool,
@@ -1375,6 +1384,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
     RedisCommand {
       kind,
       arguments,
+      timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
       multiplexer_tx: Arc::new(Mutex::new(None)),
@@ -1401,6 +1411,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
     RedisCommand {
       kind,
       arguments,
+      timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Respond(Some(tx)),
       hasher: ClusterHash::default(),
       multiplexer_tx: Arc::new(Mutex::new(None)),
@@ -1428,6 +1439,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       kind,
       arguments,
       response,
+      timed_out: Arc::new(AtomicBool::new(false)),
       hasher: ClusterHash::default(),
       multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
@@ -1454,6 +1466,7 @@ impl RedisCommand {
     RedisCommand {
       kind,
       arguments: args,
+      timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Skip,
       hasher: ClusterHash::FirstKey,
       multiplexer_tx: Arc::new(Mutex::new(None)),
@@ -1481,6 +1494,7 @@ impl RedisCommand {
       arguments: Vec::new(),
       response: ResponseKind::Skip,
       hasher: ClusterHash::Custom(hash_slot),
+      timed_out: Arc::new(AtomicBool::new(false)),
       multiplexer_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: false,
@@ -1606,6 +1620,7 @@ impl RedisCommand {
   /// Note: this will **not** clone the multiplexer channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
+      timed_out: self.timed_out.clone(),
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
