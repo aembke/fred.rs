@@ -1820,6 +1820,8 @@ pub enum MultiplexerCommand {
   },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster,
+  /// Read the set of active connections managed by the client.
+  Connections { tx: OneshotSender<Vec<Server>> },
 }
 
 impl fmt::Debug for MultiplexerCommand {
@@ -1855,6 +1857,9 @@ impl fmt::Debug for MultiplexerCommand {
       },
       MultiplexerCommand::Pipeline { .. } => {
         formatter.field("kind", &"Pipeline");
+      },
+      MultiplexerCommand::Connections { .. } => {
+        formatter.field("kind", &"Connections");
       },
       MultiplexerCommand::Command(command) => {
         formatter

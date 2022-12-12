@@ -481,6 +481,32 @@ impl Connections {
       ))
     }
   }
+
+  /// Read the list of active/working connections.
+  pub fn active_connections(&self) -> Vec<Server> {
+    match self {
+      Connections::Clustered { ref writers, .. } => writers
+        .iter()
+        .filter_map(|(server, writer)| {
+          if writer.is_working() {
+            Some(server.clone())
+          } else {
+            None
+          }
+        })
+        .collect(),
+      Connections::Centralized { ref writer } | Connections::Sentinel { ref writer, .. } => writer
+        .as_ref()
+        .and_then(|writer| {
+          if writer.is_working() {
+            Some(vec![writer.server.clone()])
+          } else {
+            None
+          }
+        })
+        .unwrap_or(Vec::new()),
+    }
+  }
 }
 
 /// A struct for routing commands to the server(s).

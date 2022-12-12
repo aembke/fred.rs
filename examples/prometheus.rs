@@ -30,14 +30,14 @@ async fn main() -> Result<(), RedisError> {
   let bytes_sent = register_int_gauge_vec!("redis_bytes_sent", "Total bytes sent to redis.", &["id"]).unwrap();
 
   let config = RedisConfig::default();
-  let client = RedisClient::new(config);
+  let client = RedisClient::new(config, None, None);
 
-  let jh = client.connect(None);
+  let _ = client.connect();
   let _ = client.wait_for_connect();
 
   // do stuff...
 
   sample_metrics(&client, num_commands, avg_latency, bytes_sent);
-  let _ = jh.await;
+  let _ = client.quit().await?;
   Ok(())
 }

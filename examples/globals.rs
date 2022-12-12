@@ -9,7 +9,7 @@ async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
   let client = RedisClient::new(config, None, None);
 
-  let jh = client.connect();
+  let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {
     println!("Client failed to connect with error: {:?}", error);
   }
@@ -26,6 +26,6 @@ async fn main() -> Result<(), RedisError> {
 
   // do stuff...
 
-  let _ = jh.await;
+  let _ = client.quit().await?;
   Ok(())
 }

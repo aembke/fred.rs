@@ -163,6 +163,11 @@ pub trait ClientLike: Clone + Send + Sized {
     *self.inner().state.read() == ClientState::Connected
   }
 
+  /// Read the set of active connections managed by the client.
+  async fn active_connections(&self) -> Result<Vec<Server>, RedisError> {
+    commands::client::active_connections(self).await
+  }
+
   /// Read the server version, if known.
   fn server_version(&self) -> Option<Version> {
     self.inner().server_state.read().server_version()
@@ -323,3 +328,4 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+use crate::types::Server;

@@ -1,3 +1,4 @@
+use fred::types::{Library, Script};
 use fred::{prelude::*, util as fred_utils};
 
 static SCRIPTS: &'static [&'static str] = &[
@@ -11,8 +12,7 @@ static SCRIPTS: &'static [&'static str] = &[
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
   let client = RedisClient::new(config, None, None);
-
-  let _jh = client.connect();
+  let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
   for script in SCRIPTS.iter() {
@@ -32,5 +32,37 @@ async fn main() -> Result<(), RedisError> {
   println!("First script result: {:?}", result);
 
   let _ = client.quit().await;
+  Ok(())
+}
+
+// or use the `Script` utility types
+async fn scripts() -> Result<(), RedisError> {
+  let config = RedisConfig::default();
+  let client = RedisClient::new(config, None, None);
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+
+  let script = Script::from_lua(SCRIPTS[0]);
+  let _ = script.load(&client).await?;
+  let result = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
+  println!("First script result: {:?}", result);
+
+  Ok(())
+}
+
+// or use the `Function` and `Library` utility types
+async fn functions() -> Result<(), RedisError> {
+  let config = RedisConfig::default();
+  let client = RedisClient::new(config, None, None);
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+
+  let echo_lua = include_str!("../tests/scripts/lua/echo.lua");
+  let lib = Library::from_code(&client, echo_lua).await?;
+  let func = lib.functions().get("echo").expect("Failed to read echo function");
+
+  let result: Vec<String> = func.fcall(&client, vec!["foo{1}", "bar{1}"], vec!["3", "4"]).await?;
+  assert_eq!(result, vec!["foo{1}", "bar{1}", "3", "4"]);
+
   Ok(())
 }

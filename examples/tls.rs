@@ -1,4 +1,5 @@
 use fred::prelude::*;
+use fred::types::rustls::ClientConfig;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use fred::types::TlsConnector;
@@ -7,6 +8,7 @@ use fred::types::TlsConnector;
 fn create_tls_config() -> TlsConnector {
   use fred::types::native_tls::TlsConnector as NativeTlsConnector;
 
+  // or use `TlsConnector::default_native_tls()`
   NativeTlsConnector::builder()
     .use_sni(true)
     .danger_accept_invalid_certs(false)
@@ -18,14 +20,10 @@ fn create_tls_config() -> TlsConnector {
 
 #[cfg(feature = "enable-rustls")]
 fn create_tls_config() -> TlsConnector {
-  use tokio_rustls::rustls::{
-    client::WantsClientCert,
-    ClientConfig as RustlsClientConfig,
-    ConfigBuilder,
-    RootCertStore,
-  };
+  use fred::types::rustls::{client::WantsClientCert, ClientConfig, RootCertStore};
 
-  RustlsClientConfig::builder()
+  // or use `TlsConnector::default_rustls()`
+  ClientConfig::builder()
     .with_safe_defaults()
     .with_root_certificates(RootCertStore::empty())
     .with_no_client_auth()
@@ -35,20 +33,19 @@ fn create_tls_config() -> TlsConnector {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig {
-    // or use `TlsConnector::default_native_tls` or `TlsConnector::default_rustls`
     #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
     tls: Some(create_tls_config().into()),
     ..RedisConfig::default()
   };
   let client = RedisClient::new(config, None, None);
 
-  let jh = client.connect();
+  let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {
     println!("Client failed to connect with error: {:?}", error);
   }
 
   // do stuff...
 
-  let _ = jh.await;
+  let _ = client.quit().await?;
   Ok(())
 }

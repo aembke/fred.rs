@@ -1,7 +1,7 @@
 ## 6.0.0
 
 * Refactored the connection and protocol layer.
-* Add a manual `Pipeline` interface.
+* Add a manual `Pipeline` interface for pipelining commands within a task.
 * Rework the `Transaction` interface to buffer commands in memory before EXEC/DISCARD.
 * Rework the cluster discovery and failover implementation. 
 * Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
@@ -31,7 +31,7 @@ New or breaking changes in 6.x:
 * Changed the type and fields on `BackpressurePolicy::Sleep`.
 * New [custom command interface](examples/custom.rs) for managing cluster hash slots.
 * Removed or renamed some fields on `RedisConfig`.
-* Changed the pubsub receiver interface to use `Message`.
+* Changed the pubsub receiver interface to use `Message` instead of `(String, RedisValue)` tuples.
 * Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
   * This usually means changing `next()` to `recv()` in `while let` loops, etc.
 * The `FromRedis` trait converts `RedisValue::Null` to `"nil"` with `String` and `Str`.

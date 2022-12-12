@@ -59,8 +59,11 @@ impl From<Resp3Frame> for ProtocolFrame {
 /// State necessary to identify or connect to a server.
 #[derive(Debug, Clone)]
 pub struct Server {
+  /// The hostname or IP address for the server.
   pub host:            ArcStr,
+  /// The port for the server.
   pub port:            u16,
+  /// The server name used during the TLS handshake.
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
   pub tls_server_name: Option<ArcStr>,
 }
