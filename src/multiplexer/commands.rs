@@ -8,7 +8,7 @@ use crate::{
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{sync::Arc, time::Duration};
-use tokio::time::sleep;
+use tokio::{sync::oneshot::Sender as OneshotSender, time::sleep};
 
 #[cfg(feature = "mocks")]
 use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
@@ -376,6 +376,18 @@ async fn process_normal_command(
   write_with_backpressure_t(inner, multiplexer, command, false).await
 }
 
+/// Read the set of active connections managed by the client.
+fn process_connections(
+  inner: &Arc<RedisClientInner>,
+  multiplexer: &Multiplexer,
+  tx: OneshotSender<Vec<Server>>,
+) -> Result<(), RedisError> {
+  let connections = multiplexer.connections.active_connections();
+  _debug!(inner, "Active connections: {:?}", connections);
+  let _ = tx.send(connections);
+  Ok(())
+}
+
 /// Process any kind of multiplexer command.
 #[cfg(feature = "mocks")]
 fn process_command(inner: &Arc<RedisClientInner>, command: MultiplexerCommand) -> Result<(), RedisError> {
@@ -494,6 +506,7 @@ async fn process_command(
     } => transactions::run(inner, multiplexer, commands, id, abort_on_error, tx).await,
     MultiplexerCommand::Pipeline { commands } => process_pipeline(inner, multiplexer, commands).await,
     MultiplexerCommand::Command(command) => process_normal_command(inner, multiplexer, command).await,
+    MultiplexerCommand::Connections { tx } => process_connections(inner, multiplexer, tx),
   }
 }
 

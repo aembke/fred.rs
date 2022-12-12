@@ -1,4 +1,4 @@
-use fred::monitor::{self, Config};
+use fred::monitor;
 use fred::prelude::*;
 use futures::stream::StreamExt;
 use std::time::Duration;
@@ -6,10 +6,8 @@ use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  pretty_env_logger::init();
-
   let monitor_jh = tokio::spawn(async move {
-    let config = Config::default();
+    let config = RedisConfig::default();
     let mut monitor_stream = monitor::run(config).await?;
 
     while let Some(command) = monitor_stream.next().await {
@@ -21,8 +19,8 @@ async fn main() -> Result<(), RedisError> {
   });
 
   let config = RedisConfig::default();
-  let client = RedisClient::new(config);
-  let _ = client.connect(None);
+  let client = RedisClient::new(config, None, None);
+  let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {
     println!("Client failed to connect with error: {:?}", error);
   }
@@ -32,6 +30,7 @@ async fn main() -> Result<(), RedisError> {
   }
   let _ = client.quit().await?;
 
+  // wait a bit for the monitor stream to catch up
   sleep(Duration::from_secs(1)).await;
   monitor_jh.abort();
   Ok(())
