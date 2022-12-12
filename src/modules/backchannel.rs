@@ -155,8 +155,9 @@ impl Backchannel {
     if let Some(ref mut transport) = self.transport {
       _debug!(
         inner,
-        "Sending {} on backchannel to {}",
+        "Sending {} ({}) on backchannel to {}",
         command.kind.to_str_debug(),
+        command.debug_id(),
         server
       );
       transport.request_response(command, inner.is_resp3()).await
