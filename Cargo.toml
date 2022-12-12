@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.0.0-beta.1"
+version = "6.0.0-beta.2"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -12,7 +12,20 @@ categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
 
 [package.metadata.docs.rs]
-features = [""]
+features = [
+  "serde-json",
+  "subscriber-client",
+  "mocks",
+  "metrics",
+  "dns",
+  "enable-rustls",
+  "enable-native-tls",
+  "blocking-encoding",
+  "custom-reconnect-errors",
+  "monitor",
+  "sentinel-client",
+  "sentinel-auth"
+]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
