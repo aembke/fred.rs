@@ -1,12 +1,11 @@
 use fred::prelude::*;
-use fred::types::rustls::ClientConfig;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use fred::types::TlsConnector;
 
 #[cfg(feature = "enable-native-tls")]
 fn create_tls_config() -> TlsConnector {
-  use fred::types::native_tls::TlsConnector as NativeTlsConnector;
+  use fred::native_tls::TlsConnector as NativeTlsConnector;
 
   // or use `TlsConnector::default_native_tls()`
   NativeTlsConnector::builder()
@@ -20,7 +19,7 @@ fn create_tls_config() -> TlsConnector {
 
 #[cfg(feature = "enable-rustls")]
 fn create_tls_config() -> TlsConnector {
-  use fred::types::rustls::{client::WantsClientCert, ClientConfig, RootCertStore};
+  use fred::rustls::{ClientConfig, RootCertStore};
 
   // or use `TlsConnector::default_rustls()`
   ClientConfig::builder()

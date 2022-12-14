@@ -10,15 +10,6 @@ use std::sync::Arc;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-pub use rustls_native_certs;
-#[cfg(feature = "enable-native-tls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-pub use tokio_native_tls::native_tls;
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-pub use tokio_rustls::rustls;
 
 pub use crate::protocol::types::Server;
 /// The default amount of jitter when waiting to reconnect.

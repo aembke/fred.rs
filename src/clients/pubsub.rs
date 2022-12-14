@@ -20,19 +20,23 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 /// ```rust no_run
 /// use fred::clients::SubscriberClient;
 /// use fred::prelude::*;
-/// use futures::stream::StreamExt;
 ///
-/// let subscriber = SubscriberClient::new(RedisConfig::default());
-/// let _ = subscriber.connect(Some(ReconnectPolicy::default()));
+/// let config = RedisConfig::default();
+/// let perf = PerformanceConfig::default();
+/// let policy = ReconnectPolicy::default();
+/// let subscriber = SubscriberClient::new(config, Some(perf), Some(policy));
+/// let _ = subscriber.connect();
 /// let _ = subscriber.wait_for_connect().await?;
 /// // spawn a task that will automatically re-subscribe to channels and patterns as needed
 /// let _ = subscriber.manage_subscriptions();
 ///
 /// // do pubsub things
-/// let jh = tokio::spawn(subscriber.on_message().for_each_concurrent(10, |(channel, message)| {
-///   println!("Recv message {:?} on channel {}", message, channel);
-///   Ok(())
-/// }));
+/// let mut message_rx = subscriber.on_message();
+/// let jh = tokio::spawn(async move {
+///   while let Ok(message) = message_rx.recv().await {
+///     println!("Recv message {:?} on channel {}", message.value, message.channel);
+///   }
+/// });
 ///
 /// let _ = subscriber.subscribe("foo").await?;
 /// let _ = subscriber.psubscribe("bar*").await?;

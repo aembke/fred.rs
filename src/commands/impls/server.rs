@@ -130,7 +130,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
 
 pub async fn ping<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, || Ok((RedisCommandKind::Ping, vec![]))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn select<C: ClientLike>(client: &C, db: u8) -> Result<RedisValue, RedisError> {

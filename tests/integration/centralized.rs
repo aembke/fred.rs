@@ -55,6 +55,8 @@ mod other {
 
   #[cfg(feature = "partial-tracing")]
   centralized_test!(other, should_use_tracing_get_set);
+  #[cfg(feature = "subscriber-client")]
+  centralized_test!(other, should_ping_with_subscriber_client);
 }
 
 mod pool {

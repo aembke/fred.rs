@@ -52,9 +52,9 @@ pub trait HeartbeatInterface: ClientLike {
       interval.tick().await;
 
       if break_on_error {
-        let _ = _self.ping().await?;
+        let _: () = _self.ping().await?;
       } else {
-        if let Err(e) = _self.ping().await {
+        if let Err(e) = _self.ping::<()>().await {
           warn!("{}: Heartbeat ping failed with error: {:?}", _self.inner().id, e);
         }
       }
