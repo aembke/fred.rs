@@ -27,7 +27,7 @@ async fn main() -> Result<(), RedisError> {
 
   for idx in 0 .. COUNT {
     let _ = publisher_client.rpush("foo", idx).await?;
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
   }
 
   let _ = subscriber_jh.abort();

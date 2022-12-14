@@ -1419,7 +1419,7 @@ pub fn arg_size(value: &RedisValue) -> usize {
   }
 }
 
-#[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
+#[cfg(feature = "blocking-encoding")]
 pub fn resp2_frame_size(frame: &Resp2Frame) -> usize {
   match frame {
     Resp2Frame::Integer(ref i) => i64_size(*i),
@@ -1436,7 +1436,7 @@ pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
   frame.encode_len().unwrap_or(0)
 }
 
-#[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
+#[cfg(feature = "blocking-encoding")]
 pub fn frame_size(frame: &ProtocolFrame) -> usize {
   match frame {
     ProtocolFrame::Resp3(f) => resp3_frame_size(f),
