@@ -5,7 +5,7 @@
 //! Fred
 //! ====
 //!
-//! An async client library for [Redis](https://redis.io/) based on Tokio and Futures.
+//! An async client library for [Redis](https://redis.io/) built on Tokio and Futures.
 //!
 //! ## Examples
 //!
@@ -17,48 +17,49 @@
 //! async fn main() -> Result<(), RedisError> {
 //!   let config = RedisConfig::default();
 //!   let policy = ReconnectPolicy::default();
-//!   let client = RedisClient::new(config);
+//!   let perf = PerformanceConfig::default();
+//!   let client = RedisClient::new(config, Some(perf), Some(policy));
 //!
 //!   // connect to the server, returning a handle to a task that drives the connection
-//!   let jh = client.connect(Some(policy));
-//!   // wait for the client to connect
+//!   let _ = client.connect();
 //!   let _ = client.wait_for_connect().await?;
-//!   let _ = client.flushall(false).await?;
 //!
 //!   // convert responses to many common Rust types
 //!   let foo: Option<String> = client.get("foo").await?;
-//!   assert_eq!(foo, None);
+//!   assert!(foo.is_none());
 //!
 //!   let _: () = client.set("foo", "bar", None, None, false).await?;
 //!   // or use turbofish to declare types. the first type is always the response.
 //!   println!("Foo: {:?}", client.get::<String, _>("foo".to_owned()).await?);
 //!   // or use a lower level interface for responses to defer parsing, etc
 //!   let foo: RedisValue = client.get("foo").await?;
-//!   assert!(foo.is_string());
+//!   assert_eq!(foo.as_str().unwrap(), "bar");
 //!
 //!   let _ = client.quit().await?;
-//!   // and/or wait for the task driving the connection to finish
-//!   let _ = jh.await;
 //!   Ok(())
 //! }
 //! ```
 //!
 //! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
 
-pub extern crate bytes;
-pub extern crate bytes_utils;
-#[cfg(feature = "serde-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
-pub extern crate serde_json;
-
 #[macro_use]
 extern crate async_trait;
 #[macro_use]
 extern crate log;
+
+pub extern crate bytes;
+pub extern crate bytes_utils;
 #[cfg(feature = "enable-native-tls")]
-extern crate native_tls;
-#[cfg(feature = "enable-native-tls")]
-extern crate tokio_native_tls;
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
+pub extern crate native_tls;
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+pub extern crate rustls;
+#[cfg(feature = "enable-rustls")]
+#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+pub extern crate rustls_native_certs;
+#[cfg(feature = "serde-json")]
+pub extern crate serde_json;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 extern crate tracing;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -122,6 +123,7 @@ pub mod prelude {
       Blocking,
       Expiration,
       FromRedis,
+      PerformanceConfig,
       ReconnectPolicy,
       RedisConfig,
       RedisValue,

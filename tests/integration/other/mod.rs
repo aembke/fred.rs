@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use fred::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
@@ -6,6 +7,7 @@ use fred::{
   prelude::{Blocking, RedisValue},
   types::{BackpressureConfig, ClientUnblockFlag, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig},
 };
+use futures::future::try_join;
 use parking_lot::RwLock;
 use redis_protocol::resp3::types::RespVersion;
 use std::{
@@ -20,10 +22,10 @@ use std::{
 };
 use tokio::time::sleep;
 
-use async_trait::async_trait;
+#[cfg(feature = "subscriber-client")]
+use fred::clients::SubscriberClient;
 #[cfg(feature = "dns")]
 use fred::types::Resolve;
-use futures::future::try_join;
 #[cfg(feature = "dns")]
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
@@ -83,7 +85,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
   let unblock_client = client.clone();
   let _ = tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
-    let _ = unblock_client.ping().await;
+    let _: () = unblock_client.ping().await.expect("Failed to ping");
   });
 
   let result = client.blpop::<(), _>("foo", 60.0).await;
@@ -122,7 +124,7 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
   let _ = tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
 
-    let result = error_client.ping().await;
+    let result = error_client.ping::<()>().await;
     assert!(result.is_err());
     assert_eq!(*result.unwrap_err().kind(), RedisErrorKind::InvalidCommand);
 
@@ -393,7 +395,21 @@ pub async fn should_use_trust_dns(client: RedisClient, mut config: RedisConfig) 
 
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
-  let _ = client.ping().await?;
+  let _: () = client.ping().await?;
+  let _ = client.quit().await?;
+  Ok(())
+}
+
+#[cfg(feature = "subscriber-client")]
+pub async fn should_ping_with_subscriber_client(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
+  let client = SubscriberClient::new(config, Some(perf), policy);
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+
+  let _: () = client.ping().await?;
+  let _: () = client.subscribe("foo").await?;
+  let _: () = client.ping().await?;
   let _ = client.quit().await?;
   Ok(())
 }

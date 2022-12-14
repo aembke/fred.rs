@@ -24,7 +24,7 @@ pub async fn should_read_server_info(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_ping_server(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.ping().await?;
+  let _: () = client.ping().await?;
 
   Ok(())
 }
@@ -43,11 +43,12 @@ pub async fn should_read_last_save(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_read_db_size(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0..50 {
+  for idx in 0 .. 50 {
     let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
 
-  // this is tricky to assert b/c the dbsize command isnt linked to a specific server in the cluster, hence the loop above
+  // this is tricky to assert b/c the dbsize command isnt linked to a specific server in the cluster, hence the loop
+  // above
   let db_size: i64 = client.dbsize().await?;
   assert!(db_size > 0);
 

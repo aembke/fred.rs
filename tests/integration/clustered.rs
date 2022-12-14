@@ -54,6 +54,8 @@ mod other {
   cluster_test!(other, should_use_trust_dns);
   #[cfg(feature = "partial-tracing")]
   cluster_test!(other, should_use_tracing_get_set);
+  #[cfg(feature = "subscriber-client")]
+  cluster_test!(other, should_ping_with_subscriber_client);
 }
 
 mod pool {

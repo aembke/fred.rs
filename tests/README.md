@@ -4,7 +4,7 @@ Tests are organized by category, similar to the [commands](../src/commands) fold
 
 By default, most tests run 8 times based on the following configuration parameters: clustered vs centralized servers, pipelined vs non-pipelined clients, and RESP2 vs RESP3 mode. Helper macros exist to make this easy so each test only has to be written once.
 
-**The tests require Redis version >=6.2**
+**The tests require Redis version >=6.2** As of writing the default version used is 7.0.5.
 
 ## Makefile
 
@@ -12,6 +12,7 @@ The easiest way to set up the tests is to use the [Makefile](../Makefile):
 
 ```
 # setup
+. tests/environ
 make clean
 make install
 
@@ -32,7 +33,7 @@ In order to run the installation scripts the following must be installed:
 
 * Bash (all the scripts assume `bash`)
 * `build-essential` (or equivalent)
-* OpenSSL (`libssl-dev`) for testing TLS features without vendored OpenSSL dependencies
+* OpenSSL (`libssl-dev`) for testing `native-tls` features without vendored OpenSSL dependencies
 * `docker`
 * `docker-compose` (this may come with `docker` depending on the version you use)
 
@@ -41,7 +42,7 @@ In order to run the installation scripts the following must be installed:
 A script is included to start a fresh install, but **it will shut down any local redis processes first, including those from docker.**
 
 ```
-source tests/environ
+. tests/environ
 ./tests/scripts/full_install.sh
 ```
 
@@ -68,8 +69,6 @@ Once the required local Redis servers are installed users can run tests with the
 These scripts will pass through any extra argv so callers can filter tests as needed.
 
 See the [CI configuration](../.circleci/config.yml) for more information.
-
-Note: the [stop redis script](scripts/stop_all_redis.sh) can stop all local Redis servers, including those started via docker.
 
 There are 4 environment variables that can be used to control the host/port for the centralized or clustered servers used for the tests. The default values can be found in the [environ](./environ) file.
 
@@ -126,24 +125,10 @@ Note: When writing tests that operate on multiple keys be sure to use a [hash_ta
 
 Tests that use this pattern will run 8 times to check the functionality against clustered and centralized redis servers with using both pipelined and non-pipelined clients in RESP2 and RESP3 mode.
 
-## Chaos Monkey
-
-This module ships with a testing module that will randomly stop, start, restart, and rebalance the redis servers while tests are running. If this is enabled the tests should take longer but should not produce any errors.
-
-To run the tests with the chaos monkey process use [run_with_chaos_monkey.sh](./run_with_chaos_monkey.sh) from the application root. 
-
 ## Notes
 
 * Since we're mutating shared state in external redis servers with these tests it's necessary to run the tests with `--test-threads=1`. The test runner scripts will do this automatically.
 * **The tests will periodically call `flushall` before each test iteration.**
-
-If you're not running any other docker containers locally, and you feel like your docker containers aren't updating, try a fresh install...
-
-```
-# THIS WILL DESTROY ANY LOCAL DOCKER CONTAINER STATE
-docker container kill $(docker ps -q)
-docker container rm $(docker ps -aq)
-```
 
 ## Contributing
 

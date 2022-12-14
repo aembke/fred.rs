@@ -335,6 +335,7 @@ pub struct SlotRange {
   /// The set of replica nodes for the slot range.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  #[doc(hidden)]
   pub replicas: Vec<ArcStr>,
 }
 
@@ -394,12 +395,14 @@ impl ClusterRouting {
 
   /// Rebuild the replica index in place via the current cluster slot mappings.
   #[cfg(feature = "replicas")]
+  #[doc(hidden)]
   pub(crate) fn rebuild_replicas(&mut self) {
     self.replicas.update(&self.data);
   }
 
   /// Read the next replica that should receive a command instead of `primary`.
   #[cfg(feature = "replicas")]
+  #[doc(hidden)]
   pub(crate) fn next_replica(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
     self.replicas.next_replica(primary.as_str())
   }

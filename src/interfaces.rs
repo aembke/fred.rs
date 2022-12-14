@@ -258,7 +258,10 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  async fn ping(&self) -> RedisResult<()> {
+  async fn ping<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::server::ping(self).await?.convert()
   }
 

@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.0.0-beta.2"
+version = "6.0.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -49,6 +49,7 @@ sha-1 = "0.10"
 rand = "0.8"
 async-trait = "0.1"
 semver = "1.0"
+rustls = { version = "0.20", optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 tracing = { version = "0.1", optional = true }
@@ -106,7 +107,7 @@ metrics = []
 mocks = []
 dns = ["trust-dns-resolver", "trust-dns-resolver/tokio"]
 ignore-auth-error = []
-enable-rustls = ["tokio-rustls", "rustls-native-certs"]
+enable-rustls = ["rustls", "tokio-rustls", "rustls-native-certs"]
 enable-native-tls = ["native-tls", "tokio-native-tls"]
 vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
 reconnect-on-auth-error = []
@@ -120,6 +121,7 @@ monitor = ["nom"]
 sentinel-client = []
 sentinel-auth = []
 no-client-setname = []
+# WIP
 replicas = []
 # Testing Features
 debug-ids = []
