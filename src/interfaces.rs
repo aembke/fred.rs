@@ -16,6 +16,7 @@ use crate::{
     RedisConfig,
     RedisValue,
     RespVersion,
+    Server,
     ShutdownFlags,
   },
   utils,
@@ -210,7 +211,12 @@ pub trait ClientLike: Clone + Send + Sized {
   /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the next
   /// connection attempt vs all subsequent attempts.
   async fn wait_for_connect(&self) -> RedisResult<()> {
-    self.inner().notifications.connect.subscribe().recv().await?
+    if utils::read_locked(&self.inner().state) == ClientState::Connected {
+      debug!("{}: Client is already connected.", self.inner().id);
+      Ok(())
+    } else {
+      self.inner().notifications.connect.subscribe().recv().await?
+    }
   }
 
   /// Listen for reconnection notifications.
@@ -331,4 +337,3 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
-use crate::types::Server;

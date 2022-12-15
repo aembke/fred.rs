@@ -1,6 +1,8 @@
 use crate::utils;
 use bytes_utils::Str;
 
+pub use crate::protocol::types::{ClusterRouting, SlotRange};
+
 /// The state of the cluster from the CLUSTER INFO command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterState {
