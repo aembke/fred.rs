@@ -88,12 +88,14 @@ function start_centralized {
 }
 
 function enable_cluster_debug {
-  echo "Enabling DEBUG command on cluster..."
-  pushd $ROOT > /dev/null
-  cd $ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/utils/create-cluster
-  echo 'export ADDITIONAL_OPTIONS="--enable-debug-command yes"' > ./config.sh
+  if [ -z "CIRCLECI_TESTS" ]; then
+    echo "Enabling DEBUG command on cluster (requires Redis version >=7)..."
+    pushd $ROOT > /dev/null
+    cd $ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/utils/create-cluster
+    echo 'export ADDITIONAL_OPTIONS="--enable-debug-command yes"' > ./config.sh
 
-  popd > /dev/null
+    popd > /dev/null
+  fi
 }
 
 function start_cluster {
