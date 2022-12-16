@@ -121,7 +121,7 @@ pub fn pretty_error(resp: &str) -> RedisError {
       "ERR" => RedisErrorKind::Unknown,
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" | "WRONGPASS" => RedisErrorKind::Auth,
-      "MOVED" | "ASK" => RedisErrorKind::Cluster,
+      "MOVED" | "ASK" | "CLUSTERDOWN" => RedisErrorKind::Cluster,
       "Invalid" => match parts.next().unwrap_or("").as_ref() {
         "argument(s)" | "Argument" => RedisErrorKind::InvalidArgument,
         "command" | "Command" => RedisErrorKind::InvalidCommand,
