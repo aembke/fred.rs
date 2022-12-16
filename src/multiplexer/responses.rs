@@ -1,20 +1,17 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, utils as protocol_utils},
+  protocol::{command::RedisCommand, types::Server, utils as protocol_utils},
   trace,
-  types::{KeyspaceEvent, RedisValue},
+  types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
   utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::sync::Arc;
+use std::{str, sync::Arc};
 
 #[cfg(feature = "custom-reconnect-errors")]
 use crate::globals::globals;
-use crate::{
-  protocol::types::Server,
-  types::{ClientState, Message, RedisKey},
-};
+use crate::protocol::utils::pretty_error;
 
 const KEYSPACE_PREFIX: &'static str = "__keyspace@";
 const KEYEVENT_PREFIX: &'static str = "__keyevent@";
@@ -202,10 +199,38 @@ fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &Resp3Frame) -> O
   None
 }
 
+fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
+  match frame {
+    Resp3Frame::SimpleError { data, .. } => {
+      if data.trim().starts_with("CLUSTERDOWN") {
+        Some(&data)
+      } else {
+        None
+      }
+    },
+    Resp3Frame::BlobError { data, .. } => {
+      let parsed = match str::from_utf8(&data) {
+        Ok(s) => s,
+        Err(_) => return None,
+      };
+
+      if parsed.trim().starts_with("CLUSTERDOWN") {
+        Some(parsed)
+      } else {
+        None
+      }
+    },
+    _ => None,
+  }
+}
+
 /// Check for special errors configured by the caller to initiate a reconnection process.
 pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if let Some(auth_error) = parse_redis_auth_error(frame) {
     return Some(auth_error);
+  }
+  if let Some(error) = is_clusterdown_error(frame) {
+    return Some(pretty_error(error));
   }
 
   check_global_reconnect_errors(inner, frame)
