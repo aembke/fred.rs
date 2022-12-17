@@ -137,7 +137,7 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
 
   let inner = RedisClientInner::new(config, perf, None);
   let mut connection = connection::create(&inner, host, port, None, None).await?;
-  let _ = connection.setup(&inner).await?;
+  let _ = connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;
 
   // there isn't really a mechanism to surface backpressure to the server for the MONITOR stream, so we use a

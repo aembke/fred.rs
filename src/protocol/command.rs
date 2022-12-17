@@ -1819,7 +1819,7 @@ pub enum MultiplexerCommand {
     tx:     Option<ResponseSender>,
   },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
-  SyncCluster,
+  SyncCluster { tx: OneshotSender<Result<(), RedisError>> },
   /// Read the set of active connections managed by the client.
   Connections { tx: OneshotSender<Vec<Server>> },
 }
@@ -1849,7 +1849,7 @@ impl fmt::Debug for MultiplexerCommand {
           .field("server", &server)
           .field("force", &force);
       },
-      MultiplexerCommand::SyncCluster => {
+      MultiplexerCommand::SyncCluster { .. } => {
         formatter.field("kind", &"Sync Cluster");
       },
       MultiplexerCommand::Transaction { .. } => {

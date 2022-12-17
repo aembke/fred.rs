@@ -475,7 +475,7 @@ pub async fn connect_any(
       },
     };
 
-    if let Err(e) = connection.setup(inner).await {
+    if let Err(e) = connection.setup(inner, None).await {
       last_error = Some(e);
       continue;
     }
@@ -613,7 +613,7 @@ pub async fn sync(
         server.tls_server_name.as_ref(),
       )
       .await?;
-      let _ = transport.setup(inner).await?;
+      let _ = transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;
       writers.insert(server, writer);

@@ -272,7 +272,7 @@ pub async fn initialize_connection(
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
       let mut transport = connection::create(inner, host, port, None, None).await?;
-      let _ = transport.setup(inner).await?;
+      let _ = transport.setup(inner, None).await?;
 
       // let replicas = sync_replicas(inner, &mut transport).await?;
       // TODO set up replicas on multiplexer

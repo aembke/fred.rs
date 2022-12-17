@@ -1,11 +1,16 @@
 use super::*;
 use crate::{
-  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  interfaces,
+  protocol::{
+    command::{MultiplexerCommand, RedisCommandKind},
+    utils as protocol_utils,
+  },
   types::*,
   utils,
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 value_cmd!(cluster_bumpepoch, ClusterBumpEpoch);
 ok_cmd!(cluster_flushslots, ClusterFlushSlots);
@@ -167,4 +172,12 @@ pub async fn cluster_setslot<C: ClientLike>(
 
   let response = protocol_utils::frame_to_single_result(frame)?;
   protocol_utils::expect_ok(&response)
+}
+
+pub async fn sync_cluster<C: ClientLike>(client: &C) -> Result<(), RedisError> {
+  let (tx, rx) = oneshot_channel();
+  let command = MultiplexerCommand::SyncCluster { tx };
+  let _ = interfaces::send_to_multiplexer(client.inner(), command)?;
+
+  rx.await?
 }
