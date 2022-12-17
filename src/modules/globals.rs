@@ -52,6 +52,8 @@ impl ReconnectError {
 
 /// Mutable globals that can be configured by the caller.
 pub(crate) struct Globals {
+  /// The default timeout to apply when connecting or initializing connections to servers.
+  pub(crate) default_connection_timeout_ms:  Arc<AtomicUsize>,
   /// The default timeout to apply to connections to sentinel nodes.
   pub(crate) sentinel_connection_timeout_ms: Arc<AtomicUsize>,
   #[cfg(feature = "blocking-encoding")]
@@ -65,6 +67,7 @@ pub(crate) struct Globals {
 impl Default for Globals {
   fn default() -> Self {
     Globals {
+      default_connection_timeout_ms:                                   Arc::new(AtomicUsize::new(60_000)),
       sentinel_connection_timeout_ms:                                  Arc::new(AtomicUsize::new(2_000)),
       #[cfg(feature = "blocking-encoding")]
       blocking_encode_threshold:                                       Arc::new(AtomicUsize::new(500_000)),
@@ -79,6 +82,10 @@ impl Default for Globals {
 }
 
 impl Globals {
+  pub fn default_connection_timeout_ms(&self) -> u64 {
+    read_atomic(&self.default_connection_timeout_ms) as u64
+  }
+
   pub fn sentinel_connection_timeout_ms(&self) -> usize {
     read_atomic(&self.sentinel_connection_timeout_ms)
   }
@@ -143,4 +150,16 @@ pub fn get_sentinel_connection_timeout_ms() -> usize {
 /// See [get_sentinel_connection_timeout_ms] for more information.
 pub fn set_sentinel_connection_timeout_ms(val: usize) -> usize {
   set_atomic(&globals().sentinel_connection_timeout_ms, val)
+}
+
+/// The timeout to apply when connecting and initializing connections to servers.
+///
+/// Default: 60 sec
+pub fn get_default_connection_timeout_ms() -> u64 {
+  read_atomic(&globals().default_connection_timeout_ms) as u64
+}
+
+/// See [get_default_connection_timeout_ms] for more information.
+pub fn set_default_connection_timeout_ms(val: u64) -> u64 {
+  set_atomic(&globals().default_connection_timeout_ms, val as usize) as u64
 }

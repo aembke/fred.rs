@@ -118,7 +118,7 @@ impl Replicas {
       let (host, port) = server_to_parts(&replica)?;
       _debug!(inner, "Setting up replica connection to {}", replica);
       let mut transport = connection::create(inner, host.to_owned(), port, None, None).await?;
-      let _ = transport.setup(inner).await?;
+      let _ = transport.setup(inner, None).await?;
 
       let handler = if inner.config.server.is_clustered() {
         clustered::spawn_reader_task
@@ -469,7 +469,7 @@ impl Connections {
         server.tls_server_name.as_ref(),
       )
       .await?;
-      let _ = transport.setup(inner).await?;
+      let _ = transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, clustered::spawn_reader_task)?;
       writers.insert(server, writer);
