@@ -1339,15 +1339,14 @@ pub struct RedisCommand {
   pub transaction_id:    Option<u64>,
   /// Whether the command has timed out from the perspective of the caller.
   pub timed_out:         Arc<AtomicBool>,
+  /// A timestamp of when the command was last written to the socket.
+  pub network_start:     Option<Instant>,
   /// Whether to route the command to a replica, if possible.
   #[cfg(feature = "replicas")]
   pub use_replica:       bool,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
   pub created:           Instant,
-  /// A timestamp of when the command was last written to the socket.
-  #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-  pub network_start:     Option<Instant>,
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
   pub traces:            CommandTraces,

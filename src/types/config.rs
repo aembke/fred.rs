@@ -298,9 +298,8 @@ impl Default for BackpressureConfig {
 pub struct PerformanceConfig {
   /// Whether or not the client should automatically pipeline commands across tasks when possible.
   ///
-  /// The [Pipeline](crate::clients::Pipeline) interface can be used to pipeline commands __within__ one task,
-  /// whereas this flag can automatically pipeline commands __across__ tasks. This can have a huge positive impact on
-  /// performance in applications that share one client/connection across multiple tasks.
+  /// The [Pipeline](crate::clients::Pipeline) interface can be used to pipeline commands within one task,
+  /// whereas this flag can automatically pipeline commands across tasks.
   ///
   /// Default: `true`
   pub auto_pipeline:                 bool,
@@ -329,17 +328,25 @@ pub struct PerformanceConfig {
   ///
   /// Default: 0 ms
   pub cluster_cache_update_delay_ms: u32,
+  /// The amount of time a command can wait without a response before a connection is considered unresponsive.
+  ///
+  /// Default: 60000 ms (1 min)
+  #[cfg(feature = "check-unresponsive")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
+  pub network_timeout_ms:            u64,
 }
 
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      auto_pipeline:                 true,
-      backpressure:                  BackpressureConfig::default(),
-      max_command_attempts:          3,
-      default_command_timeout_ms:    0,
-      max_feed_count:                500,
-      cluster_cache_update_delay_ms: 0,
+      auto_pipeline:                                             true,
+      backpressure:                                              BackpressureConfig::default(),
+      max_command_attempts:                                      3,
+      default_command_timeout_ms:                                0,
+      max_feed_count:                                            500,
+      cluster_cache_update_delay_ms:                             0,
+      #[cfg(feature = "check-unresponsive")]
+      network_timeout_ms:                                        60_000,
     }
   }
 }

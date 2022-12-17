@@ -61,7 +61,6 @@ pub fn check_backpressure(
 
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 fn set_command_trace(command: &mut RedisCommand) {
-  command.network_start = Some(Instant::now());
   trace::set_network_span(command, true);
 }
 
@@ -77,9 +76,7 @@ pub fn prepare_command(
   command: &mut RedisCommand,
 ) -> Result<(ProtocolFrame, bool), RedisError> {
   let frame = command.to_frame(inner.is_resp3())?;
-  if inner.should_trace() {
-    set_command_trace(command);
-  }
+
   // flush the socket under any of the following conditions:
   // * we don't know of any queued commands following this command
   // * we've fed up to the max feed count commands already
@@ -93,6 +90,10 @@ pub fn prepare_command(
     || command.kind.is_all_cluster_nodes()
     || command.has_multiplexer_channel();
 
+  command.network_start = Some(Instant::now());
+  if inner.should_trace() {
+    set_command_trace(command);
+  }
   Ok((frame, should_flush))
 }
 

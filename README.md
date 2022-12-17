@@ -102,6 +102,7 @@ When a client is initialized it will generate a unique client name with a prefix
 | no-client-setname       |         | Disable the automatic `CLIENT SETNAME` command used to associate server logs with client logs.                                                                                                                                                                                      |
 | mocks                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                                                                                                                                       |
 | dns                     |         | Enable an interface that allows callers to override the DNS lookup logic.                                                                                                                                                                                                           |
+| check-unresponsive      |         | Enable additional monitoring to detect unresponsive connections.                                                                                                                                                                                                                    |
 
 ## Tests
 
