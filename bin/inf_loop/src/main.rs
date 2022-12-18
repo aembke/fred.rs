@@ -65,6 +65,7 @@ async fn main() -> Result<(), RedisError> {
   };
   let perf = PerformanceConfig {
     auto_pipeline: false,
+    network_timeout_ms: 10_000,
     ..Default::default()
   };
   let policy = ReconnectPolicy::new_linear(0, 5000, 500);

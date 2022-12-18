@@ -64,7 +64,7 @@ There are two failure modes to consider with the underlying TCP connections to t
 
 The `check-unresponsive` feature enables additional monitoring to detect the second failure mode. This failure mode is less common but can be especially problematic for clients that wish to "hide" connection or timeout errors from callers. Callers can simulate this failure mode via `docker pause` (if using docker) or by sending a `DEBUG sleep <seconds>` command. 
 
-The `network_timeout_ms` field on the `PerformanceConfig` struct can be used to set a response timeout that determines when a connection should be considered unresponsive. This configuration option differs from the `default_command_timeout_ms` field in several ways:
+The `network_timeout_ms` field on the `PerformanceConfig` struct can be used to set a response timeout that determines when a connection should be considered unresponsive. This configuration option differs from the `default_command_timeout_ms` field in a few ways:
 
 * Commands that exceed the `default_command_timeout_ms` will be discarded and a `Timeout` error will be returned to the caller. 
 * Commands that exceed the `network_timeout_ms` will trigger the reconnection logic. The command will be retried until it exceeds the `max_command_attempts` count. The caller will not see a `Timeout` error.
