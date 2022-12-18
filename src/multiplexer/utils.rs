@@ -5,21 +5,31 @@ use crate::{
   prelude::Resp3Frame,
   protocol::{
     command::{ClusterErrorKind, MultiplexerResponse, RedisCommand, RedisCommandKind},
-    connection::{RedisWriter, SharedBuffer},
+    connection::{RedisWriter, SharedBuffer, SplitStreamKind},
     responders::ResponseKind,
     types::*,
   },
   types::*,
   utils as client_utils,
 };
+use futures::TryStreamExt;
 use redis_protocol::resp3::types::PUBSUB_PUSH_PREFIX;
-use std::{cmp, sync::Arc, time::Duration};
-use tokio::{self, sync::oneshot::channel as oneshot_channel};
+use std::{
+  cmp,
+  sync::Arc,
+  time::{Duration, Instant},
+};
+use tokio::{
+  self,
+  sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
+};
 
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use crate::trace;
-#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-use std::time::Instant;
+#[cfg(feature = "check-unresponsive")]
+use futures::future::Either;
+#[cfg(feature = "check-unresponsive")]
+use tokio::pin;
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure(
@@ -475,6 +485,64 @@ pub async fn sync_cluster_with_policy(
 
   Ok(())
 }
+
+#[cfg(feature = "check-unresponsive")]
+pub async fn next_frame(
+  inner: &Arc<RedisClientInner>,
+  conn: &mut SplitStreamKind,
+  server: &Server,
+  rx: &mut Option<UnboundedReceiver<()>>,
+) -> Result<Option<ProtocolFrame>, RedisError> {
+  if let Some(interrupt_rx) = rx.as_mut() {
+    let recv_ft = interrupt_rx.recv();
+    let frame_ft = conn.try_next();
+    pin!(recv_ft);
+    pin!(frame_ft);
+
+    match futures::future::select(recv_ft, frame_ft).await {
+      Either::Left((Some(_), _)) => {
+        _debug!(inner, "Recv interrupt on {}", server);
+        Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
+      },
+      Either::Left((None, frame_ft)) => {
+        _debug!(inner, "Interrupt channel closed for {}", server);
+        frame_ft.await
+      },
+      Either::Right((frame, _)) => frame,
+    }
+  } else {
+    _debug!(inner, "Skip waiting on interrupt rx.");
+    conn.try_next().await
+  }
+}
+
+#[cfg(not(feature = "check-unresponsive"))]
+pub async fn next_frame(
+  _: &Arc<RedisClientInner>,
+  conn: &mut SplitStreamKind,
+  _: &Server,
+  _: &mut Option<UnboundedReceiver<()>>,
+) -> Result<Option<ProtocolFrame>, RedisError> {
+  conn.try_next().await
+}
+
+#[cfg(feature = "check-unresponsive")]
+pub fn reader_subscribe(inner: &Arc<RedisClientInner>, server: &Server) -> Option<UnboundedReceiver<()>> {
+  Some(inner.network_timeouts.state().subscribe(inner, server))
+}
+
+#[cfg(not(feature = "check-unresponsive"))]
+pub fn reader_subscribe(_: &Arc<RedisClientInner>, _: &Server) -> Option<UnboundedReceiver<()>> {
+  None
+}
+
+#[cfg(feature = "check-unresponsive")]
+pub fn reader_unsubscribe(inner: &Arc<RedisClientInner>, server: &Server) {
+  inner.network_timeouts.state().unsubscribe(inner, server);
+}
+
+#[cfg(not(feature = "check-unresponsive"))]
+pub fn reader_unsubscribe(_: &Arc<RedisClientInner>, _: &Server) {}
 
 #[cfg(test)]
 mod tests {}

@@ -134,6 +134,7 @@ async fn write_with_backpressure(
         if let Some(command) = command {
           multiplexer.buffer_command(command);
         }
+        multiplexer.sync_network_timeout_state();
 
         break;
       },

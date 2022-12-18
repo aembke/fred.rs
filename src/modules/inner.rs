@@ -4,7 +4,7 @@ use crate::{
   protocol::{
     command::{MultiplexerCommand, ResponseSender},
     connection::RedisTransport,
-    types::{ClusterRouting, DefaultResolver},
+    types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
   types::*,
   utils,
@@ -36,7 +36,8 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::types::{Resolve, Server};
+#[cfg(feature = "check-unresponsive")]
+use crate::multiplexer::types::NetworkTimeout;
 
 pub type CommandSender = UnboundedSender<MultiplexerCommand>;
 pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
@@ -416,6 +417,18 @@ pub struct RedisClientInner {
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
   pub res_size_stats:        Arc<RwLock<MovingStats>>,
+  /// Shared network timeout state with the multiplexer.
+  #[cfg(feature = "check-unresponsive")]
+  pub network_timeouts:      NetworkTimeout,
+}
+
+#[cfg(feature = "check-unresponsive")]
+impl Drop for RedisClientInner {
+  fn drop(&mut self) {
+    if let Some(jh) = self.network_timeouts.take_handle() {
+      jh.abort();
+    }
+  }
 }
 
 impl RedisClientInner {
@@ -436,7 +449,7 @@ impl RedisClientInner {
       Arc::new(AtomicBool::new(false))
     };
 
-    Arc::new(RedisClientInner {
+    let inner = Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
       latency_stats: RwLock::new(MovingStats::default()),
       #[cfg(feature = "metrics")]
@@ -445,6 +458,8 @@ impl RedisClientInner {
       req_size_stats: Arc::new(RwLock::new(MovingStats::default())),
       #[cfg(feature = "metrics")]
       res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
+      #[cfg(feature = "check-unresponsive")]
+      network_timeouts: NetworkTimeout::new(),
 
       backchannel,
       command_rx,
@@ -459,8 +474,18 @@ impl RedisClientInner {
       notifications,
       resolver,
       id,
-    })
+    });
+    inner.spawn_timeout_task();
+    inner
   }
+
+  #[cfg(feature = "check-unresponsive")]
+  pub fn spawn_timeout_task(self: &Arc<RedisClientInner>) {
+    self.network_timeouts.spawn_task(self);
+  }
+
+  #[cfg(not(feature = "check-unresponsive"))]
+  pub fn spawn_timeout_task(self: &Arc<RedisClientInner>) {}
 
   pub fn is_pipelined(&self) -> bool {
     self.performance.load().as_ref().auto_pipeline

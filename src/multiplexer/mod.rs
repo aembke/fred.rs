@@ -534,6 +534,14 @@ impl Multiplexer {
     }
   }
 
+  #[cfg(feature = "check-unresponsive")]
+  pub fn sync_network_timeout_state(&self) {
+    self.inner.network_timeouts.state().sync(&self.inner, &self.connections);
+  }
+
+  #[cfg(not(feature = "check-unresponsive"))]
+  pub fn sync_network_timeout_state(&self) {}
+
   /// Read the connection identifier for the provided command.
   pub fn find_connection(&self, command: &RedisCommand) -> Option<&Server> {
     match self.connections {
@@ -686,6 +694,7 @@ impl Multiplexer {
       Written::Disconnect((server, command, error)) => {
         let buffer = self.connections.disconnect(&inner, Some(&server)).await;
         self.buffer_commands(buffer);
+        self.sync_network_timeout_state();
 
         if let Some(command) = command {
           _debug!(
@@ -702,6 +711,7 @@ impl Multiplexer {
         let buffer = self.connections.disconnect_all(&inner).await;
         self.buffer_commands(buffer);
         self.buffer_command(command);
+        self.sync_network_timeout_state();
 
         Err(RedisError::new(
           RedisErrorKind::Protocol,
@@ -736,6 +746,7 @@ impl Multiplexer {
   pub async fn disconnect_all(&mut self) {
     let commands = self.connections.disconnect_all(&self.inner).await;
     self.buffer_commands(commands);
+    self.sync_network_timeout_state();
   }
 
   /// Add the provided commands to the retry buffer.
@@ -769,16 +780,22 @@ impl Multiplexer {
   /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self) -> Result<(), RedisError> {
     self.disconnect_all().await;
-    self.connections.initialize(&self.inner, &mut self.buffer).await
+    let result = self.connections.initialize(&self.inner, &mut self.buffer).await;
+    self.sync_network_timeout_state();
+    result
   }
 
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   ///
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
-    clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await?;
-    self.retry_buffer().await;
-    Ok(())
+    let result = clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await;
+    self.sync_network_timeout_state();
+
+    if result.is_ok() {
+      self.retry_buffer().await;
+    }
+    result
   }
 
   /// Attempt to replay all queued commands on the internal buffer without backpressure.
@@ -884,6 +901,7 @@ impl Multiplexer {
           .write()
           .await
           .update_connection_ids(&self.connections);
+        self.sync_network_timeout_state();
       }
 
       // can't use request_response since there may be pipelined commands ahead of this
