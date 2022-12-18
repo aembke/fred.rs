@@ -21,4 +21,4 @@ features = ["ignore-auth-error"]
 default-features = false
 
 [features]
-default = ["fred/network-logs", "fred/debug-ids"]
+default = ["fred/network-logs", "fred/debug-ids", "fred/check-unresponsive"]

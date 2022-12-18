@@ -33,6 +33,7 @@ use std::{
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
+use crate::globals::globals;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "enable-rustls")]
@@ -52,6 +53,16 @@ pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
 
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
+
+pub fn connection_timeout(timeout: Option<u64>) -> u64 {
+  let timeout = timeout.unwrap_or(globals().default_connection_timeout_ms());
+
+  if timeout == 0 {
+    DEFAULT_CONNECTION_TIMEOUT_MS
+  } else {
+    timeout
+  }
+}
 
 pub enum ConnectionKind {
   Tcp(Framed<TcpStream, RedisCodec>),
@@ -685,15 +696,23 @@ impl RedisTransport {
 
   /// Authenticate, set the protocol version, set the client name, select the provided database, cache the
   /// connection ID and server version, and check the cluster state (if applicable).
-  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    let _ = self.switch_protocols_and_authenticate(inner).await?;
-    let _ = self.set_client_name(inner).await?;
-    let _ = self.select_database(inner).await?;
-    let _ = self.cache_connection_id(inner).await?;
-    let _ = self.cache_server_version(inner).await?;
-    let _ = self.check_cluster_state(inner).await?;
+  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<u64>) -> Result<(), RedisError> {
+    let timeout = connection_timeout(timeout);
 
-    Ok(())
+    utils::apply_timeout(
+      async {
+        let _ = self.switch_protocols_and_authenticate(inner).await?;
+        let _ = self.set_client_name(inner).await?;
+        let _ = self.select_database(inner).await?;
+        let _ = self.cache_connection_id(inner).await?;
+        let _ = self.cache_server_version(inner).await?;
+        let _ = self.check_cluster_state(inner).await?;
+
+        Ok::<_, RedisError>(())
+      },
+      timeout,
+    )
+    .await
   }
 
   /// Split the transport into reader/writer halves.
@@ -873,7 +892,7 @@ pub async fn create(
   timeout_ms: Option<u64>,
   tls_server_name: Option<&ArcStr>,
 ) -> Result<RedisTransport, RedisError> {
-  let timeout = timeout_ms.unwrap_or(DEFAULT_CONNECTION_TIMEOUT_MS);
+  let timeout = connection_timeout(timeout_ms);
 
   _trace!(
     inner,

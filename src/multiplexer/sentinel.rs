@@ -211,7 +211,7 @@ async fn discover_primary_node(
   };
 
   let mut transport = stry!(connection::create(inner, host, port, None, None).await);
-  let _ = stry!(transport.setup(inner).await);
+  let _ = stry!(transport.setup(inner, None).await);
   Ok(transport)
 }
 

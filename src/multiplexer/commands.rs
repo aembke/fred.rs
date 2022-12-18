@@ -134,6 +134,7 @@ async fn write_with_backpressure(
         if let Some(command) = command {
           multiplexer.buffer_command(command);
         }
+        multiplexer.sync_network_timeout_state();
 
         break;
       },
@@ -363,8 +364,11 @@ async fn process_reconnect(
 async fn process_sync_cluster(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
+  tx: OneshotSender<Result<(), RedisError>>,
 ) -> Result<(), RedisError> {
-  utils::sync_cluster_with_policy(inner, multiplexer).await
+  let result = utils::sync_cluster_with_policy(inner, multiplexer).await;
+  let _ = tx.send(result.clone());
+  result
 }
 
 /// Send a single command to the server(s).
@@ -497,7 +501,7 @@ async fn process_command(
     MultiplexerCommand::Reconnect { server, force, tx } => {
       process_reconnect(inner, multiplexer, server, force, tx).await
     },
-    MultiplexerCommand::SyncCluster => process_sync_cluster(inner, multiplexer).await,
+    MultiplexerCommand::SyncCluster { tx } => process_sync_cluster(inner, multiplexer, tx).await,
     MultiplexerCommand::Transaction {
       commands,
       id,

@@ -15,7 +15,6 @@ use crate::{
   types::ClusterStateChange,
 };
 use arcstr::ArcStr;
-use futures::TryStreamExt;
 use std::{
   collections::{BTreeSet, HashMap},
   iter::repeat,
@@ -198,9 +197,10 @@ pub fn spawn_reader_task(
 
   tokio::spawn(async move {
     let mut last_error = None;
+    let mut rx = utils::reader_subscribe(&inner, &server);
 
     loop {
-      let frame = match reader.try_next().await {
+      let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
           last_error = None;
@@ -230,6 +230,7 @@ pub fn spawn_reader_task(
       }
     }
 
+    utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_multiplexer(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     responses::handle_reader_error(&inner, &server, last_error);
@@ -475,7 +476,7 @@ pub async fn connect_any(
       },
     };
 
-    if let Err(e) = connection.setup(inner).await {
+    if let Err(e) = connection.setup(inner, None).await {
       last_error = Some(e);
       continue;
     }
@@ -613,7 +614,7 @@ pub async fn sync(
         server.tls_server_name.as_ref(),
       )
       .await?;
-      let _ = transport.setup(inner).await?;
+      let _ = transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;
       writers.insert(server, writer);

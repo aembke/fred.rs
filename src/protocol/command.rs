@@ -14,6 +14,7 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
+use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
 use std::{
   convert::TryFrom,
@@ -22,6 +23,7 @@ use std::{
   mem,
   str,
   sync::{atomic::AtomicBool, Arc},
+  time::Instant,
 };
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
@@ -31,12 +33,9 @@ use crate::globals::globals;
 use crate::modules::mocks::MockCommand;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
-#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-use std::time::Instant;
 
 #[cfg(feature = "debug-ids")]
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
 #[cfg(feature = "debug-ids")]
 use std::sync::atomic::AtomicUsize;
 #[cfg(feature = "debug-ids")]
@@ -1339,15 +1338,14 @@ pub struct RedisCommand {
   pub transaction_id:    Option<u64>,
   /// Whether the command has timed out from the perspective of the caller.
   pub timed_out:         Arc<AtomicBool>,
+  /// A timestamp of when the command was last written to the socket.
+  pub network_start:     Option<Instant>,
   /// Whether to route the command to a replica, if possible.
   #[cfg(feature = "replicas")]
   pub use_replica:       bool,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
   pub created:           Instant,
-  /// A timestamp of when the command was last written to the socket.
-  #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-  pub network_start:     Option<Instant>,
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
   pub traces:            CommandTraces,
@@ -1396,7 +1394,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
@@ -1423,7 +1420,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
@@ -1450,7 +1446,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
@@ -1478,7 +1473,6 @@ impl RedisCommand {
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
       network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
@@ -1490,26 +1484,25 @@ impl RedisCommand {
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
-      kind: RedisCommandKind::Asking,
-      arguments: Vec::new(),
-      response: ResponseKind::Skip,
-      hasher: ClusterHash::Custom(hash_slot),
-      timed_out: Arc::new(AtomicBool::new(false)),
-      multiplexer_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
-      can_pipeline: false,
-      skip_backpressure: true,
-      transaction_id: None,
+      kind:                                       RedisCommandKind::Asking,
+      arguments:                                  Vec::new(),
+      response:                                   ResponseKind::Skip,
+      hasher:                                     ClusterHash::Custom(hash_slot),
+      timed_out:                                  Arc::new(AtomicBool::new(false)),
+      multiplexer_tx:                             Arc::new(Mutex::new(None)),
+      attempted:                                  0,
+      can_pipeline:                               false,
+      skip_backpressure:                          true,
+      transaction_id:                             None,
       #[cfg(feature = "replicas")]
-      use_replica: false,
+      use_replica:                                false,
       #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-      network_start: None,
+      created:                                    Instant::now(),
+      network_start:                              None,
       #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
+      traces:                                     CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
+      counter:                                    command_counter(),
     }
   }
 
@@ -1634,7 +1627,6 @@ impl RedisCommand {
       use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
       created: self.created.clone(),
-      #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
       network_start: self.network_start.clone(),
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
@@ -1819,7 +1811,7 @@ pub enum MultiplexerCommand {
     tx:     Option<ResponseSender>,
   },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
-  SyncCluster,
+  SyncCluster { tx: OneshotSender<Result<(), RedisError>> },
   /// Read the set of active connections managed by the client.
   Connections { tx: OneshotSender<Vec<Server>> },
 }
@@ -1849,7 +1841,7 @@ impl fmt::Debug for MultiplexerCommand {
           .field("server", &server)
           .field("force", &force);
       },
-      MultiplexerCommand::SyncCluster => {
+      MultiplexerCommand::SyncCluster { .. } => {
         formatter.field("kind", &"Sync Cluster");
       },
       MultiplexerCommand::Transaction { .. } => {

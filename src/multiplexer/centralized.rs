@@ -13,7 +13,6 @@ use crate::{
   types::ServerConfig,
 };
 use arcstr::ArcStr;
-use futures::TryStreamExt;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 
@@ -48,8 +47,10 @@ pub fn spawn_reader_task(
 
   tokio::spawn(async move {
     let mut last_error = None;
+    let mut rx = utils::reader_subscribe(&inner, &server);
+
     loop {
-      let frame = match reader.try_next().await {
+      let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
           last_error = None;
@@ -74,6 +75,7 @@ pub fn spawn_reader_task(
       }
     }
 
+    utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_multiplexer(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     responses::handle_reader_error(&inner, &server, last_error);
@@ -272,7 +274,7 @@ pub async fn initialize_connection(
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
       let mut transport = connection::create(inner, host, port, None, None).await?;
-      let _ = transport.setup(inner).await?;
+      let _ = transport.setup(inner, None).await?;
 
       // let replicas = sync_replicas(inner, &mut transport).await?;
       // TODO set up replicas on multiplexer

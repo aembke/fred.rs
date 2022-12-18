@@ -1,5 +1,6 @@
 use crate::{
   commands,
+  error::RedisError,
   interfaces::{ClientLike, RedisResult},
   protocol::types::ClusterRouting,
   types::{
@@ -29,6 +30,11 @@ pub trait ClusterInterface: ClientLike + Sized {
       .inner()
       .with_cluster_state(|state| Ok(state.unique_primary_nodes().len()))
       .unwrap_or(0)
+  }
+
+  /// Update the cached cluster state and add or remove any changed cluster node connections.
+  async fn sync_cluster(&self) -> Result<(), RedisError> {
+    commands::cluster::sync_cluster(self).await
   }
 
   /// Advances the cluster config epoch.

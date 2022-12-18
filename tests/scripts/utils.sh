@@ -88,7 +88,7 @@ function start_centralized {
 }
 
 function enable_cluster_debug {
-  if [ -z "CIRCLECI_TESTS" ]; then
+  if [ -z "${CIRCLECI_TESTS}" ]; then
     echo "Enabling DEBUG command on cluster (requires Redis version >=7)..."
     pushd $ROOT > /dev/null
     cd $ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/utils/create-cluster

@@ -16,7 +16,7 @@ export RUST_BACKTRACE=full \
 
 alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
 
-if [ -z "CIRCLECI_TESTS" ]; then
+if [ -z "${CIRCLECI_TESTS}" ]; then
   read -p "Use cargo nextest? [y/n]: " NEXTEST
   if [ "$NEXTEST" = "y" ]; then
     export FRED_CI_NEXTEST=1

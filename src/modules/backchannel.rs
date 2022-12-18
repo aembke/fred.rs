@@ -1,8 +1,10 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  globals::globals,
   modules::inner::RedisClientInner,
   multiplexer::Connections,
   protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
+  utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{collections::HashMap, sync::Arc};
@@ -33,7 +35,7 @@ async fn check_and_create_transport(
     server.tls_server_name.as_ref(),
   )
   .await?;
-  let _ = transport.setup(inner).await?;
+  let _ = transport.setup(inner, None).await?;
   backchannel.transport = Some(transport);
 
   Ok(true)
@@ -160,7 +162,14 @@ impl Backchannel {
         command.debug_id(),
         server
       );
-      transport.request_response(command, inner.is_resp3()).await
+      let timeout = globals().default_connection_timeout_ms();
+      let timeout = if timeout == 0 {
+        connection::DEFAULT_CONNECTION_TIMEOUT_MS
+      } else {
+        timeout
+      };
+
+      utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout).await
     } else {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
