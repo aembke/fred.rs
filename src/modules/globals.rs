@@ -62,6 +62,9 @@ pub(crate) struct Globals {
   /// Any special errors that should trigger reconnection logic.
   #[cfg(feature = "custom-reconnect-errors")]
   pub(crate) reconnect_errors:               Arc<RwLock<Vec<ReconnectError>>>,
+  /// The frequency (in ms) to check unresponsive connections.
+  #[cfg(feature = "check-unresponsive")]
+  pub(crate) unresponsive_interval:          Arc<AtomicUsize>,
 }
 
 impl Default for Globals {
@@ -77,6 +80,8 @@ impl Default for Globals {
         ReconnectError::Loading,
         ReconnectError::ReadOnly,
       ])),
+      #[cfg(feature = "check-unresponsive")]
+      unresponsive_interval:                                           Arc::new(AtomicUsize::new(5_000)),
     }
   }
 }
@@ -88,6 +93,11 @@ impl Globals {
 
   pub fn sentinel_connection_timeout_ms(&self) -> usize {
     read_atomic(&self.sentinel_connection_timeout_ms)
+  }
+
+  #[cfg(feature = "check-unresponsive")]
+  pub fn unresponsive_interval_ms(&self) -> u64 {
+    read_atomic(&self.unresponsive_interval) as u64
   }
 
   #[cfg(feature = "blocking-encoding")]
@@ -162,4 +172,20 @@ pub fn get_default_connection_timeout_ms() -> u64 {
 /// See [get_default_connection_timeout_ms] for more information.
 pub fn set_default_connection_timeout_ms(val: u64) -> u64 {
   set_atomic(&globals().default_connection_timeout_ms, val as usize) as u64
+}
+
+/// The interval on which to check for unresponsive connections.
+///
+/// Default: 5 sec
+#[cfg(feature = "check-unresponsive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
+pub fn get_unresponsive_interval_ms() -> u64 {
+  read_atomic(&globals().unresponsive_interval) as u64
+}
+
+/// See [get_unresponsive_interval_ms] for more information.
+#[cfg(feature = "check-unresponsive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
+pub fn set_unresponsive_interval_ms(val: u64) -> u64 {
+  set_atomic(&globals().unresponsive_interval, val as usize) as u64
 }
