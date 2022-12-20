@@ -49,9 +49,10 @@ macro_rules! _info(
 /// Span used within the client that uses the command's span ID as the parent.
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 macro_rules! fspan (
-  ($cmd:ident, $($arg:tt)*) => {
-    tracing::span!(parent: $cmd.traces.cmd_id.clone(), tracing::Level::INFO, $($arg)*)
-  }
+  ($cmd:ident, $($arg:tt)*) => { {
+    let _id = $cmd.traces.cmd.as_ref().and_then(|c| c.id());
+    tracing::span!(parent: _id, tracing::Level::INFO, $($arg)*)
+  } }
 );
 
 /// Fake span used within the client that uses the command's span ID as the parent.

@@ -471,7 +471,7 @@ where
     command.kind.to_str_debug(),
     command.debug_id()
   );
-  command.traces.cmd_id = cmd_span.id();
+  command.traces.cmd = Some(cmd_span.clone());
   command.traces.queued = Some(queued_span);
 
   let _ = check_blocking_policy(inner, &command).await?;
