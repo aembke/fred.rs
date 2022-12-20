@@ -222,9 +222,10 @@ fn main() {
     let perf = PerformanceConfig {
       auto_pipeline: argv.pipeline,
       default_command_timeout_ms: 5000,
+      max_command_attempts: 0,
       backpressure: BackpressureConfig {
         policy: BackpressurePolicy::Drain,
-        max_in_flight_commands: 100_000_000,
+        max_in_flight_commands: 100,
         ..Default::default()
       },
       ..Default::default()
