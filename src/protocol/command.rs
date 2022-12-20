@@ -1354,6 +1354,17 @@ pub struct RedisCommand {
   pub counter:           usize,
 }
 
+impl Drop for RedisCommand {
+  fn drop(&mut self) {
+    if self.has_response_tx() {
+      debug!(
+        "Dropping command `{}` without responding to caller.",
+        self.kind.to_str_debug()
+      );
+    }
+  }
+}
+
 impl fmt::Debug for RedisCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisCommand")
@@ -1512,6 +1523,7 @@ impl RedisCommand {
       || (inner.is_pipelined()
       && self.can_pipeline
       && self.kind.can_pipeline()
+      && !self.blocks_connection()
       && !self.kind.is_all_cluster_nodes()
       // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
       && self.transaction_id.is_none());

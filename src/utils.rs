@@ -331,17 +331,19 @@ pub async fn wait_for_response(
   apply_timeout(rx, timeout).await?
 }
 
-fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
+pub fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.blocking == Blocking::Error
 }
 
-fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
+pub fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.blocking == Blocking::Interrupt
 }
 
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
   // TODO switch the blocked flag to an AtomicBool to avoid this locked check on each command
-  !command.kind.closes_connection() && inner.backchannel.read().await.is_blocked()
+  !command.kind.closes_connection()
+    && (inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
+    && inner.backchannel.read().await.is_blocked()
 }
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
@@ -365,6 +367,7 @@ pub async fn interrupt_blocked_connection(
       },
     };
 
+    _debug!(inner, "Sending CLIENT UNBLOCK to {}, ID: {}", server, id);
     id
   };
 

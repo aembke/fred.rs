@@ -10,6 +10,7 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::oneshot::Sender as OneshotSender, time::sleep};
 
+use crate::types::ClientUnblockFlag;
 #[cfg(feature = "mocks")]
 use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
 #[cfg(feature = "full-tracing")]
@@ -168,6 +169,16 @@ async fn write_with_backpressure(
         }
         if !flushed {
           let _ = multiplexer.check_and_flush().await;
+        }
+        let should_interrupt = is_blocking
+          && inner.counters.read_cmd_buffer_len() > 0
+          && client_utils::has_blocking_interrupt_policy(inner);
+        if should_interrupt {
+          // if there's other commands in the queue then interrupt the command that was just sent
+          _debug!(inner, "Interrupt after write.");
+          if let Err(e) = client_utils::interrupt_blocked_connection(inner, ClientUnblockFlag::Error).await {
+            _warn!(inner, "Failed to unblock connection: {:?}", e);
+          }
         }
 
         if let Some(command) = handle_multiplexer_response(inner, multiplexer, rx).await? {
