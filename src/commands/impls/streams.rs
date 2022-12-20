@@ -214,8 +214,8 @@ pub async fn xread<C: ClientLike>(
     args.push(static_val!(STREAMS));
 
     for (idx, key) in keys.inner().into_iter().enumerate() {
-      // set the hash slot from the first key. if any other keys are on other cluster nodes the server will say
-      // something
+      // set the hash slot from the first key. if any other keys hash into another slot the server will return
+      // CROSSSLOT error
       if is_clustered && idx == 0 {
         hash_slot = Some(ClusterHash::Offset(args.len()));
       }
