@@ -12,7 +12,7 @@ use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
 pub struct CommandTraces {
-  pub cmd_id:  Option<TraceId>,
+  pub cmd:     Option<Span>,
   pub network: Option<Span>,
   #[cfg(feature = "full-tracing")]
   pub queued:  Option<Span>,
@@ -32,7 +32,7 @@ impl Drop for CommandTraces {
 impl Default for CommandTraces {
   fn default() -> Self {
     CommandTraces {
-      cmd_id:  None,
+      cmd:     None,
       queued:  None,
       network: None,
     }
@@ -108,9 +108,10 @@ pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Fak
 }
 
 pub fn backpressure_event(cmd: &RedisCommand, duration: Option<u128>) {
+  let id = cmd.traces.cmd.as_ref().and_then(|c| c.id());
   if let Some(duration) = duration {
-    event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure duration_ms={}", duration);
+    event!(parent: id, Level::INFO, "backpressure duration_ms={}", duration);
   } else {
-    event!(parent: cmd.traces.cmd_id.clone(), Level::INFO, "backpressure drain");
+    event!(parent: id, Level::INFO, "backpressure drain");
   }
 }
