@@ -33,4 +33,4 @@ RUN cargo --version && rustc --version
 
 # VOLUME /project/target
 # VOLUME /usr/local/cargo/bin
-CMD tests/runners/cluster-tls.sh
+CMD tests/docker/runners/bash/cluster-tls.sh

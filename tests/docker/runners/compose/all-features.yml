@@ -1,7 +1,7 @@
 version: '2'
 
 services:
-  sentinel-tests:
+  all-features-tests:
     depends_on:
       - redis-main
       - redis-cluster-6

@@ -33,4 +33,4 @@ RUN cargo --version && rustc --version
 
 # VOLUME /project/target
 # VOLUME /usr/local/cargo/bin
-CMD tests/runners/all-features.sh
+CMD tests/docker/runners/bash/all-features.sh
