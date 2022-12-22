@@ -73,19 +73,14 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
     ));
   }
   let servers = inner.with_cluster_state(|state| Ok(state.unique_primary_nodes()))?;
+  _debug!(inner, "Unique primary nodes in split: {:?}", servers);
 
   Ok(
     servers
       .into_iter()
       .map(|server| {
-        let host = server
-          .tls_server_name
-          .map(|server| server.as_str().to_owned())
-          .unwrap_or(server.host.as_str().to_owned());
-        let port = server.port.clone();
-
         let mut config = inner.config.as_ref().clone();
-        config.server = ServerConfig::Centralized { host, port };
+        config.server = ServerConfig::Centralized { server };
         let perf = inner.performance_config();
         let policy = inner.reconnect_policy();
 

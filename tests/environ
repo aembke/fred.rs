@@ -1,8 +1,12 @@
 #!/bin/bash
 . ./tests/scripts/utils.sh
 
-if [ -z "REDIS_VERSION" ]; then
+if [ -z "$REDIS_VERSION" ]; then
   export REDIS_VERSION=7.0.5
+fi
+
+if [ -z "$CARGO_HTTP_DEBUG" ]; then
+  export CARGO_HTTP_DEBUG=false
 fi
 
 export ROOT=$PWD \
@@ -20,16 +24,28 @@ export ROOT=$PWD \
   REDIS_PASSWORD=bar \
   REDIS_SENTINEL_PASSWORD=baz
 
-alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
 
 if [ -z "${CIRCLECI_TESTS}" ]; then
-  read -p "Use cargo nextest? [y/n]: " NEXTEST
-  if [ "$NEXTEST" = "y" ]; then
-    export FRED_CI_NEXTEST=1
-  else
-    unset FRED_CI_NEXTEST
+  read -p "Build redis-cli for Redis $REDIS_VERSION? [y/n]: " INSTALL_CLI
+  if [ "$INSTALL_CLI" = "y" ]; then
+    check_redis
+    if [[ "$?" -eq 0 ]]; then
+      install_redis
+    fi
+
+    alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
+    echo "Use the \`fred_redis_cli\` alias to run redis-cli@$REDIS_VERSION"
   fi
 fi
+
+#if [ -z "${CIRCLECI_TESTS}" ]; then
+#  read -p "Use cargo nextest? [y/n]: " NEXTEST
+#  if [ "$NEXTEST" = "y" ]; then
+#    export FRED_CI_NEXTEST=1
+#  else
+#    unset FRED_CI_NEXTEST
+#  fi
+#fi
 
 modify_etc_hosts
 
@@ -46,4 +62,7 @@ echo "masteruser default" | tee -a $PWD/tests/docker/overrides/default.conf > /d
 echo "aclfile /opt/bitnami/redis/mounted-etc/users.acl" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 echo "requirepass $REDIS_PASSWORD" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 
-generate_cluster_credentials
+check_cluster_credentials
+if [[ "$?" -eq 0 ]]; then
+  generate_cluster_credentials
+fi

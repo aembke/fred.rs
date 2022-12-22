@@ -69,6 +69,44 @@ pub struct Server {
 }
 
 impl Server {
+  /// Create a new `Server` from parts with a TLS server name.
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  pub fn new_with_tls<S: Into<ArcStr>>(host: S, port: u16, tls_server_name: Option<String>) -> Self {
+    Server {
+      host: host.into(),
+      port,
+      tls_server_name: tls_server_name.map(|s| s.into()),
+    }
+  }
+
+  /// Create a new `Server` from parts.
+  pub fn new<S: Into<ArcStr>>(host: S, port: u16) -> Self {
+    Server {
+      host: host.into(),
+      port,
+      tls_server_name: None,
+    }
+  }
+
+  /// Attempt to parse a `host:port` string.
+  pub(crate) fn from_str(s: &str) -> Option<Server> {
+    let parts: Vec<&str> = s.trim().split(":").collect();
+    if parts.len() == 2 {
+      if let Some(port) = parts[1].parse::<u16>().ok() {
+        Some(Server {
+          host: parts[0].into(),
+          port,
+          tls_server_name: None,
+        })
+      } else {
+        None
+      }
+    } else {
+      None
+    }
+  }
+
   /// Create a new server struct from a `host:port` string and the default host that sent the last command.
   pub(crate) fn from_parts(server: &str, default_host: &str) -> Option<Server> {
     server_to_parts(server).ok().map(|(host, port)| {
@@ -84,6 +122,42 @@ impl Server {
         tls_server_name: None,
       }
     })
+  }
+}
+
+impl TryFrom<String> for Server {
+  type Error = RedisError;
+
+  fn try_from(value: String) -> Result<Self, Self::Error> {
+    Server::from_str(&value).ok_or(RedisError::new(RedisErrorKind::Config, "Invalid `host:port` server."))
+  }
+}
+
+impl TryFrom<&str> for Server {
+  type Error = RedisError;
+
+  fn try_from(value: &str) -> Result<Self, Self::Error> {
+    Server::from_str(value).ok_or(RedisError::new(RedisErrorKind::Config, "Invalid `host:port` server."))
+  }
+}
+
+impl From<(String, u16)> for Server {
+  fn from((host, port): (String, u16)) -> Self {
+    Server {
+      host: host.into(),
+      port,
+      tls_server_name: None,
+    }
+  }
+}
+
+impl From<(&str, u16)> for Server {
+  fn from((host, port): (&str, u16)) -> Self {
+    Server {
+      host: host.into(),
+      port,
+      tls_server_name: None,
+    }
   }
 }
 

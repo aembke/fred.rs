@@ -1,7 +1,6 @@
 FROM rust:1.66.0-slim-buster
 
 WORKDIR /project
-COPY --chown=1001:1001 . /project
 
 ARG RUST_LOG
 ARG REDIS_VERSION
@@ -16,20 +15,14 @@ ARG FRED_REDIS_CENTRALIZED_HOST
 ARG FRED_REDIS_CENTRALIZED_PORT
 ARG FRED_REDIS_SENTINEL_HOST
 ARG FRED_REDIS_SENTINEL_PORT
-ARG FRED_CI_NEXTEST
 ARG CIRCLECI_TESTS
-ARG CACHE_VERSION
 ARG CARGO_HTTP_DEBUG
 ARG CARGO_NET_GIT_FETCH_WITH_CLI
 ARG RUSTC_WRAPPER
 ARG SCCACHE_CACHE_SIZE
 
-RUN USER=root apt-get update && apt-get install -y libssl-dev dnsutils
+RUN USER=root apt-get update && apt-get install -y build-essential libssl-dev dnsutils
 RUN echo "REDIS_VERSION=$REDIS_VERSION"
 
 # For debugging
 RUN cargo --version && rustc --version
-# RUN cargo install cargo-nextest
-
-# VOLUME /project/target
-# VOLUME /usr/local/cargo/bin

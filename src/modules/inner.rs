@@ -184,7 +184,7 @@ pub enum ServerState {
   Sentinel {
     version:   Option<Version>,
     /// An updated set of known sentinel nodes.
-    sentinels: Vec<(String, u16)>,
+    sentinels: Vec<Server>,
     /// The server host/port resolved from the sentinel nodes, if known.
     primary:   Option<Server>,
     #[cfg(feature = "replicas")]
@@ -299,7 +299,7 @@ impl ServerState {
     }
   }
 
-  pub fn update_sentinel_nodes(&mut self, server: &Server, nodes: Vec<(String, u16)>) {
+  pub fn update_sentinel_nodes(&mut self, server: &Server, nodes: Vec<Server>) {
     if let ServerState::Sentinel {
       ref mut sentinels,
       ref mut primary,
@@ -311,7 +311,7 @@ impl ServerState {
     }
   }
 
-  pub fn read_sentinel_nodes(&self, config: &ServerConfig) -> Option<Vec<(String, u16)>> {
+  pub fn read_sentinel_nodes(&self, config: &ServerConfig) -> Option<Vec<Server>> {
     if let ServerState::Sentinel { ref sentinels, .. } = *self {
       if sentinels.is_empty() {
         match config {

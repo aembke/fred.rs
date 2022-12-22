@@ -24,6 +24,7 @@
 
 New or breaking changes in 6.x:
 
+* Added `Server` struct for all server identifiers.
 * New TLS feature flags: `enable-rustls` and `enable-native-tls`.
 * New TLS configuration process: see the [example](examples/tls.rs).
 * New [transaction](examples/transactions.rs) interface.

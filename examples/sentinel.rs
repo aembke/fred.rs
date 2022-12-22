@@ -1,4 +1,4 @@
-use fred::prelude::*;
+use fred::{prelude::*, types::Server};
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
@@ -9,9 +9,9 @@ async fn main() -> Result<(), RedisError> {
       // the known host/port tuples for the sentinel nodes
       // the client will automatically update these if sentinels are added or removed
       hosts:                                      vec![
-        ("localhost".into(), 26379),
-        ("localhost".into(), 26380),
-        ("localhost".into(), 26381),
+        Server::new("localhost", 26379),
+        Server::new("localhost", 26380),
+        Server::new("localhost", 26381),
       ],
       // note: by default sentinel nodes use the same authentication settings as the redis servers, however
       // callers can also use the `sentinel-auth` feature to use different credentials to sentinel nodes

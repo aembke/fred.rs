@@ -14,7 +14,6 @@ use crate::{
   },
   types::ClusterStateChange,
 };
-use arcstr::ArcStr;
 use std::{
   collections::{BTreeSet, HashMap},
   iter::repeat,
@@ -450,11 +449,7 @@ pub async fn connect_any(
   } else {
     BTreeSet::new()
   };
-  all_servers.extend(inner.config.server.hosts().into_iter().map(|(host, port)| Server {
-    host: ArcStr::from(host),
-    port,
-    tls_server_name: None,
-  }));
+  all_servers.extend(inner.config.server.hosts().into_iter().map(|server| server.clone()));
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
   let num_servers = all_servers.len();

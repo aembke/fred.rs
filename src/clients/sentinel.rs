@@ -1,7 +1,7 @@
 use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
-  types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
+  types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, Server, ServerConfig},
 };
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{default::Default, fmt, sync::Arc};
@@ -66,8 +66,7 @@ impl From<SentinelConfig> for RedisConfig {
   fn from(config: SentinelConfig) -> Self {
     RedisConfig {
       server: ServerConfig::Centralized {
-        host: config.host,
-        port: config.port,
+        server: Server::new(config.host, config.port),
       },
       fail_fast: true,
       database: None,

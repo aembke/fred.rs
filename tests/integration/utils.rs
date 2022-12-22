@@ -18,6 +18,7 @@ const RECONNECT_DELAY: u32 = 500;
 #[cfg(not(feature = "chaos-monkey"))]
 const RECONNECT_DELAY: u32 = 1000;
 
+use fred::types::Server;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
@@ -59,7 +60,7 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
-fn read_redis_centralized_host() -> (String, u16) {
+pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CENTRALIZED_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_CENTRALIZED_PORT")
     .and_then(|s| s.parse::<u16>().ok())
@@ -69,7 +70,7 @@ fn read_redis_centralized_host() -> (String, u16) {
 }
 
 #[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
-fn read_redis_cluster_host() -> (String, u16) {
+pub fn read_redis_cluster_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CLUSTER_HOST").unwrap_or("redis-cluster-1".into());
   let port = read_env_var("FRED_REDIS_CLUSTER_PORT")
     .and_then(|s| s.parse::<u16>().ok())
@@ -79,7 +80,7 @@ fn read_redis_cluster_host() -> (String, u16) {
 }
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-fn read_redis_cluster_host() -> (String, u16) {
+pub fn read_redis_cluster_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CLUSTER_TLS_HOST").unwrap_or("redis-cluster-tls-1".into());
   let port = read_env_var("FRED_REDIS_CLUSTER_TLS_PORT")
     .and_then(|s| s.parse::<u16>().ok())
@@ -88,18 +89,21 @@ fn read_redis_cluster_host() -> (String, u16) {
   (host, port)
 }
 
-#[cfg(feature = "sentinel-auth")]
-fn read_redis_password() -> String {
+pub fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
 }
 
+pub fn read_redis_username() -> String {
+  read_env_var("REDIS_USERNAME").expect("Failed to read REDIS_USERNAME env")
+}
+
 #[cfg(feature = "sentinel-auth")]
-fn read_sentinel_password() -> String {
+pub fn read_sentinel_password() -> String {
   read_env_var("REDIS_SENTINEL_PASSWORD").expect("Failed to read REDIS_SENTINEL_PASSWORD env")
 }
 
 #[cfg(feature = "sentinel-tests")]
-fn read_sentinel_server() -> (String, u16) {
+pub fn read_sentinel_server() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_SENTINEL_HOST").unwrap_or("127.0.0.1".into());
   let port = read_env_var("FRED_REDIS_SENTINEL_PORT")
     .and_then(|s| s.parse::<u16>().ok())
@@ -212,11 +216,13 @@ fn create_server_config(cluster: bool) -> ServerConfig {
   if cluster {
     let (host, port) = read_redis_cluster_host();
     ServerConfig::Clustered {
-      hosts: vec![(host, port)],
+      hosts: vec![Server::new(host, port)],
     }
   } else {
     let (host, port) = read_redis_centralized_host();
-    ServerConfig::Centralized { host, port }
+    ServerConfig::Centralized {
+      server: Server::new(host, port),
+    }
   }
 }
 
@@ -225,6 +231,8 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
+    username: Some(read_redis_username()),
+    password: Some(read_redis_password()),
     ..Default::default()
   };
   let perf = PerformanceConfig {
@@ -262,6 +270,8 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
       connector: create_rustls_config(),
       hostnames: TlsHostMapping::DefaultHost,
     }),
+    username: Some(read_redis_username()),
+    password: Some(read_redis_password()),
     ..Default::default()
   };
   let perf = PerformanceConfig {
@@ -288,6 +298,8 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
       connector: create_native_tls_config(),
       hostnames: TlsHostMapping::DefaultHost,
     }),
+    username: Some(read_redis_username()),
+    password: Some(read_redis_password()),
     ..Default::default()
   };
   let perf = PerformanceConfig {
@@ -311,7 +323,7 @@ where
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::Sentinel {
-      hosts:        vec![read_sentinel_server()],
+      hosts:        vec![read_sentinel_server().into()],
       service_name: "redis-sentinel-main".into(),
       // TODO fix this so sentinel-tests can run without sentinel-auth
       username:     None,
@@ -384,7 +396,7 @@ where
 
 macro_rules! centralized_test_panic(
   ($module:tt, $name:tt) => {
-    #[cfg(not(feature="sentinel-tests"))]
+    #[cfg(not(any(feature="sentinel-tests", feature = "enable-rustls", feature = "enable-native-tls")))]
     mod $name {
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
@@ -495,7 +507,7 @@ macro_rules! cluster_test_panic(
 
 macro_rules! centralized_test(
   ($module:tt, $name:tt) => {
-    #[cfg(not(feature="sentinel-tests"))]
+    #[cfg(not(any(feature="sentinel-tests", feature = "enable-rustls", feature = "enable-native-tls")))]
     mod $name {
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]

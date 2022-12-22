@@ -143,6 +143,16 @@ function modify_etc_hosts {
   echo $REDIS_HOSTS | sudo tee -a /etc/hosts
 }
 
+function check_cluster_credentials {
+  if [ -f "$ROOT/tests/tmp/creds/ca.pem" ]; then
+    echo "Skip generating TLS credentials."
+    return 1
+  else
+    echo "TLS credentials not found."
+    return 0
+  fi
+}
+
 # Generate creds for a CA, a cert/key for the client, a cert/key for each node in the cluster, and sign the certs with the CA creds.
 #
 # Note: it's also necessary to modify DNS mappings so the CN in each cert can be used as a hostname. See `modify_etc_hosts`.

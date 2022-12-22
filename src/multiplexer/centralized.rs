@@ -269,11 +269,18 @@ pub async fn initialize_connection(
 
   match connections {
     Connections::Centralized { writer, .. } => {
-      let (host, port) = match inner.config.server {
-        ServerConfig::Centralized { ref host, ref port } => (host.to_owned(), *port),
+      let server = match inner.config.server {
+        ServerConfig::Centralized { ref server } => server.clone(),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
-      let mut transport = connection::create(inner, host, port, None, None).await?;
+      let mut transport = connection::create(
+        inner,
+        server.host.as_str().to_owned(),
+        server.port,
+        None,
+        server.tls_server_name.as_ref(),
+      )
+      .await?;
       let _ = transport.setup(inner, None).await?;
 
       // let replicas = sync_replicas(inner, &mut transport).await?;

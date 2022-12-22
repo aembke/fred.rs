@@ -1,0 +1,35 @@
+version: '2'
+
+services:
+  cluster-native-tls-tests:
+    depends_on:
+      - redis-cluster-tls-6
+    container_name: "cluster-native-tls-tests"
+    build:
+      context: ../../../
+      dockerfile: tests/docker/runners/images/base.dockerfile
+      args:
+        REDIS_VERSION: "${REDIS_VERSION}"
+    networks:
+      - app-tier
+    command:
+      - "/project/tests/docker/runners/bash/cluster-tls.sh"
+      - "${TEST_ARGV}"
+    environment:
+      RUST_LOG: "${RUST_LOG}"
+      CIRCLECI_TESTS: "${CIRCLECI_TESTS}"
+      REDIS_VERSION: "${REDIS_VERSION}"
+      FRED_REDIS_CLUSTER_TLS_HOST: "${FRED_REDIS_CLUSTER_TLS_HOST}"
+      FRED_REDIS_CLUSTER_TLS_PORT: "${FRED_REDIS_CLUSTER_TLS_PORT}"
+      REDIS_USERNAME: "${REDIS_USERNAME}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      CARGO_HTTP_DEBUG: "${CARGO_HTTP_DEBUG}"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "${CARGO_NET_GIT_FETCH_WITH_CLI}"
+      RUSTC_WRAPPER: "${RUSTC_WRAPPER}"
+      SCCACHE_CACHE_SIZE: "${SCCACHE_CACHE_SIZE}"
+      FRED_TEST_TLS_CREDS: "/project/tests/tmp/creds"
+    volumes:
+      - "../../..:/project"
+      - "~/.cargo/bin/sccache:/usr/local/cargo/bin/sccache"
+      - "~/.cargo/registry:/usr/local/cargo/registry"
+      - "~/.cache/sccache:/home/root/.cache/sccache"

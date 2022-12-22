@@ -637,8 +637,8 @@ impl RedisConfig {
   pub fn from_url_clustered(url: &str) -> Result<RedisConfig, RedisError> {
     let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
-    cluster_nodes.push((host, port));
-    let server = ServerConfig::new_clustered(cluster_nodes);
+    cluster_nodes.push(Server::new(host, port));
+    let server = ServerConfig::Clustered { hosts: cluster_nodes };
     let (username, password) = utils::parse_url_credentials(&url);
 
     Ok(RedisConfig {
@@ -687,7 +687,7 @@ impl RedisConfig {
   pub fn from_url_sentinel(url: &str) -> Result<RedisConfig, RedisError> {
     let (url, host, port, _tls) = utils::parse_url(url, Some(26379))?;
     let mut other_nodes = utils::parse_url_other_nodes(&url)?;
-    other_nodes.push((host, port));
+    other_nodes.push(Server::new(host, port));
     let service_name = utils::parse_url_sentinel_service_name(&url)?;
     let (username, password) = utils::parse_url_credentials(&url);
     let database = utils::parse_url_db(&url)?;
@@ -716,19 +716,19 @@ impl RedisConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServerConfig {
   Centralized {
-    /// The hostname or IP address of the Redis server.
-    host: String,
-    /// The port on which the Redis server is listening.
-    port: u16,
+    /// The `Server` identifier.
+    server: Server,
   },
   Clustered {
-    /// An array of `(host, port)` tuples for nodes in the cluster. Only one node in the cluster needs to be provided
-    /// here, the rest will be discovered via the `CLUSTER NODES` command.
-    hosts: Vec<(String, u16)>,
+    /// The known cluster node `Server` identifiers.
+    ///
+    /// Only one node in the cluster needs to be provided here, the rest will be discovered via the `CLUSTER SLOTS`
+    /// command.
+    hosts: Vec<Server>,
   },
   Sentinel {
-    /// An array of `(host, port)` tuples for each known sentinel instance.
-    hosts:        Vec<(String, u16)>,
+    /// An array of `Server` identifiers for each known sentinel instance.
+    hosts:        Vec<Server>,
     /// The service name for primary/main instances.
     service_name: String,
 
@@ -756,8 +756,7 @@ impl ServerConfig {
     S: Into<String>,
   {
     ServerConfig::Centralized {
-      host: host.into(),
-      port,
+      server: Server::new(host.into(), port),
     }
   }
 
@@ -770,7 +769,7 @@ impl ServerConfig {
     S: Into<String>,
   {
     ServerConfig::Clustered {
-      hosts: hosts.drain(..).map(|(s, p)| (s.into(), p)).collect(),
+      hosts: hosts.drain(..).map(|(s, p)| Server::new(s.into(), p)).collect(),
     }
   }
 
@@ -783,7 +782,7 @@ impl ServerConfig {
     N: Into<String>,
   {
     ServerConfig::Sentinel {
-      hosts:                                      hosts.into_iter().map(|(h, p)| (h.into(), p)).collect(),
+      hosts:                                      hosts.into_iter().map(|(h, p)| Server::new(h.into(), p)).collect(),
       service_name:                               service_name.into(),
       #[cfg(feature = "sentinel-auth")]
       username:                                   None,
@@ -795,8 +794,7 @@ impl ServerConfig {
   /// Create a centralized config with default settings for a local deployment.
   pub fn default_centralized() -> ServerConfig {
     ServerConfig::Centralized {
-      host: "127.0.0.1".to_owned(),
-      port: 6379,
+      server: Server::new("127.0.0.1", 6379),
     }
   }
 
@@ -804,9 +802,9 @@ impl ServerConfig {
   pub fn default_clustered() -> ServerConfig {
     ServerConfig::Clustered {
       hosts: vec![
-        ("127.0.0.1".to_owned(), 30001),
-        ("127.0.0.1".to_owned(), 30002),
-        ("127.0.0.1".to_owned(), 30003),
+        Server::new("127.0.0.1", 30001),
+        Server::new("127.0.0.1", 30002),
+        Server::new("127.0.0.1", 30003),
       ],
     }
   }
@@ -836,17 +834,19 @@ impl ServerConfig {
   }
 
   /// Read the server hosts or sentinel hosts if using the sentinel interface.
-  pub fn hosts(&self) -> Vec<(&str, u16)> {
+  pub fn hosts(&self) -> Vec<&Server> {
     match *self {
-      ServerConfig::Centralized { ref host, port } => vec![(host.as_str(), port)],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
+      ServerConfig::Centralized { ref server } => vec![server],
+      ServerConfig::Clustered { ref hosts } => hosts.iter().map(|s| s).collect(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|s| s).collect(),
     }
   }
 }
 
 #[cfg(test)]
 mod tests {
+  #[cfg(feature = "sentinel-auth")]
+  use crate::types::Server;
   #[allow(unused_imports)]
   use crate::{prelude::ServerConfig, types::RedisConfig, utils};
 
@@ -1075,7 +1075,7 @@ mod tests {
                sentinelUsername=username2&sentinelPassword=password2";
     let expected = RedisConfig {
       server: ServerConfig::Sentinel {
-        hosts:        vec![("foo.com".into(), 26379)],
+        hosts:        vec![Server::new("foo.com", 26379)],
         service_name: "fakename".into(),
         username:     Some("username2".into()),
         password:     Some("password2".into()),

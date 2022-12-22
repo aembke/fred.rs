@@ -9,30 +9,29 @@ services:
     container_name: "sentinel-tests"
     build:
       context: ../../../
-      dockerfile: tests/docker/runners/images/sentinel-features.dockerfile
+      dockerfile: tests/docker/runners/images/base.dockerfile
       args:
-        RUST_LOG: "${RUST_LOG}"
         REDIS_VERSION: "${REDIS_VERSION}"
-        FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
-        FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
-        REDIS_USERNAME: "foo"
-        REDIS_PASSWORD: "bar"
-        REDIS_SENTINEL_PASSWORD: "baz"
-        FRED_CI_NEXTEST: "${FRED_CI_NEXTEST}"
     networks:
       - app-tier
+    command:
+      - "/project/tests/docker/runners/bash/sentinel-features.sh"
+      - "${TEST_ARGV}"
     environment:
       RUST_LOG: "${RUST_LOG}"
-      CIRCLECI_TESTS: "1"
+      CIRCLECI_TESTS: "${CIRCLECI_TESTS}"
       REDIS_VERSION: "${REDIS_VERSION}"
       FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
       FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
-      REDIS_USERNAME: "foo"
-      REDIS_PASSWORD: "bar"
-      REDIS_SENTINEL_PASSWORD: "baz"
-      FRED_CI_NEXTEST: "${FRED_CI_NEXTEST}"
+      REDIS_USERNAME: "${REDIS_USERNAME}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"
+      CARGO_HTTP_DEBUG: "${CARGO_HTTP_DEBUG}"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "${CARGO_NET_GIT_FETCH_WITH_CLI}"
+      RUSTC_WRAPPER: "${RUSTC_WRAPPER}"
+      SCCACHE_CACHE_SIZE: "${SCCACHE_CACHE_SIZE}"
     volumes:
-      - "../../../target:/project/target"
+      - "../../..:/project"
       - "~/.cargo/bin/sccache:/usr/local/cargo/bin/sccache"
       - "~/.cargo/registry:/usr/local/cargo/registry"
       - "~/.cache/sccache:/home/root/.cache/sccache"
