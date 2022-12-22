@@ -1,0 +1,38 @@
+version: '2'
+
+services:
+  sentinel-tests:
+    depends_on:
+      - redis-sentinel-main
+      - redis-sentinel-replica
+      - redis-sentinel-3
+    container_name: "sentinel-tests"
+    build:
+      context: ../../../
+      dockerfile: tests/docker/runners/images/sentinel-features.dockerfile
+      args:
+        RUST_LOG: "${RUST_LOG}"
+        REDIS_VERSION: "${REDIS_VERSION}"
+        FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
+        FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
+        REDIS_USERNAME: "foo"
+        REDIS_PASSWORD: "bar"
+        REDIS_SENTINEL_PASSWORD: "baz"
+        FRED_CI_NEXTEST: "${FRED_CI_NEXTEST}"
+    networks:
+      - app-tier
+    environment:
+      RUST_LOG: "${RUST_LOG}"
+      CIRCLECI_TESTS: "1"
+      REDIS_VERSION: "${REDIS_VERSION}"
+      FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
+      FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
+      REDIS_USERNAME: "foo"
+      REDIS_PASSWORD: "bar"
+      REDIS_SENTINEL_PASSWORD: "baz"
+      FRED_CI_NEXTEST: "${FRED_CI_NEXTEST}"
+    volumes:
+      - "../../../target:/project/target"
+      - "~/.cargo/bin/sccache:/usr/local/cargo/bin/sccache"
+      - "~/.cargo/registry:/usr/local/cargo/registry"
+      - "~/.cache/sccache:/home/root/.cache/sccache"

@@ -1,0 +1,39 @@
+version: '2'
+
+services:
+  sentinel-tests:
+    depends_on:
+      - redis-main
+      - redis-cluster-6
+    container_name: "all-features-tests"
+    build:
+      context: ../../../
+      dockerfile: tests/docker/runners/images/all-features.dockerfile
+      args:
+        RUST_LOG: "${RUST_LOG}"
+        REDIS_VERSION: "${REDIS_VERSION}"
+        FRED_REDIS_CENTRALIZED_HOST: "${FRED_REDIS_CENTRALIZED_HOST}"
+        FRED_REDIS_CENTRALIZED_PORT: "${FRED_REDIS_CENTRALIZED_PORT}"
+        FRED_REDIS_CLUSTER_HOST: "${FRED_REDIS_CLUSTER_HOST}"
+        FRED_REDIS_CLUSTER_PORT: "${FRED_REDIS_CLUSTER_PORT}"
+        REDIS_USERNAME: "foo"
+        REDIS_PASSWORD: "bar"
+        FRED_CI_NEXTEST: "${FRED_CI_NEXTEST}"
+    networks:
+      - app-tier
+    environment:
+      RUST_LOG: "${RUST_LOG}"
+      CIRCLECI_TESTS: "1"
+      REDIS_VERSION: "${REDIS_VERSION}"
+      FRED_REDIS_CENTRALIZED_HOST: "${FRED_REDIS_CENTRALIZED_HOST}"
+      FRED_REDIS_CENTRALIZED_PORT: "${FRED_REDIS_CENTRALIZED_PORT}"
+      FRED_REDIS_CLUSTER_HOST: "${FRED_REDIS_CLUSTER_HOST}"
+      FRED_REDIS_CLUSTER_PORT: "${FRED_REDIS_CLUSTER_PORT}"
+      REDIS_USERNAME: "foo"
+      REDIS_PASSWORD: "bar"
+      FRED_CI_NEXTEST: "${FRED_CI_NEXTEST}"
+    volumes:
+      - "../../../target:/project/target"
+      - "~/.cargo/bin/sccache:/usr/local/cargo/bin/sccache"
+      - "~/.cargo/registry:/usr/local/cargo/registry"
+      - "~/.cache/sccache:/home/root/.cache/sccache"

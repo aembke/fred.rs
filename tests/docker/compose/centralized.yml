@@ -1,0 +1,20 @@
+version: '2'
+
+networks:
+  app-tier:
+    driver: bridge
+
+services:
+  redis-main:
+    container_name: "redis-main"
+    image: 'bitnami/redis:${REDIS_VERSION}'
+    environment:
+      - 'REDIS_PORT_NUMBER=${FRED_REDIS_CENTRALIZED_PORT}'
+      - 'ALLOW_EMPTY_PASSWORD=yes'
+    ports:
+      - "6379:${FRED_REDIS_CENTRALIZED_PORT}"
+    networks:
+      - app-tier
+    volumes:
+      - '../../../tests/users.acl:/opt/bitnami/redis/mounted-etc/users.acl'
+      - '../../../tests/docker/overrides/default.conf:/opt/bitnami/redis/mounted-etc/overrides.conf'
