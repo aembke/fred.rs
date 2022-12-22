@@ -25,11 +25,11 @@ impl Span {
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn set_network_span(_command: &mut RedisCommand, _flush: bool) {}
+pub fn set_network_span(_inner: &Arc<RedisClientInner>, _command: &mut RedisCommand, _flush: bool) {}
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Span {
-  Span {}
+pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Option<Span> {
+  Some(Span {})
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]

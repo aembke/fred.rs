@@ -447,7 +447,7 @@ where
   let end_cmd_span = cmd_span.clone();
 
   let (mut command, rx, req_size) = {
-    let args_span = trace::create_args_span(cmd_span.id());
+    let args_span = trace::create_args_span(cmd_span.id(), inner);
     let _enter = args_span.enter();
     let (tx, rx) = oneshot_channel();
 

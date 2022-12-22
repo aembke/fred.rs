@@ -7,6 +7,8 @@ use std::{default::Default, sync::Arc};
 
 #[cfg(feature = "mocks")]
 use fred::mocks::Echo;
+#[cfg(feature = "partial-tracing")]
+use fred::types::TracingConfig;
 
 const DATABASE: u8 = 2;
 
@@ -39,7 +41,7 @@ async fn main() -> Result<(), RedisError> {
     tls: None,
     // Whether or not to enable tracing for this client.
     #[cfg(feature = "partial-tracing")]
-    tracing: false,
+    tracing: TracingConfig::enabled(false),
     // An optional mocking layer to intercept and process commands.
     #[cfg(feature = "mocks")]
     mocks: Arc::new(Echo),
@@ -65,6 +67,7 @@ async fn main() -> Result<(), RedisError> {
       // the policy to apply when the max in-flight commands count is reached
       policy:                    BackpressurePolicy::Drain,
     },
+    network_timeout_ms: 0,
   };
 
   // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.

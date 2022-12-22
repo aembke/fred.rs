@@ -411,12 +411,10 @@ pub struct RedisConfig {
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   pub tls:       Option<TlsConfig>,
-  /// Whether or not to enable tracing for this client.
-  ///
-  /// Default: `false`
+  /// Configuration of tracing for this client.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   bool,
+  pub tracing:   TracingConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: [Echo](crate::mocks::Echo)
@@ -452,7 +450,7 @@ impl Default for RedisConfig {
       #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
-      tracing: false,
+      tracing: TracingConfig::default(),
       #[cfg(feature = "mocks")]
       mocks: Arc::new(Echo),
     }
@@ -841,6 +839,59 @@ impl ServerConfig {
       ServerConfig::Centralized { ref host, port } => vec![(host.as_str(), port)],
       ServerConfig::Clustered { ref hosts } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
       ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|(h, p)| (h.as_str(), *p)).collect(),
+    }
+  }
+}
+
+/// Configuration options for tracing.
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+#[derive(Clone, Debug)]
+pub struct TracingConfig {
+  /// Whether or not to enable tracing for this client.
+  ///
+  /// Default: `false`
+  #[cfg(feature = "partial-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+  pub enable:   bool,
+
+  /// Set `tracing::Level` of `spans` under `partial-tracing` feature
+  /// See [trace documentation](crate::trace) to check included spans
+  ///
+  /// Default: `tracing::Level::INFO`
+  #[cfg(feature = "partial-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+  pub spans_level: tracing::Level,
+
+  /// Set `tracing::Level` of `spans` under `full-tracing` feature
+  /// See [trace documentation](crate::trace)  to check included spans
+  ///
+  /// Default: `tracing::Level::DEBUG`
+  #[cfg(feature = "full-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "full-tracing")))]
+  pub full_spans_level: tracing::Level,
+}
+
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+impl TracingConfig {
+  pub fn enabled(enable: bool) -> Self {
+    Self {
+      enable,
+      ..Self::default()
+    }
+  }
+}
+
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+impl Default for TracingConfig {
+  fn default() -> Self {
+    Self {
+      enable: false,
+      spans_level: tracing::Level::INFO,
+      #[cfg(feature = "full-tracing")]
+      full_spans_level: tracing::Level::DEBUG,
     }
   }
 }

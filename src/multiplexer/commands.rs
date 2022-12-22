@@ -205,7 +205,7 @@ async fn write_with_backpressure_t(
 ) -> Result<(), RedisError> {
   if inner.should_trace() {
     command.take_queued_span();
-    let span = fspan!(command, "process_command");
+    let span = fspan!(command, inner.full_tracing_span_level(), "process_command");
     write_with_backpressure(inner, multiplexer, command, force_pipeline)
       .instrument(span)
       .await
