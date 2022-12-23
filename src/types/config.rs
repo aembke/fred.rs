@@ -844,6 +844,7 @@ impl ServerConfig {
 }
 
 /// Configuration options for tracing.
+#[doc = include_str!("../trace/README.md")]
 #[cfg(feature = "partial-tracing")]
 #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
 #[derive(Clone, Debug)]
@@ -855,16 +856,14 @@ pub struct TracingConfig {
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub enable:   bool,
 
-  /// Set `tracing::Level` of `spans` under `partial-tracing` feature
-  /// See [trace documentation](crate::trace) to check included spans
+  /// Set `tracing::Level` of `spans` under `partial-tracing` feature (see config-level documentation)
   ///
   /// Default: `tracing::Level::INFO`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub spans_level: tracing::Level,
 
-  /// Set `tracing::Level` of `spans` under `full-tracing` feature
-  /// See [trace documentation](crate::trace)  to check included spans
+  /// Set `tracing::Level` of `spans` under `full-tracing` feature (see config-level documentation)
   ///
   /// Default: `tracing::Level::DEBUG`
   #[cfg(feature = "full-tracing")]
