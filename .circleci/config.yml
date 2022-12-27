@@ -137,28 +137,28 @@ commands:
 jobs:
   test-default-7_0:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_default_features
   test-no-features-7_0:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_no_features
   test-all-features-7_0:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_all_features
   test-cluster-tls-features-7_0:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 7.0.5
       FRED_CI_TLS: true
@@ -166,7 +166,7 @@ jobs:
       - test_tls_cluster
   test-cluster-rustls-features-7_0:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 7.0.5
       FRED_CI_TLS: true
@@ -174,35 +174,35 @@ jobs:
       - test_rustls_cluster
   test-default-6_2:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_default_features
   test-no-features-6_2:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_no_features
   test-all-features-6_2:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_all_features
   test-sentinel-6_2:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_sentinel
   test-sentinel-7_0:
     docker:
-      - image: cimg/base:2022.12
+      - image: cimg/rust:1.66.0
     environment:
       REDIS_VERSION: 7.0.5
     steps:
