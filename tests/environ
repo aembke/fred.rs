@@ -62,7 +62,9 @@ echo "masteruser default" | tee -a $PWD/tests/docker/overrides/default.conf > /d
 echo "aclfile /opt/bitnami/redis/mounted-etc/users.acl" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 echo "requirepass $REDIS_PASSWORD" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 
-check_cluster_credentials
-if [[ "$?" -eq 0 ]]; then
-  generate_cluster_credentials
+if [ -z "${CIRCLECI_TESTS}" ]; then
+  check_cluster_credentials
+  if [[ "$?" -eq 0 ]]; then
+    generate_cluster_credentials
+  fi
 fi

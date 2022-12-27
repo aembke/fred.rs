@@ -76,7 +76,7 @@ commands:
       - restore-sccache-cache
       - run:
           name: Run tests with default features
-          command: tests/runners/default-features.sh
+          command: source tests/environ && tests/runners/default-features.sh
       - save-sccache-cache
   test_all_features:
     steps:
@@ -86,7 +86,7 @@ commands:
       - restore-sccache-cache
       - run:
           name: Run tests with all features
-          command: tests/runners/all-features.sh
+          command: source tests/environ && tests/runners/all-features.sh
       - save-sccache-cache
   test_no_features:
     steps:
@@ -96,7 +96,7 @@ commands:
       - restore-sccache-cache
       - run:
           name: Run tests with no features
-          command: tests/runners/no-features.sh
+          command: source tests/environ && tests/runners/no-features.sh
       - save-sccache-cache
   test_sentinel:
     steps:
@@ -106,7 +106,7 @@ commands:
       - restore-sccache-cache
       - run:
           name: Install and run sentinel tests
-          command: tests/runners/sentinel-features.sh
+          command: source tests/environ && tests/runners/sentinel-features.sh
   test_tls_cluster:
     steps:
       - checkout
@@ -114,11 +114,8 @@ commands:
       - setup-sccache
       - restore-sccache-cache
       - run:
-          name: Generate TLS credentials
-          command: tests/scripts/tls-creds.sh
-      - run:
           name: Run cluster tests with native-tls features
-          command: tests/runners/cluster-native-tls.sh
+          command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-native-tls.sh
       - save-sccache-cache
   test_rustls_cluster:
     steps:
@@ -127,11 +124,8 @@ commands:
       - setup-sccache
       - restore-sccache-cache
       - run:
-          name: Generate TLS credentials
-          command: tests/scripts/tls-creds.sh
-      - run:
           name: Run cluster tests with rustls features
-          command: tests/runners/cluster-rustls.sh
+          command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-rustls.sh
       - save-sccache-cache
 
 jobs:
