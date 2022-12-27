@@ -1,0 +1,40 @@
+version: '2'
+
+services:
+  base:
+    depends_on:
+      - redis-cluster-tls-6
+      - redis-main
+      - redis-sentinel-3
+    container_name: "base"
+    build:
+      context: ../../../
+      dockerfile: tests/docker/runners/images/base.dockerfile
+      args:
+        REDIS_VERSION: "${REDIS_VERSION}"
+    networks:
+      - app-tier
+    command:
+      - "/bin/bash"
+    environment:
+      RUST_LOG: "${RUST_LOG}"
+      CIRCLECI_TESTS: "${CIRCLECI_TESTS}"
+      REDIS_VERSION: "${REDIS_VERSION}"
+      FRED_REDIS_CENTRALIZED_HOST: "${FRED_REDIS_CENTRALIZED_HOST}"
+      FRED_REDIS_CENTRALIZED_PORT: "${FRED_REDIS_CENTRALIZED_PORT}"
+      FRED_REDIS_CLUSTER_HOST: "${FRED_REDIS_CLUSTER_HOST}"
+      FRED_REDIS_CLUSTER_PORT: "${FRED_REDIS_CLUSTER_PORT}"
+      FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
+      FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
+      REDIS_USERNAME: "${REDIS_USERNAME}"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"
+      CARGO_HTTP_DEBUG: "${CARGO_HTTP_DEBUG}"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "${CARGO_NET_GIT_FETCH_WITH_CLI}"
+      RUSTC_WRAPPER: "${RUSTC_WRAPPER}"
+      SCCACHE_CACHE_SIZE: "${SCCACHE_CACHE_SIZE}"
+    volumes:
+      - "../../..:/project"
+      - "~/.cargo/bin/sccache:/usr/local/cargo/bin/sccache"
+      - "~/.cargo/registry:/usr/local/cargo/registry"
+      - "~/.cache/sccache:/home/root/.cache/sccache"
