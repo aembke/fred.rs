@@ -68,3 +68,9 @@ if [ -z "${CIRCLECI_TESTS}" ]; then
     generate_cluster_credentials
   fi
 fi
+
+if [ -z "${CIRCLECI_TESTS}" ]; then
+  export FRED_BASE_DOCKERFILE="tests/docker/runners/images/base.dockerfile"
+else
+  export FRED_BASE_DOCKERFILE="tests/docker/runners/images/ci.dockerfile"
+fi

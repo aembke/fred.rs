@@ -8,7 +8,7 @@ services:
     container_name: "all-features-tests"
     build:
       context: ../../../
-      dockerfile: tests/docker/runners/images/base.dockerfile
+      dockerfile: "${FRED_BASE_DOCKERFILE}"
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
