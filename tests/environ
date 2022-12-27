@@ -70,7 +70,7 @@ if [ -z "${CIRCLECI_TESTS}" ]; then
 fi
 
 if [ -z "${CIRCLECI_TESTS}" ]; then
-  export FRED_BASE_DOCKERFILE="tests/docker/runners/images/base.dockerfile"
+  echo "Skip checking registry cache."
 else
-  export FRED_BASE_DOCKERFILE="tests/docker/runners/images/ci.dockerfile"
+  mkdir -p /home/circleci/.cargo/registry
 fi

@@ -1,11 +1,9 @@
 FROM rust:1.66.0-slim-buster
 
 WORKDIR /project
-# circleci doesn't mount images so we have to copy everything
+# circleci doesn't mount volumes with a remote docker engine so we have to copy everything
 COPY --chown=1001:1001 . /project
-COPY --chown=1001:1001 /home/circleci/.cargo/bin/sccache /usr/local/cargo/bin/sccache
-COPY --chown=1001:1001 /home/circleci/.cache/sccache /home/root/.cache/sccache
-
+COPY --chown=1001:1001 ~/.cargo/registry /usr/local/cargo/registry
 
 ARG RUST_LOG
 ARG REDIS_VERSION
