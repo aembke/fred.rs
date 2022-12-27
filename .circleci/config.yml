@@ -6,15 +6,20 @@ commands:
     steps:
       - restore_cache:
           name: Restore cargo dependencies cache
-          key: cargo-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}-{{ .Environment.CIRCLE_JOB }}
+          key: cargo-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}
   save-cargo-deps-cache:
     steps:
       - save_cache:
           name: Save cargo dependencies cache
-          key: cargo-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
+          key: cargo-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}-{{ epoch }}
           paths:
-            - "~/.cargo/registry"
-            - "{{ .Environment.CIRCLE_WORKING_DIRECTORY }}/target"
+            - "/home/circleci/.cargo/registry"
+            - "/home/circleci/project/target"
+  setup-empty-registry:
+    steps:
+      - run:
+          name: Create empty cargo registry
+          command: mkdir -p /home/circleci/.cargo/registry
   clear_git_cache:
     steps:
       - run:
@@ -173,6 +178,8 @@ jobs:
   test-docs:
     docker:
       - image: cimg/rust:1.65.0
+    environment:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
       - checkout
       - build_docs
