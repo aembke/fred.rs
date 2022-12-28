@@ -7,8 +7,10 @@ use std::{default::Default, sync::Arc};
 
 #[cfg(feature = "mocks")]
 use fred::mocks::Echo;
-
-const DATABASE: u8 = 2;
+#[cfg(feature = "partial-tracing")]
+use fred::tracing::Level;
+#[cfg(feature = "partial-tracing")]
+use fred::types::TracingConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
@@ -16,7 +18,7 @@ async fn main() -> Result<(), RedisError> {
   // see the `RedisConfig::from_url` function documentation for more information
   let config = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
 
-  // example showing a full kitchen sink configuration
+  // example showing a full kitchen sink configuration with default values
   // use `..Default::default` to fill in defaults wherever needed
   let config = RedisConfig {
     // whether to skip reconnect logic when first connecting
@@ -33,13 +35,20 @@ async fn main() -> Result<(), RedisError> {
     // the protocol version to use. note: upgrading an existing codebase to RESP3 can be non-trivial. be careful.
     version: RespVersion::RESP2,
     // the database to automatically select after connecting or reconnecting
-    database: Some(DATABASE),
+    database: None,
     //  TLS configuration options
     #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
     tls: None,
-    // Whether or not to enable tracing for this client.
+    // tracing configuration options
     #[cfg(feature = "partial-tracing")]
-    tracing: false,
+    tracing: TracingConfig {
+      // whether to enable tracing
+      enabled:               false,
+      // the tracing level to use with `partial-tracing` spans
+      default_tracing_level: Level::INFO,
+      // the tracing level to use with `full-tracing` spans
+      full_tracing_level:    Level::DEBUG,
+    },
     // An optional mocking layer to intercept and process commands.
     #[cfg(feature = "mocks")]
     mocks: Arc::new(Echo),
@@ -47,17 +56,17 @@ async fn main() -> Result<(), RedisError> {
   // example showing a full kitchen sink configuration for performance tuning options
   let perf = PerformanceConfig {
     // whether or not to automatically pipeline commands across tasks
-    auto_pipeline:                 true,
+    auto_pipeline:                                             true,
     // the max number of frames to feed into a socket before flushing it
-    max_feed_count:                1000,
+    max_feed_count:                                            1000,
     // a default timeout to apply to all commands (0 means no timeout)
-    default_command_timeout_ms:    0,
+    default_command_timeout_ms:                                0,
     // the amount of time to wait before rebuilding the client's cached cluster state after a MOVED or ASK error.
-    cluster_cache_update_delay_ms: 10,
+    cluster_cache_update_delay_ms:                             10,
     // the maximum number of times to retry commands when connections close unexpectedly
-    max_command_attempts:          3,
+    max_command_attempts:                                      3,
     // backpressure config options
-    backpressure:                  BackpressureConfig {
+    backpressure:                                              BackpressureConfig {
       // whether to disable automatic backpressure features
       disable_auto_backpressure: false,
       // the max number of in-flight commands before applying backpressure or returning backpressure errors
@@ -65,6 +74,10 @@ async fn main() -> Result<(), RedisError> {
       // the policy to apply when the max in-flight commands count is reached
       policy:                    BackpressurePolicy::Drain,
     },
+    // the amount of time a command can wait in memory without a response before the connection is considered
+    // unresponsive
+    #[cfg(feature = "check-unresponsive")]
+    network_timeout_ms:                                        60_000,
   };
 
   // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.

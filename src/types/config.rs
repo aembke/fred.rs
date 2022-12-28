@@ -411,12 +411,10 @@ pub struct RedisConfig {
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   pub tls:       Option<TlsConfig>,
-  /// Whether or not to enable tracing for this client.
-  ///
-  /// Default: `false`
+  /// Configuration of tracing for this client.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   bool,
+  pub tracing:   TracingConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: [Echo](crate::mocks::Echo)
@@ -452,7 +450,7 @@ impl Default for RedisConfig {
       #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
-      tracing: false,
+      tracing: TracingConfig::default(),
       #[cfg(feature = "mocks")]
       mocks: Arc::new(Echo),
     }
@@ -839,6 +837,53 @@ impl ServerConfig {
       ServerConfig::Centralized { ref server } => vec![server],
       ServerConfig::Clustered { ref hosts } => hosts.iter().map(|s| s).collect(),
       ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|s| s).collect(),
+    }
+  }
+}
+
+/// Configuration options for tracing.
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+#[derive(Clone, Debug)]
+pub struct TracingConfig {
+  /// Whether or not to enable tracing for this client.
+  ///
+  /// Default: `false`
+  pub enabled: bool,
+
+  /// Set the `tracing::Level` of spans under `partial-tracing` feature.
+  ///
+  /// Default: `INFO`
+  pub default_tracing_level: tracing::Level,
+
+  /// Set the `tracing::Level` of spans under `full-tracing` feature.
+  ///
+  /// Default: `DEBUG`
+  #[cfg(feature = "full-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "full-tracing")))]
+  pub full_tracing_level: tracing::Level,
+}
+
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+impl TracingConfig {
+  pub fn new(enabled: bool) -> Self {
+    Self {
+      enabled,
+      ..Self::default()
+    }
+  }
+}
+
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+impl Default for TracingConfig {
+  fn default() -> Self {
+    Self {
+      enabled:                                             false,
+      default_tracing_level:                               tracing::Level::INFO,
+      #[cfg(feature = "full-tracing")]
+      full_tracing_level:                                  tracing::Level::DEBUG,
     }
   }
 }

@@ -17,7 +17,7 @@ use clap::{App, ArgMatches};
 use fred::{
   pool::RedisPool,
   prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig},
+  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig, TracingConfig},
 };
 use indicatif::ProgressBar;
 use opentelemetry::{
@@ -216,7 +216,7 @@ fn main() {
         ServerConfig::new_centralized(&argv.host, argv.port)
       },
       #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
-      tracing: argv.tracing,
+      tracing: TracingConfig::new(argv.tracing),
       ..Default::default()
     };
     let perf = PerformanceConfig {

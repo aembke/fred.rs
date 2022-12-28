@@ -1,26 +1,26 @@
 Tracing
 =======
 
-This module allows callers to enable the [tracing](https://github.com/tokio-rs/tracing) crate for tracing support. This page describes the spans used by the client and the fields emitted on each of the spans.
+Tracing is implemented via the [tracing](https://github.com/tokio-rs/tracing) crate. This page describes the spans used by the client and the fields emitted on each of the spans.
 
 ![](../../tests/screenshot.png)
 
-See the [pipeline test](../../bin/pipeline_test) test application for an example showing how to configure tracing with a local Jaeger instance. This crate ships with a [small example](../../tests/docker-compose.yml) that uses `docker-compose` to run a local Jaeger instance.
+See the [pipeline test](../../bin/pipeline_test) application for an example showing how to configure tracing with a local Jaeger instance. This crate ships with a [small example](../../tests/docker/compose/jaeger.yml) that uses `docker-compose` to run a local Jaeger instance.
 
 ## Spans
 
-This table shows the spans emitted by the client. The `Partial Trace` column describes whether the span will show up when only the `partial-tracing` feature flag is enabled.
+This table shows the spans emitted by the client. The `Partial Trace` column describes whether the span will appear when only the `partial-tracing` feature flag is enabled.
 
-|   Name                  | Description                                                                                                                                             | Partial Trace |
-|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
-| redis_command           | The top level span used for all redis commands.                                                                                                         |      x        |
-| prepare_args            | Time spent checking and preparing arguments.                                                                                                            |               |
-| queued                  | Time spent waiting in the in-memory queue before being sent to the server. Pipelining and backpressure settings can drastically affect this.            |               |
-| handle_command          | Time spent checking, encoding, and writing the command to the socket.                                                                                   |               |
-| check_command_structure | Time spent checking the command structure for correctness in the context of the client's current state.                                                 |               |
-| write_to_socket         | Time spent encoding and feeding bytes to the socket.                                                                                                    |               |
-| wait_for_response       | Time spent waiting on a response from the server, starting from when the first byte is fed to the socket and ending when the response has been decoded. |      x        |
-| parse_pubsub            | Time spent parsing a publish-subscribe message.                                                                                                         |               |
+| Name              | Description                                                                                                                                             | Partial Trace |
+|-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|---------------|
+| redis_command     | The top level span used for all redis commands.                                                                                                         | x             |
+| prepare_args      | Time spent checking and preparing arguments.                                                                                                            |               |
+| queued            | Time spent waiting in the in-memory queue before being sent to the server. Pipelining and backpressure settings can drastically affect this.            |               |
+| write_command     | Time spent routing and writing a command.                                                                                                               |               |
+| wait_for_response | Time spent waiting on a response from the server, starting from when the first byte is fed to the socket and ending when the response has been decoded. | x             |
+| parse_pubsub      | Time spent parsing a publish-subscribe message.                                                                                                         |               |
+
+Tracing levels for the two tracing features can be configured separately through the `TracingConfig`. 
 
 ## Events
 
