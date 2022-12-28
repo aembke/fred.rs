@@ -25,7 +25,8 @@ rand = "0.8"
 indicatif = "=0.17.1"
 
 [dependencies.fred]
-path = "../.."
+#path = "../.."
+path = "/fred"
 features = ["ignore-auth-error"]
 default-features = false
 

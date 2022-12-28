@@ -127,7 +127,7 @@ function start_cluster_tls {
 # Modify the /etc/hosts file to map the node-<index>.example.com domains to localhost.
 function modify_etc_hosts {
   if [ -z "$CIRCLECI_TESTS" ]; then
-    read -p "Modify /etc/hosts with TLS hostnames? [y/n]: " DNS_INPUT
+    read -p "Modify /etc/hosts with docker hostnames? [y/n]: " DNS_INPUT
     if [ "$DNS_INPUT" = "y" ]; then
       echo "Using sudo to modify /etc/hosts..."
     else
@@ -135,14 +135,22 @@ function modify_etc_hosts {
     fi
   fi
 
-  TLS_HOSTS="127.0.0.1 example.com client.example.com"
-  CERT_PORT=$TLS_CLUSTER_PORT
+  REDIS_HOSTS="127.0.0.1 redis-main redis-sentinel-1 redis-sentinel-2 redis-sentinel-3 redis-sentinel-main redis-sentinel-replica"
   for i in `seq 1 6`; do
-    CERT_PORT=$((CERT_PORT+1))
-    TLS_HOSTS="$TLS_HOSTS node-$CERT_PORT.example.com"
+    REDIS_HOSTS="$REDIS_HOSTS redis-cluster-$i redis-cluster-tls-$i"
   done
 
-  echo $TLS_HOSTS | sudo tee -a /etc/hosts
+  echo $REDIS_HOSTS | sudo tee -a /etc/hosts
+}
+
+function check_cluster_credentials {
+  if [ -f "$ROOT/tests/tmp/creds/ca.pem" ]; then
+    echo "Skip generating TLS credentials."
+    return 1
+  else
+    echo "TLS credentials not found."
+    return 0
+  fi
 }
 
 # Generate creds for a CA, a cert/key for the client, a cert/key for each node in the cluster, and sign the certs with the CA creds.
@@ -158,7 +166,7 @@ function generate_cluster_credentials {
   rm -rf ./*
 
   echo "Generating CA key pair..."
-  openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=*.example.com'
+  openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=redis-cluster'
   openssl x509 -signkey ca.key -days 90 -req -in ca.csr -out ca.pem
   # need the CA cert in DER format for rustls
   openssl x509 -outform der -in ca.pem -out ca.crt
@@ -170,30 +178,23 @@ function generate_cluster_credentials {
   # rustls needs it in DER format
   openssl rsa -in client.key -inform pem -out client_key.der -outform der
 
-  openssl req -new -key client.key -out client.csr -subj '/CN=client.example.com'
+  openssl req -new -key client.key -out client.csr -subj '/CN=client.redis-cluster'
   openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem
   # need the client cert in DER format for rustls
   openssl x509 -outform der -in client.pem -out client.crt
 
   echo "Generating key pairs for each cluster node..."
-  CERT_PORT=$TLS_CLUSTER_PORT
   for i in `seq 1 6`; do
-    CERT_PORT=$((CERT_PORT+1))
     # redis-server wants a PKCS#1 key
-    openssl genrsa -out "node-$CERT_PORT.key" 2048
+    openssl genrsa -out "node-$i.key" 2048
     # create SAN entries for all the other nodes
-    openssl req -new -key "node-$CERT_PORT.key" -out "node-$CERT_PORT.csr" -config "$ROOT/tests/scripts/tls/node-$CERT_PORT.cnf"
+    openssl req -new -key "node-$i.key" -out "node-$i.csr" -config "$ROOT/tests/scripts/tls/node-$i.cnf"
     # might not work on os x with native-tls (https://github.com/sfackler/rust-native-tls/issues/143)
-    openssl x509 -req -days 90 -sha256 -in "node-$CERT_PORT.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$CERT_PORT.pem" \
-     -extensions req_ext -extfile "$ROOT/tests/scripts/tls/node-$CERT_PORT.cnf"
+    openssl x509 -req -days 90 -sha256 -in "node-$i.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$i.pem" \
+     -extensions req_ext -extfile "$ROOT/tests/scripts/tls/node-$i.cnf"
   done
 
-  echo "Printing subject for each cert..."
-  for cert in ./*.pem; do
-    local subj=`openssl x509 -noout -subject -in $cert`
-    echo "$cert: $subj"
-  done
-
+  chmod +r ./*
   TLS_CREDS_PATH=$PWD
   popd > /dev/null
 }

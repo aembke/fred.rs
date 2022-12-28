@@ -1,95 +1,30 @@
 version: 2.1
 
+# have to use the machine executor to mount volumes
 commands:
-  # sccache takes 5 min to install on a 2x4 container
-  save-sccache-build-cache:
-    steps:
-      - save_cache:
-          name: Save the sccache binary cache
-          key: sccahe-binary-cache-{{ .Environment.CACHE_VERSION }}-{{ arch }}
-          paths:
-            - "~/.cargo/bin/sccache"
-  restore-sccache-build-cache:
+  restore-cargo-deps-cache:
     steps:
       - restore_cache:
-          name: Restore sccache binary cache
-          key: sccahe-binary-cache-{{ .Environment.CACHE_VERSION }}-{{ arch }}
-  # https://medium.com/@edouard.oger/rust-caching-on-circleci-using-sccache-c996344f0115
-  setup-sccache:
-    steps:
-      - restore-sccache-build-cache
-      - run:
-          name: Install sccache
-          command: |
-            [ ! -f ~/.cargo/bin/sccache ] && cargo install sccache
-            echo 'export "RUSTC_WRAPPER"="sccache"' >> $BASH_ENV
-            echo 'export "SCCACHE_CACHE_SIZE"="1G"' >> $BASH_ENV
-            sccache --version
-      - save-sccache-build-cache
-  restore-sccache-cache:
-    steps:
-      - restore_cache:
-          name: Restore sccache cache
-          key: sccache-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}-{{ .Environment.CIRCLE_JOB }}
-  save-sccache-cache:
+          name: Restore cargo dependencies cache
+          key: cargo-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}
+  save-cargo-deps-cache:
     steps:
       - save_cache:
-          name: Save sccache cache
-          key: sccache-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
+          name: Save cargo dependencies cache
+          key: cargo-cache-stable-{{ .Environment.CACHE_VERSION }}-{{ arch }}-{{ epoch }}
           paths:
-            - "~/.cache/sccache"
-  modify_etc_hosts:
+            - "/home/circleci/.cargo/registry"
+            - "/home/circleci/project/target"
+  setup-empty-registry:
     steps:
       - run:
-          name: Modify /etc/hosts
-          command: |
-            sudo tee -a /etc/hosts \<<<'127.0.0.1 example.com client.example.com node-30001.example.com node-30002.example.com node-30003.example.com node-30004.example.com node-30005.example.com node-30006.example.com'
-            cat /etc/hosts
-  install_openssl:
-    steps:
-      - run:
-          name: Install OpenSSL
-          command: sudo apt-get update && sudo apt-get install -y libssl-dev
-  install_redis:
-    steps:
-      - restore_cache:
-          keys:
-            - redis-build-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
-      - run:
-          name: Install redis centralized
-          command: tests/scripts/install_redis_centralized.sh
-      - run:
-          name: Install redis cluster
-          command: tests/scripts/install_redis_clustered.sh
-      - save_cache:
-          key: redis-build-cache-{{ .Environment.CACHE_VERSION }}-{{ .Branch }}-{{ .Environment.REDIS_VERSION }}
-          paths:
-            - tests/tmp
-  install_cargo_nextest:
-    steps:
-      - run:
-          name: Install cargo-nextest
-          command: tests/scripts/install_cargo_nextest.sh
+          name: Create empty cargo registry
+          command: mkdir -p /home/circleci/.cargo/registry
   clear_git_cache:
     steps:
       - run:
           name: Clear the cargo git cache
           command: rm -rf ~/.cargo/git/* && rm -rf ~/.cargo/registry/cache/*
-  setup_host:
-    steps:
-      - install_openssl
-      - install_cargo_nextest
-  setup_docker_compose:
-    steps:
-      - run:
-          name: Install Docker Compose
-          environment:
-            COMPOSE_VERSION: '1.29.2'
-          command: |
-            curl -L "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o ~/docker-compose
-            chmod +x ~/docker-compose
-            sudo mv ~/docker-compose /usr/local/bin/docker-compose
-      - setup_remote_docker
   build_docs:
     steps:
       - run:
@@ -101,143 +36,141 @@ commands:
   test_default_features:
     steps:
       - checkout
-      - setup_host
-      - install_redis
-      - setup-sccache
-      - restore-sccache-cache
+      - restore-cargo-deps-cache
       - run:
           name: Run tests with default features
-          command: tests/runners/default-features.sh
-      - save-sccache-cache
+          command: source tests/environ && tests/runners/default-features.sh
+      - save-cargo-deps-cache
   test_all_features:
     steps:
       - checkout
-      - setup_host
-      - install_redis
-      - setup-sccache
-      - restore-sccache-cache
+      - restore-cargo-deps-cache
       - run:
           name: Run tests with all features
-          command: tests/runners/all-features.sh
-      - save-sccache-cache
+          command: source tests/environ && tests/runners/all-features.sh
+      - save-cargo-deps-cache
   test_no_features:
     steps:
       - checkout
-      - setup_host
-      - install_redis
-      - setup-sccache
-      - restore-sccache-cache
+      - restore-cargo-deps-cache
       - run:
           name: Run tests with no features
-          command: tests/runners/no-features.sh
-      - save-sccache-cache
+          command: source tests/environ && tests/runners/no-features.sh
+      - save-cargo-deps-cache
   test_sentinel:
     steps:
       - checkout
-      - setup_docker_compose
-      - setup-sccache
-      - restore-sccache-cache
+      - restore-cargo-deps-cache
       - run:
           name: Install and run sentinel tests
-          command: docker-compose -f tests/sentinel-docker-compose.yml -f .circleci/sentinel-compose.yml run sentinel-tests
+          command: source tests/environ && tests/runners/sentinel-features.sh
+      - save-cargo-deps-cache
   test_tls_cluster:
     steps:
       - checkout
-      - setup_host
-      - modify_etc_hosts
-      - setup-sccache
-      - restore-sccache-cache
-      - run:
-          name: Install cluster with TLS
-          command: tests/scripts/install_tls_cluster.sh
+      - restore-cargo-deps-cache
       - run:
           name: Run cluster tests with native-tls features
-          command: tests/runners/cluster-tls.sh
-      - save-sccache-cache
+          command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-native-tls.sh
+      - save-cargo-deps-cache
   test_rustls_cluster:
     steps:
       - checkout
-      - setup_host
-      - modify_etc_hosts
-      - setup-sccache
-      - restore-sccache-cache
-      - run:
-          name: Install cluster with TLS
-          command: tests/scripts/install_tls_cluster.sh
+      - restore-cargo-deps-cache
       - run:
           name: Run cluster tests with rustls features
-          command: tests/runners/cluster-rustls.sh
-      - save-sccache-cache
+          command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-rustls.sh
+      - save-cargo-deps-cache
 
 jobs:
   test-default-7_0:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_default_features
   test-no-features-7_0:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_no_features
   test-all-features-7_0:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 7.0.5
     steps:
       - test_all_features
   test-cluster-tls-features-7_0:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 7.0.5
       FRED_CI_TLS: true
     steps:
       - test_tls_cluster
   test-cluster-rustls-features-7_0:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 7.0.5
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
   test-default-6_2:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_default_features
   test-no-features-6_2:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_no_features
   test-all-features-6_2:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_all_features
   test-sentinel-6_2:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 6.2.2
     steps:
       - test_sentinel
   test-sentinel-7_0:
-    docker:
-      - image: cimg/rust:1.65.0
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
     environment:
       REDIS_VERSION: 7.0.5
     steps:
@@ -245,6 +178,8 @@ jobs:
   test-docs:
     docker:
       - image: cimg/rust:1.65.0
+    environment:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
       - checkout
       - build_docs
@@ -253,11 +188,11 @@ workflows:
   version: 2
   build:
     jobs:
-      # it'd be nice if we could pass parameters or something here
-      - test-default-6_2
-      - test-all-features-6_2
-      - test-no-features-6_2
-      - test-sentinel-6_2
+      # the older bitnami Redis images require a different process to bootstrap ACL rules...
+      #- test-default-6_2
+      #- test-all-features-6_2
+      #- test-no-features-6_2
+      #- test-sentinel-6_2
       - test-default-7_0
       - test-all-features-7_0
       - test-no-features-7_0

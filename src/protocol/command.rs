@@ -1792,6 +1792,7 @@ pub enum MultiplexerCommand {
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
+    watched:        Option<RedisCommand>,
     abort_on_error: bool,
     tx:             ResponseSender,
   },

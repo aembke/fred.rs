@@ -125,8 +125,8 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
     auto_pipeline: false,
     ..Default::default()
   };
-  let (host, port) = match config.server {
-    ServerConfig::Centralized { ref host, ref port } => (host.to_owned(), *port),
+  let server = match config.server {
+    ServerConfig::Centralized { ref server } => server.clone(),
     _ => {
       return Err(RedisError::new(
         RedisErrorKind::Config,
@@ -136,7 +136,7 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
   };
 
   let inner = RedisClientInner::new(config, perf, None);
-  let mut connection = connection::create(&inner, host, port, None, None).await?;
+  let mut connection = connection::create(&inner, server.host.as_str().to_owned(), server.port, None, None).await?;
   let _ = connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;
 

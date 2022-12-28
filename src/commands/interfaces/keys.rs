@@ -9,6 +9,24 @@ use std::convert::TryInto;
 /// Functions that implement the generic [keys](https://redis.io/commands#generic) interface.
 #[async_trait]
 pub trait KeysInterface: ClientLike + Sized {
+  /// Marks the given keys to be watched for conditional execution of a transaction.
+  ///
+  /// <https://redis.io/commands/watch>
+  async fn watch<K>(&self, keys: K) -> RedisResult<()>
+  where
+    K: Into<MultipleKeys> + Send,
+  {
+    into!(keys);
+    commands::keys::watch(self, keys).await
+  }
+
+  /// Flushes all the previously watched keys for a transaction.
+  ///
+  /// <https://redis.io/commands/unwatch>
+  async fn unwatch(&self) -> RedisResult<()> {
+    commands::keys::unwatch(self).await
+  }
+
   /// Return a random key from the currently selected database.
   ///
   /// <https://redis.io/commands/randomkey>

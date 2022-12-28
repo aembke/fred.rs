@@ -774,7 +774,7 @@ pub fn parse_url_credentials(url: &Url) -> (Option<String>, Option<String>) {
   (username, password)
 }
 
-pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<(String, u16)>, RedisError> {
+pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, RedisError> {
   let mut out = Vec::new();
 
   for (key, value) in url.query_pairs().into_iter() {
@@ -789,7 +789,7 @@ pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<(String, u16)>, RedisError
 
       let host = parts[0].to_owned();
       let port = parts[1].parse::<u16>()?;
-      out.push((host, port));
+      out.push(Server::new(host, port));
     }
   }
 

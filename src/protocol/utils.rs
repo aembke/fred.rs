@@ -298,7 +298,10 @@ pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
 #[cfg(feature = "ignore-auth-error")]
 pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
   let is_auth_error = match frame {
-    Resp2Frame::Error(ref data) => *data == "ERR Client sent AUTH, but no password is set",
+    Resp2Frame::Error(ref data) => {
+      *data == "ERR Client sent AUTH, but no password is set"
+        || data.starts_with("ERR AUTH <password> called without any password configured for the default user")
+    },
     _ => false,
   };
 
@@ -317,7 +320,10 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 #[cfg(feature = "ignore-auth-error")]
 pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
   let is_auth_error = match frame {
-    Resp3Frame::SimpleError { ref data, .. } => *data == "ERR Client sent AUTH, but no password is set",
+    Resp3Frame::SimpleError { ref data, .. } => {
+      *data == "ERR Client sent AUTH, but no password is set"
+        || data.starts_with("ERR AUTH <password> called without any password configured for the default user")
+    },
     _ => false,
   };
 

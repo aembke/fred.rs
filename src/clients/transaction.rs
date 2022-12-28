@@ -10,7 +10,7 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  types::{FromRedis, Server},
+  types::{FromRedis, MultipleKeys, RedisKey, Server},
   utils,
 };
 use parking_lot::Mutex;
@@ -33,6 +33,7 @@ pub struct Transaction {
   id:        u64,
   inner:     Arc<RedisClientInner>,
   commands:  Arc<Mutex<VecDeque<RedisCommand>>>,
+  watched:   Arc<Mutex<VecDeque<RedisKey>>>,
   hash_slot: Arc<Mutex<Option<u16>>>,
 }
 
@@ -43,6 +44,7 @@ impl Clone for Transaction {
       id:        self.id.clone(),
       inner:     self.inner.clone(),
       commands:  self.commands.clone(),
+      watched:   self.watched.clone(),
       hash_slot: self.hash_slot.clone(),
     }
   }
@@ -83,6 +85,7 @@ impl ClientLike for Transaction {
       );
       let _ = tx.send(Ok(protocol_utils::queued_frame()));
     }
+
     self.commands.lock().push_back(command);
     Ok(())
   }
@@ -171,10 +174,22 @@ impl Transaction {
     R: FromRedis,
   {
     let commands = { self.commands.lock().drain(..).collect() };
+    let watched = { self.watched.lock().drain(..).collect() };
     let hash_slot = utils::take_mutex(&self.hash_slot);
-    exec(&self.inner, commands, hash_slot, abort_on_error, self.id)
+    exec(&self.inner, commands, watched, hash_slot, abort_on_error, self.id)
       .await?
       .convert()
+  }
+
+  /// Send the `WATCH` command with the provided keys before starting the transaction.
+  pub fn watch_before<K>(&self, keys: K)
+  where
+    K: Into<MultipleKeys>,
+  {
+    let mut guard = self.watched.lock();
+    for key in keys.into().inner().into_iter() {
+      guard.push_back(key);
+    }
   }
 
   /// Flushes all previously queued commands in a transaction and restores the connection state to normal.
@@ -211,6 +226,7 @@ impl<'a> From<&'a Arc<RedisClientInner>> for Transaction {
     Transaction {
       inner:     inner.clone(),
       commands:  Arc::new(Mutex::new(commands)),
+      watched:   Arc::new(Mutex::new(VecDeque::new())),
       hash_slot: Arc::new(Mutex::new(None)),
       id:        utils::random_u64(u64::MAX),
     }
@@ -220,6 +236,7 @@ impl<'a> From<&'a Arc<RedisClientInner>> for Transaction {
 async fn exec(
   inner: &Arc<RedisClientInner>,
   commands: VecDeque<RedisCommand>,
+  watched: VecDeque<RedisKey>,
   hash_slot: Option<u16>,
   abort_on_error: bool,
   id: u64,
@@ -242,17 +259,33 @@ async fn exec(
       command
     })
     .collect();
+  // collapse the watched keys into one command
+  let watched = if watched.is_empty() {
+    None
+  } else {
+    let args: Vec<RedisValue> = watched.into_iter().map(|k| k.into()).collect();
+    let mut watch_cmd = RedisCommand::new(RedisCommandKind::Watch, args);
+    watch_cmd.can_pipeline = false;
+    watch_cmd.skip_backpressure = true;
+    watch_cmd.transaction_id = Some(id.clone());
+    if let Some(hash_slot) = hash_slot.as_ref() {
+      watch_cmd.hasher = ClusterHash::Custom(hash_slot.clone());
+    }
+    Some(watch_cmd)
+  };
 
   _trace!(
     inner,
-    "Sending transaction {} with {} commands to multiplexer.",
+    "Sending transaction {} with {} commands ({} watched) to multiplexer.",
     id,
-    commands.len()
+    commands.len(),
+    watched.as_ref().map(|c| c.args().len()).unwrap_or(0)
   );
   let command = MultiplexerCommand::Transaction {
     id,
     tx,
     commands,
+    watched,
     abort_on_error,
   };
 

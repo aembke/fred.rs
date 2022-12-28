@@ -10,7 +10,7 @@ use crate::{
     connection::{self, CommandBuffer, RedisTransport, RedisWriter},
     utils as protocol_utils,
   },
-  types::{RedisValue, ServerConfig},
+  types::{RedisValue, Server, ServerConfig},
 };
 use std::{
   collections::{HashMap, HashSet},
@@ -49,7 +49,7 @@ macro_rules! stry (
 fn parse_sentinel_nodes_response(
   inner: &Arc<RedisClientInner>,
   value: RedisValue,
-) -> Result<Vec<(String, u16)>, RedisError> {
+) -> Result<Vec<Server>, RedisError> {
   let result_maps: Vec<HashMap<String, String>> = stry!(value.convert());
   let mut out = Vec::with_capacity(result_maps.len());
 
@@ -75,7 +75,7 @@ fn parse_sentinel_nodes_response(
       },
     };
 
-    out.push((ip, port));
+    out.push(Server::new(ip, port));
   }
   Ok(out)
 }
@@ -117,7 +117,7 @@ fn read_sentinel_auth(inner: &Arc<RedisClientInner>) -> Result<(Option<String>, 
 /// Read the `(host, port)` tuples for the known sentinel nodes, and the credentials to use when connecting.
 fn read_sentinel_nodes_and_auth(
   inner: &Arc<RedisClientInner>,
-) -> Result<(Vec<(String, u16)>, (Option<String>, Option<String>)), RedisError> {
+) -> Result<(Vec<Server>, (Option<String>, Option<String>)), RedisError> {
   let (username, password) = read_sentinel_auth(inner)?;
   let hosts = match inner.server_state.read().read_sentinel_nodes(&inner.config.server) {
     Some(hosts) => hosts,
@@ -136,7 +136,7 @@ fn read_sentinel_nodes_and_auth(
 async fn read_sentinels(
   inner: &Arc<RedisClientInner>,
   sentinel: &mut RedisTransport,
-) -> Result<Vec<(String, u16)>, RedisError> {
+) -> Result<Vec<Server>, RedisError> {
   let service_name = read_service_name(inner)?;
 
   let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
@@ -160,9 +160,18 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
   let (hosts, (username, password)) = read_sentinel_nodes_and_auth(inner)?;
   let timeout = globals().sentinel_connection_timeout_ms() as u64;
 
-  for (host, port) in hosts.into_iter() {
-    _debug!(inner, "Connecting to sentinel {}:{}", host, port);
-    let mut transport = try_or_continue!(connection::create(inner, host, port, Some(timeout), None).await);
+  for server in hosts.into_iter() {
+    _debug!(inner, "Connecting to sentinel {}", server);
+    let mut transport = try_or_continue!(
+      connection::create(
+        inner,
+        server.host.as_str().to_owned(),
+        server.port,
+        Some(timeout),
+        server.tls_server_name.as_ref()
+      )
+      .await
+    );
     let _ = try_or_continue!(
       transport
         .authenticate(&inner.id, username.clone(), password.clone(), false)

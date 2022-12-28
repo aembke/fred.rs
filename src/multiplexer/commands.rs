@@ -515,10 +515,11 @@ async fn process_command(
     MultiplexerCommand::SyncCluster { tx } => process_sync_cluster(inner, multiplexer, tx).await,
     MultiplexerCommand::Transaction {
       commands,
+      watched,
       id,
       tx,
       abort_on_error,
-    } => transactions::run(inner, multiplexer, commands, id, abort_on_error, tx).await,
+    } => transactions::run(inner, multiplexer, commands, watched, id, abort_on_error, tx).await,
     MultiplexerCommand::Pipeline { commands } => process_pipeline(inner, multiplexer, commands).await,
     MultiplexerCommand::Command(command) => process_normal_command(inner, multiplexer, command).await,
     MultiplexerCommand::Connections { tx } => process_connections(inner, multiplexer, tx),

@@ -162,7 +162,7 @@ pub trait ServerInterface: ClientLike {
   }
 
   /// Read the set of known sentinel nodes.
-  fn sentinel_nodes(&self) -> Option<Vec<(String, u16)>> {
+  fn sentinel_nodes(&self) -> Option<Vec<Server>> {
     let inner = self.inner();
     inner.server_state.read().read_sentinel_nodes(&inner.config.server)
   }

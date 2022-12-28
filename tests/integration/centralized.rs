@@ -49,8 +49,8 @@ mod other {
   centralized_test!(other, should_pipeline_last);
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
 
-  #[cfg(feature = "dns")]
-  centralized_test!(other, should_use_trust_dns);
+  //#[cfg(feature = "dns")]
+  // centralized_test!(other, should_use_trust_dns);
   // centralized_test!(other, should_test_high_concurrency_pool);
 
   #[cfg(feature = "partial-tracing")]

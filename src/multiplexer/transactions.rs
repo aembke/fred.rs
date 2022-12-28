@@ -120,10 +120,12 @@ fn update_hash_slot(commands: &mut Vec<RedisCommand>, slot: u16) {
 }
 
 /// Run the transaction, following cluster redirects and reconnecting as needed.
+// this would be a lot cleaner with GATs if we could abstract the inner loops with async closures
 pub async fn run(
   inner: &Arc<RedisClientInner>,
   multiplexer: &mut Multiplexer,
   mut commands: Vec<RedisCommand>,
+  watched: Option<RedisCommand>,
   id: u64,
   abort_on_error: bool,
   tx: ResponseSender,
@@ -155,6 +157,56 @@ pub async fn run(
     };
     let mut idx = 0;
 
+    // send the WATCH command before any of the trx commands
+    if let Some(watch) = watched.as_ref() {
+      let watch = watch.duplicate(ResponseKind::Skip);
+      let rx = watch.create_multiplexer_channel();
+
+      _debug!(
+        inner,
+        "Sending WATCH for {} keys in trx {} to {}",
+        watch.args().len(),
+        id,
+        server
+      );
+      match write_command(inner, multiplexer, &server, watch, false, rx).await {
+        Ok(TransactionResponse::Continue) => {
+          _debug!(inner, "Successfully sent WATCH command before transaction {}.", id);
+        },
+        Ok(TransactionResponse::Retry(error)) => {
+          _debug!(inner, "Retrying trx {} after WATCH error: {:?}.", id, error);
+
+          if attempted >= inner.max_command_attempts() {
+            let _ = tx.send(Err(error));
+            return Ok(());
+          } else {
+            let _ = utils::reconnect_with_policy(inner, multiplexer).await?;
+          }
+
+          attempted += 1;
+          continue 'outer;
+        },
+        Ok(TransactionResponse::Redirection((kind, slot, server))) => {
+          _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
+          update_hash_slot(&mut commands, slot);
+          let _ = utils::cluster_redirect_with_policy(inner, multiplexer, kind, slot, &server).await?;
+
+          attempted += 1;
+          continue 'outer;
+        },
+        Ok(TransactionResponse::Finished(frame)) => {
+          _warn!(inner, "Unexpected trx finished frame after WATCH.");
+          let _ = tx.send(Ok(frame));
+          return Ok(());
+        },
+        Err(error) => {
+          let _ = tx.send(Err(error));
+          return Ok(());
+        },
+      };
+    }
+
+    // start sending the trx commands
     'inner: while idx < commands.len() {
       let command = commands[idx].duplicate(ResponseKind::Skip);
       let rx = command.create_multiplexer_channel();
