@@ -8,7 +8,7 @@ By default, most tests run 8 times based on the following configuration paramete
 
 ## Installation
 
-The [environ](environ) file will bootstrap the local environment with all the environment variables and system settings necessary to run the tests. It will prompt the caller for certain system-wide modifications if necessary. The `/etc/hosts` modifications are only necessary if you wish to manually run the tests outside the docker network.
+The [environ](environ) file will bootstrap the local environment with all the environment variables and system settings necessary to run the tests. It will prompt the caller for certain system-wide modifications if necessary. The `/etc/hosts` modifications are only necessary if you wish to manually run the TLS tests outside the docker network.
 
 In order to run the testing scripts the following must be installed:
 

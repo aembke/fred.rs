@@ -1,4 +1,0 @@
-target
-bin
-tests/tmp/redis*
-.idea

@@ -188,11 +188,11 @@ workflows:
   version: 2
   build:
     jobs:
-      # it'd be nice if we could pass parameters or something here
-      - test-default-6_2
-      - test-all-features-6_2
-      - test-no-features-6_2
-      - test-sentinel-6_2
+      # the older bitnami Redis images require a different process to bootstrap ACL rules...
+      #- test-default-6_2
+      #- test-all-features-6_2
+      #- test-no-features-6_2
+      #- test-sentinel-6_2
       - test-default-7_0
       - test-all-features-7_0
       - test-no-features-7_0

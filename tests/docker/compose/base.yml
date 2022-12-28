@@ -1,15 +1,15 @@
 version: '2'
 
 services:
-  base:
+  debug:
     depends_on:
       - redis-cluster-tls-6
       - redis-main
       - redis-sentinel-3
-    container_name: "base"
+    container_name: "debug"
     build:
       context: ../../../
-      dockerfile: tests/docker/runners/images/base.dockerfile
+      dockerfile: tests/docker/runners/images/debug.dockerfile
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
