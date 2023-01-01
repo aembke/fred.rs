@@ -19,6 +19,9 @@ struct Argv {
   pub host:    String,
   pub port:    u16,
   pub pool:    usize,
+  pub interval: u64,
+  pub wait: u64,
+  pub auth: String,
 }
 
 fn parse_argv() -> Argv {
@@ -38,37 +41,56 @@ fn parse_argv() -> Argv {
     .value_of("pool")
     .map(|v| v.parse::<usize>().expect("Invalid pool"))
     .unwrap_or(1);
+  let interval = matches
+    .value_of("interval")
+    .map(|v| v.parse::<u64>().expect("Invalid interval"))
+    .unwrap_or(1000);
+  let wait = matches
+    .value_of("wait")
+    .map(|v| v.parse::<u64>().expect("Invalid wait"))
+    .unwrap_or(0);
+  let auth = matches
+    .value_of("auth")
+    .map(|v| v.to_owned())
+    .unwrap_or("".into());
 
   Argv {
     cluster,
+    auth,
     host,
     port,
     pool,
+    interval,
+    wait
   }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  pretty_env_logger::init();
+  pretty_env_logger::init_timed();
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
   let config = RedisConfig {
     server: if argv.cluster {
-      ServerConfig::Clustered {
-        hosts: vec![(argv.host.clone(), argv.port)],
-      }
+      ServerConfig::new_clustered(vec![(&argv.host, argv.port)])
     } else {
       ServerConfig::new_centralized(&argv.host, argv.port)
+    },
+    password: if argv.auth.is_empty() {
+      None
+    }else{
+      Some(argv.auth.clone())
     },
     ..Default::default()
   };
   let perf = PerformanceConfig {
     auto_pipeline: false,
-    network_timeout_ms: 10_000,
+    network_timeout_ms: 5_000,
+    default_command_timeout_ms: 10_000,
     ..Default::default()
   };
-  let policy = ReconnectPolicy::new_linear(0, 5000, 500);
+  let policy = ReconnectPolicy::new_linear(0, 5000, 100);
   let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool).expect("Failed to create pool.");
 
   info!("Connecting to {}:{}...", argv.host, argv.port);
@@ -77,8 +99,13 @@ async fn main() -> Result<(), RedisError> {
   info!("Connected to {}:{}.", argv.host, argv.port);
   let _ = pool.flushall_cluster().await?;
 
+  if argv.wait > 0 {
+    info!("Waiting for {} ms", argv.wait);
+    sleep(Duration::from_millis(argv.wait)).await;
+  }
+
   loop {
     let _: i64 = pool.incr("foo").await.expect("Failed to INCR");
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_millis(argv.interval)).await;
   }
 }

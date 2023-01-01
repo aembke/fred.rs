@@ -14,6 +14,13 @@ args:
       help: The hostname of the redis server.
       takes_value: true
       default_value: "127.0.0.1"
+  - auth:
+      short: a
+      long: auth
+      value_name: "STRING"
+      help: An optional authentication key or password.
+      takes_value: true
+      default_value: ""
   - port:
       short: p
       long: port
@@ -28,3 +35,17 @@ args:
       help: The number of clients in the redis connection pool.
       takes_value: true
       default_value: "1"
+  - interval:
+      short: i
+      long: interval
+      value_name: "NUMBER"
+      help: The time to wait between INCR commands in milliseconds.
+      takes_value: true
+      default_value: "1000"
+  - wait:
+      short: w
+      long: wait
+      value_name: "NUMBER"
+      help: Add a delay, in milliseconds, after connecting but before starting the INCR loop.
+      takes_value: true
+      default_value: "0"
