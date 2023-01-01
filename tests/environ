@@ -23,7 +23,6 @@ export ROOT=$PWD \
   REDIS_USERNAME=foo \
   REDIS_PASSWORD=bar \
   REDIS_SENTINEL_PASSWORD=baz
-<<<<<<< HEAD
 
 
 if [ -z "${CIRCLECI_TESTS}" ]; then
