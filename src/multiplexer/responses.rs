@@ -113,12 +113,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
     return Some(frame);
   }
 
-  let span = if inner.should_trace() {
-    let span = trace::create_pubsub_span(inner, &frame);
-    Some(span)
-  } else {
-    None
-  };
+  let span = trace::create_pubsub_span(inner, &frame);
 
   _trace!(inner, "Processing pubsub message.");
   let parsed_frame = if let Some(ref span) = span {

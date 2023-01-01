@@ -115,6 +115,8 @@ pub use crate::modules::{globals, pool};
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or
 /// return value types.
 pub mod prelude {
+  #[cfg(feature = "partial-tracing")]
+  pub use crate::types::TracingConfig;
   pub use crate::{
     clients::RedisClient,
     error::{RedisError, RedisErrorKind},

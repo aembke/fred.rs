@@ -8,6 +8,8 @@ use std::{default::Default, fmt, sync::Arc};
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::types::TlsConfig;
+#[cfg(feature = "partial-tracing")]
+use crate::types::TracingConfig;
 
 /// Configuration options for sentinel clients.
 #[derive(Clone, Debug)]
@@ -43,7 +45,7 @@ pub struct SentinelConfig {
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:  bool,
+  pub tracing:  TracingConfig,
 }
 
 impl Default for SentinelConfig {
@@ -56,7 +58,7 @@ impl Default for SentinelConfig {
       #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
-      tracing: false,
+      tracing: TracingConfig::default(),
     }
   }
 }

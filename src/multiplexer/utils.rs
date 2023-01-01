@@ -69,13 +69,15 @@ pub fn check_backpressure(
   })
 }
 
-#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
-fn set_command_trace(command: &mut RedisCommand) {
-  trace::set_network_span(command, true);
+#[cfg(feature = "partial-tracing")]
+fn set_command_trace(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) {
+  if inner.should_trace() {
+    trace::set_network_span(inner, command, true);
+  }
 }
 
-#[cfg(not(any(feature = "metrics", feature = "partial-tracing")))]
-fn set_command_trace(_: &mut RedisCommand) {}
+#[cfg(not(feature = "partial-tracing"))]
+fn set_command_trace(_inner: &Arc<RedisClientInner>, _: &mut RedisCommand) {}
 
 /// Prepare the command, updating flags in place.
 ///
@@ -101,9 +103,8 @@ pub fn prepare_command(
     || command.has_multiplexer_channel();
 
   command.network_start = Some(Instant::now());
-  if inner.should_trace() {
-    set_command_trace(command);
-  }
+  set_command_trace(inner, command);
+
   Ok((frame, should_flush))
 }
 
