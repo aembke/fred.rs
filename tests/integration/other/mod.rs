@@ -31,6 +31,7 @@ use fred::types::Resolve;
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
+#[cfg(feature = "partial-tracing")]
 use fred::types::TracingConfig;
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
