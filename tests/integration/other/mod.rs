@@ -31,6 +31,7 @@ use fred::types::Resolve;
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
+use fred::types::TracingConfig;
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
@@ -332,7 +333,7 @@ pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: Red
 
 #[cfg(feature = "partial-tracing")]
 pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
-  config.tracing = true;
+  config.tracing = TracingConfig::new(true);
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
   let client = RedisClient::new(config, Some(perf), policy);
   let _ = client.connect();

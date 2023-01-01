@@ -5,7 +5,7 @@ use crate::{
 use redis_protocol::resp3::types::Frame;
 use std::{fmt, sync::Arc};
 pub use tracing::span::Span;
-use tracing::{event, field::Empty, span, Id as TraceId, Level};
+use tracing::{event, field::Empty, Id as TraceId, Level};
 
 #[cfg(not(feature = "full-tracing"))]
 use crate::trace::disabled::Span as FakeSpan;

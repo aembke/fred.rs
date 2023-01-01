@@ -538,7 +538,7 @@ impl RedisClientInner {
 
   #[cfg(feature = "partial-tracing")]
   pub fn should_trace(&self) -> bool {
-    self.config.tracing.enable
+    self.config.tracing.enabled
   }
 
   #[cfg(feature = "partial-tracing")]
