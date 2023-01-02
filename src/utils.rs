@@ -315,6 +315,7 @@ where
     pin_mut!(sleep_ft);
     pin_mut!(ft);
 
+    trace!("Using timeout: {} ms", timeout);
     match select(ft, sleep_ft).await {
       Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
       Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),

@@ -1358,8 +1358,9 @@ impl Drop for RedisCommand {
   fn drop(&mut self) {
     if self.has_response_tx() {
       debug!(
-        "Dropping command `{}` without responding to caller.",
-        self.kind.to_str_debug()
+        "Dropping command `{}` ({}) without responding to caller.",
+        self.kind.to_str_debug(),
+        self.debug_id()
       );
     }
   }

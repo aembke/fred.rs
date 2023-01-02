@@ -120,7 +120,7 @@ async fn write_with_backpressure(
     };
     let is_blocking = command.blocks_connection();
 
-    match multiplexer.write_command(command).await {
+    match multiplexer.write_command(command, false).await {
       Ok(Written::Backpressure((command, backpressure))) => {
         _debug!(inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
         _command = Some(command);

@@ -9,7 +9,7 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::App;
-use fred::{pool::RedisPool, prelude::*, types::PerformanceConfig};
+use fred::{pool::RedisPool, prelude::*, types::PerformanceConfig, globals};
 use std::{default::Default, time::Duration};
 use tokio::time::sleep;
 
@@ -68,6 +68,7 @@ fn parse_argv() -> Argv {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init_timed();
+  globals::set_default_connection_timeout_ms(10_000);
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
@@ -85,9 +86,9 @@ async fn main() -> Result<(), RedisError> {
     ..Default::default()
   };
   let perf = PerformanceConfig {
-    auto_pipeline: false,
+    auto_pipeline: true,
     network_timeout_ms: 5_000,
-    default_command_timeout_ms: 10_000,
+    default_command_timeout_ms: 300_000,
     ..Default::default()
   };
   let policy = ReconnectPolicy::new_linear(0, 5000, 100);
