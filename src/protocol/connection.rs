@@ -839,9 +839,11 @@ impl RedisWriter {
     }
 
     if should_flush {
+      trace!("Writing and flushing {}", self.server);
       let _ = self.sink.send(frame).await?;
       self.counters.reset_feed_count();
     } else {
+      trace!("Writing without flushing {}", self.server);
       let _ = self.sink.feed(frame).await?;
       self.counters.incr_feed_count();
     };

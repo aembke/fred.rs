@@ -24,9 +24,10 @@ pub async fn send_command(
   inner: &Arc<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   command: RedisCommand,
+  force_flush: bool,
 ) -> Result<Written, (RedisError, RedisCommand)> {
   if let Some(writer) = writer.as_mut() {
-    Ok(utils::write_command(inner, writer, command, false).await)
+    Ok(utils::write_command(inner, writer, command, force_flush).await)
   } else {
     _debug!(inner, "Failed to read connection for {}", command.kind.to_str_debug());
     Err((RedisError::new(RedisErrorKind::IO, "Missing connection."), command))

@@ -47,11 +47,12 @@ pub async fn send_command(
   writers: &mut HashMap<Server, RedisWriter>,
   state: &ClusterRouting,
   command: RedisCommand,
+  force_flush: bool,
 ) -> Result<Written, (RedisError, RedisCommand)> {
   let server = match find_cluster_node(inner, state, &command) {
     Some(server) => server,
     None => {
-      // these errors almost always mean the cluster is misconfigured
+      // these errors usually mean the cluster is partially down or misconfigured
       _warn!(
         inner,
         "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
@@ -63,7 +64,7 @@ pub async fn send_command(
 
   if let Some(writer) = writers.get_mut(server) {
     _debug!(inner, "Writing command `{}` to {}", command.kind.to_str_debug(), server);
-    Ok(utils::write_command(inner, writer, command, false).await)
+    Ok(utils::write_command(inner, writer, command, force_flush).await)
   } else {
     // a reconnect message should already be queued from the reader task
     _debug!(
@@ -637,6 +638,7 @@ pub async fn initialize_connections(
   buffer: &mut CommandBuffer,
 ) -> Result<(), RedisError> {
   let commands = connections.disconnect_all(inner).await;
+  _trace!(inner, "Adding {} commands to retry buffer.", commands.len());
   buffer.extend(commands);
   sync(inner, connections, buffer).await
 }

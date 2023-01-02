@@ -14,6 +14,8 @@ use futures::future::try_join_all;
 use semver::Version;
 use std::{
   collections::{HashMap, VecDeque},
+  fmt,
+  fmt::Formatter,
   sync::Arc,
   time::Duration,
 };
@@ -48,6 +50,19 @@ pub enum Written {
   Ignore,
   /// (Cluster only) Synchronize the cached cluster routing table and retry.
   Sync(RedisCommand),
+}
+
+impl fmt::Display for Written {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", match self {
+      Written::Backpressure(_) => "Backpressure",
+      Written::Sent(_) => "Sent",
+      Written::SentAll => "SentAll",
+      Written::Disconnect(_) => "Disconnect",
+      Written::Ignore => "Ignore",
+      Written::Sync(_) => "Sync",
+    })
+  }
 }
 
 pub enum Backpressure {
@@ -414,6 +429,7 @@ impl Connections {
     &mut self,
     inner: &Arc<RedisClientInner>,
     command: RedisCommand,
+    force_flush: bool,
   ) -> Result<Written, (RedisError, RedisCommand)> {
     _trace!(inner, "Writing command {}", command.debug_id());
 
@@ -421,9 +437,13 @@ impl Connections {
       Connections::Clustered {
         ref mut writers,
         ref mut cache,
-      } => clustered::send_command(inner, writers, cache, command).await,
-      Connections::Centralized { ref mut writer } => centralized::send_command(inner, writer, command).await,
-      Connections::Sentinel { ref mut writer, .. } => centralized::send_command(inner, writer, command).await,
+      } => clustered::send_command(inner, writers, cache, command, force_flush).await,
+      Connections::Centralized { ref mut writer } => {
+        centralized::send_command(inner, writer, command, force_flush).await
+      },
+      Connections::Sentinel { ref mut writer, .. } => {
+        centralized::send_command(inner, writer, command, force_flush).await
+      },
     }
   }
 
@@ -559,7 +579,7 @@ impl Multiplexer {
   /// * The reader task for that connection will close, sending a `Reconnect` message to the multiplexer.
   ///
   /// Errors are handled internally, but may be returned if the command was queued to run later.
-  pub async fn write_command(&mut self, mut command: RedisCommand) -> Result<Written, RedisError> {
+  pub async fn write_command(&mut self, mut command: RedisCommand, force_flush: bool) -> Result<Written, RedisError> {
     if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
       debug!(
         "{}: Skipping command `{}` after too many failed attempts.",
@@ -579,7 +599,7 @@ impl Multiplexer {
     if send_all_cluster_nodes {
       self.connections.write_all_cluster(&self.inner, command).await
     } else {
-      match self.connections.write_command(&self.inner, command).await {
+      match self.connections.write_command(&self.inner, command, force_flush).await {
         Ok(result) => Ok(result),
         Err((error, command)) => {
           self.buffer_command(command);
@@ -817,8 +837,15 @@ impl Multiplexer {
       }
 
       command.skip_backpressure = true;
-
-      match self.write_command(command).await {
+      trace!(
+        "{}: Retry `{}` ({}) command, attempt {}/{}",
+        self.inner.id,
+        command.kind.to_str_debug(),
+        command.debug_id(),
+        command.attempted,
+        self.inner.max_command_attempts()
+      );
+      match self.write_command(command, true).await {
         Ok(Written::Disconnect((server, command, error))) => {
           if let Some(command) = command {
             failed_command = Some(command);
@@ -843,7 +870,8 @@ impl Multiplexer {
           self.disconnect_all().await; // triggers a reconnect if needed
           break;
         },
-        _ => {
+        Ok(written) => {
+          warn!("{}: Unexpected retry result: {}", self.inner.id, written);
           continue;
         },
       }
