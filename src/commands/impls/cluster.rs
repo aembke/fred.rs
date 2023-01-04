@@ -2,7 +2,7 @@ use super::*;
 use crate::{
   interfaces,
   protocol::{
-    command::{MultiplexerCommand, RedisCommandKind},
+    command::{RouterCommand, RedisCommandKind},
     utils as protocol_utils,
   },
   types::*,
@@ -176,8 +176,8 @@ pub async fn cluster_setslot<C: ClientLike>(
 
 pub async fn sync_cluster<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
-  let command = MultiplexerCommand::SyncCluster { tx };
-  let _ = interfaces::send_to_multiplexer(client.inner(), command)?;
+  let command = RouterCommand::SyncCluster { tx };
+  let _ = interfaces::send_to_router(client.inner(), command)?;
 
   rx.await?
 }

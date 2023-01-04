@@ -2,7 +2,7 @@ use crate::{
   error::*,
   modules::backchannel::Backchannel,
   protocol::{
-    command::{MultiplexerCommand, ResponseSender},
+    command::{RouterCommand, ResponseSender},
     connection::RedisTransport,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
@@ -37,10 +37,10 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]
-use crate::multiplexer::types::NetworkTimeout;
+use crate::router::types::NetworkTimeout;
 
-pub type CommandSender = UnboundedSender<MultiplexerCommand>;
-pub type CommandReceiver = UnboundedReceiver<MultiplexerCommand>;
+pub type CommandSender = UnboundedSender<RouterCommand>;
+pub type CommandReceiver = UnboundedReceiver<RouterCommand>;
 
 #[derive(Clone)]
 pub struct Notifications {
@@ -392,15 +392,15 @@ pub struct RedisClientInner {
   pub policy:        RwLock<Option<ReconnectPolicy>>,
   /// Notification channels for the event interfaces.
   pub notifications: Notifications,
-  /// An mpsc sender for commands to the multiplexer.
+  /// An mpsc sender for commands to the router.
   pub command_tx:    CommandSender,
-  /// Temporary storage for the receiver half of the multiplexer command channel.
+  /// Temporary storage for the receiver half of the router command channel.
   pub command_rx:    RwLock<Option<CommandReceiver>>,
   /// Shared counters.
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
   pub resolver:      AsyncRwLock<Arc<dyn Resolve>>,
-  /// A backchannel that can be used to control the multiplexer connections even while the connections are blocked.
+  /// A backchannel that can be used to control the router connections even while the connections are blocked.
   pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
   pub server_state:  RwLock<ServerState>,
@@ -417,7 +417,7 @@ pub struct RedisClientInner {
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
   pub res_size_stats:        Arc<RwLock<MovingStats>>,
-  /// Shared network timeout state with the multiplexer.
+  /// Shared network timeout state with the router.
   #[cfg(feature = "check-unresponsive")]
   pub network_timeouts:      NetworkTimeout,
 }
@@ -626,13 +626,13 @@ impl RedisClientInner {
   }
 
   pub fn send_reconnect(&self, server: Option<Server>, force: bool, tx: Option<ResponseSender>) {
-    debug!("{}: Sending reconnect message to multiplexer for {:?}", self.id, server);
+    debug!("{}: Sending reconnect message to router for {:?}", self.id, server);
     let result = self
       .command_tx
-      .send(MultiplexerCommand::Reconnect { server, force, tx });
+      .send(RouterCommand::Reconnect { server, force, tx });
 
     if let Err(_) = result {
-      warn!("{}: Error sending reconnect command to multiplexer.", self.id);
+      warn!("{}: Error sending reconnect command to router.", self.id);
     }
   }
 

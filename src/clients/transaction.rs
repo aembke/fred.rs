@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::RedisValue,
   protocol::{
-    command::{MultiplexerCommand, RedisCommand, RedisCommandKind},
+    command::{RouterCommand, RedisCommand, RedisCommandKind},
     hashers::ClusterHash,
     responders::ResponseKind,
     utils as protocol_utils,
@@ -276,12 +276,12 @@ async fn exec(
 
   _trace!(
     inner,
-    "Sending transaction {} with {} commands ({} watched) to multiplexer.",
+    "Sending transaction {} with {} commands ({} watched) to router.",
     id,
     commands.len(),
     watched.as_ref().map(|c| c.args().len()).unwrap_or(0)
   );
-  let command = MultiplexerCommand::Transaction {
+  let command = RouterCommand::Transaction {
     id,
     tx,
     commands,
@@ -289,7 +289,7 @@ async fn exec(
     abort_on_error,
   };
 
-  let _ = interfaces::send_to_multiplexer(inner, command)?;
+  let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
   protocol_utils::frame_to_results_raw(frame)
 }

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
   interfaces,
   protocol::{
-    command::{MultiplexerCommand, RedisCommand, RedisCommandKind},
+    command::{RouterCommand, RedisCommand, RedisCommandKind},
     utils as protocol_utils,
   },
   types::*,
@@ -143,8 +143,8 @@ pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockF
 
 pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
   let (tx, rx) = oneshot_channel();
-  let command = MultiplexerCommand::Connections { tx };
-  let _ = interfaces::send_to_multiplexer(client.inner(), command)?;
+  let command = RouterCommand::Connections { tx };
+  let _ = interfaces::send_to_router(client.inner(), command)?;
 
   rx.await.map_err(|e| e.into())
 }

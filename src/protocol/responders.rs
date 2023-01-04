@@ -3,7 +3,7 @@ use crate::{
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{MultiplexerResponse, RedisCommand, RedisCommandKind, ResponseSender},
+    command::{RouterResponse, RedisCommand, RedisCommandKind, ResponseSender},
     types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
@@ -32,7 +32,7 @@ const LAST_CURSOR: &'static str = "0";
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
   ///
-  /// Note: The reader task will still unblock the multiplexer, if specified.
+  /// Note: The reader task will still unblock the router, if specified.
   ///
   /// Equivalent to `Respond(None)`.
   Skip,
@@ -487,7 +487,7 @@ pub fn respond_to_caller(
   }
 
   let _ = tx.send(Ok(frame));
-  command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+  command.respond_to_router(inner, RouterResponse::Continue);
   Ok(())
 }
 
@@ -512,7 +512,7 @@ pub fn respond_multiple(
   );
   if frame.is_error() {
     // respond early to callers if an error is received from any of the commands
-    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+    command.respond_to_router(inner, RouterResponse::Continue);
 
     let result = Err(protocol_utils::frame_to_error(&frame).unwrap_or(RedisError::new_canceled()));
     respond_locked(inner, &tx, result);
@@ -520,7 +520,7 @@ pub fn respond_multiple(
     let recv = client_utils::incr_atomic(&received);
 
     if recv == expected {
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
 
       if command.kind.is_hello() {
         update_protocol_version(inner, &command, &frame);
@@ -540,7 +540,7 @@ pub fn respond_multiple(
         "Waiting on {} more responses to `multiple` command",
         expected - recv
       );
-      // do not unblock the multiplexer here
+      // do not unblock the router here
 
       // need to reconstruct the responder state
       command.response = ResponseKind::Multiple { tx, received, expected };
@@ -577,7 +577,7 @@ pub fn respond_buffer(
   // errors are buffered like normal frames and are not returned early
   if let Err(e) = add_buffered_frame(&server, &frames, index, frame) {
     respond_locked(inner, &tx, Err(e));
-    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+    command.respond_to_router(inner, RouterResponse::Continue);
     _error!(
       inner,
       "Exiting early after unexpected buffer response index from {} with command {}, ID {}",
@@ -617,7 +617,7 @@ pub fn respond_buffer(
     } else {
       respond_locked(inner, &tx, Ok(frame));
     }
-    command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+    command.respond_to_router(inner, RouterResponse::Continue);
   } else {
     // more responses are expected
     _trace!(
@@ -650,14 +650,14 @@ pub fn respond_key_scan(
     Ok(result) => result,
     Err(e) => {
       scanner.send_error(e);
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
       return Ok(());
     },
   };
   let scan_stream = scanner.tx.clone();
   let can_continue = next_cursor != LAST_CURSOR;
   scanner.update_cursor(next_cursor);
-  command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+  command.respond_to_router(inner, RouterResponse::Continue);
 
   let scan_result = ScanResult {
     scan_state: scanner,
@@ -691,14 +691,14 @@ pub fn respond_value_scan(
     Ok(result) => result,
     Err(e) => {
       scanner.send_error(e);
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
       return Ok(());
     },
   };
   let scan_stream = scanner.tx.clone();
   let can_continue = next_cursor != LAST_CURSOR;
   scanner.update_cursor(next_cursor);
-  command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+  command.respond_to_router(inner, RouterResponse::Continue);
 
   _trace!(inner, "Sending value scan result with {} values", values.len());
   if let Err(e) = send_value_scan_result(inner, scanner, &command, values, can_continue) {

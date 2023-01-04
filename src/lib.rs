@@ -70,7 +70,7 @@ mod macros;
 
 mod commands;
 mod modules;
-mod multiplexer;
+mod router;
 mod protocol;
 mod trace;
 mod utils;

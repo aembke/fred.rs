@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, MultiplexerReceiver, RedisCommand},
+    command::{ClusterErrorKind, RouterReceiver, RedisCommand},
     connection::{self, CommandBuffer, Counters, RedisWriter},
     responders::ResponseKind,
     types::{ClusterRouting, Server},
@@ -80,7 +80,7 @@ impl Backpressure {
     self,
     inner: &Arc<RedisClientInner>,
     command: &mut RedisCommand,
-  ) -> Result<Option<MultiplexerReceiver>, RedisError> {
+  ) -> Result<Option<RouterReceiver>, RedisError> {
     match self {
       Backpressure::Error(e) => Err(e),
       Backpressure::Wait(duration) => {
@@ -92,14 +92,14 @@ impl Backpressure {
       Backpressure::Block => {
         _debug!(inner, "Backpressure (block)");
         trace::backpressure_event(&command, None);
-        if !command.has_multiplexer_channel() {
+        if !command.has_router_channel() {
           _trace!(
             inner,
-            "Blocking multiplexer for backpressure for {}",
+            "Blocking router for backpressure for {}",
             command.kind.to_str_debug()
           );
           command.skip_backpressure = true;
-          Ok(Some(command.create_multiplexer_channel()))
+          Ok(Some(command.create_router_channel()))
         } else {
           Ok(None)
         }
@@ -530,14 +530,14 @@ impl Connections {
 }
 
 /// A struct for routing commands to the server(s).
-pub struct Multiplexer {
+pub struct Router {
   pub connections: Connections,
   pub inner:       Arc<RedisClientInner>,
   pub buffer:      CommandBuffer,
 }
 
-impl Multiplexer {
-  /// Create a new `Multiplexer` without connecting to the server(s).
+impl Router {
+  /// Create a new `Router` without connecting to the server(s).
   pub fn new(inner: &Arc<RedisClientInner>) -> Self {
     let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
@@ -547,7 +547,7 @@ impl Multiplexer {
       Connections::new_centralized()
     };
 
-    Multiplexer {
+    Router {
       buffer: VecDeque::new(),
       inner: inner.clone(),
       connections,
@@ -576,7 +576,7 @@ impl Multiplexer {
   /// If the command cannot be written:
   /// * The command will be queued to run later.
   /// * The associated connection will be dropped.
-  /// * The reader task for that connection will close, sending a `Reconnect` message to the multiplexer.
+  /// * The reader task for that connection will close, sending a `Reconnect` message to the router.
   ///
   /// Errors are handled internally, but may be returned if the command was queued to run later.
   pub async fn write_command(&mut self, mut command: RedisCommand, force_flush: bool) -> Result<Written, RedisError> {

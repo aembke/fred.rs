@@ -3,9 +3,9 @@ use crate::{
   interfaces,
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  multiplexer::{responses, types::ClusterChange, utils, Connections, Written},
+  router::{responses, types::ClusterChange, utils, Connections, Written},
   protocol::{
-    command::{ClusterErrorKind, MultiplexerCommand, MultiplexerResponse, RedisCommand, RedisCommandKind},
+    command::{ClusterErrorKind, RouterCommand, RouterResponse, RedisCommand, RedisCommandKind},
     connection::{self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders,
     responders::ResponseKind,
@@ -231,7 +231,7 @@ pub fn spawn_reader_task(
     }
 
     utils::reader_unsubscribe(&inner, &server);
-    utils::check_blocked_multiplexer(&inner, &buffer, &last_error);
+    utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     responses::handle_reader_error(&inner, &server, last_error);
 
@@ -240,10 +240,10 @@ pub fn spawn_reader_task(
   })
 }
 
-/// Send a MOVED or ASK command to the multiplexer, using the multiplexer channel if possible and falling back on the
+/// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the
 /// command queue if appropriate.
 ///
-/// Note: Cluster errors within a transaction can only be handled via the blocking multiplexer channel.
+/// Note: Cluster errors within a transaction can only be handled via the blocking router channel.
 fn process_cluster_error(
   inner: &Arc<RedisClientInner>,
   server: &Server,
@@ -254,13 +254,13 @@ fn process_cluster_error(
     Some(data) => match protocol_utils::parse_cluster_error(data) {
       Ok(result) => result,
       Err(e) => {
-        command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+        command.respond_to_router(inner, RouterResponse::Continue);
         command.respond_to_caller(Err(e));
         return;
       },
     },
     None => {
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
       command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster error.")));
       return;
     },
@@ -269,7 +269,7 @@ fn process_cluster_error(
     Some(server) => server,
     None => {
       _warn!(inner, "Invalid server field in cluster error: {}", server_str);
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
       command.respond_to_caller(Err(RedisError::new(
         RedisErrorKind::Cluster,
         "Invalid cluster redirection error.",
@@ -278,62 +278,62 @@ fn process_cluster_error(
     },
   };
 
-  if let Some(tx) = command.take_multiplexer_tx() {
+  if let Some(tx) = command.take_router_tx() {
     let response = match kind {
-      ClusterErrorKind::Ask => MultiplexerResponse::Ask((slot, server, command)),
-      ClusterErrorKind::Moved => MultiplexerResponse::Moved((slot, server, command)),
+      ClusterErrorKind::Ask => RouterResponse::Ask((slot, server, command)),
+      ClusterErrorKind::Moved => RouterResponse::Moved((slot, server, command)),
     };
 
-    _debug!(inner, "Sending cluster error to multiplexer channel.");
+    _debug!(inner, "Sending cluster error to router channel.");
     if let Err(response) = tx.send(response) {
-      // if it could not be sent on the multiplexer tx then send it on the command channel
+      // if it could not be sent on the router tx then send it on the command channel
       let command = match response {
-        MultiplexerResponse::Ask((slot, server, command)) => {
+        RouterResponse::Ask((slot, server, command)) => {
           if command.transaction_id.is_some() {
             _debug!(
               inner,
-              "Failed sending ASK cluster error to multiplexer in transaction: {}",
+              "Failed sending ASK cluster error to router in transaction: {}",
               command.kind.to_str_debug()
             );
             // do not send the command to the command queue
             return;
           } else {
-            MultiplexerCommand::Ask { slot, server, command }
+            RouterCommand::Ask { slot, server, command }
           }
         },
-        MultiplexerResponse::Moved((slot, server, command)) => {
+        RouterResponse::Moved((slot, server, command)) => {
           if command.transaction_id.is_some() {
             _debug!(
               inner,
-              "Failed sending MOVED cluster error to multiplexer in transaction: {}",
+              "Failed sending MOVED cluster error to router in transaction: {}",
               command.kind.to_str_debug()
             );
             // do not send the command to the command queue
             return;
           } else {
-            MultiplexerCommand::Moved { slot, server, command }
+            RouterCommand::Moved { slot, server, command }
           }
         },
         _ => {
-          _error!(inner, "Invalid cluster error multiplexer response type.");
+          _error!(inner, "Invalid cluster error router response type.");
           return;
         },
       };
 
       _debug!(inner, "Sending cluster error to command queue.");
-      if let Err(e) = interfaces::send_to_multiplexer(inner, command) {
-        _warn!(inner, "Cannot send MOVED to multiplexer channel: {:?}", e);
+      if let Err(e) = interfaces::send_to_router(inner, command) {
+        _warn!(inner, "Cannot send MOVED to router channel: {:?}", e);
       }
     }
   } else {
     let command = match kind {
-      ClusterErrorKind::Ask => MultiplexerCommand::Ask { slot, server, command },
-      ClusterErrorKind::Moved => MultiplexerCommand::Moved { slot, server, command },
+      ClusterErrorKind::Ask => RouterCommand::Ask { slot, server, command },
+      ClusterErrorKind::Moved => RouterCommand::Moved { slot, server, command },
     };
 
     _debug!(inner, "Sending cluster error to command queue.");
-    if let Err(e) = interfaces::send_to_multiplexer(inner, command) {
-      _warn!(inner, "Cannot send ASKED to multiplexer channel: {:?}", e);
+    if let Err(e) = interfaces::send_to_router(inner, command) {
+      _warn!(inner, "Cannot send ASKED to router channel: {:?}", e);
     }
   }
 }
@@ -395,16 +395,16 @@ pub async fn process_response_frame(
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      if let Some(tx) = command.take_multiplexer_tx() {
-        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+      if let Some(tx) = command.take_router_tx() {
+        let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
     } else {
       if command.kind.ends_transaction() {
-        command.respond_to_multiplexer(inner, MultiplexerResponse::TransactionResult(frame));
+        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
         return Ok(());
       } else {
-        command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+        command.respond_to_router(inner, RouterResponse::Continue);
         return Ok(());
       }
     }
@@ -413,7 +413,7 @@ pub async fn process_response_frame(
   _trace!(inner, "Handling clustered response kind: {:?}", command.response);
   match command.take_response() {
     ResponseKind::Skip | ResponseKind::Respond(None) => {
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
       Ok(())
     },
     ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
