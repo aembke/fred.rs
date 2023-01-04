@@ -2,12 +2,12 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  multiplexer::{utils, Multiplexer},
+  router::{utils, Router},
   protocol::{
     command::{
       ClusterErrorKind,
-      MultiplexerReceiver,
-      MultiplexerResponse,
+      RouterReceiver,
+      RouterResponse,
       RedisCommand,
       RedisCommandKind,
       ResponseSender,
@@ -36,16 +36,16 @@ enum TransactionResponse {
   Continue,
 }
 
-/// Write a command in the context of a transaction and process the multiplexer response.
+/// Write a command in the context of a transaction and process the router response.
 ///
 /// Returns the command result policy or a fatal error that should end the transaction.
 async fn write_command(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
   server: &Server,
   command: RedisCommand,
   abort_on_error: bool,
-  rx: MultiplexerReceiver,
+  rx: RouterReceiver,
 ) -> Result<TransactionResponse, RedisError> {
   _trace!(
     inner,
@@ -54,37 +54,37 @@ async fn write_command(
     server
   );
 
-  if let Err(e) = multiplexer.write_once(command, server).await {
+  if let Err(e) = router.write_once(command, server).await {
     _debug!(inner, "Error writing trx command: {:?}", e);
     return Ok(TransactionResponse::Retry(e));
   }
 
   match rx.await? {
-    MultiplexerResponse::Continue => Ok(TransactionResponse::Continue),
-    MultiplexerResponse::Ask((slot, server, _)) => {
+    RouterResponse::Continue => Ok(TransactionResponse::Continue),
+    RouterResponse::Ask((slot, server, _)) => {
       Ok(TransactionResponse::Redirection((ClusterErrorKind::Ask, slot, server)))
     },
-    MultiplexerResponse::Moved((slot, server, _)) => Ok(TransactionResponse::Redirection((
+    RouterResponse::Moved((slot, server, _)) => Ok(TransactionResponse::Redirection((
       ClusterErrorKind::Moved,
       slot,
       server,
     ))),
-    MultiplexerResponse::ConnectionClosed((err, _)) => Ok(TransactionResponse::Retry(err)),
-    MultiplexerResponse::TransactionError((err, _)) => {
+    RouterResponse::ConnectionClosed((err, _)) => Ok(TransactionResponse::Retry(err)),
+    RouterResponse::TransactionError((err, _)) => {
       if abort_on_error {
         Err(err)
       } else {
         Ok(TransactionResponse::Continue)
       }
     },
-    MultiplexerResponse::TransactionResult(frame) => Ok(TransactionResponse::Finished(frame)),
+    RouterResponse::TransactionResult(frame) => Ok(TransactionResponse::Finished(frame)),
   }
 }
 
 /// Send EXEC to the provided server.
 async fn send_exec(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
   server: &Server,
   id: u64,
 ) -> Result<TransactionResponse, RedisError> {
@@ -92,15 +92,15 @@ async fn send_exec(
   command.can_pipeline = false;
   command.skip_backpressure = true;
   command.transaction_id = Some(id);
-  let rx = command.create_multiplexer_channel();
+  let rx = command.create_router_channel();
 
-  write_command(inner, multiplexer, server, command, true, rx).await
+  write_command(inner, router, server, command, true, rx).await
 }
 
 /// Send DISCARD to the provided server.
 async fn send_discard(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
   server: &Server,
   id: u64,
 ) -> Result<TransactionResponse, RedisError> {
@@ -108,9 +108,9 @@ async fn send_discard(
   command.can_pipeline = false;
   command.skip_backpressure = true;
   command.transaction_id = Some(id);
-  let rx = command.create_multiplexer_channel();
+  let rx = command.create_router_channel();
 
-  write_command(inner, multiplexer, server, command, true, rx).await
+  write_command(inner, router, server, command, true, rx).await
 }
 
 fn update_hash_slot(commands: &mut Vec<RedisCommand>, slot: u16) {
@@ -123,7 +123,7 @@ fn update_hash_slot(commands: &mut Vec<RedisCommand>, slot: u16) {
 // this would be a lot cleaner with GATs if we could abstract the inner loops with async closures
 pub async fn run(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
   mut commands: Vec<RedisCommand>,
   watched: Option<RedisCommand>,
   id: u64,
@@ -139,16 +139,16 @@ pub async fn run(
   'outer: loop {
     _debug!(inner, "Starting transaction {} (attempted: {})", id, attempted);
 
-    let server = match multiplexer.find_connection(&commands[0]) {
+    let server = match router.find_connection(&commands[0]) {
       Some(server) => server.clone(),
       None => {
         let _ = if inner.config.server.is_clustered() {
           // optimistically sync the cluster, then fall back to a full reconnect
-          if multiplexer.sync_cluster().await.is_err() {
-            utils::reconnect_with_policy(inner, multiplexer).await?
+          if router.sync_cluster().await.is_err() {
+            utils::reconnect_with_policy(inner, router).await?
           }
         } else {
-          utils::reconnect_with_policy(inner, multiplexer).await?
+          utils::reconnect_with_policy(inner, router).await?
         };
 
         attempted += 1;
@@ -160,7 +160,7 @@ pub async fn run(
     // send the WATCH command before any of the trx commands
     if let Some(watch) = watched.as_ref() {
       let watch = watch.duplicate(ResponseKind::Skip);
-      let rx = watch.create_multiplexer_channel();
+      let rx = watch.create_router_channel();
 
       _debug!(
         inner,
@@ -169,7 +169,7 @@ pub async fn run(
         id,
         server
       );
-      match write_command(inner, multiplexer, &server, watch, false, rx).await {
+      match write_command(inner, router, &server, watch, false, rx).await {
         Ok(TransactionResponse::Continue) => {
           _debug!(inner, "Successfully sent WATCH command before transaction {}.", id);
         },
@@ -180,7 +180,7 @@ pub async fn run(
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
-            let _ = utils::reconnect_with_policy(inner, multiplexer).await?;
+            let _ = utils::reconnect_with_policy(inner, router).await?;
           }
 
           attempted += 1;
@@ -189,7 +189,7 @@ pub async fn run(
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
           _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
           update_hash_slot(&mut commands, slot);
-          let _ = utils::cluster_redirect_with_policy(inner, multiplexer, kind, slot, &server).await?;
+          let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
 
           attempted += 1;
           continue 'outer;
@@ -209,16 +209,16 @@ pub async fn run(
     // start sending the trx commands
     'inner: while idx < commands.len() {
       let command = commands[idx].duplicate(ResponseKind::Skip);
-      let rx = command.create_multiplexer_channel();
+      let rx = command.create_router_channel();
 
-      match write_command(inner, multiplexer, &server, command, abort_on_error, rx).await {
+      match write_command(inner, router, &server, command, abort_on_error, rx).await {
         Ok(TransactionResponse::Continue) => {
           idx += 1;
           continue 'inner;
         },
         Ok(TransactionResponse::Retry(error)) => {
           _debug!(inner, "Retrying trx {} after error: {:?}", id, error);
-          if let Err(e) = send_discard(inner, multiplexer, &server, id).await {
+          if let Err(e) = send_discard(inner, router, &server, id).await {
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
 
@@ -226,7 +226,7 @@ pub async fn run(
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
-            let _ = utils::reconnect_with_policy(inner, multiplexer).await?;
+            let _ = utils::reconnect_with_policy(inner, router).await?;
           }
 
           attempted += 1;
@@ -234,10 +234,10 @@ pub async fn run(
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
           update_hash_slot(&mut commands, slot);
-          if let Err(e) = send_discard(inner, multiplexer, &server, id).await {
+          if let Err(e) = send_discard(inner, router, &server, id).await {
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
-          let _ = utils::cluster_redirect_with_policy(inner, multiplexer, kind, slot, &server).await?;
+          let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
 
           attempted += 1;
           continue 'outer;
@@ -248,21 +248,21 @@ pub async fn run(
         },
         Err(error) => {
           // fatal errors that end the transaction
-          let _ = send_discard(inner, multiplexer, &server, id).await;
+          let _ = send_discard(inner, router, &server, id).await;
           let _ = tx.send(Err(error));
           return Ok(());
         },
       }
     }
 
-    match send_exec(inner, multiplexer, &server, id).await {
+    match send_exec(inner, router, &server, id).await {
       Ok(TransactionResponse::Finished(frame)) => {
         let _ = tx.send(Ok(frame));
         return Ok(());
       },
       Ok(TransactionResponse::Retry(error)) => {
         _debug!(inner, "Retrying trx {} after error: {:?}", id, error);
-        if let Err(e) = send_discard(inner, multiplexer, &server, id).await {
+        if let Err(e) = send_discard(inner, router, &server, id).await {
           _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
         }
 
@@ -270,7 +270,7 @@ pub async fn run(
           let _ = tx.send(Err(error));
           return Ok(());
         } else {
-          let _ = utils::reconnect_with_policy(inner, multiplexer).await?;
+          let _ = utils::reconnect_with_policy(inner, router).await?;
         }
 
         attempted += 1;
@@ -278,7 +278,7 @@ pub async fn run(
       },
       Ok(TransactionResponse::Redirection((kind, slot, dest))) => {
         // doesn't make sense on EXEC, but return it as an error so it isn't lost
-        let _ = send_discard(inner, multiplexer, &server, id).await;
+        let _ = send_discard(inner, router, &server, id).await;
         let _ = tx.send(Err(RedisError::new(
           RedisErrorKind::Cluster,
           format!("{} {} {}", kind, slot, dest),
@@ -287,12 +287,12 @@ pub async fn run(
       },
       Ok(TransactionResponse::Continue) => {
         _warn!(inner, "Invalid final response to transaction {}", id);
-        let _ = send_discard(inner, multiplexer, &server, id).await;
+        let _ = send_discard(inner, router, &server, id).await;
         let _ = tx.send(Err(RedisError::new_canceled()));
         return Ok(());
       },
       Err(error) => {
-        let _ = send_discard(inner, multiplexer, &server, id).await;
+        let _ = send_discard(inner, router, &server, id).await;
         let _ = tx.send(Err(error));
         return Ok(());
       },

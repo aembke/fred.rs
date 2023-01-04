@@ -10,6 +10,13 @@ This document gives some background on how the library is structured and how to 
 * Clean up any compiler warnings.
 * Use the `async` syntax rather than `impl Future` where possible.
 
+## Branches
+
+* Create external PRs against the `staging` branch.
+* Use topic branches with [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
+* Branching strategy is `<topic>` -> (squash) `staging` -> `main` -> `release-<major version>`
+* Remove `chore` commits when squashing PRs.
+
 ## TODO List
 
 * Implement any missing commands.
@@ -23,7 +30,7 @@ The code has the following structure:
 * The [clients](src/clients) folder contains public client structs that implement and/or override the traits from [the command category traits folder](src/commands/impls). The [interfaces](src/interfaces.rs) file contains the shared traits required by most of the command category traits, such as `ClientLike`.  
 * The [monitor](src/monitor) folder contains the implementation of the `MONITOR` command and the parser for the response stream.
 * The [protocol](src/protocol) folder contains the implementation of the base `Connection` struct and the logic for splitting a connection to interact with reader and writer halves in separate tasks. The [TLS interface](src/protocol/tls.rs) is also implemented here.
-* The [multiplexer](src/multiplexer) folder contains the logic that implements the sentinel and cluster interfaces. Clients interact with this struct via a message passing interface. The interface exposed by the `Multiplexer` attempts to hide all the complexity associated with sentinel or clustered deployments. 
+* The [router](src/router) folder contains the logic that implements the sentinel and cluster interfaces. Clients interact with this struct via a message passing interface. The interface exposed by the `Router` attempts to hide all the complexity associated with sentinel or clustered deployments. 
 * The [trace](src/trace) folder contains the tracing implementation. Span IDs are manually tracked on each command as they move across tasks. 
 * The [types](src/types) folder contains the type definitions used by the public interface. The Redis interface is relatively loosely typed but Rust can support more strongly typed interfaces. The types in this module aim to support an optional but more strongly typed interface for callers.
 * The [modules](src/modules) folder contains smaller helper interfaces such as a lazy [Backchannel](src/modules/backchannel.rs) connection interface and the [response type conversion logic](src/modules/response.rs).

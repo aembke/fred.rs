@@ -4,7 +4,7 @@ use crate::protocol::types::Server;
 use crate::{
   globals::globals,
   modules::inner::RedisClientInner,
-  multiplexer::Connections,
+  router::Connections,
   protocol::connection::SharedBuffer,
 };
 #[cfg(feature = "check-unresponsive")]
@@ -38,7 +38,7 @@ impl Default for ClusterChange {
   }
 }
 
-/// Server command state shared between the Multiplexer, reader tasks, and network timeout task.
+/// Server command state shared between the Router, reader tasks, and network timeout task.
 #[cfg(feature = "check-unresponsive")]
 #[derive(Clone)]
 pub struct ConnectionState {

@@ -1,10 +1,10 @@
 use crate::{
   error::RedisErrorKind,
   modules::inner::RedisClientInner,
-  multiplexer::{responses, utils, Connections, Written},
+  router::{responses, utils, Connections, Written},
   prelude::{RedisError, Resp3Frame},
   protocol::{
-    command::{MultiplexerResponse, RedisCommand},
+    command::{RouterResponse, RedisCommand},
     connection,
     connection::{CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders::{self, ResponseKind},
@@ -77,7 +77,7 @@ pub fn spawn_reader_task(
     }
 
     utils::reader_unsubscribe(&inner, &server);
-    utils::check_blocked_multiplexer(&inner, &buffer, &last_error);
+    utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     responses::handle_reader_error(&inner, &server, last_error);
 
@@ -131,16 +131,16 @@ pub async fn process_response_frame(
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      if let Some(tx) = command.take_multiplexer_tx() {
-        let _ = tx.send(MultiplexerResponse::TransactionError((error, command)));
+      if let Some(tx) = command.take_router_tx() {
+        let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
     } else {
       if command.kind.ends_transaction() {
-        command.respond_to_multiplexer(inner, MultiplexerResponse::TransactionResult(frame));
+        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
         return Ok(());
       } else {
-        command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+        command.respond_to_router(inner, RouterResponse::Continue);
         return Ok(());
       }
     }
@@ -149,7 +149,7 @@ pub async fn process_response_frame(
   _trace!(inner, "Handling centralized response kind: {:?}", command.response);
   match command.take_response() {
     ResponseKind::Skip | ResponseKind::Respond(None) => {
-      command.respond_to_multiplexer(inner, MultiplexerResponse::Continue);
+      command.respond_to_router(inner, RouterResponse::Continue);
       Ok(())
     },
     ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
@@ -285,7 +285,7 @@ pub async fn initialize_connection(
       let _ = transport.setup(inner, None).await?;
 
       // let replicas = sync_replicas(inner, &mut transport).await?;
-      // TODO set up replicas on multiplexer
+      // TODO set up replicas on router
       // inner.update_replicas(replicas);
 
       let (_, _writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;

@@ -6,7 +6,7 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::Resp3Frame,
   protocol::{
-    command::{MultiplexerCommand, RedisCommand, RedisCommandKind},
+    command::{RouterCommand, RedisCommand, RedisCommandKind},
     responders::ResponseKind,
     utils as protocol_utils,
   },
@@ -92,12 +92,12 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
 
 pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
-  let command = MultiplexerCommand::Reconnect {
+  let command = RouterCommand::Reconnect {
     server: None,
     force:  true,
     tx:     Some(tx),
   };
-  let _ = interfaces::send_to_multiplexer(inner, command)?;
+  let _ = interfaces::send_to_router(inner, command)?;
 
   rx.await?.map(|_| ())
 }

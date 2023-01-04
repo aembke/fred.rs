@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   globals::globals,
   modules::inner::RedisClientInner,
-  multiplexer::Connections,
+  router::Connections,
   protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
   utils,
 };
@@ -48,7 +48,7 @@ pub struct Backchannel {
   pub transport:      Option<RedisTransport>,
   /// An identifier for the blocked connection, if any.
   pub blocked:        Option<Server>,
-  /// A map of server IDs to connection IDs, as managed by the multiplexer.
+  /// A map of server IDs to connection IDs, as managed by the router.
   pub connection_ids: HashMap<Server, i64>,
 }
 
@@ -69,7 +69,7 @@ impl Backchannel {
     }
   }
 
-  /// Set the connection IDs from the multiplexer.
+  /// Set the connection IDs from the router.
   pub fn update_connection_ids(&mut self, connections: &Connections) {
     self.connection_ids = connections.connection_ids();
   }
@@ -127,7 +127,7 @@ impl Backchannel {
   ///
   /// 1. The server ID of the existing connection, if any.
   /// 2. The blocked server ID, if any.
-  /// 3. A random server ID from the multiplexer's connection map.
+  /// 3. A random server ID from the router's connection map.
   pub fn any_server(&self) -> Option<Server> {
     self
       .current_server()

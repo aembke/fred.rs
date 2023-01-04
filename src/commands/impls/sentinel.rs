@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
   error::RedisError,
-  multiplexer::sentinel::{
+  router::sentinel::{
     CKQUORUM,
     CONFIG,
     FAILOVER,

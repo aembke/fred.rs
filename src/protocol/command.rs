@@ -47,47 +47,47 @@ pub fn command_counter() -> usize {
   utils::incr_atomic(&COMMAND_COUNTER)
 }
 
-/// A command interface for communication between connection reader tasks and the multiplexer.
+/// A command interface for communication between connection reader tasks and the router.
 ///
 /// Use of this interface assumes that a command was **not** pipelined. The reader task may instead
-/// choose to communicate with the multiplexer via the shared command queue if no channel exists on
+/// choose to communicate with the router via the shared command queue if no channel exists on
 /// which to send this command.
 #[derive(Debug)]
-pub enum MultiplexerResponse {
+pub enum RouterResponse {
   /// Continue with the next command.
   Continue,
   /// Retry the command immediately against the provided server, but with an `ASKING` prefix.
   ///
   /// Typically used with transactions to retry the entire transaction against a different node.
   ///
-  /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
+  /// Reader tasks will attempt to use the router channel first when handling cluster errors, but
   /// may fall back to communication via the command channel in the context of pipelined commands.
   Ask((u16, Server, RedisCommand)),
   /// Retry the command immediately against the provided server, updating the cached routing table first.
   ///
-  /// Reader tasks will attempt to use the multiplexer channel first when handling cluster errors, but
+  /// Reader tasks will attempt to use the router channel first when handling cluster errors, but
   /// may fall back to communication via the command channel in the context of pipelined commands.
   Moved((u16, Server, RedisCommand)),
-  /// Indicate to the multiplexer that the provided transaction command failed with the associated error.
+  /// Indicate to the router that the provided transaction command failed with the associated error.
   ///
-  /// The multiplexer is responsible for responding to the caller with the error, if needed. Transaction commands are
+  /// The router is responsible for responding to the caller with the error, if needed. Transaction commands are
   /// never pipelined.
   TransactionError((RedisError, RedisCommand)),
-  /// Indicates to the multiplexer that the transaction finished with the associated result.
+  /// Indicates to the router that the transaction finished with the associated result.
   TransactionResult(Resp3Frame),
   /// Indicates that the connection closed while the command was in-flight.
   ///
-  /// This is only used for non-pipelined commands where the multiplexer task is blocked on a response before
+  /// This is only used for non-pipelined commands where the router task is blocked on a response before
   /// checking the next command.
   ConnectionClosed((RedisError, RedisCommand)),
 }
 
 /// A channel for communication between connection reader tasks and futures returned to the caller.
 pub type ResponseSender = OneshotSender<Result<Resp3Frame, RedisError>>;
-/// A sender channel for communication between connection reader tasks and the multiplexer.
-pub type MultiplexerSender = OneshotSender<MultiplexerResponse>;
-/// A receiver channel for communication between connection reader tasks and the multiplexer.
-pub type MultiplexerReceiver = OneshotReceiver<MultiplexerResponse>;
+/// A sender channel for communication between connection reader tasks and the router.
+pub type RouterSender = OneshotSender<RouterResponse>;
+/// A receiver channel for communication between connection reader tasks and the router.
+pub type RouterReceiver = OneshotReceiver<RouterResponse>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterErrorKind {
@@ -1324,8 +1324,8 @@ pub struct RedisCommand {
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
   pub arguments:         Vec<RedisValue>,
-  /// A oneshot sender used to communicate with the multiplexer.
-  pub multiplexer_tx:    Arc<Mutex<Option<MultiplexerSender>>>,
+  /// A oneshot sender used to communicate with the router.
+  pub router_tx:    Arc<Mutex<Option<RouterSender>>>,
   /// The number of times the command was sent to the server.
   pub attempted:         u32,
   /// Whether or not the command can be pipelined.
@@ -1397,7 +1397,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
-      multiplexer_tx: Arc::new(Mutex::new(None)),
+      router_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1423,7 +1423,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Respond(Some(tx)),
       hasher: ClusterHash::default(),
-      multiplexer_tx: Arc::new(Mutex::new(None)),
+      router_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1449,7 +1449,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       response,
       timed_out: Arc::new(AtomicBool::new(false)),
       hasher: ClusterHash::default(),
-      multiplexer_tx: Arc::new(Mutex::new(None)),
+      router_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1476,7 +1476,7 @@ impl RedisCommand {
       timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Skip,
       hasher: ClusterHash::FirstKey,
-      multiplexer_tx: Arc::new(Mutex::new(None)),
+      router_tx: Arc::new(Mutex::new(None)),
       attempted: 0,
       can_pipeline: true,
       skip_backpressure: false,
@@ -1501,7 +1501,7 @@ impl RedisCommand {
       response:                                   ResponseKind::Skip,
       hasher:                                     ClusterHash::Custom(hash_slot),
       timed_out:                                  Arc::new(AtomicBool::new(false)),
-      multiplexer_tx:                             Arc::new(Mutex::new(None)),
+      router_tx:                             Arc::new(Mutex::new(None)),
       attempted:                                  0,
       can_pipeline:                               false,
       skip_backpressure:                          true,
@@ -1594,36 +1594,36 @@ impl RedisCommand {
     mem::replace(&mut self.response, ResponseKind::Skip)
   }
 
-  /// Create a channel on which to block the multiplexer, returning the receiver.
-  pub fn create_multiplexer_channel(&self) -> OneshotReceiver<MultiplexerResponse> {
+  /// Create a channel on which to block the router, returning the receiver.
+  pub fn create_router_channel(&self) -> OneshotReceiver<RouterResponse> {
     let (tx, rx) = oneshot_channel();
-    let mut guard = self.multiplexer_tx.lock();
+    let mut guard = self.router_tx.lock();
     *guard = Some(tx);
     rx
   }
 
-  /// Send a message to unblock the multiplexer loop, if necessary.
-  pub fn respond_to_multiplexer(&self, inner: &Arc<RedisClientInner>, cmd: MultiplexerResponse) {
-    if let Some(tx) = self.multiplexer_tx.lock().take() {
+  /// Send a message to unblock the router loop, if necessary.
+  pub fn respond_to_router(&self, inner: &Arc<RedisClientInner>, cmd: RouterResponse) {
+    if let Some(tx) = self.router_tx.lock().take() {
       if tx.send(cmd).is_err() {
-        _warn!(inner, "Failed to unblock multiplexer loop.");
+        _warn!(inner, "Failed to unblock router loop.");
       }
     }
   }
 
-  /// Take the multiplexer sender from the command.
-  pub fn take_multiplexer_tx(&self) -> Option<MultiplexerSender> {
-    self.multiplexer_tx.lock().take()
+  /// Take the router sender from the command.
+  pub fn take_router_tx(&self) -> Option<RouterSender> {
+    self.router_tx.lock().take()
   }
 
-  /// Whether the command has a channel to the multiplexer.
-  pub fn has_multiplexer_channel(&self) -> bool {
-    self.multiplexer_tx.lock().is_some()
+  /// Whether the command has a channel to the router.
+  pub fn has_router_channel(&self) -> bool {
+    self.router_tx.lock().is_some()
   }
 
   /// Clone the command, supporting commands with shared response state.
   ///
-  /// Note: this will **not** clone the multiplexer channel.
+  /// Note: this will **not** clone the router channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
       timed_out: self.timed_out.clone(),
@@ -1634,7 +1634,7 @@ impl RedisCommand {
       attempted: self.attempted,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
-      multiplexer_tx: self.multiplexer_tx.clone(),
+      router_tx: self.router_tx.clone(),
       response,
       #[cfg(feature = "replicas")]
       use_replica: self.use_replica,
@@ -1750,8 +1750,8 @@ impl RedisCommand {
   }
 }
 
-/// A message sent from the front-end client to the multiplexer.
-pub enum MultiplexerCommand {
+/// A message sent from the front-end client to the router.
+pub enum RouterCommand {
   /// Send a command to the server.
   Command(RedisCommand),
   /// Send a pipelined series of commands to the server.
@@ -1810,7 +1810,7 @@ pub enum MultiplexerCommand {
   ///
   /// The client will **not** increment the command's write attempt counter.
   ///
-  /// This is typically used instead of `MultiplexerResponse::Ask` when a command was pipelined.
+  /// This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
   Ask {
     slot:    u16,
     server:  Server,
@@ -1830,44 +1830,44 @@ pub enum MultiplexerCommand {
   Connections { tx: OneshotSender<Vec<Server>> },
 }
 
-impl fmt::Debug for MultiplexerCommand {
+impl fmt::Debug for RouterCommand {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    let mut formatter = f.debug_struct("MultiplexerCommand");
+    let mut formatter = f.debug_struct("RouterCommand");
 
     match self {
-      MultiplexerCommand::Ask { server, slot, command } => {
+      RouterCommand::Ask { server, slot, command } => {
         formatter
           .field("kind", &"Ask")
           .field("server", &server)
           .field("slot", &slot)
           .field("command", &command.kind.to_str_debug());
       },
-      MultiplexerCommand::Moved { server, slot, command } => {
+      RouterCommand::Moved { server, slot, command } => {
         formatter
           .field("kind", &"Moved")
           .field("server", &server)
           .field("slot", &slot)
           .field("command", &command.kind.to_str_debug());
       },
-      MultiplexerCommand::Reconnect { server, force, .. } => {
+      RouterCommand::Reconnect { server, force, .. } => {
         formatter
           .field("kind", &"Reconnect")
           .field("server", &server)
           .field("force", &force);
       },
-      MultiplexerCommand::SyncCluster { .. } => {
+      RouterCommand::SyncCluster { .. } => {
         formatter.field("kind", &"Sync Cluster");
       },
-      MultiplexerCommand::Transaction { .. } => {
+      RouterCommand::Transaction { .. } => {
         formatter.field("kind", &"Transaction");
       },
-      MultiplexerCommand::Pipeline { .. } => {
+      RouterCommand::Pipeline { .. } => {
         formatter.field("kind", &"Pipeline");
       },
-      MultiplexerCommand::Connections { .. } => {
+      RouterCommand::Connections { .. } => {
         formatter.field("kind", &"Connections");
       },
-      MultiplexerCommand::Command(command) => {
+      RouterCommand::Command(command) => {
         formatter
           .field("kind", &"Command")
           .field("command", &command.kind.to_str_debug());
@@ -1878,8 +1878,8 @@ impl fmt::Debug for MultiplexerCommand {
   }
 }
 
-impl From<RedisCommand> for MultiplexerCommand {
+impl From<RedisCommand> for RouterCommand {
   fn from(cmd: RedisCommand) -> Self {
-    MultiplexerCommand::Command(cmd)
+    RouterCommand::Command(cmd)
   }
 }

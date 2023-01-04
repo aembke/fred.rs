@@ -1,10 +1,10 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::{utils, Backpressure, Counters, Multiplexer, Written},
+  router::{utils, Backpressure, Counters, Router, Written},
   prelude::Resp3Frame,
   protocol::{
-    command::{ClusterErrorKind, MultiplexerResponse, RedisCommand, RedisCommandKind},
+    command::{ClusterErrorKind, RouterResponse, RedisCommand, RedisCommandKind},
     connection::{RedisWriter, SharedBuffer, SplitStreamKind},
     responders::ResponseKind,
     types::*,
@@ -96,11 +96,11 @@ pub fn prepare_command(
   // * the command ends a transaction
   // * the command does some form of authentication
   // * the command goes to multiple sockets at once
-  // * the command blocks the multiplexer command loop
+  // * the command blocks the router command loop
   let should_flush = counters.should_send(inner)
     || command.kind.should_flush()
     || command.kind.is_all_cluster_nodes()
-    || command.has_multiplexer_channel();
+    || command.has_router_channel();
 
   command.network_start = Some(Instant::now());
   set_command_trace(inner, command);
@@ -185,14 +185,14 @@ pub async fn write_command(
   }
 }
 
-/// Check the shared connection command buffer to see if the oldest command blocks the multiplexer task on a
+/// Check the shared connection command buffer to see if the oldest command blocks the router task on a
 /// response (not pipelined).
-pub fn check_blocked_multiplexer(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
   let command = {
     let mut guard = buffer.lock();
     let should_pop = guard
       .front()
-      .map(|command| command.has_multiplexer_channel())
+      .map(|command| command.has_router_channel())
       .unwrap_or(false);
 
     if should_pop {
@@ -202,7 +202,7 @@ pub fn check_blocked_multiplexer(inner: &Arc<RedisClientInner>, buffer: &SharedB
     }
   };
 
-  let tx = match command.take_multiplexer_tx() {
+  let tx = match command.take_router_tx() {
     Some(tx) => tx,
     None => return,
   };
@@ -210,8 +210,8 @@ pub fn check_blocked_multiplexer(inner: &Arc<RedisClientInner>, buffer: &SharedB
     .clone()
     .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
 
-  if let Err(_) = tx.send(MultiplexerResponse::ConnectionClosed((error, command))) {
-    _warn!(inner, "Failed to send multiplexer connection closed error.");
+  if let Err(_) = tx.send(RouterResponse::ConnectionClosed((error, command))) {
+    _warn!(inner, "Failed to send router connection closed error.");
   }
 }
 
@@ -222,7 +222,7 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
   let commands = guard
     .drain(..)
     .filter_map(|mut command| {
-      if command.has_multiplexer_channel() {
+      if command.has_router_channel() {
         // TODO double check if this should be `>`
         if command.attempted >= inner.max_command_attempts() {
           let error = error
@@ -304,16 +304,16 @@ pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration
 }
 
 /// Attempt to reconnect and replay queued commands.
-pub async fn reconnect_once(inner: &Arc<RedisClientInner>, multiplexer: &mut Multiplexer) -> Result<(), RedisError> {
+pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   client_utils::set_client_state(&inner.state, ClientState::Connecting);
-  if let Err(e) = multiplexer.connect().await {
+  if let Err(e) = router.connect().await {
     _debug!(inner, "Failed reconnecting with error: {:?}", e);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
     inner.notifications.broadcast_error(e.clone());
     Err(e)
   } else {
     // try to flush any previously in-flight commands
-    multiplexer.retry_buffer().await;
+    router.retry_buffer().await;
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
     inner.notifications.broadcast_reconnect();
@@ -325,7 +325,7 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, multiplexer: &mut Mul
 /// Reconnect to the server(s) until the max reconnect policy attempts are reached.
 pub async fn reconnect_with_policy(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
 ) -> Result<(), RedisError> {
   let mut delay = utils::next_reconnection_delay(inner)?;
 
@@ -335,7 +335,7 @@ pub async fn reconnect_with_policy(
       let _ = inner.wait_with_interrupt(delay).await?;
     }
 
-    if let Err(e) = reconnect_once(inner, multiplexer).await {
+    if let Err(e) = reconnect_once(inner, router).await {
       delay = match next_reconnection_delay(inner) {
         Ok(delay) => delay,
         Err(_) => return Err(e),
@@ -353,7 +353,7 @@ pub async fn reconnect_with_policy(
 /// Attempt to follow a cluster redirect, reconnecting as needed until the max reconnections attempts is reached.
 pub async fn cluster_redirect_with_policy(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
   kind: ClusterErrorKind,
   slot: u16,
   server: &Server,
@@ -366,7 +366,7 @@ pub async fn cluster_redirect_with_policy(
       let _ = inner.wait_with_interrupt(delay).await?;
     }
 
-    if let Err(e) = multiplexer.cluster_redirection(&kind, slot, server).await {
+    if let Err(e) = router.cluster_redirection(&kind, slot, server).await {
       delay = next_reconnection_delay(inner).map_err(|_| e)?;
 
       continue;
@@ -381,7 +381,7 @@ pub async fn cluster_redirect_with_policy(
 /// Repeatedly try to send `ASKING` to the provided server, reconnecting as needed.
 pub async fn send_asking_with_policy(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
   server: &Server,
   slot: u16,
 ) -> Result<(), RedisError> {
@@ -393,8 +393,8 @@ pub async fn send_asking_with_policy(
       let _ = inner.wait_with_interrupt(delay).await?;
     }
 
-    if !multiplexer.connections.has_server_connection(server) {
-      if let Err(e) = multiplexer.sync_cluster().await {
+    if !router.connections.has_server_connection(server) {
+      if let Err(e) = router.sync_cluster().await {
         _debug!(inner, "Error syncing cluster before ASKING: {:?}", e);
         delay = utils::next_reconnection_delay(inner)?;
         continue;
@@ -406,11 +406,11 @@ pub async fn send_asking_with_policy(
     command.skip_backpressure = true;
     command.response = ResponseKind::Respond(Some(tx));
 
-    if let Err(error) = multiplexer.write_once(command, server).await {
+    if let Err(error) = router.write_once(command, server).await {
       if error.should_not_reconnect() {
         break;
       } else {
-        if let Err(_) = reconnect_once(inner, multiplexer).await {
+        if let Err(_) = reconnect_once(inner, router).await {
           delay = utils::next_reconnection_delay(inner)?;
           continue;
         } else {
@@ -423,7 +423,7 @@ pub async fn send_asking_with_policy(
         Ok(Err(e)) => {
           // error writing the command
           _debug!(inner, "Reconnect once after error from ASKING: {:?}", e);
-          if let Err(_) = reconnect_once(inner, multiplexer).await {
+          if let Err(_) = reconnect_once(inner, router).await {
             delay = utils::next_reconnection_delay(inner)?;
             continue;
           } else {
@@ -434,7 +434,7 @@ pub async fn send_asking_with_policy(
         Err(e) => {
           // command was dropped due to connection closing
           _debug!(inner, "Reconnect once after rx error from ASKING: {:?}", e);
-          if let Err(_) = reconnect_once(inner, multiplexer).await {
+          if let Err(_) = reconnect_once(inner, router).await {
             delay = utils::next_reconnection_delay(inner)?;
             continue;
           } else {
@@ -454,7 +454,7 @@ pub async fn send_asking_with_policy(
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 pub async fn sync_cluster_with_policy(
   inner: &Arc<RedisClientInner>,
-  multiplexer: &mut Multiplexer,
+  router: &mut Router,
 ) -> Result<(), RedisError> {
   let mut delay = inner.with_perf_config(|config| Duration::from_millis(config.cluster_cache_update_delay_ms as u64));
 
@@ -465,7 +465,7 @@ pub async fn sync_cluster_with_policy(
       let _ = inner.wait_with_interrupt(delay).await?;
     }
 
-    if let Err(e) = multiplexer.sync_cluster().await {
+    if let Err(e) = router.sync_cluster().await {
       _warn!(inner, "Error syncing cluster after redirect: {:?}", e);
 
       if e.should_not_reconnect() {

@@ -2,8 +2,8 @@ use crate::{
   commands,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  multiplexer::commands as multiplexer_commands,
-  protocol::command::{MultiplexerCommand, RedisCommand},
+  router::commands as router_commands,
+  protocol::command::{RouterCommand, RedisCommand},
   types::{
     ClientState,
     ClusterStateChange,
@@ -32,7 +32,7 @@ pub type RedisResult<T> = Result<T, RedisError>;
 #[cfg(feature = "dns")]
 use crate::protocol::types::Resolve;
 
-/// Send a single `RedisCommand` to the multiplexer.
+/// Send a single `RedisCommand` to the router.
 pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
 where
   C: Into<RedisCommand>,
@@ -40,24 +40,24 @@ where
   let command: RedisCommand = command.into();
   _trace!(
     inner,
-    "Sending command {} ({}) to multiplexer.",
+    "Sending command {} ({}) to router.",
     command.kind.to_str_debug(),
     command.debug_id()
   );
-  send_to_multiplexer(inner, command.into())
+  send_to_router(inner, command.into())
 }
 
-/// Send a `MultiplexerCommand` to the multiplexer.
-pub(crate) fn send_to_multiplexer(
+/// Send a `RouterCommand` to the router.
+pub(crate) fn send_to_router(
   inner: &Arc<RedisClientInner>,
-  command: MultiplexerCommand,
+  command: RouterCommand,
 ) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
   if let Err(e) = inner.command_tx.send(command) {
-    _error!(inner, "Fatal error sending command to multiplexer.");
+    _error!(inner, "Fatal error sending command to router.");
     inner.counters.decr_cmd_buffer_len();
 
-    if let MultiplexerCommand::Command(mut command) = e.0 {
+    if let RouterCommand::Command(mut command) = e.0 {
       // if a caller manages to trigger this it means that a connection task is not running
       command.respond_to_caller(Err(RedisError::new(
         RedisErrorKind::Unknown,
@@ -67,7 +67,7 @@ pub(crate) fn send_to_multiplexer(
 
     Err(RedisError::new(
       RedisErrorKind::Unknown,
-      "Failed to send command to multiplexer.",
+      "Failed to send command to router.",
     ))
   } else {
     Ok(())
@@ -190,7 +190,7 @@ pub trait ClientLike: Clone + Send + Sized {
     let inner = self.inner().clone();
 
     tokio::spawn(async move {
-      let result = multiplexer_commands::start(&inner).await;
+      let result = router_commands::start(&inner).await;
       if let Err(ref e) = result {
         inner.notifications.broadcast_connect(Err(e.clone()));
       }

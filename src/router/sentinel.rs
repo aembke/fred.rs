@@ -4,7 +4,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   globals::globals,
   modules::inner::RedisClientInner,
-  multiplexer::{centralized, Connections},
+  router::{centralized, Connections},
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     connection::{self, CommandBuffer, RedisTransport, RedisWriter},

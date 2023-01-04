@@ -25,7 +25,7 @@ use crate::{
   modules::{inner::RedisClientInner, response::FromRedis},
   prelude::RedisValue,
   protocol::{
-    command::{MultiplexerCommand, RedisCommand},
+    command::{RouterCommand, RedisCommand},
     responders::ResponseKind,
     utils as protocol_utils,
   },
@@ -186,9 +186,9 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
       cmd
     })
     .collect();
-  let command = MultiplexerCommand::Pipeline { commands };
+  let command = RouterCommand::Pipeline { commands };
 
-  let _ = interfaces::send_to_multiplexer(inner, command)?;
+  let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
   protocol_utils::frame_to_results_raw(frame)
 }
@@ -205,9 +205,9 @@ async fn send_last(
   let (tx, rx) = oneshot_channel();
   let mut commands: Vec<RedisCommand> = commands.into_iter().collect();
   commands[len - 1].response = ResponseKind::Respond(Some(tx));
-  let command = MultiplexerCommand::Pipeline { commands };
+  let command = RouterCommand::Pipeline { commands };
 
-  let _ = interfaces::send_to_multiplexer(inner, command)?;
+  let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
   protocol_utils::frame_to_results_raw(frame)
 }
