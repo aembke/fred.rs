@@ -10,6 +10,13 @@ This document gives some background on how the library is structured and how to 
 * Clean up any compiler warnings.
 * Use the `async` syntax rather than `impl Future` where possible.
 
+## Branches
+
+* Create external PRs against the `staging` branch.
+* Use topic branches with [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
+* Branching strategy is `<topic>` -> (squash) `staging` -> `main` -> `release-<major version>`
+* Remove `chore` commits when squashing PRs.
+
 ## TODO List
 
 * Implement any missing commands.
