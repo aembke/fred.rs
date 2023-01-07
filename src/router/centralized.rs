@@ -35,13 +35,13 @@ pub async fn send_command(
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
-#[allow(unused_assignments)]
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,
   server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
+  is_replica: bool,
 ) -> JoinHandle<Result<(), RedisError>> {
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
@@ -79,7 +79,7 @@ pub fn spawn_reader_task(
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
-    responses::handle_reader_error(&inner, &server, last_error);
+    responses::handle_reader_error(&inner, &server, last_error, is_replica);
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
@@ -206,7 +206,7 @@ pub async fn initialize_connection(
       // let replicas = utils::sync_replicas(inner, &mut transport).await?;
       // inner.update_replicas(replicas);
 
-      let (_, _writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;
+      let (_, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       *writer = Some(_writer);
       Ok(())
     },

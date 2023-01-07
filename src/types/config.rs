@@ -11,6 +11,10 @@ use std::sync::Arc;
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
 
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
+
 pub use crate::protocol::types::Server;
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -407,7 +411,7 @@ pub struct RedisConfig {
   ///
   /// See the `tls` examples on Github for more information.
   ///
-  /// Default: None
+  /// Default: `None`
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   pub tls:       Option<TlsConfig>,
@@ -415,6 +419,10 @@ pub struct RedisConfig {
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing:   TracingConfig,
+  /// Configuration options for replica nodes.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub replica:   ReplicaConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: [Echo](crate::mocks::Echo)
@@ -451,6 +459,8 @@ impl Default for RedisConfig {
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: TracingConfig::default(),
+      #[cfg(feature = "replicas")]
+      replica: ReplicaConfig::default(),
       #[cfg(feature = "mocks")]
       mocks: Arc::new(Echo),
     }

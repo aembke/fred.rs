@@ -188,14 +188,7 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &str) {
   for slot_range in ranges.iter_mut() {
-    let ip = match IpAddr::from_str(&slot_range.primary.host) {
-      Ok(ip) => ip,
-      Err(_) => continue,
-    };
-
-    if let Some(tls_server_name) = policy.map(&ip, default_host) {
-      slot_range.primary.tls_server_name = Some(ArcStr::from(tls_server_name));
-    }
+    slot_range.primary.set_tls_server_name(policy, default_host);
   }
 }
 

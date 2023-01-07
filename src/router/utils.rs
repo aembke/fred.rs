@@ -4,7 +4,7 @@ use crate::{
   prelude::Resp3Frame,
   protocol::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterResponse},
-    connection::{RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders::ResponseKind,
     types::*,
   },
@@ -25,13 +25,10 @@ use tokio::{
   sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
 };
 
-use crate::protocol::connection::RedisTransport;
 #[cfg(any(feature = "metrics", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(feature = "check-unresponsive")]
 use futures::future::Either;
-#[cfg(all(feature = "replicas", any(feature = "enable-rustls", feature = "enable-native-tls")))]
-use std::{net::IpAddr, str::FromStr};
 #[cfg(feature = "check-unresponsive")]
 use tokio::pin;
 
@@ -542,106 +539,6 @@ pub fn reader_unsubscribe(inner: &Arc<RedisClientInner>, server: &Server) {
 
 #[cfg(not(feature = "check-unresponsive"))]
 pub fn reader_unsubscribe(_: &Arc<RedisClientInner>, _: &Server) {}
-
-#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
-pub fn map_replica_tls_names(
-  inner: &Arc<RedisClientInner>,
-  replicas: &mut HashMap<Server, Server>,
-  default_host: &str,
-) {
-  let policy = match inner.config.tls {
-    Some(ref config) => &config.hostnames,
-    None => {
-      _trace!(inner, "Skip modifying TLS hostname for replicas.");
-      return;
-    },
-  };
-  if *policy == TlsHostMapping::None {
-    _trace!(inner, "Skip modifying TLS hostnames for replicas.");
-    return;
-  }
-
-  for (mut replica, primary) in replicas.drain() {
-    let ip = match IpAddr::from_str(&replica.host) {
-      Ok(ip) => ip,
-      Err(_) => continue,
-    };
-
-    if let Some(tls_server_name) = policy.map(&ip, default_host) {
-      replica.tls_server_name = Some(ArcStr::from(tls_server_name));
-    }
-  }
-}
-
-/// Read the mapping of replica nodes to primary nodes via the `INFO replication` command.
-#[cfg(feature = "replicas")]
-pub async fn sync_replicas(
-  inner: &Arc<RedisClientInner>,
-  transport: &mut RedisTransport,
-) -> Result<HashMap<Server, Server>, RedisError> {
-  if !inner.config.use_replicas {
-    _debug!(inner, "Skip syncing replicas.");
-    return Ok(HashMap::new());
-  }
-  _debug!(inner, "Syncing replicas for {}", transport.server);
-
-  let info = match transport.info_replication(inner, None).await? {
-    Some(frame) => frame,
-    None => return Ok(HashMap::new()),
-  };
-  let mut replicas = HashMap::new();
-  for line in info.lines() {
-    if line.trim().starts_with("slave") {
-      let values = match line.split(":").last() {
-        Some(values) => values,
-        None => continue,
-      };
-
-      let parts: Vec<&str> = values.split(",").collect();
-      if parts.len() < 2 {
-        continue;
-      }
-
-      let (mut host, mut port) = (None, None);
-      for kv in parts.into_iter() {
-        let parts: Vec<&str> = kv.split("=").collect();
-        if parts.len() != 2 {
-          continue;
-        }
-
-        if &parts[0] == "ip" {
-          host = Some(parts[1].to_owned());
-        } else if &parts[0] == "port" {
-          port = parts[1].parse::<u16>().ok();
-        }
-      }
-
-      if let Some(host) = host {
-        if let Some(port) = port {
-          replicas.insert(Server::new(host, port), transport.server.clone());
-        }
-      }
-    }
-  }
-
-  _debug!(
-    inner,
-    "Read centralized replicas from {}: {:?}",
-    transport.server,
-    replicas
-  );
-  Ok(replicas)
-}
-
-#[allow(dead_code)]
-#[cfg(not(feature = "replicas"))]
-pub async fn sync_replicas(
-  inner: &Arc<RedisClientInner>,
-  _: &mut RedisTransport,
-) -> Result<HashMap<ArcStr, ArcStr>, RedisError> {
-  _trace!(inner, "Skip syncing replicas.");
-  Ok(HashMap::new())
-}
 
 #[cfg(test)]
 mod tests {}

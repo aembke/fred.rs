@@ -26,6 +26,8 @@ pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
 #[cfg(feature = "replicas")]
 use std::sync::atomic::AtomicUsize;
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+use std::{net::IpAddr, str::FromStr};
 
 #[derive(Debug)]
 pub enum ProtocolFrame {
@@ -88,6 +90,24 @@ impl Server {
       tls_server_name: None,
     }
   }
+
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+  pub(crate) fn set_tls_server_name(&mut self, policy: &TlsHostMapping, default_host: &str) {
+    if *policy == TlsHostMapping::None {
+      return;
+    }
+
+    let ip = match IpAddr::from_str(&self.host) {
+      Ok(ip) => ip,
+      Err(_) => return,
+    };
+    if let Some(tls_server_name) = policy.map(&ip, default_host) {
+      self.tls_server_name = Some(ArcStr::from(tls_server_name));
+    }
+  }
+
+  #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+  pub(crate) fn set_tls_server_name(&mut self, _: &TlsHostMapping, _: &str) {}
 
   /// Attempt to parse a `host:port` string.
   pub(crate) fn from_str(s: &str) -> Option<Server> {
@@ -346,89 +366,29 @@ impl ValueScanInner {
   }
 }
 
-/// A container for round-robin routing to replica server IDs.
-#[cfg(feature = "replicas")]
-#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
-pub struct ReplicaSet {
-  /// A map of primary server IDs to a counter and set of replica server IDs.
-  servers: HashMap<ArcStr, (usize, Vec<ArcStr>)>,
-}
-
-#[cfg(feature = "replicas")]
-impl ReplicaSet {
-  /// Create a new empty replica set.
-  pub fn new() -> ReplicaSet {
-    ReplicaSet {
-      servers: HashMap::new(),
-    }
-  }
-
-  /// Update the replica set in place via the parsed CLUSTER SLOTS command output.
-  pub fn update(&mut self, slots: &Vec<SlotRange>) {
-    self.servers.clear();
-    for slot in slots.iter() {
-      let mut entry = self.servers.entry(slot.primary.clone()).or_insert((0, Vec::new()));
-      entry.1.extend(slot.replicas.clone());
-    }
-    self.servers.shrink_to_fit();
-  }
-
-  /// Read the server ID of the next replica that should receive a command.
-  pub fn next_replica(&mut self, primary: &str) -> Option<&ArcStr> {
-    self.servers.get_mut(primary).and_then(|(idx, replicas)| {
-      *idx += 1;
-      replicas.get(idx % replicas.len())
-    })
-  }
-
-  /// Read the set of all known replica nodes.
-  pub fn all_replicas(&self) -> Vec<ArcStr> {
-    let mut out = Vec::with_capacity(self.servers.len());
-    for (_, (_, replicas)) in self.servers.iter() {
-      for replica in replicas.iter() {
-        out.push(replica.clone());
-      }
-    }
-
-    out
-  }
-}
-
 /// A slot range and associated cluster node information from the `CLUSTER SLOTS` command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start:    u16,
+  pub start:   u16,
   /// The end of the hash slot range.
-  pub end:      u16,
+  pub end:     u16,
   /// The primary server owner.
-  pub primary:  Server,
+  pub primary: Server,
   /// The internal ID assigned by the server.
-  pub id:       ArcStr,
-  /// The set of replica nodes for the slot range.
-  #[cfg(feature = "replicas")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  #[doc(hidden)]
-  pub replicas: Vec<ArcStr>,
+  pub id:      ArcStr,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
 #[derive(Debug, Clone)]
 pub struct ClusterRouting {
-  data:     Vec<SlotRange>,
-  #[cfg(feature = "replicas")]
-  replicas: ReplicaSet,
+  data: Vec<SlotRange>,
 }
 
 impl ClusterRouting {
   /// Create a new empty routing table.
   pub fn new() -> Self {
-    ClusterRouting {
-      data:                                  Vec::new(),
-      #[cfg(feature = "replicas")]
-      replicas:                              ReplicaSet::new(),
-    }
+    ClusterRouting { data: Vec::new() }
   }
 
   /// Read a set of unique hash slots that each map to a different primary/main node in the cluster.
@@ -465,20 +425,6 @@ impl ClusterRouting {
 
     cluster::modify_cluster_slot_hostnames(inner, &mut self.data, default_host);
     Ok(())
-  }
-
-  /// Rebuild the replica index in place via the current cluster slot mappings.
-  #[cfg(feature = "replicas")]
-  #[doc(hidden)]
-  pub(crate) fn rebuild_replicas(&mut self) {
-    self.replicas.update(&self.data);
-  }
-
-  /// Read the next replica that should receive a command instead of `primary`.
-  #[cfg(feature = "replicas")]
-  #[doc(hidden)]
-  pub(crate) fn next_replica(&mut self, primary: &ArcStr) -> Option<&ArcStr> {
-    self.replicas.next_replica(primary.as_str())
   }
 
   /// Calculate the cluster hash slot for the provided key.

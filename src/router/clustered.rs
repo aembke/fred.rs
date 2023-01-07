@@ -3,15 +3,15 @@ use crate::{
   interfaces,
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  router::{responses, types::ClusterChange, utils, Connections, Written},
   protocol::{
-    command::{ClusterErrorKind, RouterCommand, RouterResponse, RedisCommand, RedisCommandKind},
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
     connection::{self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders,
     responders::ResponseKind,
     types::{ClusterRouting, Server, SlotRange},
     utils as protocol_utils,
   },
+  router::{responses, types::ClusterChange, utils, Connections, Written},
   types::ClusterStateChange,
 };
 use std::{
@@ -184,13 +184,13 @@ pub fn broadcast_cluster_change(inner: &Arc<RedisClientInner>, changes: &Cluster
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
-#[allow(unused_assignments)]
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,
   server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
+  is_replica: bool,
 ) -> JoinHandle<Result<(), RedisError>> {
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
@@ -233,7 +233,7 @@ pub fn spawn_reader_task(
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
-    responses::handle_reader_error(&inner, &server, last_error);
+    responses::handle_reader_error(&inner, &server, last_error, is_replica);
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
@@ -612,7 +612,7 @@ pub async fn sync(
       .await?;
       let _ = transport.setup(inner, None).await?;
 
-      let (server, writer) = connection::split_and_initialize(inner, transport, spawn_reader_task)?;
+      let (server, writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       writers.insert(server, writer);
     }
 

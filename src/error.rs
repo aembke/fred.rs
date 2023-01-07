@@ -58,6 +58,10 @@ pub enum RedisErrorKind {
   NotFound,
   /// An error indicating that the caller should apply backpressure and retry the command.
   Backpressure,
+  /// An error associated with a replica node.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  Replica,
 }
 
 impl RedisErrorKind {
@@ -79,6 +83,8 @@ impl RedisErrorKind {
       RedisErrorKind::Sentinel => "Sentinel Error",
       RedisErrorKind::NotFound => "Not Found",
       RedisErrorKind::Backpressure => "Backpressure",
+      #[cfg(feature = "replicas")]
+      RedisErrorKind::Replica => "Replica",
     }
   }
 }

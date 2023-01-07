@@ -950,6 +950,7 @@ pub async fn create(
 pub fn split_and_initialize<F>(
   inner: &Arc<RedisClientInner>,
   transport: RedisTransport,
+  is_replica: bool,
   func: F,
 ) -> Result<(Server, RedisWriter), RedisError>
 where
@@ -959,6 +960,7 @@ where
     &Server,
     &SharedBuffer,
     &Counters,
+    bool,
   ) -> JoinHandle<Result<(), RedisError>>,
 {
   let server = transport.server.clone();
@@ -978,6 +980,7 @@ where
     &writer.server,
     &writer.buffer,
     &writer.counters,
+    is_replica,
   ));
   writer.reader = Some(reader);
 

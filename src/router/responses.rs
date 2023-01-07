@@ -232,10 +232,15 @@ pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -
 }
 
 /// Handle an error in the reader task that should end the connection.
-pub fn handle_reader_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+pub fn handle_reader_error(
+  inner: &Arc<RedisClientInner>,
+  server: &Server,
+  error: Option<RedisError>,
+  is_replica: bool,
+) {
   _debug!(inner, "Ending reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
+  if inner.should_reconnect() && !is_replica {
     inner.send_reconnect(Some(server.clone()), false, None);
   }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
