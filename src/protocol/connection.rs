@@ -715,6 +715,37 @@ impl RedisTransport {
     .await
   }
 
+  /// Run and parse the output from `INFO replication`.
+  #[cfg(feature = "replicas")]
+  pub async fn info_replication(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    timeout: Option<u64>,
+  ) -> Result<Option<String>, RedisError> {
+    let timeout = connection_timeout(timeout);
+    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
+
+    utils::apply_timeout(
+      async {
+        self
+          .request_response(command, inner.is_resp3())
+          .await
+          .map(|f| f.as_str().map(|s| s.to_owned()))
+      },
+      timeout,
+    )
+    .await
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub async fn info_replication(
+    &mut self,
+    _: &Arc<RedisClientInner>,
+    _: Option<u64>,
+  ) -> Result<Option<String>, RedisError> {
+    Ok(None)
+  }
+
   /// Split the transport into reader/writer halves.
   pub fn split(self, inner: &Arc<RedisClientInner>) -> (RedisWriter, RedisReader) {
     let len = protocol_utils::initial_buffer_size(inner);

@@ -19,6 +19,7 @@ use crate::{
   },
   modules::inner::RedisClientInner,
   protocol::command::RedisCommand,
+  types::Server,
 };
 use arcstr::ArcStr;
 use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
@@ -78,7 +79,7 @@ impl StreamsInterface for Replicas {}
 
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.
-  pub fn nodes(&self) -> HashMap<ArcStr, ArcStr> {
+  pub fn nodes(&self) -> HashMap<Server, Server> {
     self.inner.server_state.read().replicas().unwrap_or_default()
   }
 
@@ -87,8 +88,8 @@ impl Replicas {
     Pipeline::from(self.clone())
   }
 
-  /// Promote the client to a [RedisClient](crate::clients::RedisClient) that interacts with primary nodes.
-  pub fn promote(&self) -> RedisClient {
+  /// Read the underlying [RedisClient](crate::clients::RedisClient) that interacts with primary nodes.
+  pub fn client(&self) -> RedisClient {
     RedisClient::from(&self.inner)
   }
 }

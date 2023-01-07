@@ -2,7 +2,7 @@ use crate::{
   error::*,
   modules::backchannel::Backchannel,
   protocol::{
-    command::{RouterCommand, ResponseSender},
+    command::{ResponseSender, RouterCommand},
     connection::RedisTransport,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
@@ -188,7 +188,7 @@ pub enum ServerState {
     /// The server host/port resolved from the sentinel nodes, if known.
     primary:   Option<Server>,
     #[cfg(feature = "replicas")]
-    replicas:  HashMap<ArcStr, ArcStr>,
+    replicas:  HashMap<Server, Server>,
   },
   Cluster {
     version: Option<Version>,
@@ -198,7 +198,7 @@ pub enum ServerState {
   Centralized {
     version:  Option<Version>,
     #[cfg(feature = "replicas")]
-    replicas: HashMap<ArcStr, ArcStr>,
+    replicas: HashMap<Server, Server>,
   },
 }
 
@@ -330,7 +330,7 @@ impl ServerState {
   ///
   /// Cluster replication state is determined by the cluster routing table.
   #[cfg(feature = "replicas")]
-  pub fn update_replicas(&mut self, new_replicas: HashMap<ArcStr, ArcStr>) {
+  pub fn update_replicas(&mut self, new_replicas: HashMap<Server, Server>) {
     match *self {
       ServerState::Sentinel { ref mut replicas, .. } => {
         *replicas = new_replicas;
@@ -344,11 +344,11 @@ impl ServerState {
   }
 
   #[cfg(not(feature = "replicas"))]
-  pub fn update_replicas(&mut self, _: HashMap<ArcStr, ArcStr>) {}
+  pub fn update_replicas(&mut self, _: HashMap<Server, Server>) {}
 
   /// Read the mapping of replica server IDs to primary server IDs.
   #[cfg(feature = "replicas")]
-  pub fn replicas(&self) -> Option<HashMap<ArcStr, ArcStr>> {
+  pub fn replicas(&self) -> Option<HashMap<Server, Server>> {
     match *self {
       ServerState::Sentinel { ref replicas, .. } => Some(replicas.clone()),
       ServerState::Centralized { ref replicas, .. } => Some(replicas.clone()),
@@ -627,9 +627,7 @@ impl RedisClientInner {
 
   pub fn send_reconnect(&self, server: Option<Server>, force: bool, tx: Option<ResponseSender>) {
     debug!("{}: Sending reconnect message to router for {:?}", self.id, server);
-    let result = self
-      .command_tx
-      .send(RouterCommand::Reconnect { server, force, tx });
+    let result = self.command_tx.send(RouterCommand::Reconnect { server, force, tx });
 
     if let Err(_) = result {
       warn!("{}: Error sending reconnect command to router.", self.id);
