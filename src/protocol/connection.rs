@@ -30,12 +30,12 @@ use std::{
   sync::{atomic::AtomicUsize, Arc},
   task::{Context, Poll},
 };
-use tokio::{net::TcpStream, task::JoinHandle};
+use tokio::{net::TcpStream, sync::oneshot::channel as oneshot_channel, task::JoinHandle};
 use tokio_util::codec::Framed;
 
-use crate::globals::globals;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
+use crate::{globals::globals, protocol::responders::ResponseKind};
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
@@ -985,4 +985,31 @@ where
   writer.reader = Some(reader);
 
   Ok((server, writer))
+}
+
+/// Send a command to the server and wait for a response.
+pub async fn request_response(
+  inner: &Arc<RedisClientInner>,
+  writer: &mut RedisWriter,
+  mut command: RedisCommand,
+  timeout: Option<u64>,
+) -> Result<Resp3Frame, RedisError> {
+  let (tx, rx) = oneshot_channel();
+  command.response = ResponseKind::Respond(Some(tx));
+
+  let frame = command.to_frame(inner.is_resp3())?;
+  writer.push_command(command);
+  if let Err(e) = writer.write_frame(frame, true).await? {
+    _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
+    let _ = writer.pop_recent_command();
+    Err(e)
+  } else {
+    let timeout = timeout.unwrap_or(inner.default_command_timeout());
+
+    if timeout > 0 {
+      utils::apply_timeout(async { rx.await? }, timeout).await
+    } else {
+      rx.await?
+    }
+  }
 }

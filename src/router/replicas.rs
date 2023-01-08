@@ -17,7 +17,6 @@ use std::{
   sync::Arc,
 };
 
-use crate::types::ScanType::Hash;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::types::{HostMapping, TlsHostMapping};
 
@@ -154,6 +153,11 @@ impl ReplicaSet {
 
     out
   }
+
+  /// Clear the routing table.
+  pub fn clear(&mut self) {
+    self.servers.clear();
+  }
 }
 
 /// A struct for routing commands to replica nodes.
@@ -191,6 +195,12 @@ impl Replicas {
     }
 
     Ok(())
+  }
+
+  /// Drop all connections and clear the cached routing table.
+  pub async fn clear_connections(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    self.routing.clear();
+    self.sync_connections(inner).await
   }
 
   /// Add a replica connection mapping to the routing table and connection map.
@@ -266,16 +276,49 @@ impl Replicas {
     Ok(())
   }
 
+  /// Whether a connection exists to any replica for the provided primary node.
+  pub fn has_replica_connection(&self, primary: &Server) -> bool {
+    if let Some(replicas) = self.routing.replicas(primary) {
+      for replica in replicas.iter() {
+        if self.has_connection(replica) {
+          return true;
+        }
+      }
+    }
+
+    false
+  }
+
+  /// Whether a connection exists to the provided replica node.
+  pub fn has_connection(&self, replica: &Server) -> bool {
+    self.writers.get(replica).map(|w| w.is_working()).unwrap_or(false)
+  }
+
+  /// Return a map of `replica` -> `primary` server identifiers.
+  pub fn routing_table(&self) -> HashMap<Server, Server> {
+    self.routing.to_map()
+  }
+
   /// Check if the provided connection has any known replica nodes, and if so add them to the cached routing table.
   pub async fn check_replicas(
     &mut self,
     inner: &Arc<RedisClientInner>,
     primary: &mut RedisWriter,
   ) -> Result<(), RedisError> {
-    // TODO need request_response on writer that uses the resp_tx
     let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
-    let frame = primary.request_response(inner, command).await?;
-    let replicas = parse_info_replication(&primary.server, frame);
+    let frame = connection::request_response(inner, primary, command, None)
+      .await?
+      .as_str()
+      .map(|s| s.to_owned())
+      .ok_or(RedisError::new(
+        RedisErrorKind::Replica,
+        "Failed to read replication info.",
+      ))?;
+
+    for replica in parse_info_replication(frame) {
+      self.routing.add(primary.server.clone(), replica);
+    }
+    Ok(())
   }
 
   /// Send a command to one of the replicas associated with the provided primary server.
@@ -303,58 +346,50 @@ impl Replicas {
         ))
       },
     };
-
-    let frame = match utils::prepare_command(&self.inner, &writer.counters, &mut command) {
+    let frame = match utils::prepare_command(inner, &writer.counters, &mut command) {
       Ok((frame, _)) => frame,
       Err(e) => {
-        warn!(
-          "{}: Frame encoding error for {}",
-          self.inner.id,
-          command.kind.to_str_debug()
-        );
+        _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
         // do not retry commands that trigger frame encoding errors
         command.respond_to_caller(Err(e));
-        return Ok(());
+        return Ok(Written::Ignore);
       },
     };
 
     let blocks_connection = command.blocks_connection();
-
     // always flush the socket in this case
+    _debug!(
+      inner,
+      "Sending {} ({}) to replica {}",
+      command.kind.to_str_debug(),
+      command.debug_id(),
+      replica
+    );
     writer.push_command(command);
     if let Err(e) = writer.write_frame(frame, true).await {
       let command = match writer.pop_recent_command() {
         Some(cmd) => cmd,
         None => {
-          error!(
-            "{}: Failed to take recent command off queue after write failure.",
-            self.inner.id
-          );
-          return Ok(());
+          _error!(inner, "Failed to take recent command off queue after write failure.");
+          return Ok(Written::Ignore);
         },
       };
 
-      debug!(
-        "{}: Error sending command {}: {:?}",
-        self.inner.id,
-        command.kind.to_str_debug(),
-        e
-      );
+      _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
       Err((e, command))
     } else {
       if blocks_connection {
-        self.inner.backchannel.write().await.set_blocked(&writer.server);
+        inner.backchannel.write().await.set_blocked(&writer.server);
       }
-      Ok(())
-    }
 
-    unimplemented!()
+      Ok(Written::Sent((writer.server.clone(), true)))
+    }
   }
 }
 
 /// Parse the `INFO replication` response for replica node server identifiers.
-fn parse_info_replication(primary: &Server, frame: String) -> HashMap<Server, Server> {
-  let mut replicas = HashMap::new();
+fn parse_info_replication(frame: String) -> Vec<Server> {
+  let mut replicas = Vec::new();
   for line in frame.lines() {
     if line.trim().starts_with("slave") {
       let values = match line.split(":").last() {
@@ -383,7 +418,7 @@ fn parse_info_replication(primary: &Server, frame: String) -> HashMap<Server, Se
 
       if let Some(host) = host {
         if let Some(port) = port {
-          replicas.insert(Server::new(host, port), primary.clone());
+          replicas.push(Server::new(host, port));
         }
       }
     }
