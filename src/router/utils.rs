@@ -162,7 +162,6 @@ pub async fn write_command(
     writer.server,
     command.debug_id()
   );
-  // TODO i don't think we need to hold a lock across this await point...
   writer.push_command(command);
   if let Err(e) = writer.write_frame(frame, should_flush).await {
     let mut command = match writer.pop_recent_command() {
@@ -315,6 +314,16 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
   } else {
     // try to flush any previously in-flight commands
     router.retry_buffer().await;
+
+    if let Err(e) = router.sync_replicas().await {
+      _warn!(inner, "Error syncing replicas: {:?}", e);
+      if !inner.ignore_replica_reconnect_errors() {
+        client_utils::set_client_state(&inner.state, ClientState::Disconnected);
+        inner.notifications.broadcast_error(e.clone());
+        return Err(e);
+      }
+    }
+
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
     inner.notifications.broadcast_reconnect();
@@ -446,6 +455,40 @@ pub async fn send_asking_with_policy(
   }
 
   inner.reset_reconnection_attempts();
+  Ok(())
+}
+
+/// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
+#[cfg(feature = "replicas")]
+pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
+  let mut delay = utils::next_reconnection_delay(inner)?;
+
+  // TODO GATs would make this looping a lot easier to express as a util function
+  loop {
+    if !delay.is_zero() {
+      _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
+      let _ = inner.wait_with_interrupt(delay).await?;
+    }
+
+    if let Err(e) = router.sync_replicas().await {
+      _warn!(inner, "Error syncing replicas: {:?}", e);
+
+      if e.should_not_reconnect() {
+        break;
+      } else {
+        // return the underlying error on the last attempt
+        delay = match utils::next_reconnection_delay(inner) {
+          Ok(delay) => delay,
+          Err(_) => return Err(e),
+        };
+
+        continue;
+      }
+    } else {
+      break;
+    }
+  }
+
   Ok(())
 }
 

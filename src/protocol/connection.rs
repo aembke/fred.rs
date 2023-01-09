@@ -1,9 +1,11 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  globals::globals,
   modules::inner::RedisClientInner,
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
+    responders::ResponseKind,
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
@@ -35,7 +37,8 @@ use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
-use crate::{globals::globals, protocol::responders::ResponseKind};
+#[cfg(feature = "replicas")]
+use crate::{protocol::connection, router::replicas};
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
 #[cfg(feature = "enable-native-tls")]
@@ -844,17 +847,23 @@ impl RedisWriter {
     Ok(())
   }
 
+  #[cfg(feature = "replicas")]
+  pub async fn info_replication(&mut self, inner: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
+    let frame = connection::request_response(inner, self, command, None)
+      .await?
+      .as_str()
+      .map(|s| s.to_owned())
+      .ok_or(RedisError::new(
+        RedisErrorKind::Replica,
+        "Failed to read replication info.",
+      ))?;
+
+    Ok(replicas::parse_info_replication(frame))
+  }
+
   /// Check if the connection is connected and can send frames.
   pub fn is_working(&self) -> bool {
-    // this is strange, but necessary.
-    //
-    // calling `flush` on the writer half may seem like the best way to test connectivity, but it's a no-op if there's
-    // no bytes to be flushed. additionally, calling `feed` on a dead writer half also seems to always succeed.
-    //
-    // a better way to check this is to look at the reader half to see if the task driving the stream is finished. if
-    // it is then the connection must have been dropped.
-    //
-    // TLDR: only the reader half responds to a connection dropping.
     self
       .reader
       .as_ref()

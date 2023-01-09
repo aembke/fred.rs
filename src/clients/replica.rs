@@ -1,8 +1,11 @@
 use crate::{
   clients::{Pipeline, RedisClient},
+  error::RedisError,
   interfaces::{
+    self,
     AuthInterface,
     ClientLike,
+    FunctionInterface,
     GeoInterface,
     HashesInterface,
     HyperloglogInterface,
@@ -18,11 +21,12 @@ use crate::{
     StreamsInterface,
   },
   modules::inner::RedisClientInner,
-  protocol::command::RedisCommand,
+  protocol::command::{RedisCommand, RouterCommand},
   types::Server,
 };
 use arcstr::ArcStr;
 use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A struct for interacting with replica nodes.
 ///
@@ -68,6 +72,7 @@ impl HyperloglogInterface for Replicas {}
 impl MetricsInterface for Replicas {}
 impl KeysInterface for Replicas {}
 impl LuaInterface for Replicas {}
+impl FunctionInterface for Replicas {}
 impl ListInterface for Replicas {}
 impl MemoryInterface for Replicas {}
 impl AuthInterface for Replicas {}
@@ -80,7 +85,7 @@ impl StreamsInterface for Replicas {}
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.
   pub fn nodes(&self) -> HashMap<Server, Server> {
-    self.inner.server_state.read().replicas().unwrap_or_default()
+    self.inner.server_state.read().replicas.clone()
   }
 
   /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
@@ -91,5 +96,15 @@ impl Replicas {
   /// Read the underlying [RedisClient](crate::clients::RedisClient) that interacts with primary nodes.
   pub fn client(&self) -> RedisClient {
     RedisClient::from(&self.inner)
+  }
+
+  /// Sync the cached replica routing table with the server(s).
+  ///
+  /// This will also disconnect and reset any replica connections.
+  pub async fn sync(&self) -> Result<(), RedisError> {
+    let (tx, rx) = oneshot_channel();
+    let cmd = RouterCommand::SyncReplicas { tx };
+    let _ = interfaces::send_to_router(&self.inner, cmd)?;
+    rx.await?
   }
 }

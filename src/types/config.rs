@@ -420,6 +420,8 @@ pub struct RedisConfig {
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing:   TracingConfig,
   /// Configuration options for replica nodes.
+  ///
+  /// Default: `None`
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub replica:   ReplicaConfig,

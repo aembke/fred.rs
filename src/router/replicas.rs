@@ -1,8 +1,9 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{RedisCommand, RedisCommandKind},
+    command::{RedisCommand, RedisCommandKind, RouterCommand},
     connection,
     connection::{CommandBuffer, RedisWriter},
   },
@@ -38,7 +39,7 @@ pub trait ReplicaFilter: Send + Sync + 'static {
 pub struct ReplicaConfig {
   /// Whether the client should lazily connect to replica nodes.
   ///
-  /// Default: `false`
+  /// Default: `true`
   pub lazy_connections:           bool,
   /// An optional interface for filtering available replica nodes.
   ///
@@ -48,7 +49,7 @@ pub struct ReplicaConfig {
   ///
   /// Default: `None`
   pub policy:                     Option<ReconnectPolicy>,
-  /// Whether the client should ignore errors that occur when the max reconnection count is reached.
+  /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
   ///
   /// Default: `true`
   pub ignore_reconnection_errors: bool,
@@ -66,7 +67,7 @@ pub struct ReplicaConfig {
 impl Default for ReplicaConfig {
   fn default() -> Self {
     ReplicaConfig {
-      lazy_connections:           false,
+      lazy_connections:           true,
       filter:                     None,
       policy:                     None,
       ignore_reconnection_errors: true,
@@ -178,9 +179,29 @@ impl Replicas {
     }
   }
 
-  /// Drain the cached command retry buffer.
-  pub fn take_buffer(&mut self) -> CommandBuffer {
-    self.buffer.drain(..).collect()
+  pub fn add_to_retry_buffer(&mut self, command: RedisCommand) {
+    self.buffer.push_back(command);
+  }
+
+  /// Retry the commands in the cached retry buffer by sending them to the router again.
+  pub fn retry_buffer(&mut self, inner: &Arc<RedisClientInner>) {
+    let retry_count = inner.config.replica.connection_error_count;
+    for mut command in self.buffer.drain(..) {
+      if retry_count > 0 && command.attempted > retry_count {
+        _trace!(
+          inner,
+          "Switch {} ({}) to fall back to primary after retry.",
+          command.kind.to_str_debug(),
+          command.debug_id()
+        );
+        command.attempted = 0;
+        command.use_replica = false;
+      }
+
+      if let Err(e) = interfaces::send_to_router(inner, RouterCommand::Command(command)) {
+        _error!(inner, "Error sending replica command to router: {:?}", e);
+      }
+    }
   }
 
   /// Sync the connection map in place based on the cached routing table.
@@ -203,7 +224,7 @@ impl Replicas {
     self.sync_connections(inner).await
   }
 
-  /// Add a replica connection mapping to the routing table and connection map.
+  /// Connect to the replica and add it to the cached routing table.
   pub async fn add_connection(
     &mut self,
     inner: &Arc<RedisClientInner>,
@@ -276,7 +297,7 @@ impl Replicas {
     Ok(())
   }
 
-  /// Whether a connection exists to any replica for the provided primary node.
+  /// Whether a working connection exists to any replica for the provided primary node.
   pub fn has_replica_connection(&self, primary: &Server) -> bool {
     if let Some(replicas) = self.routing.replicas(primary) {
       for replica in replicas.iter() {
@@ -327,6 +348,7 @@ impl Replicas {
     inner: &Arc<RedisClientInner>,
     primary: &Server,
     mut command: RedisCommand,
+    force_flush: bool,
   ) -> Result<Written, (RedisError, RedisCommand)> {
     let replica = match self.routing.next_replica(primary) {
       Some(replica) => replica.clone(),
@@ -346,8 +368,8 @@ impl Replicas {
         ))
       },
     };
-    let frame = match utils::prepare_command(inner, &writer.counters, &mut command) {
-      Ok((frame, _)) => frame,
+    let (frame, should_flush) = match utils::prepare_command(inner, &writer.counters, &mut command) {
+      Ok((frame, should_flush)) => (frame, should_flush || force_flush),
       Err(e) => {
         _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
         // do not retry commands that trigger frame encoding errors
@@ -366,7 +388,7 @@ impl Replicas {
       replica
     );
     writer.push_command(command);
-    if let Err(e) = writer.write_frame(frame, true).await {
+    if let Err(e) = writer.write_frame(frame, should_flush).await {
       let command = match writer.pop_recent_command() {
         Some(cmd) => cmd,
         None => {
@@ -388,7 +410,7 @@ impl Replicas {
 }
 
 /// Parse the `INFO replication` response for replica node server identifiers.
-fn parse_info_replication(frame: String) -> Vec<Server> {
+pub fn parse_info_replication(frame: String) -> Vec<Server> {
   let mut replicas = Vec::new();
   for line in frame.lines() {
     if line.trim().starts_with("slave") {
@@ -428,11 +450,7 @@ fn parse_info_replication(frame: String) -> Vec<Server> {
 }
 
 #[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
-pub fn map_replica_tls_names(
-  inner: &Arc<RedisClientInner>,
-  replicas: &mut HashMap<Server, Server>,
-  default_host: &str,
-) {
+pub fn map_replica_tls_names(inner: &Arc<RedisClientInner>, primary: &Server, replica: &mut Server) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {
@@ -445,10 +463,11 @@ pub fn map_replica_tls_names(
     return;
   }
 
-  let mut out = HashMap::with_capacity(replicas.len());
-  for (mut replica, primary) in replicas.drain() {
-    replica.set_tls_server_name(policy, default_host);
-    out.insert(replica, primary);
-  }
-  *replicas = out;
+  replica.set_tls_server_name(policy, primary.host.as_str());
 }
+
+#[cfg(all(
+  feature = "replicas",
+  not(any(feature = "enable-native-tls", feature = "enable-rustls"))
+))]
+pub fn map_replica_tls_names(_: &Arc<RedisClientInner>, _: &mut HashMap<Server, Server>, _: &str) {}

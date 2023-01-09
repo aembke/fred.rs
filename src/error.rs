@@ -365,6 +365,14 @@ impl RedisError {
     }
   }
 
+  #[cfg(feature = "replicas")]
+  pub fn is_replica(&self) -> bool {
+    match self.kind {
+      RedisErrorKind::Replica => true,
+      _ => false,
+    }
+  }
+
   /// Whether or not the error is a `NotFound` error.
   pub fn is_not_found(&self) -> bool {
     match self.kind {
