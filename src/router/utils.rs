@@ -4,7 +4,7 @@ use crate::{
   prelude::Resp3Frame,
   protocol::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterResponse},
-    connection::{RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{RedisWriter, SharedBuffer, SplitStreamKind},
     responders::ResponseKind,
     types::*,
   },
@@ -16,7 +16,6 @@ use futures::TryStreamExt;
 use redis_protocol::resp3::types::PUBSUB_PUSH_PREFIX;
 use std::{
   cmp,
-  collections::HashMap,
   sync::Arc,
   time::{Duration, Instant},
 };

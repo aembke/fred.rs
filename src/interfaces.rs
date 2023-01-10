@@ -168,7 +168,7 @@ pub trait ClientLike: Clone + Send + Sized {
 
   /// Read the server version, if known.
   fn server_version(&self) -> Option<Version> {
-    self.inner().server_state.read().server_version()
+    self.inner().server_state.read().kind.server_version()
   }
 
   /// Override the DNS resolution logic for the client.

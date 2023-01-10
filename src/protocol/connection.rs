@@ -1006,10 +1006,17 @@ pub async fn request_response(
   let (tx, rx) = oneshot_channel();
   command.response = ResponseKind::Respond(Some(tx));
 
+  _trace!(
+    inner,
+    "Sending {} ({}) to {}",
+    command.kind.to_str_debug(),
+    command.debug_id(),
+    writer.server
+  );
   let frame = command.to_frame(inner.is_resp3())?;
   writer.push_command(command);
-  if let Err(e) = writer.write_frame(frame, true).await? {
-    _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
+  if let Err(e) = writer.write_frame(frame, true).await {
+    _debug!(inner, "Error sending command: {:?}", e);
     let _ = writer.pop_recent_command();
     Err(e)
   } else {

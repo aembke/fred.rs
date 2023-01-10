@@ -158,12 +158,12 @@ pub trait ServerInterface: ClientLike {
 
   /// Read the primary Redis server identifier returned from the sentinel nodes.
   fn sentinel_primary(&self) -> Option<Server> {
-    self.inner().server_state.read().sentinel_primary()
+    self.inner().server_state.read().kind.sentinel_primary()
   }
 
   /// Read the set of known sentinel nodes.
   fn sentinel_nodes(&self) -> Option<Vec<Server>> {
     let inner = self.inner();
-    inner.server_state.read().read_sentinel_nodes(&inner.config.server)
+    inner.server_state.read().kind.read_sentinel_nodes(&inner.config.server)
   }
 }

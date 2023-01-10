@@ -932,7 +932,7 @@ impl Router {
       .write()
       .update_replicas(self.replicas.routing_table());
 
-    self.replicas.retry_buffer(inner);
+    self.replicas.retry_buffer(&self.inner);
     Ok(())
   }
 

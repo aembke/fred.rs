@@ -8,13 +8,10 @@ use crate::{
     connection::{CommandBuffer, RedisWriter},
   },
   router::{centralized, clustered, utils, Written},
-  types::{ReconnectPolicy, Server, SlotRange},
-  utils as client_utils,
+  types::{ReconnectPolicy, Server},
 };
 use std::{
   collections::{HashMap, VecDeque},
-  net::IpAddr,
-  str::FromStr,
   sync::Arc,
 };
 

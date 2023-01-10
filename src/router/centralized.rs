@@ -7,17 +7,14 @@ use crate::{
     connection,
     connection::{CommandBuffer, Counters, RedisWriter, SharedBuffer, SplitStreamKind},
     responders::{self, ResponseKind},
+    types::Server,
     utils as protocol_utils,
   },
   router::{responses, utils, Connections, Written},
   types::ServerConfig,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::task::JoinHandle;
-
-#[cfg(feature = "replicas")]
-use crate::protocol::command::RedisCommandKind;
-use crate::protocol::types::Server;
 
 pub async fn send_command(
   inner: &Arc<RedisClientInner>,
@@ -204,10 +201,6 @@ pub async fn initialize_connection(
       )
       .await?;
       let _ = transport.setup(inner, None).await?;
-
-      // TODO behind FF
-      // let replicas = utils::sync_replicas(inner, &mut transport).await?;
-      // inner.update_replicas(replicas);
 
       let (_, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       *writer = Some(_writer);

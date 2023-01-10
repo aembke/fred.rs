@@ -24,7 +24,6 @@ use crate::{
   protocol::command::{RedisCommand, RouterCommand},
   types::Server,
 };
-use arcstr::ArcStr;
 use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 

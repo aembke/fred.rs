@@ -124,7 +124,6 @@ sentinel-client = []
 sentinel-auth = []
 no-client-setname = []
 check-unresponsive = []
-# WIP
 replicas = []
 # Testing Features
 debug-ids = []

@@ -24,8 +24,6 @@ use tokio::sync::mpsc::UnboundedSender;
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
-#[cfg(feature = "replicas")]
-use std::sync::atomic::AtomicUsize;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use std::{net::IpAddr, str::FromStr};
 

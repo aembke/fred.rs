@@ -497,14 +497,14 @@ impl RedisClientInner {
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
-    self.server_state.read().num_cluster_nodes()
+    self.server_state.read().kind.num_cluster_nodes()
   }
 
   pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    self.server_state.read().with_cluster_state(func)
+    self.server_state.read().kind.with_cluster_state(func)
   }
 
   pub fn with_perf_config<F, R>(&self, func: F) -> R
