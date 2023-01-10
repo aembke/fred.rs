@@ -4,8 +4,8 @@ use crate::protocol::types::Server;
 use crate::{
   globals::globals,
   modules::inner::RedisClientInner,
-  router::Connections,
   protocol::connection::SharedBuffer,
+  router::Connections,
 };
 #[cfg(feature = "check-unresponsive")]
 use parking_lot::RwLock;
@@ -80,6 +80,7 @@ impl ConnectionState {
     self.interrupts.write().remove(server);
   }
 
+  // TODO sync replica nodes
   pub fn sync(&self, inner: &Arc<RedisClientInner>, connections: &Connections) {
     _debug!(inner, "Syncing connection state with unresponsive network task.");
     let mut guard = self.commands.write();

@@ -1,5 +1,6 @@
 use crate::{
   error::*,
+  interfaces,
   modules::backchannel::Backchannel,
   protocol::{
     command::{ResponseSender, RouterCommand},
@@ -603,11 +604,40 @@ impl RedisClientInner {
     has_policy && utils::read_locked(&self.state) != ClientState::Disconnecting
   }
 
-  pub fn send_reconnect(&self, server: Option<Server>, force: bool, tx: Option<ResponseSender>) {
+  pub fn send_reconnect(
+    self: &Arc<RedisClientInner>,
+    server: Option<Server>,
+    force: bool,
+    tx: Option<ResponseSender>,
+  ) {
     debug!("{}: Sending reconnect message to router for {:?}", self.id, server);
-    let result = self.command_tx.send(RouterCommand::Reconnect { server, force, tx });
 
-    if let Err(_) = result {
+    let cmd = RouterCommand::Reconnect {
+      server,
+      force,
+      tx,
+      #[cfg(feature = "replicas")]
+      replica: false,
+    };
+    if let Err(e) = interfaces::send_to_router(self, cmd) {
+      warn!("{}: Error sending reconnect command to router.", self.id);
+    }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn send_replica_reconnect(self: &Arc<RedisClientInner>, server: &Server) {
+    debug!(
+      "{}: Sending replica reconnect message to router for {:?}",
+      self.id, server
+    );
+
+    let cmd = RouterCommand::Reconnect {
+      server:  Some(server.clone()),
+      force:   false,
+      tx:      None,
+      replica: true,
+    };
+    if let Err(e) = interfaces::send_to_router(self, cmd) {
       warn!("{}: Error sending reconnect command to router.", self.id);
     }
   }

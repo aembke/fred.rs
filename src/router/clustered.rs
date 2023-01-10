@@ -233,7 +233,11 @@ pub fn spawn_reader_task(
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
-    responses::handle_reader_error(&inner, &server, last_error, is_replica);
+    if is_replica {
+      responses::broadcast_replica_error(&inner, &server, last_error);
+    } else {
+      responses::broadcast_reader_error(&inner, &server, last_error);
+    }
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
@@ -242,14 +246,16 @@ pub fn spawn_reader_task(
 
 /// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the
 /// command queue if appropriate.
-///
-/// Note: Cluster errors within a transaction can only be handled via the blocking router channel.
+// Cluster errors within a transaction can only be handled via the blocking router channel.
 fn process_cluster_error(
   inner: &Arc<RedisClientInner>,
   server: &Server,
   mut command: RedisCommand,
   frame: Resp3Frame,
 ) {
+  // commands are not redirected to replica nodes
+  command.use_replica = false;
+
   let (kind, slot, server_str) = match frame.as_str() {
     Some(data) => match protocol_utils::parse_cluster_error(data) {
       Ok(result) => result,
@@ -579,7 +585,11 @@ pub async fn sync(
     // send `CLUSTER SLOTS` to any of the cluster nodes via a backchannel
     let state = cluster_slots_backchannel(inner, Some(&*cache)).await?;
     // update the cached routing table
-    inner.server_state.write().update_cluster_state(Some(state.clone()));
+    inner
+      .server_state
+      .write()
+      .kind
+      .update_cluster_state(Some(state.clone()));
     *cache = state.clone();
 
     // detect changes to the cluster topology
@@ -625,7 +635,7 @@ pub async fn sync(
   }
 
   if let Some(version) = connections.server_version() {
-    inner.server_state.write().set_server_version(version);
+    inner.server_state.write().kind.set_server_version(version);
   }
   Ok(())
 }

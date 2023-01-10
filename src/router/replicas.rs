@@ -410,6 +410,7 @@ impl Replicas {
 }
 
 /// Parse the `INFO replication` response for replica node server identifiers.
+#[cfg(feature = "replicas")]
 pub fn parse_info_replication(frame: String) -> Vec<Server> {
   let mut replicas = Vec::new();
   for line in frame.lines() {
@@ -431,9 +432,9 @@ pub fn parse_info_replication(frame: String) -> Vec<Server> {
           continue;
         }
 
-        if &parts[0] == "ip" {
+        if parts[0] == "ip" {
           host = Some(parts[1].to_owned());
-        } else if &parts[0] == "port" {
+        } else if parts[0] == "port" {
           port = parts[1].parse::<u16>().ok();
         }
       }

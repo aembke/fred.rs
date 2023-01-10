@@ -106,9 +106,6 @@ impl Server {
     }
   }
 
-  #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
-  pub(crate) fn set_tls_server_name(&mut self, _: &TlsHostMapping, _: &str) {}
-
   /// Attempt to parse a `host:port` string.
   pub(crate) fn from_str(s: &str) -> Option<Server> {
     let parts: Vec<&str> = s.trim().split(":").collect();

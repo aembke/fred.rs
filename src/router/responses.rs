@@ -232,15 +232,10 @@ pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -
 }
 
 /// Handle an error in the reader task that should end the connection.
-pub fn handle_reader_error(
-  inner: &Arc<RedisClientInner>,
-  server: &Server,
-  error: Option<RedisError>,
-  is_replica: bool,
-) {
+pub fn broadcast_reader_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _debug!(inner, "Ending reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() && !is_replica {
+  if inner.should_reconnect() {
     inner.send_reconnect(Some(server.clone()), false, None);
   }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
@@ -248,4 +243,14 @@ pub fn handle_reader_error(
       .notifications
       .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
   }
+}
+
+#[cfg(not(feature = "replicas"))]
+pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+  broadcast_reader_error(inner, server, error);
+}
+
+#[cfg(feature = "replicas")]
+pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+  unimplemented!()
 }

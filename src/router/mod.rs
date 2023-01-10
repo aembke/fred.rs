@@ -16,7 +16,6 @@ use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
-  ops::DerefMut,
   sync::Arc,
   time::Duration,
 };
@@ -236,7 +235,7 @@ impl Connections {
 
     if result.is_ok() {
       if let Some(version) = self.server_version() {
-        inner.server_state.write().set_server_version(version);
+        inner.server_state.write().kind.set_server_version(version);
       }
 
       let mut backchannel = inner.backchannel.write().await;
@@ -659,7 +658,7 @@ impl Router {
   #[cfg(not(feature = "replicas"))]
   pub async fn write_replica_command(
     &mut self,
-    mut command: RedisCommand,
+    command: RedisCommand,
     force_flush: bool,
   ) -> Result<Written, RedisError> {
     self.write_command(command, force_flush).await
@@ -871,7 +870,12 @@ impl Router {
     self.disconnect_all().await;
     let result = self.connections.initialize(&self.inner, &mut self.buffer).await;
     self.sync_network_timeout_state();
-    result
+
+    if result.is_ok() {
+      self.sync_replicas().await
+    } else {
+      result
+    }
   }
 
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
@@ -1014,10 +1018,16 @@ impl Router {
   }
 
   /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.
+  #[cfg(feature = "replicas")]
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     if let Err(e) = self.replicas.check_and_flush().await {
       warn!("{}: Error flushing replica connections: {:?}", self.inner.id, e);
     }
+    self.connections.check_and_flush(&self.inner).await
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     self.connections.check_and_flush(&self.inner).await
   }
 

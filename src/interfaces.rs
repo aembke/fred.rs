@@ -2,8 +2,8 @@ use crate::{
   commands,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
+  protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
-  protocol::command::{RouterCommand, RedisCommand},
   types::{
     ClientState,
     ClusterStateChange,
@@ -48,10 +48,7 @@ where
 }
 
 /// Send a `RouterCommand` to the router.
-pub(crate) fn send_to_router(
-  inner: &Arc<RedisClientInner>,
-  command: RouterCommand,
-) -> Result<(), RedisError> {
+pub(crate) fn send_to_router(inner: &RedisClientInner, command: RouterCommand) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
   if let Err(e) = inner.command_tx.send(command) {
     _error!(inner, "Fatal error sending command to router.");

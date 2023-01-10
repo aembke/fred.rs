@@ -5,14 +5,13 @@ use crate::{
   protocol::{
     command::{RedisCommand, RouterResponse},
     connection,
-    connection::{CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{CommandBuffer, Counters, RedisWriter, SharedBuffer, SplitStreamKind},
     responders::{self, ResponseKind},
     utils as protocol_utils,
   },
   router::{responses, utils, Connections, Written},
   types::ServerConfig,
 };
-use arcstr::ArcStr;
 use std::{collections::HashMap, sync::Arc};
 use tokio::task::JoinHandle;
 
@@ -79,7 +78,11 @@ pub fn spawn_reader_task(
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
-    responses::handle_reader_error(&inner, &server, last_error, is_replica);
+    if is_replica {
+      responses::broadcast_replica_error(&inner, &server, last_error);
+    } else {
+      responses::broadcast_reader_error(&inner, &server, last_error);
+    }
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
