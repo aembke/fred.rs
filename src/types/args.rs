@@ -284,6 +284,12 @@ impl From<Bytes> for RedisKey {
   }
 }
 
+impl From<Box<[u8]>> for RedisKey {
+  fn from(b: Box<[u8]>) -> Self {
+    RedisKey { key: b.into() }
+  }
+}
+
 impl<'a> From<&'a [u8]> for RedisKey {
   fn from(b: &'a [u8]) -> Self {
     RedisKey { key: b.to_vec().into() }
@@ -1434,6 +1440,12 @@ impl From<Str> for RedisValue {
 impl From<Bytes> for RedisValue {
   fn from(b: Bytes) -> Self {
     RedisValue::Bytes(b)
+  }
+}
+
+impl From<Box<[u8]>> for RedisValue {
+  fn from(b: Box<[u8]>) -> Self {
+    RedisValue::Bytes(b.into())
   }
 }
 
