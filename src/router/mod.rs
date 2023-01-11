@@ -599,6 +599,9 @@ impl Router {
 
           command.use_replica = false;
           return self.write_command(command, force_flush).await;
+        } else {
+          command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")));
+          return Ok(Written::Ignore);
         }
       },
     };

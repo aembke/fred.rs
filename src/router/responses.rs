@@ -252,5 +252,14 @@ pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, e
 
 #[cfg(feature = "replicas")]
 pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
-  unimplemented!()
+  _debug!(inner, "Ending replica reader task from {} due to {:?}", server, error);
+
+  if inner.should_reconnect() {
+    inner.send_replica_reconnect(server);
+  }
+  if utils::read_locked(&inner.state) != ClientState::Disconnecting {
+    inner
+      .notifications
+      .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
+  }
 }

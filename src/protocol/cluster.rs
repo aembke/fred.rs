@@ -146,28 +146,11 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
     tls_server_name: None,
   };
 
-  // let mut _replicas = Vec::with_capacity(slot_range.len());
-  // while let Some(server_block) = slot_range.pop() {
-  // let server_block: Vec<RedisValue> = match server_block.convert() {
-  // Ok(b) => b,
-  // Err(_) => continue,
-  // };
-  // let server = match parse_node_block(&server_block, default_host) {
-  // Some((, _, s, _)) => s,
-  // None => continue,
-  // };
-  //
-  // replicas.push(server)
-  // }
-  //
-
   Ok(SlotRange {
     start,
     end,
     primary,
     id,
-    #[cfg(feature = "replicas")]
-    replicas: Vec::new(),
   })
 }
 

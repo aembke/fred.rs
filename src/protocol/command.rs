@@ -1872,7 +1872,7 @@ impl fmt::Debug for RouterCommand {
       },
       #[cfg(feature = "replicas")]
       RouterCommand::SyncReplicas { .. } => {
-        formatter.field("kind", "Sync Replicas");
+        formatter.field("kind", &"Sync Replicas");
       },
     };
 

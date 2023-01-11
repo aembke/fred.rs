@@ -351,6 +351,27 @@ async fn process_moved(
   Ok(())
 }
 
+#[cfg(feature = "replicas")]
+async fn process_replica_reconnect(
+  inner: &Arc<RedisClientInner>,
+  router: &mut Router,
+  server: Option<Server>,
+  force: bool,
+  tx: Option<ResponseSender>,
+  replica: bool,
+) -> Result<(), RedisError> {
+  if replica {
+    let result = utils::sync_replicas_with_policy(inner, router).await;
+    if let Some(tx) = tx {
+      let _ = tx.send(result.map(|_| Resp3Frame::Null));
+    }
+
+    Ok(())
+  } else {
+    process_reconnect(inner, router, server, force, tx).await
+  }
+}
+
 /// Reconnect to the server(s).
 async fn process_reconnect(
   inner: &Arc<RedisClientInner>,
@@ -538,7 +559,6 @@ async fn process_command(
   match command {
     RouterCommand::Ask { server, slot, command } => process_ask(inner, router, server, slot, command).await,
     RouterCommand::Moved { server, slot, command } => process_moved(inner, router, server, slot, command).await,
-    RouterCommand::Reconnect { server, force, tx } => process_reconnect(inner, router, server, force, tx).await,
     RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
     RouterCommand::Transaction {
       commands,
@@ -551,7 +571,16 @@ async fn process_command(
     RouterCommand::Command(command) => process_normal_command(inner, router, command).await,
     RouterCommand::Connections { tx } => process_connections(inner, router, tx),
     #[cfg(feature = "replicas")]
-    RouterCommand::SyncReplicas { tx } => process_sync_replicas(inner, router, tx),
+    RouterCommand::SyncReplicas { tx } => process_sync_replicas(inner, router, tx).await,
+    #[cfg(not(feature = "replicas"))]
+    RouterCommand::Reconnect { server, force, tx } => process_reconnect(inner, router, server, force, tx).await,
+    #[cfg(feature = "replicas")]
+    RouterCommand::Reconnect {
+      server,
+      force,
+      tx,
+      replica,
+    } => process_replica_reconnect(inner, router, server, force, tx, replica).await,
   }
 }
 

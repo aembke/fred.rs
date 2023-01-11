@@ -8,10 +8,12 @@ use crate::{
     connection::{CommandBuffer, RedisWriter},
   },
   router::{centralized, clustered, utils, Written},
-  types::{ReconnectPolicy, Server},
+  types::Server,
 };
 use std::{
   collections::{HashMap, VecDeque},
+  fmt,
+  fmt::Formatter,
   sync::Arc,
 };
 
@@ -32,7 +34,7 @@ pub trait ReplicaFilter: Send + Sync + 'static {
 /// Configuration options for replica node connections.
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct ReplicaConfig {
   /// Whether the client should lazily connect to replica nodes.
   ///
@@ -42,10 +44,6 @@ pub struct ReplicaConfig {
   ///
   /// Default: `None`
   pub filter:                     Option<Arc<dyn ReplicaFilter>>,
-  /// An optional secondary reconnection policy for replica nodes.
-  ///
-  /// Default: `None`
-  pub policy:                     Option<ReconnectPolicy>,
   /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
   ///
   /// Default: `true`
@@ -61,12 +59,36 @@ pub struct ReplicaConfig {
 }
 
 #[cfg(feature = "replicas")]
+impl fmt::Debug for ReplicaConfig {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    f.debug_struct("ReplicaConfig")
+      .field("lazy_connections", &self.lazy_connections)
+      .field("ignore_reconnection_errors", &self.ignore_reconnection_errors)
+      .field("connection_error_count", &self.connection_error_count)
+      .field("primary_fallback", &self.primary_fallback)
+      .finish()
+  }
+}
+
+#[cfg(feature = "replicas")]
+impl PartialEq for ReplicaConfig {
+  fn eq(&self, other: &Self) -> bool {
+    self.lazy_connections == other.lazy_connections
+      && self.ignore_reconnection_errors == other.ignore_reconnection_errors
+      && self.connection_error_count == other.connection_error_count
+      && self.primary_fallback == other.primary_fallback
+  }
+}
+
+#[cfg(feature = "replicas")]
+impl Eq for ReplicaConfig {}
+
+#[cfg(feature = "replicas")]
 impl Default for ReplicaConfig {
   fn default() -> Self {
     ReplicaConfig {
       lazy_connections:           true,
       filter:                     None,
-      policy:                     None,
       ignore_reconnection_errors: true,
       connection_error_count:     0,
       primary_fallback:           true,
@@ -103,15 +125,12 @@ impl ReplicaSet {
 
   /// Remove a replica node mapping from the routing table.
   pub fn remove(&mut self, primary: &Server, replica: &Server) {
-    let should_remove = if let Some((_, mut replicas)) = self.servers.get_mut(primary) {
+    if let Some((count, mut replicas)) = self.servers.remove(primary) {
       replicas = replicas.drain(..).filter(|node| node != replica).collect();
-      replicas.is_empty()
-    } else {
-      false
-    };
 
-    if should_remove {
-      self.servers.remove(primary);
+      if !replicas.is_empty() {
+        self.servers.insert(primary.clone(), (count, replicas));
+      }
     }
   }
 
@@ -119,7 +138,7 @@ impl ReplicaSet {
   pub fn next_replica(&mut self, primary: &Server) -> Option<&Server> {
     self.servers.get_mut(primary).and_then(|(idx, replicas)| {
       *idx += 1;
-      replicas.get(idx % replicas.len())
+      replicas.get(*idx % replicas.len())
     })
   }
 
@@ -184,7 +203,7 @@ impl Replicas {
   pub fn retry_buffer(&mut self, inner: &Arc<RedisClientInner>) {
     let retry_count = inner.config.replica.connection_error_count;
     for mut command in self.buffer.drain(..) {
-      if retry_count > 0 && command.attempted > retry_count {
+      if retry_count > 0 && command.attempted >= retry_count {
         _trace!(
           inner,
           "Switch {} ({}) to fall back to primary after retry.",
@@ -275,7 +294,7 @@ impl Replicas {
       primary
     );
     if let Some(writer) = self.writers.remove(replica) {
-      let commands = writer.graceful_close().await?;
+      let commands = writer.graceful_close().await;
       self.buffer.extend(commands);
     }
 
@@ -468,4 +487,4 @@ pub fn map_replica_tls_names(inner: &Arc<RedisClientInner>, primary: &Server, re
   feature = "replicas",
   not(any(feature = "enable-native-tls", feature = "enable-rustls"))
 ))]
-pub fn map_replica_tls_names(_: &Arc<RedisClientInner>, _: &mut HashMap<Server, Server>, _: &str) {}
+pub fn map_replica_tls_names(_: &Arc<RedisClientInner>, _: &Server, _: &mut Server) {}
