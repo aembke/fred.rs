@@ -26,6 +26,7 @@ use crate::types::{HostMapping, TlsHostMapping};
 #[async_trait]
 pub trait ReplicaFilter: Send + Sync + 'static {
   /// Returns whether the replica node mapping can be used when routing commands to replicas.
+  #[allow(unused_variables)]
   async fn filter(&self, primary: &Server, replica: &Server) -> bool {
     true
   }

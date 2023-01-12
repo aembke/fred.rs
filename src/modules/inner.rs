@@ -619,7 +619,7 @@ impl RedisClientInner {
       #[cfg(feature = "replicas")]
       replica: false,
     };
-    if let Err(e) = interfaces::send_to_router(self, cmd) {
+    if let Err(_) = interfaces::send_to_router(self, cmd) {
       warn!("{}: Error sending reconnect command to router.", self.id);
     }
   }
@@ -637,7 +637,7 @@ impl RedisClientInner {
       tx:      None,
       replica: true,
     };
-    if let Err(e) = interfaces::send_to_router(self, cmd) {
+    if let Err(_) = interfaces::send_to_router(self, cmd) {
       warn!("{}: Error sending reconnect command to router.", self.id);
     }
   }
