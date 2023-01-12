@@ -274,7 +274,17 @@ where
           Ok(vec![T::from_value(RedisValue::String(string))?])
         }
       },
-      RedisValue::Array(values) => T::from_values(values),
+      RedisValue::Array(values) => {
+        if values.len() > 0 {
+          if let RedisValue::Array(_) = &values[0] {
+            values.into_iter().map(|x| T::from_value(x)).collect()
+          } else {
+            T::from_values(values)
+          }
+        } else {
+          Ok(vec![])
+        }
+      },
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
         let out = Vec::with_capacity(map.len() * 2);
