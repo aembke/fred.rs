@@ -373,16 +373,33 @@ impl Replicas {
         return Err((
           RedisError::new(RedisErrorKind::Replica, "Missing replica node."),
           command,
-        ))
+        ));
       },
     };
     let writer = match self.writers.get_mut(&replica) {
       Some(writer) => writer,
       None => {
-        return Err((
-          RedisError::new(RedisErrorKind::Replica, "Missing replica node connection."),
-          command,
-        ))
+        if inner.config.replica.lazy_connections {
+          _debug!(inner, "Lazily adding {} replica connection", replica);
+          if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {
+            return Err((e, command));
+          }
+
+          match self.writers.get_mut(&replica) {
+            Some(writer) => writer,
+            None => {
+              return Err((
+                RedisError::new(RedisErrorKind::Replica, "Missing replica node connection."),
+                command,
+              ))
+            },
+          }
+        } else {
+          return Err((
+            RedisError::new(RedisErrorKind::Replica, "Missing replica node connection."),
+            command,
+          ));
+        }
       },
     };
     let (frame, should_flush) = match utils::prepare_command(inner, &writer.counters, &mut command) {

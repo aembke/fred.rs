@@ -586,6 +586,7 @@ impl Router {
     if !command.use_replica {
       return self.write_command(command, force_flush).await;
     }
+
     let primary = match self.find_connection(&command) {
       Some(server) => server.clone(),
       None => {
@@ -600,7 +601,10 @@ impl Router {
           command.use_replica = false;
           return self.write_command(command, force_flush).await;
         } else {
-          command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")));
+          command.respond_to_caller(Err(RedisError::new(
+            RedisErrorKind::Replica,
+            "Missing primary node connection.",
+          )));
           return Ok(Written::Ignore);
         }
       },

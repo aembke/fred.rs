@@ -27,12 +27,12 @@ use tokio::time::sleep;
 use fred::clients::SubscriberClient;
 #[cfg(feature = "dns")]
 use fred::types::Resolve;
+#[cfg(feature = "partial-tracing")]
+use fred::types::TracingConfig;
 #[cfg(feature = "dns")]
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
-#[cfg(feature = "partial-tracing")]
-use fred::types::TracingConfig;
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
@@ -408,5 +408,33 @@ pub async fn should_ping_with_subscriber_client(client: RedisClient, config: Red
   let _: () = client.subscribe("foo").await?;
   let _: () = client.ping().await?;
   let _ = client.quit().await?;
+  Ok(())
+}
+
+#[cfg(feature = "replicas")]
+pub async fn should_replica_set_and_get(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo");
+
+  let _: () = client.set("foo", "bar", None, None, false).await?;
+  let result: String = client.replicas().get("foo").await?;
+  assert_eq!(result, "bar");
+
+  Ok(())
+}
+
+#[cfg(feature = "replicas")]
+pub async fn should_pipeline_with_replicas(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "foo");
+  check_null!(client, "bar");
+
+  let _: () = client.set("foo", 1, None, None, false).await?;
+  let _: () = client.set("bar", 2, None, None, false).await?;
+
+  let pipeline = client.replicas().pipeline();
+  let _: () = pipeline.get("foo").await?;
+  let _: () = pipeline.get("bar").await?;
+  let result: (i64, i64) = pipeline.all().await?;
+
+  assert_eq!(result, (1, 2));
   Ok(())
 }

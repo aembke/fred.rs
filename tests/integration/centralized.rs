@@ -57,6 +57,9 @@ mod other {
   centralized_test!(other, should_use_tracing_get_set);
   #[cfg(feature = "subscriber-client")]
   centralized_test!(other, should_ping_with_subscriber_client);
+
+  #[cfg(feature = "replicas")]
+  centralized_test!(other, should_replica_set_and_get);
 }
 
 mod pool {
