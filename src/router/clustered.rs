@@ -184,6 +184,7 @@ pub fn broadcast_cluster_change(inner: &Arc<RedisClientInner>, changes: &Cluster
 }
 
 /// Spawn a task to read response frames from the reader half of the socket.
+#[allow(unused_assignments)]
 pub fn spawn_reader_task(
   inner: &Arc<RedisClientInner>,
   mut reader: SplitStreamKind,
