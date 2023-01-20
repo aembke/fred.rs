@@ -1,5 +1,6 @@
 version: 2.1
 
+# CI cred rotation counter = 3
 # have to use the machine executor to mount volumes
 commands:
   restore-cargo-deps-cache:
