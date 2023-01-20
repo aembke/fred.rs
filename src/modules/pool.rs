@@ -87,7 +87,7 @@ impl RedisPool {
 
   /// Connect each client to the server, returning the task driving each connection.
   ///
-  /// The caller is responsible for calling `wait_for_connect` or any `on_*` functions on each client.
+  /// The caller is responsible for calling any `on_*` functions on each client.
   pub fn connect(&self) -> Vec<ConnectHandle> {
     self.inner.clients.iter().map(|c| c.connect()).collect()
   }

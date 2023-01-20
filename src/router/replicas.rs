@@ -1,3 +1,6 @@
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::types::{HostMapping, TlsHostMapping};
+#[cfg(feature = "replicas")]
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
@@ -10,15 +13,13 @@ use crate::{
   router::{centralized, clustered, utils, Written},
   types::Server,
 };
+#[cfg(feature = "replicas")]
 use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
   sync::Arc,
 };
-
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::types::{HostMapping, TlsHostMapping};
 
 /// An interface used to filter the list of available replica nodes.
 #[cfg(feature = "replicas")]
@@ -107,6 +108,7 @@ pub struct ReplicaSet {
 }
 
 #[cfg(feature = "replicas")]
+#[allow(dead_code)]
 impl ReplicaSet {
   /// Create a new empty replica set.
   pub fn new() -> ReplicaSet {
@@ -187,6 +189,7 @@ pub struct Replicas {
 }
 
 #[cfg(feature = "replicas")]
+#[allow(dead_code)]
 impl Replicas {
   pub fn new() -> Replicas {
     Replicas {
@@ -370,15 +373,26 @@ impl Replicas {
     let replica = match self.routing.next_replica(primary) {
       Some(replica) => replica.clone(),
       None => {
-        return Err((
-          RedisError::new(RedisErrorKind::Replica, "Missing replica node."),
-          command,
-        ));
+        // these errors indicate we do not know of any replica node associated with the primary node
+
+        return if inner.config.replica.primary_fallback {
+          // FIXME this is ugly and leaks implementation details to the caller
+          Err((
+            RedisError::new(RedisErrorKind::Replica, "Missing replica node."),
+            command,
+          ))
+        } else {
+          command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")));
+          Ok(Written::Ignore)
+        };
       },
     };
     let writer = match self.writers.get_mut(&replica) {
       Some(writer) => writer,
       None => {
+        // these errors indicate that we know a replica node _should_ exist, but we are not connected or cannot
+        // connect to it. in this case we want to hide the error, trigger a reconnect, and retry the command later.
+
         if inner.config.replica.lazy_connections {
           _debug!(inner, "Lazily adding {} replica connection", replica);
           if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {

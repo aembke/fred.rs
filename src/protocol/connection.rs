@@ -5,7 +5,6 @@ use crate::{
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    responders::ResponseKind,
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
@@ -32,15 +31,20 @@ use std::{
   sync::{atomic::AtomicUsize, Arc},
   task::{Context, Poll},
 };
-use tokio::{net::TcpStream, sync::oneshot::channel as oneshot_channel, task::JoinHandle};
+use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
-use crate::{protocol::connection, router::replicas};
+use crate::{
+  protocol::{connection, responders::ResponseKind},
+  router::replicas,
+};
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
+#[cfg(feature = "replicas")]
+use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsStream as NativeTlsStream;
 #[cfg(feature = "enable-rustls")]
@@ -997,6 +1001,7 @@ where
 }
 
 /// Send a command to the server and wait for a response.
+#[cfg(feature = "replicas")]
 pub async fn request_response(
   inner: &Arc<RedisClientInner>,
   writer: &mut RedisWriter,

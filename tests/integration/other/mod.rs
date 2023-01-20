@@ -412,7 +412,7 @@ pub async fn should_ping_with_subscriber_client(client: RedisClient, config: Red
 }
 
 #[cfg(feature = "replicas")]
-pub async fn should_replica_set_and_get(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_replica_set_and_get(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo");
 
   let _: () = client.set("foo", "bar", None, None, false).await?;
@@ -429,7 +429,6 @@ pub async fn should_replica_set_and_get_not_lazy(
 ) -> Result<(), RedisError> {
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
   config.replica.lazy_connections = false;
-  config.replica.primary_fallback = false;
   let client = RedisClient::new(config, Some(perf), policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
@@ -443,7 +442,7 @@ pub async fn should_replica_set_and_get_not_lazy(
 }
 
 #[cfg(feature = "replicas")]
-pub async fn should_pipeline_with_replicas(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_pipeline_with_replicas(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo");
   check_null!(client, "bar");
 

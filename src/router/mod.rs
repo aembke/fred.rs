@@ -949,16 +949,6 @@ impl Router {
     Ok(())
   }
 
-  #[cfg(feature = "replicas")]
-  pub async fn flush_replicas(&mut self) -> Result<(), RedisError> {
-    self.replicas.check_and_flush().await
-  }
-
-  #[cfg(not(feature = "replicas"))]
-  pub async fn flush_replicas(&mut self) -> Result<(), RedisError> {
-    Ok(())
-  }
-
   /// Attempt to replay all queued commands on the internal buffer without backpressure.
   ///
   /// If a command cannot be written the underlying connections will close and the unsent commands will remain on the
