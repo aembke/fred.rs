@@ -11,7 +11,6 @@ Examples
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
 * [Prometheus](./prometheus.rs) - Use the metrics interface with prometheus.
 * [Pool](./pool.rs) - Use a redis connection pool. 
-* [Resilience](./resilience.rs) - Configure the client to work under bad network conditions or against unreliable servers.
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
 * [Serde](./serde.rs) - Use the `serde-json` feature to convert values and responses to JSON automatically.

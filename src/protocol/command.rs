@@ -1325,7 +1325,7 @@ pub struct RedisCommand {
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
   pub arguments:         Vec<RedisValue>,
   /// A oneshot sender used to communicate with the router.
-  pub router_tx:    Arc<Mutex<Option<RouterSender>>>,
+  pub router_tx:         Arc<Mutex<Option<RouterSender>>>,
   /// The number of times the command was sent to the server.
   pub attempted:         u32,
   /// Whether or not the command can be pipelined.
@@ -1341,7 +1341,6 @@ pub struct RedisCommand {
   /// A timestamp of when the command was last written to the socket.
   pub network_start:     Option<Instant>,
   /// Whether to route the command to a replica, if possible.
-  #[cfg(feature = "replicas")]
   pub use_replica:       bool,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
@@ -1402,7 +1401,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
-      #[cfg(feature = "replicas")]
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
@@ -1428,7 +1426,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
-      #[cfg(feature = "replicas")]
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
@@ -1454,7 +1451,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
-      #[cfg(feature = "replicas")]
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
@@ -1481,7 +1477,6 @@ impl RedisCommand {
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
-      #[cfg(feature = "replicas")]
       use_replica: false,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
@@ -1501,12 +1496,11 @@ impl RedisCommand {
       response:                                   ResponseKind::Skip,
       hasher:                                     ClusterHash::Custom(hash_slot),
       timed_out:                                  Arc::new(AtomicBool::new(false)),
-      router_tx:                             Arc::new(Mutex::new(None)),
+      router_tx:                                  Arc::new(Mutex::new(None)),
       attempted:                                  0,
       can_pipeline:                               false,
       skip_backpressure:                          true,
       transaction_id:                             None,
-      #[cfg(feature = "replicas")]
       use_replica:                                false,
       #[cfg(feature = "metrics")]
       created:                                    Instant::now(),
@@ -1636,7 +1630,6 @@ impl RedisCommand {
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
       response,
-      #[cfg(feature = "replicas")]
       use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
       created: self.created.clone(),
@@ -1820,14 +1813,19 @@ pub enum RouterCommand {
   ///
   /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
-    server: Option<Server>,
-    force:  bool,
-    tx:     Option<ResponseSender>,
+    server:  Option<Server>,
+    force:   bool,
+    tx:      Option<ResponseSender>,
+    #[cfg(feature = "replicas")]
+    replica: bool,
   },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster { tx: OneshotSender<Result<(), RedisError>> },
   /// Read the set of active connections managed by the client.
   Connections { tx: OneshotSender<Vec<Server>> },
+  /// Force sync the replica routing table with the server(s).
+  #[cfg(feature = "replicas")]
+  SyncReplicas { tx: OneshotSender<Result<(), RedisError>> },
 }
 
 impl fmt::Debug for RouterCommand {
@@ -1871,6 +1869,10 @@ impl fmt::Debug for RouterCommand {
         formatter
           .field("kind", &"Command")
           .field("command", &command.kind.to_str_debug());
+      },
+      #[cfg(feature = "replicas")]
+      RouterCommand::SyncReplicas { .. } => {
+        formatter.field("kind", &"Sync Replicas");
       },
     };
 

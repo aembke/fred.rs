@@ -2,32 +2,31 @@
 
 * Refactored the connection and protocol layer.
 * Add a manual `Pipeline` interface for pipelining commands within a task.
+* Add a `Replica` client for interacting with replica nodes.
 * Rework the `Transaction` interface to buffer commands in memory before EXEC/DISCARD.
 * Rework the cluster discovery and failover implementation. 
 * Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
 * Rework the sentinel interface to more reliably handle failover scenarios.
 * Fix several bugs related to detecting closed connections.
 * Support the `functions` interface.
-* Add some missing commands.
 * Add `Script`, `Library`, and `Function` structs. 
 * Add `Message` and `MessageKind` pubsub structs. 
 * Add a DNS configuration interface.
 * Rework the `native-tls` interface to support fully customizable TLS configurations.
 * Add `rustls` support.
   * Note: both TLS feature flags can be used at the same time.
-* Add an interface for mapping IP addresses back to hostnames for use cases that connect to clusters over TLS.
-* Add CI tests for Redis v7.
-* Add CI tests for clusters with TLS.
 * Add a mocking layer interface.
 
 ### Updating from 5.x
 
-New or breaking changes in 6.x:
+Potentially breaking changes in 6.x:
 
-* Added `Server` struct for all server identifiers.
+* Switched from `(String, u16)` tuples to the `Server` struct for all server identifiers.
 * New TLS feature flags: `enable-rustls` and `enable-native-tls`.
+  * `vendored-tls` is now `vendored-openssl`
 * New TLS configuration process: see the [example](examples/tls.rs).
-* New [transaction](examples/transactions.rs) interface.
+* New [transaction](examples/transactions.rs) interface. 
+  * `Transaction` commands are now buffered in memory before calling `exec()` or `discard()`.
 * New backpressure configuration options, most notably the `Drain` policy. This is now the default.
 * Changed the type and fields on `BackpressurePolicy::Sleep`.
 * New [custom command interface](examples/custom.rs) for managing cluster hash slots.
