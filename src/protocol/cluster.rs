@@ -146,28 +146,11 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
     tls_server_name: None,
   };
 
-  // let mut _replicas = Vec::with_capacity(slot_range.len());
-  // while let Some(server_block) = slot_range.pop() {
-  // let server_block: Vec<RedisValue> = match server_block.convert() {
-  // Ok(b) => b,
-  // Err(_) => continue,
-  // };
-  // let server = match parse_node_block(&server_block, default_host) {
-  // Some((, _, s, _)) => s,
-  // None => continue,
-  // };
-  //
-  // replicas.push(server)
-  // }
-  //
-
   Ok(SlotRange {
     start,
     end,
     primary,
     id,
-    #[cfg(feature = "replicas")]
-    replicas: Vec::new(),
   })
 }
 
@@ -188,14 +171,7 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &str) {
   for slot_range in ranges.iter_mut() {
-    let ip = match IpAddr::from_str(&slot_range.primary.host) {
-      Ok(ip) => ip,
-      Err(_) => continue,
-    };
-
-    if let Some(tls_server_name) = policy.map(&ip, default_host) {
-      slot_range.primary.tls_server_name = Some(ArcStr::from(tls_server_name));
-    }
+    slot_range.primary.set_tls_server_name(policy, default_host);
   }
 }
 

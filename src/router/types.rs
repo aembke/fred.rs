@@ -4,8 +4,8 @@ use crate::protocol::types::Server;
 use crate::{
   globals::globals,
   modules::inner::RedisClientInner,
-  router::Connections,
   protocol::connection::SharedBuffer,
+  router::Connections,
 };
 #[cfg(feature = "check-unresponsive")]
 use parking_lot::RwLock;

@@ -56,6 +56,13 @@ mod other {
   cluster_test!(other, should_use_tracing_get_set);
   #[cfg(feature = "subscriber-client")]
   cluster_test!(other, should_ping_with_subscriber_client);
+
+  #[cfg(feature = "replicas")]
+  cluster_test!(other, should_replica_set_and_get);
+  #[cfg(feature = "replicas")]
+  cluster_test!(other, should_replica_set_and_get_not_lazy);
+  #[cfg(feature = "replicas")]
+  cluster_test!(other, should_pipeline_with_replicas);
 }
 
 mod pool {

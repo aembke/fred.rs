@@ -89,12 +89,12 @@ async fn main() -> Result<(), RedisError> {
   let mut reconnect_rx = client.on_reconnect();
 
   tokio::spawn(async move {
-    while let Some(error) = error_rx.recv() {
+    while let Some(error) = error_rx.recv().await {
       println!("Client disconnected with error: {:?}", error);
     }
   });
   tokio::spawn(async move {
-    while let Some(_) = reconnect_rx.recv() {
+    while let Some(_) = reconnect_rx.recv().await {
       println!("Client reconnected.");
     }
   });

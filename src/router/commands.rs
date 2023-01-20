@@ -1,16 +1,15 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
+  protocol::command::{RedisCommand, ResponseSender, RouterCommand, RouterReceiver, RouterResponse},
   router::{transactions, utils, Backpressure, Router, Written},
-  protocol::command::{RouterCommand, RouterReceiver, RouterResponse, RedisCommand, ResponseSender},
-  types::{ClientState, ClusterHash, Server},
+  types::{ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::oneshot::Sender as OneshotSender, time::sleep};
 
-use crate::types::ClientUnblockFlag;
 #[cfg(feature = "mocks")]
 use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
 #[cfg(feature = "full-tracing")]
@@ -42,6 +41,7 @@ async fn handle_router_response(
       RouterResponse::Ask((slot, server, mut command)) => {
         let _ = utils::send_asking_with_policy(inner, router, &server, slot).await?;
         command.hasher = ClusterHash::Custom(slot);
+        command.use_replica = false;
         Ok(Some(command))
       },
       RouterResponse::Moved((slot, server, mut command)) => {
@@ -50,6 +50,7 @@ async fn handle_router_response(
           let _ = utils::sync_cluster_with_policy(inner, router).await?;
         }
         command.hasher = ClusterHash::Custom(slot);
+        command.use_replica = false;
 
         Ok(Some(command))
       },
@@ -118,9 +119,17 @@ async fn write_with_backpressure(
         }
       },
     };
-    let is_blocking = command.blocks_connection();
 
-    match router.write_command(command, false).await {
+    let is_blocking = command.blocks_connection();
+    let use_replica = command.use_replica;
+
+    let result = if use_replica {
+      router.write_replica_command(command, false).await
+    } else {
+      router.write_command(command, false).await
+    };
+
+    match result {
       Ok(Written::Backpressure((command, backpressure))) => {
         _debug!(inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
         _command = Some(command);
@@ -189,7 +198,16 @@ async fn write_with_backpressure(
           break;
         }
       },
-      Err(e) => return Err(e),
+      Err(e) => {
+        if use_replica {
+          _debug!(inner, "Disconnect replicas after error writing to replica: {:?}", e);
+          // triggers a reconnect message from the reader tasks
+          router.disconnect_replicas().await;
+          break;
+        } else {
+          return Err(e);
+        }
+      },
     }
   }
 
@@ -255,6 +273,7 @@ async fn process_ask(
   slot: u16,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
+  command.use_replica = false;
   command.hasher = ClusterHash::Custom(slot);
 
   let mut _command = Some(command);
@@ -297,6 +316,7 @@ async fn process_moved(
   slot: u16,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
+  command.use_replica = false;
   command.hasher = ClusterHash::Custom(slot);
 
   let mut _command = Some(command);
@@ -329,6 +349,27 @@ async fn process_moved(
   }
 
   Ok(())
+}
+
+#[cfg(feature = "replicas")]
+async fn process_replica_reconnect(
+  inner: &Arc<RedisClientInner>,
+  router: &mut Router,
+  server: Option<Server>,
+  force: bool,
+  tx: Option<ResponseSender>,
+  replica: bool,
+) -> Result<(), RedisError> {
+  if replica {
+    let result = utils::sync_replicas_with_policy(inner, router).await;
+    if let Some(tx) = tx {
+      let _ = tx.send(result.map(|_| Resp3Frame::Null));
+    }
+
+    Ok(())
+  } else {
+    process_reconnect(inner, router, server, force, tx).await
+  }
 }
 
 /// Reconnect to the server(s).
@@ -369,6 +410,17 @@ async fn process_reconnect(
 
     Ok(())
   }
+}
+
+#[cfg(feature = "replicas")]
+async fn process_sync_replicas(
+  inner: &Arc<RedisClientInner>,
+  router: &mut Router,
+  tx: OneshotSender<Result<(), RedisError>>,
+) -> Result<(), RedisError> {
+  let result = utils::sync_replicas_with_policy(inner, router).await;
+  let _ = tx.send(result);
+  Ok(())
 }
 
 /// Sync and update the cached cluster state.
@@ -506,12 +558,7 @@ async fn process_command(
 ) -> Result<(), RedisError> {
   match command {
     RouterCommand::Ask { server, slot, command } => process_ask(inner, router, server, slot, command).await,
-    RouterCommand::Moved { server, slot, command } => {
-      process_moved(inner, router, server, slot, command).await
-    },
-    RouterCommand::Reconnect { server, force, tx } => {
-      process_reconnect(inner, router, server, force, tx).await
-    },
+    RouterCommand::Moved { server, slot, command } => process_moved(inner, router, server, slot, command).await,
     RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
     RouterCommand::Transaction {
       commands,
@@ -523,6 +570,17 @@ async fn process_command(
     RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
     RouterCommand::Command(command) => process_normal_command(inner, router, command).await,
     RouterCommand::Connections { tx } => process_connections(inner, router, tx),
+    #[cfg(feature = "replicas")]
+    RouterCommand::SyncReplicas { tx } => process_sync_replicas(inner, router, tx).await,
+    #[cfg(not(feature = "replicas"))]
+    RouterCommand::Reconnect { server, force, tx } => process_reconnect(inner, router, server, force, tx).await,
+    #[cfg(feature = "replicas")]
+    RouterCommand::Reconnect {
+      server,
+      force,
+      tx,
+      replica,
+    } => process_replica_reconnect(inner, router, server, force, tx, replica).await,
   }
 }
 
@@ -570,11 +628,7 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   inner.reset_reconnection_attempts();
   let mut router = Router::new(inner);
 
-  _debug!(
-    inner,
-    "Initializing router with policy: {:?}",
-    inner.reconnect_policy()
-  );
+  _debug!(inner, "Initializing router with policy: {:?}", inner.reconnect_policy());
   if inner.config.fail_fast {
     if let Err(e) = router.connect().await {
       inner.notifications.broadcast_connect(Err(e.clone()));

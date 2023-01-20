@@ -66,19 +66,7 @@ See the [examples](examples/README.md) for more.
 * An optional interface to override DNS resolution logic.
 * Optional support for JSON values.
 
-## Tracing
-
-This crate supports tracing via the [tracing crate](https://github.com/tokio-rs/tracing). See the [tracing info](./src/trace/README.md) for more information.
-
-This feature is disabled by default, but callers can opt in via the `full-tracing` or `partial-tracing` features.
-
-## Logging
-
-To enable logs use the environment variable `RUST_LOG` with a value of `trace`, `debug`, `warn`, `error`, or `info`. See the documentation for [env_logger](http://rust-lang-nursery.github.io/log/env_logger/) for more information.
-
-When a client is initialized it will generate a unique client name with a prefix of `fred-`. This name will appear in all logging statements on the client.
-
-## Features
+## Build Time Features 
 
 | Name                    | Default | Description                                                                                                                                                                                                                                                                         |
 |-------------------------|---------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -103,6 +91,8 @@ When a client is initialized it will generate a unique client name with a prefix
 | mocks                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                                                                                                                                       |
 | dns                     |         | Enable an interface that allows callers to override the DNS lookup logic.                                                                                                                                                                                                           |
 | check-unresponsive      |         | Enable additional monitoring to detect unresponsive connections.                                                                                                                                                                                                                    |
+| replicas                |         | [Beta] Enable an interface that routes commands to replica nodes.                                                                                                                                                                                                                   |
+
 
 ## Tests
 

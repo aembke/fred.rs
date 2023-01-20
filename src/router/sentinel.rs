@@ -4,12 +4,12 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   globals::globals,
   modules::inner::RedisClientInner,
-  router::{centralized, Connections},
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     connection::{self, CommandBuffer, RedisTransport, RedisWriter},
     utils as protocol_utils,
   },
+  router::{centralized, Connections},
   types::{RedisValue, Server, ServerConfig},
 };
 use std::{
@@ -119,7 +119,7 @@ fn read_sentinel_nodes_and_auth(
   inner: &Arc<RedisClientInner>,
 ) -> Result<(Vec<Server>, (Option<String>, Option<String>)), RedisError> {
   let (username, password) = read_sentinel_auth(inner)?;
-  let hosts = match inner.server_state.read().read_sentinel_nodes(&inner.config.server) {
+  let hosts = match inner.server_state.read().kind.read_sentinel_nodes(&inner.config.server) {
     Some(hosts) => hosts,
     None => {
       return Err(RedisError::new(
@@ -292,10 +292,11 @@ async fn update_cached_client_state(
   inner
     .server_state
     .write()
+    .kind
     .update_sentinel_nodes(&transport.server, sentinels);
   let _ = update_sentinel_backchannel(inner, &transport).await;
 
-  let (_, _writer) = connection::split_and_initialize(inner, transport, centralized::spawn_reader_task)?;
+  let (_, _writer) = connection::split_and_initialize(inner, transport, false, centralized::spawn_reader_task)?;
   *writer = Some(_writer);
   Ok(())
 }
