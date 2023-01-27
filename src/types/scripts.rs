@@ -105,6 +105,27 @@ impl Script {
   {
     client.evalsha(self.hash.clone(), keys, args).await
   }
+
+  /// Send `EVALSHA` to the server with the provided arguments. Automatically `SCRIPT LOAD` in case
+  /// of `NOSCRIPT` error and try `EVALSHA` again.
+  pub async fn evalsha_with_reload<R, K, V>(&self, client: &RedisClient, keys: K, args: V) -> RedisResult<R>
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    into!(keys);
+    try_into!(args);
+
+    match client.evalsha(self.hash.clone(), keys.clone(), args.clone()).await {
+      Err(error) if error.details().starts_with("NOSCRIPT") => {
+        self.load(client).await?;
+        client.evalsha(self.hash.clone(), keys, args).await
+      },
+      result => result,
+    }
+  }
 }
 
 /// Possible [flags](https://redis.io/docs/manual/programmability/lua-api/) associated with a [Function](crate::types::Function).

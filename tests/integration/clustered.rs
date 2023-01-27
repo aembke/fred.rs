@@ -170,6 +170,7 @@ pub mod lua {
   cluster_test!(lua, should_eval_echo_script);
   cluster_test!(lua, should_eval_get_script);
   cluster_test!(lua, should_evalsha_echo_script);
+  cluster_test!(lua, should_evalsha_with_reload_echo_script);
   cluster_test!(lua, should_evalsha_get_script);
 
   cluster_test!(lua, should_function_load_scripts);
