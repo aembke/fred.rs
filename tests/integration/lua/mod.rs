@@ -54,6 +54,18 @@ pub async fn should_evalsha_echo_script(client: RedisClient, _: RedisConfig) -> 
   Ok(())
 }
 
+pub async fn should_evalsha_with_reload_echo_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let script = Script::from_lua(ECHO_SCRIPT);
+
+  let result: Vec<String> = script
+    .evalsha_with_reload(&client, vec!["a{1}", "b{1}"], vec!["c{1}", "d{1}"])
+    .await?;
+  assert_eq!(result, vec!["a{1}", "b{1}", "c{1}", "d{1}"]);
+
+  let _ = flush_scripts(&client).await?;
+  Ok(())
+}
+
 pub async fn should_evalsha_get_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script_hash = util::sha1_hash(GET_SCRIPT);
   let hash = load_script(&client, GET_SCRIPT).await?;

@@ -169,6 +169,7 @@ pub mod lua {
   centralized_test!(lua, should_eval_echo_script);
   centralized_test!(lua, should_eval_get_script);
   centralized_test!(lua, should_evalsha_echo_script);
+  centralized_test!(lua, should_evalsha_with_reload_echo_script);
   centralized_test!(lua, should_evalsha_get_script);
 
   centralized_test!(lua, should_function_load_scripts);
