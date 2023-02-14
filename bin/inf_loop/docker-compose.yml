@@ -13,7 +13,7 @@ services:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
       - app-tier
-    entrypoint: "cargo run --release --features \"replicas debug-ids network-logs\" -- ${TEST_ARGV}"
+    entrypoint: "cargo run --release --features \"replicas\" -- ${TEST_ARGV}"
     environment:
       RUST_LOG: "${RUST_LOG}"
       REDIS_VERSION: "${REDIS_VERSION}"
