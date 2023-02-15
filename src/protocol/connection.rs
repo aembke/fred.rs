@@ -1,5 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  globals::globals,
   modules::inner::RedisClientInner,
   protocol::{
     codec::RedisCodec,
@@ -33,11 +34,17 @@ use std::{
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
-use crate::globals::globals;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
+#[cfg(feature = "replicas")]
+use crate::{
+  protocol::{connection, responders::ResponseKind},
+  router::replicas,
+};
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
+#[cfg(feature = "replicas")]
+use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsStream as NativeTlsStream;
 #[cfg(feature = "enable-rustls")]
@@ -715,6 +722,37 @@ impl RedisTransport {
     .await
   }
 
+  /// Run and parse the output from `INFO replication`.
+  #[cfg(feature = "replicas")]
+  pub async fn info_replication(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    timeout: Option<u64>,
+  ) -> Result<Option<String>, RedisError> {
+    let timeout = connection_timeout(timeout);
+    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
+
+    utils::apply_timeout(
+      async {
+        self
+          .request_response(command, inner.is_resp3())
+          .await
+          .map(|f| f.as_str().map(|s| s.to_owned()))
+      },
+      timeout,
+    )
+    .await
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub async fn info_replication(
+    &mut self,
+    _: &Arc<RedisClientInner>,
+    _: Option<u64>,
+  ) -> Result<Option<String>, RedisError> {
+    Ok(None)
+  }
+
   /// Split the transport into reader/writer halves.
   pub fn split(self, inner: &Arc<RedisClientInner>) -> (RedisWriter, RedisReader) {
     let len = protocol_utils::initial_buffer_size(inner);
@@ -813,17 +851,23 @@ impl RedisWriter {
     Ok(())
   }
 
+  #[cfg(feature = "replicas")]
+  pub async fn info_replication(&mut self, inner: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
+    let frame = connection::request_response(inner, self, command, None)
+      .await?
+      .as_str()
+      .map(|s| s.to_owned())
+      .ok_or(RedisError::new(
+        RedisErrorKind::Replica,
+        "Failed to read replication info.",
+      ))?;
+
+    Ok(replicas::parse_info_replication(frame))
+  }
+
   /// Check if the connection is connected and can send frames.
   pub fn is_working(&self) -> bool {
-    // this is strange, but necessary.
-    //
-    // calling `flush` on the writer half may seem like the best way to test connectivity, but it's a no-op if there's
-    // no bytes to be flushed. additionally, calling `feed` on a dead writer half also seems to always succeed.
-    //
-    // a better way to check this is to look at the reader half to see if the task driving the stream is finished. if
-    // it is then the connection must have been dropped.
-    //
-    // TLDR: only the reader half responds to a connection dropping.
     self
       .reader
       .as_ref()
@@ -919,6 +963,7 @@ pub async fn create(
 pub fn split_and_initialize<F>(
   inner: &Arc<RedisClientInner>,
   transport: RedisTransport,
+  is_replica: bool,
   func: F,
 ) -> Result<(Server, RedisWriter), RedisError>
 where
@@ -928,6 +973,7 @@ where
     &Server,
     &SharedBuffer,
     &Counters,
+    bool,
   ) -> JoinHandle<Result<(), RedisError>>,
 {
   let server = transport.server.clone();
@@ -947,8 +993,44 @@ where
     &writer.server,
     &writer.buffer,
     &writer.counters,
+    is_replica,
   ));
   writer.reader = Some(reader);
 
   Ok((server, writer))
+}
+
+/// Send a command to the server and wait for a response.
+#[cfg(feature = "replicas")]
+pub async fn request_response(
+  inner: &Arc<RedisClientInner>,
+  writer: &mut RedisWriter,
+  mut command: RedisCommand,
+  timeout: Option<u64>,
+) -> Result<Resp3Frame, RedisError> {
+  let (tx, rx) = oneshot_channel();
+  command.response = ResponseKind::Respond(Some(tx));
+
+  _trace!(
+    inner,
+    "Sending {} ({}) to {}",
+    command.kind.to_str_debug(),
+    command.debug_id(),
+    writer.server
+  );
+  let frame = command.to_frame(inner.is_resp3())?;
+  writer.push_command(command);
+  if let Err(e) = writer.write_frame(frame, true).await {
+    _debug!(inner, "Error sending command: {:?}", e);
+    let _ = writer.pop_recent_command();
+    Err(e)
+  } else {
+    let timeout = timeout.unwrap_or(inner.default_command_timeout());
+
+    if timeout > 0 {
+      utils::apply_timeout(async { rx.await? }, timeout).await
+    } else {
+      rx.await?
+    }
+  }
 }

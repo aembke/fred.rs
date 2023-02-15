@@ -25,7 +25,8 @@ features = [
   "monitor",
   "sentinel-client",
   "sentinel-auth",
-  "check-unresponsive"
+  "check-unresponsive",
+  "replicas"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -70,10 +71,6 @@ subprocess = "0.2.7"
 doc = true
 name = "fred"
 test = true
-
-[[example]]
-name = "resilience"
-required-features = ["custom-reconnect-errors"]
 
 [[example]]
 name = "basic"
@@ -123,7 +120,6 @@ sentinel-client = []
 sentinel-auth = []
 no-client-setname = []
 check-unresponsive = []
-# WIP
 replicas = []
 # Testing Features
 debug-ids = []

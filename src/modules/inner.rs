@@ -1,8 +1,9 @@
 use crate::{
   error::*,
+  interfaces,
   modules::backchannel::Backchannel,
   protocol::{
-    command::{RouterCommand, ResponseSender},
+    command::{ResponseSender, RouterCommand},
     connection::RedisTransport,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
@@ -15,7 +16,6 @@ use futures::future::{select, Either};
 use parking_lot::RwLock;
 use semver::Version;
 use std::{
-  collections::HashMap,
   ops::DerefMut,
   sync::{
     atomic::{AtomicBool, AtomicUsize},
@@ -38,6 +38,8 @@ const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]
 use crate::router::types::NetworkTimeout;
+#[cfg(feature = "replicas")]
+use std::collections::HashMap;
 
 pub type CommandSender = UnboundedSender<RouterCommand>;
 pub type CommandReceiver = UnboundedReceiver<RouterCommand>;
@@ -179,16 +181,36 @@ impl ClientCounters {
   }
 }
 
+/// Cached state related to the server(s).
+pub struct ServerState {
+  pub kind:     ServerKind,
+  #[cfg(feature = "replicas")]
+  pub replicas: HashMap<Server, Server>,
+}
+
+impl ServerState {
+  pub fn new(config: &RedisConfig) -> Self {
+    ServerState {
+      kind:                                  ServerKind::new(config),
+      #[cfg(feature = "replicas")]
+      replicas:                              HashMap::new(),
+    }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn update_replicas(&mut self, map: HashMap<Server, Server>) {
+    self.replicas = map;
+  }
+}
+
 /// Added state associated with different server deployment types.
-pub enum ServerState {
+pub enum ServerKind {
   Sentinel {
     version:   Option<Version>,
     /// An updated set of known sentinel nodes.
     sentinels: Vec<Server>,
     /// The server host/port resolved from the sentinel nodes, if known.
     primary:   Option<Server>,
-    #[cfg(feature = "replicas")]
-    replicas:  HashMap<ArcStr, ArcStr>,
   },
   Cluster {
     version: Option<Version>,
@@ -196,44 +218,36 @@ pub enum ServerState {
     cache:   Option<ClusterRouting>,
   },
   Centralized {
-    version:  Option<Version>,
-    #[cfg(feature = "replicas")]
-    replicas: HashMap<ArcStr, ArcStr>,
+    version: Option<Version>,
   },
 }
 
-impl ServerState {
+impl ServerKind {
   /// Create a new, empty server state cache.
   pub fn new(config: &RedisConfig) -> Self {
     match config.server {
-      ServerConfig::Clustered { .. } => ServerState::Cluster {
+      ServerConfig::Clustered { .. } => ServerKind::Cluster {
         version: None,
         cache:   None,
       },
-      ServerConfig::Sentinel { ref hosts, .. } => ServerState::Sentinel {
-        version:                               None,
-        sentinels:                             hosts.clone(),
-        primary:                               None,
-        #[cfg(feature = "replicas")]
-        replicas:                              HashMap::new(),
+      ServerConfig::Sentinel { ref hosts, .. } => ServerKind::Sentinel {
+        version:   None,
+        sentinels: hosts.clone(),
+        primary:   None,
       },
-      ServerConfig::Centralized { .. } => ServerState::Centralized {
-        version:                               None,
-        #[cfg(feature = "replicas")]
-        replicas:                              HashMap::new(),
-      },
+      ServerConfig::Centralized { .. } => ServerKind::Centralized { version: None },
     }
   }
 
   pub fn set_server_version(&mut self, new_version: Version) {
     match self {
-      ServerState::Cluster { ref mut version, .. } => {
+      ServerKind::Cluster { ref mut version, .. } => {
         *version = Some(new_version);
       },
-      ServerState::Centralized { ref mut version, .. } => {
+      ServerKind::Centralized { ref mut version, .. } => {
         *version = Some(new_version);
       },
-      ServerState::Sentinel { ref mut version, .. } => {
+      ServerKind::Sentinel { ref mut version, .. } => {
         *version = Some(new_version);
       },
     }
@@ -241,20 +255,20 @@ impl ServerState {
 
   pub fn server_version(&self) -> Option<Version> {
     match self {
-      ServerState::Cluster { ref version, .. } => version.clone(),
-      ServerState::Centralized { ref version, .. } => version.clone(),
-      ServerState::Sentinel { ref version, .. } => version.clone(),
+      ServerKind::Cluster { ref version, .. } => version.clone(),
+      ServerKind::Centralized { ref version, .. } => version.clone(),
+      ServerKind::Sentinel { ref version, .. } => version.clone(),
     }
   }
 
   pub fn update_cluster_state(&mut self, state: Option<ClusterRouting>) {
-    if let ServerState::Cluster { ref mut cache, .. } = *self {
+    if let ServerKind::Cluster { ref mut cache, .. } = *self {
       *cache = state;
     }
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
-    if let ServerState::Cluster { ref cache, .. } = *self {
+    if let ServerKind::Cluster { ref cache, .. } = *self {
       cache
         .as_ref()
         .map(|state| state.unique_primary_nodes().len())
@@ -268,7 +282,7 @@ impl ServerState {
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    if let ServerState::Cluster { ref cache, .. } = *self {
+    if let ServerKind::Cluster { ref cache, .. } = *self {
       if let Some(state) = cache.as_ref() {
         func(state)
       } else {
@@ -286,13 +300,13 @@ impl ServerState {
   }
 
   pub fn update_sentinel_primary(&mut self, server: &Server) {
-    if let ServerState::Sentinel { ref mut primary, .. } = *self {
+    if let ServerKind::Sentinel { ref mut primary, .. } = *self {
       *primary = Some(server.clone());
     }
   }
 
   pub fn sentinel_primary(&self) -> Option<Server> {
-    if let ServerState::Sentinel { ref primary, .. } = *self {
+    if let ServerKind::Sentinel { ref primary, .. } = *self {
       primary.clone()
     } else {
       None
@@ -300,7 +314,7 @@ impl ServerState {
   }
 
   pub fn update_sentinel_nodes(&mut self, server: &Server, nodes: Vec<Server>) {
-    if let ServerState::Sentinel {
+    if let ServerKind::Sentinel {
       ref mut sentinels,
       ref mut primary,
       ..
@@ -312,7 +326,7 @@ impl ServerState {
   }
 
   pub fn read_sentinel_nodes(&self, config: &ServerConfig) -> Option<Vec<Server>> {
-    if let ServerState::Sentinel { ref sentinels, .. } = *self {
+    if let ServerKind::Sentinel { ref sentinels, .. } = *self {
       if sentinels.is_empty() {
         match config {
           ServerConfig::Sentinel { ref hosts, .. } => Some(hosts.clone()),
@@ -324,51 +338,6 @@ impl ServerState {
     } else {
       None
     }
-  }
-
-  /// Update the replica state for centralized or sentinel clients.
-  ///
-  /// Cluster replication state is determined by the cluster routing table.
-  #[cfg(feature = "replicas")]
-  pub fn update_replicas(&mut self, new_replicas: HashMap<ArcStr, ArcStr>) {
-    match *self {
-      ServerState::Sentinel { ref mut replicas, .. } => {
-        *replicas = new_replicas;
-      },
-      ServerState::Centralized { ref mut replicas, .. } => {
-        *replicas = new_replicas;
-      },
-      // clustered replicas are derived from the routing table
-      _ => {},
-    }
-  }
-
-  #[cfg(not(feature = "replicas"))]
-  pub fn update_replicas(&mut self, _: HashMap<ArcStr, ArcStr>) {}
-
-  /// Read the mapping of replica server IDs to primary server IDs.
-  #[cfg(feature = "replicas")]
-  pub fn replicas(&self) -> Option<HashMap<ArcStr, ArcStr>> {
-    match *self {
-      ServerState::Sentinel { ref replicas, .. } => Some(replicas.clone()),
-      ServerState::Centralized { ref replicas, .. } => Some(replicas.clone()),
-      // clustered replica state is derived from the routing table
-      ServerState::Cluster { ref cache, .. } => cache.and_then(|cache| {
-        let mut out = HashMap::with_capacity(cache.slots().len());
-        for slot in cache.slots() {
-          for replica in slot.replicas.iter() {
-            out.insert(replica.clone(), slot.primary.clone());
-          }
-        }
-
-        Some(out)
-      }),
-    }
-  }
-
-  #[cfg(not(feature = "replicas"))]
-  pub fn replicas(&self) -> Option<HashMap<ArcStr, ArcStr>> {
-    None
   }
 }
 
@@ -491,6 +460,16 @@ impl RedisClientInner {
     self.performance.load().as_ref().auto_pipeline
   }
 
+  #[cfg(feature = "replicas")]
+  pub fn ignore_replica_reconnect_errors(&self) -> bool {
+    self.config.replica.ignore_reconnection_errors
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub fn ignore_replica_reconnect_errors(&self) -> bool {
+    true
+  }
+
   pub fn shared_resp3(&self) -> Arc<AtomicBool> {
     self.resp3.clone()
   }
@@ -518,14 +497,14 @@ impl RedisClientInner {
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
-    self.server_state.read().num_cluster_nodes()
+    self.server_state.read().kind.num_cluster_nodes()
   }
 
   pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
   where
     F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
   {
-    self.server_state.read().with_cluster_state(func)
+    self.server_state.read().kind.with_cluster_state(func)
   }
 
   pub fn with_perf_config<F, R>(&self, func: F) -> R
@@ -625,13 +604,40 @@ impl RedisClientInner {
     has_policy && utils::read_locked(&self.state) != ClientState::Disconnecting
   }
 
-  pub fn send_reconnect(&self, server: Option<Server>, force: bool, tx: Option<ResponseSender>) {
+  pub fn send_reconnect(
+    self: &Arc<RedisClientInner>,
+    server: Option<Server>,
+    force: bool,
+    tx: Option<ResponseSender>,
+  ) {
     debug!("{}: Sending reconnect message to router for {:?}", self.id, server);
-    let result = self
-      .command_tx
-      .send(RouterCommand::Reconnect { server, force, tx });
 
-    if let Err(_) = result {
+    let cmd = RouterCommand::Reconnect {
+      server,
+      force,
+      tx,
+      #[cfg(feature = "replicas")]
+      replica: false,
+    };
+    if let Err(_) = interfaces::send_to_router(self, cmd) {
+      warn!("{}: Error sending reconnect command to router.", self.id);
+    }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn send_replica_reconnect(self: &Arc<RedisClientInner>, server: &Server) {
+    debug!(
+      "{}: Sending replica reconnect message to router for {:?}",
+      self.id, server
+    );
+
+    let cmd = RouterCommand::Reconnect {
+      server:  Some(server.clone()),
+      force:   false,
+      tx:      None,
+      replica: true,
+    };
+    if let Err(_) = interfaces::send_to_router(self, cmd) {
       warn!("{}: Error sending reconnect command to router.", self.id);
     }
   }

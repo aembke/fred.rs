@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::RedisValue,
   protocol::{
-    command::{RouterCommand, RedisCommand, RedisCommandKind},
+    command::{RedisCommand, RedisCommandKind, RouterCommand},
     hashers::ClusterHash,
     responders::ResponseKind,
     utils as protocol_utils,
@@ -186,10 +186,7 @@ impl Transaction {
   where
     K: Into<MultipleKeys>,
   {
-    let mut guard = self.watched.lock();
-    for key in keys.into().inner().into_iter() {
-      guard.push_back(key);
-    }
+    self.watched.lock().extend(keys.into().inner());
   }
 
   /// Flushes all previously queued commands in a transaction and restores the connection state to normal.

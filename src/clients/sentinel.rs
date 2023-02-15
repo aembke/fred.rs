@@ -1,7 +1,7 @@
 use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
-  types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, Server, ServerConfig},
+  types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, ReplicaConfig, Server, ServerConfig},
 };
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{default::Default, fmt, sync::Arc};
@@ -80,6 +80,8 @@ impl From<SentinelConfig> for RedisConfig {
       tls: config.tls,
       #[cfg(feature = "partial-tracing")]
       tracing: config.tracing,
+      #[cfg(feature = "replicas")]
+      replica: ReplicaConfig::default(),
     }
   }
 }
