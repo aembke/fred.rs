@@ -87,6 +87,7 @@ async fn main() -> Result<(), RedisError> {
   };
   let perf = PerformanceConfig {
     auto_pipeline: true,
+    max_command_attempts: 1,
     network_timeout_ms: 5_000,
     default_command_timeout_ms: 300_000,
     ..Default::default()
