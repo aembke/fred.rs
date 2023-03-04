@@ -46,6 +46,36 @@ fn check_range_types(min: &ZRange, max: &ZRange, kind: &Option<ZSort>) -> Result
   Ok(())
 }
 
+pub async fn bzmpop<C: ClientLike>(
+  client: &C,
+  timeout: f64,
+  keys: MultipleKeys,
+  sort: ZCmp,
+  count: Option<i64>,
+) -> Result<RedisValue, RedisError> {
+  let timeout: RedisValue = timeout.try_into()?;
+
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(keys.len() + 4);
+    args.push(timeout);
+    args.push(keys.len().try_into()?);
+    for key in keys.inner().into_iter() {
+      args.push(key.into());
+    }
+    args.push(sort.to_str().into());
+    if let Some(count) = count {
+      args.push(static_val!(COUNT));
+      args.push(count.into());
+    }
+
+    Ok((RedisCommandKind::BzmPop, args))
+  })
+  .await?;
+
+  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::frame_to_results(frame)
+}
+
 pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + keys.len());
@@ -59,6 +89,7 @@ pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
   })
   .await?;
 
+  let _ = protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -75,6 +106,7 @@ pub async fn bzpopmax<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
   })
   .await?;
 
+  let _ = protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -287,6 +319,31 @@ pub async fn zpopmin<C: ClientLike>(
   };
 
   args_values_cmd(client, RedisCommandKind::Zpopmin, args).await
+}
+
+pub async fn zmpop<C: ClientLike>(
+  client: &C,
+  keys: MultipleKeys,
+  sort: ZCmp,
+  count: Option<i64>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(keys.len() + 3);
+    args.push(keys.len().try_into()?);
+    for key in keys.inner().into_iter() {
+      args.push(key.into());
+    }
+    args.push(sort.to_str().into());
+    if let Some(count) = count {
+      args.push(static_val!(COUNT));
+      args.push(count.into());
+    }
+
+    Ok((RedisCommandKind::Zmpop, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zrandmember<C: ClientLike>(

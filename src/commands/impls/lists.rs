@@ -6,6 +6,36 @@ use crate::{
 };
 use std::convert::TryInto;
 
+pub async fn blmpop<C: ClientLike>(
+  client: &C,
+  timeout: f64,
+  keys: MultipleKeys,
+  direction: LMoveDirection,
+  count: Option<i64>,
+) -> Result<RedisValue, RedisError> {
+  let timeout: RedisValue = timeout.try_into()?;
+
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(keys.len() + 4);
+    args.push(timeout);
+    args.push(keys.len().try_into()?);
+    for key in keys.inner().into_iter() {
+      args.push(key.into());
+    }
+    args.push(direction.to_str().into());
+    if let Some(count) = count {
+      args.push(static_val!(COUNT));
+      args.push(count.into());
+    }
+
+    Ok((RedisCommandKind::BlmPop, args))
+  })
+  .await?;
+
+  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::frame_to_results(frame)
+}
+
 pub async fn blpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
   let timeout: RedisValue = timeout.try_into()?;
 
@@ -20,6 +50,7 @@ pub async fn blpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) 
   })
   .await?;
 
+  let _ = protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -37,6 +68,7 @@ pub async fn brpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) 
   })
   .await?;
 
+  let _ = protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -57,6 +89,7 @@ pub async fn brpoplpush<C: ClientLike>(
   })
   .await?;
 
+  let _ = protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -80,6 +113,32 @@ pub async fn blmove<C: ClientLike>(
     ];
 
     Ok((RedisCommandKind::BlMove, args))
+  })
+  .await?;
+
+  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn lmpop<C: ClientLike>(
+  client: &C,
+  keys: MultipleKeys,
+  direction: LMoveDirection,
+  count: Option<i64>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(keys.len() + 3);
+    args.push(keys.len().try_into()?);
+    for key in keys.inner().into_iter() {
+      args.push(key.into());
+    }
+    args.push(direction.to_str().into());
+    if let Some(count) = count {
+      args.push(static_val!(COUNT));
+      args.push(count.into());
+    }
+
+    Ok((RedisCommandKind::LMPop, args))
   })
   .await?;
 
