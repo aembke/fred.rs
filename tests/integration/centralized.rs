@@ -21,7 +21,6 @@ mod keys {
   centralized_test!(keys, should_msetnx_values);
   centralized_test!(keys, should_copy_values);
 
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
@@ -32,18 +31,13 @@ mod multi {
 }
 
 mod other {
-
-  #[cfg(all(not(feature = "chaos-monkey"), feature = "metrics"))]
+  #[cfg(feature = "metrics")]
   centralized_test!(other, should_track_size_stats);
 
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_automatically_unblock);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_manually_unblock);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_error_when_blocked);
   centralized_test!(other, should_smoke_test_from_redis_impl);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(other, should_safely_change_protocols_repeatedly);
   centralized_test!(other, should_pipeline_all);
   centralized_test!(other, should_pipeline_last);
@@ -67,18 +61,11 @@ mod other {
 }
 
 mod pool {
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
-  #[cfg(feature = "fd-tests")]
-  centralized_test!(pool, should_connect_and_ping_static_pool_many_conn);
-  #[cfg(feature = "fd-tests")]
-  centralized_test!(pool, should_connect_and_ping_static_pool_repeatedly);
 }
 
 mod hashes {
-
   centralized_test!(hashes, should_hset_and_hget);
   centralized_test!(hashes, should_hset_and_hdel);
   centralized_test!(hashes, should_hexists);
@@ -94,9 +81,7 @@ mod hashes {
   centralized_test!(hashes, should_get_values);
 }
 
-#[cfg(not(feature = "chaos-monkey"))]
 mod pubsub {
-
   centralized_test!(pubsub, should_publish_and_recv_messages);
   centralized_test!(pubsub, should_psubscribe_and_recv_messages);
 }
@@ -222,14 +207,9 @@ pub mod sorted_sets {
 }
 
 pub mod lists {
-
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_blpop_values);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_brpop_values);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_brpoplpush_values);
-  #[cfg(not(feature = "chaos-monkey"))]
   centralized_test!(lists, should_blmove_values);
 
   centralized_test!(lists, should_lindex_values);

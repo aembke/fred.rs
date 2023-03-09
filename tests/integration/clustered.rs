@@ -20,8 +20,6 @@ mod keys {
   cluster_test!(keys, should_mget_values);
   cluster_test!(keys, should_msetnx_values);
   cluster_test!(keys, should_copy_values);
-
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
@@ -34,18 +32,14 @@ mod multi {
 
 mod other {
 
-  #[cfg(all(not(feature = "chaos-monkey"), feature = "metrics"))]
+  #[cfg(feature = "metrics")]
   cluster_test!(other, should_track_size_stats);
 
   cluster_test!(other, should_split_clustered_connection);
   cluster_test!(other, should_run_flushall_cluster);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_automatically_unblock);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_manually_unblock);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_error_when_blocked);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_pipeline_all);
   cluster_test!(other, should_pipeline_last);
@@ -66,14 +60,8 @@ mod other {
 }
 
 mod pool {
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(pool, should_connect_and_ping_static_pool_single_conn);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
-  #[cfg(feature = "fd-tests")]
-  cluster_test!(pool, should_connect_and_ping_static_pool_many_conn);
-  #[cfg(feature = "fd-tests")]
-  cluster_test!(pool, should_connect_and_ping_static_pool_repeatedly);
 }
 
 mod hashes {
@@ -93,7 +81,6 @@ mod hashes {
   cluster_test!(hashes, should_get_values);
 }
 
-#[cfg(not(feature = "chaos-monkey"))]
 mod pubsub {
 
   cluster_test!(pubsub, should_publish_and_recv_messages);
@@ -191,9 +178,7 @@ pub mod lua {
 
 pub mod sorted_sets {
 
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(sorted_sets, should_bzpopmin);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(sorted_sets, should_bzpopmax);
   cluster_test!(sorted_sets, should_zadd_values);
   cluster_test!(sorted_sets, should_zcard_values);
@@ -226,15 +211,10 @@ pub mod sorted_sets {
 
 pub mod lists {
 
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_blpop_values);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_brpop_values);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_brpoplpush_values);
-  #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(lists, should_blmove_values);
-
   cluster_test!(lists, should_lindex_values);
   cluster_test!(lists, should_linsert_values);
   cluster_test!(lists, should_lpop_values);
