@@ -193,4 +193,3 @@ These macros will generate test wrapper functions to call your test 8 times base
 * Pipelined vs non-pipelined clients
 * RESP2 vs RESP3 protocol modes
 
-# Misc

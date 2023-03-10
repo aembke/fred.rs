@@ -108,27 +108,27 @@ impl CustomCommand {
   /// Create a new custom command.
   ///
   /// See the [custom](crate::interfaces::ClientLike::custom) command for more information.
-  pub fn new<C, H>(cmd: C, cluster_hash: H, is_blocking: bool) -> Self
+  pub fn new<C, H>(cmd: C, cluster_hash: H, blocking: bool) -> Self
   where
     C: Into<Str>,
     H: Into<ClusterHash>,
   {
     CustomCommand {
-      cmd: cmd.into(),
+      cmd:          cmd.into(),
       cluster_hash: cluster_hash.into(),
-      is_blocking,
+      is_blocking:  blocking,
     }
   }
 
   /// Create a new custom command specified by a `&'static str`.
-  pub fn new_static<H>(cmd: &'static str, cluster_hash: H, is_blocking: bool) -> Self
+  pub fn new_static<H>(cmd: &'static str, cluster_hash: H, blocking: bool) -> Self
   where
     H: Into<ClusterHash>,
   {
     CustomCommand {
-      cmd: utils::static_str(cmd),
+      cmd:          utils::static_str(cmd),
       cluster_hash: cluster_hash.into(),
-      is_blocking,
+      is_blocking:  blocking,
     }
   }
 }
