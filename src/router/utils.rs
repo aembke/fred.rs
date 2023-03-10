@@ -258,11 +258,11 @@ pub fn should_drop_extra_pubsub_frame(
         (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
           && data[1]
             .as_str()
-            .map(|s| s == "punsubscribe" || s == "sunsubscribe")
+            .map(|s| s == "unsubscribe" || s == "punsubscribe" || s == "sunsubscribe")
             .unwrap_or(false))
           || (data[0]
             .as_str()
-            .map(|s| s == "punsubscribe" || s == "sunsubscribe")
+            .map(|s| s == "unsubscribe" || s == "punsubscribe" || s == "sunsubscribe")
             .unwrap_or(false))
       } else {
         false
@@ -274,7 +274,7 @@ pub fn should_drop_extra_pubsub_frame(
   let should_drop = if from_unsubscribe {
     match command.kind {
       // frame is from an unsubscribe call and the current frame expects it, so don't drop it
-      RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => false,
+      RedisCommandKind::Unsubscribe | RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => false,
       // frame is from an unsubscribe call and the current command does not expect it, so drop it
       _ => true,
     }
