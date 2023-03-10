@@ -1,19 +1,9 @@
 use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
-  types::{
-    Blocking,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    ReplicaConfig,
-    SentinelConfig,
-    Server,
-    ServerConfig,
-  },
+  types::{PerformanceConfig, ReconnectPolicy, SentinelConfig},
 };
-use redis_protocol::resp3::prelude::RespVersion;
-use std::{default::Default, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
 /// A struct for interacting directly with Sentinel nodes.
 ///

@@ -84,6 +84,12 @@ where
   }
 }
 
+impl From<()> for MultipleKeys {
+  fn from(_: ()) -> Self {
+    MultipleKeys { keys: Vec::new() }
+  }
+}
+
 /// Convenience struct for commands that take 1 or more strings.
 pub type MultipleStrings = MultipleKeys;
 

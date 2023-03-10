@@ -85,6 +85,7 @@ mod pubsub {
 
   cluster_test!(pubsub, should_publish_and_recv_messages);
   cluster_test!(pubsub, should_psubscribe_and_recv_messages);
+  cluster_test!(pubsub, should_unsubscribe_from_all);
 }
 
 mod hyperloglog {

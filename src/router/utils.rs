@@ -161,7 +161,7 @@ pub async fn write_command(
     writer.server,
     command.debug_id()
   );
-  writer.push_command(command);
+  writer.push_command(inner, command);
   if let Err(e) = writer.write_frame(frame, should_flush).await {
     let mut command = match writer.pop_recent_command() {
       Some(cmd) => cmd,
@@ -244,8 +244,10 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
 /// Check whether to drop the frame if it was sent in response to a pubsub command as a part of an unknown number of
 /// response frames.
 ///
-/// This is a special case for when PUNSUBSCRIBE or SUNSUBSCRIBE are called without arguments, which has the effect of
-/// unsubscribing from every channel and sending one message per channel to the client in response.
+/// This is a special case for when UNSUBSCRIBE, PUNSUBSCRIBE, or SUNSUBSCRIBE are called without arguments, which has
+/// the effect of unsubscribing from every channel and sending one message per channel to the client in response.
+/// However, in this scenario the client does not know how many responses to expect, so we discard all of them unless
+/// we know the client expects the current response frame.
 pub fn should_drop_extra_pubsub_frame(
   inner: &Arc<RedisClientInner>,
   command: &RedisCommand,
@@ -271,6 +273,8 @@ pub fn should_drop_extra_pubsub_frame(
     _ => return false,
   };
 
+  // TODO a better solution is to make these filter out as pubsub messages and just check there
+  // or in other words, make it so they don't require any cross checking with the last command
   let should_drop = if from_unsubscribe {
     match command.kind {
       // frame is from an unsubscribe call and the current frame expects it, so don't drop it

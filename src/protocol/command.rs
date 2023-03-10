@@ -1588,6 +1588,20 @@ impl RedisCommand {
         })
   }
 
+  /// Whether or not the command may not receive any response frames.
+  ///
+  /// Currently only `*UNSUBSCRIBE` commands without arguments fall into this category.
+  pub fn has_no_responses(&self) -> bool {
+    match self.kind {
+      RedisCommandKind::Unsubscribe | RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => {
+        // the server may send an unknown number of "*unsubscribe" frames on the pubsub interface, but the response
+        // processing layer will throw these away
+        self.arguments.is_empty()
+      },
+      _ => false,
+    }
+  }
+
   /// Take the arguments from this command.
   pub fn take_args(&mut self) -> Vec<RedisValue> {
     match self.response {

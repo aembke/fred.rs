@@ -84,6 +84,7 @@ mod hashes {
 mod pubsub {
   centralized_test!(pubsub, should_publish_and_recv_messages);
   centralized_test!(pubsub, should_psubscribe_and_recv_messages);
+  centralized_test!(pubsub, should_unsubscribe_from_all);
 }
 
 mod hyperloglog {
