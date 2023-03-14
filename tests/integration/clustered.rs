@@ -20,6 +20,11 @@ mod keys {
   cluster_test!(keys, should_mget_values);
   cluster_test!(keys, should_msetnx_values);
   cluster_test!(keys, should_copy_values);
+  cluster_test!(keys, should_unlink);
+  cluster_test_panic!(keys, should_error_rename_does_not_exist);
+  cluster_test_panic!(keys, should_error_renamenx_does_not_exist);
+  cluster_test!(keys, should_rename);
+  cluster_test!(keys, should_renamenx);
 
   #[cfg(not(feature = "chaos-monkey"))]
   cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
