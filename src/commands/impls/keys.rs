@@ -55,6 +55,14 @@ pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisV
   protocol_utils::frame_to_results(frame)
 }
 
+pub async fn unlink<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+  utils::check_empty_keys(&keys)?;
+
+  let args: Vec<RedisValue> = keys.inner().drain(..).map(|k| k.into()).collect();
+  let frame = utils::request_response(client, move || Ok((RedisCommandKind::Unlink, args))).await?;
+  protocol_utils::frame_to_results(frame)
+}
+
 pub async fn append<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
   args_value_cmd(client, RedisCommandKind::Append, vec![key.into(), value]).await
 }
@@ -218,6 +226,14 @@ pub async fn setrange<C: ClientLike>(
 
 pub async fn getset<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
   args_values_cmd(client, RedisCommandKind::GetSet, vec![key.into(), value]).await
+}
+
+pub async fn rename<C: ClientLike>(client: &C, source: RedisKey, destination: RedisKey) -> Result<RedisValue, RedisError> {
+  args_values_cmd(client, RedisCommandKind::Rename, vec![source.into(), destination.into()]).await
+}
+
+pub async fn renamenx<C: ClientLike>(client: &C, source: RedisKey, destination: RedisKey) -> Result<RedisValue, RedisError> {
+  args_values_cmd(client, RedisCommandKind::Renamenx, vec![source.into(), destination.into()]).await
 }
 
 pub async fn getdel<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
