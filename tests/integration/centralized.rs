@@ -20,6 +20,11 @@ mod keys {
   centralized_test!(keys, should_mget_values);
   centralized_test!(keys, should_msetnx_values);
   centralized_test!(keys, should_copy_values);
+  centralized_test!(keys, should_unlink);
+  centralized_test_panic!(keys, should_error_rename_does_not_exist);
+  centralized_test_panic!(keys, should_error_renamenx_does_not_exist);
+  centralized_test!(keys, should_rename);
+  centralized_test!(keys, should_renamenx);
 
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
