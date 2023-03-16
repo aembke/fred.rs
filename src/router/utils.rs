@@ -273,8 +273,6 @@ pub fn should_drop_extra_pubsub_frame(
     _ => return false,
   };
 
-  // TODO a better solution is to make these filter out as pubsub messages and just check there
-  // or in other words, make it so they don't require any cross checking with the last command
   let should_drop = if from_unsubscribe {
     match command.kind {
       // frame is from an unsubscribe call and the current frame expects it, so don't drop it

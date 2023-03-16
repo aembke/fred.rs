@@ -395,6 +395,7 @@ pub struct RedisClientInner {
 impl Drop for RedisClientInner {
   fn drop(&mut self) {
     if let Some(jh) = self.network_timeouts.take_handle() {
+      trace!("{}: Ending network timeout task.", self.id);
       jh.abort();
     }
   }

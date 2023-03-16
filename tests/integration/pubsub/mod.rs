@@ -30,6 +30,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
     Ok::<_, RedisError>(())
   });
 
+  sleep(Duration::from_secs(1)).await;
   for idx in 0 .. NUM_MESSAGES {
     // https://redis.io/commands/publish#return-value
     let _: () = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
@@ -66,6 +67,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
     Ok::<_, RedisError>(())
   });
 
+  sleep(Duration::from_secs(1)).await;
   for idx in 0 .. NUM_MESSAGES {
     let channel = channels[idx as usize % channels.len()];
 
