@@ -199,6 +199,8 @@ pub trait ClientLike: Clone + Send + Sized {
 
     tokio::spawn(async move {
       let result = router_commands::start(&inner).await;
+      _trace!(inner, "Ending connection task with {:?}", result);
+
       if let Err(ref e) = result {
         inner.notifications.broadcast_connect(Err(e.clone()));
       }

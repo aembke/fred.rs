@@ -42,6 +42,7 @@ mod other {
   centralized_test!(other, should_pipeline_all);
   centralized_test!(other, should_pipeline_last);
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
+  centralized_test!(other, should_gracefully_quit);
 
   //#[cfg(feature = "dns")]
   // centralized_test!(other, should_use_trust_dns);

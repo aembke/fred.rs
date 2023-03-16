@@ -1295,7 +1295,7 @@ impl RedisCommandKind {
   }
 
   pub fn can_pipeline(&self) -> bool {
-    if self.is_blocking() {
+    if self.is_blocking() || self.closes_connection() {
       false
     } else {
       match self {

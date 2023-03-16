@@ -2,6 +2,7 @@ use fred::{interfaces::PubsubInterface, prelude::*};
 use futures::{Stream, StreamExt};
 use std::time::Duration;
 use tokio::time::sleep;
+use trust_dns_resolver::proto::tcp::tokio::connect;
 
 const CHANNEL1: &'static str = "foo";
 const CHANNEL2: &'static str = "bar";
@@ -84,12 +85,12 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
 
 pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let subscriber = publisher.clone_new();
-  let _ = subscriber.connect();
+  let connection = subscriber.connect();
   let _ = subscriber.wait_for_connect().await?;
   let _ = subscriber.subscribe(vec![CHANNEL1, CHANNEL2, CHANNEL3]).await?;
   let mut message_stream = subscriber.on_message();
 
-  let subscriber_jh = tokio::spawn(async move {
+  let _ = tokio::spawn(async move {
     while let Ok(message) = message_stream.recv().await {
       // unsubscribe without args will result in 3 messages in this case, and none should show up here
       panic!("Recv unexpected pubsub message: {:?}", message);
@@ -107,6 +108,6 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 3);
 
   let _ = subscriber.quit().await?;
-  let _ = subscriber_jh.await?;
+  let _ = connection.await?;
   Ok(())
 }

@@ -394,8 +394,6 @@ impl Connections {
     command: RedisCommand,
     force_flush: bool,
   ) -> Result<Written, (RedisError, RedisCommand)> {
-    _trace!(inner, "Writing command {}", command.debug_id());
-
     match self {
       Connections::Clustered {
         ref mut writers,
