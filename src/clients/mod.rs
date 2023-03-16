@@ -9,7 +9,7 @@ pub use transaction::Transaction;
 mod sentinel;
 #[cfg(feature = "sentinel-client")]
 #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-pub use sentinel::{SentinelClient, SentinelConfig};
+pub use sentinel::SentinelClient;
 
 #[cfg(feature = "subscriber-client")]
 mod pubsub;

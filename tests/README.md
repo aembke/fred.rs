@@ -20,7 +20,7 @@ In order to run the testing scripts the following must be installed:
 
 The runner scripts will set up the Redis servers and run the tests inside docker. 
 
-* [all-features](runners/all-features.sh) will run tests with all features (except chaos monkey and sentinel tests).
+* [all-features](runners/all-features.sh) will run tests with all features (except sentinel tests).
 * [default-features](runners/default-features.sh) will run tests with default features (except sentinel tests).
 * [no-features](runners/no-features.sh) will run the tests without any of the feature flags.
 * [sentinel-features](runners/sentinel-features.sh) will run the centralized tests against a sentinel deployment. This is the only test runner that requires the sentinel deployment via docker-compose.

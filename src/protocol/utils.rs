@@ -399,6 +399,15 @@ fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
   Ok(RedisMap { inner: out })
 }
 
+/// Convert `nil` responses to a generic `Timeout` error.
+pub fn check_null_timeout(frame: &Resp3Frame) -> Result<(), RedisError> {
+  if frame.is_null() {
+    Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out."))
+  } else {
+    Ok(())
+  }
+}
+
 /// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
 ///
 /// If the array contains one element then that element will be returned.

@@ -8,18 +8,25 @@ static COUNT: i64 = 50;
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init();
 
-  let config = RedisConfig::default();
-  let publisher_client = RedisClient::new(config.clone(), None, None);
-  let subscriber_client = RedisClient::new(config.clone(), None, None);
+  let publisher_client = RedisClient::default();
+  let subscriber_client = RedisClient::default();
 
   let _ = publisher_client.connect();
   let _ = subscriber_client.connect();
   let _ = publisher_client.wait_for_connect().await?;
   let _ = subscriber_client.wait_for_connect().await?;
 
+  #[allow(unreachable_code)]
   let subscriber_jh = tokio::spawn(async move {
-    while let Ok((key, value)) = subscriber_client.blpop::<(String, i64), _>("foo", 5.0).await {
-      println!("Blocking pop result on {}: {}", key, value);
+    loop {
+      let (key, value): (String, i64) = if let Some(result) = subscriber_client.blpop("foo", 5.0).await? {
+        result
+      } else {
+        // retry after a timeout
+        continue;
+      };
+
+      println!("BLPOP result on {}: {}", key, value);
     }
 
     Ok::<(), RedisError>(())

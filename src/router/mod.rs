@@ -394,8 +394,6 @@ impl Connections {
     command: RedisCommand,
     force_flush: bool,
   ) -> Result<Written, (RedisError, RedisCommand)> {
-    _trace!(inner, "Writing command {}", command.debug_id());
-
     match self {
       Connections::Clustered {
         ref mut writers,
@@ -716,7 +714,7 @@ impl Router {
     let blocks_connection = command.blocks_connection();
 
     // always flush the socket in this case
-    writer.push_command(command);
+    writer.push_command(&self.inner, command);
     if let Err(e) = writer.write_frame(frame, true).await {
       let command = match writer.pop_recent_command() {
         Some(cmd) => cmd,

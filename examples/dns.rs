@@ -37,7 +37,7 @@ async fn main() -> Result<(), RedisError> {
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  // do stuff
+  // ...
 
   let _ = client.quit().await?;
   Ok(())

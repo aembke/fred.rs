@@ -10,6 +10,22 @@ use std::{
   iter::FromIterator,
 };
 
+/// `MIN|MAX` arguments for `BZMPOP`, etc.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ZCmp {
+  Min,
+  Max,
+}
+
+impl ZCmp {
+  pub(crate) fn to_str(&self) -> &'static str {
+    match self {
+      ZCmp::Min => "MIN",
+      ZCmp::Max => "MAX",
+    }
+  }
+}
+
 /// Convenience struct for `ZINTERSTORE` and `ZUNIONSTORE` when accepting 1 or more `weights` arguments.
 pub struct MultipleWeights {
   values: Vec<f64>,

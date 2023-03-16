@@ -5,15 +5,15 @@ A small example app that can be used to show the performance impact of pipelinin
 
 ## Tracing 
 
-This also shows how to configure the client with tracing enabled against a local Jaeger instance. A [docker compose](../../tests/docker-compose.yml) file is included that will run a local Jaeger instance.
+This also shows how to configure the client with tracing enabled against a local Jaeger instance. A [docker compose](../../tests/docker/compose/jaeger.yml) file is included that will run a local Jaeger instance.
 
 ```
-docker-compose -f /path/to/fred/tests/docker-compose.yml up
+docker-compose -f /path/to/fred/tests/docker/compose/jaeger.yml up
 ```
 
 Then navigate to <http://localhost:16686>.
 
-By default this module does not compile any tracing features, but there are 3 flags that can toggle how tracing is configured.
+By default, this module does not compile any tracing features, but there are 3 flags that can toggle how tracing is configured.
 
 * `partial-tracing` - Enables `fred/partial-tracing` and emits traces to a local jaeger instance.
 * `full-tracing` - Enables `fred/full-tracing` and emits traces to a local jaeger instance.
@@ -55,12 +55,6 @@ RUST_LOG=pipeline_test=info cargo run --release -- <your args>
 
 ## Implementation
 
-The script works by emulating a common use case similar to a web application. Clients like this are commonly shared among a potentially large number of concurrent request handler tasks where each request task uses the same underlying pool of clients. 
-
 The `-P` argument controls the size of the underlying shared client/connection pool, and the `-C` argument controls the number of concurrent requests to emulate (with the assumption that each request runs in a separate tokio task).
 
 Each task spawned by this utility operates on a different random key, so the `-C` argv also controls the number of unique keys that are used. The script uses `INCR` commands to keep things simple and to allow for the client to validate the expected result after each command.
-
-## Examples
-
-See the [metrics](../pipeline_metrics) app for examples and some data samples from my desktop.

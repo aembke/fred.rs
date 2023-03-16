@@ -79,7 +79,7 @@ impl Script {
     self.lua.as_ref()
   }
 
-  /// Read the sha-1 hash for the script.
+  /// Read the SHA-1 hash for the script.
   pub fn sha1(&self) -> &Str {
     &self.hash
   }

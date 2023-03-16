@@ -95,7 +95,7 @@ async fn write_with_backpressure(
       Some(command) => command,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
     };
-    // TODO clean this up
+    // FIXME clean this up
     let rx = match _backpressure {
       Some(backpressure) => match backpressure.wait(inner, &mut command).await {
         Ok(Some(rx)) => Some(rx),
@@ -120,6 +120,7 @@ async fn write_with_backpressure(
       },
     };
 
+    let closes_connection = command.kind.closes_connection();
     let is_blocking = command.blocks_connection();
     let use_replica = command.use_replica;
 
@@ -168,6 +169,11 @@ async fn write_with_backpressure(
           command.respond_to_caller(Err(RedisError::new_canceled()));
           break;
         } else {
+          if closes_connection {
+            _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
+            return Err(RedisError::new_canceled());
+          }
+
           break;
         }
       },
@@ -195,6 +201,11 @@ async fn write_with_backpressure(
           _backpressure = None;
           continue;
         } else {
+          if closes_connection {
+            _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
+            return Err(RedisError::new_canceled());
+          }
+
           break;
         }
       },
@@ -598,10 +609,10 @@ async fn process_commands(
     _trace!(inner, "Recv command: {:?}", command);
     if let Err(e) = process_command(inner, router, command).await {
       // errors on this interface end the client connection task
-      _error!(inner, "Disconnecting after error processing command: {:?}", e);
       if e.is_canceled() {
         break;
       } else {
+        _error!(inner, "Disconnecting after error processing command: {:?}", e);
         let _ = router.disconnect_all().await;
         router.clear_retry_buffer();
         return Err(e);
