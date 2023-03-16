@@ -124,4 +124,3 @@ replicas = []
 # Testing Features
 debug-ids = []
 sentinel-tests = []
-chaos-monkey = ["custom-reconnect-errors"]

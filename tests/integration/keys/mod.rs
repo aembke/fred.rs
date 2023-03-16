@@ -45,6 +45,56 @@ pub async fn should_set_with_get_argument(client: RedisClient, _config: RedisCon
   Ok(())
 }
 
+pub async fn should_rename(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "{foo}.1");
+  check_null!(client, "{foo}.2");
+
+  let _: () = client.set("{foo}.1", "baz", None, None, false).await?;
+
+  let _: () = client.rename("{foo}.1", "{foo}.2").await?;
+  let result: String = client.get("{foo}.2").await?;
+  assert_eq!(result, "baz");
+  check_null!(client, "{foo}.1");
+
+  Ok(())
+}
+
+pub async fn should_error_rename_does_not_exist(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "{foo}");
+  client.rename("{foo}", "{foo}.bar").await
+}
+
+pub async fn should_renamenx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "{foo}.1");
+  check_null!(client, "{foo}.2");
+
+  let _: () = client.set("{foo}.1", "baz", None, None, false).await?;
+
+  let _: () = client.renamenx("{foo}.1", "{foo}.2").await?;
+  let result: String = client.get("{foo}.2").await?;
+  assert_eq!(result, "baz");
+  check_null!(client, "{foo}.1");
+
+  Ok(())
+}
+
+pub async fn should_error_renamenx_does_not_exist(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "{foo}");
+  client.renamenx("{foo}", "{foo}.bar").await
+}
+
+pub async fn should_unlink(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+  check_null!(client, "{foo}1");
+
+  let _: () = client.set("{foo}1", "bar", None, None, false).await?;
+
+  assert_eq!(client.get::<String, _>("{foo}1").await?, "bar");
+  assert_eq!(client.unlink::<i64, _>(vec!["{foo}1", "{foo}", "{foo}:something"]).await?, 1);
+  check_null!(client, "{foo}1");
+
+  Ok(())
+}
+
 pub async fn should_incr_and_decr_a_value(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo");
 

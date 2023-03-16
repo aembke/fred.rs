@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use fred::clients::SubscriberClient;
-use fred::prelude::*;
-use fred::types::PerformanceConfig;
+use fred::{prelude::*, types::PerformanceConfig};
 use futures::stream::StreamExt;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -30,7 +29,7 @@ async fn main() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = publisher_client.publish("foo", idx).await?;
     sleep(Duration::from_millis(1000)).await;
   }
@@ -57,18 +56,18 @@ async fn subscriber_example() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  // spawn a task to manage subscription state automatically whenever the client reconnects
+  // spawn a task to sync subscriptions whenever the client reconnects
   let _ = subscriber.manage_subscriptions();
 
   let _ = subscriber.subscribe("foo").await?;
   let _ = subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
-  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo", "bar*", and "baz*" after reconnecting
+  let _ = subscriber.ssubscribe("abc{123}").await?;
   println!("Subscriber channels: {:?}", subscriber.tracked_channels()); // "foo"
   println!("Subscriber patterns: {:?}", subscriber.tracked_patterns()); // "bar*", "baz*"
-  println!("Subscriber sharded channels: {:?}", subscriber.tracked_shard_channels());
+  println!("Subscriber shard channels: {:?}", subscriber.tracked_shard_channels()); // "abc{123}"
 
   let _ = subscriber.unsubscribe("foo").await?;
-  // now it will only automatically re-subscribe to "bar*" and "baz*" after reconnecting
+  // now it will only automatically re-subscribe to "bar*", "baz*", and "abc{123}" after reconnecting
 
   // force a re-subscription call to all channels or patterns
   let _ = subscriber.resubscribe_all().await?;

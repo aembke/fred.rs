@@ -14,6 +14,7 @@ use crate::{
     RedisKey,
     RedisValue,
     SetOptions,
+    ZCmp,
     ZRange,
     ZSort,
   },
@@ -23,7 +24,21 @@ use std::convert::TryInto;
 /// Functions that implement the [Sorted Sets](https://redis.io/commands#sorted_set) interface.
 #[async_trait]
 pub trait SortedSetsInterface: ClientLike + Sized {
-  /// The blocking variant of the ZPOPMIN command.
+  /// The blocking variant of [Self::zmpop].
+  ///
+  /// <https://redis.io/commands/bzmpop/>
+  async fn bzmpop<R, K>(&self, timeout: f64, keys: K, sort: ZCmp, count: Option<i64>) -> RedisResult<R>
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+  {
+    into!(keys);
+    commands::sorted_sets::bzmpop(self, timeout, keys, sort, count)
+      .await?
+      .convert()
+  }
+
+  /// The blocking variant of [Self::zpopmin].
   ///
   /// <https://redis.io/commands/bzpopmin>
   async fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> RedisResult<R>
@@ -35,7 +50,7 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     commands::sorted_sets::bzpopmin(self, keys, timeout).await?.convert()
   }
 
-  /// The blocking variant of the ZPOPMAX command.
+  /// The blocking variant of [Self::zpopmax].
   ///
   /// <https://redis.io/commands/bzpopmax>
   async fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> RedisResult<R>
@@ -226,6 +241,19 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   {
     into!(key);
     commands::sorted_sets::zpopmin(self, key, count).await?.convert()
+  }
+
+  /// Pops one or more elements, that are member-score pairs, from the first non-empty sorted set in the provided list
+  /// of key names.
+  ///
+  /// <https://redis.io/commands/zmpop/>
+  async fn zmpop<R, K>(&self, keys: K, sort: ZCmp, count: Option<i64>) -> RedisResult<R>
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+  {
+    into!(keys);
+    commands::sorted_sets::zmpop(self, keys, sort, count).await?.convert()
   }
 
   /// When called with just the key argument, return a random element from the sorted set value stored at `key`.

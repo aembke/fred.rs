@@ -4,14 +4,14 @@ use futures::stream::StreamExt;
 static COUNT: u32 = 50;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   Ok(())
 }
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = client.del(format!("foo-{}", idx)).await?;
   }
   Ok(())
@@ -24,10 +24,9 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
-  let _ = delete_fake_data(&client).await?;
   let _ = create_fake_data(&client).await?;
 
-  // build up a buffer of (key, value) pairs from pages with 10 keys per page
+  // build up a buffer of (key, value) pairs from pages (10 keys per page)
   let mut buffer = Vec::with_capacity(COUNT as usize);
   let mut scan_stream = client.scan("foo*", Some(10), None);
 
@@ -48,9 +47,7 @@ async fn main() -> Result<(), RedisError> {
     let _ = page.next();
   }
 
-  assert_eq!(buffer.len(), COUNT as usize);
   let _ = delete_fake_data(&client).await?;
-
   let _ = client.quit().await?;
   Ok(())
 }

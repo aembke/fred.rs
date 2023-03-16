@@ -90,7 +90,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.5
+      REDIS_VERSION: 7.0.9
     steps:
       - test_default_features
   test-no-features-7_0:
@@ -99,7 +99,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.5
+      REDIS_VERSION: 7.0.9
     steps:
       - test_no_features
   test-all-features-7_0:
@@ -108,7 +108,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.5
+      REDIS_VERSION: 7.0.9
     steps:
       - test_all_features
   test-cluster-tls-features-7_0:
@@ -117,7 +117,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.5
+      REDIS_VERSION: 7.0.9
       FRED_CI_TLS: true
     steps:
       - test_tls_cluster
@@ -127,7 +127,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.5
+      REDIS_VERSION: 7.0.9
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
@@ -173,12 +173,12 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.5
+      REDIS_VERSION: 7.0.9
     steps:
       - test_sentinel
   test-docs:
     docker:
-      - image: cimg/rust:1.65.0
+      - image: cimg/rust:1.68.0
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:

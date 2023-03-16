@@ -148,6 +148,8 @@ pub enum RedisCommandKind {
   BrPopLPush,
   BzPopMin,
   BzPopMax,
+  BlmPop,
+  BzmPop,
   ClientID,
   ClientInfo,
   ClientKill,
@@ -244,6 +246,7 @@ pub enum RedisCommandKind {
   LPush,
   LPushX,
   LRange,
+  LMPop,
   LRem,
   LSet,
   LTrim,
@@ -376,6 +379,7 @@ pub enum RedisCommandKind {
   Zunionstore,
   Zpopmax,
   Zpopmin,
+  Zmpop,
   ScriptLoad,
   ScriptDebug,
   ScriptExists,
@@ -557,6 +561,8 @@ impl RedisCommandKind {
       RedisCommandKind::BlPop => "BLPOP",
       RedisCommandKind::BlMove => "BLMOVE",
       RedisCommandKind::BrPop => "BRPOP",
+      RedisCommandKind::BzmPop => "BZMPOP",
+      RedisCommandKind::BlmPop => "BLMPOP",
       RedisCommandKind::BrPopLPush => "BRPOPLPUSH",
       RedisCommandKind::BzPopMin => "BZPOPMIN",
       RedisCommandKind::BzPopMax => "BZPOPMAX",
@@ -657,6 +663,7 @@ impl RedisCommandKind {
       RedisCommandKind::LPush => "LPUSH",
       RedisCommandKind::LPushX => "LPUSHX",
       RedisCommandKind::LRange => "LRANGE",
+      RedisCommandKind::LMPop => "LMPOP",
       RedisCommandKind::LRem => "LREM",
       RedisCommandKind::LSet => "LSET",
       RedisCommandKind::LTrim => "LTRIM",
@@ -789,6 +796,7 @@ impl RedisCommandKind {
       RedisCommandKind::Zunionstore => "ZUNIONSTORE",
       RedisCommandKind::Zpopmax => "ZPOPMAX",
       RedisCommandKind::Zpopmin => "ZPOPMIN",
+      RedisCommandKind::Zmpop => "ZMPOP",
       RedisCommandKind::Scan => "SCAN",
       RedisCommandKind::Sscan => "SSCAN",
       RedisCommandKind::Hscan => "HSCAN",
@@ -856,6 +864,8 @@ impl RedisCommandKind {
       RedisCommandKind::BrPopLPush => "BRPOPLPUSH",
       RedisCommandKind::BzPopMin => "BZPOPMIN",
       RedisCommandKind::BzPopMax => "BZPOPMAX",
+      RedisCommandKind::BzmPop => "BZMPOP",
+      RedisCommandKind::BlmPop => "BLMPOP",
       RedisCommandKind::ClientID
       | RedisCommandKind::ClientInfo
       | RedisCommandKind::ClientKill
@@ -954,6 +964,7 @@ impl RedisCommandKind {
       RedisCommandKind::LPush => "LPUSH",
       RedisCommandKind::LPushX => "LPUSHX",
       RedisCommandKind::LRange => "LRANGE",
+      RedisCommandKind::LMPop => "LMPOP",
       RedisCommandKind::LRem => "LREM",
       RedisCommandKind::LSet => "LSET",
       RedisCommandKind::LTrim => "LTRIM",
@@ -1084,6 +1095,7 @@ impl RedisCommandKind {
       RedisCommandKind::Zunionstore => "ZUNIONSTORE",
       RedisCommandKind::Zpopmax => "ZPOPMAX",
       RedisCommandKind::Zpopmin => "ZPOPMIN",
+      RedisCommandKind::Zmpop => "ZMPOP",
       RedisCommandKind::ScriptDebug
       | RedisCommandKind::ScriptExists
       | RedisCommandKind::ScriptFlush
@@ -1236,6 +1248,8 @@ impl RedisCommandKind {
       | RedisCommandKind::BlMove
       | RedisCommandKind::BzPopMin
       | RedisCommandKind::BzPopMax
+      | RedisCommandKind::BlmPop
+      | RedisCommandKind::BzmPop
       | RedisCommandKind::Fcall
       | RedisCommandKind::FcallRO
       | RedisCommandKind::Wait => true,
@@ -1281,7 +1295,7 @@ impl RedisCommandKind {
   }
 
   pub fn can_pipeline(&self) -> bool {
-    if self.is_blocking() {
+    if self.is_blocking() || self.closes_connection() {
       false
     } else {
       match self {
@@ -1574,6 +1588,20 @@ impl RedisCommand {
         })
   }
 
+  /// Whether or not the command may not receive any response frames.
+  ///
+  /// Currently only `*UNSUBSCRIBE` commands without arguments fall into this category.
+  pub fn has_no_responses(&self) -> bool {
+    match self.kind {
+      RedisCommandKind::Unsubscribe | RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => {
+        // the server may send an unknown number of "*unsubscribe" frames on the pubsub interface, but the response
+        // processing layer will throw these away
+        self.arguments.is_empty()
+      },
+      _ => false,
+    }
+  }
+
   /// Take the arguments from this command.
   pub fn take_args(&mut self) -> Vec<RedisValue> {
     match self.response {
@@ -1769,7 +1797,7 @@ pub enum RouterCommand {
   /// Send a transaction to the server.
   ///
   /// Notes:
-  /// * The inner command buffer will not contain the initial `MULTI` or trailing `EXEC` command.
+  /// * The inner command buffer will not contain the trailing `EXEC` command.
   /// * Transactions are never pipelined in order to handle ASK responses.
   /// * IDs must be unique w/r/t other transactions buffered in memory.
   ///

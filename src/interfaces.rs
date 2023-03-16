@@ -51,15 +51,26 @@ where
 pub(crate) fn send_to_router(inner: &RedisClientInner, command: RouterCommand) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
   if let Err(e) = inner.command_tx.send(command) {
-    _error!(inner, "Fatal error sending command to router.");
+    // usually happens if the caller tries to send a command before calling `connect` or after calling `quit`
     inner.counters.decr_cmd_buffer_len();
 
     if let RouterCommand::Command(mut command) = e.0 {
+      _warn!(
+        inner,
+        "Fatal error sending {} command to router. Client may be stopped or not yet initialized.",
+        command.kind.to_str_debug()
+      );
+
       // if a caller manages to trigger this it means that a connection task is not running
       command.respond_to_caller(Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Client is not initialized.",
       )));
+    } else {
+      _warn!(
+        inner,
+        "Fatal error sending command to router. Client may be stopped or not yet initialized."
+      );
     }
 
     Err(RedisError::new(
@@ -188,6 +199,8 @@ pub trait ClientLike: Clone + Send + Sized {
 
     tokio::spawn(async move {
       let result = router_commands::start(&inner).await;
+      _trace!(inner, "Ending connection task with {:?}", result);
+
       if let Err(ref e) = result {
         inner.notifications.broadcast_connect(Err(e.clone()));
       }

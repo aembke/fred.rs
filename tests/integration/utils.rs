@@ -3,7 +3,6 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use crate::chaos_monkey::set_test_kind;
 use fred::{
   clients::RedisClient,
   error::RedisError,
@@ -13,9 +12,6 @@ use fred::{
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future};
 
-#[cfg(feature = "chaos-monkey")]
-const RECONNECT_DELAY: u32 = 500;
-#[cfg(not(feature = "chaos-monkey"))]
 const RECONNECT_DELAY: u32 = 1000;
 
 use fred::types::Server;
@@ -202,12 +198,6 @@ fn create_native_tls_config() -> TlsConnector {
   builder.try_into().expect("Failed to build native-tls connector")
 }
 
-#[cfg(feature = "chaos-monkey")]
-fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
-  (Some(ReconnectPolicy::new_linear(0, 5000, 1000)), 50, false)
-}
-
-#[cfg(not(feature = "chaos-monkey"))]
 fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
   (Some(ReconnectPolicy::new_constant(300, RECONNECT_DELAY)), 3, true)
 }
@@ -311,14 +301,12 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   (config, perf)
 }
 
-#[cfg(all(feature = "sentinel-tests", not(feature = "chaos-monkey")))]
+#[cfg(feature = "sentinel-tests")]
 pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  set_test_kind(false);
-
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
@@ -353,8 +341,6 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  set_test_kind(true);
-
   let (policy, cmd_attempts, fail_fast) = resilience_settings();
   let (mut config, mut perf) = create_redis_config(true, pipeline, resp3);
   perf.max_command_attempts = cmd_attempts;
@@ -376,8 +362,6 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  set_test_kind(false);
-
   let (policy, cmd_attempts, fail_fast) = resilience_settings();
   let (mut config, mut perf) = create_redis_config(false, pipeline, resp3);
   perf.max_command_attempts = cmd_attempts;

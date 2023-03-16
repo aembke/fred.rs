@@ -14,42 +14,25 @@ use fred::types::TracingConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  // example showing how to parse a redis URL (from an environment variable, etc)
-  // see the `RedisConfig::from_url` function documentation for more information
-  let config = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
+  let _ = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
 
-  // example showing a full kitchen sink configuration with default values
-  // use `..Default::default` to fill in defaults wherever needed
+  // full configuration with default values
   let config = RedisConfig {
-    // whether to skip reconnect logic when first connecting
     fail_fast: true,
-    // server configuration
     server: ServerConfig::new_centralized("127.0.0.1", 6379),
-    // how to handle commands sent while a connection is blocked
     blocking: Blocking::Block,
-    // an optional username, if using ACL rules. use "default" if you need to specify a username but have not
-    // configured ACL rules.
     username: None,
-    // an optional authentication key or password
     password: None,
-    // the protocol version to use. note: upgrading an existing codebase to RESP3 can be non-trivial. be careful.
     version: RespVersion::RESP2,
-    // the database to automatically select after connecting or reconnecting
     database: None,
-    //  TLS configuration options
     #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
     tls: None,
-    // tracing configuration options
     #[cfg(feature = "partial-tracing")]
     tracing: TracingConfig {
-      // whether to enable tracing
       enabled:               false,
-      // the tracing level to use with `partial-tracing` spans
       default_tracing_level: Level::INFO,
-      // the tracing level to use with `full-tracing` spans
       full_tracing_level:    Level::DEBUG,
     },
-    // An optional mocking layer to intercept and process commands.
     #[cfg(feature = "mocks")]
     mocks: Arc::new(Echo),
   };
@@ -61,9 +44,9 @@ async fn main() -> Result<(), RedisError> {
     max_feed_count:                                            1000,
     // a default timeout to apply to all commands (0 means no timeout)
     default_command_timeout_ms:                                0,
-    // the amount of time to wait before rebuilding the client's cached cluster state after a MOVED or ASK error.
+    // the amount of time to wait before rebuilding the client's cached cluster state after a MOVED error.
     cluster_cache_update_delay_ms:                             10,
-    // the maximum number of times to retry commands when connections close unexpectedly
+    // the maximum number of times to retry commands
     max_command_attempts:                                      3,
     // backpressure config options
     backpressure:                                              BackpressureConfig {
@@ -99,7 +82,6 @@ async fn main() -> Result<(), RedisError> {
     }
   });
 
-  // the task driving the connection(s) can be managed directly
   let connection_task = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -120,6 +102,14 @@ async fn main() -> Result<(), RedisError> {
   perf_config.max_feed_count = 1000;
   client.update_perf_config(perf_config);
 
+  // send commands in a pipeline
+  let pipeline = client.pipeline();
+  let _ = pipeline.incr("bar").await?;
+  let _ = pipeline.incr("bar").await?;
+  let (first, second): (i64, i64) = pipeline.all().await?;
+  assert_eq!((first, second), (1, 2));
+
   let _ = client.quit().await?;
+  let _ = connection_task.await;
   Ok(())
 }

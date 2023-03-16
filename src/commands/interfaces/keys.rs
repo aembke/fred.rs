@@ -207,6 +207,52 @@ pub trait KeysInterface: ClientLike + Sized {
     commands::keys::del(self, keys).await?.convert()
   }
 
+  /// Unlinks the specified keys. A key is ignored if it does not exist
+  ///
+  /// Returns the number of keys removed.
+  ///
+  /// <https://redis.io/commands/del>
+  async fn unlink<R, K>(&self, keys: K) -> RedisResult<R>
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+  {
+    into!(keys);
+    commands::keys::unlink(self, keys).await?.convert()
+  }
+
+  /// Renames `source` key to `destination`.
+  ///
+  /// Returns an error when `source` does not exist. If `destination` exists, it gets overwritten.
+  ///
+  /// <https://redis.io/commands/rename>
+  async fn rename<R, S, D>(&self, source: S, destination: D) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<RedisKey> + Send,
+    D: Into<RedisKey> + Send,
+  {
+    into!(source);
+    into!(destination);
+    commands::keys::rename(self, source, destination).await?.convert()
+  }
+
+  /// Renames `source` key to `destination` if `destination` does not yet exist.
+  ///
+  /// Returns an error when `source` does not exist.
+  ///
+  /// <https://redis.io/commands/renamenx>
+  async fn renamenx<R, S, D>(&self, source: S, destination: D) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<RedisKey> + Send,
+    D: Into<RedisKey> + Send,
+  {
+    into!(source);
+    into!(destination);
+    commands::keys::renamenx(self, source, destination).await?.convert()
+  }
+
   /// Append `value` to `key` if it's a string.
   ///
   /// <https://redis.io/commands/append/>

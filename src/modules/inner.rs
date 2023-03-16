@@ -395,6 +395,7 @@ pub struct RedisClientInner {
 impl Drop for RedisClientInner {
   fn drop(&mut self) {
     if let Some(jh) = self.network_timeouts.take_handle() {
+      trace!("{}: Ending network timeout task.", self.id);
       jh.abort();
     }
   }
@@ -600,8 +601,15 @@ impl RedisClientInner {
       .map(|policy| policy.should_reconnect())
       .unwrap_or(false);
 
-    // do not attempt a reconnection if the client is intentionally disconnecting
-    has_policy && utils::read_locked(&self.state) != ClientState::Disconnecting
+    // do not attempt a reconnection if the client is intentionally disconnecting. the QUIT and SHUTDOWN commands set
+    // this flag.
+    let is_disconnecting = utils::read_locked(&self.state) == ClientState::Disconnecting;
+
+    debug!(
+      "{}: Checking reconnect state. Has policy: {}, Is intentionally disconnecting: {}",
+      self.id, has_policy, is_disconnecting,
+    );
+    has_policy && !is_disconnecting
   }
 
   pub fn send_reconnect(
