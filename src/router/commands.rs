@@ -169,6 +169,11 @@ async fn write_with_backpressure(
           command.respond_to_caller(Err(RedisError::new_canceled()));
           break;
         } else {
+          if closes_connection {
+            _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
+            return Err(RedisError::new_canceled());
+          }
+
           break;
         }
       },

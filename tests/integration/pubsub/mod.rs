@@ -2,7 +2,6 @@ use fred::{interfaces::PubsubInterface, prelude::*};
 use futures::{Stream, StreamExt};
 use std::time::Duration;
 use tokio::time::sleep;
-use trust_dns_resolver::proto::tcp::tokio::connect;
 
 const CHANNEL1: &'static str = "foo";
 const CHANNEL2: &'static str = "bar";
