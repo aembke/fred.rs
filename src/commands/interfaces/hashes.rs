@@ -6,7 +6,7 @@ use crate::{
 };
 use std::convert::TryInto;
 
-/// Functions that implement the [Hashes](https://redis.io/commands#hashes) interface.
+/// Functions that implement the [hashes](https://redis.io/commands#hashes) interface.
 #[async_trait]
 pub trait HashesInterface: ClientLike + Sized {
   /// Returns all fields and values of the hash stored at `key`.

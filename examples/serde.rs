@@ -3,7 +3,10 @@ use serde_json::{json, Value};
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+  // let client = RedisClient::default();
+  let config = RedisConfig::from_url("redis://default:bar@redis-main:6379")?;
+  let client = RedisClient::new(config, None, None);
+
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 

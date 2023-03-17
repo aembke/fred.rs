@@ -73,10 +73,6 @@ name = "fred"
 test = true
 
 [[example]]
-name = "basic"
-required-features = ["partial-tracing"]
-
-[[example]]
 name = "monitor"
 required-features = ["monitor"]
 

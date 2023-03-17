@@ -120,7 +120,7 @@ pub trait LuaInterface: ClientLike + Sized {
   }
 }
 
-/// Functions implementing the [function interface](https://redis.io/docs/manual/programmability/functions-intro/).
+/// Functions that implement the [function](https://redis.io/docs/manual/programmability/functions-intro/) interface.
 #[async_trait]
 pub trait FunctionInterface: ClientLike + Sized {
   /// Invoke a function.

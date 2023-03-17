@@ -7,7 +7,6 @@ use std::{
   convert::Infallible,
   error::Error,
   fmt,
-  fmt::Display,
   io::Error as IoError,
   num::{ParseFloatError, ParseIntError},
   str,
@@ -38,7 +37,9 @@ pub enum RedisErrorKind {
   Url,
   /// A protocol error such as an invalid or unexpected frame from the server.
   Protocol,
-  /// A TLS error. The `enable-native-tls` feature must be enabled for this to be used.
+  /// A TLS error.
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   Tls,
   /// An error indicating the request was canceled.
   Canceled,
@@ -77,6 +78,7 @@ impl RedisErrorKind {
       RedisErrorKind::Canceled => "Canceled",
       RedisErrorKind::Cluster => "Cluster Error",
       RedisErrorKind::Timeout => "Timeout Error",
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       RedisErrorKind::Tls => "TLS Error",
       RedisErrorKind::Config => "Config Error",
       RedisErrorKind::Parse => "Parse Error",
@@ -123,108 +125,126 @@ impl fmt::Display for RedisError {
   }
 }
 
+#[doc(hidden)]
 impl From<RedisProtocolError> for RedisError {
   fn from(e: RedisProtocolError) -> Self {
     RedisError::new(RedisErrorKind::Protocol, format!("{}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<()> for RedisError {
   fn from(_: ()) -> Self {
     RedisError::new(RedisErrorKind::Canceled, "Empty error.")
   }
 }
 
+#[doc(hidden)]
 impl From<futures::channel::mpsc::SendError> for RedisError {
   fn from(e: futures::channel::mpsc::SendError) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<tokio::sync::oneshot::error::RecvError> for RedisError {
   fn from(e: tokio::sync::oneshot::error::RecvError) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<tokio::sync::broadcast::error::RecvError> for RedisError {
   fn from(e: tokio::sync::broadcast::error::RecvError) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
   }
 }
 
-impl<T: Display> From<tokio::sync::broadcast::error::SendError<T>> for RedisError {
+#[doc(hidden)]
+impl<T: fmt::Display> From<tokio::sync::broadcast::error::SendError<T>> for RedisError {
   fn from(e: tokio::sync::broadcast::error::SendError<T>) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<IoError> for RedisError {
   fn from(e: IoError) -> Self {
     RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<ParseError> for RedisError {
   fn from(e: ParseError) -> Self {
     RedisError::new(RedisErrorKind::Url, format!("{:?}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<ParseFloatError> for RedisError {
   fn from(_: ParseFloatError) -> Self {
     RedisError::new(RedisErrorKind::Parse, "Invalid floating point number.")
   }
 }
 
+#[doc(hidden)]
 impl From<ParseIntError> for RedisError {
   fn from(_: ParseIntError) -> Self {
     RedisError::new(RedisErrorKind::Parse, "Invalid integer string.")
   }
 }
 
+#[doc(hidden)]
 impl From<FromUtf8Error> for RedisError {
   fn from(_: FromUtf8Error) -> Self {
     RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }
 
+#[doc(hidden)]
 impl From<Utf8Error> for RedisError {
   fn from(_: Utf8Error) -> Self {
     RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }
 
+#[doc(hidden)]
 impl<S> From<BytesUtf8Error<S>> for RedisError {
   fn from(e: BytesUtf8Error<S>) -> Self {
     e.utf8_error().into()
   }
 }
 
+#[doc(hidden)]
 impl From<fmt::Error> for RedisError {
   fn from(e: fmt::Error) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("{:?}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<Canceled> for RedisError {
   fn from(e: Canceled) -> Self {
     RedisError::new(RedisErrorKind::Canceled, format!("{}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<JoinError> for RedisError {
   fn from(e: JoinError) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("Spawn Error: {:?}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<SemverError> for RedisError {
   fn from(e: SemverError) -> Self {
     RedisError::new(RedisErrorKind::Protocol, format!("Invalid Redis version: {:?}", e))
   }
 }
 
+#[doc(hidden)]
 impl From<Infallible> for RedisError {
   fn from(e: Infallible) -> Self {
     warn!("Infallible error: {:?}", e);
@@ -232,6 +252,7 @@ impl From<Infallible> for RedisError {
   }
 }
 
+#[doc(hidden)]
 impl From<Resp2Frame> for RedisError {
   fn from(e: Resp2Frame) -> Self {
     match e {
@@ -244,6 +265,7 @@ impl From<Resp2Frame> for RedisError {
   }
 }
 
+#[doc(hidden)]
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 impl From<native_tls::Error> for RedisError {
@@ -252,6 +274,7 @@ impl From<native_tls::Error> for RedisError {
   }
 }
 
+#[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
 impl From<tokio_rustls::rustls::Error> for RedisError {
@@ -260,6 +283,7 @@ impl From<tokio_rustls::rustls::Error> for RedisError {
   }
 }
 
+#[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
 impl From<tokio_rustls::rustls::client::InvalidDnsNameError> for RedisError {
@@ -268,6 +292,7 @@ impl From<tokio_rustls::rustls::client::InvalidDnsNameError> for RedisError {
   }
 }
 
+#[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
 impl From<tokio_rustls::webpki::Error> for RedisError {
@@ -276,6 +301,7 @@ impl From<tokio_rustls::webpki::Error> for RedisError {
   }
 }
 
+#[doc(hidden)]
 #[cfg(feature = "dns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 impl From<ResolveError> for RedisError {
@@ -296,22 +322,6 @@ impl RedisError {
     }
   }
 
-  /// Whether or not the error is a Cluster error.
-  pub fn is_cluster_error(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::Cluster => true,
-      _ => false,
-    }
-  }
-
-  /// Whether or not the error is from a sentinel node.
-  pub fn is_sentinel_error(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::Sentinel => true,
-      _ => false,
-    }
-  }
-
   /// Read the type of error without any associated data.
   pub fn kind(&self) -> &RedisErrorKind {
     &self.kind
@@ -325,10 +335,6 @@ impl RedisError {
   /// Read details about the error.
   pub fn details(&self) -> &str {
     self.details.borrow()
-  }
-
-  pub fn to_string(&self) -> String {
-    format!("{}: {}", &self.kind.to_str(), &self.details)
   }
 
   /// Create a new empty Canceled error.
@@ -357,7 +363,15 @@ impl RedisError {
     }
   }
 
-  /// Whether or not the error is a `Canceled` error.
+  /// Whether the error is a `Cluster` error.
+  pub fn is_cluster(&self) -> bool {
+    match self.kind {
+      RedisErrorKind::Cluster => true,
+      _ => false,
+    }
+  }
+
+  /// Whether the error is a `Canceled` error.
   pub fn is_canceled(&self) -> bool {
     match self.kind {
       RedisErrorKind::Canceled => true,
@@ -365,7 +379,9 @@ impl RedisError {
     }
   }
 
+  /// Whether the error is a `Replica` error.
   #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn is_replica(&self) -> bool {
     match self.kind {
       RedisErrorKind::Replica => true,
@@ -373,7 +389,7 @@ impl RedisError {
     }
   }
 
-  /// Whether or not the error is a `NotFound` error.
+  /// Whether the error is a `NotFound` error.
   pub fn is_not_found(&self) -> bool {
     match self.kind {
       RedisErrorKind::NotFound => true,
