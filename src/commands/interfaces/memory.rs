@@ -4,7 +4,7 @@ use crate::{
   types::{MemoryStats, RedisKey},
 };
 
-/// Functions that implement the [Memory](https://redis.io/commands#server) interface.
+/// Functions that implement the [memory](https://redis.io/commands#server) interface.
 #[async_trait]
 pub trait MemoryInterface: ClientLike + Sized {
   /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and

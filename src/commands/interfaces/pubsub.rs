@@ -8,7 +8,7 @@ use bytes_utils::Str;
 use std::convert::TryInto;
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
-/// Functions that implement the [publish-subscribe](https://redis.io/commands#pubsub) interface.
+/// Functions that implement the [pubsub](https://redis.io/commands#pubsub) interface.
 #[async_trait]
 pub trait PubsubInterface: ClientLike + Sized {
   /// Listen for messages on the publish-subscribe interface.

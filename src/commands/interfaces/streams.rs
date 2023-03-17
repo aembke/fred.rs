@@ -21,13 +21,13 @@ use crate::{
 use bytes_utils::Str;
 use std::{convert::TryInto, hash::Hash};
 
-/// A trait that implements the [streams](https://redis.io/commands#stream) interface.
+/// Functions that implement the [streams](https://redis.io/commands#stream) interface.
 ///
 /// **Note:** Several of the stream commands can return types with verbose type declarations. Additionally, certain
 /// commands can be parsed differently in RESP2 and RESP3 modes. Functions such as [xread_map](Self::xread_map),
-/// [xreadgroup_map](Self::xreadgroup_map), [xrange_values](Self::xrange_values), etc exist to make this easier on
+/// [xreadgroup_map](Self::xreadgroup_map), [xrange_values](Self::xrange_values), etc exist to make this easier for
 /// callers. These functions apply an additional layer of parsing logic that can make declaring response types easier,
-/// as well as automatically handling the differences between RESP2 and RESP3 return value types.
+/// as well as automatically handling any differences between RESP2 and RESP3 return value types.
 #[async_trait]
 pub trait StreamsInterface: ClientLike + Sized {
   /// This command returns the list of consumers that belong to the `groupname` consumer group of the stream stored at

@@ -32,7 +32,7 @@ impl Resolve for TrustDnsResolver {
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
   let client = RedisClient::new(config, None, None);
-  client.set_resolver(Arc::new(TrustDnsResolver::new()));
+  client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
 
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;

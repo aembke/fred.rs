@@ -7,7 +7,7 @@ use crate::{
 use bytes_utils::Str;
 use std::convert::TryInto;
 
-/// Functions that implement the [CONFIG](https://redis.io/commands#server) interface.
+/// Functions that implement the [config](https://redis.io/commands#server) interface.
 #[async_trait]
 pub trait ConfigInterface: ClientLike + Sized {
   /// Resets the statistics reported by Redis using the INFO command.

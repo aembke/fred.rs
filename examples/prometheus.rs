@@ -7,7 +7,7 @@ fn sample_metrics(
   avg_latency: IntGaugeVec,
   bytes_sent: IntCounterVec,
 ) {
-  let client_id = client.id().as_str();
+  let client_id = client.id();
   let latency_stats = client.take_latency_metrics();
   let req_size_stats = client.take_req_size_metrics();
 

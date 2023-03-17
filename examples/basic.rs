@@ -1,42 +1,47 @@
 use fred::{
   prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig, RespVersion, TlsConfig},
+  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig, RespVersion},
 };
-use futures::stream::StreamExt;
-use std::{default::Default, sync::Arc};
 
 #[cfg(feature = "mocks")]
 use fred::mocks::Echo;
 #[cfg(feature = "partial-tracing")]
 use fred::tracing::Level;
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use fred::types::TlsConfig;
 #[cfg(feature = "partial-tracing")]
 use fred::types::TracingConfig;
+#[cfg(feature = "mocks")]
+use std::{default::Default, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
+  pretty_env_logger::init();
+
   let _ = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
 
-  // full configuration with default values
+  // full configuration with testing values
   let config = RedisConfig {
     fail_fast: true,
-    server: ServerConfig::new_centralized("127.0.0.1", 6379),
+    server: ServerConfig::new_centralized("redis-main", 6379),
     blocking: Blocking::Block,
-    username: None,
-    password: None,
+    username: Some("foo".into()),
+    password: Some("bar".into()),
     version: RespVersion::RESP2,
     database: None,
     #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
     tls: None,
     #[cfg(feature = "partial-tracing")]
     tracing: TracingConfig {
-      enabled:               false,
-      default_tracing_level: Level::INFO,
-      full_tracing_level:    Level::DEBUG,
+      enabled:                                             false,
+      default_tracing_level:                               Level::INFO,
+      #[cfg(feature = "full-tracing")]
+      full_tracing_level:                                  Level::DEBUG,
     },
     #[cfg(feature = "mocks")]
     mocks: Arc::new(Echo),
   };
-  // example showing a full kitchen sink configuration for performance tuning options
+  // full configuration for performance tuning options
   let perf = PerformanceConfig {
     // whether or not to automatically pipeline commands across tasks
     auto_pipeline:                                             true,
@@ -72,12 +77,12 @@ async fn main() -> Result<(), RedisError> {
   let mut reconnect_rx = client.on_reconnect();
 
   tokio::spawn(async move {
-    while let Some(error) = error_rx.recv().await {
+    while let Ok(error) = error_rx.recv().await {
       println!("Client disconnected with error: {:?}", error);
     }
   });
   tokio::spawn(async move {
-    while let Some(_) = reconnect_rx.recv().await {
+    while reconnect_rx.recv().await.is_ok() {
       println!("Client reconnected.");
     }
   });

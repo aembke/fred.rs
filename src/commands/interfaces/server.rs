@@ -64,7 +64,7 @@ pub trait HeartbeatInterface: ClientLike {
   }
 }
 
-/// Functions that implement the [Server](https://redis.io/commands#server) interface.
+/// Functions that implement the [server](https://redis.io/commands#server) interface.
 #[async_trait]
 pub trait ServerInterface: ClientLike {
   /// Instruct Redis to start an Append Only File rewrite process.

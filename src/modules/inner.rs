@@ -657,7 +657,7 @@ impl RedisClientInner {
   }
 
   pub fn should_cluster_sync(&self, error: &RedisError) -> bool {
-    self.config.server.is_clustered() && error.is_cluster_error()
+    self.config.server.is_clustered() && error.is_cluster()
   }
 
   pub async fn update_backchannel(&self, transport: RedisTransport) {

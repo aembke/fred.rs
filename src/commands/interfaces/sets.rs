@@ -6,7 +6,7 @@ use crate::{
 };
 use std::convert::TryInto;
 
-/// Functions that implement the [Sets](https://redis.io/commands#set) interface.
+/// Functions that implement the [sets](https://redis.io/commands#set) interface.
 #[async_trait]
 pub trait SetsInterface: ClientLike + Sized {
   /// Add the specified members to the set stored at `key`.

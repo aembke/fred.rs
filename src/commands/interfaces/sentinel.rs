@@ -7,7 +7,7 @@ use crate::{
 use bytes_utils::Str;
 use std::{convert::TryInto, net::IpAddr};
 
-/// Functions that implement the [Sentinel](https://redis.io/topics/sentinel#sentinel-commands) interface.
+/// Functions that implement the [sentinel](https://redis.io/topics/sentinel#sentinel-commands) interface.
 #[async_trait]
 pub trait SentinelInterface: ClientLike + Sized {
   /// Check if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the

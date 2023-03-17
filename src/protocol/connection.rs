@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     codec::RedisCodec,
-    command::{RedisCommand, RedisCommandKind},
+    command::{RedisCommand, RedisCommandKind, RouterResponse},
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
@@ -34,7 +34,6 @@ use std::{
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
-use crate::protocol::command::RouterResponse;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]

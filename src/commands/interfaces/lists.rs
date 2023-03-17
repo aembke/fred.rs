@@ -6,7 +6,7 @@ use crate::{
 };
 use std::convert::TryInto;
 
-/// Functions that implement the [Lists](https://redis.io/commands#lists) interface.
+/// Functions that implement the [lists](https://redis.io/commands#lists) interface.
 #[async_trait]
 pub trait ListInterface: ClientLike + Sized {
   /// The blocking variant of [Self::lmpop].

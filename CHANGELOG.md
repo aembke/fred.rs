@@ -8,6 +8,7 @@
 * Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
 * Rework the sentinel interface to more reliably handle failover scenarios.
 * Fix several bugs related to detecting closed connections.
+* Support the `functions` interface.
 * Add `Script`, `Library`, and `Function` structs. 
 * Add `Message` and `MessageKind` pubsub structs. 
 * Add a DNS configuration interface.

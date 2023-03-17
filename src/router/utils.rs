@@ -24,7 +24,7 @@ use tokio::{
   sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
 };
 
-#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+#[cfg(all(feature = "metrics", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(feature = "check-unresponsive")]
 use futures::future::Either;

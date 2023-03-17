@@ -15,7 +15,7 @@ use crate::{
 use bytes_utils::Str;
 use std::collections::HashMap;
 
-/// Functions that implement the [CLIENT](https://redis.io/commands#connection) interface.
+/// Functions that implement the [client](https://redis.io/commands#connection) interface.
 #[async_trait]
 pub trait ClientInterface: ClientLike + Sized {
   /// Return the ID of the current connection.
