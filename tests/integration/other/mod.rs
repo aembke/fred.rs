@@ -184,12 +184,12 @@ pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) 
 pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let count: i64 = 200;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   let _ = client.flushall_cluster().await?;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
     assert!(value.is_none());
   }
@@ -217,7 +217,7 @@ pub async fn should_safely_change_protocols_repeatedly(
   });
 
   // switch protocols every half second
-  for idx in 0..15 {
+  for idx in 0 .. 15 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
@@ -253,7 +253,7 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
   let mut tasks = Vec::with_capacity(num_tasks);
   let counter = Arc::new(AtomicUsize::new(0));
 
-  for idx in 0..num_tasks {
+  for idx in 0 .. num_tasks {
     let client = pool.next().clone();
     let counter = counter.clone();
 
@@ -314,14 +314,14 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let other = client.clone();
   let jh1 = tokio::spawn(async move {
-    for _ in 0..200 {
+    for _ in 0 .. 200 {
       let _ = other.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
   });
   let jh2 = tokio::spawn(async move {
-    for _ in 0..200 {
+    for _ in 0 .. 200 {
       let _ = client.flushall_cluster().await?;
     }
 
