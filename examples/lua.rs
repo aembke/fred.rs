@@ -1,5 +1,8 @@
-use fred::types::{Library, Script};
-use fred::{prelude::*, util as fred_utils};
+use fred::{
+  prelude::*,
+  types::{Library, Script},
+  util as fred_utils,
+};
 
 static SCRIPTS: &'static [&'static str] = &[
   "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",
@@ -10,8 +13,7 @@ static SCRIPTS: &'static [&'static str] = &[
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let client = RedisClient::new(config, None, None);
+  let client = RedisClient::default();
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -37,8 +39,7 @@ async fn main() -> Result<(), RedisError> {
 
 // or use the `Script` utility types
 async fn scripts() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let client = RedisClient::new(config, None, None);
+  let client = RedisClient::default();
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -50,10 +51,9 @@ async fn scripts() -> Result<(), RedisError> {
   Ok(())
 }
 
-// or use the `Function` and `Library` utility types
+// use the `Function` and `Library` utility types
 async fn functions() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let client = RedisClient::new(config, None, None);
+  let client = RedisClient::default();
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 

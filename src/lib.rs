@@ -60,8 +60,9 @@ pub extern crate rustls;
 pub extern crate rustls_native_certs;
 #[cfg(feature = "serde-json")]
 pub extern crate serde_json;
-#[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
-extern crate tracing;
+#[cfg(feature = "partial-tracing")]
+#[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
+pub extern crate tracing;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 extern crate tracing_futures;
 
@@ -70,8 +71,8 @@ mod macros;
 
 mod commands;
 mod modules;
-mod router;
 mod protocol;
+mod router;
 mod trace;
 mod utils;
 
