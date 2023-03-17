@@ -1,4 +1,4 @@
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
 use crate::types::{HostMapping, TlsHostMapping};
 #[cfg(feature = "replicas")]
 use crate::{
