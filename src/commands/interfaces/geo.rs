@@ -18,7 +18,7 @@ use crate::{
 };
 use std::convert::TryInto;
 
-/// Functions that implement the [GEO](https://redis.io/commands#geo) interface.
+/// Functions that implement the [geo](https://redis.io/commands#geo) interface.
 #[async_trait]
 pub trait GeoInterface: ClientLike + Sized {
   /// Adds the specified geospatial items (longitude, latitude, name) to the specified key.

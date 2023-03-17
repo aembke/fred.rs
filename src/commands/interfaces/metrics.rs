@@ -3,7 +3,7 @@ use crate::interfaces::ClientLike;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::Stats;
 
-/// Functions that implement the internal metrics interface, largely controlled by the `metrics` feature flag.
+/// Functions that implement the internal metrics interface.
 pub trait MetricsInterface: ClientLike + Sized {
   /// Read the number of request redeliveries.
   ///

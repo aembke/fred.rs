@@ -1,46 +1,7 @@
 #![cfg_attr(docsrs, deny(rustdoc::broken_intra_doc_links))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
-
-//! Fred
-//! ====
-//!
-//! An async client library for [Redis](https://redis.io/) built on Tokio and Futures.
-//!
-//! ## Examples
-//!
-//! ```rust edition2018 no_run
-//! use fred::prelude::*;
-//! use std::future::Future;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), RedisError> {
-//!   let config = RedisConfig::default();
-//!   let policy = ReconnectPolicy::default();
-//!   let perf = PerformanceConfig::default();
-//!   let client = RedisClient::new(config, Some(perf), Some(policy));
-//!
-//!   // connect to the server, returning a handle to a task that drives the connection
-//!   let _ = client.connect();
-//!   let _ = client.wait_for_connect().await?;
-//!
-//!   // convert responses to many common Rust types
-//!   let foo: Option<String> = client.get("foo").await?;
-//!   assert!(foo.is_none());
-//!
-//!   let _: () = client.set("foo", "bar", None, None, false).await?;
-//!   // or use turbofish to declare types. the first type is always the response.
-//!   println!("Foo: {:?}", client.get::<String, _>("foo".to_owned()).await?);
-//!   // or use a lower level interface for responses to defer parsing, etc
-//!   let foo: RedisValue = client.get("foo").await?;
-//!   assert_eq!(foo.as_str().unwrap(), "bar");
-//!
-//!   let _ = client.quit().await?;
-//!   Ok(())
-//! }
-//! ```
-//!
-//! See the [github repository](https://github.com/aembke/fred.rs) for more examples.
+#![doc = include_str!("../README.md")]
 
 #[macro_use]
 extern crate async_trait;

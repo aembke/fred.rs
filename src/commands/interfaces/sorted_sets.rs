@@ -21,7 +21,7 @@ use crate::{
 };
 use std::convert::TryInto;
 
-/// Functions that implement the [Sorted Sets](https://redis.io/commands#sorted_set) interface.
+/// Functions that implement the [sorted sets](https://redis.io/commands#sorted_set) interface.
 #[async_trait]
 pub trait SortedSetsInterface: ClientLike + Sized {
   /// The blocking variant of [Self::zmpop].
