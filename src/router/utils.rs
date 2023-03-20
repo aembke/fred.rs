@@ -24,7 +24,7 @@ use tokio::{
   sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
 };
 
-#[cfg(any(feature = "metrics", feature = "partial-tracing"))]
+#[cfg(all(feature = "metrics", feature = "partial-tracing"))]
 use crate::trace;
 #[cfg(feature = "check-unresponsive")]
 use futures::future::Either;
@@ -117,7 +117,8 @@ pub async fn write_command(
 ) -> Written {
   _trace!(
     inner,
-    "Writing command {}. Timed out: {}, Force flush: {}",
+    "Writing {} ({}). Timed out: {}, Force flush: {}",
+    command.kind.to_str_debug(),
     command.debug_id(),
     client_utils::read_bool_atomic(&command.timed_out),
     force_flush
@@ -156,12 +157,12 @@ pub async fn write_command(
 
   _trace!(
     inner,
-    "Sending command {} to {}, ID: {}",
+    "Sending command {} ({}) to {}",
     command.kind.to_str_debug(),
-    writer.server,
-    command.debug_id()
+    command.debug_id(),
+    writer.server
   );
-  writer.push_command(command);
+  writer.push_command(inner, command);
   if let Err(e) = writer.write_frame(frame, should_flush).await {
     let mut command = match writer.pop_recent_command() {
       Some(cmd) => cmd,
@@ -243,9 +244,10 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
 
 /// Check whether to drop the frame if it was sent in response to a pubsub command as a part of an unknown number of
 /// response frames.
-///
-/// This is a special case for when PUNSUBSCRIBE or SUNSUBSCRIBE are called without arguments, which has the effect of
-/// unsubscribing from every channel and sending one message per channel to the client in response.
+// This is a special case for when UNSUBSCRIBE, PUNSUBSCRIBE, or SUNSUBSCRIBE are called without arguments, which has
+// the effect of unsubscribing from every channel and sending one message per channel to the client in response.
+// However, in this scenario the client does not know how many responses to expect, so we discard all of them unless
+// we know the client expects the current response frame.
 pub fn should_drop_extra_pubsub_frame(
   inner: &Arc<RedisClientInner>,
   command: &RedisCommand,
@@ -258,11 +260,11 @@ pub fn should_drop_extra_pubsub_frame(
         (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
           && data[1]
             .as_str()
-            .map(|s| s == "punsubscribe" || s == "sunsubscribe")
+            .map(|s| s == "unsubscribe" || s == "punsubscribe" || s == "sunsubscribe")
             .unwrap_or(false))
           || (data[0]
             .as_str()
-            .map(|s| s == "punsubscribe" || s == "sunsubscribe")
+            .map(|s| s == "unsubscribe" || s == "punsubscribe" || s == "sunsubscribe")
             .unwrap_or(false))
       } else {
         false
@@ -274,7 +276,7 @@ pub fn should_drop_extra_pubsub_frame(
   let should_drop = if from_unsubscribe {
     match command.kind {
       // frame is from an unsubscribe call and the current frame expects it, so don't drop it
-      RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => false,
+      RedisCommandKind::Unsubscribe | RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => false,
       // frame is from an unsubscribe call and the current command does not expect it, so drop it
       _ => true,
     }

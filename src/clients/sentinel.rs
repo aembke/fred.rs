@@ -1,90 +1,9 @@
 use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
-  types::{Blocking, PerformanceConfig, ReconnectPolicy, RedisConfig, ReplicaConfig, Server, ServerConfig},
+  types::{PerformanceConfig, ReconnectPolicy, SentinelConfig},
 };
-use redis_protocol::resp3::prelude::RespVersion;
-use std::{default::Default, fmt, sync::Arc};
-
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::types::TlsConfig;
-#[cfg(feature = "partial-tracing")]
-use crate::types::TracingConfig;
-
-/// Configuration options for sentinel clients.
-#[derive(Clone, Debug)]
-#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-pub struct SentinelConfig {
-  /// The hostname for the sentinel node.
-  ///
-  /// Default: `127.0.0.1`
-  pub host:     String,
-  /// The port on which the sentinel node is listening.
-  ///
-  /// Default: `26379`
-  pub port:     u16,
-  /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
-  /// be `None`.
-  ///
-  /// Default: `None`
-  pub username: Option<String>,
-  /// An optional password for the client to use when authenticating.
-  ///
-  /// Default: `None`
-  pub password: Option<String>,
-  /// TLS configuration fields. If `None` the connection will not use TLS.
-  ///
-  /// See the `tls` examples on Github for more information.
-  ///
-  /// Default: `None`
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls:      Option<TlsConfig>,
-  /// Whether or not to enable tracing for this client.
-  ///
-  /// Default: `false`
-  #[cfg(feature = "partial-tracing")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:  TracingConfig,
-}
-
-impl Default for SentinelConfig {
-  fn default() -> Self {
-    SentinelConfig {
-      host: "127.0.0.1".into(),
-      port: 26379,
-      username: None,
-      password: None,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls: None,
-      #[cfg(feature = "partial-tracing")]
-      tracing: TracingConfig::default(),
-    }
-  }
-}
-
-#[doc(hidden)]
-impl From<SentinelConfig> for RedisConfig {
-  fn from(config: SentinelConfig) -> Self {
-    RedisConfig {
-      server: ServerConfig::Centralized {
-        server: Server::new(config.host, config.port),
-      },
-      fail_fast: true,
-      database: None,
-      blocking: Blocking::Block,
-      username: config.username,
-      password: config.password,
-      version: RespVersion::RESP2,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls: config.tls,
-      #[cfg(feature = "partial-tracing")]
-      tracing: config.tracing,
-      #[cfg(feature = "replicas")]
-      replica: ReplicaConfig::default(),
-    }
-  }
-}
+use std::{fmt, sync::Arc};
 
 /// A struct for interacting directly with Sentinel nodes.
 ///
@@ -107,7 +26,7 @@ impl ClientLike for SentinelClient {
   }
 }
 
-impl fmt::Display for SentinelClient {
+impl fmt::Debug for SentinelClient {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("SentinelClient")
       .field("id", &self.inner.id)

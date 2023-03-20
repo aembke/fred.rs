@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     codec::RedisCodec,
-    command::{RedisCommand, RedisCommandKind},
+    command::{RedisCommand, RedisCommandKind, RouterResponse},
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
@@ -897,7 +897,19 @@ impl RedisWriter {
   }
 
   /// Put a command at the back of the command queue.
-  pub fn push_command(&self, cmd: RedisCommand) {
+  pub fn push_command(&self, inner: &Arc<RedisClientInner>, mut cmd: RedisCommand) {
+    if cmd.has_no_responses() {
+      _trace!(
+        inner,
+        "Skip adding `{}` command to response buffer (no expected responses).",
+        cmd.kind.to_str_debug()
+      );
+
+      cmd.respond_to_router(inner, RouterResponse::Continue);
+      cmd.respond_to_caller(Ok(Resp3Frame::Null));
+      return;
+    }
+
     self.buffer.lock().push_back(cmd);
   }
 
@@ -1019,7 +1031,7 @@ pub async fn request_response(
     writer.server
   );
   let frame = command.to_frame(inner.is_resp3())?;
-  writer.push_command(command);
+  writer.push_command(inner, command);
   if let Err(e) = writer.write_frame(frame, true).await {
     _debug!(inner, "Error sending command: {:?}", e);
     let _ = writer.pop_recent_command();

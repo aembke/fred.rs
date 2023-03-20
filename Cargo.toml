@@ -73,10 +73,6 @@ name = "fred"
 test = true
 
 [[example]]
-name = "basic"
-required-features = ["partial-tracing"]
-
-[[example]]
 name = "monitor"
 required-features = ["monitor"]
 
@@ -124,4 +120,3 @@ replicas = []
 # Testing Features
 debug-ids = []
 sentinel-tests = []
-chaos-monkey = ["custom-reconnect-errors"]

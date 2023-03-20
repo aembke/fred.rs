@@ -1,4 +1,4 @@
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
 use crate::types::{HostMapping, TlsHostMapping};
 #[cfg(feature = "replicas")]
 use crate::{
@@ -435,7 +435,7 @@ impl Replicas {
       command.debug_id(),
       replica
     );
-    writer.push_command(command);
+    writer.push_command(inner, command);
     if let Err(e) = writer.write_frame(frame, should_flush).await {
       let command = match writer.pop_recent_command() {
         Some(cmd) => cmd,

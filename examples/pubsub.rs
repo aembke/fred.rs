@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use fred::clients::SubscriberClient;
-use fred::prelude::*;
-use fred::types::PerformanceConfig;
+use fred::{prelude::*, types::PerformanceConfig};
 use futures::stream::StreamExt;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -10,10 +9,7 @@ const COUNT: usize = 60;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let perf = PerformanceConfig::default();
-  let policy = ReconnectPolicy::new_linear(0, 5000, 500);
-  let publisher_client = RedisClient::new(config, Some(perf), Some(policy));
+  let publisher_client = RedisClient::default();
   let subscriber_client = publisher_client.clone_new();
 
   let _ = publisher_client.connect();
@@ -25,12 +21,16 @@ async fn main() -> Result<(), RedisError> {
     let mut message_stream = subscriber_client.on_message();
 
     while let Ok(message) = message_stream.recv().await {
-      println!("Recv {:?} on channel {}", message.value, message.channel);
+      println!(
+        "Recv {} on channel {}",
+        message.value.convert::<i64>()?,
+        message.channel
+      );
     }
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..COUNT {
+  for idx in 0 .. COUNT {
     let _ = publisher_client.publish("foo", idx).await?;
     sleep(Duration::from_millis(1000)).await;
   }
@@ -42,9 +42,7 @@ async fn main() -> Result<(), RedisError> {
 #[cfg(feature = "subscriber-client")]
 async fn subscriber_example() -> Result<(), RedisError> {
   let config = RedisConfig::default();
-  let perf = PerformanceConfig::default();
-  let policy = ReconnectPolicy::new_linear(0, 5000, 500);
-  let subscriber = SubscriberClient::new(config, Some(perf), Some(policy));
+  let subscriber = SubscriberClient::new(config, None, None);
   let _ = subscriber.connect();
   let _ = subscriber.wait_for_connect().await?;
 
@@ -57,24 +55,24 @@ async fn subscriber_example() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  // spawn a task to manage subscription state automatically whenever the client reconnects
+  // spawn a task to sync subscriptions whenever the client reconnects
   let _ = subscriber.manage_subscriptions();
 
   let _ = subscriber.subscribe("foo").await?;
   let _ = subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
-  // if the connection closes after this point for any reason the client will automatically re-subscribe to "foo", "bar*", and "baz*" after reconnecting
+  let _ = subscriber.ssubscribe("abc{123}").await?;
+  // upon reconnecting the client will automatically re-subscribe to the above channels and patterns
   println!("Subscriber channels: {:?}", subscriber.tracked_channels()); // "foo"
   println!("Subscriber patterns: {:?}", subscriber.tracked_patterns()); // "bar*", "baz*"
-  println!("Subscriber sharded channels: {:?}", subscriber.tracked_shard_channels());
+  println!("Subscriber shard channels: {:?}", subscriber.tracked_shard_channels()); // "abc{123}"
 
   let _ = subscriber.unsubscribe("foo").await?;
-  // now it will only automatically re-subscribe to "bar*" and "baz*" after reconnecting
+  // now it will only re-subscribe to "bar*", "baz*", and "abc{123}" after reconnecting
 
   // force a re-subscription call to all channels or patterns
   let _ = subscriber.resubscribe_all().await?;
   // unsubscribe from all channels and patterns
   let _ = subscriber.unsubscribe_all().await?;
-  // the subscriber client also supports all the basic redis commands
   let _ = subscriber.quit().await;
   Ok(())
 }

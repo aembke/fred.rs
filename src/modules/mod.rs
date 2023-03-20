@@ -1,5 +1,5 @@
 pub mod backchannel;
-/// Utility functions for manipulating global values that can affect performance.
+/// Utility functions for reading or changing global config values.
 pub mod globals;
 pub mod inner;
 pub mod metrics;

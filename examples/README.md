@@ -7,14 +7,15 @@ Examples
 * [Publish-Subscribe](./pubsub.rs) - Use multiple clients together with the pubsub interface in a way that survives network interruptions.
 * [Blocking](./blocking.rs) - Use multiple clients with the blocking list interface.
 * [Transactions](./transactions.rs) - Use the MULTI/EXEC interface on a client.
+* [Pipeline](./pipeline.rs) - Use the manual pipeline interface.
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
 * [Prometheus](./prometheus.rs) - Use the metrics interface with prometheus.
 * [Pool](./pool.rs) - Use a redis connection pool. 
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
-* [Serde](./serde.rs) - Use the `serde-json` feature to convert values and responses to JSON automatically.
-* [Custom](./custom.rs) - Send custom commands or operate on RESP protocol frames directly.
+* [Serde](./serde.rs) - Use the `serde-json` feature to convert between Redis types and JSON. 
+* [Custom](./custom.rs) - Send custom commands or operate on RESP frames.
 * [DNS](./dns.rs) - Customize the DNS resolution logic. 
 
-Or check out the [tests](../tests/integration) for more examples.
+Or see the [tests](../tests/integration) for more examples.

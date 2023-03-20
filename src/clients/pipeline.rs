@@ -25,7 +25,7 @@ use crate::{
   modules::{inner::RedisClientInner, response::FromRedis},
   prelude::RedisValue,
   protocol::{
-    command::{RouterCommand, RedisCommand},
+    command::{RedisCommand, RouterCommand},
     responders::ResponseKind,
     utils as protocol_utils,
   },
@@ -36,10 +36,6 @@ use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
-///
-/// The `auto_pipeline` flag on the [PerformanceConfig](crate::types::PerformanceConfig) determines whether
-/// the client will pipeline commands across tasks whereas this struct is used to pipeline commands within one task. A
-/// sequence of commands in a `Pipeline` or `Transaction` cannot be interrupted by other tasks.
 pub struct Pipeline<C: ClientLike> {
   commands: Arc<Mutex<VecDeque<RedisCommand>>>,
   client:   C,

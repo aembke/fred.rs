@@ -4,7 +4,7 @@ use crate::{
   interfaces::{AuthInterface, ClientLike, MetricsInterface, PubsubInterface, RedisResult},
   modules::inner::RedisClientInner,
   prelude::FromRedis,
-  types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig},
+  types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
 };
 use bytes_utils::Str;
 use parking_lot::RwLock;
@@ -27,10 +27,10 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 /// let subscriber = SubscriberClient::new(config, Some(perf), Some(policy));
 /// let _ = subscriber.connect();
 /// let _ = subscriber.wait_for_connect().await?;
-/// // spawn a task that will automatically re-subscribe to channels and patterns as needed
+///
+/// // spawn a task that will re-subscribe to channels and patterns after reconnecting
 /// let _ = subscriber.manage_subscriptions();
 ///
-/// // do pubsub things
 /// let mut message_rx = subscriber.on_message();
 /// let jh = tokio::spawn(async move {
 ///   while let Ok(message) = message_rx.recv().await {
@@ -40,19 +40,14 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 ///
 /// let _ = subscriber.subscribe("foo").await?;
 /// let _ = subscriber.psubscribe("bar*").await?;
-/// // if the subscriber connection closes now for any reason the client will automatically re-subscribe to "foo" and "bar*"
+/// println!("Tracking channels: {:?}", subscriber.tracked_channels()); // foo
+/// println!("Tracking patterns: {:?}", subscriber.tracked_patterns()); // bar*
 ///
-/// // some convenience functions exist as well
-/// println!("Tracking channels: {:?}", subscriber.tracked_channels());
-/// println!("Tracking patterns: {:?}", subscriber.tracked_patterns());
-///
-/// // or force a re-subscription at any time
+/// // force a re-subscription
 /// let _ = subscriber.resubscribe_all().await?;
-/// // or clear all the local state and unsubscribe
+/// // clear all the local state and unsubscribe
 /// let _ = subscriber.unsubscribe_all().await?;
 ///
-/// // basic commands (AUTH, QUIT, INFO, PING, etc) work the same as the `RedisClient`
-/// // additionally, tracing and metrics are supported in the same way as the `RedisClient`
 /// let _ = subscriber.quit().await?;
 /// let _ = jh.await;
 /// ```
@@ -88,16 +83,22 @@ impl MetricsInterface for SubscriberClient {}
 
 #[async_trait]
 impl PubsubInterface for SubscriberClient {
-  async fn subscribe<R, S>(&self, channel: S) -> RedisResult<R>
+  async fn subscribe<R, S>(&self, channels: S) -> RedisResult<R>
   where
     R: FromRedis,
-    S: Into<Str> + Send,
+    S: Into<MultipleStrings> + Send,
   {
-    into!(channel);
+    into!(channels);
 
-    let result = commands::pubsub::subscribe(self, channel.clone()).await;
+    let result = commands::pubsub::subscribe(self, channels.clone()).await;
     if result.is_ok() {
-      self.channels.write().insert(channel);
+      let mut guard = self.channels.write();
+
+      for channel in channels.inner().into_iter() {
+        if let Some(channel) = channel.as_bytes_str() {
+          guard.insert(channel);
+        }
+      }
     }
 
     result.and_then(|r| r.convert())
@@ -123,23 +124,31 @@ impl PubsubInterface for SubscriberClient {
     result.and_then(|r| r.convert())
   }
 
-  async fn unsubscribe<R, S>(&self, channel: S) -> RedisResult<R>
+  async fn unsubscribe<S>(&self, channels: S) -> RedisResult<()>
   where
-    R: FromRedis,
-    S: Into<Str> + Send,
+    S: Into<MultipleStrings> + Send,
   {
-    into!(channel);
+    into!(channels);
 
-    let result = commands::pubsub::unsubscribe(self, channel.clone()).await;
+    let result = commands::pubsub::unsubscribe(self, channels.clone()).await;
     if result.is_ok() {
-      let _ = self.channels.write().remove(&channel);
+      let mut guard = self.channels.write();
+
+      if channels.len() == 0 {
+        guard.clear();
+      } else {
+        for channel in channels.inner().into_iter() {
+          if let Some(channel) = channel.as_bytes_str() {
+            let _ = guard.remove(&channel);
+          }
+        }
+      }
     }
     result.and_then(|r| r.convert())
   }
 
-  async fn punsubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
+  async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<()>
   where
-    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
@@ -181,9 +190,8 @@ impl PubsubInterface for SubscriberClient {
     result.and_then(|r| r.convert())
   }
 
-  async fn sunsubscribe<R, C>(&self, channels: C) -> RedisResult<R>
+  async fn sunsubscribe<C>(&self, channels: C) -> RedisResult<()>
   where
-    R: FromRedis,
     C: Into<MultipleStrings> + Send,
   {
     into!(channels);
@@ -277,38 +285,35 @@ impl SubscriberClient {
   ///
   /// This can be used to sync the client's subscriptions with the server after calling `QUIT`, then `connect`, etc.
   pub async fn resubscribe_all(&self) -> Result<(), RedisError> {
-    let channels = self.tracked_channels();
-    let patterns = self.tracked_patterns();
-    let shard_channels = self.tracked_shard_channels();
+    let channels: Vec<RedisKey> = self.tracked_channels().into_iter().map(|s| s.into()).collect();
+    let patterns: Vec<RedisKey> = self.tracked_patterns().into_iter().map(|s| s.into()).collect();
+    let shard_channels: Vec<RedisKey> = self.tracked_shard_channels().into_iter().map(|s| s.into()).collect();
 
-    for channel in channels.into_iter() {
-      let _ = self.subscribe(channel).await?;
-    }
-    for pattern in patterns.into_iter() {
-      let _ = self.psubscribe(pattern).await?;
-    }
-    for channel in shard_channels.into_iter() {
-      let _ = self.ssubscribe(channel).await?;
-    }
+    let _: () = self.subscribe(channels).await?;
+    let _: () = self.psubscribe(patterns).await?;
+    let _: () = self.ssubscribe(shard_channels).await?;
 
     Ok(())
   }
 
   /// Unsubscribe from all tracked channels and patterns, and remove them from the client cache.
   pub async fn unsubscribe_all(&self) -> Result<(), RedisError> {
-    let channels = mem::replace(&mut *self.channels.write(), BTreeSet::new());
-    let patterns = mem::replace(&mut *self.patterns.write(), BTreeSet::new());
-    let shard_channels = mem::replace(&mut *self.shard_channels.write(), BTreeSet::new());
+    let channels: Vec<RedisKey> = mem::replace(&mut *self.channels.write(), BTreeSet::new())
+      .into_iter()
+      .map(|s| s.into())
+      .collect();
+    let patterns: Vec<RedisKey> = mem::replace(&mut *self.patterns.write(), BTreeSet::new())
+      .into_iter()
+      .map(|s| s.into())
+      .collect();
+    let shard_channels: Vec<RedisKey> = mem::replace(&mut *self.shard_channels.write(), BTreeSet::new())
+      .into_iter()
+      .map(|s| s.into())
+      .collect();
 
-    for channel in channels.into_iter() {
-      let _ = self.unsubscribe(channel).await?;
-    }
-    for pattern in patterns.into_iter() {
-      let _ = self.punsubscribe(pattern).await?;
-    }
-    for channel in shard_channels.into_iter() {
-      let _ = self.sunsubscribe(channel).await?;
-    }
+    let _ = self.unsubscribe(channels).await?;
+    let _ = self.punsubscribe(patterns).await?;
+    let _ = self.sunsubscribe(shard_channels).await?;
 
     Ok(())
   }

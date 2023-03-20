@@ -6,9 +6,23 @@ use crate::{
 };
 use std::convert::TryInto;
 
-/// Functions that implement the [Lists](https://redis.io/commands#lists) interface.
+/// Functions that implement the [lists](https://redis.io/commands#lists) interface.
 #[async_trait]
 pub trait ListInterface: ClientLike + Sized {
+  /// The blocking variant of [Self::lmpop].
+  ///
+  /// <https://redis.io/commands/blmpop/>
+  async fn blmpop<R, K>(&self, timeout: f64, keys: K, direction: LMoveDirection, count: Option<i64>) -> RedisResult<R>
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+  {
+    into!(keys);
+    commands::lists::blmpop(self, timeout, keys, direction, count)
+      .await?
+      .convert()
+  }
+
   /// BLPOP is a blocking list pop primitive. It is the blocking version of LPOP because it blocks the connection when
   /// there are no elements to pop from any of the given lists. An element is popped from the head of the first list
   /// that is non-empty, with the given keys being checked in the order that they are given.
@@ -79,6 +93,18 @@ pub trait ListInterface: ClientLike + Sized {
     )
     .await?
     .convert()
+  }
+
+  /// Pops one or more elements from the first non-empty list key from the list of provided key names.
+  ///
+  /// <https://redis.io/commands/lmpop/>
+  async fn lmpop<R, K>(&self, keys: K, direction: LMoveDirection, count: Option<i64>) -> RedisResult<R>
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
+  {
+    into!(keys);
+    commands::lists::lmpop(self, keys, direction, count).await?.convert()
   }
 
   /// Returns the element at index index in the list stored at key.

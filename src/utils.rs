@@ -832,6 +832,17 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
   })
 }
 
+#[cfg(feature = "check-unresponsive")]
+pub fn abort_network_timeout_task(inner: &Arc<RedisClientInner>) {
+  if let Some(jh) = inner.network_timeouts.take_handle() {
+    _trace!(inner, "Shut down network timeout task.");
+    jh.abort();
+  }
+}
+
+#[cfg(not(feature = "check-unresponsive"))]
+pub fn abort_network_timeout_task(_: &Arc<RedisClientInner>) {}
+
 #[cfg(test)]
 mod tests {
   use super::*;

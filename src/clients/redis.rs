@@ -42,6 +42,12 @@ pub struct RedisClient {
   pub(crate) inner: Arc<RedisClientInner>,
 }
 
+impl Default for RedisClient {
+  fn default() -> Self {
+    RedisClient::new(RedisConfig::default(), None, None)
+  }
+}
+
 impl fmt::Display for RedisClient {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisClient")
@@ -120,8 +126,8 @@ impl RedisClient {
   /// create a list of clients such that each connect to one of the primary nodes in the cluster and functions
   /// as if it were operating against a single centralized Redis server.
   ///
-  /// **The clients returned by this function will not be connected to their associated servers. The caller needs to
-  /// call `connect` on each client before sending any commands.**
+  /// The clients returned by this function will not be connected to their associated servers. The caller needs to
+  /// call `connect` on each client before sending any commands.
   pub fn split_cluster(&self) -> Result<Vec<RedisClient>, RedisError> {
     if self.inner.config.server.is_clustered() {
       commands::server::split(&self.inner)

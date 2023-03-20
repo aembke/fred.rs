@@ -18,13 +18,13 @@ const KEYEVENT_PREFIX: &'static str = "__keyevent@";
 
 fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
   if channel.starts_with(KEYEVENT_PREFIX) {
-    let parts: Vec<&str> = channel.split("@").collect();
-    if parts.len() != 2 {
+    let parts: Vec<&str> = channel.splitn(2, "@").collect();
+    if parts.len() < 2 {
       return None;
     }
 
-    let suffix: Vec<&str> = parts[1].split(":").collect();
-    if suffix.len() != 2 {
+    let suffix: Vec<&str> = parts[1].splitn(2, ":").collect();
+    if suffix.len() < 2 {
       return None;
     }
 
@@ -40,13 +40,13 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
 
     Some(KeyspaceEvent { db, key, operation })
   } else if channel.starts_with(KEYSPACE_PREFIX) {
-    let parts: Vec<&str> = channel.split("@").collect();
-    if parts.len() != 2 {
+    let parts: Vec<&str> = channel.splitn(2, "@").collect();
+    if parts.len() < 2 {
       return None;
     }
 
-    let suffix: Vec<&str> = parts[1].split(":").collect();
-    if suffix.len() != 2 {
+    let suffix: Vec<&str> = parts[1].splitn(2, ":").collect();
+    if suffix.len() < 2 {
       return None;
     }
 

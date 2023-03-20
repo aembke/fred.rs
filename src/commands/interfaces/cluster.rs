@@ -16,7 +16,7 @@ use crate::{
 };
 use bytes_utils::Str;
 
-/// Functions that implement the [CLUSTER](https://redis.io/commands#cluster) interface.
+/// Functions that implement the [cluster](https://redis.io/commands#cluster) interface.
 #[async_trait]
 pub trait ClusterInterface: ClientLike + Sized {
   /// Read the cached cluster state used for routing commands to the correct cluster nodes.

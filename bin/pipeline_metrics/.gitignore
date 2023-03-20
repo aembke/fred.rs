@@ -1,6 +1,0 @@
-.idea
-target
-Cargo.lock
-perf*
-server.log
-output.csv

@@ -457,3 +457,15 @@ pub async fn should_pipeline_with_replicas(client: RedisClient, _: RedisConfig) 
   assert_eq!(result, (1, 2));
   Ok(())
 }
+
+pub async fn should_gracefully_quit(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let client = client.clone_new();
+  let connection = client.connect();
+  let _ = client.wait_for_connect().await?;
+
+  let _: i64 = client.incr("foo").await?;
+  let _ = client.quit().await?;
+  let _ = connection.await;
+
+  Ok(())
+}
