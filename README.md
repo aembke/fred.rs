@@ -19,7 +19,7 @@ async fn main() -> Result<(), RedisError> {
   let config = RedisConfig::default();
   let perf = PerformanceConfig::default();
   let policy = ReconnectPolicy::default();
-  let client = RedisClient::new(config, perf, Some(policy));
+  let client = RedisClient::new(config, Some(perf), Some(policy));
   
   // connect to the server, returning a handle to the task that drives the connection
   let _ = client.connect();
@@ -31,7 +31,7 @@ async fn main() -> Result<(), RedisError> {
   
   let _: () = client.set("foo", "bar", None, None, false).await?;
   // or use turbofish to declare response types
-  println!("Foo: {:?}", client.get<String, _>("foo").await?);
+  println!("Foo: {:?}", client.get::<String, _>("foo").await?);
   
   // or use a lower level interface for responses to defer parsing, etc
   let foo: RedisValue = client.get("foo").await?;
