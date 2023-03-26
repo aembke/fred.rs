@@ -33,6 +33,9 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, sync::Arc};
 
+#[cfg(feature = "client-tracking")]
+use crate::interfaces::TrackingInterface;
+
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
 
@@ -93,6 +96,10 @@ impl SortedSetsInterface for RedisClient {}
 impl HeartbeatInterface for RedisClient {}
 impl StreamsInterface for RedisClient {}
 impl FunctionInterface for RedisClient {}
+
+#[cfg(feature = "client-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+impl TrackingInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.

@@ -1,3 +1,8 @@
+## 6.1.0
+
+* Add a client tracking interface.
+* Add a global config value for broadcast channel capacity.
+
 ## 6.0.0
 
 * Refactored the connection and protocol layer.

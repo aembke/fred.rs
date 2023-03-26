@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.0.0"
+version = "6.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -26,7 +26,8 @@ features = [
   "sentinel-client",
   "sentinel-auth",
   "check-unresponsive",
-  "replicas"
+  "replicas",
+  "client-tracking"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -92,6 +93,10 @@ required-features = ["serde-json"]
 name = "dns"
 required-features = ["dns"]
 
+[[example]]
+name = "client_tracking"
+required-features = ["client-tracking"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active"]
 fallback = []
@@ -117,6 +122,7 @@ sentinel-auth = []
 no-client-setname = []
 check-unresponsive = []
 replicas = []
+client-tracking = []
 # Testing Features
 debug-ids = []
 sentinel-tests = []

@@ -106,6 +106,7 @@ impl AuthInterface for Transaction {}
 impl ServerInterface for Transaction {}
 impl SetsInterface for Transaction {}
 impl SortedSetsInterface for Transaction {}
+impl StreamsInterface for Transaction {}
 impl FunctionInterface for Transaction {}
 
 impl Transaction {

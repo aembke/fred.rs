@@ -1,5 +1,12 @@
 use crate::utils;
 use bytes_utils::Str;
+use std::io::Read;
+
+#[cfg(feature = "client-tracking")]
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::{Message, MessageKind, RedisKey, Server},
+};
 
 /// The type of clients to close.
 ///
@@ -105,5 +112,90 @@ impl ClientUnblockFlag {
       ClientUnblockFlag::Timeout => "TIMEOUT",
       ClientUnblockFlag::Error => "ERROR",
     })
+  }
+}
+
+// TODO move this to a separate file
+
+///
+#[cfg(feature = "client-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Toggle {
+  On,
+  Off,
+}
+
+#[cfg(feature = "client-tracking")]
+impl Toggle {
+  pub(crate) fn to_str(&self) -> &'static str {
+    match self {
+      Toggle::On => "ON",
+      Toggle::Off => "OFF",
+    }
+  }
+
+  pub(crate) fn from_str(s: &str) -> Option<Self> {
+    Some(match s {
+      "ON" | "on" => Toggle::On,
+      "OFF" | "off" => Toggle::Off,
+      _ => return None,
+    })
+  }
+}
+
+#[cfg(feature = "client-tracking")]
+impl TryFrom<&str> for Toggle {
+  type Error = RedisError;
+
+  fn try_from(value: &str) -> Result<Self, Self::Error> {
+    Toggle::from_str(value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+  }
+}
+
+#[cfg(feature = "client-tracking")]
+impl TryFrom<String> for Toggle {
+  type Error = RedisError;
+
+  fn try_from(value: String) -> Result<Self, Self::Error> {
+    Toggle::from_str(&value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+  }
+}
+
+#[cfg(feature = "client-tracking")]
+impl TryFrom<&String> for Toggle {
+  type Error = RedisError;
+
+  fn try_from(value: &String) -> Result<Self, Self::Error> {
+    Toggle::from_str(&value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+  }
+}
+
+#[cfg(feature = "client-tracking")]
+impl From<bool> for Toggle {
+  fn from(value: bool) -> Self {
+    if value {
+      Toggle::On
+    } else {
+      Toggle::Off
+    }
+  }
+}
+
+/// A [client tracking](https://redis.io/docs/manual/client-side-caching/) invalidation message from the provided server.
+#[cfg(feature = "client-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Invalidation {
+  pub keys:   Vec<RedisKey>,
+  pub server: Server,
+}
+
+#[cfg(feature = "client-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+impl Invalidation {
+  ///
+  pub fn from_message(message: &Message) -> Option<Self> {
+    unimplemented!()
   }
 }

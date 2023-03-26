@@ -15,6 +15,13 @@ use crate::{
 use bytes_utils::Str;
 use std::collections::HashMap;
 
+use crate::prelude::RedisErrorKind;
+#[cfg(feature = "client-tracking")]
+use crate::{
+  error::RedisError,
+  types::{MultipleStrings, Toggle},
+};
+
 /// Functions that implement the [client](https://redis.io/commands#connection) interface.
 #[async_trait]
 pub trait ClientInterface: ClientLike + Sized {
@@ -137,5 +144,81 @@ pub trait ClientInterface: ClientLike + Sized {
   /// A convenience function to unblock any blocked connection on this client.
   async fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> RedisResult<()> {
     commands::client::unblock_self(self, flag).await
+  }
+
+  /// This command enables the tracking feature of the Redis server that is used for server assisted client side
+  /// caching.
+  ///
+  /// <https://redis.io/commands/client-tracking/>
+  ///
+  /// Note: **This function requires a centralized server**. See
+  /// [crate::interfaces::TrackingInterface::start_tracking] for a version that works with all server deployment
+  /// modes.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  async fn client_tracking<R, T, P>(
+    &self,
+    toggle: T,
+    redirect: Option<i64>,
+    prefixes: P,
+    bcast: bool,
+    optin: bool,
+    optout: bool,
+    noloop: bool,
+  ) -> RedisResult<R>
+  where
+    R: FromRedis,
+    T: TryInto<Toggle> + Send,
+    T::Error: Into<RedisError> + Send,
+    P: Into<MultipleStrings> + Send,
+  {
+    if self.inner().config.server.is_clustered() {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Invalid server type. Expected centralized server.",
+      ));
+    }
+
+    unimplemented!()
+  }
+
+  /// The command returns information about the current client connection's use of the server assisted client side
+  /// caching feature.
+  ///
+  /// <https://redis.io/commands/client-trackinginfo/>
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  async fn client_trackinginfo<R>(&self) -> RedisResult<R> {
+    unimplemented!()
+  }
+
+  /// This command returns the client ID we are redirecting our tracking notifications to.
+  ///
+  /// <https://redis.io/commands/client-getredir/>
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  async fn client_getredir<R>(&self) -> RedisResult<R> {
+    unimplemented!()
+  }
+
+  /// This command controls the tracking of the keys in the next command executed by the connection, when tracking is
+  /// enabled in OPTIN or OPTOUT mode.
+  ///
+  /// <https://redis.io/commands/client-caching/>
+  ///
+  /// Note: **This function requires a centralized server**. See
+  /// [crate::interfaces::TrackingInterface::caching] for a version that works with all server deployment
+  /// modes.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  async fn client_caching<R>(self, yes: bool) -> RedisResult<()> {
+    if self.inner().config.server.is_clustered() {
+      return Err(RedisError::new(
+        RedisErrorKind::Config,
+        "Invalid server type. Expected centralized server.",
+      ));
+    }
+
+    unimplemented!()
   }
 }

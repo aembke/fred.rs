@@ -347,3 +347,5 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+#[cfg(feature = "client-tracking")]
+pub use crate::commands::interfaces::tracking::TrackingInterface;
