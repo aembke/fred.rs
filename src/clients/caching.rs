@@ -95,8 +95,7 @@ impl ClientLike for Caching {
 
   #[doc(hidden)]
   fn change_command(&self, cmd: &mut RedisCommand) {
-    // TODO cmd.client_caching: self.is_enabled()
-    unimplemented!()
+    cmd.caching = Some(utils::read_bool_atomic(&self.enabled));
   }
 }
 

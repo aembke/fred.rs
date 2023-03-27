@@ -31,10 +31,13 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Stream;
-use std::{fmt, sync::Arc};
+use std::{
+  fmt,
+  sync::{atomic::AtomicBool, Arc},
+};
 
 #[cfg(feature = "client-tracking")]
-use crate::interfaces::TrackingInterface;
+use crate::{clients::Caching, interfaces::TrackingInterface};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
@@ -248,12 +251,17 @@ impl RedisClient {
   }
 
   /// Create a client that interacts with replica nodes.
-  ///
-  /// Note: This interface will share and expand the underlying connections, if necessary.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn replicas(&self) -> Replicas {
     Replicas::from(&self.inner)
+  }
+
+  /// Send a [CLIENT CACHING yes|no](https://redis.io/commands/client-caching/) command before subsequent commands.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  pub fn caching(&self, enabled: bool) -> Caching {
+    Caching::new(&self.inner, enabled)
   }
 }
 

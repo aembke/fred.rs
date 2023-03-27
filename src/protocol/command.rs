@@ -155,12 +155,15 @@ pub enum RedisCommandKind {
   ClientKill,
   ClientList,
   ClientGetName,
-  ClientGetRedir,
   ClientPause,
   ClientUnpause,
   ClientUnblock,
   ClientReply,
   ClientSetname,
+  ClientGetRedir,
+  ClientTracking,
+  ClientTrackingInfo,
+  ClientCaching,
   ClusterAddSlots,
   ClusterCountFailureReports,
   ClusterCountKeysInSlot,
@@ -570,13 +573,16 @@ impl RedisCommandKind {
       RedisCommandKind::ClientInfo => "CLIENT INFO",
       RedisCommandKind::ClientKill => "CLIENT KILL",
       RedisCommandKind::ClientList => "CLIENT LIST",
-      RedisCommandKind::ClientGetRedir => "CLIENT GETREDIR",
       RedisCommandKind::ClientGetName => "CLIENT GETNAME",
       RedisCommandKind::ClientPause => "CLIENT PAUSE",
       RedisCommandKind::ClientUnpause => "CLIENT UNPAUSE",
       RedisCommandKind::ClientUnblock => "CLIENT UNBLOCK",
       RedisCommandKind::ClientReply => "CLIENT REPLY",
       RedisCommandKind::ClientSetname => "CLIENT SETNAME",
+      RedisCommandKind::ClientGetRedir => "CLIENT GETREDIR",
+      RedisCommandKind::ClientTracking => "CLIENT TRACKING",
+      RedisCommandKind::ClientTrackingInfo => "CLIENT TRACKINGINFO",
+      RedisCommandKind::ClientCaching => "CLIENT CACHING",
       RedisCommandKind::ClusterAddSlots => "CLUSTER ADDSLOTS",
       RedisCommandKind::ClusterCountFailureReports => "CLUSTER COUNT-FAILURE-REPORTS",
       RedisCommandKind::ClusterCountKeysInSlot => "CLUSTER COUNTKEYSINSLOT",
@@ -871,12 +877,15 @@ impl RedisCommandKind {
       | RedisCommandKind::ClientKill
       | RedisCommandKind::ClientList
       | RedisCommandKind::ClientGetName
-      | RedisCommandKind::ClientGetRedir
       | RedisCommandKind::ClientPause
       | RedisCommandKind::ClientUnpause
       | RedisCommandKind::ClientUnblock
       | RedisCommandKind::ClientReply
-      | RedisCommandKind::ClientSetname => "CLIENT",
+      | RedisCommandKind::ClientSetname
+      | RedisCommandKind::ClientCaching
+      | RedisCommandKind::ClientTrackingInfo
+      | RedisCommandKind::ClientTracking
+      | RedisCommandKind::ClientGetRedir => "CLIENT",
       RedisCommandKind::ClusterAddSlots
       | RedisCommandKind::ClusterCountFailureReports
       | RedisCommandKind::ClusterCountKeysInSlot
@@ -1181,7 +1190,6 @@ impl RedisCommandKind {
       RedisCommandKind::ClientInfo => "INFO",
       RedisCommandKind::ClientKill => "KILL",
       RedisCommandKind::ClientList => "LIST",
-      RedisCommandKind::ClientGetRedir => "GETREDIR",
       RedisCommandKind::ClientGetName => "GETNAME",
       RedisCommandKind::ClientPause => "PAUSE",
       RedisCommandKind::ClientUnpause => "UNPAUSE",
@@ -1190,6 +1198,10 @@ impl RedisCommandKind {
       RedisCommandKind::ClientSetname => "SETNAME",
       RedisCommandKind::ConfigGet => "GET",
       RedisCommandKind::ConfigRewrite => "REWRITE",
+      RedisCommandKind::ClientGetRedir => "GETREDIR",
+      RedisCommandKind::ClientTracking => "TRACKING",
+      RedisCommandKind::ClientTrackingInfo => "TRACKINGINFO",
+      RedisCommandKind::ClientCaching => "CACHING",
       RedisCommandKind::ConfigSet => "SET",
       RedisCommandKind::ConfigResetStat => "RESETSTAT",
       RedisCommandKind::MemoryDoctor => "DOCTOR",
@@ -1253,7 +1265,8 @@ impl RedisCommandKind {
       | RedisCommandKind::Fcall
       | RedisCommandKind::FcallRO
       | RedisCommandKind::Wait => true,
-      // can be changed by the BLOCKING args
+      // default is false, but can be changed by the BLOCKING args. the RedisCommand::can_pipeline function checks the
+      // args too.
       RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => false,
       RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
       _ => false,
@@ -1365,6 +1378,9 @@ pub struct RedisCommand {
   /// A counter to differentiate unique commands.
   #[cfg(feature = "debug-ids")]
   pub counter:           usize,
+  /// Whether to send a `CLIENT CACHING yes|no` before the command.
+  #[cfg(feature = "client-tracking")]
+  pub caching:           Option<bool>,
 }
 
 impl Drop for RedisCommand {

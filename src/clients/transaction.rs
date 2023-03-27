@@ -18,17 +18,6 @@ use std::{collections::VecDeque, fmt, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A client struct for commands in a `MULTI`/`EXEC` transaction block.
-///
-/// ```rust no_run no_compile
-/// let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
-///
-/// let trx = client.multi();
-/// let _ = trx.get("foo").await?; // returns QUEUED
-/// let _ = trx.get("bar").await?; // returns QUEUED
-///
-/// let (foo, bar): (i64, i64) = trx.exec(false).await?;
-/// assert_eq!((foo, bar), (1, 2));
-/// ```
 pub struct Transaction {
   id:        u64,
   inner:     Arc<RedisClientInner>,
@@ -152,7 +141,7 @@ impl Transaction {
     }
   }
 
-  /// Executes all previously queued commands in a transaction and restores the connection state to normal.
+  /// Executes all previously queued commands in a transaction.
   ///
   /// If `abort_on_error` is `true` the client will automatically send `DISCARD` if an error is received from
   /// any of the commands prior to `EXEC`. This does **not** apply to `MOVED` or `ASK` errors, which wll be followed
@@ -160,15 +149,20 @@ impl Transaction {
   ///
   /// <https://redis.io/commands/exec>
   ///
-  /// ```rust no_run no_compile
-  /// let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
+  /// ```rust no_run
+  /// # use fred::prelude::*;
   ///
-  /// let trx = client.multi();
-  /// let _ = trx.get("foo").await?; // returns QUEUED
-  /// let _ = trx.get("bar").await?; // returns QUEUED
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
   ///
-  /// let result: (i64, i64) = trx.exec(false).await?;
-  /// assert_eq!(results, (1, 2));
+  ///   let trx = client.multi();
+  ///   let _: () = trx.get("foo").await?; // returns QUEUED
+  ///   let _: () = trx.get("bar").await?; // returns QUEUED
+  ///
+  ///   let (foo, bar): (i64, i64) = trx.exec(false).await?;
+  ///   assert_eq!((foo, bar), (1, 2));
+  ///   Ok(())
+  /// }
   /// ```
   pub async fn exec<R>(self, abort_on_error: bool) -> Result<R, RedisError>
   where
@@ -190,7 +184,7 @@ impl Transaction {
     self.watched.lock().extend(keys.into().inner());
   }
 
-  /// Flushes all previously queued commands in a transaction and restores the connection state to normal.
+  /// Flushes all previously queued commands in a transaction.
   ///
   /// <https://redis.io/commands/discard>
   pub async fn discard(self) -> Result<(), RedisError> {
