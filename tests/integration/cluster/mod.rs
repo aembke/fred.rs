@@ -24,7 +24,6 @@ pub async fn should_use_each_cluster_node(client: RedisClient, _: RedisConfig) -
     servers.push(server_addr);
   }
 
-  // can't directly compare them since the client response has IP addrs but the connections may have hostnames
   assert_eq!(servers.len(), connections.len());
   Ok(())
 }

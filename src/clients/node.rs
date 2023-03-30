@@ -1,5 +1,7 @@
 use crate::{
   clients::{Pipeline, RedisClient},
+  commands,
+  error::RedisError,
   interfaces::{
     AclInterface,
     AuthInterface,
@@ -23,8 +25,10 @@ use crate::{
   },
   modules::inner::RedisClientInner,
   protocol::command::RedisCommand,
-  types::Server,
+  types::{ScanResult, ScanType, Server},
 };
+use bytes_utils::Str;
+use futures::Stream;
 use std::sync::Arc;
 
 /// A struct for interacting with individual nodes in a cluster.
@@ -69,6 +73,24 @@ impl Node {
   /// Send a series of commands in a pipeline to the cluster node.
   pub fn pipeline(&self) -> Pipeline<Node> {
     Pipeline::from(self.clone())
+  }
+
+  /// Incrementally iterate over a set of keys matching the `pattern` argument, returning `count` results per page, if
+  /// specified.
+  ///
+  /// The scan operation can be canceled by dropping the returned stream.
+  ///
+  /// <https://redis.io/commands/scan>
+  pub fn scan<P>(
+    &self,
+    pattern: P,
+    count: Option<u32>,
+    r#type: Option<ScanType>,
+  ) -> impl Stream<Item = Result<ScanResult, RedisError>>
+  where
+    P: Into<Str>,
+  {
+    commands::scan::scan(&self.inner, pattern.into(), count, r#type, Some(self.server.clone()))
   }
 }
 

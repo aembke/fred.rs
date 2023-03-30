@@ -256,6 +256,8 @@ pub struct Message {
 pub struct KeyScanInner {
   /// The hash slot for the command.
   pub hash_slot:  Option<u16>,
+  /// An optional server override.
+  pub server:     Option<Server>,
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
