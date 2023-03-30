@@ -29,8 +29,8 @@ async fn main() -> Result<(), RedisError> {
   println!("foo: {}", client.caching(true).incr::<i64, _>("foo").await?);
   let _ = client.stop_tracking().await?;
 
-  // or use the basic interface against a centralized server. the above interface will be easier and more reliable for
-  // almost all use cases, however.
+  // or use the basic interface against a centralized server. however, the above interface will be easier and more
+  // reliable for almost all use cases.
   let subscriber = RedisClient::default();
   let client = RedisClient::default();
 
@@ -40,13 +40,17 @@ async fn main() -> Result<(), RedisError> {
   let _ = subscriber.wait_for_connect().await?;
   let _ = client.wait_for_connect().await?;
 
-  // the invalidation subscriber interface is the same as above even in RESP2 mode
+  // the invalidation subscriber interface is the same as above even in RESP2 mode **as long as the `client-tracking`
+  // feature is enabled**. if the feature is disabled then the message will appear on the `on_message` receiver.
   let mut invalidations = subscriber.on_invalidation();
   tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
       println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
     }
   });
+  // in RESP2 mode we must manually subscribe to the invalidation channel. the `start_tracking` function does this
+  // automatically with the RESP3 interface.
+  let _: () = subscriber.subscribe("__redis__:invalidate").await?;
 
   // enable client tracking, sending invalidation messages to the subscriber client
   let (_, connection_id) = subscriber

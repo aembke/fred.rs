@@ -194,7 +194,7 @@ pub struct Invalidation {
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 impl Invalidation {
   ///
-  pub fn from_message(message: &Message) -> Option<Self> {
+  pub fn from_message(message: Message) -> Option<Self> {
     unimplemented!()
   }
 }
