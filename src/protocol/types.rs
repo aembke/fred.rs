@@ -176,6 +176,12 @@ impl From<(&str, u16)> for Server {
   }
 }
 
+impl From<&Server> for Server {
+  fn from(value: &Server) -> Self {
+    value.clone()
+  }
+}
+
 impl Display for Server {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}:{}", self.host, self.port)

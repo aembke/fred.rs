@@ -1369,6 +1369,8 @@ pub struct RedisCommand {
   pub network_start:     Option<Instant>,
   /// Whether to route the command to a replica, if possible.
   pub use_replica:       bool,
+  /// Only send the command to the provided server.
+  pub cluster_node:      Option<Server>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
   pub created:           Instant,
@@ -1432,13 +1434,16 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      cluster_node: None,
+      network_start: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 }
@@ -1457,13 +1462,16 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      cluster_node: None,
+      network_start: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 }
@@ -1482,13 +1490,16 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      network_start: None,
+      cluster_node: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 }
@@ -1508,37 +1519,43 @@ impl RedisCommand {
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      cluster_node: None,
+      network_start: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
-      kind:                                       RedisCommandKind::Asking,
-      arguments:                                  Vec::new(),
-      response:                                   ResponseKind::Skip,
-      hasher:                                     ClusterHash::Custom(hash_slot),
-      timed_out:                                  Arc::new(AtomicBool::new(false)),
-      router_tx:                                  Arc::new(Mutex::new(None)),
-      attempted:                                  0,
-      can_pipeline:                               false,
-      skip_backpressure:                          true,
-      transaction_id:                             None,
-      use_replica:                                false,
+      kind:                                        RedisCommandKind::Asking,
+      arguments:                                   Vec::new(),
+      response:                                    ResponseKind::Skip,
+      hasher:                                      ClusterHash::Custom(hash_slot),
+      timed_out:                                   Arc::new(AtomicBool::new(false)),
+      router_tx:                                   Arc::new(Mutex::new(None)),
+      attempted:                                   0,
+      can_pipeline:                                false,
+      skip_backpressure:                           true,
+      transaction_id:                              None,
+      use_replica:                                 false,
+      cluster_node:                                None,
+      network_start:                               None,
       #[cfg(feature = "metrics")]
-      created:                                    Instant::now(),
-      network_start:                              None,
+      created:                                     Instant::now(),
       #[cfg(feature = "partial-tracing")]
-      traces:                                     CommandTraces::default(),
+      traces:                                      CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
-      counter:                                    command_counter(),
+      counter:                                     command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching:                                     None,
     }
   }
 
@@ -1673,6 +1690,7 @@ impl RedisCommand {
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
+      cluster_node: self.cluster_node.clone(),
       response,
       use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
@@ -1682,6 +1700,8 @@ impl RedisCommand {
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: self.counter,
+      #[cfg(feature = "client-tracking")]
+      caching: self.caching.clone(),
     }
   }
 

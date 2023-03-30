@@ -1,5 +1,6 @@
 use crate::{
   error::*,
+  globals::globals,
   interfaces,
   modules::backchannel::Backchannel,
   protocol::{
@@ -32,9 +33,6 @@ use tokio::{
   time::sleep,
 };
 
-const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
-
-use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]

@@ -1,6 +1,9 @@
+mod node;
 mod pipeline;
 mod redis;
 mod transaction;
+
+pub use node::Node;
 pub use pipeline::Pipeline;
 pub use redis::RedisClient;
 pub use transaction::Transaction;

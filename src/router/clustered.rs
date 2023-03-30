@@ -46,20 +46,51 @@ pub async fn send_command(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<Server, RedisWriter>,
   state: &ClusterRouting,
-  command: RedisCommand,
+  mut command: RedisCommand,
   force_flush: bool,
 ) -> Result<Written, (RedisError, RedisCommand)> {
-  let server = match find_cluster_node(inner, state, &command) {
-    Some(server) => server,
-    None => {
-      // these errors usually mean the cluster is partially down or misconfigured
-      _warn!(
+  // first check whether the caller specified a specific cluster node that should receive the command
+  let server = if let Some(ref _server) = command.cluster_node {
+    // this `_server` has a lifetime tied to `command`, so we switch `server` to refer to the record in `state` while
+    // we check whether that node exists in the cluster
+    let server = state.slots().iter().find_map(|slot| {
+      if slot.primary == *_server {
+        Some(&slot.primary)
+      } else {
+        None
+      }
+    });
+
+    if let Some(server) = server {
+      server
+    } else {
+      _debug!(
         inner,
-        "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
-        command.cluster_hash()
+        "Respond to caller with error from missing cluster node override ({})",
+        _server
       );
-      return Ok(Written::Sync(command));
-    },
+      command.respond_to_caller(Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Missing cluster node override.",
+      )));
+      command.respond_to_router(inner, RouterResponse::Continue);
+
+      return Ok(Written::Ignore);
+    }
+  } else {
+    // otherwise apply whichever cluster hash policy exists in the command
+    match find_cluster_node(inner, state, &command) {
+      Some(server) => server,
+      None => {
+        // these errors usually mean the cluster is partially down or misconfigured
+        _warn!(
+          inner,
+          "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
+          command.cluster_hash()
+        );
+        return Ok(Written::Sync(command));
+      },
+    }
   };
 
   if let Some(writer) = writers.get_mut(server) {

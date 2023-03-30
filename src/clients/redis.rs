@@ -1,5 +1,5 @@
 use crate::{
-  clients::Pipeline,
+  clients::{Node, Pipeline},
   commands,
   error::{RedisError, RedisErrorKind},
   interfaces::{
@@ -31,10 +31,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Stream;
-use std::{
-  fmt,
-  sync::{atomic::AtomicBool, Arc},
-};
+use std::{fmt, sync::Arc};
 
 #[cfg(feature = "client-tracking")]
 use crate::{clients::Caching, interfaces::TrackingInterface};
@@ -248,6 +245,33 @@ impl RedisClient {
   /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
   pub fn pipeline(&self) -> Pipeline<RedisClient> {
     Pipeline::from(self.clone())
+  }
+
+  /// Send subsequent commands to the provided cluster node.
+  ///
+  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  ///
+  /// The client will still automatically follow `MOVED` errors via this interface. Callers may not notice this, but
+  /// incorrect server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
+  ///
+  /// ```
+  /// # use fred::prelude::*;
+  ///
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   let connections = client.active_connections().await?;
+  ///
+  ///   // ping each node in the cluster individually
+  ///   for server in connections.into_iter() {
+  ///     let _: () = client.with_cluster_node(server).ping().await?;
+  ///   }
+  ///   Ok(())
+  /// }
+  /// ```
+  pub fn with_cluster_node<S>(&self, server: S) -> Node
+  where
+    S: Into<Server>,
+  {
+    Node::new(&self.inner, server.into())
   }
 
   /// Create a client that interacts with replica nodes.

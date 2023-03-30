@@ -1,6 +1,5 @@
 use crate::utils;
 use bytes_utils::Str;
-use std::io::Read;
 
 #[cfg(feature = "client-tracking")]
 use crate::{

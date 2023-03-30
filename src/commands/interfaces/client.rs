@@ -15,10 +15,9 @@ use crate::{
 use bytes_utils::Str;
 use std::collections::HashMap;
 
-use crate::prelude::RedisErrorKind;
 #[cfg(feature = "client-tracking")]
 use crate::{
-  error::RedisError,
+  error::{RedisError, RedisErrorKind},
   types::{MultipleStrings, Toggle},
 };
 
