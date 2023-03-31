@@ -1,18 +1,19 @@
 use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 
-#[tokio::main]
-// see https://redis.io/docs/manual/client-side-caching/ for more information
-async fn main() -> Result<(), RedisError> {
+// this library exposes 2 interfaces for implementing client-side caching - a high level `TrackingInterface` trait
+// that requires RESP3 and works with all deployment types, and a lower level interface that directly exposes the
+// `CLIENT TRACKING` commands but often requires a centralized server config.
+
+async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
   let policy = ReconnectPolicy::new_constant(0, 1000);
   let mut config = RedisConfig::default();
-  // RESP3 is required for the higher level interface provided by the `TrackingInterface` trait
   config.version = RespVersion::RESP3;
 
   let client = RedisClient::new(config, None, Some(policy));
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  // use the higher level interface that works with all deployment types
+  // spawn a task that processes invalidation messages.
   let mut invalidations = client.on_invalidation();
   tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
@@ -29,8 +30,10 @@ async fn main() -> Result<(), RedisError> {
   println!("foo: {}", client.caching(true).incr::<i64, _>("foo").await?);
   let _ = client.stop_tracking().await?;
 
-  // or use the basic interface against a centralized server. however, the above interface will be easier and more
-  // reliable for almost all use cases.
+  Ok(())
+}
+
+async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   let subscriber = RedisClient::default();
   let client = RedisClient::default();
 
@@ -71,6 +74,15 @@ async fn main() -> Result<(), RedisError> {
   let _: () = pipeline.client_caching(true).await?;
   let _: () = pipeline.incr("foo").await?;
   println!("Foo: {}", pipeline.last::<i64>().await?);
+
+  Ok(())
+}
+
+#[tokio::main]
+// see https://redis.io/docs/manual/client-side-caching/ for more information
+async fn main() -> Result<(), RedisError> {
+  resp3_tracking_interface_example().await?;
+  resp2_basic_interface_example().await?;
 
   Ok(())
 }

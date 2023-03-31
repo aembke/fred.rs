@@ -1,4 +1,5 @@
 use crate::{
+  clients::RedisClient,
   error::RedisError,
   interfaces,
   interfaces::{
@@ -48,6 +49,7 @@ use std::{
 ///
 ///   // or reuse the caching interface
 ///   let caching = client.caching(true);
+///   // send `CLIENT CACHING yes` before each `incr` command
 ///   println!("abc: {}", caching.incr::<i64, _>("abc").await?);
 ///   println!("abc: {}", caching.incr::<i64, _>("abc").await?);
 ///   Ok(())

@@ -33,6 +33,12 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::sync::Arc;
 
+#[cfg(feature = "client-tracking")]
+use crate::{
+  interfaces::RedisResult,
+  types::{FromRedis, MultipleStrings, Toggle},
+};
+
 /// A struct for interacting with individual nodes in a cluster.
 ///
 /// See [with_cluster_node](crate::clients::RedisClient::with_cluster_node) for more information.
@@ -97,7 +103,6 @@ impl Node {
 }
 
 impl AclInterface for Node {}
-impl ClientInterface for Node {}
 impl ClusterInterface for Node {}
 impl ConfigInterface for Node {}
 impl GeoInterface for Node {}
@@ -114,3 +119,53 @@ impl SetsInterface for Node {}
 impl SortedSetsInterface for Node {}
 impl StreamsInterface for Node {}
 impl FunctionInterface for Node {}
+
+// remove the restriction on clustered deployments with the basic `CLIENT TRACKING` commands here
+#[async_trait]
+impl ClientInterface for Node {
+  /// This command enables the tracking feature of the Redis server that is used for server assisted client side
+  /// caching.
+  ///
+  /// <https://redis.io/commands/client-tracking/>
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  async fn client_tracking<R, T, P>(
+    &self,
+    toggle: T,
+    redirect: Option<i64>,
+    prefixes: P,
+    bcast: bool,
+    optin: bool,
+    optout: bool,
+    noloop: bool,
+  ) -> RedisResult<R>
+  where
+    R: FromRedis,
+    T: TryInto<Toggle> + Send,
+    T::Error: Into<RedisError> + Send,
+    P: Into<MultipleStrings> + Send,
+  {
+    try_into!(toggle);
+    into!(prefixes);
+    commands::tracking::client_tracking(self, toggle, redirect, prefixes, bcast, optin, optout, noloop)
+      .await?
+      .convert()
+  }
+
+  /// This command controls the tracking of the keys in the next command executed by the connection, when tracking is
+  /// enabled in OPTIN or OPTOUT mode.
+  ///
+  /// <https://redis.io/commands/client-caching/>
+  ///
+  /// Note: **This function requires a centralized server**. See
+  /// [crate::interfaces::TrackingInterface::caching] for a version that works with all server deployment
+  /// modes.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  async fn client_caching<R>(&self, enabled: bool) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::tracking::client_caching(self, enabled).await?.convert()
+  }
+}

@@ -138,6 +138,8 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
   // differently than resp2 array frames. to fix this we convert back to resp2 here if needed.
 
   // TODO check the frame in resp3 here
+  println!("Maybe RESP3 pubsub frame: {:?}", frame);
+
   let (is_resp3_pubsub, is_resp2_pubsub) = check_pubsub_formats(&frame);
   if !is_resp3_pubsub && !is_resp2_pubsub {
     return Some(frame);

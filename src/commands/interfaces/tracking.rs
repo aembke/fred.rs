@@ -1,5 +1,6 @@
 use crate::{
   clients::Caching,
+  commands,
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
   prelude::RedisResult,
@@ -29,19 +30,12 @@ pub trait TrackingInterface: ClientLike + Sized {
   where
     P: Into<MultipleStrings>,
   {
-    if !self.inner().is_resp3() {
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Client tracking requires RESP3.",
-      ));
-    }
-
-    unimplemented!()
+    commands::tracking::start_tracking(self, prefixes.into(), bcast, optin, optout, noloop).await
   }
 
   /// Disable client tracking on all connections.
   async fn stop_tracking(&self) -> RedisResult<()> {
-    unimplemented!()
+    commands::tracking::stop_tracking(self).await
   }
 
   /// Subscribe to invalidation messages from the server(s).

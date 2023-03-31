@@ -178,7 +178,11 @@ pub trait ClientInterface: ClientLike + Sized {
       ));
     }
 
-    unimplemented!()
+    try_into!(toggle);
+    into!(prefixes);
+    commands::tracking::client_tracking(self, toggle, redirect, prefixes, bcast, optin, optout, noloop)
+      .await?
+      .convert()
   }
 
   /// The command returns information about the current client connection's use of the server assisted client side
@@ -187,8 +191,11 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-trackinginfo/>
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_trackinginfo<R>(&self) -> RedisResult<R> {
-    unimplemented!()
+  async fn client_trackinginfo<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::tracking::client_trackinginfo(self).await?.convert()
   }
 
   /// This command returns the client ID we are redirecting our tracking notifications to.
@@ -196,8 +203,11 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-getredir/>
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_getredir<R>(&self) -> RedisResult<R> {
-    unimplemented!()
+  async fn client_getredir<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::tracking::client_getredir(self).await?.convert()
   }
 
   /// This command controls the tracking of the keys in the next command executed by the connection, when tracking is
@@ -210,7 +220,10 @@ pub trait ClientInterface: ClientLike + Sized {
   /// modes.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_caching<R>(self, yes: bool) -> RedisResult<()> {
+  async fn client_caching<R>(&self, enabled: bool) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     if self.inner().config.server.is_clustered() {
       return Err(RedisError::new(
         RedisErrorKind::Config,
@@ -218,6 +231,6 @@ pub trait ClientInterface: ClientLike + Sized {
       ));
     }
 
-    unimplemented!()
+    commands::tracking::client_caching(self, enabled).await?.convert()
   }
 }

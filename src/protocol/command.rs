@@ -417,6 +417,8 @@ pub enum RedisCommandKind {
   _FunctionFlushCluster,
   _FunctionDeleteCluster,
   _FunctionRestoreCluster,
+  // When in RESP3 mode and **not** using the `bcast` arg then we send the command on all cluster node connections
+  _ClientTrackingCluster,
   _Custom(CustomCommand),
 }
 
@@ -825,6 +827,7 @@ impl RedisCommandKind {
       RedisCommandKind::_FunctionFlushCluster => "FUNCTION FLUSH CLUSTER",
       RedisCommandKind::_FunctionDeleteCluster => "FUNCTION DELETE CLUSTER",
       RedisCommandKind::_FunctionRestoreCluster => "FUNCTION RESTORE CLUSTER",
+      RedisCommandKind::_ClientTrackingCluster => "CLIENT TRACKING CLUSTER",
       RedisCommandKind::Fcall => "FCALL",
       RedisCommandKind::FcallRO => "FCALL_RO",
       RedisCommandKind::FunctionDelete => "FUNCTION DELETE",
@@ -1136,6 +1139,7 @@ impl RedisCommandKind {
       | RedisCommandKind::_FunctionLoadCluster => "FUNCTION",
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
+      RedisCommandKind::_ClientTrackingCluster => "CLIENT",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
     };
 
@@ -1230,6 +1234,7 @@ impl RedisCommandKind {
       RedisCommandKind::_FunctionFlushCluster => "FLUSH",
       RedisCommandKind::_FunctionDeleteCluster => "DELETE",
       RedisCommandKind::_FunctionRestoreCluster => "RESTORE",
+      RedisCommandKind::_ClientTrackingCluster => "TRACKING",
       _ => return None,
     };
 
@@ -1280,6 +1285,7 @@ impl RedisCommandKind {
       | RedisCommandKind::_ScriptFlushCluster
       | RedisCommandKind::_ScriptKillCluster
       | RedisCommandKind::_HelloAllCluster(_)
+      | RedisCommandKind::_ClientTrackingCluster
       | RedisCommandKind::_ScriptLoadCluster
       | RedisCommandKind::_FunctionFlushCluster
       | RedisCommandKind::_FunctionDeleteCluster
