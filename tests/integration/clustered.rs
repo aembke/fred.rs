@@ -300,3 +300,8 @@ mod streams {
 mod cluster {
   cluster_test!(cluster, should_use_each_cluster_node);
 }
+
+#[cfg(feature = "client-tracking")]
+mod tracking {
+  cluster_test!(tracking, should_invalidate_foo_resp3);
+}

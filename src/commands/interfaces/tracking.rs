@@ -28,9 +28,10 @@ pub trait TrackingInterface: ClientLike + Sized {
     noloop: bool,
   ) -> RedisResult<()>
   where
-    P: Into<MultipleStrings>,
+    P: Into<MultipleStrings> + Send,
   {
-    commands::tracking::start_tracking(self, prefixes.into(), bcast, optin, optout, noloop).await
+    into!(prefixes);
+    commands::tracking::start_tracking(self, prefixes, bcast, optin, optout, noloop).await
   }
 
   /// Disable client tracking on all connections.

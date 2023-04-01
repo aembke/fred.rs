@@ -23,6 +23,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
 
   // enable client tracking on all connections. it's usually a good idea to do this in an `on_reconnect` block.
   let _ = client.start_tracking(None, false, false, false, false).await?;
+  let _: () = client.get("foo").await?;
 
   // send `CLIENT CACHING yes|no` before subsequent commands. the preceding `CLIENT CACHING yes|no` command will be
   // sent when the command is retried as well.
@@ -81,8 +82,10 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 #[tokio::main]
 // see https://redis.io/docs/manual/client-side-caching/ for more information
 async fn main() -> Result<(), RedisError> {
+  pretty_env_logger::init();
+
   resp3_tracking_interface_example().await?;
-  resp2_basic_interface_example().await?;
+  // resp2_basic_interface_example().await?;
 
   Ok(())
 }

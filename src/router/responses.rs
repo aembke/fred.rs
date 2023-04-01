@@ -69,6 +69,10 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
   }
 }
 
+fn check_message_prefix(s: &str) -> bool {
+  s == "message" || s == "pmessage" || s == "smessage"
+}
+
 /// Check for the various pubsub formats for both RESP2 and RESP3.
 fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
   if frame.is_pubsub_message() {
@@ -84,11 +88,7 @@ fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
 
   // RESP2 and RESP3 differ in that RESP3 contains an additional "pubsub" string frame at the start
   // so here we check the frame contents according to the RESP2 pubsub rules
-  let resp3 = (data.len() == 3 || data.len() == 4)
-    && data[0]
-      .as_str()
-      .map(|s| s == "message" || s == "pmessage" || s == "smessage")
-      .unwrap_or(false);
+  let resp3 = (data.len() == 3 || data.len() == 4) && data[0].as_str().map(check_message_prefix).unwrap_or(false);
 
   (false, resp3)
 }
@@ -98,7 +98,6 @@ fn parse_pubsub_message(frame: Resp3Frame, is_resp3: bool, is_resp2: bool) -> Re
   if is_resp3 {
     protocol_utils::frame_to_pubsub(frame)
   } else if is_resp2 {
-    // this is safe to do in limited circumstances like this since RESP2 and RESP3 pubsub arrays are similar enough
     protocol_utils::parse_as_resp2_pubsub(frame)
   } else {
     Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub message."))
@@ -106,8 +105,8 @@ fn parse_pubsub_message(frame: Resp3Frame, is_resp3: bool, is_resp2: bool) -> Re
 }
 
 #[cfg(feature = "client-tracking")]
-fn broadcast_invalidation(inner: &Arc<RedisClientInner>, message: Message) {
-  if let Some(invalidation) = Invalidation::from_message(message) {
+fn broadcast_pubsub_invalidation(inner: &Arc<RedisClientInner>, message: Message, server: &Server) {
+  if let Some(invalidation) = Invalidation::from_message(message, server) {
     inner.notifications.broadcast_invalidation(invalidation);
   } else {
     _debug!(
@@ -118,27 +117,70 @@ fn broadcast_invalidation(inner: &Arc<RedisClientInner>, message: Message) {
 }
 
 #[cfg(not(feature = "client-tracking"))]
-fn broadcast_invalidation(_: &Arc<RedisClientInner>, _: Message) {}
+fn broadcast_pubsub_invalidation(_: &Arc<RedisClientInner>, _: Message) {}
 
 #[cfg(feature = "client-tracking")]
-fn is_invalidation(message: &Message) -> bool {
+fn is_pubsub_invalidation(message: &Message) -> bool {
   message.channel == INVALIDATION_CHANNEL
 }
 
 #[cfg(not(feature = "client-tracking"))]
-fn is_invalidation(message: &Message) -> bool {
+fn is_pubsub_invalidation(message: &Message) -> bool {
+  false
+}
+
+#[cfg(feature = "client-tracking")]
+fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) {
+  if let Resp3Frame::Push { mut data, .. } = frame {
+    if data.len() != 2 {
+      return;
+    }
+
+    // RESP3 example: Push { data: [BlobString { data: b"invalidate", attributes: None }, Array { data:
+    // [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
+    if let Resp3Frame::Array { data, .. } = data[1].take() {
+      inner.notifications.broadcast_invalidation(Invalidation {
+        keys:   data
+          .into_iter()
+          .filter_map(|f| f.as_bytes().map(|b| b.into()))
+          .collect(),
+        server: server.clone(),
+      })
+    }
+  }
+}
+
+#[cfg(not(feature = "client-tracking"))]
+fn broadcast_resp3_invalidation(_: &Arc<RedisClientInner>, _: Resp3Frame) {}
+
+#[cfg(feature = "client-tracking")]
+fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
+  // RESP3 example: Push { data: [BlobString { data: b"invalidate", attributes: None }, Array { data:
+  // [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
+  if let Resp3Frame::Push { ref data, .. } = frame {
+    data
+      .first()
+      .and_then(|f| f.as_str())
+      .map(|s| s == "invalidate")
+      .unwrap_or(false)
+  } else {
+    false
+  }
+}
+
+#[cfg(not(feature = "client-tracking"))]
+fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
   false
 }
 
 /// Check if the frame is part of a pubsub message, and if so route it to any listeners.
 ///
 /// If not then return it to the caller for further processing.
-pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Resp3Frame> {
-  // in this case using resp3 frames can cause issues, since resp3 push commands are represented
-  // differently than resp2 array frames. to fix this we convert back to resp2 here if needed.
-
-  // TODO check the frame in resp3 here
-  println!("Maybe RESP3 pubsub frame: {:?}", frame);
+pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) -> Option<Resp3Frame> {
+  if is_resp3_invalidation(&frame) {
+    broadcast_resp3_invalidation(inner, server, frame);
+    return None;
+  }
 
   let (is_resp3_pubsub, is_resp2_pubsub) = check_pubsub_formats(&frame);
   if !is_resp3_pubsub && !is_resp2_pubsub {
@@ -146,7 +188,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
   }
 
   let span = trace::create_pubsub_span(inner, &frame);
-  _trace!(inner, "Processing pubsub message.");
+  _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
     let _enter = span.enter();
     parse_pubsub_message(frame, is_resp3_pubsub, is_resp2_pubsub)
@@ -165,8 +207,8 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, frame: Resp3Frame) ->
     span.record("channel", &&*message.channel);
   }
 
-  if is_invalidation(&message) {
-    broadcast_invalidation(inner, message);
+  if is_pubsub_invalidation(&message) {
+    broadcast_pubsub_invalidation(inner, message, server);
   } else {
     if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
       inner.notifications.broadcast_keyspace(event);

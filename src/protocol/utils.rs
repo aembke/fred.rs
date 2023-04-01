@@ -264,9 +264,7 @@ pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<Message, RedisError> {
     return Ok(message);
   }
 
-  // there's a few ways to do this, but i don't want to re-implement the logic in redis_protocol.
-  // the main difference between resp2 and resp3 here is the presence of a "pubsub" string at the
-  // beginning of the push array, so we just add that to the front here.
+  // resp3 has an added "pubsub" simple string frame at the front
   // TODO move and redo this in redis_protocol
   let mut out = Vec::with_capacity(frame.len() + 1);
   out.push(Resp3Frame::SimpleString {

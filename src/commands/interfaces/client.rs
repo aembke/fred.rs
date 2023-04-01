@@ -216,8 +216,8 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-caching/>
   ///
   /// Note: **This function requires a centralized server**. See
-  /// [crate::interfaces::TrackingInterface::caching] for a version that works with all server deployment
-  /// modes.
+  /// [TrackingInterface::caching](crate::interfaces::TrackingInterface::caching) for a version that works with all
+  /// server deployment modes.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
   async fn client_caching<R>(&self, enabled: bool) -> RedisResult<R>

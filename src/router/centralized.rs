@@ -64,7 +64,7 @@ pub fn spawn_reader_task(
         last_error = Some(error);
         break;
       }
-      if let Some(frame) = responses::check_pubsub_message(&inner, frame) {
+      if let Some(frame) = responses::check_pubsub_message(&inner, &server, frame) {
         if let Err(e) = process_response_frame(&inner, &server, &buffer, &counters, frame).await {
           _debug!(inner, "Error processing response frame from {}: {:?}", server, e);
           last_error = Some(e);

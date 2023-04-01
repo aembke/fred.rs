@@ -116,7 +116,7 @@ impl ClientUnblockFlag {
 
 // TODO move this to a separate file
 
-///
+/// An `ON|OFF` flag used with client tracking commands.
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -194,7 +194,8 @@ pub struct Invalidation {
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 impl Invalidation {
   ///
-  pub fn from_message(message: Message) -> Option<Self> {
+  pub(crate) fn from_message(message: Message, server: &Server) -> Option<Self> {
+    println!("Invalidation from message: {:?}", message);
     unimplemented!()
   }
 }

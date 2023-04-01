@@ -79,6 +79,7 @@ pub fn scan_cluster(
       args:       args.clone(),
       cursor_idx: 0,
       tx:         tx.clone(),
+      server:     None,
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
