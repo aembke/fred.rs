@@ -2,8 +2,6 @@ use fred::{
   prelude::*,
   types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig},
 };
-use futures::StreamExt;
-use tokio_stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
@@ -54,7 +52,7 @@ async fn main() -> Result<(), RedisError> {
 
     for server in connections.into_iter() {
       let info: String = client.with_cluster_node(&server).client_info().await?;
-      println!("Client info for {}: {}", connection, info);
+      println!("Client info for {}: {}", server, info);
     }
   }
 
