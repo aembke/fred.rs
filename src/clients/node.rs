@@ -2,7 +2,6 @@ use crate::{
   clients::{Pipeline, RedisClient},
   commands,
   error::RedisError,
-  interfaces,
   interfaces::{
     AclInterface,
     AuthInterface,
@@ -25,7 +24,6 @@ use crate::{
     StreamsInterface,
   },
   modules::inner::RedisClientInner,
-  prelude::RedisErrorKind,
   protocol::command::RedisCommand,
   types::{ScanResult, ScanType, Server},
 };

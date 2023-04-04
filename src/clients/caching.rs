@@ -1,14 +1,7 @@
 use crate::{
-  clients::RedisClient,
-  error::RedisError,
-  interfaces,
   interfaces::{
     AclInterface,
-    AuthInterface,
-    ClientInterface,
     ClientLike,
-    ClusterInterface,
-    ConfigInterface,
     FunctionInterface,
     GeoInterface,
     HashesInterface,
@@ -16,20 +9,12 @@ use crate::{
     KeysInterface,
     ListInterface,
     MemoryInterface,
-    PubsubInterface,
-    ServerInterface,
     SetsInterface,
-    SlowlogInterface,
     SortedSetsInterface,
     StreamsInterface,
   },
-  modules::{inner::RedisClientInner, response::FromRedis},
-  prelude::RedisValue,
-  protocol::{
-    command::{RedisCommand, RouterCommand},
-    responders::ResponseKind,
-    utils as protocol_utils,
-  },
+  modules::inner::RedisClientInner,
+  protocol::command::RedisCommand,
   utils,
 };
 use std::{
@@ -56,6 +41,7 @@ use std::{
 /// }
 /// ```
 #[derive(Clone)]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 pub struct Caching {
   inner:   Arc<RedisClientInner>,
   enabled: Arc<AtomicBool>,

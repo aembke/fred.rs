@@ -1,10 +1,9 @@
 use crate::{
   clients::Caching,
   commands,
-  error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
   prelude::RedisResult,
-  types::{FromRedis, Invalidation, MultipleStrings, RedisKey, Toggle},
+  types::{Invalidation, MultipleStrings},
 };
 use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 

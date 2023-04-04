@@ -1,5 +1,4 @@
 use crate::{
-  commands::TO,
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
   protocol::{
@@ -72,7 +71,7 @@ pub async fn start_tracking<C: ClientLike>(
     ));
   }
 
-  let mut args = tracking_args(Toggle::On, None, prefixes, bcast, optin, optout, noloop);
+  let args = tracking_args(Toggle::On, None, prefixes, bcast, optin, optout, noloop);
   if client.inner().config.server.is_clustered() {
     if bcast {
       // only send the tracking command on one connection when in bcast mode
@@ -110,7 +109,7 @@ pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> 
     ));
   }
 
-  let mut args = vec![static_val!(Toggle::Off.to_str())];
+  let args = vec![static_val!(Toggle::Off.to_str())];
   if client.is_clustered() {
     // turn off tracking on all connections
     let (tx, rx) = oneshot_channel();

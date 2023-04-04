@@ -4,7 +4,7 @@ use bytes_utils::Str;
 #[cfg(feature = "client-tracking")]
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::{Message, MessageKind, RedisKey, RedisValue, Server},
+  types::{Message, RedisKey, RedisValue, Server},
 };
 
 /// The type of clients to close.
