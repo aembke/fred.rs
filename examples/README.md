@@ -17,5 +17,6 @@ Examples
 * [Serde](./serde.rs) - Use the `serde-json` feature to convert between Redis types and JSON. 
 * [Custom](./custom.rs) - Send custom commands or operate on RESP frames.
 * [DNS](./dns.rs) - Customize the DNS resolution logic. 
+* [Client Tracking](./client_tracking.rs) - Implement [client side caching](https://redis.io/docs/manual/client-side-caching/). 
 
 Or see the [tests](../tests/integration) for more examples.

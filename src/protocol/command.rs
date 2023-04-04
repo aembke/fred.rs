@@ -1667,7 +1667,7 @@ impl RedisCommand {
   pub fn respond_to_router(&self, inner: &Arc<RedisClientInner>, cmd: RouterResponse) {
     if let Some(tx) = self.router_tx.lock().take() {
       if tx.send(cmd).is_err() {
-        _warn!(inner, "Failed to unblock router loop.");
+        _debug!(inner, "Failed to unblock router loop.");
       }
     }
   }

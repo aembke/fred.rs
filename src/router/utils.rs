@@ -223,7 +223,6 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
     .drain(..)
     .filter_map(|mut command| {
       if command.has_router_channel() {
-        // TODO double check if this should be `>`
         if command.attempted >= inner.max_command_attempts() {
           let error = error
             .clone()
@@ -464,7 +463,6 @@ pub async fn send_asking_with_policy(
 pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   let mut delay = utils::next_reconnection_delay(inner)?;
 
-  // TODO GATs would make this looping a lot easier to express as a util function
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
@@ -497,7 +495,6 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
 pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   let mut delay = inner.with_perf_config(|config| Duration::from_millis(config.cluster_cache_update_delay_ms as u64));
 
-  // TODO GATs would make this looping a lot easier to express as a util function
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());

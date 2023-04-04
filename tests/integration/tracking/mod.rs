@@ -16,8 +16,8 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
     return Ok(());
   }
 
-  let key: RedisKey = "foo".into();
-  check_null!(client, "foo");
+  let key: RedisKey = "foo{1}".into();
+  check_null!(client, "foo{1}");
 
   let invalidated = Arc::new(AtomicBool::new(false));
   let _invalidated = invalidated.clone();
@@ -32,11 +32,11 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
   });
 
   let _ = client.start_tracking(None, false, false, false, false).await?;
-  let _: () = client.get("foo").await?;
-  let _: () = client.incr("foo").await?;
+  let _: () = client.get("foo{1}").await?;
+  let _: () = client.incr("foo{1}").await?;
 
-  let _: () = client.mget(vec!["foo", "bar"]).await?;
-  let _: () = client.mset(vec![("foo", 1), ("bar", 1)]).await?;
+  let _: () = client.mget(vec!["bar{1}", "baz{1}"]).await?;
+  let _: () = client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
   let _ = client.flushall(false).await?;
 
   sleep(Duration::from_secs(1)).await;
@@ -52,8 +52,8 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
     return Ok(());
   }
 
-  let key: RedisKey = "foo".into();
-  check_null!(client, "foo");
+  let key: RedisKey = "foo{1}".into();
+  check_null!(client, "foo{1}");
   let subscriber = client.clone_new();
   let _ = subscriber.connect();
   let _ = subscriber.wait_for_connect().await?;
@@ -86,12 +86,12 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
   // in resp2 this might take some changes to the pubsub parser if it doesn't work with an array as the message type
 
   // check pubsub messages with one key
-  let _: () = client.get("foo").await?;
-  let _: () = client.incr("foo").await?;
+  let _: () = client.get("foo{1}").await?;
+  let _: () = client.incr("foo{1}").await?;
 
   // check pubsub messages with an array of keys
-  let _: () = client.mget(vec!["foo", "bar"]).await?;
-  let _: () = client.mset(vec![("foo", 1), ("bar", 1)]).await?;
+  let _: () = client.mget(vec!["bar{1}", "baz{1}"]).await?;
+  let _: () = client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
   // check pubsub messages with a null key
   let _ = client.flushall(false).await?;
 

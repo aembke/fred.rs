@@ -117,7 +117,7 @@ fn broadcast_pubsub_invalidation(inner: &Arc<RedisClientInner>, message: Message
 }
 
 #[cfg(not(feature = "client-tracking"))]
-fn broadcast_pubsub_invalidation(_: &Arc<RedisClientInner>, _: Message) {}
+fn broadcast_pubsub_invalidation(_: &Arc<RedisClientInner>, _: Message, _: &Server) {}
 
 #[cfg(feature = "client-tracking")]
 fn is_pubsub_invalidation(message: &Message) -> bool {
@@ -125,7 +125,7 @@ fn is_pubsub_invalidation(message: &Message) -> bool {
 }
 
 #[cfg(not(feature = "client-tracking"))]
-fn is_pubsub_invalidation(message: &Message) -> bool {
+fn is_pubsub_invalidation(_: &Message) -> bool {
   false
 }
 
@@ -151,7 +151,7 @@ fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, 
 }
 
 #[cfg(not(feature = "client-tracking"))]
-fn broadcast_resp3_invalidation(_: &Arc<RedisClientInner>, _: Resp3Frame) {}
+fn broadcast_resp3_invalidation(_: &Arc<RedisClientInner>, _: &Server, _: Resp3Frame) {}
 
 #[cfg(feature = "client-tracking")]
 fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {

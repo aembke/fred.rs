@@ -167,7 +167,7 @@ pub fn parse_shard_pubsub_frame(frame: &Resp3Frame) -> Option<Message> {
             Some(channel) => channel,
             None => return None,
           };
-          let message = match frame_to_single_result(data[data.len() - 1].clone()) {
+          let message = match frame_to_results(data[data.len() - 1].clone()) {
             Ok(message) => message,
             Err(_) => return None,
           };
@@ -239,7 +239,7 @@ pub fn parse_message_fields(frame: &Resp3Frame) -> Result<(Str, RedisValue), Red
     .ok_or(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub channel."))?;
   let channel =
     frame_to_str(&channel).ok_or(RedisError::new(RedisErrorKind::Protocol, "Failed to parse channel."))?;
-  let value = frame_to_single_result(value)?;
+  let value = frame_to_results(value)?;
 
   Ok((channel, value))
 }

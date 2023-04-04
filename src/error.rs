@@ -310,6 +310,14 @@ impl From<ResolveError> for RedisError {
   }
 }
 
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+impl From<serde_json::Error> for RedisError {
+  fn from(e: serde_json::Error) -> Self {
+    RedisError::new(RedisErrorKind::Parse, format!("{:?}", e))
+  }
+}
+
 impl RedisError {
   /// Create a new Redis error with the provided details.
   pub fn new<T>(kind: RedisErrorKind, details: T) -> RedisError

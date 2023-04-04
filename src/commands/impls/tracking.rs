@@ -113,7 +113,6 @@ pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> 
   let mut args = vec![static_val!(Toggle::Off.to_str())];
   if client.is_clustered() {
     // turn off tracking on all connections
-    // TODO what happens if you send CLIENT TRACKING off on a connection where it was never enabled?
     let (tx, rx) = oneshot_channel();
     let response = ResponseKind::new_buffer(tx);
     let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();

@@ -4,7 +4,7 @@ use bytes_utils::Str;
 #[cfg(feature = "client-tracking")]
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::{Message, MessageKind, RedisKey, Server},
+  types::{Message, MessageKind, RedisKey, RedisValue, Server},
 };
 
 /// The type of clients to close.
@@ -114,8 +114,6 @@ impl ClientUnblockFlag {
   }
 }
 
-// TODO move this to a separate file
-
 /// An `ON|OFF` flag used with client tracking commands.
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
@@ -193,9 +191,22 @@ pub struct Invalidation {
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 impl Invalidation {
-  ///
-  pub(crate) fn from_message(message: Message, server: &Server) -> Option<Self> {
-    println!("Invalidation from message: {:?}", message);
-    unimplemented!()
+  pub(crate) fn from_message(message: Message, server: &Server) -> Option<Invalidation> {
+    Some(Invalidation {
+      keys:   match message.value {
+        RedisValue::Array(values) => values.into_iter().filter_map(|v| v.try_into().ok()).collect(),
+        RedisValue::String(s) => vec![s.into()],
+        RedisValue::Bytes(b) => vec![b.into()],
+        RedisValue::Double(f) => vec![f.into()],
+        RedisValue::Integer(i) => vec![i.into()],
+        RedisValue::Boolean(b) => vec![b.into()],
+        RedisValue::Null => vec![],
+        _ => {
+          trace!("Dropping invalid invalidation message.");
+          return None;
+        },
+      },
+      server: server.clone(),
+    })
   }
 }
