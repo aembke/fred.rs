@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.0.0"
+version = "6.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -26,7 +26,8 @@ features = [
   "sentinel-client",
   "sentinel-auth",
   "check-unresponsive",
-  "replicas"
+  "replicas",
+  "client-tracking"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -51,7 +52,7 @@ sha-1 = "0.10"
 rand = "0.8"
 async-trait = "0.1"
 semver = "1.0"
-rustls = { version = "0.20", optional = true }
+rustls = { version = "0.21", optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 tracing = { version = "0.1", optional = true }
@@ -66,6 +67,7 @@ trust-dns-resolver = { version =  "0.22", optional = true }
 prometheus = "0.12"
 base64 = "0.13"
 subprocess = "0.2.7"
+serde = { version = "1.0", features = ["derive"] }
 
 [lib]
 doc = true
@@ -92,6 +94,10 @@ required-features = ["serde-json"]
 name = "dns"
 required-features = ["dns"]
 
+[[example]]
+name = "client_tracking"
+required-features = ["client-tracking"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active"]
 fallback = []
@@ -117,6 +123,7 @@ sentinel-auth = []
 no-client-setname = []
 check-unresponsive = []
 replicas = []
+client-tracking = []
 # Testing Features
 debug-ids = []
 sentinel-tests = []

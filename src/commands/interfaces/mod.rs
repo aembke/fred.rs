@@ -20,5 +20,8 @@ pub mod streams;
 pub mod strings;
 pub mod transactions;
 
+#[cfg(feature = "client-tracking")]
+pub mod tracking;
+
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;

@@ -22,6 +22,9 @@ mod slowlog;
 mod sorted_sets;
 mod streams;
 
+#[cfg(feature = "client-tracking")]
+mod tracking;
+
 pub mod centralized;
 pub mod clustered;
 

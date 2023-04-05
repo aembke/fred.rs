@@ -296,3 +296,12 @@ mod streams {
   cluster_test!(streams, should_xclaim_with_justid);
   cluster_test!(streams, should_xautoclaim_default);
 }
+
+mod cluster {
+  cluster_test!(cluster, should_use_each_cluster_node);
+}
+
+#[cfg(feature = "client-tracking")]
+mod tracking {
+  cluster_test!(tracking, should_invalidate_foo_resp3);
+}

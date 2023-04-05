@@ -1,5 +1,6 @@
 use crate::{
   error::*,
+  globals::globals,
   interfaces,
   modules::backchannel::Backchannel,
   protocol::{
@@ -32,8 +33,6 @@ use tokio::{
   time::sleep,
 };
 
-const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
-
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]
@@ -43,6 +42,9 @@ use std::collections::HashMap;
 
 pub type CommandSender = UnboundedSender<RouterCommand>;
 pub type CommandReceiver = UnboundedReceiver<RouterCommand>;
+
+#[cfg(feature = "client-tracking")]
+use crate::types::Invalidation;
 
 #[derive(Clone)]
 pub struct Notifications {
@@ -64,27 +66,26 @@ pub struct Notifications {
   ///
   /// Emitted when QUIT, SHUTDOWN, etc are called.
   pub close:          BroadcastSender<()>,
+  /// A broadcast channel for the `on_invalidation` interface.
+  #[cfg(feature = "client-tracking")]
+  pub invalidations:  BroadcastSender<Invalidation>,
 }
 
 impl Notifications {
   pub fn new(id: &ArcStr) -> Self {
-    let (errors, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (pubsub, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (keyspace, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (reconnect, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (cluster_change, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (connect, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (close, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let capacity = globals().default_broadcast_channel_capacity();
 
     Notifications {
-      id: id.clone(),
-      errors,
-      pubsub,
-      keyspace,
-      reconnect,
-      cluster_change,
-      connect,
-      close,
+      id:                                                id.clone(),
+      errors:                                            broadcast::channel(capacity).0,
+      pubsub:                                            broadcast::channel(capacity).0,
+      keyspace:                                          broadcast::channel(capacity).0,
+      reconnect:                                         broadcast::channel(capacity).0,
+      cluster_change:                                    broadcast::channel(capacity).0,
+      connect:                                           broadcast::channel(capacity).0,
+      close:                                             broadcast::channel(capacity).0,
+      #[cfg(feature = "client-tracking")]
+      invalidations:                                     broadcast::channel(capacity).0,
     }
   }
 
@@ -127,6 +128,13 @@ impl Notifications {
   pub fn broadcast_close(&self) {
     if let Err(_) = self.close.send(()) {
       debug!("{}: No `close` listeners.", self.id);
+    }
+  }
+
+  #[cfg(feature = "client-tracking")]
+  pub fn broadcast_invalidation(&self, msg: Invalidation) {
+    if let Err(_) = self.invalidations.send(msg) {
+      debug!("{}: No `on_invalidation` listeners.", self.id);
     }
   }
 }

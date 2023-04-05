@@ -79,6 +79,7 @@ pub fn scan_cluster(
       args:       args.clone(),
       cursor_idx: 0,
       tx:         tx.clone(),
+      server:     None,
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
@@ -96,6 +97,7 @@ pub fn scan(
   pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
+  server: Option<Server>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
 
@@ -126,6 +128,7 @@ pub fn scan(
   let response = ResponseKind::KeyScan(KeyScanInner {
     hash_slot,
     args,
+    server,
     cursor_idx: 0,
     tx: tx.clone(),
   });
