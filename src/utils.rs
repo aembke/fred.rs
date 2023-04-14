@@ -10,6 +10,7 @@ use crate::{
   types::*,
   utils,
 };
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
@@ -34,11 +35,15 @@ use std::{
   time::Duration,
 };
 use tokio::{
-  sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
+  sync::{
+    broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
+    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
+  },
   time::sleep,
 };
 use url::Url;
 
+use crate::globals::globals;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -709,6 +714,11 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   } else {
     Ok(None)
   }
+}
+
+pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>) {
+  let new = broadcast_channel(globals().default_broadcast_channel_capacity()).0;
+  old.swap(Arc::new(new));
 }
 
 pub fn url_uses_tls(url: &Url) -> bool {
