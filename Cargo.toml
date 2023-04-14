@@ -20,6 +20,8 @@ features = [
   "dns",
   "enable-rustls",
   "enable-native-tls",
+  "full-tracing",
+  "partial-tracing",
   "blocking-encoding",
   "custom-reconnect-errors",
   "monitor",
