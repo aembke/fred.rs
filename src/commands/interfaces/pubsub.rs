@@ -18,7 +18,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// If the connection to the Redis server closes for any reason this function does not need to be called again.
   /// Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
   fn on_message(&self) -> BroadcastReceiver<Message> {
-    self.inner().notifications.pubsub.subscribe()
+    self.inner().notifications.pubsub.load().subscribe()
   }
 
   /// Listen for keyspace and keyevent notifications on the publish-subscribe interface.
@@ -30,7 +30,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/topics/notifications>
   fn on_keyspace_event(&self) -> BroadcastReceiver<KeyspaceEvent> {
-    self.inner().notifications.keyspace.subscribe()
+    self.inner().notifications.keyspace.load().subscribe()
   }
 
   /// Subscribe to a channel on the publish-subscribe interface.

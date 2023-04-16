@@ -40,7 +40,7 @@ pub trait TrackingInterface: ClientLike + Sized {
 
   /// Subscribe to invalidation messages from the server(s).
   fn on_invalidation(&self) -> BroadcastReceiver<Invalidation> {
-    self.inner().notifications.invalidations.subscribe()
+    self.inner().notifications.invalidations.load().subscribe()
   }
 
   /// Send a `CLIENT CACHING yes|no` command before each subsequent command.
