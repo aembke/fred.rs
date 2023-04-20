@@ -4,6 +4,7 @@
 * Add a global config value for broadcast channel capacity.
 * Add an interface to interact with individual cluster nodes.
 * Fix missing `impl StreamInterface for Transaction`
+* Add all `RedisClient` command traits to `SubscriberClient`
 
 ## 6.0.0
 
