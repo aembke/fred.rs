@@ -292,3 +292,9 @@ mod streams {
   centralized_test!(streams, should_xclaim_with_justid);
   centralized_test!(streams, should_xautoclaim_default);
 }
+
+#[cfg(feature = "client-tracking")]
+mod tracking {
+  centralized_test!(tracking, should_invalidate_foo_resp3);
+  centralized_test!(tracking, should_invalidate_foo_resp2_centralized);
+}

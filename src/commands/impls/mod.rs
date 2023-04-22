@@ -184,3 +184,5 @@ pub mod strings;
 
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;
+#[cfg(feature = "client-tracking")]
+pub mod tracking;

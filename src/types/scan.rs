@@ -117,8 +117,11 @@ impl Scanner for ScanResult {
       return Ok(());
     }
 
+    let cluster_node = self.scan_state.server.clone();
     let response = ResponseKind::KeyScan(self.scan_state);
-    let cmd: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
+    let mut cmd: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
+    cmd.cluster_node = cluster_node;
+
     interfaces::default_send_command(&self.inner, cmd)
   }
 }
