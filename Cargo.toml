@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.0.0"
+version = "6.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -20,13 +20,16 @@ features = [
   "dns",
   "enable-rustls",
   "enable-native-tls",
+  "full-tracing",
+  "partial-tracing",
   "blocking-encoding",
   "custom-reconnect-errors",
   "monitor",
   "sentinel-client",
   "sentinel-auth",
   "check-unresponsive",
-  "replicas"
+  "replicas",
+  "client-tracking"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -51,14 +54,15 @@ sha-1 = "0.10"
 rand = "0.8"
 async-trait = "0.1"
 semver = "1.0"
-rustls = { version = "0.20", optional = true }
+rustls = { version = "0.21", optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
-tokio-rustls = { version = "0.23", optional = true }
+tokio-rustls = { version = "0.24", optional = true }
+webpki = { package = "rustls-webpki", version = "0.100", features = ["alloc", "std"], optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
 trust-dns-resolver = { version =  "0.22", optional = true }
 
@@ -66,6 +70,7 @@ trust-dns-resolver = { version =  "0.22", optional = true }
 prometheus = "0.12"
 base64 = "0.13"
 subprocess = "0.2.7"
+serde = { version = "1.0", features = ["derive"] }
 
 [lib]
 doc = true
@@ -92,6 +97,10 @@ required-features = ["serde-json"]
 name = "dns"
 required-features = ["dns"]
 
+[[example]]
+name = "client_tracking"
+required-features = ["client-tracking"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active"]
 fallback = []
@@ -101,7 +110,7 @@ metrics = []
 mocks = []
 dns = ["trust-dns-resolver", "trust-dns-resolver/tokio"]
 ignore-auth-error = []
-enable-rustls = ["rustls", "tokio-rustls", "rustls-native-certs"]
+enable-rustls = ["rustls", "tokio-rustls", "rustls-native-certs", "webpki"]
 enable-native-tls = ["native-tls", "tokio-native-tls"]
 vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
 reconnect-on-auth-error = []
@@ -117,6 +126,7 @@ sentinel-auth = []
 no-client-setname = []
 check-unresponsive = []
 replicas = []
+client-tracking = []
 # Testing Features
 debug-ids = []
 sentinel-tests = []

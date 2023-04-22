@@ -1,25 +1,17 @@
-use fred::{
-  prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig, RespVersion},
-};
+use fred::{prelude::*, types::RespVersion};
 
-#[cfg(feature = "mocks")]
-use fred::mocks::Echo;
 #[cfg(feature = "partial-tracing")]
 use fred::tracing::Level;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use fred::types::TlsConfig;
 #[cfg(feature = "partial-tracing")]
 use fred::types::TracingConfig;
-#[cfg(feature = "mocks")]
-use std::{default::Default, sync::Arc};
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init();
 
   let _ = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
-
   // full configuration with testing values
   let config = RedisConfig {
     fail_fast: true,
@@ -38,38 +30,11 @@ async fn main() -> Result<(), RedisError> {
       #[cfg(feature = "full-tracing")]
       full_tracing_level:                                  Level::DEBUG,
     },
-    #[cfg(feature = "mocks")]
-    mocks: Arc::new(Echo),
-  };
-  // full configuration for performance tuning options
-  let perf = PerformanceConfig {
-    // whether or not to automatically pipeline commands across tasks
-    auto_pipeline:                                             true,
-    // the max number of frames to feed into a socket before flushing it
-    max_feed_count:                                            1000,
-    // a default timeout to apply to all commands (0 means no timeout)
-    default_command_timeout_ms:                                0,
-    // the amount of time to wait before rebuilding the client's cached cluster state after a MOVED error.
-    cluster_cache_update_delay_ms:                             10,
-    // the maximum number of times to retry commands
-    max_command_attempts:                                      3,
-    // backpressure config options
-    backpressure:                                              BackpressureConfig {
-      // whether to disable automatic backpressure features
-      disable_auto_backpressure: false,
-      // the max number of in-flight commands before applying backpressure or returning backpressure errors
-      max_in_flight_commands:    5000,
-      // the policy to apply when the max in-flight commands count is reached
-      policy:                    BackpressurePolicy::Drain,
-    },
-    // the amount of time a command can wait in memory without a response before the connection is considered
-    // unresponsive
-    #[cfg(feature = "check-unresponsive")]
-    network_timeout_ms:                                        60_000,
   };
 
   // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
   let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
+  let perf = PerformanceConfig::default();
   let client = RedisClient::new(config, Some(perf), Some(policy));
 
   // spawn tasks that listen for connection close or reconnect events
@@ -100,19 +65,6 @@ async fn main() -> Result<(), RedisError> {
 
   // or use turbofish. the first type is always the response type.
   println!("Foo: {:?}", client.get::<String, _>("foo").await?);
-
-  // update performance config options as needed
-  let mut perf_config = client.perf_config();
-  perf_config.max_command_attempts = 100;
-  perf_config.max_feed_count = 1000;
-  client.update_perf_config(perf_config);
-
-  // send commands in a pipeline
-  let pipeline = client.pipeline();
-  let _ = pipeline.incr("bar").await?;
-  let _ = pipeline.incr("bar").await?;
-  let (first, second): (i64, i64) = pipeline.all().await?;
-  assert_eq!((first, second), (1, 2));
 
   let _ = client.quit().await?;
   let _ = connection_task.await;

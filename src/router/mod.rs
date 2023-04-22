@@ -920,10 +920,6 @@ impl Router {
       if should_use {
         replicas::map_replica_tls_names(&self.inner, &primary, &mut replica);
 
-        debug!(
-          "{}: Adding replica connection {} (replica) -> {} (primary)",
-          self.inner.id, replica, primary
-        );
         let _ = self
           .replicas
           .add_connection(&self.inner, primary, replica, false)

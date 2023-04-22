@@ -225,7 +225,7 @@ pub trait ClientLike: Clone + Send + Sized {
       debug!("{}: Client is already connected.", self.inner().id);
       Ok(())
     } else {
-      self.inner().notifications.connect.subscribe().recv().await?
+      self.inner().notifications.connect.load().subscribe().recv().await?
     }
   }
 
@@ -236,7 +236,7 @@ pub trait ClientLike: Clone + Send + Sized {
   ///
   /// A reconnection event is also triggered upon first connecting to the server.
   fn on_reconnect(&self) -> BroadcastReceiver<()> {
-    self.inner().notifications.reconnect.subscribe()
+    self.inner().notifications.reconnect.load().subscribe()
   }
 
   /// Listen for notifications whenever the cluster state changes.
@@ -244,7 +244,7 @@ pub trait ClientLike: Clone + Send + Sized {
   /// This is usually triggered in response to a `MOVED` error, but can also happen when connections close
   /// unexpectedly.
   fn on_cluster_change(&self) -> BroadcastReceiver<Vec<ClusterStateChange>> {
-    self.inner().notifications.cluster_change.subscribe()
+    self.inner().notifications.cluster_change.load().subscribe()
   }
 
   /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
@@ -252,7 +252,7 @@ pub trait ClientLike: Clone + Send + Sized {
   ///
   /// This function does not need to be called again if the connection closes.
   fn on_error(&self) -> BroadcastReceiver<RedisError> {
-    self.inner().notifications.errors.subscribe()
+    self.inner().notifications.errors.load().subscribe()
   }
 
   /// Close the connection to the Redis server. The returned future resolves when the command has been written to the
@@ -347,3 +347,5 @@ pub use crate::commands::interfaces::{
 
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+#[cfg(feature = "client-tracking")]
+pub use crate::commands::interfaces::tracking::TrackingInterface;

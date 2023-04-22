@@ -1,5 +1,5 @@
 use crate::{
-  clients::Pipeline,
+  clients::{Node, Pipeline},
   commands,
   error::{RedisError, RedisErrorKind},
   interfaces::{
@@ -32,6 +32,9 @@ use crate::{
 use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, sync::Arc};
+
+#[cfg(feature = "client-tracking")]
+use crate::{clients::Caching, interfaces::TrackingInterface};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
@@ -94,6 +97,10 @@ impl HeartbeatInterface for RedisClient {}
 impl StreamsInterface for RedisClient {}
 impl FunctionInterface for RedisClient {}
 
+#[cfg(feature = "client-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+impl TrackingInterface for RedisClient {}
+
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
   pub fn new(config: RedisConfig, perf: Option<PerformanceConfig>, policy: Option<ReconnectPolicy>) -> RedisClient {
@@ -146,11 +153,6 @@ impl RedisClient {
   ///
   /// The scan operation can be canceled by dropping the returned stream.
   ///
-  /// Note: This function supports [hash tags](https://redis.io/topics/cluster-spec#keys-hash-tags) in the `pattern` so callers can direct scanning operations to specific
-  /// nodes in the cluster. Callers can also use [split_cluster](Self::split_cluster) with this function if hash tags
-  /// are not used in the keys that should be scanned. The [scan_cluster](Self::scan_cluster) function can also be
-  /// used to concurrently scan all nodes in a cluster.
-  ///
   /// <https://redis.io/commands/scan>
   pub fn scan<P>(
     &self,
@@ -161,7 +163,7 @@ impl RedisClient {
   where
     P: Into<Str>,
   {
-    commands::scan::scan(&self.inner, pattern.into(), count, r#type)
+    commands::scan::scan(&self.inner, pattern.into(), count, r#type, None)
   }
 
   /// Run the `SCAN` command on each primary/main node in a cluster concurrently.
@@ -240,13 +242,72 @@ impl RedisClient {
     Pipeline::from(self.clone())
   }
 
-  /// Create a client that interacts with replica nodes.
+  /// Send subsequent commands to the provided cluster node.
   ///
-  /// Note: This interface will share and expand the underlying connections, if necessary.
+  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  ///
+  /// The client will still automatically follow `MOVED` errors via this interface. Callers may not notice this, but
+  /// incorrect server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
+  ///
+  /// ```
+  /// # use fred::prelude::*;
+  ///
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   // discover servers via the `RedisConfig` or active connections
+  ///   let connections = client.active_connections().await?;
+  ///
+  ///   // ping each node in the cluster individually
+  ///   for server in connections.into_iter() {
+  ///     let _: () = client.with_cluster_node(server).ping().await?;
+  ///   }
+  ///
+  ///   // or use the cached cluster routing table to discover servers
+  ///   let servers = client
+  ///     .cached_cluster_state()
+  ///     .expect("Failed to read cached cluster state")
+  ///     .unique_primary_nodes();
+  ///   for server in servers {
+  ///     // verify the server address with `CLIENT INFO`
+  ///     let server_addr = client
+  ///       .with_cluster_node(&server)
+  ///       .client_info::<String>()
+  ///       .await?
+  ///       .split(" ")
+  ///       .find_map(|s| {
+  ///         let parts: Vec<&str> = s.split("=").collect();
+  ///         if parts[0] == "laddr" {
+  ///           Some(parts[1].to_owned())
+  ///         } else {
+  ///           None
+  ///         }
+  ///       })
+  ///       .expect("Failed to read or parse client info.");
+  ///
+  ///     assert_eq!(server_addr, server.to_string());
+  ///   }
+  ///
+  ///   Ok(())
+  /// }
+  /// ```
+  pub fn with_cluster_node<S>(&self, server: S) -> Node
+  where
+    S: Into<Server>,
+  {
+    Node::new(&self.inner, server.into())
+  }
+
+  /// Create a client that interacts with replica nodes.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn replicas(&self) -> Replicas {
     Replicas::from(&self.inner)
+  }
+
+  /// Send a [CLIENT CACHING yes|no](https://redis.io/commands/client-caching/) command before subsequent commands.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  pub fn caching(&self, enabled: bool) -> Caching {
+    Caching::new(&self.inner, enabled)
   }
 }
 
