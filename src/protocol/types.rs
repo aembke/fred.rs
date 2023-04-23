@@ -176,6 +176,12 @@ impl From<(&str, u16)> for Server {
   }
 }
 
+impl From<&Server> for Server {
+  fn from(value: &Server) -> Self {
+    value.clone()
+  }
+}
+
 impl Display for Server {
   fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}:{}", self.host, self.port)
@@ -250,6 +256,8 @@ pub struct Message {
 pub struct KeyScanInner {
   /// The hash slot for the command.
   pub hash_slot:  Option<u16>,
+  /// An optional server override.
+  pub server:     Option<Server>,
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.

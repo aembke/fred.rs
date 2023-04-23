@@ -295,8 +295,8 @@ impl From<tokio_rustls::rustls::client::InvalidDnsNameError> for RedisError {
 #[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-impl From<tokio_rustls::webpki::Error> for RedisError {
-  fn from(e: tokio_rustls::webpki::Error) -> Self {
+impl From<webpki::Error> for RedisError {
+  fn from(e: webpki::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
   }
 }
@@ -307,6 +307,14 @@ impl From<tokio_rustls::webpki::Error> for RedisError {
 impl From<ResolveError> for RedisError {
   fn from(e: ResolveError) -> Self {
     RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
+  }
+}
+
+#[cfg(feature = "serde-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
+impl From<serde_json::Error> for RedisError {
+  fn from(e: serde_json::Error) -> Self {
+    RedisError::new(RedisErrorKind::Parse, format!("{:?}", e))
   }
 }
 

@@ -1,9 +1,34 @@
 use crate::{
   commands,
   error::RedisError,
-  interfaces::{AuthInterface, ClientLike, MetricsInterface, PubsubInterface, RedisResult},
+  interfaces::{
+    AclInterface,
+    AuthInterface,
+    ClientInterface,
+    ClientLike,
+    ClusterInterface,
+    ConfigInterface,
+    FunctionInterface,
+    GeoInterface,
+    HashesInterface,
+    HeartbeatInterface,
+    HyperloglogInterface,
+    KeysInterface,
+    ListInterface,
+    LuaInterface,
+    MemoryInterface,
+    MetricsInterface,
+    PubsubInterface,
+    RedisResult,
+    ServerInterface,
+    SetsInterface,
+    SlowlogInterface,
+    SortedSetsInterface,
+    StreamsInterface,
+    TransactionInterface,
+  },
   modules::inner::RedisClientInner,
-  prelude::FromRedis,
+  prelude::{FromRedis, RedisClient},
   types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
 };
 use bytes_utils::Str;
@@ -11,11 +36,17 @@ use parking_lot::RwLock;
 use std::{collections::BTreeSet, fmt, fmt::Formatter, mem, sync::Arc};
 use tokio::task::JoinHandle;
 
+#[cfg(feature = "client-tracking")]
+use crate::interfaces::TrackingInterface;
+
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 
-/// A subscriber client that will manage subscription state to any pubsub channels or patterns for the caller.
+/// A subscriber client that will manage subscription state to any [pubsub](https://redis.io/docs/manual/pubsub/) channels or patterns for the caller.
 ///
-/// If the connection to the server closes for any reason this struct can automatically re-subscribe, etc.
+/// If the connection to the server closes for any reason this struct can automatically re-subscribe to channels,
+/// patterns, and sharded channels.
+///
+/// **Note: most non-pubsub commands are only supported when using RESP3.**
 ///
 /// ```rust no_run
 /// use fred::clients::SubscriberClient;
@@ -47,9 +78,7 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 /// let _ = subscriber.resubscribe_all().await?;
 /// // clear all the local state and unsubscribe
 /// let _ = subscriber.unsubscribe_all().await?;
-///
 /// let _ = subscriber.quit().await?;
-/// let _ = jh.await;
 /// ```
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "subscriber-client")))]
@@ -78,8 +107,31 @@ impl ClientLike for SubscriberClient {
   }
 }
 
-impl AuthInterface for SubscriberClient {}
+impl AclInterface for SubscriberClient {}
+impl ClientInterface for SubscriberClient {}
+impl ClusterInterface for SubscriberClient {}
+impl ConfigInterface for SubscriberClient {}
+impl GeoInterface for SubscriberClient {}
+impl HashesInterface for SubscriberClient {}
+impl HyperloglogInterface for SubscriberClient {}
 impl MetricsInterface for SubscriberClient {}
+impl TransactionInterface for SubscriberClient {}
+impl KeysInterface for SubscriberClient {}
+impl LuaInterface for SubscriberClient {}
+impl ListInterface for SubscriberClient {}
+impl MemoryInterface for SubscriberClient {}
+impl AuthInterface for SubscriberClient {}
+impl ServerInterface for SubscriberClient {}
+impl SlowlogInterface for SubscriberClient {}
+impl SetsInterface for SubscriberClient {}
+impl SortedSetsInterface for SubscriberClient {}
+impl HeartbeatInterface for SubscriberClient {}
+impl StreamsInterface for SubscriberClient {}
+impl FunctionInterface for SubscriberClient {}
+
+#[cfg(feature = "client-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+impl TrackingInterface for SubscriberClient {}
 
 #[async_trait]
 impl PubsubInterface for SubscriberClient {
@@ -316,5 +368,12 @@ impl SubscriberClient {
     let _ = self.sunsubscribe(shard_channels).await?;
 
     Ok(())
+  }
+
+  /// Create a new `RedisClient`, reusing the existing connection(s).
+  ///
+  /// Note: most non-pubsub commands are only supported when using RESP3.
+  pub fn to_client(&self) -> RedisClient {
+    RedisClient::from(&self.inner)
   }
 }

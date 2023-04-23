@@ -232,3 +232,20 @@ impl From<RustlsConnector> for TlsConnector {
     TlsConnector::Rustls(connector)
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  #[cfg(feature = "enable-rustls")]
+  fn should_create_default_rustls() {
+    let _ = TlsConnector::default_rustls().unwrap();
+  }
+
+  #[test]
+  #[cfg(feature = "enable-native-tls")]
+  fn should_create_default_native_tls() {
+    let _ = TlsConnector::default_native_tls().unwrap();
+  }
+}

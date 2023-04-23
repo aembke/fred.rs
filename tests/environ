@@ -24,6 +24,7 @@ export ROOT=$PWD \
   REDIS_PASSWORD=bar \
   REDIS_SENTINEL_PASSWORD=baz
 
+REDIS_CLI_PATH="$PWD/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli"
 
 if [ -z "${CIRCLECI_TESTS}" ]; then
   read -p "Build redis-cli for Redis $REDIS_VERSION? [y/n]: " INSTALL_CLI
@@ -32,13 +33,15 @@ if [ -z "${CIRCLECI_TESTS}" ]; then
     if [[ "$?" -eq 0 ]]; then
       install_redis
     fi
-
-    alias fred_redis_cli='./tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli "$@"'
-    echo "Use the \`fred_redis_cli\` alias to run redis-cli@$REDIS_VERSION"
   fi
 fi
 
-#if [ -z "${CIRCLECI_TESTS}" ]; then
+if [ -f "$REDIS_CLI_PATH" ]; then
+  alias fred_redis_cli='$REDIS_CLI_PATH "$@"'
+  echo "Use the \`fred_redis_cli\` alias to run redis-cli@$REDIS_VERSION"
+fi
+
+# if [ -z "${CIRCLECI_TESTS}" ]; then
 #  read -p "Use cargo nextest? [y/n]: " NEXTEST
 #  if [ "$NEXTEST" = "y" ]; then
 #    export FRED_CI_NEXTEST=1

@@ -155,12 +155,15 @@ pub enum RedisCommandKind {
   ClientKill,
   ClientList,
   ClientGetName,
-  ClientGetRedir,
   ClientPause,
   ClientUnpause,
   ClientUnblock,
   ClientReply,
   ClientSetname,
+  ClientGetRedir,
+  ClientTracking,
+  ClientTrackingInfo,
+  ClientCaching,
   ClusterAddSlots,
   ClusterCountFailureReports,
   ClusterCountKeysInSlot,
@@ -414,6 +417,8 @@ pub enum RedisCommandKind {
   _FunctionFlushCluster,
   _FunctionDeleteCluster,
   _FunctionRestoreCluster,
+  // When in RESP3 mode and **not** using the `bcast` arg then we send the command on all cluster node connections
+  _ClientTrackingCluster,
   _Custom(CustomCommand),
 }
 
@@ -570,13 +575,16 @@ impl RedisCommandKind {
       RedisCommandKind::ClientInfo => "CLIENT INFO",
       RedisCommandKind::ClientKill => "CLIENT KILL",
       RedisCommandKind::ClientList => "CLIENT LIST",
-      RedisCommandKind::ClientGetRedir => "CLIENT GETREDIR",
       RedisCommandKind::ClientGetName => "CLIENT GETNAME",
       RedisCommandKind::ClientPause => "CLIENT PAUSE",
       RedisCommandKind::ClientUnpause => "CLIENT UNPAUSE",
       RedisCommandKind::ClientUnblock => "CLIENT UNBLOCK",
       RedisCommandKind::ClientReply => "CLIENT REPLY",
       RedisCommandKind::ClientSetname => "CLIENT SETNAME",
+      RedisCommandKind::ClientGetRedir => "CLIENT GETREDIR",
+      RedisCommandKind::ClientTracking => "CLIENT TRACKING",
+      RedisCommandKind::ClientTrackingInfo => "CLIENT TRACKINGINFO",
+      RedisCommandKind::ClientCaching => "CLIENT CACHING",
       RedisCommandKind::ClusterAddSlots => "CLUSTER ADDSLOTS",
       RedisCommandKind::ClusterCountFailureReports => "CLUSTER COUNT-FAILURE-REPORTS",
       RedisCommandKind::ClusterCountKeysInSlot => "CLUSTER COUNTKEYSINSLOT",
@@ -819,6 +827,7 @@ impl RedisCommandKind {
       RedisCommandKind::_FunctionFlushCluster => "FUNCTION FLUSH CLUSTER",
       RedisCommandKind::_FunctionDeleteCluster => "FUNCTION DELETE CLUSTER",
       RedisCommandKind::_FunctionRestoreCluster => "FUNCTION RESTORE CLUSTER",
+      RedisCommandKind::_ClientTrackingCluster => "CLIENT TRACKING CLUSTER",
       RedisCommandKind::Fcall => "FCALL",
       RedisCommandKind::FcallRO => "FCALL_RO",
       RedisCommandKind::FunctionDelete => "FUNCTION DELETE",
@@ -871,12 +880,15 @@ impl RedisCommandKind {
       | RedisCommandKind::ClientKill
       | RedisCommandKind::ClientList
       | RedisCommandKind::ClientGetName
-      | RedisCommandKind::ClientGetRedir
       | RedisCommandKind::ClientPause
       | RedisCommandKind::ClientUnpause
       | RedisCommandKind::ClientUnblock
       | RedisCommandKind::ClientReply
-      | RedisCommandKind::ClientSetname => "CLIENT",
+      | RedisCommandKind::ClientSetname
+      | RedisCommandKind::ClientCaching
+      | RedisCommandKind::ClientTrackingInfo
+      | RedisCommandKind::ClientTracking
+      | RedisCommandKind::ClientGetRedir => "CLIENT",
       RedisCommandKind::ClusterAddSlots
       | RedisCommandKind::ClusterCountFailureReports
       | RedisCommandKind::ClusterCountKeysInSlot
@@ -1127,6 +1139,7 @@ impl RedisCommandKind {
       | RedisCommandKind::_FunctionLoadCluster => "FUNCTION",
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
+      RedisCommandKind::_ClientTrackingCluster => "CLIENT",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
     };
 
@@ -1181,7 +1194,6 @@ impl RedisCommandKind {
       RedisCommandKind::ClientInfo => "INFO",
       RedisCommandKind::ClientKill => "KILL",
       RedisCommandKind::ClientList => "LIST",
-      RedisCommandKind::ClientGetRedir => "GETREDIR",
       RedisCommandKind::ClientGetName => "GETNAME",
       RedisCommandKind::ClientPause => "PAUSE",
       RedisCommandKind::ClientUnpause => "UNPAUSE",
@@ -1190,6 +1202,10 @@ impl RedisCommandKind {
       RedisCommandKind::ClientSetname => "SETNAME",
       RedisCommandKind::ConfigGet => "GET",
       RedisCommandKind::ConfigRewrite => "REWRITE",
+      RedisCommandKind::ClientGetRedir => "GETREDIR",
+      RedisCommandKind::ClientTracking => "TRACKING",
+      RedisCommandKind::ClientTrackingInfo => "TRACKINGINFO",
+      RedisCommandKind::ClientCaching => "CACHING",
       RedisCommandKind::ConfigSet => "SET",
       RedisCommandKind::ConfigResetStat => "RESETSTAT",
       RedisCommandKind::MemoryDoctor => "DOCTOR",
@@ -1218,6 +1234,7 @@ impl RedisCommandKind {
       RedisCommandKind::_FunctionFlushCluster => "FLUSH",
       RedisCommandKind::_FunctionDeleteCluster => "DELETE",
       RedisCommandKind::_FunctionRestoreCluster => "RESTORE",
+      RedisCommandKind::_ClientTrackingCluster => "TRACKING",
       _ => return None,
     };
 
@@ -1253,7 +1270,8 @@ impl RedisCommandKind {
       | RedisCommandKind::Fcall
       | RedisCommandKind::FcallRO
       | RedisCommandKind::Wait => true,
-      // can be changed by the BLOCKING args
+      // default is false, but can be changed by the BLOCKING args. the RedisCommand::can_pipeline function checks the
+      // args too.
       RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => false,
       RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
       _ => false,
@@ -1267,6 +1285,7 @@ impl RedisCommandKind {
       | RedisCommandKind::_ScriptFlushCluster
       | RedisCommandKind::_ScriptKillCluster
       | RedisCommandKind::_HelloAllCluster(_)
+      | RedisCommandKind::_ClientTrackingCluster
       | RedisCommandKind::_ScriptLoadCluster
       | RedisCommandKind::_FunctionFlushCluster
       | RedisCommandKind::_FunctionDeleteCluster
@@ -1356,6 +1375,8 @@ pub struct RedisCommand {
   pub network_start:     Option<Instant>,
   /// Whether to route the command to a replica, if possible.
   pub use_replica:       bool,
+  /// Only send the command to the provided server.
+  pub cluster_node:      Option<Server>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
   pub created:           Instant,
@@ -1365,6 +1386,9 @@ pub struct RedisCommand {
   /// A counter to differentiate unique commands.
   #[cfg(feature = "debug-ids")]
   pub counter:           usize,
+  /// Whether to send a `CLIENT CACHING yes|no` before the command.
+  #[cfg(feature = "client-tracking")]
+  pub caching:           Option<bool>,
 }
 
 impl Drop for RedisCommand {
@@ -1416,13 +1440,16 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      cluster_node: None,
+      network_start: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 }
@@ -1441,13 +1468,16 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      cluster_node: None,
+      network_start: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 }
@@ -1466,13 +1496,16 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      network_start: None,
+      cluster_node: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 }
@@ -1492,37 +1525,43 @@ impl RedisCommand {
       skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
+      cluster_node: None,
+      network_start: None,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: None,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
     }
   }
 
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
-      kind:                                       RedisCommandKind::Asking,
-      arguments:                                  Vec::new(),
-      response:                                   ResponseKind::Skip,
-      hasher:                                     ClusterHash::Custom(hash_slot),
-      timed_out:                                  Arc::new(AtomicBool::new(false)),
-      router_tx:                                  Arc::new(Mutex::new(None)),
-      attempted:                                  0,
-      can_pipeline:                               false,
-      skip_backpressure:                          true,
-      transaction_id:                             None,
-      use_replica:                                false,
+      kind:                                        RedisCommandKind::Asking,
+      arguments:                                   Vec::new(),
+      response:                                    ResponseKind::Skip,
+      hasher:                                      ClusterHash::Custom(hash_slot),
+      timed_out:                                   Arc::new(AtomicBool::new(false)),
+      router_tx:                                   Arc::new(Mutex::new(None)),
+      attempted:                                   0,
+      can_pipeline:                                false,
+      skip_backpressure:                           true,
+      transaction_id:                              None,
+      use_replica:                                 false,
+      cluster_node:                                None,
+      network_start:                               None,
       #[cfg(feature = "metrics")]
-      created:                                    Instant::now(),
-      network_start:                              None,
+      created:                                     Instant::now(),
       #[cfg(feature = "partial-tracing")]
-      traces:                                     CommandTraces::default(),
+      traces:                                      CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
-      counter:                                    command_counter(),
+      counter:                                     command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching:                                     None,
     }
   }
 
@@ -1628,7 +1667,7 @@ impl RedisCommand {
   pub fn respond_to_router(&self, inner: &Arc<RedisClientInner>, cmd: RouterResponse) {
     if let Some(tx) = self.router_tx.lock().take() {
       if tx.send(cmd).is_err() {
-        _warn!(inner, "Failed to unblock router loop.");
+        _debug!(inner, "Failed to unblock router loop.");
       }
     }
   }
@@ -1657,6 +1696,7 @@ impl RedisCommand {
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
+      cluster_node: self.cluster_node.clone(),
       response,
       use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
@@ -1666,6 +1706,8 @@ impl RedisCommand {
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: self.counter,
+      #[cfg(feature = "client-tracking")]
+      caching: self.caching.clone(),
     }
   }
 

@@ -125,15 +125,20 @@ impl<C: FunctionInterface> FunctionInterface for Pipeline<C> {}
 impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.
   ///
-  /// ```rust no_run no_compile
-  /// let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
+  /// ```rust no_run
+  /// # use fred::prelude::*;
   ///
-  /// let pipeline = client.pipeline();
-  /// let _ = pipeline.get("foo").await?; // returns when the command is queued in memory
-  /// let _ = pipeline.get("bar").await?; // returns when the command is queued in memory
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
   ///
-  /// let results: Vec<i64> = pipeline.all().await?;
-  /// assert_eq!(results, vec![1, 2]);
+  ///   let pipeline = client.pipeline();
+  ///   let _: () = pipeline.get("foo").await?; // returns when the command is queued in memory
+  ///   let _: () = pipeline.get("bar").await?; // returns when the command is queued in memory
+  ///
+  ///   let results: Vec<i64> = pipeline.all().await?;
+  ///   assert_eq!(results, vec![1, 2]);
+  ///   Ok(())
+  /// }
   /// ```
   pub async fn all<R>(self) -> Result<R, RedisError>
   where
@@ -145,13 +150,18 @@ impl<C: ClientLike> Pipeline<C> {
 
   /// Send the pipeline and respond with only the result of the last command.
   ///
-  /// ```rust no_run no_compile
-  /// let pipeline = client.pipeline();
-  /// let _ = pipeline.incr("foo").await?; // returns when the command is queued in memory
-  /// let _ = pipeline.incr("foo").await?; // returns when the command is queued in memory
+  /// ```rust no_run
+  /// # use fred::prelude::*;
   ///
-  /// let result: i64 = pipeline.last().await?;
-  /// assert_eq!(results, 2);
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   let pipeline = client.pipeline();
+  ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
+  ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
+  ///
+  ///   let result: i64 = pipeline.last().await?;
+  ///   assert_eq!(results, 2);
+  ///   Ok(())
+  /// }
   /// ```
   pub async fn last<R>(self) -> Result<R, RedisError>
   where

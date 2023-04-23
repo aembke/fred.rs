@@ -1,5 +1,6 @@
 use crate::{
   error::*,
+  globals::globals,
   interfaces,
   modules::backchannel::Backchannel,
   protocol::{
@@ -32,8 +33,6 @@ use tokio::{
   time::sleep,
 };
 
-const DEFAULT_NOTIFICATION_CAPACITY: usize = 32;
-
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]
@@ -44,82 +43,95 @@ use std::collections::HashMap;
 pub type CommandSender = UnboundedSender<RouterCommand>;
 pub type CommandReceiver = UnboundedReceiver<RouterCommand>;
 
-#[derive(Clone)]
+#[cfg(feature = "client-tracking")]
+use crate::types::Invalidation;
+
 pub struct Notifications {
   /// The client ID.
   pub id:             ArcStr,
   /// A broadcast channel for the `on_error` interface.
-  pub errors:         BroadcastSender<RedisError>,
+  pub errors:         ArcSwap<BroadcastSender<RedisError>>,
   /// A broadcast channel for the `on_message` interface.
-  pub pubsub:         BroadcastSender<Message>,
+  pub pubsub:         ArcSwap<BroadcastSender<Message>>,
   /// A broadcast channel for the `on_keyspace_event` interface.
-  pub keyspace:       BroadcastSender<KeyspaceEvent>,
+  pub keyspace:       ArcSwap<BroadcastSender<KeyspaceEvent>>,
   /// A broadcast channel for the `on_reconnect` interface.
-  pub reconnect:      BroadcastSender<()>,
+  pub reconnect:      ArcSwap<BroadcastSender<()>>,
   /// A broadcast channel for the `on_cluster_change` interface.
-  pub cluster_change: BroadcastSender<Vec<ClusterStateChange>>,
+  pub cluster_change: ArcSwap<BroadcastSender<Vec<ClusterStateChange>>>,
   /// A broadcast channel for the `on_connect` interface.
-  pub connect:        BroadcastSender<Result<(), RedisError>>,
+  pub connect:        ArcSwap<BroadcastSender<Result<(), RedisError>>>,
   /// A channel for events that should close all client tasks with `Canceled` errors.
   ///
   /// Emitted when QUIT, SHUTDOWN, etc are called.
   pub close:          BroadcastSender<()>,
+  /// A broadcast channel for the `on_invalidation` interface.
+  #[cfg(feature = "client-tracking")]
+  pub invalidations:  ArcSwap<BroadcastSender<Invalidation>>,
 }
 
 impl Notifications {
   pub fn new(id: &ArcStr) -> Self {
-    let (errors, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (pubsub, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (keyspace, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (reconnect, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (cluster_change, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (connect, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
-    let (close, _) = broadcast::channel(DEFAULT_NOTIFICATION_CAPACITY);
+    let capacity = globals().default_broadcast_channel_capacity();
 
     Notifications {
-      id: id.clone(),
-      errors,
-      pubsub,
-      keyspace,
-      reconnect,
-      cluster_change,
-      connect,
-      close,
+      id:                                                id.clone(),
+      close:                                             broadcast::channel(capacity).0,
+      errors:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      pubsub:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      keyspace:                                          ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      reconnect:                                         ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      cluster_change:                                    ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      connect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      #[cfg(feature = "client-tracking")]
+      invalidations:                                     ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
     }
   }
 
+  /// Replace the senders that have public receivers, closing the receivers in the process.
+  pub fn close_public_receivers(&self) {
+    utils::swap_new_broadcast_channel(&self.errors);
+    utils::swap_new_broadcast_channel(&self.pubsub);
+    utils::swap_new_broadcast_channel(&self.keyspace);
+    utils::swap_new_broadcast_channel(&self.reconnect);
+    utils::swap_new_broadcast_channel(&self.cluster_change);
+    utils::swap_new_broadcast_channel(&self.connect);
+    #[cfg(feature = "client-tracking")]
+    utils::swap_new_broadcast_channel(&self.invalidations);
+  }
+
   pub fn broadcast_error(&self, error: RedisError) {
-    if let Err(_) = self.errors.send(error) {
+    if let Err(_) = self.errors.load().send(error) {
       debug!("{}: No `on_error` listener.", self.id);
     }
   }
 
   pub fn broadcast_pubsub(&self, message: Message) {
-    if let Err(_) = self.pubsub.send(message) {
+    if let Err(_) = self.pubsub.load().send(message) {
       debug!("{}: No `on_message` listeners.", self.id);
     }
   }
 
   pub fn broadcast_keyspace(&self, event: KeyspaceEvent) {
-    if let Err(_) = self.keyspace.send(event) {
+    if let Err(_) = self.keyspace.load().send(event) {
       debug!("{}: No `on_keyspace_event` listeners.", self.id);
     }
   }
 
   pub fn broadcast_reconnect(&self) {
-    if let Err(_) = self.reconnect.send(()) {
+    if let Err(_) = self.reconnect.load().send(()) {
       debug!("{}: No `on_reconnect` listeners.", self.id);
     }
   }
 
   pub fn broadcast_cluster_change(&self, changes: Vec<ClusterStateChange>) {
-    if let Err(_) = self.cluster_change.send(changes) {
+    if let Err(_) = self.cluster_change.load().send(changes) {
       debug!("{}: No `on_cluster_change` listeners.", self.id);
     }
   }
 
   pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
-    if let Err(_) = self.connect.send(result) {
+    if let Err(_) = self.connect.load().send(result) {
       debug!("{}: No `on_connect` listeners.", self.id);
     }
   }
@@ -127,6 +139,13 @@ impl Notifications {
   pub fn broadcast_close(&self) {
     if let Err(_) = self.close.send(()) {
       debug!("{}: No `close` listeners.", self.id);
+    }
+  }
+
+  #[cfg(feature = "client-tracking")]
+  pub fn broadcast_invalidation(&self, msg: Invalidation) {
+    if let Err(_) = self.invalidations.load().send(msg) {
+      debug!("{}: No `on_invalidation` listeners.", self.id);
     }
   }
 }
@@ -360,7 +379,7 @@ pub struct RedisClientInner {
   /// An optional reconnect policy.
   pub policy:        RwLock<Option<ReconnectPolicy>>,
   /// Notification channels for the event interfaces.
-  pub notifications: Notifications,
+  pub notifications: Arc<Notifications>,
   /// An mpsc sender for commands to the router.
   pub command_tx:    CommandSender,
   /// Temporary storage for the receiver half of the router command channel.
@@ -406,7 +425,7 @@ impl RedisClientInner {
     let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
-    let notifications = Notifications::new(&id);
+    let notifications = Arc::new(Notifications::new(&id));
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
     let performance = ArcSwap::new(Arc::new(perf));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
