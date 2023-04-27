@@ -605,6 +605,7 @@ pub async fn cluster_slots_backchannel(
   };
   _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
   if response.is_null() {
+    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Invalid or missing CLUSTER SLOTS response.",
