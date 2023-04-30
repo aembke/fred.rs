@@ -16,6 +16,7 @@ use crate::{
     ListInterface,
     MemoryInterface,
     PubsubInterface,
+    Resp3Frame,
     ServerInterface,
     SetsInterface,
     SlowlogInterface,
@@ -23,7 +24,7 @@ use crate::{
     StreamsInterface,
   },
   modules::{inner::RedisClientInner, response::FromRedis},
-  prelude::RedisValue,
+  prelude::{RedisResult, RedisValue},
   protocol::{
     command::{RedisCommand, RouterCommand},
     responders::ResponseKind,
@@ -33,7 +34,33 @@ use crate::{
 };
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
-use tokio::sync::oneshot::channel as oneshot_channel;
+use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
+
+fn prepare_all_commands(
+  commands: VecDeque<RedisCommand>,
+  error_early: bool,
+) -> (RouterCommand, OneshotReceiver<Result<Resp3Frame, RedisError>>) {
+  let (tx, rx) = oneshot_channel();
+  let expected_responses = commands
+    .iter()
+    .fold(0, |count, cmd| count + cmd.response.expected_response_frames());
+
+  let mut response = ResponseKind::new_buffer_with_size(expected_responses, tx);
+  response.set_error_early(error_early);
+
+  let commands: Vec<RedisCommand> = commands
+    .into_iter()
+    .enumerate()
+    .map(|(idx, mut cmd)| {
+      cmd.response = response.duplicate().unwrap_or(ResponseKind::Skip);
+      cmd.response.set_expected_index(idx);
+      cmd
+    })
+    .collect();
+  let command = RouterCommand::Pipeline { commands };
+
+  (command, rx)
+}
 
 /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
 pub struct Pipeline<C: ClientLike> {
@@ -127,7 +154,6 @@ impl<C: ClientLike> Pipeline<C> {
   ///
   /// ```rust no_run
   /// # use fred::prelude::*;
-  ///
   /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
   ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
   ///
@@ -148,11 +174,43 @@ impl<C: ClientLike> Pipeline<C> {
     send_all(self.client.inner(), commands).await?.convert()
   }
 
+  /// Send the pipeline and respond with each individual result.
+  ///
+  /// Note: use `RedisValue` as the return type (and [convert](crate::types::RedisValue::convert) as needed) to
+  /// support an array of different return types.
+  ///
+  /// ```rust no_run
+  /// # use fred::prelude::*;
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;  
+  ///
+  ///   let pipeline = client.pipeline();
+  ///   let _: () = pipeline.get("foo").await?;
+  ///   let _: () = pipeline.hgetall("bar").await?; // this will error since `bar` is an integer
+  ///
+  ///   let results = pipeline.try_all::<RedisValue>().await; // note the lack of `?`
+  ///   assert!(results[0].unwrap().convert::<i64>(), 1);
+  ///   assert!(results[1].is_err());
+  ///
+  ///   Ok(())
+  /// }
+  /// ```
+  pub async fn try_all<R>(self) -> Vec<RedisResult<R>>
+  where
+    R: FromRedis,
+  {
+    let commands = { self.commands.lock().drain(..).collect() };
+    try_send_all(self.client.inner(), commands)
+      .await
+      .into_iter()
+      .map(|v| v.and_then(|v| v.convert()))
+      .collect()
+  }
+
   /// Send the pipeline and respond with only the result of the last command.
   ///
   /// ```rust no_run
   /// # use fred::prelude::*;
-  ///
   /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
   ///   let pipeline = client.pipeline();
   ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
@@ -172,28 +230,42 @@ impl<C: ClientLike> Pipeline<C> {
   }
 }
 
+async fn try_send_all(
+  inner: &Arc<RedisClientInner>,
+  commands: VecDeque<RedisCommand>,
+) -> Vec<Result<RedisValue, RedisError>> {
+  if commands.is_empty() {
+    return Vec::new();
+  }
+
+  let (command, rx) = prepare_all_commands(commands, false);
+  if let Err(e) = interfaces::send_to_router(inner, command) {
+    return vec![Err(e)];
+  };
+  let frame = match utils::apply_timeout(rx, inner.default_command_timeout()).await {
+    Ok(result) => match result {
+      Ok(f) => f,
+      Err(e) => return vec![Err(e)],
+    },
+    Err(e) => return vec![Err(e)],
+  };
+
+  if let Resp3Frame::Array { data, .. } = frame {
+    data
+      .into_iter()
+      .map(|frame| protocol_utils::frame_to_results(frame))
+      .collect()
+  } else {
+    vec![protocol_utils::frame_to_results_raw(frame)]
+  }
+}
+
 async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand>) -> Result<RedisValue, RedisError> {
   if commands.is_empty() {
     return Ok(RedisValue::Array(Vec::new()));
   }
 
-  let (tx, rx) = oneshot_channel();
-  let expected_responses = commands
-    .iter()
-    .fold(0, |count, cmd| count + cmd.response.expected_response_frames());
-
-  let response = ResponseKind::new_buffer_with_size(expected_responses, tx);
-  let commands: Vec<RedisCommand> = commands
-    .into_iter()
-    .enumerate()
-    .map(|(idx, mut cmd)| {
-      cmd.response = response.duplicate().unwrap_or(ResponseKind::Skip);
-      cmd.response.set_expected_index(idx);
-      cmd
-    })
-    .collect();
-  let command = RouterCommand::Pipeline { commands };
-
+  let (command, rx) = prepare_all_commands(commands, true);
   let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
   protocol_utils::frame_to_results_raw(frame)
