@@ -1,6 +1,6 @@
 use fred::{interfaces::PubsubInterface, prelude::*};
 use futures::{Stream, StreamExt};
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 use tokio::time::sleep;
 
 const CHANNEL1: &'static str = "foo";
@@ -108,5 +108,99 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
 
   let _ = subscriber.quit().await?;
   let _ = connection.await?;
+  Ok(())
+}
+
+pub async fn should_get_pubsub_channels(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber = client.clone_new();
+  let _ = subscriber.connect();
+  let _ = subscriber.wait_for_connect().await?;
+
+  let channels: Vec<String> = client.pubsub_channels("*").await?;
+  assert!(channels.is_empty());
+
+  let _: () = subscriber.subscribe("foo").await?;
+  let _: () = subscriber.subscribe("bar").await?;
+  let mut channels: Vec<String> = client.pubsub_channels("*").await?;
+  channels.sort();
+  assert_eq!(channels, vec!["bar".to_string(), "foo".to_string()]);
+
+  Ok(())
+}
+
+pub async fn should_get_pubsub_numpat(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber = client.clone_new();
+  let _ = subscriber.connect();
+  let _ = subscriber.wait_for_connect().await?;
+
+  assert_eq!(client.pubsub_numpat::<i64>().await?, 0);
+  let _: () = subscriber.psubscribe("foo*").await?;
+  let _: () = subscriber.psubscribe("bar*").await?;
+  assert_eq!(client.pubsub_numpat::<i64>().await?, 2);
+
+  Ok(())
+}
+
+pub async fn should_get_pubsub_nunmsub(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber = client.clone_new();
+  let _ = subscriber.connect();
+  let _ = subscriber.wait_for_connect().await?;
+
+  let mut expected: HashMap<String, i64> = HashMap::new();
+  expected.insert("foo".into(), 0);
+  expected.insert("bar".into(), 0);
+  let channels: HashMap<String, i64> = client.pubsub_numsub(vec!["foo", "bar"]).await?;
+  assert_eq!(channels, expected);
+
+  let _: () = subscriber.subscribe("foo").await?;
+  let _: () = subscriber.subscribe("bar").await?;
+  let channels: HashMap<String, i64> = client.pubsub_numsub(vec!["foo", "bar"]).await?;
+
+  let mut expected: HashMap<String, i64> = HashMap::new();
+  expected.insert("foo".into(), 1);
+  expected.insert("bar".into(), 1);
+  assert_eq!(channels, expected);
+
+  Ok(())
+}
+
+pub async fn should_get_pubsub_shard_channels(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber = client.clone_new();
+  let _ = subscriber.connect();
+  let _ = subscriber.wait_for_connect().await?;
+
+  let channels: Vec<String> = client.pubsub_shardchannels("{1}*").await?;
+  assert!(channels.is_empty());
+
+  let _: () = subscriber.ssubscribe("{1}foo").await?;
+  let _: () = subscriber.ssubscribe("{1}bar").await?;
+
+  let mut channels: Vec<String> = client.pubsub_shardchannels("{1}*").await?;
+  channels.sort();
+  assert_eq!(channels, vec!["{1}bar".to_string(), "{1}foo".to_string()]);
+
+  Ok(())
+}
+
+pub async fn should_get_pubsub_shard_numsub(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber = client.clone_new();
+  let _ = subscriber.connect();
+  let _ = subscriber.wait_for_connect().await?;
+
+  let mut expected: HashMap<String, i64> = HashMap::new();
+  expected.insert("foo{1}".into(), 0);
+  expected.insert("bar{1}".into(), 0);
+  let channels: HashMap<String, i64> = client.pubsub_shardnumsub(vec!["foo{1}", "bar{1}"]).await?;
+  assert_eq!(channels, expected);
+
+  let _: () = subscriber.ssubscribe("foo{1}").await?;
+  let _: () = subscriber.ssubscribe("bar{1}").await?;
+  let channels: HashMap<String, i64> = client.pubsub_shardnumsub(vec!["foo{1}", "bar{1}"]).await?;
+
+  let mut expected: HashMap<String, i64> = HashMap::new();
+  expected.insert("foo{1}".into(), 1);
+  expected.insert("bar{1}".into(), 1);
+  assert_eq!(channels, expected);
+
   Ok(())
 }

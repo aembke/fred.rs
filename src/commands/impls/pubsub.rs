@@ -145,7 +145,13 @@ pub async fn sunsubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) 
 
 pub async fn pubsub_channels<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, || {
-    let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubChannels, vec![pattern.into()]);
+    let args = if pattern.is_empty() {
+      vec![]
+    } else {
+      vec![pattern.into()]
+    };
+
+    let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubChannels, args);
     cluster_hash_legacy_command(client, &mut command);
 
     Ok(command)

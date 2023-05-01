@@ -93,6 +93,12 @@ mod pubsub {
   centralized_test!(pubsub, should_publish_and_recv_messages);
   centralized_test!(pubsub, should_psubscribe_and_recv_messages);
   centralized_test!(pubsub, should_unsubscribe_from_all);
+
+  centralized_test!(pubsub, should_get_pubsub_channels);
+  centralized_test!(pubsub, should_get_pubsub_numpat);
+  centralized_test!(pubsub, should_get_pubsub_nunmsub);
+  centralized_test!(pubsub, should_get_pubsub_shard_channels);
+  centralized_test!(pubsub, should_get_pubsub_shard_numsub);
 }
 
 mod hyperloglog {

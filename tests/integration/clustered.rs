@@ -97,6 +97,13 @@ mod pubsub {
   cluster_test!(pubsub, should_publish_and_recv_messages);
   cluster_test!(pubsub, should_psubscribe_and_recv_messages);
   cluster_test!(pubsub, should_unsubscribe_from_all);
+
+  // TODO fix these tests so they work with clusters. the connection management logic could be better.
+  // cluster_test!(pubsub, should_get_pubsub_channels);
+  // cluster_test!(pubsub, should_get_pubsub_numpat);
+  // cluster_test!(pubsub, should_get_pubsub_nunmsub);
+  cluster_test!(pubsub, should_get_pubsub_shard_channels);
+  cluster_test!(pubsub, should_get_pubsub_shard_numsub);
 }
 
 mod hyperloglog {
