@@ -117,12 +117,23 @@ pub async fn should_get_pubsub_channels(client: RedisClient, _: RedisConfig) -> 
   let _ = subscriber.wait_for_connect().await?;
 
   let channels: Vec<String> = client.pubsub_channels("*").await?;
+  #[cfg(feature = "sentinel-tests")]
+  assert_eq!(channels.len(), 1); // "__sentinel__:hello" is always there
+  #[cfg(not(feature = "sentinel-tests"))]
   assert!(channels.is_empty());
 
   let _: () = subscriber.subscribe("foo").await?;
   let _: () = subscriber.subscribe("bar").await?;
   let mut channels: Vec<String> = client.pubsub_channels("*").await?;
   channels.sort();
+
+  #[cfg(feature = "sentinel-tests")]
+  assert_eq!(channels, vec![
+    "__sentinel__:hello".into(),
+    "bar".to_string(),
+    "foo".to_string()
+  ]);
+  #[cfg(not(feature = "sentinel-tests"))]
   assert_eq!(channels, vec!["bar".to_string(), "foo".to_string()]);
 
   Ok(())
