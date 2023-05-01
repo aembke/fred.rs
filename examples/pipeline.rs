@@ -30,9 +30,9 @@ async fn main() -> Result<(), RedisError> {
   // or handle each command result individually
   let pipeline = client.pipeline();
   let _: () = pipeline.incr("foo").await?;
-  let _: () = pipeline.hgetall("foo").await?; // this will error
-  let results = pipeline.try_all::<RedisValue>().await;
-  assert_eq!(results[0].unwrap().convert::<i64>(), 1);
+  let _: () = pipeline.hgetall("foo").await?; // this will result in a `WRONGTYPE` error
+  let results = pipeline.try_all::<i64>().await;
+  assert_eq!(results[0].clone().unwrap(), 1);
   assert!(results[1].is_err());
 
   let _ = client.quit().await?;
