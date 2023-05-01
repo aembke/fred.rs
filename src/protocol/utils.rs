@@ -60,6 +60,15 @@ pub fn queued_frame() -> Resp3Frame {
   }
 }
 
+pub fn frame_is_queued(frame: &Resp3Frame) -> bool {
+  match frame {
+    Resp3Frame::SimpleString { ref data, .. } | Resp3Frame::BlobString { ref data, .. } => {
+      str::from_utf8(data).ok().map(|s| s == QUEUED).unwrap_or(false)
+    },
+    _ => false,
+  }
+}
+
 pub fn is_ok(frame: &Resp3Frame) -> bool {
   match frame {
     Resp3Frame::SimpleString { ref data, .. } => data == OK,
@@ -664,6 +673,11 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
       Ok(RedisMap { inner })
     },
     Resp3Frame::Map { data, .. } => parse_nested_map(data),
+    Resp3Frame::SimpleError { data, .. } => Err(pretty_error(&data)),
+    Resp3Frame::BlobError { data, .. } => {
+      let parsed = String::from_utf8_lossy(&data);
+      Err(pretty_error(&parsed))
+    },
     _ => Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Expected array or map frames.",
@@ -671,6 +685,7 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
   }
 }
 
+/// Convert a frame to a `RedisError`.
 pub fn frame_to_error(frame: &Resp3Frame) -> Option<RedisError> {
   match frame {
     Resp3Frame::SimpleError { ref data, .. } => Some(pretty_error(data)),

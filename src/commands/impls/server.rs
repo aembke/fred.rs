@@ -36,6 +36,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let _ = rx.await??;
   utils::abort_network_timeout_task(&inner);
   inner.notifications.close_public_receivers();
+  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }
@@ -64,6 +65,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   let _ = rx.await??;
   utils::abort_network_timeout_task(&inner);
   inner.notifications.close_public_receivers();
+  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }

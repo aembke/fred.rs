@@ -472,7 +472,19 @@ pub async fn process_response_frame(
       frames,
       tx,
       index,
-    } => responders::respond_buffer(inner, server, command, received, expected, frames, index, tx, frame),
+      error_early,
+    } => responders::respond_buffer(
+      inner,
+      server,
+      command,
+      received,
+      expected,
+      error_early,
+      frames,
+      index,
+      tx,
+      frame,
+    ),
     ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
     ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
   }
@@ -593,6 +605,7 @@ pub async fn cluster_slots_backchannel(
   };
   _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
   if response.is_null() {
+    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Invalid or missing CLUSTER SLOTS response.",

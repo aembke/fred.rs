@@ -296,6 +296,26 @@ pub async fn should_pipeline_all(client: RedisClient, _: RedisConfig) -> Result<
   Ok(())
 }
 
+pub async fn should_pipeline_all_error_early(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+
+  let result: RedisValue = pipeline.set("foo", 1, None, None, false).await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.hgetall("foo").await?;
+  assert!(result.is_queued());
+  let result: RedisValue = pipeline.incr("foo").await?;
+  assert!(result.is_queued());
+
+  if let Err(e) = pipeline.all::<RedisValue>().await {
+    // make sure we get the expected error from the server rather than a parsing error
+    assert_eq!(*e.kind(), RedisErrorKind::InvalidArgument);
+  } else {
+    panic!("Expected pipeline error.");
+  }
+
+  Ok(())
+}
+
 pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let pipeline = client.pipeline();
 
@@ -308,6 +328,19 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 
   let result: i64 = pipeline.last().await?;
   assert_eq!(result, 2);
+  Ok(())
+}
+
+pub async fn should_pipeline_try_all(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.hgetall("foo").await?;
+  let results = pipeline.try_all::<i64>().await;
+
+  assert_eq!(results[0].clone().unwrap(), 1);
+  assert!(results[1].is_err());
+
   Ok(())
 }
 

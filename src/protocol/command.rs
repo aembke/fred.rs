@@ -405,6 +405,11 @@ pub enum RedisCommandKind {
   FunctionLoad,
   FunctionRestore,
   FunctionStats,
+  PubsubChannels,
+  PubsubNumpat,
+  PubsubNumsub,
+  PubsubShardchannels,
+  PubsubShardnumsub,
   // Commands with custom state or commands that don't map directly to the server's command interface.
   _Hello(RespVersion),
   _AuthAllCluster,
@@ -838,6 +843,11 @@ impl RedisCommandKind {
       RedisCommandKind::FunctionLoad => "FUNCTION LOAD",
       RedisCommandKind::FunctionRestore => "FUNCTION RESTORE",
       RedisCommandKind::FunctionStats => "FUNCTION STATS",
+      RedisCommandKind::PubsubChannels => "PUBSUB CHANNELS",
+      RedisCommandKind::PubsubNumpat => "PUBSUB NUMPAT",
+      RedisCommandKind::PubsubNumsub => "PUBSUB NUMSUB",
+      RedisCommandKind::PubsubShardchannels => "PUBSUB SHARDCHANNELS",
+      RedisCommandKind::PubsubShardnumsub => "PUBSUB SHARDNUMSUB",
       RedisCommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
@@ -1137,6 +1147,11 @@ impl RedisCommandKind {
       | RedisCommandKind::_FunctionRestoreCluster
       | RedisCommandKind::_FunctionDeleteCluster
       | RedisCommandKind::_FunctionLoadCluster => "FUNCTION",
+      RedisCommandKind::PubsubChannels
+      | RedisCommandKind::PubsubNumpat
+      | RedisCommandKind::PubsubNumsub
+      | RedisCommandKind::PubsubShardchannels
+      | RedisCommandKind::PubsubShardnumsub => "PUBSUB",
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_ClientTrackingCluster => "CLIENT",
@@ -1230,6 +1245,11 @@ impl RedisCommandKind {
       RedisCommandKind::FunctionLoad => "LOAD",
       RedisCommandKind::FunctionRestore => "RESTORE",
       RedisCommandKind::FunctionStats => "STATS",
+      RedisCommandKind::PubsubChannels => "CHANNELS",
+      RedisCommandKind::PubsubNumpat => "NUMPAT",
+      RedisCommandKind::PubsubNumsub => "NUMSUB",
+      RedisCommandKind::PubsubShardchannels => "SHARDCHANNELS",
+      RedisCommandKind::PubsubShardnumsub => "SHARDNUMSUB",
       RedisCommandKind::_FunctionLoadCluster => "LOAD",
       RedisCommandKind::_FunctionFlushCluster => "FLUSH",
       RedisCommandKind::_FunctionDeleteCluster => "DELETE",
@@ -1244,10 +1264,6 @@ impl RedisCommandKind {
   pub fn use_random_cluster_node(&self) -> bool {
     match self {
       RedisCommandKind::Publish
-      | RedisCommandKind::Subscribe
-      | RedisCommandKind::Unsubscribe
-      | RedisCommandKind::Psubscribe
-      | RedisCommandKind::Punsubscribe
       | RedisCommandKind::Ping
       | RedisCommandKind::Info
       | RedisCommandKind::Scan
@@ -1319,7 +1335,9 @@ impl RedisCommandKind {
     } else {
       match self {
         // make it easier to handle multiple potentially out-of-band responses
-        RedisCommandKind::Psubscribe
+        RedisCommandKind::Subscribe
+        | RedisCommandKind::Unsubscribe
+        | RedisCommandKind::Psubscribe
         | RedisCommandKind::Punsubscribe
         | RedisCommandKind::Ssubscribe
         | RedisCommandKind::Sunsubscribe

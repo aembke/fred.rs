@@ -142,3 +142,74 @@ pub async fn sunsubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) 
   let _ = rx.await??;
   Ok(RedisValue::Null)
 }
+
+pub async fn pubsub_channels<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, || {
+    let args = if pattern.is_empty() {
+      vec![]
+    } else {
+      vec![pattern.into()]
+    };
+
+    let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubChannels, args);
+    cluster_hash_legacy_command(client, &mut command);
+
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results_raw(frame)
+}
+
+pub async fn pubsub_numpat<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, || {
+    let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubNumpat, vec![]);
+    cluster_hash_legacy_command(client, &mut command);
+
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn pubsub_numsub<C: ClientLike>(client: &C, channels: MultipleStrings) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, || {
+    let args: Vec<RedisValue> = channels.inner().into_iter().map(|s| s.into()).collect();
+    let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubNumsub, args);
+    cluster_hash_legacy_command(client, &mut command);
+
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results_raw(frame)
+}
+
+pub async fn pubsub_shardchannels<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, || {
+    Ok((RedisCommandKind::PubsubShardchannels, vec![pattern.into()]))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results_raw(frame)
+}
+
+pub async fn pubsub_shardnumsub<C: ClientLike>(
+  client: &C,
+  channels: MultipleStrings,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, || {
+    let args: Vec<RedisValue> = channels.inner().into_iter().map(|s| s.into()).collect();
+    let has_args = args.len() > 0;
+    let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubShardnumsub, args);
+    if !has_args {
+      cluster_hash_legacy_command(client, &mut command);
+    }
+
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results_raw(frame)
+}

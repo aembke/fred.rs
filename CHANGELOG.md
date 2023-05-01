@@ -1,3 +1,9 @@
+## 6.2.0
+
+* Add `Pipeline::try_all`
+* Add missing pubsub commands 
+* Improve docs, examples
+
 ## 6.1.0
 
 * Add a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.

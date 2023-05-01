@@ -34,7 +34,12 @@ pub async fn hget<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> 
 
 pub async fn hgetall<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::HGetAll, vec![key.into()]))).await?;
-  Ok(RedisValue::Map(protocol_utils::frame_to_map(frame)?))
+
+  if protocol_utils::frame_is_queued(&frame) {
+    protocol_utils::frame_to_results(frame)
+  } else {
+    Ok(RedisValue::Map(protocol_utils::frame_to_map(frame)?))
+  }
 }
 
 pub async fn hincrby<C: ClientLike>(
@@ -151,7 +156,7 @@ pub async fn hrandfield<C: ClientLike>(
   .await?;
 
   if has_count {
-    if has_values {
+    if has_values && !protocol_utils::frame_is_queued(&frame) {
       let frame = protocol_utils::flatten_frame(frame);
       protocol_utils::frame_to_map(frame).map(|m| RedisValue::Map(m))
     } else {
