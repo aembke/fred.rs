@@ -33,7 +33,7 @@ async fn main() -> Result<(), RedisError> {
   let _: () = pipeline.hgetall("foo").await?; // this will error
   let results = pipeline.try_all::<RedisValue>().await;
   assert_eq!(results[0].unwrap().convert::<i64>(), 1);
-  assert_eq!(results[1].is_err());
+  assert!(results[1].is_err());
 
   let _ = client.quit().await?;
   Ok(())

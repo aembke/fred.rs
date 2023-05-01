@@ -49,7 +49,9 @@ mod other {
   cluster_test!(other, should_error_when_blocked);
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_pipeline_all);
+  cluster_test!(other, should_pipeline_all_error_early);
   cluster_test!(other, should_pipeline_last);
+  cluster_test!(other, should_pipeline_try_all);
   cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
   cluster_test!(other, should_gracefully_quit);
 

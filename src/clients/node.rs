@@ -31,6 +31,7 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::sync::Arc;
 
+use crate::interfaces::PubsubInterface;
 #[cfg(feature = "client-tracking")]
 use crate::{
   interfaces::RedisResult,
@@ -117,6 +118,7 @@ impl SetsInterface for Node {}
 impl SortedSetsInterface for Node {}
 impl StreamsInterface for Node {}
 impl FunctionInterface for Node {}
+impl PubsubInterface for Node {}
 
 // remove the restriction on clustered deployments with the basic `CLIENT TRACKING` commands here
 #[async_trait]

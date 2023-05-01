@@ -142,3 +142,28 @@ pub async fn sunsubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) 
   let _ = rx.await??;
   Ok(RedisValue::Null)
 }
+
+pub async fn pubsub_channels<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
+  unimplemented!()
+}
+
+pub async fn pubsub_numpat<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
+  unimplemented!()
+}
+
+pub async fn pubsub_numsub<C: ClientLike>(client: &C, channels: MultipleStrings) -> Result<RedisValue, RedisError> {
+  unimplemented!()
+}
+
+pub async fn pubsub_shardchannels<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
+  // TODO what if pattern is nil or empty? which node to use? or doc that this should be used with Node...
+  unimplemented!()
+}
+
+pub async fn pubsub_shardnumsub<C: ClientLike>(
+  client: &C,
+  channels: MultipleStrings,
+) -> Result<RedisValue, RedisError> {
+  // TODO what if pattern is nil or empty? which node to use? or doc that this should be used with Node...
+  unimplemented!()
+}
