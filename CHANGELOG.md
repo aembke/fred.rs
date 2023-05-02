@@ -1,3 +1,7 @@
+## 6.2.1
+
+* Fix cluster failover with paused nodes. 
+
 ## 6.2.0
 
 * Add `Pipeline::try_all`
