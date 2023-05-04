@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.2.1"
+version = "6.2.2"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
