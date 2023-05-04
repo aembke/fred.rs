@@ -937,10 +937,20 @@ impl RedisWriter {
   ///
   /// Returns the in-flight commands that had not received a response.
   pub async fn graceful_close(mut self) -> CommandBuffer {
-    let _ = self.sink.close().await;
-    if let Some(mut reader) = self.reader {
-      let _ = reader.wait().await;
-    }
+    let timeout = globals().default_connection_timeout_ms();
+    let _ = utils::apply_timeout(
+      async {
+        let _ = self.sink.close().await;
+        if let Some(mut reader) = self.reader {
+          let _ = reader.wait().await;
+        }
+
+        Ok::<_, RedisError>(())
+      },
+      timeout,
+    )
+    .await;
+
     self.buffer.lock().drain(..).collect()
   }
 }
