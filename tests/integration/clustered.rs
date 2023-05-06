@@ -49,7 +49,9 @@ mod other {
   cluster_test!(other, should_error_when_blocked);
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_pipeline_all);
+  cluster_test!(other, should_pipeline_all_error_early);
   cluster_test!(other, should_pipeline_last);
+  cluster_test!(other, should_pipeline_try_all);
   cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
   cluster_test!(other, should_gracefully_quit);
 
@@ -95,6 +97,13 @@ mod pubsub {
   cluster_test!(pubsub, should_publish_and_recv_messages);
   cluster_test!(pubsub, should_psubscribe_and_recv_messages);
   cluster_test!(pubsub, should_unsubscribe_from_all);
+
+  // TODO fix these tests so they work with clusters. the connection management logic could be better.
+  // cluster_test!(pubsub, should_get_pubsub_channels);
+  // cluster_test!(pubsub, should_get_pubsub_numpat);
+  // cluster_test!(pubsub, should_get_pubsub_nunmsub);
+  cluster_test!(pubsub, should_get_pubsub_shard_channels);
+  cluster_test!(pubsub, should_get_pubsub_shard_numsub);
 }
 
 mod hyperloglog {
@@ -295,4 +304,13 @@ mod streams {
   cluster_test!(streams, should_xclaim_multiple_ids);
   cluster_test!(streams, should_xclaim_with_justid);
   cluster_test!(streams, should_xautoclaim_default);
+}
+
+mod cluster {
+  cluster_test!(cluster, should_use_each_cluster_node);
+}
+
+#[cfg(feature = "client-tracking")]
+mod tracking {
+  cluster_test!(tracking, should_invalidate_foo_resp3);
 }

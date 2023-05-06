@@ -1,3 +1,21 @@
+## 6.2.1
+
+* Fix cluster failover with paused nodes. 
+
+## 6.2.0
+
+* Add `Pipeline::try_all`
+* Add missing pubsub commands 
+* Improve docs, examples
+
+## 6.1.0
+
+* Add a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.
+* Add a global config value for broadcast channel capacity.
+* Add an interface to interact with individual cluster nodes.
+* Fix missing `impl StreamInterface for Transaction`
+* Add all `RedisClient` command traits to `SubscriberClient`
+
 ## 6.0.0
 
 * Refactored the connection and protocol layer.
@@ -33,7 +51,6 @@ Potentially breaking changes in 6.x:
 * Removed or renamed some fields on `RedisConfig`.
 * Changed the pubsub receiver interface to use `Message` instead of `(String, RedisValue)` tuples.
 * Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
-  * This usually means changing `next()` to `recv()` in `while let` loops, etc.
 * The `FromRedis` trait converts `RedisValue::Null` to `"nil"` with `String` and `Str`.
 
 ## 5.2.0

@@ -45,7 +45,9 @@ mod other {
   centralized_test!(other, should_smoke_test_from_redis_impl);
   centralized_test!(other, should_safely_change_protocols_repeatedly);
   centralized_test!(other, should_pipeline_all);
+  centralized_test!(other, should_pipeline_all_error_early);
   centralized_test!(other, should_pipeline_last);
+  centralized_test!(other, should_pipeline_try_all);
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
   centralized_test!(other, should_gracefully_quit);
 
@@ -91,6 +93,12 @@ mod pubsub {
   centralized_test!(pubsub, should_publish_and_recv_messages);
   centralized_test!(pubsub, should_psubscribe_and_recv_messages);
   centralized_test!(pubsub, should_unsubscribe_from_all);
+
+  centralized_test!(pubsub, should_get_pubsub_channels);
+  centralized_test!(pubsub, should_get_pubsub_numpat);
+  centralized_test!(pubsub, should_get_pubsub_nunmsub);
+  centralized_test!(pubsub, should_get_pubsub_shard_channels);
+  centralized_test!(pubsub, should_get_pubsub_shard_numsub);
 }
 
 mod hyperloglog {
@@ -291,4 +299,10 @@ mod streams {
   centralized_test!(streams, should_xclaim_multiple_ids);
   centralized_test!(streams, should_xclaim_with_justid);
   centralized_test!(streams, should_xautoclaim_default);
+}
+
+#[cfg(feature = "client-tracking")]
+mod tracking {
+  centralized_test!(tracking, should_invalidate_foo_resp3);
+  centralized_test!(tracking, should_invalidate_foo_resp2_centralized);
 }

@@ -1,5 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  globals::globals,
   interfaces,
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
@@ -13,6 +14,7 @@ use crate::{
   },
   router::{responses, types::ClusterChange, utils, Connections, Written},
   types::ClusterStateChange,
+  utils as client_utils,
 };
 use std::{
   collections::{BTreeSet, HashMap},
@@ -46,20 +48,51 @@ pub async fn send_command(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<Server, RedisWriter>,
   state: &ClusterRouting,
-  command: RedisCommand,
+  mut command: RedisCommand,
   force_flush: bool,
 ) -> Result<Written, (RedisError, RedisCommand)> {
-  let server = match find_cluster_node(inner, state, &command) {
-    Some(server) => server,
-    None => {
-      // these errors usually mean the cluster is partially down or misconfigured
-      _warn!(
+  // first check whether the caller specified a specific cluster node that should receive the command
+  let server = if let Some(ref _server) = command.cluster_node {
+    // this `_server` has a lifetime tied to `command`, so we switch `server` to refer to the record in `state` while
+    // we check whether that node exists in the cluster
+    let server = state.slots().iter().find_map(|slot| {
+      if slot.primary == *_server {
+        Some(&slot.primary)
+      } else {
+        None
+      }
+    });
+
+    if let Some(server) = server {
+      server
+    } else {
+      _debug!(
         inner,
-        "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
-        command.cluster_hash()
+        "Respond to caller with error from missing cluster node override ({})",
+        _server
       );
-      return Ok(Written::Sync(command));
-    },
+      command.respond_to_caller(Err(RedisError::new(
+        RedisErrorKind::Cluster,
+        "Missing cluster node override.",
+      )));
+      command.respond_to_router(inner, RouterResponse::Continue);
+
+      return Ok(Written::Ignore);
+    }
+  } else {
+    // otherwise apply whichever cluster hash policy exists in the command
+    match find_cluster_node(inner, state, &command) {
+      Some(server) => server,
+      None => {
+        // these errors usually mean the cluster is partially down or misconfigured
+        _warn!(
+          inner,
+          "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
+          command.cluster_hash()
+        );
+        return Ok(Written::Sync(command));
+      },
+    }
   };
 
   if let Some(writer) = writers.get_mut(server) {
@@ -217,7 +250,7 @@ pub fn spawn_reader_task(
         last_error = Some(error);
         break;
       }
-      if let Some(frame) = responses::check_pubsub_message(&inner, frame) {
+      if let Some(frame) = responses::check_pubsub_message(&inner, &server, frame) {
         if let Err(e) = process_response_frame(&inner, &server, &buffer, &counters, frame).await {
           _debug!(
             inner,
@@ -441,7 +474,19 @@ pub async fn process_response_frame(
       frames,
       tx,
       index,
-    } => responders::respond_buffer(inner, server, command, received, expected, frames, index, tx, frame),
+      error_early,
+    } => responders::respond_buffer(
+      inner,
+      server,
+      command,
+      received,
+      expected,
+      error_early,
+      frames,
+      index,
+      tx,
+      frame,
+    ),
     ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
     ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
   }
@@ -509,6 +554,8 @@ pub async fn cluster_slots_backchannel(
   inner: &Arc<RedisClientInner>,
   cache: Option<&ClusterRouting>,
 ) -> Result<ClusterRouting, RedisError> {
+  let timeout = globals().default_connection_timeout_ms();
+
   let (response, host) = {
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
 
@@ -518,8 +565,8 @@ pub async fn cluster_slots_backchannel(
       if let Some(ref mut transport) = backchannel.transport {
         let default_host = transport.default_host.clone();
 
-        transport
-          .request_response(command, inner.is_resp3())
+        _trace!(inner, "Sending backchannel CLUSTER SLOTS to {}", transport.server);
+        client_utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout)
           .await
           .ok()
           .map(|frame| (frame, default_host))
@@ -539,7 +586,8 @@ pub async fn cluster_slots_backchannel(
       if frame.is_error() {
         // try connecting to any of the nodes, then try again
         let mut transport = connect_any(inner, old_cache).await?;
-        let frame = transport.request_response(command, inner.is_resp3()).await?;
+        let frame =
+          client_utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout).await?;
         let host = transport.default_host.clone();
         inner.update_backchannel(transport).await;
 
@@ -551,7 +599,7 @@ pub async fn cluster_slots_backchannel(
     } else {
       // try connecting to any of the nodes, then try again
       let mut transport = connect_any(inner, old_cache).await?;
-      let frame = transport.request_response(command, inner.is_resp3()).await?;
+      let frame = client_utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout).await?;
       let host = transport.default_host.clone();
       inner.update_backchannel(transport).await;
 
@@ -562,6 +610,7 @@ pub async fn cluster_slots_backchannel(
   };
   _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
   if response.is_null() {
+    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Invalid or missing CLUSTER SLOTS response.",

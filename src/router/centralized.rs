@@ -64,7 +64,7 @@ pub fn spawn_reader_task(
         last_error = Some(error);
         break;
       }
-      if let Some(frame) = responses::check_pubsub_message(&inner, frame) {
+      if let Some(frame) = responses::check_pubsub_message(&inner, &server, frame) {
         if let Err(e) = process_response_frame(&inner, &server, &buffer, &counters, frame).await {
           _debug!(inner, "Error processing response frame from {}: {:?}", server, e);
           last_error = Some(e);
@@ -170,7 +170,19 @@ pub async fn process_response_frame(
       frames,
       tx,
       index,
-    } => responders::respond_buffer(inner, server, command, received, expected, frames, index, tx, frame),
+      error_early,
+    } => responders::respond_buffer(
+      inner,
+      server,
+      command,
+      received,
+      expected,
+      error_early,
+      frames,
+      index,
+      tx,
+      frame,
+    ),
     ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
     ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
   }

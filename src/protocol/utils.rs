@@ -60,6 +60,15 @@ pub fn queued_frame() -> Resp3Frame {
   }
 }
 
+pub fn frame_is_queued(frame: &Resp3Frame) -> bool {
+  match frame {
+    Resp3Frame::SimpleString { ref data, .. } | Resp3Frame::BlobString { ref data, .. } => {
+      str::from_utf8(data).ok().map(|s| s == QUEUED).unwrap_or(false)
+    },
+    _ => false,
+  }
+}
+
 pub fn is_ok(frame: &Resp3Frame) -> bool {
   match frame {
     Resp3Frame::SimpleString { ref data, .. } => data == OK,
@@ -167,7 +176,7 @@ pub fn parse_shard_pubsub_frame(frame: &Resp3Frame) -> Option<Message> {
             Some(channel) => channel,
             None => return None,
           };
-          let message = match frame_to_single_result(data[data.len() - 1].clone()) {
+          let message = match frame_to_results(data[data.len() - 1].clone()) {
             Ok(message) => message,
             Err(_) => return None,
           };
@@ -239,7 +248,7 @@ pub fn parse_message_fields(frame: &Resp3Frame) -> Result<(Str, RedisValue), Red
     .ok_or(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub channel."))?;
   let channel =
     frame_to_str(&channel).ok_or(RedisError::new(RedisErrorKind::Protocol, "Failed to parse channel."))?;
-  let value = frame_to_single_result(value)?;
+  let value = frame_to_results(value)?;
 
   Ok((channel, value))
 }
@@ -264,9 +273,7 @@ pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<Message, RedisError> {
     return Ok(message);
   }
 
-  // there's a few ways to do this, but i don't want to re-implement the logic in redis_protocol.
-  // the main difference between resp2 and resp3 here is the presence of a "pubsub" string at the
-  // beginning of the push array, so we just add that to the front here.
+  // resp3 has an added "pubsub" simple string frame at the front
   // TODO move and redo this in redis_protocol
   let mut out = Vec::with_capacity(frame.len() + 1);
   out.push(Resp3Frame::SimpleString {
@@ -666,6 +673,11 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
       Ok(RedisMap { inner })
     },
     Resp3Frame::Map { data, .. } => parse_nested_map(data),
+    Resp3Frame::SimpleError { data, .. } => Err(pretty_error(&data)),
+    Resp3Frame::BlobError { data, .. } => {
+      let parsed = String::from_utf8_lossy(&data);
+      Err(pretty_error(&parsed))
+    },
     _ => Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Expected array or map frames.",
@@ -673,6 +685,7 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
   }
 }
 
+/// Convert a frame to a `RedisError`.
 pub fn frame_to_error(frame: &Resp3Frame) -> Option<RedisError> {
   match frame {
     Resp3Frame::SimpleError { ref data, .. } => Some(pretty_error(data)),

@@ -18,7 +18,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// If the connection to the Redis server closes for any reason this function does not need to be called again.
   /// Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
   fn on_message(&self) -> BroadcastReceiver<Message> {
-    self.inner().notifications.pubsub.subscribe()
+    self.inner().notifications.pubsub.load().subscribe()
   }
 
   /// Listen for keyspace and keyevent notifications on the publish-subscribe interface.
@@ -30,7 +30,7 @@ pub trait PubsubInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/topics/notifications>
   fn on_keyspace_event(&self) -> BroadcastReceiver<KeyspaceEvent> {
-    self.inner().notifications.keyspace.subscribe()
+    self.inner().notifications.keyspace.load().subscribe()
   }
 
   /// Subscribe to a channel on the publish-subscribe interface.
@@ -136,5 +136,61 @@ pub trait PubsubInterface: ClientLike + Sized {
     commands::pubsub::spublish(self, channel, message).await?.convert()
   }
 
-  // TODO pubsub channels, pubsub numpat, pubsub numsub, pubsub shardchannels, pubsub shardnumsub
+  /// Lists the currently active channels.
+  ///
+  /// <https://redis.io/commands/pubsub-channels/>
+  async fn pubsub_channels<R, S>(&self, pattern: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+  {
+    into!(pattern);
+    commands::pubsub::pubsub_channels(self, pattern).await?.convert()
+  }
+
+  /// Returns the number of unique patterns that are subscribed to by clients.
+  ///
+  /// <https://redis.io/commands/pubsub-numpat/>
+  async fn pubsub_numpat<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::pubsub::pubsub_numpat(self).await?.convert()
+  }
+
+  /// Returns the number of subscribers (exclusive of clients subscribed to patterns) for the specified channels.
+  ///
+  /// <https://redis.io/commands/pubsub-numsub/>
+  async fn pubsub_numsub<R, S>(&self, channels: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<MultipleStrings> + Send,
+  {
+    into!(channels);
+    commands::pubsub::pubsub_numsub(self, channels).await?.convert()
+  }
+
+  /// Lists the currently active shard channels.
+  ///
+  /// <https://redis.io/commands/pubsub-shardchannels/>
+  async fn pubsub_shardchannels<R, S>(&self, pattern: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+  {
+    into!(pattern);
+    commands::pubsub::pubsub_shardchannels(self, pattern).await?.convert()
+  }
+
+  /// Returns the number of subscribers for the specified shard channels.
+  ///
+  /// <https://redis.io/commands/pubsub-shardnumsub/>
+  async fn pubsub_shardnumsub<R, S>(&self, channels: S) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<MultipleStrings> + Send,
+  {
+    into!(channels);
+    commands::pubsub::pubsub_shardnumsub(self, channels).await?.convert()
+  }
 }

@@ -52,24 +52,27 @@ impl ReconnectError {
 
 /// Mutable globals that can be configured by the caller.
 pub(crate) struct Globals {
+  /// The default capacity of all broadcast channels behind the `on_*` functions.
+  pub default_broadcast_channel_capacity: Arc<AtomicUsize>,
   /// The default timeout to apply when connecting or initializing connections to servers.
-  pub(crate) default_connection_timeout_ms:  Arc<AtomicUsize>,
+  pub default_connection_timeout_ms:      Arc<AtomicUsize>,
   /// The default timeout to apply to connections to sentinel nodes.
-  pub(crate) sentinel_connection_timeout_ms: Arc<AtomicUsize>,
+  pub sentinel_connection_timeout_ms:     Arc<AtomicUsize>,
   #[cfg(feature = "blocking-encoding")]
   /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
-  pub(crate) blocking_encode_threshold:      Arc<AtomicUsize>,
+  pub blocking_encode_threshold:          Arc<AtomicUsize>,
   /// Any special errors that should trigger reconnection logic.
   #[cfg(feature = "custom-reconnect-errors")]
-  pub(crate) reconnect_errors:               Arc<RwLock<Vec<ReconnectError>>>,
+  pub reconnect_errors:                   Arc<RwLock<Vec<ReconnectError>>>,
   /// The frequency (in ms) to check unresponsive connections.
   #[cfg(feature = "check-unresponsive")]
-  pub(crate) unresponsive_interval:          Arc<AtomicUsize>,
+  pub unresponsive_interval:              Arc<AtomicUsize>,
 }
 
 impl Default for Globals {
   fn default() -> Self {
     Globals {
+      default_broadcast_channel_capacity:                              Arc::new(AtomicUsize::new(32)),
       default_connection_timeout_ms:                                   Arc::new(AtomicUsize::new(60_000)),
       sentinel_connection_timeout_ms:                                  Arc::new(AtomicUsize::new(2_000)),
       #[cfg(feature = "blocking-encoding")]
@@ -87,6 +90,10 @@ impl Default for Globals {
 }
 
 impl Globals {
+  pub fn default_broadcast_channel_capacity(&self) -> usize {
+    read_atomic(&self.default_broadcast_channel_capacity)
+  }
+
   pub fn default_connection_timeout_ms(&self) -> u64 {
     read_atomic(&self.default_connection_timeout_ms) as u64
   }
@@ -188,4 +195,18 @@ pub fn get_unresponsive_interval_ms() -> u64 {
 #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
 pub fn set_unresponsive_interval_ms(val: u64) -> u64 {
   set_atomic(&globals().unresponsive_interval, val as usize) as u64
+}
+
+/// The default capacity used when creating [broadcast channels](https://docs.rs/tokio/latest/tokio/sync/broadcast/fn.channel.html) for the `on_*` notification functions.
+///
+/// Default: 32
+pub fn get_default_broadcast_channel_capacity() -> usize {
+  read_atomic(&globals().default_broadcast_channel_capacity)
+}
+
+/// See [get_default_broadcast_channel_capacity] for more information.
+///
+/// Changing this value will only affect new client instances.
+pub fn set_default_broadcast_channel_capacity(val: usize) -> usize {
+  set_atomic(&globals().default_broadcast_channel_capacity, val)
 }

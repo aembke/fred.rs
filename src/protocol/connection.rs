@@ -644,8 +644,13 @@ impl RedisTransport {
 
   /// Send `QUIT` and close the connection.
   pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+    let timeout = globals().default_connection_timeout_ms();
     let command: RedisCommand = RedisCommandKind::Quit.into();
-    let _ = self.request_response(command, inner.is_resp3()).await?;
+    let quit_ft = self.request_response(command, inner.is_resp3());
+
+    if let Err(e) = client_utils::apply_timeout(quit_ft, timeout).await {
+      _warn!(inner, "Error calling QUIT on backchannel: {:?}", e);
+    }
     let _ = self.transport.close().await;
 
     Ok(())

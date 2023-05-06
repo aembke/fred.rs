@@ -3,7 +3,7 @@ use crate::{
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{RouterResponse, RedisCommand, RedisCommandKind, ResponseSender},
+    command::{RedisCommand, RedisCommandKind, ResponseSender, RouterResponse},
     types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
@@ -15,6 +15,7 @@ use parking_lot::Mutex;
 use std::{
   fmt,
   fmt::Formatter,
+  iter::repeat,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
 };
@@ -23,7 +24,6 @@ use std::{
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
-use std::iter::repeat;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
@@ -61,15 +61,17 @@ pub enum ResponseKind {
   /// cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames:   Arc<Mutex<Vec<Resp3Frame>>>,
+    frames:      Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
-    expected: usize,
+    expected:    usize,
     /// The number of response frames received.
-    received: Arc<AtomicUsize>,
+    received:    Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx:       Arc<Mutex<Option<ResponseSender>>>,
+    tx:          Arc<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
-    index:    usize,
+    index:       usize,
+    /// Whether errors should be returned early to the caller.
+    error_early: bool,
   },
   /// Handle the response as a page of key/value pairs from a HSCAN, SSCAN, ZSCAN command.
   ValueScan(ValueScanInner),
@@ -105,12 +107,14 @@ impl ResponseKind {
         received,
         index,
         expected,
+        error_early,
       } => ResponseKind::Buffer {
-        frames:   frames.clone(),
-        tx:       tx.clone(),
-        received: received.clone(),
-        index:    index.clone(),
-        expected: expected.clone(),
+        frames:      frames.clone(),
+        tx:          tx.clone(),
+        received:    received.clone(),
+        index:       index.clone(),
+        expected:    expected.clone(),
+        error_early: error_early.clone(),
       },
       ResponseKind::Multiple { received, tx, expected } => ResponseKind::Multiple {
         received: received.clone(),
@@ -127,13 +131,23 @@ impl ResponseKind {
     }
   }
 
+  pub fn set_error_early(&mut self, _error_early: bool) {
+    if let ResponseKind::Buffer {
+      ref mut error_early, ..
+    } = self
+    {
+      *error_early = _error_early;
+    }
+  }
+
   pub fn new_buffer(tx: ResponseSender) -> Self {
     ResponseKind::Buffer {
-      frames:   Arc::new(Mutex::new(vec![])),
-      tx:       Arc::new(Mutex::new(Some(tx))),
-      received: Arc::new(AtomicUsize::new(0)),
-      index:    0,
-      expected: 0,
+      frames:      Arc::new(Mutex::new(vec![])),
+      tx:          Arc::new(Mutex::new(Some(tx))),
+      received:    Arc::new(AtomicUsize::new(0)),
+      index:       0,
+      expected:    0,
+      error_early: true,
     }
   }
 
@@ -144,6 +158,7 @@ impl ResponseKind {
       tx: Arc::new(Mutex::new(Some(tx))),
       received: Arc::new(AtomicUsize::new(0)),
       index: 0,
+      error_early: true,
       expected,
     }
   }
@@ -273,7 +288,7 @@ fn add_buffered_frame(
 }
 
 /// Merge multiple potentially nested frames into one flat array of frames.
-fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
+fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>, error_early: bool) -> Resp3Frame {
   let inner_len = frames.iter().fold(0, |count, frame| {
     count
       + match frame {
@@ -284,23 +299,18 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>) -> Resp3Frame {
   });
 
   let mut out = Vec::with_capacity(inner_len);
-  // for frame in frames.iter_mut() {
   for frame in frames.drain(..) {
     // unwrap and return errors early
-    if frame.is_error() {
-      // return frame.take();
+    if error_early && frame.is_error() {
       return frame;
     }
 
     match frame {
       Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
-        // for inner_frame in data.iter_mut() {
         for inner_frame in data.into_iter() {
-          // out.push(inner_frame.take());
           out.push(inner_frame);
         }
       },
-      //_ => out.push(frame.take()),
       _ => out.push(frame),
     };
   }
@@ -559,6 +569,7 @@ pub fn respond_buffer(
   command: RedisCommand,
   received: Arc<AtomicUsize>,
   expected: usize,
+  error_early: bool,
   frames: Arc<Mutex<Vec<Resp3Frame>>>,
   index: usize,
   tx: Arc<Mutex<Option<ResponseSender>>>,
@@ -603,7 +614,7 @@ pub fn respond_buffer(
       command.debug_id()
     );
 
-    let frame = merge_multiple_frames(frames.lock().deref_mut());
+    let frame = merge_multiple_frames(frames.lock().deref_mut(), error_early);
     if frame.is_error() {
       let err = match frame.as_str() {
         Some(s) => protocol_utils::pretty_error(s),
