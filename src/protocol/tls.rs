@@ -96,7 +96,8 @@ impl Eq for TlsHostMapping {}
 ///
 /// Note: the `hostnames` field is only necessary to use with certain clustered deployments.
 ///
-/// ```rust no_compile no_run
+/// ```rust no_run
+/// # use fred::types::*;
 /// let config = TlsConfig {
 ///   // or use `TlsConnector::default_rustls()`
 ///   connector: TlsConnector::default_native_tls(),

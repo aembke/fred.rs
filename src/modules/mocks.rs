@@ -223,7 +223,7 @@ impl Mocks for SimpleMap {
 ///
 /// ```rust
 /// #[tokio::test]
-/// async fn should_use_echo_mock() {
+/// async fn should_use_buffer_mock() {
 ///   let buffer = Arc::new(Buffer::new());
 ///   let config = RedisConfig {
 ///     mocks: buffer.clone(),
