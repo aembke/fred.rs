@@ -5,6 +5,11 @@
 * Fix compilation error with `full-tracing`
 * Support `Vec<(T1, T2, ...)>` with `FromRedis`
 
+## 6.2.2
+
+* Fix cluster replica discovery with Elasticache
+* Fix cluster replica `READONLY` usage
+
 ## 6.2.1
 
 * Fix cluster failover with paused nodes
