@@ -1,6 +1,11 @@
+## 6.2.2
+
+* Fix cluster replica discovery with Elasticache
+* Fix cluster replica `READONLY` usage
+
 ## 6.2.1
 
-* Fix cluster failover with paused nodes. 
+* Fix cluster failover with paused nodes
 
 ## 6.2.0
 

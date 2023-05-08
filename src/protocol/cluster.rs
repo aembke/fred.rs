@@ -1,5 +1,4 @@
 use crate::{
-  clients::Replicas,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::types::{Server, SlotRange},
@@ -173,19 +172,18 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
       ));
     },
   };
-  let primary = Server {
-    host,
-    port,
-    tls_server_name: None,
-  };
 
   Ok(SlotRange {
     start,
     end,
-    primary,
     id,
+    primary: Server {
+      host,
+      port,
+      tls_server_name: None,
+    },
     #[cfg(feature = "replicas")]
-    replicas: parse_cluster_slot_replica_nodes(slot_range, default_host)?,
+    replicas: parse_cluster_slot_replica_nodes(slot_range, default_host),
   })
 }
 

@@ -448,6 +448,24 @@ impl ClusterRouting {
     protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].primary)
   }
 
+  /// Read the replicas associated with the provided primary node based on the cached CLUSTER SLOTS response.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub fn replicas(&self, primary: &Server) -> Vec<Server> {
+    self
+      .data
+      .iter()
+      .fold(BTreeSet::new(), |mut replicas, slot| {
+        if slot.primary == *primary {
+          replicas.extend(slot.replicas.clone());
+        }
+
+        replicas
+      })
+      .into_iter()
+      .collect()
+  }
+
   /// Read the number of hash slot ranges in the cluster.
   pub fn len(&self) -> usize {
     self.data.len()
