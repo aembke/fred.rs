@@ -309,7 +309,8 @@ pub struct PerformanceConfig {
   pub auto_pipeline:                 bool,
   /// The maximum number of times the client will attempt to send a command.
   ///
-  /// This value be incremented on a command whenever the connection closes while the command is in-flight.
+  /// This value be incremented whenever the connection closes while the command is in-flight or following a
+  /// MOVED/ASK error.
   ///
   /// Default: `3`
   pub max_command_attempts:          u32,

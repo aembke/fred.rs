@@ -67,6 +67,8 @@ mod other {
   #[cfg(feature = "replicas")]
   cluster_test!(other, should_replica_set_and_get_not_lazy);
   #[cfg(feature = "replicas")]
+  cluster_test!(other, should_use_cluster_replica_without_redirection);
+  #[cfg(feature = "replicas")]
   cluster_test!(other, should_pipeline_with_replicas);
 }
 
