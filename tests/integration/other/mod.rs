@@ -25,6 +25,8 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
+#[cfg(feature = "replicas")]
+use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
 use fred::types::Resolve;
 #[cfg(feature = "partial-tracing")]
@@ -488,6 +490,32 @@ pub async fn should_pipeline_with_replicas(client: RedisClient, _: RedisConfig) 
   let result: (i64, i64) = pipeline.all().await?;
 
   assert_eq!(result, (1, 2));
+  Ok(())
+}
+
+#[cfg(feature = "replicas")]
+pub async fn should_use_cluster_replica_without_redirection(
+  client: RedisClient,
+  _: RedisConfig,
+) -> Result<(), RedisError> {
+  let mut config = client.client_config();
+  config.replica = ReplicaConfig {
+    lazy_connections: true,
+    primary_fallback: false,
+    ignore_reconnection_errors: true,
+    ..ReplicaConfig::default()
+  };
+  let mut perf = client.perf_config();
+  perf.max_command_attempts = 1;
+  let policy = client.client_reconnect_policy();
+
+  let client = RedisClient::new(config, Some(perf), policy);
+  let _ = client.connect();
+  let _ = client.wait_for_connect().await?;
+
+  let _: () = client.replicas().get("foo").await?;
+  let _: () = client.incr("foo").await?;
+
   Ok(())
 }
 

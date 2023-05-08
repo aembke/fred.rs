@@ -1191,6 +1191,35 @@ pub fn parse_cluster_info(data: Resp3Frame) -> Result<ClusterInfo, RedisError> {
   }
 }
 
+/// Parse the replicas from the ROLE response returned from a master/primary node.
+#[cfg(feature = "replicas")]
+pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, RedisError> {
+  let mut role: Vec<RedisValue> = data.convert()?;
+
+  if role.len() == 3 {
+    if role[0].as_str().map(|s| s == "master").unwrap_or(false) {
+      let replicas: Vec<RedisValue> = role[2].take().convert()?;
+
+      Ok(
+        replicas
+          .into_iter()
+          .filter_map(|value| {
+            value
+              .convert::<(String, u16, String)>()
+              .ok()
+              .map(|(host, port, _)| Server::new(host, port))
+          })
+          .collect(),
+      )
+    } else {
+      Ok(Vec::new())
+    }
+  } else {
+    // we're talking to a replica or sentinel node
+    Ok(Vec::new())
+  }
+}
+
 fn frame_to_f64(frame: &Resp3Frame) -> Result<f64, RedisError> {
   match frame {
     Resp3Frame::Double { ref data, .. } => Ok(*data),

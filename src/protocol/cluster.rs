@@ -43,8 +43,9 @@ fn check_metadata_hostname(data: &HashMap<String, String>) -> Option<&str> {
 /// The implementation here does the following:
 /// 1. If `server[0]` is a hostname then use that.
 /// 2. If `server[0]` is an IP address, then check `server[3]` for a "hostname" metadata field and use that if found.
-/// Otherwise use the IP address in `server[0]`. 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata
-/// field, then use the metadata field. Otherwise use `default_host`.
+/// Otherwise use the IP address in `server[0]`.
+/// 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata field, then use the metadata field. Otherwise
+/// use `default_host`.
 ///
 /// <https://redis.io/commands/cluster-slots/#nested-result-array>
 fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
@@ -114,6 +115,37 @@ fn parse_node_block(data: &Vec<RedisValue>, default_host: &str) -> Option<(Strin
   Some((hostname, port, primary, id))
 }
 
+/// Parse the optional trailing replica nodes in each `CLUSTER SLOTS` slot range block.
+#[cfg(feature = "replicas")]
+fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &str) -> Vec<Server> {
+  slot_range
+    .into_iter()
+    .filter_map(|value| {
+      let server_block: Vec<RedisValue> = match value.convert() {
+        Ok(v) => v,
+        Err(_) => {
+          warn!("Skip replica CLUSTER SLOTS block from {}", default_host);
+          return None;
+        },
+      };
+
+      let (host, port) = match parse_node_block(&server_block, default_host) {
+        Some((h, p, _, _)) => (ArcStr::from(h), p),
+        None => {
+          warn!("Skip replica CLUSTER SLOTS block from {}", default_host);
+          return None;
+        },
+      };
+
+      Some(Server {
+        host,
+        port,
+        tls_server_name: None,
+      })
+    })
+    .collect()
+}
+
 /// Parse the cluster slot range and associated server blocks.
 fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str) -> Result<SlotRange, RedisError> {
   if slot_range.len() < 3 {
@@ -140,17 +172,18 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
       ));
     },
   };
-  let primary = Server {
-    host,
-    port,
-    tls_server_name: None,
-  };
 
   Ok(SlotRange {
     start,
     end,
-    primary,
     id,
+    primary: Server {
+      host,
+      port,
+      tls_server_name: None,
+    },
+    #[cfg(feature = "replicas")]
+    replicas: parse_cluster_slot_replica_nodes(slot_range, default_host),
   })
 }
 
@@ -172,6 +205,11 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
 fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &str) {
   for slot_range in ranges.iter_mut() {
     slot_range.primary.set_tls_server_name(policy, default_host);
+
+    #[cfg(feature = "replicas")]
+    for server in slot_range.replicas.iter_mut() {
+      server.set_tls_server_name(policy, default_host);
+    }
   }
 }
 
@@ -327,6 +365,12 @@ mod tests {
     for slot_range in ranges.iter() {
       assert_ne!(slot_range.primary.host, "default-host");
       assert_eq!(slot_range.primary.tls_server_name, Some("default-host".into()));
+
+      #[cfg(feature = "replicas")]
+      for replica in slot_range.replicas.iter() {
+        assert_ne!(replica.host, "default-host");
+        assert_eq!(replica.tls_server_name, Some("default-host".into()));
+      }
     }
   }
 
@@ -342,6 +386,12 @@ mod tests {
       assert_ne!(slot_range.primary.host, "default-host");
       // since there's a metadata hostname then expect that instead of the default host
       assert_ne!(slot_range.primary.tls_server_name, Some("default-host".into()));
+
+      #[cfg(feature = "replicas")]
+      for replica in slot_range.replicas.iter() {
+        assert_ne!(replica.host, "default-host");
+        assert_ne!(replica.tls_server_name, Some("default-host".into()));
+      }
     }
   }
 
@@ -356,6 +406,12 @@ mod tests {
     for slot_range in ranges.iter() {
       assert_ne!(slot_range.primary.host, "default-host");
       assert_eq!(slot_range.primary.tls_server_name, Some("foobarbaz".into()));
+
+      #[cfg(feature = "replicas")]
+      for replica in slot_range.replicas.iter() {
+        assert_ne!(replica.host, "default-host");
+        assert_eq!(replica.tls_server_name, Some("foobarbaz".into()));
+      }
     }
   }
 
@@ -366,34 +422,52 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
-        primary: Server {
+        start:                                 0,
+        end:                                   5460,
+        primary:                               Server {
           host:            "host-1.redis.example.com".into(),
           port:            30001,
           tls_server_name: None,
         },
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "host-2.redis.example.com".into(),
+          port:            30004,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
-        primary: Server {
+        start:                                 5461,
+        end:                                   10922,
+        primary:                               Server {
           host:            "host-3.redis.example.com".into(),
           port:            30002,
           tls_server_name: None,
         },
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "host-4.redis.example.com".into(),
+          port:            30005,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
-        primary: Server {
+        start:                                 10923,
+        end:                                   16383,
+        primary:                               Server {
           host:            "host-5.redis.example.com".into(),
           port:            30003,
           tls_server_name: None,
         },
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "host-6.redis.example.com".into(),
+          port:            30006,
+          tls_server_name: None,
+        }],
       },
     ];
     assert_eq!(actual, expected);
@@ -406,34 +480,52 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
-        primary: Server {
+        start:                                 0,
+        end:                                   5460,
+        primary:                               Server {
           host:            "127.0.0.1".into(),
           port:            30001,
           tls_server_name: None,
         },
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "127.0.0.1".into(),
+          port:            30004,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
-        primary: Server {
+        start:                                 5461,
+        end:                                   10922,
+        primary:                               Server {
           host:            "127.0.0.1".into(),
           port:            30002,
           tls_server_name: None,
         },
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "127.0.0.1".into(),
+          port:            30005,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
-        primary: Server {
+        start:                                 10923,
+        end:                                   16383,
+        primary:                               Server {
           host:            "127.0.0.1".into(),
           port:            30003,
           tls_server_name: None,
         },
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "127.0.0.1".into(),
+          port:            30006,
+          tls_server_name: None,
+        }],
       },
     ];
     assert_eq!(actual, expected);
@@ -494,34 +586,52 @@ mod tests {
     let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
-        primary: Server {
+        start:                                 0,
+        end:                                   5460,
+        primary:                               Server {
           host:            "127.0.0.1".into(),
           port:            30001,
           tls_server_name: None,
         },
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "127.0.0.1".into(),
+          port:            30004,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
-        primary: Server {
+        start:                                 5461,
+        end:                                   10922,
+        primary:                               Server {
           host:            "127.0.0.1".into(),
           port:            30002,
           tls_server_name: None,
         },
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "127.0.0.1".into(),
+          port:            30005,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
-        primary: Server {
+        start:                                 10923,
+        end:                                   16383,
+        primary:                               Server {
           host:            "127.0.0.1".into(),
           port:            30003,
           tls_server_name: None,
         },
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "127.0.0.1".into(),
+          port:            30006,
+          tls_server_name: None,
+        }],
       },
     ];
     assert_eq!(actual, expected);
@@ -582,34 +692,52 @@ mod tests {
     let actual = parse_cluster_slots(input, "fake-host").expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:   0,
-        end:     5460,
-        primary: Server {
+        start:                                 0,
+        end:                                   5460,
+        primary:                               Server {
           host:            "fake-host".into(),
           port:            30001,
           tls_server_name: None,
         },
-        id:      "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "fake-host".into(),
+          port:            30004,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   5461,
-        end:     10922,
-        primary: Server {
+        start:                                 5461,
+        end:                                   10922,
+        primary:                               Server {
           host:            "fake-host".into(),
           port:            30002,
           tls_server_name: None,
         },
-        id:      "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "fake-host".into(),
+          port:            30005,
+          tls_server_name: None,
+        }],
       },
       SlotRange {
-        start:   10923,
-        end:     16383,
-        primary: Server {
+        start:                                 10923,
+        end:                                   16383,
+        primary:                               Server {
           host:            "fake-host".into(),
           port:            30003,
           tls_server_name: None,
         },
-        id:      "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(feature = "replicas")]
+        replicas:                              vec![Server {
+          host:            "fake-host".into(),
+          port:            30006,
+          tls_server_name: None,
+        }],
       },
     ];
     assert_eq!(actual, expected);

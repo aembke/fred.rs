@@ -6,7 +6,7 @@ use crate::{
   interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{RedisCommand, RedisCommandKind, RouterCommand},
+    command::{RedisCommand, RouterCommand},
     connection,
     connection::{CommandBuffer, RedisWriter},
   },
@@ -15,7 +15,7 @@ use crate::{
 };
 #[cfg(feature = "replicas")]
 use std::{
-  collections::{HashMap, VecDeque},
+  collections::{BTreeSet, HashMap, VecDeque},
   fmt,
   fmt::Formatter,
   sync::Arc,
@@ -232,7 +232,7 @@ impl Replicas {
     }
 
     for (replica, primary) in self.routing.to_map() {
-      let _ = self.add_connection(inner, primary, replica, true).await?;
+      let _ = self.add_connection(inner, primary, replica, false).await?;
     }
 
     Ok(())
@@ -271,6 +271,7 @@ impl Replicas {
       let _ = transport.setup(inner, None).await?;
 
       let (_, writer) = if inner.config.server.is_clustered() {
+        let _ = transport.readonly(inner, None).await?;
         connection::split_and_initialize(inner, transport, true, clustered::spawn_reader_task)?
       } else {
         connection::split_and_initialize(inner, transport, true, centralized::spawn_reader_task)?
@@ -340,26 +341,65 @@ impl Replicas {
     self.routing.to_map()
   }
 
+  /// Discover and connect to replicas via the `ROLE` command.
+  pub async fn sync_by_role(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    primary: &mut RedisWriter,
+  ) -> Result<(), RedisError> {
+    for replica in primary.discover_replicas(inner).await? {
+      self.routing.add(primary.server.clone(), replica);
+    }
+
+    Ok(())
+  }
+
+  /// Discover and connect to replicas by inspecting the cached `CLUSTER SLOTS` state.
+  pub fn sync_by_cached_cluster_state(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    primary: &Server,
+  ) -> Result<(), RedisError> {
+    let replicas: Vec<Server> = inner.with_cluster_state(|state| {
+      Ok(
+        state
+          .slots()
+          .iter()
+          .fold(BTreeSet::new(), |mut replicas, slot| {
+            if slot.primary == *primary {
+              replicas.extend(slot.replicas.clone());
+            }
+
+            replicas
+          })
+          .into_iter()
+          .collect(),
+      )
+    })?;
+
+    for replica in replicas.into_iter() {
+      self.routing.add(primary.clone(), replica);
+    }
+
+    Ok(())
+  }
+
   /// Check if the provided connection has any known replica nodes, and if so add them to the cached routing table.
   pub async fn check_replicas(
     &mut self,
     inner: &Arc<RedisClientInner>,
     primary: &mut RedisWriter,
   ) -> Result<(), RedisError> {
-    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
-    let frame = connection::request_response(inner, primary, command, None)
-      .await?
-      .as_str()
-      .map(|s| s.to_owned())
-      .ok_or(RedisError::new(
-        RedisErrorKind::Replica,
-        "Failed to read replication info.",
-      ))?;
-
-    for replica in parse_info_replication(frame) {
-      self.routing.add(primary.server.clone(), replica);
+    if inner.config.server.is_clustered() {
+      if let Err(_) = self.sync_by_cached_cluster_state(inner, &primary.server) {
+        _warn!(inner, "Failed to discover replicas via cached CLUSTER SLOTS.");
+        self.sync_by_role(inner, primary).await
+      } else {
+        Ok(())
+      }
+    } else {
+      self.sync_by_role(inner, primary).await
     }
-    Ok(())
   }
 
   /// Send a command to one of the replicas associated with the provided primary server.
@@ -455,47 +495,6 @@ impl Replicas {
       Ok(Written::Sent((writer.server.clone(), true)))
     }
   }
-}
-
-/// Parse the `INFO replication` response for replica node server identifiers.
-#[cfg(feature = "replicas")]
-pub fn parse_info_replication(frame: String) -> Vec<Server> {
-  let mut replicas = Vec::new();
-  for line in frame.lines() {
-    if line.trim().starts_with("slave") {
-      let values = match line.split(":").last() {
-        Some(values) => values,
-        None => continue,
-      };
-
-      let parts: Vec<&str> = values.split(",").collect();
-      if parts.len() < 2 {
-        continue;
-      }
-
-      let (mut host, mut port) = (None, None);
-      for kv in parts.into_iter() {
-        let parts: Vec<&str> = kv.split("=").collect();
-        if parts.len() != 2 {
-          continue;
-        }
-
-        if parts[0] == "ip" {
-          host = Some(parts[1].to_owned());
-        } else if parts[0] == "port" {
-          port = parts[1].parse::<u16>().ok();
-        }
-      }
-
-      if let Some(host) = host {
-        if let Some(port) = port {
-          replicas.push(Server::new(host, port));
-        }
-      }
-    }
-  }
-
-  replicas
 }
 
 #[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]

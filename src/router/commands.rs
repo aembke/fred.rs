@@ -95,7 +95,7 @@ async fn write_with_backpressure(
       Some(command) => command,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
     };
-    // FIXME clean this up
+    // TODO clean this up
     let rx = match _backpressure {
       Some(backpressure) => match backpressure.wait(inner, &mut command).await {
         Ok(Some(rx)) => Some(rx),
