@@ -39,7 +39,7 @@ use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
 use crate::{
   protocol::{connection, responders::ResponseKind},
-  router::replicas,
+  types::RedisValue,
 };
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
@@ -727,35 +727,63 @@ impl RedisTransport {
     .await
   }
 
-  /// Run and parse the output from `INFO replication`.
+  /// Send `READONLY` to the server.
   #[cfg(feature = "replicas")]
-  pub async fn info_replication(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    timeout: Option<u64>,
-  ) -> Result<Option<String>, RedisError> {
-    let timeout = connection_timeout(timeout);
-    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
+  pub async fn readonly(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<u64>) -> Result<(), RedisError> {
+    if !inner.config.server.is_clustered() {
+      return Ok(());
+    }
 
+    let timeout = connection_timeout(timeout);
     utils::apply_timeout(
       async {
-        self
-          .request_response(command, inner.is_resp3())
-          .await
-          .map(|f| f.as_str().map(|s| s.to_owned()))
+        _debug!(inner, "Sending READONLY to {}", self.server);
+        let command = RedisCommand::new(RedisCommandKind::Readonly, vec![]);
+        let response = self.request_response(command, inner.is_resp3()).await?;
+        let _ = protocol_utils::frame_to_single_result(response)?;
+
+        Ok::<_, RedisError>(())
       },
       timeout,
     )
     .await
   }
 
-  #[cfg(not(feature = "replicas"))]
-  pub async fn info_replication(
+  /// Send the `ROLE` command to the server.
+  #[cfg(feature = "replicas")]
+  pub async fn role(
     &mut self,
-    _: &Arc<RedisClientInner>,
-    _: Option<u64>,
-  ) -> Result<Option<String>, RedisError> {
-    Ok(None)
+    inner: &Arc<RedisClientInner>,
+    timeout: Option<u64>,
+  ) -> Result<RedisValue, RedisError> {
+    let timeout = connection_timeout(timeout);
+    let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
+
+    utils::apply_timeout(
+      async {
+        self
+          .request_response(command, inner.is_resp3())
+          .await
+          .and_then(protocol_utils::frame_to_results_raw)
+      },
+      timeout,
+    )
+    .await
+  }
+
+  /// Discover connected replicas via the ROLE command.
+  #[cfg(feature = "replicas")]
+  pub async fn discover_replicas(&mut self, inner: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+    self
+      .role(inner, None)
+      .await
+      .and_then(protocol_utils::parse_master_role_replicas)
+  }
+
+  /// Discover connected replicas via the ROLE command.
+  #[cfg(not(feature = "replicas"))]
+  pub async fn discover_replicas(&mut self, _: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+    Ok(Vec::new())
   }
 
   /// Split the transport into reader/writer halves.
@@ -857,18 +885,13 @@ impl RedisWriter {
   }
 
   #[cfg(feature = "replicas")]
-  pub async fn info_replication(&mut self, inner: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
-    let command = RedisCommand::new(RedisCommandKind::Info, vec!["replication".into()]);
-    let frame = connection::request_response(inner, self, command, None)
-      .await?
-      .as_str()
-      .map(|s| s.to_owned())
-      .ok_or(RedisError::new(
-        RedisErrorKind::Replica,
-        "Failed to read replication info.",
-      ))?;
+  pub async fn discover_replicas(&mut self, inner: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+    let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
+    let role = connection::request_response(inner, self, command, None)
+      .await
+      .and_then(protocol_utils::frame_to_results_raw)?;
 
-    Ok(replicas::parse_info_replication(frame))
+    protocol_utils::parse_master_role_replicas(role)
   }
 
   /// Check if the connection is connected and can send frames.
