@@ -373,13 +373,17 @@ impl ValueScanInner {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start:   u16,
+  pub start:    u16,
   /// The end of the hash slot range.
-  pub end:     u16,
+  pub end:      u16,
   /// The primary server owner.
-  pub primary: Server,
+  pub primary:  Server,
   /// The internal ID assigned by the server.
-  pub id:      ArcStr,
+  pub id:       ArcStr,
+  /// Replica node owners.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub replicas: Vec<Server>,
 }
 
 /// The cached view of the cluster used by the client to route commands to the correct cluster nodes.
@@ -442,6 +446,24 @@ impl ClusterRouting {
     }
 
     protocol_utils::binary_search(&self.data, slot).map(|idx| &self.data[idx].primary)
+  }
+
+  /// Read the replicas associated with the provided primary node based on the cached CLUSTER SLOTS response.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub fn replicas(&self, primary: &Server) -> Vec<Server> {
+    self
+      .data
+      .iter()
+      .fold(BTreeSet::new(), |mut replicas, slot| {
+        if slot.primary == *primary {
+          replicas.extend(slot.replicas.clone());
+        }
+
+        replicas
+      })
+      .into_iter()
+      .collect()
   }
 
   /// Read the number of hash slot ranges in the cluster.
