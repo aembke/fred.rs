@@ -72,7 +72,7 @@ pub fn check_backpressure(
 #[cfg(feature = "partial-tracing")]
 fn set_command_trace(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) {
   if inner.should_trace() {
-    trace::set_network_span(inner, command, true);
+    crate::trace::set_network_span(inner, command, true);
   }
 }
 
