@@ -24,7 +24,8 @@ use std::{convert::TryInto, hash::Hash};
 /// Functions that implement the [streams](https://redis.io/commands#stream) interface.
 ///
 /// **Note:** Several of the stream commands can return types with verbose type declarations. Additionally, certain
-/// commands can be parsed differently in RESP2 and RESP3 modes. Functions such as [xread_map](Self::xread_map),
+/// commands can be parsed differently in RESP2 and RESP3 modes ( something like Vec<(String, Vec<(String,
+/// Vec<(String, String)>)>)> ). Functions such as [xread_map](Self::xread_map),
 /// [xreadgroup_map](Self::xreadgroup_map), [xrange_values](Self::xrange_values), etc exist to make this easier for
 /// callers. These functions apply an additional layer of parsing logic that can make declaring response types easier,
 /// as well as automatically handling any differences between RESP2 and RESP3 return value types.
@@ -235,16 +236,17 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/xread>
   ///
-  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode.
-  /// In many cases it is also easier to operate on the return values of these functions as a `HashMap`, but
-  /// manually declaring this type can be very verbose. This function will automatically convert the response to the
+  /// The `XREAD` and `XREADGROUP` commands return values that can be interpreted differently in RESP2 and RESP3 mode
+  /// (something like Vec<(String, Vec<(String, Vec<(String, String)>)>)>). In many cases it is also easier to
+  /// operate on the return values of these functions as a `HashMap`, but manually declaring this type can be very
+  /// verbose. This function will automatically convert the response to the
   /// [most common](crate::types::XReadResponse) map representation while also handling the encoding differences
   /// between RESP2 and RESP3.
   ///
   /// ```rust no_run
   /// # use fred::types::XReadResponse;
   /// // borrowed from the tests. XREAD and XREADGROUP are very similar.
-  /// let result: XReadResponse<String, String, String, usize> = client  
+  /// let result: XReadResponse<String, String, String, usize> = client
   ///   .xreadgroup_map("group1", "consumer1", None, None, false, "foo", ">")
   ///   .await?;
   /// println!("Result: {:?}", result);
@@ -488,8 +490,8 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// A special version of the `XREAD` command with support for consumer groups.
   ///
   /// Declaring proper type declarations for this command can be complicated due to the complex nature of the response
-  /// values and the differences between RESP2 and RESP3. See the [xread](Self::xread) documentation for more
-  /// information.
+  /// values and the differences between RESP2 and RESP3 (something like Vec<(String, Vec<(String, Vec<(String,
+  /// String)>)>)>). See the [xread](Self::xread) documentation for more information.
   ///
   /// <https://redis.io/commands/xreadgroup>
   ///
