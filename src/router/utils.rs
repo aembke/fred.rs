@@ -24,8 +24,6 @@ use tokio::{
   sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
 };
 
-#[cfg(all(feature = "metrics", feature = "partial-tracing"))]
-use crate::trace;
 #[cfg(feature = "check-unresponsive")]
 use futures::future::Either;
 #[cfg(feature = "check-unresponsive")]
@@ -72,7 +70,7 @@ pub fn check_backpressure(
 #[cfg(feature = "partial-tracing")]
 fn set_command_trace(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) {
   if inner.should_trace() {
-    trace::set_network_span(inner, command, true);
+    crate::trace::set_network_span(inner, command, true);
   }
 }
 

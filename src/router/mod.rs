@@ -140,13 +140,14 @@ impl Connections {
     }
   }
 
+  /// Discover and return a mapping of replica nodes to their associated primary node.
   #[cfg(feature = "replicas")]
   pub async fn replica_map(&mut self, inner: &Arc<RedisClientInner>) -> Result<HashMap<Server, Server>, RedisError> {
     Ok(match self {
       Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
         if let Some(writer) = writer {
           writer
-            .info_replication(inner)
+            .discover_replicas(inner)
             .await?
             .into_iter()
             .map(|replica| (replica, writer.server.clone()))
@@ -159,8 +160,19 @@ impl Connections {
         let mut out = HashMap::with_capacity(writers.len());
 
         for (primary, writer) in writers.iter_mut() {
-          for replica in writer.info_replication(inner).await? {
-            out.insert(replica, primary.clone());
+          let replicas = inner
+            .with_cluster_state(|state| Ok(state.replicas(primary)))
+            .ok()
+            .unwrap_or(Vec::new());
+
+          if replicas.is_empty() {
+            for replica in writer.discover_replicas(inner).await? {
+              out.insert(replica, primary.clone());
+            }
+          } else {
+            for replica in replicas.into_iter() {
+              out.insert(replica, primary.clone());
+            }
           }
         }
         out
@@ -877,7 +889,14 @@ impl Router {
     self.sync_network_timeout_state();
 
     if result.is_ok() {
-      self.sync_replicas().await
+      if let Err(e) = self.sync_replicas().await {
+        warn!("{}: Error syncing replicas: {:?}", self.inner.id, e);
+        if !self.inner.ignore_replica_reconnect_errors() {
+          return Err(e);
+        }
+      }
+
+      Ok(())
     } else {
       result
     }
