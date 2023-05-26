@@ -92,3 +92,8 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 | check-unresponsive      |         | Enable additional monitoring to detect unresponsive connections.                                                                                                                                                                                                                  |
 | replicas                |         | Enable an interface that routes commands to replica nodes.                                                                                                                                                                                                                        |
 | client-tracking         |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                                                                                                                                                                                  |
+
+
+## Related Project
+
+[xedis](https://github.com/wactax/xedis) : a nodejs redis client base on [fred.rs](https://github.com/aembke/fred.rs) and [napi-rs](https://github.com/napi-rs/napi-rs)
