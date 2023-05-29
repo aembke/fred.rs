@@ -26,8 +26,7 @@ fn hash_key(value: &RedisValue) -> Option<u16> {
 }
 
 /// A cluster hashing policy.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum ClusterHash {
   /// Hash the first string or bytes value in the arguments. (Default)
   #[default]
@@ -41,8 +40,6 @@ pub enum ClusterHash {
   /// Provide a custom hash slot value.
   Custom(u16),
 }
-
-
 
 impl From<Option<u16>> for ClusterHash {
   fn from(hash_slot: Option<u16>) -> Self {

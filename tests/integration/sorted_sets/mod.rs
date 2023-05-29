@@ -29,9 +29,7 @@ async fn create_lex_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, Re
 }
 
 async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, RedisValue)>, RedisError> {
-  let values: Vec<(f64, RedisValue)> = (0 .. COUNT)
-    .map(|idx| (idx as f64, idx.to_string().into()))
-    .collect();
+  let values: Vec<(f64, RedisValue)> = (0 .. COUNT).map(|idx| (idx as f64, idx.to_string().into())).collect();
 
   client.zadd(key, None, None, false, false, values.clone()).await?;
   Ok(values)

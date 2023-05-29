@@ -2,18 +2,11 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  router::{utils, Router},
   protocol::{
-    command::{
-      ClusterErrorKind,
-      RouterReceiver,
-      RouterResponse,
-      RedisCommand,
-      RedisCommandKind,
-      ResponseSender,
-    },
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, ResponseSender, RouterReceiver, RouterResponse},
     responders::ResponseKind,
   },
+  router::{utils, Router},
   types::{ClusterHash, Server},
 };
 use std::sync::Arc;

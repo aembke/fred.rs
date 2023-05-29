@@ -2,7 +2,7 @@ use super::*;
 use crate::{
   interfaces,
   protocol::{
-    command::{RouterCommand, RedisCommand, RedisCommandKind},
+    command::{RedisCommand, RedisCommandKind, RouterCommand},
     utils as protocol_utils,
   },
   types::*,

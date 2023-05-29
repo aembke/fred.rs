@@ -158,9 +158,7 @@ pub async fn evalsha<C: ClientLike>(
     }
 
     let mut command: RedisCommand = (RedisCommandKind::EvalSha, args).into();
-    command.hasher = custom_key_slot
-      .map(ClusterHash::Custom)
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -191,9 +189,7 @@ pub async fn eval<C: ClientLike>(
     }
 
     let mut command: RedisCommand = (RedisCommandKind::Eval, args).into();
-    command.hasher = custom_key_slot
-      .map(ClusterHash::Custom)
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -224,9 +220,7 @@ pub async fn fcall<C: ClientLike>(
     }
 
     let mut command: RedisCommand = (RedisCommandKind::Fcall, arguments).into();
-    command.hasher = custom_key_slot
-      .map(ClusterHash::Custom)
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -257,9 +251,7 @@ pub async fn fcall_ro<C: ClientLike>(
     }
 
     let mut command: RedisCommand = (RedisCommandKind::FcallRO, arguments).into();
-    command.hasher = custom_key_slot
-      .map(ClusterHash::Custom)
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })

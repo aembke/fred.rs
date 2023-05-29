@@ -1,5 +1,7 @@
-use fred::prelude::*;
-use fred::types::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, SortOrder};
+use fred::{
+  prelude::*,
+  types::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, SortOrder},
+};
 use std::convert::TryInto;
 
 fn loose_eq(lhs: f64, rhs: f64, precision: u32) -> bool {
@@ -117,16 +119,16 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
     .await?;
   let expected: Vec<GeoRadiusInfo> = vec![
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: Some(190.4424),
       position: None,
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: Some(56.4413),
       position: None,
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -148,16 +150,16 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
     .await?;
   let expected: Vec<GeoRadiusInfo> = vec![
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: None,
       position: Some((13.361_389_338_970_184, 38.115_556_395_496_3).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: None,
       position: Some((15.087_267_458_438_873, 37.502_668_423_331_62).into()),
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -179,16 +181,16 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
     .await?;
   let expected: Vec<GeoRadiusInfo> = vec![
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: Some(190.4424),
       position: Some((13.361_389_338_970_184, 38.115_556_395_496_3).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: Some(56.4413),
       position: Some((15.087_267_458_438_873, 37.502_668_423_331_62).into()),
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -218,16 +220,16 @@ pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig
     .await?;
   let expected = vec![
     GeoRadiusInfo {
-      member: "Agrigento".into(),
+      member:   "Agrigento".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -260,16 +262,16 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
     .await?;
   let expected = vec![
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -290,28 +292,28 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
     .await?;
   let expected = vec![
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: Some(56.4413),
       position: Some((15.087_267_458_438_873, 37.502_668_423_331_62).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: Some(190.4424),
       position: Some((13.361_389_338_970_184, 38.115_556_395_496_3).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "edge2".into(),
+      member:   "edge2".into(),
       distance: Some(279.7403),
       position: Some((17.241_510_450_839_996, 38.788_134_516_242_25).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "edge1".into(),
+      member:   "edge1".into(),
       distance: Some(279.7405),
       position: Some((12.758_487_761_020_66, 38.788_134_516_242_25).into()),
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);

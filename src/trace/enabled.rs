@@ -30,8 +30,6 @@ impl Drop for CommandTraces {
   }
 }
 
-
-
 impl fmt::Debug for CommandTraces {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "[Command Traces]")
@@ -99,7 +97,6 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Optio
   } else {
     None
   }
-
 }
 
 #[cfg(not(feature = "full-tracing"))]

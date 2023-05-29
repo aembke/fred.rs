@@ -226,14 +226,11 @@ impl fmt::Display for ClientState {
 /// The parsed result of the MEMORY STATS command for a specific database.
 ///
 /// <https://redis.io/commands/memory-stats>
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct DatabaseMemoryStats {
   pub overhead_hashtable_main:    u64,
   pub overhead_hashtable_expires: u64,
 }
-
-
 
 /// The parsed result of the MEMORY STATS command.
 ///
@@ -403,16 +400,13 @@ impl SortOrder {
 }
 
 /// The policy type for the [FUNCTION RESTORE](https://redis.io/commands/function-restore/) command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum FnPolicy {
   Flush,
   #[default]
   Append,
   Replace,
 }
-
-
 
 impl FnPolicy {
   pub(crate) fn to_str(&self) -> Str {

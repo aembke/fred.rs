@@ -2,8 +2,8 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   globals::globals,
   modules::inner::RedisClientInner,
-  router::Connections,
   protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
+  router::Connections,
   utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;

@@ -228,12 +228,28 @@ pub async fn getset<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue)
   args_values_cmd(client, RedisCommandKind::GetSet, vec![key.into(), value]).await
 }
 
-pub async fn rename<C: ClientLike>(client: &C, source: RedisKey, destination: RedisKey) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::Rename, vec![source.into(), destination.into()]).await
+pub async fn rename<C: ClientLike>(
+  client: &C,
+  source: RedisKey,
+  destination: RedisKey,
+) -> Result<RedisValue, RedisError> {
+  args_values_cmd(client, RedisCommandKind::Rename, vec![
+    source.into(),
+    destination.into(),
+  ])
+  .await
 }
 
-pub async fn renamenx<C: ClientLike>(client: &C, source: RedisKey, destination: RedisKey) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::Renamenx, vec![source.into(), destination.into()]).await
+pub async fn renamenx<C: ClientLike>(
+  client: &C,
+  source: RedisKey,
+  destination: RedisKey,
+) -> Result<RedisValue, RedisError> {
+  args_values_cmd(client, RedisCommandKind::Renamenx, vec![
+    source.into(),
+    destination.into(),
+  ])
+  .await
 }
 
 pub async fn getdel<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {

@@ -212,8 +212,7 @@ impl ReconnectPolicy {
 
 /// Describes how the client should respond when a command is sent while the client is in a blocked state from a
 /// blocking command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum Blocking {
   /// Wait to send the command until the blocked command finishes. (Default)
   #[default]
@@ -224,11 +223,8 @@ pub enum Blocking {
   Interrupt,
 }
 
-
-
 /// Backpressure policies to apply when the max number of in-flight commands is reached on a connection.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum BackpressurePolicy {
   /// Sleep for some amount of time before sending the next command.
   Sleep {
@@ -251,8 +247,6 @@ pub enum BackpressurePolicy {
   #[default]
   Drain,
 }
-
-
 
 impl BackpressurePolicy {
   /// Create a new `Sleep` policy with the legacy default values.

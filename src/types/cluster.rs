@@ -4,15 +4,12 @@ use bytes_utils::Str;
 pub use crate::protocol::types::{ClusterRouting, SlotRange};
 
 /// The state of the cluster from the CLUSTER INFO command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[derive(Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub enum ClusterState {
   #[default]
   Ok,
   Fail,
 }
-
-
 
 /// A parsed response from the CLUSTER INFO command.
 ///
