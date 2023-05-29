@@ -32,7 +32,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
   inner.notifications.broadcast_close();
 
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
   let _ = rx.await??;
   utils::abort_network_timeout_task(&inner);
   inner.notifications.close_public_receivers();
@@ -61,7 +61,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
   inner.notifications.broadcast_close();
 
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
   let _ = rx.await??;
   utils::abort_network_timeout_task(&inner);
   inner.notifications.close_public_receivers();
@@ -105,7 +105,7 @@ pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), Red
     #[cfg(feature = "replicas")]
     replica:                              false,
   };
-  let _ = interfaces::send_to_router(inner, command)?;
+  interfaces::send_to_router(inner, command)?;
 
   rx.await?.map(|_| ())
 }
@@ -125,7 +125,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   let (tx, rx) = oneshot_channel();
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FlushAllCluster, vec![], response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())
@@ -171,7 +171,7 @@ pub async fn hello<C: ClientLike>(
     let mut command: RedisCommand = RedisCommandKind::_HelloAllCluster(version).into();
     command.response = ResponseKind::new_buffer(tx);
 
-    let _ = client.send_command(command)?;
+    client.send_command(command)?;
     let _ = rx.await??;
     Ok(())
   } else {
@@ -192,7 +192,7 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
     let (tx, rx) = oneshot_channel();
     let response = ResponseKind::new_buffer(tx);
     let command: RedisCommand = (RedisCommandKind::_AuthAllCluster, args, response).into();
-    let _ = client.send_command(command)?;
+    client.send_command(command)?;
 
     let _ = rx.await??;
     Ok(())

@@ -27,10 +27,10 @@ async fn main() -> Result<(), RedisError> {
   let policy = ReconnectPolicy::default();
   let client = RedisClient::new(config, None, Some(policy));
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

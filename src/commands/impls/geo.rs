@@ -7,14 +7,14 @@ use crate::{
 };
 use std::convert::TryInto;
 
-static WITH_COORD: &'static str = "WITHCOORD";
-static WITH_DIST: &'static str = "WITHDIST";
-static WITH_HASH: &'static str = "WITHHASH";
-static STORE_DIST: &'static str = "STOREDIST";
-static FROM_MEMBER: &'static str = "FROMMEMBER";
-static FROM_LONLAT: &'static str = "FROMLONLAT";
-static BY_RADIUS: &'static str = "BYRADIUS";
-static BY_BOX: &'static str = "BYBOX";
+static WITH_COORD: &str = "WITHCOORD";
+static WITH_DIST: &str = "WITHDIST";
+static WITH_HASH: &str = "WITHHASH";
+static STORE_DIST: &str = "STOREDIST";
+static FROM_MEMBER: &str = "FROMMEMBER";
+static FROM_LONLAT: &str = "FROMLONLAT";
+static BY_RADIUS: &str = "BYRADIUS";
+static BY_BOX: &str = "BYBOX";
 
 pub async fn geoadd<C: ClientLike>(
   client: &C,

@@ -24,19 +24,13 @@ use tokio::{
 
 /// Options describing how to change connections in a cluster.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub struct ClusterChange {
   pub add:    Vec<Server>,
   pub remove: Vec<Server>,
 }
 
-impl Default for ClusterChange {
-  fn default() -> Self {
-    ClusterChange {
-      add:    Vec::new(),
-      remove: Vec::new(),
-    }
-  }
-}
+
 
 /// Server command state shared between the Router, reader tasks, and network timeout task.
 #[cfg(feature = "check-unresponsive")]

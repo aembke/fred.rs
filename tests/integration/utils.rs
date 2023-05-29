@@ -350,7 +350,7 @@ where
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
   let _: () = client.flushall_cluster().await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
@@ -371,7 +371,7 @@ where
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
   let _: () = client.flushall(false).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");

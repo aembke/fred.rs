@@ -275,7 +275,7 @@ where
         }
       },
       RedisValue::Array(values) => {
-        if values.len() > 0 {
+        if !values.is_empty() {
           if let RedisValue::Array(_) = &values[0] {
             values.into_iter().map(|x| T::from_value(x)).collect()
           } else {
@@ -701,13 +701,13 @@ mod tests {
   #[test]
   fn should_convert_bools() {
     let _foo: bool = RedisValue::Integer(0).convert().unwrap();
-    assert_eq!(_foo, false);
+    assert!(!_foo);
     let _foo: bool = RedisValue::Integer(1).convert().unwrap();
-    assert_eq!(_foo, true);
+    assert!(_foo);
     let _foo: bool = RedisValue::String("0".into()).convert().unwrap();
-    assert_eq!(_foo, false);
+    assert!(!_foo);
     let _foo: bool = RedisValue::String("1".into()).convert().unwrap();
-    assert_eq!(_foo, true);
+    assert!(_foo);
   }
 
   #[test]

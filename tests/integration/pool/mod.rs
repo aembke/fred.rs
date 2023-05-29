@@ -3,14 +3,14 @@ use fred::{clients::RedisClient, error::RedisError, interfaces::*, pool::RedisPo
 async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
   let pool = RedisPool::new(config.clone(), None, None, count)?;
   let _ = pool.connect();
-  let _ = pool.wait_for_connect().await?;
+  pool.wait_for_connect().await?;
 
   for client in pool.clients().iter() {
-    let _: () = client.ping().await?;
+    client.ping().await?;
   }
 
-  let _: () = pool.ping().await?;
-  let _ = pool.quit_pool().await;
+  pool.ping().await?;
+  pool.quit_pool().await;
   Ok(())
 }
 

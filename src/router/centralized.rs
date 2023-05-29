@@ -136,14 +136,12 @@ pub async fn process_response_frame(
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
+    } else if command.kind.ends_transaction() {
+      command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
+      return Ok(());
     } else {
-      if command.kind.ends_transaction() {
-        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
-        return Ok(());
-      } else {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        return Ok(());
-      }
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Ok(());
     }
   }
 
@@ -213,7 +211,7 @@ pub async fn initialize_connection(
         server.tls_server_name.as_ref(),
       )
       .await?;
-      let _ = transport.setup(inner, None).await?;
+      transport.setup(inner, None).await?;
 
       let (_, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       *writer = Some(_writer);

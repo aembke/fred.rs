@@ -53,9 +53,9 @@ pub fn incr_atomic(size: &Arc<AtomicUsize>) -> usize {
 
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let nested_values: RedisMap = vec![("a", 1), ("b", 2)].try_into()?;
-  let _ = client.set("foo", "123", None, None, false).await?;
-  let _ = client.set("baz", "456", None, None, false).await?;
-  let _ = client.hset("bar", &nested_values).await?;
+  client.set("foo", "123", None, None, false).await?;
+  client.set("baz", "456", None, None, false).await?;
+  client.hset("bar", &nested_values).await?;
 
   let foo: usize = client.get("foo").await?;
   assert_eq!(foo, 123);
@@ -85,7 +85,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
   config.blocking = Blocking::Interrupt;
   let client = RedisClient::new(config, None, None);
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let unblock_client = client.clone();
   let _ = tokio::spawn(async move {
@@ -123,7 +123,7 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
   config.blocking = Blocking::Error;
   let client = RedisClient::new(config, None, None);
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
   let error_client = client.clone();
 
   let _ = tokio::spawn(async move {
@@ -187,9 +187,9 @@ pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) ->
   let count: i64 = 200;
 
   for idx in 0 .. count {
-    let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
-  let _ = client.flushall_cluster().await?;
+  client.flushall_cluster().await?;
 
   for idx in 0 .. count {
     let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
@@ -213,7 +213,7 @@ pub async fn should_safely_change_protocols_repeatedly(
         return Ok::<_, RedisError>(());
       }
       let foo = String::from("foo");
-      let _ = other.incr(&foo).await?;
+      other.incr(&foo).await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
@@ -225,7 +225,7 @@ pub async fn should_safely_change_protocols_repeatedly(
     } else {
       RespVersion::RESP3
     };
-    let _ = client.hello(version, None).await?;
+    client.hello(version, None).await?;
     sleep(Duration::from_millis(500)).await;
   }
   let _ = mem::replace(&mut *done.write(), true);
@@ -249,7 +249,7 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
   };
   let pool = RedisPool::new(config, Some(perf), None, 28)?;
   let _ = pool.connect();
-  let _ = pool.wait_for_connect().await?;
+  pool.wait_for_connect().await?;
 
   let num_tasks = 11641;
   let mut tasks = Vec::with_capacity(num_tasks);
@@ -336,8 +336,8 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_pipeline_try_all(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let pipeline = client.pipeline();
 
-  let _: () = pipeline.incr("foo").await?;
-  let _: () = pipeline.hgetall("foo").await?;
+  pipeline.incr("foo").await?;
+  pipeline.hgetall("foo").await?;
   let results = pipeline.try_all::<i64>().await;
 
   assert_eq!(results[0].clone().unwrap(), 1);
@@ -350,14 +350,14 @@ pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: Red
   let other = client.clone();
   let jh1 = tokio::spawn(async move {
     for _ in 0 .. 200 {
-      let _ = other.flushall_cluster().await?;
+      other.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
   });
   let jh2 = tokio::spawn(async move {
     for _ in 0 .. 200 {
-      let _ = client.flushall_cluster().await?;
+      client.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
@@ -373,10 +373,10 @@ pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisCo
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
   let client = RedisClient::new(config, Some(perf), policy);
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   check_null!(client, "foo");
-  let _: () = client.set("foo", "bar", None, None, false).await?;
+  client.set("foo", "bar", None, None, false).await?;
   assert_eq!(client.get::<String, _>("foo").await?, "bar");
   Ok(())
 }
@@ -522,10 +522,10 @@ pub async fn should_use_cluster_replica_without_redirection(
 pub async fn should_gracefully_quit(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let client = client.clone_new();
   let connection = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let _: i64 = client.incr("foo").await?;
-  let _ = client.quit().await?;
+  client.quit().await?;
   let _ = connection.await;
 
   Ok(())

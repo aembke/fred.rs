@@ -137,7 +137,7 @@ impl Notifications {
   }
 
   pub fn broadcast_close(&self) {
-    if let Err(_) = self.close.send(()) {
+    if self.close.send(()).is_err() {
       debug!("{}: No `close` listeners.", self.id);
     }
   }
@@ -584,7 +584,7 @@ impl RedisClientInner {
   }
 
   pub fn reconnect_policy(&self) -> Option<ReconnectPolicy> {
-    self.policy.read().as_ref().map(|p| p.clone())
+    self.policy.read().as_ref().cloned()
   }
 
   pub fn reset_protocol_version(&self) {
@@ -646,7 +646,7 @@ impl RedisClientInner {
       #[cfg(feature = "replicas")]
       replica: false,
     };
-    if let Err(_) = interfaces::send_to_router(self, cmd) {
+    if interfaces::send_to_router(self, cmd).is_err() {
       warn!("{}: Error sending reconnect command to router.", self.id);
     }
   }

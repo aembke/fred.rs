@@ -5,16 +5,14 @@ pub use crate::protocol::types::{ClusterRouting, SlotRange};
 
 /// The state of the cluster from the CLUSTER INFO command.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub enum ClusterState {
+  #[default]
   Ok,
   Fail,
 }
 
-impl Default for ClusterState {
-  fn default() -> Self {
-    ClusterState::Ok
-  }
-}
+
 
 /// A parsed response from the CLUSTER INFO command.
 ///

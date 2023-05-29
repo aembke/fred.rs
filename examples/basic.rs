@@ -53,20 +53,20 @@ async fn main() -> Result<(), RedisError> {
   });
 
   let connection_task = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // convert response types to most common rust types
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);
 
-  let _: () = client
+  client
     .set("foo", "bar", Some(Expiration::EX(1)), Some(SetOptions::NX), false)
     .await?;
 
   // or use turbofish. the first type is always the response type.
   println!("Foo: {:?}", client.get::<String, _>("foo").await?);
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   let _ = connection_task.await;
   Ok(())
 }

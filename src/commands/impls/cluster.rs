@@ -177,7 +177,7 @@ pub async fn cluster_setslot<C: ClientLike>(
 pub async fn sync_cluster<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
   let command = RouterCommand::SyncCluster { tx };
-  let _ = interfaces::send_to_router(client.inner(), command)?;
+  interfaces::send_to_router(client.inner(), command)?;
 
   rx.await?
 }

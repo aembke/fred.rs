@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-static STARTING_CURSOR: &'static str = "0";
+static STARTING_CURSOR: &str = "0";
 
 fn values_args(key: RedisKey, pattern: Str, count: Option<u32>) -> Vec<RedisValue> {
   let mut args = Vec::with_capacity(6);
@@ -204,7 +204,7 @@ pub fn zscan(
   count: Option<u32>,
 ) -> impl Stream<Item = Result<ZScanResult, RedisError>> {
   let (tx, rx) = unbounded_channel();
-  let args = values_args(key.into(), pattern, count);
+  let args = values_args(key, pattern, count);
 
   let response = ResponseKind::ValueScan(ValueScanInner {
     tx: tx.clone(),

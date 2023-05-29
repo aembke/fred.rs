@@ -22,7 +22,7 @@ async fn main() -> Result<(), RedisError> {
 
   let client = RedisClient::new(RedisConfig::default(), None, None);
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let (key, hash_slot) = get_hash_slot(&client, "ts:carbon_monoxide");
   let args: Vec<RedisValue> = vec![key.into(), 1112596200.into(), 1112603400.into()];
@@ -37,7 +37,7 @@ async fn main() -> Result<(), RedisError> {
   let values: Vec<(i64, f64)> = client.custom(cmd, args).await?;
   println!("TS.RANGE Values: {:?}", values);
 
-  let _: () = client.lpush("foo", vec![1, 2, 3]).await?;
+  client.lpush("foo", vec![1, 2, 3]).await?;
   let (key, hash_slot) = get_hash_slot(&client, "foo");
   let cmd = CustomCommand::new_static("LRANGE", hash_slot, false);
   // some types require TryInto

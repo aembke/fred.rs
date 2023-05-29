@@ -45,6 +45,6 @@ async fn main() -> Result<(), RedisError> {
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

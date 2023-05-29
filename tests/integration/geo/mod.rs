@@ -20,7 +20,7 @@ async fn create_fake_data(client: &RedisClient, key: &str) -> Result<Vec<GeoPosi
     (15.087269, 37.502669, "Catania").try_into()?,
   ];
 
-  let _: () = client.geoadd(key, None, false, values.clone()).await?;
+  client.geoadd(key, None, false, values.clone()).await?;
   Ok(values.into_iter().map(|p| p.coordinates).collect())
 }
 
@@ -150,13 +150,13 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
     GeoRadiusInfo {
       member: "Palermo".into(),
       distance: None,
-      position: Some((13.36138933897018433, 38.11555639549629859).into()),
+      position: Some((13.361_389_338_970_184, 38.115_556_395_496_3).into()),
       hash: None,
     },
     GeoRadiusInfo {
       member: "Catania".into(),
       distance: None,
-      position: Some((15.08726745843887329, 37.50266842333162032).into()),
+      position: Some((15.087_267_458_438_873, 37.502_668_423_331_62).into()),
       hash: None,
     },
   ];
@@ -181,13 +181,13 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
     GeoRadiusInfo {
       member: "Palermo".into(),
       distance: Some(190.4424),
-      position: Some((13.36138933897018433, 38.11555639549629859).into()),
+      position: Some((13.361_389_338_970_184, 38.115_556_395_496_3).into()),
       hash: None,
     },
     GeoRadiusInfo {
       member: "Catania".into(),
       distance: Some(56.4413),
-      position: Some((15.08726745843887329, 37.50266842333162032).into()),
+      position: Some((15.087_267_458_438_873, 37.502_668_423_331_62).into()),
       hash: None,
     },
   ];
@@ -199,7 +199,7 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
 pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = create_fake_data(&client, "foo").await?;
   let agrigento: GeoValue = (13.583333, 37.316667, "Agrigento").try_into()?;
-  let _ = client.geoadd("foo", None, false, agrigento).await?;
+  client.geoadd("foo", None, false, agrigento).await?;
 
   let result = client
     .georadiusbymember(
@@ -241,7 +241,7 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
     (12.758489, 38.788135, "edge1").try_into()?,
     (17.241510, 38.788135, "edge2").try_into()?,
   ];
-  let _ = client.geoadd("foo", None, false, values).await?;
+  client.geoadd("foo", None, false, values).await?;
 
   let lonlat: GeoPosition = (15.0, 37.0).into();
   let result = client
@@ -292,25 +292,25 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
     GeoRadiusInfo {
       member: "Catania".into(),
       distance: Some(56.4413),
-      position: Some((15.08726745843887329, 37.50266842333162032).into()),
+      position: Some((15.087_267_458_438_873, 37.502_668_423_331_62).into()),
       hash: None,
     },
     GeoRadiusInfo {
       member: "Palermo".into(),
       distance: Some(190.4424),
-      position: Some((13.36138933897018433, 38.11555639549629859).into()),
+      position: Some((13.361_389_338_970_184, 38.115_556_395_496_3).into()),
       hash: None,
     },
     GeoRadiusInfo {
       member: "edge2".into(),
       distance: Some(279.7403),
-      position: Some((17.24151045083999634, 38.78813451624225195).into()),
+      position: Some((17.241_510_450_839_996, 38.788_134_516_242_25).into()),
       hash: None,
     },
     GeoRadiusInfo {
       member: "edge1".into(),
       distance: Some(279.7405),
-      position: Some((12.7584877610206604, 38.78813451624225195).into()),
+      position: Some((12.758_487_761_020_66, 38.788_134_516_242_25).into()),
       hash: None,
     },
   ];

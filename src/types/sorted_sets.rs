@@ -270,16 +270,14 @@ impl TryFrom<f64> for ZRangeBound {
 
 /// The type of range interval bound.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub enum ZRangeKind {
+  #[default]
   Inclusive,
   Exclusive,
 }
 
-impl Default for ZRangeKind {
-  fn default() -> Self {
-    ZRangeKind::Inclusive
-  }
-}
+
 
 /// A wrapper struct for a range bound in a sorted set command.
 #[derive(Clone, Debug)]

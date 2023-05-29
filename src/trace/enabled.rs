@@ -11,6 +11,7 @@ use tracing::{event, field::Empty, Id as TraceId, Level};
 use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
+#[derive(Default)]
 pub struct CommandTraces {
   pub cmd:     Option<Span>,
   pub network: Option<Span>,
@@ -29,15 +30,7 @@ impl Drop for CommandTraces {
   }
 }
 
-impl Default for CommandTraces {
-  fn default() -> Self {
-    CommandTraces {
-      cmd:     None,
-      queued:  None,
-      network: None,
-    }
-  }
-}
+
 
 impl fmt::Debug for CommandTraces {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -48,7 +41,7 @@ impl fmt::Debug for CommandTraces {
 pub fn set_network_span(inner: &Arc<RedisClientInner>, command: &mut RedisCommand, flush: bool) {
   trace!("Setting network span from command {}", command.debug_id());
   let span = fspan!(command, inner.tracing_span_level(), "wait_for_response", flush);
-  let _ = span.in_scope(|| {});
+  span.in_scope(|| {});
   command.traces.network = Some(span);
 }
 

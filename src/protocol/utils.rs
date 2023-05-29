@@ -41,7 +41,7 @@ pub fn major_redis_version(version: &Option<Version>) -> u8 {
 }
 
 pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
-  let parts: Vec<&str> = data.split(" ").collect();
+  let parts: Vec<&str> = data.split(' ').collect();
   if parts.len() == 3 {
     let kind: ClusterErrorKind = parts[0].try_into()?;
     let slot: u16 = parts[1].parse()?;
@@ -85,7 +85,7 @@ pub fn is_null(frame: &Resp3Frame) -> bool {
 }
 
 pub fn server_to_parts(server: &str) -> Result<(&str, u16), RedisError> {
-  let parts: Vec<&str> = server.split(":").collect();
+  let parts: Vec<&str> = server.split(':').collect();
   if parts.len() < 2 {
     return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));
   }
@@ -125,13 +125,13 @@ pub fn pretty_error(resp: &str) -> RedisError {
   let kind = {
     let mut parts = resp.split_whitespace();
 
-    match parts.next().unwrap_or("").as_ref() {
+    match parts.next().unwrap_or("") {
       "" => RedisErrorKind::Unknown,
       "ERR" => RedisErrorKind::Unknown,
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" | "WRONGPASS" => RedisErrorKind::Auth,
       "MOVED" | "ASK" | "CLUSTERDOWN" => RedisErrorKind::Cluster,
-      "Invalid" => match parts.next().unwrap_or("").as_ref() {
+      "Invalid" => match parts.next().unwrap_or("") {
         "argument(s)" | "Argument" => RedisErrorKind::InvalidArgument,
         "command" | "Command" => RedisErrorKind::InvalidCommand,
         _ => RedisErrorKind::Unknown,
@@ -346,7 +346,7 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 
 /// Try to parse the data as a string, and failing that return a byte slice.
 pub fn string_or_bytes(data: Bytes) -> RedisValue {
-  if let Some(s) = Str::from_inner(data.clone()).ok() {
+  if let Ok(s) = Str::from_inner(data.clone()) {
     RedisValue::String(s)
   } else {
     RedisValue::Bytes(data)
@@ -862,7 +862,7 @@ fn parse_db_memory_stats(data: &Vec<Resp3Frame>) -> Result<DatabaseMemoryStats, 
       None => continue,
     };
 
-    match key.as_ref() {
+    match key {
       "overhead.hashtable.main" => out.overhead_hashtable_main = parse_u64(&chunk[1]),
       "overhead.hashtable.expires" => out.overhead_hashtable_expires = parse_u64(&chunk[1]),
       _ => {},
@@ -873,7 +873,7 @@ fn parse_db_memory_stats(data: &Vec<Resp3Frame>) -> Result<DatabaseMemoryStats, 
 }
 
 fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: &Resp3Frame) {
-  match key.as_ref() {
+  match key {
     "peak.allocated" => stats.peak_allocated = parse_u64(value),
     "total.allocated" => stats.total_allocated = parse_u64(value),
     "startup.allocated" => stats.startup_allocated = parse_u64(value),
@@ -919,7 +919,7 @@ pub fn parse_memory_stats(data: &Vec<Resp3Frame>) -> Result<MemoryStats, RedisEr
     };
 
     if key.starts_with("db.") {
-      let db = match key.split(".").last() {
+      let db = match key.split('.').last() {
         Some(db) => match db.parse::<u16>().ok() {
           Some(db) => db,
           None => continue,
@@ -948,7 +948,7 @@ fn parse_acl_getuser_flag(value: &Resp3Frame) -> Result<Vec<AclUserFlag>, RedisE
 
     for frame in data.iter() {
       let flag = match frame.as_str() {
-        Some(s) => match s.as_ref() {
+        Some(s) => match s {
           "on" => AclUserFlag::On,
           "off" => AclUserFlag::Off,
           "allcommands" => AclUserFlag::AllCommands,
@@ -998,13 +998,13 @@ fn frames_to_strings(frames: &Resp3Frame) -> Result<Vec<String>, RedisError> {
 }
 
 fn parse_acl_getuser_field(user: &mut AclUser, key: &str, value: &Resp3Frame) -> Result<(), RedisError> {
-  match key.as_ref() {
+  match key {
     "passwords" => user.passwords = frames_to_strings(value)?,
     "keys" => user.keys = frames_to_strings(value)?,
     "channels" => user.channels = frames_to_strings(value)?,
     "commands" => {
       if let Some(commands) = value.as_str() {
-        user.commands = commands.split(" ").map(|s| s.to_owned()).collect();
+        user.commands = commands.split(' ').map(|s| s.to_owned()).collect();
       }
     },
     _ => {
@@ -1145,14 +1145,14 @@ pub fn parse_slowlog_entries(frames: Vec<Resp3Frame>) -> Result<Vec<SlowlogEntry
 }
 
 fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
-  let parts: Vec<&str> = line.split(":").collect();
+  let parts: Vec<&str> = line.split(':').collect();
   if parts.len() != 2 {
     return Err(RedisError::new(RedisErrorKind::Protocol, "Expected key:value pair."));
   }
   let (field, val) = (parts[0], parts[1]);
 
-  match field.as_ref() {
-    "cluster_state" => match val.as_ref() {
+  match field {
+    "cluster_state" => match val {
       "ok" => info.cluster_state = ClusterState::Ok,
       "fail" => info.cluster_state = ClusterState::Fail,
       _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster state.")),
@@ -1179,10 +1179,10 @@ pub fn parse_cluster_info(data: Resp3Frame) -> Result<ClusterInfo, RedisError> {
   if let Some(data) = data.as_str() {
     let mut out = ClusterInfo::default();
 
-    for line in data.lines().into_iter() {
+    for line in data.lines() {
       let trimmed = line.trim();
       if !trimmed.is_empty() {
-        let _ = parse_cluster_info_line(&mut out, trimmed)?;
+        parse_cluster_info_line(&mut out, trimmed)?;
       }
     }
     Ok(out)
@@ -1278,7 +1278,7 @@ fn parse_geo_dist(frame: &Resp3Frame) -> Result<f64, RedisError> {
     _ => frame
       .as_str()
       .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected double."))
-      .and_then(|s| utils::redis_string_to_f64(s)),
+      .and_then(utils::redis_string_to_f64),
   }
 }
 
@@ -1301,7 +1301,7 @@ pub fn parse_georadius_info(
 
     if withcoord && withdist && withhash {
       // 4 elements: member, dist, hash, position
-      let _ = assert_frame_len(data, 4)?;
+      assert_frame_len(data, 4)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.distance = Some(parse_geo_dist(&data[1])?);
@@ -1309,40 +1309,40 @@ pub fn parse_georadius_info(
       out.position = Some(parse_geo_position(&data[3])?);
     } else if withcoord && withdist {
       // 3 elements: member, dist, position
-      let _ = assert_frame_len(data, 3)?;
+      assert_frame_len(data, 3)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.distance = Some(parse_geo_dist(&data[1])?);
       out.position = Some(parse_geo_position(&data[2])?);
     } else if withcoord && withhash {
       // 3 elements: member, hash, position
-      let _ = assert_frame_len(data, 3)?;
+      assert_frame_len(data, 3)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.hash = Some(parse_geo_hash(&data[1])?);
       out.position = Some(parse_geo_position(&data[2])?);
     } else if withdist && withhash {
       // 3 elements: member, dist, hash
-      let _ = assert_frame_len(data, 3)?;
+      assert_frame_len(data, 3)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.distance = Some(parse_geo_dist(&data[1])?);
       out.hash = Some(parse_geo_hash(&data[2])?);
     } else if withcoord {
       // 2 elements: member, position
-      let _ = assert_frame_len(data, 2)?;
+      assert_frame_len(data, 2)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.position = Some(parse_geo_position(&data[1])?);
     } else if withdist {
       // 2 elements: member, dist
-      let _ = assert_frame_len(data, 2)?;
+      assert_frame_len(data, 2)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.distance = Some(parse_geo_dist(&data[1])?);
     } else if withhash {
       // 2 elements: member, hash
-      let _ = assert_frame_len(data, 2)?;
+      assert_frame_len(data, 2)?;
 
       out.member = parse_geo_member(&data[0])?;
       out.hash = Some(parse_geo_hash(&data[1])?);
@@ -1448,7 +1448,7 @@ pub fn value_to_zset_result(value: RedisValue) -> Result<Vec<(RedisValue, f64)>,
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 fn i64_size(i: i64) -> usize {
   if i < 0 {
-    1 + redis_protocol::digits_in_number((i * -1) as usize)
+    1 + redis_protocol::digits_in_number(-i as usize)
   } else {
     redis_protocol::digits_in_number(i as usize)
   }
@@ -1559,7 +1559,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
-      let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
+      let parts: Vec<&str> = kind.cmd.trim().split(' ').collect();
       let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
 
       for part in parts.into_iter() {
@@ -1609,7 +1609,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
 
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
-      let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
+      let parts: Vec<&str> = kind.cmd.trim().split(' ').collect();
       let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
 
       for part in parts.into_iter() {
@@ -1763,16 +1763,16 @@ mod tests {
       keys_count:                    1,
       keys_bytes_per_key:            62128,
       dataset_bytes:                 41560,
-      dataset_percentage:            66.894157409667969,
-      peak_percentage:               93.346977233886719,
+      dataset_percentage:            66.894_157_409_667_97,
+      peak_percentage:               93.346_977_233_886_72,
       allocator_allocated:           1022640,
       allocator_active:              1241088,
       allocator_resident:            5332992,
       allocator_fragmentation_ratio: 1.2136118412017822,
       allocator_fragmentation_bytes: 218448,
-      allocator_rss_ratio:           4.2970294952392578,
+      allocator_rss_ratio:           4.297_029_495_239_258,
       allocator_rss_bytes:           4091904,
-      rss_overhead_ratio:            2.0268816947937012,
+      rss_overhead_ratio:            2.026_881_694_793_701,
       rss_overhead_bytes:            5476352,
       fragmentation:                 13.007383346557617,
       fragmentation_bytes:           9978328,

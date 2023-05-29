@@ -108,7 +108,7 @@ impl<'a> TryFrom<&'a str> for ClusterErrorKind {
   type Error = RedisError;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-    match value.as_ref() {
+    match value {
       "MOVED" => Ok(ClusterErrorKind::Moved),
       "ASK" => Ok(ClusterErrorKind::Ask),
       _ => Err(RedisError::new(
@@ -1709,7 +1709,7 @@ impl RedisCommand {
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
-      transaction_id: self.transaction_id.clone(),
+      transaction_id: self.transaction_id,
       attempted: self.attempted,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
@@ -1719,7 +1719,7 @@ impl RedisCommand {
       use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
       created: self.created.clone(),
-      network_start: self.network_start.clone(),
+      network_start: self.network_start,
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
@@ -1787,7 +1787,7 @@ impl RedisCommand {
   /// Read the custom hash slot assigned to a scan operation.
   pub fn scan_hash_slot(&self) -> Option<u16> {
     match self.response {
-      ResponseKind::KeyScan(ref inner) => inner.hash_slot.clone(),
+      ResponseKind::KeyScan(ref inner) => inner.hash_slot,
       _ => None,
     }
   }

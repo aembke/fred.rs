@@ -5,14 +5,14 @@ static COUNT: u32 = 50;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0 .. COUNT {
-    let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   Ok(())
 }
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0 .. COUNT {
-    let _ = client.del(format!("foo-{}", idx)).await?;
+    client.del(format!("foo-{}", idx)).await?;
   }
   Ok(())
 }
@@ -21,8 +21,8 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
-  let _ = create_fake_data(&client).await?;
+  client.wait_for_connect().await?;
+  create_fake_data(&client).await?;
 
   // build up a buffer of (key, value) pairs from pages (~10 keys per page)
   let mut buffer = Vec::with_capacity(COUNT as usize);
@@ -47,7 +47,7 @@ async fn main() -> Result<(), RedisError> {
     let _ = page.next();
   }
 
-  let _ = delete_fake_data(&client).await?;
-  let _ = client.quit().await?;
+  delete_fake_data(&client).await?;
+  client.quit().await?;
   Ok(())
 }

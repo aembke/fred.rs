@@ -41,8 +41,8 @@ pub use crate::modules::metrics::Stats;
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub use crate::protocol::types::Resolve;
 
-pub(crate) static QUEUED: &'static str = "QUEUED";
-pub(crate) static NIL: &'static str = "nil";
+pub(crate) static QUEUED: &str = "QUEUED";
+pub(crate) static NIL: &str = "nil";
 
 /// The ANY flag used on certain GEO commands.
 pub type Any = bool;

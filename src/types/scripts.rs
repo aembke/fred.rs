@@ -303,7 +303,7 @@ impl Library {
       .as_functions(&name)?;
 
     Ok(Library {
-      name:      name.into(),
+      name,
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
   }
@@ -322,7 +322,7 @@ impl Library {
       .as_functions(&name)?;
 
     Ok(Library {
-      name:      name.into(),
+      name,
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
   }

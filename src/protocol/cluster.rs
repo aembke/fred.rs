@@ -97,7 +97,7 @@ fn parse_node_block(data: &Vec<RedisValue>, default_host: &str) -> Option<(Strin
     return None;
   }
 
-  let hostname = match parse_cluster_slot_hostname(&data, default_host) {
+  let hostname = match parse_cluster_slot_hostname(data, default_host) {
     Ok(host) => host,
     Err(_) => return None,
   };

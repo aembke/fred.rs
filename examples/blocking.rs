@@ -13,8 +13,8 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = publisher_client.connect();
   let _ = subscriber_client.connect();
-  let _ = publisher_client.wait_for_connect().await?;
-  let _ = subscriber_client.wait_for_connect().await?;
+  publisher_client.wait_for_connect().await?;
+  subscriber_client.wait_for_connect().await?;
 
   #[allow(unreachable_code)]
   let subscriber_jh = tokio::spawn(async move {
@@ -33,10 +33,10 @@ async fn main() -> Result<(), RedisError> {
   });
 
   for idx in 0 .. COUNT {
-    let _ = publisher_client.rpush("foo", idx).await?;
+    publisher_client.rpush("foo", idx).await?;
     sleep(Duration::from_secs(1)).await;
   }
 
-  let _ = subscriber_jh.abort();
+  subscriber_jh.abort();
   Ok(())
 }

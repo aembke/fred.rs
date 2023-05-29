@@ -38,7 +38,7 @@ async fn main() -> Result<(), RedisError> {
 
   let client = RedisClient::new(config, Some(perf), None);
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // update performance config options
   let mut perf_config = client.perf_config();
@@ -56,6 +56,6 @@ async fn main() -> Result<(), RedisError> {
     }
   }
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

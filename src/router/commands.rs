@@ -39,7 +39,7 @@ async fn handle_router_response(
     match response {
       RouterResponse::Continue => Ok(None),
       RouterResponse::Ask((slot, server, mut command)) => {
-        let _ = utils::send_asking_with_policy(inner, router, &server, slot).await?;
+        utils::send_asking_with_policy(inner, router, &server, slot).await?;
         command.hasher = ClusterHash::Custom(slot);
         command.use_replica = false;
         Ok(Some(command))
@@ -47,7 +47,7 @@ async fn handle_router_response(
       RouterResponse::Moved((slot, server, mut command)) => {
         // check if slot belongs to server, if not then run sync cluster
         if !router.cluster_node_owns_slot(slot, &server) {
-          let _ = utils::sync_cluster_with_policy(inner, router).await?;
+          utils::sync_cluster_with_policy(inner, router).await?;
         }
         command.hasher = ClusterHash::Custom(slot);
         command.use_replica = false;
@@ -62,7 +62,7 @@ async fn handle_router_response(
           Some(command)
         };
 
-        let _ = utils::reconnect_with_policy(inner, router).await?;
+        utils::reconnect_with_policy(inner, router).await?;
         Ok(command)
       },
       RouterResponse::TransactionError(_) | RouterResponse::TransactionResult(_) => {
@@ -613,7 +613,7 @@ async fn process_commands(
         break;
       } else {
         _error!(inner, "Disconnecting after error processing command: {:?}", e);
-        let _ = router.disconnect_all().await;
+        router.disconnect_all().await;
         router.clear_retry_buffer();
         return Err(e);
       }
@@ -621,7 +621,7 @@ async fn process_commands(
   }
 
   _debug!(inner, "Disconnecting after command stream closes.");
-  let _ = router.disconnect_all().await;
+  router.disconnect_all().await;
   router.clear_retry_buffer();
   Ok(())
 }
@@ -651,7 +651,7 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
       inner.notifications.broadcast_reconnect();
     }
   } else {
-    let _ = utils::reconnect_with_policy(inner, &mut router).await?;
+    utils::reconnect_with_policy(inner, &mut router).await?;
   }
 
   let mut rx = match inner.take_command_rx() {

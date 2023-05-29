@@ -213,8 +213,10 @@ impl ReconnectPolicy {
 /// Describes how the client should respond when a command is sent while the client is in a blocked state from a
 /// blocking command.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub enum Blocking {
   /// Wait to send the command until the blocked command finishes. (Default)
+  #[default]
   Block,
   /// Return an error to the caller.
   Error,
@@ -222,14 +224,11 @@ pub enum Blocking {
   Interrupt,
 }
 
-impl Default for Blocking {
-  fn default() -> Self {
-    Blocking::Block
-  }
-}
+
 
 /// Backpressure policies to apply when the max number of in-flight commands is reached on a connection.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub enum BackpressurePolicy {
   /// Sleep for some amount of time before sending the next command.
   Sleep {
@@ -249,14 +248,11 @@ pub enum BackpressurePolicy {
     min_sleep_duration_ms:        u64,
   },
   /// Wait for all in-flight commands to finish before sending the next command.
+  #[default]
   Drain,
 }
 
-impl Default for BackpressurePolicy {
-  fn default() -> Self {
-    BackpressurePolicy::Drain
-  }
-}
+
 
 impl BackpressurePolicy {
   /// Create a new `Sleep` policy with the legacy default values.
@@ -848,8 +844,8 @@ impl ServerConfig {
   pub fn hosts(&self) -> Vec<&Server> {
     match *self {
       ServerConfig::Centralized { ref server } => vec![server],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().map(|s| s).collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|s| s).collect(),
+      ServerConfig::Clustered { ref hosts } => hosts.iter().collect(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().collect(),
     }
   }
 }

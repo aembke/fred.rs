@@ -100,7 +100,7 @@ pub trait ClientLike: Clone + Send + Sized {
   {
     let mut command: RedisCommand = command.into();
     self.change_command(&mut command);
-    default_send_command(&self.inner(), command)
+    default_send_command(self.inner(), command)
   }
 
   /// The unique ID identifying this client and underlying connections.

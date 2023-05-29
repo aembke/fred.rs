@@ -188,8 +188,8 @@ pub fn parse_cluster_changes(
   for server in writers.keys() {
     old_servers.insert(server.clone());
   }
-  let add = new_servers.difference(&old_servers).map(|s| s.clone()).collect();
-  let remove = old_servers.difference(&new_servers).map(|s| s.clone()).collect();
+  let add = new_servers.difference(&old_servers).cloned().collect();
+  let remove = old_servers.difference(&new_servers).cloned().collect();
 
   ClusterChange { add, remove }
 }
@@ -439,14 +439,12 @@ pub async fn process_response_frame(
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
+    } else if command.kind.ends_transaction() {
+      command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
+      return Ok(());
     } else {
-      if command.kind.ends_transaction() {
-        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
-        return Ok(());
-      } else {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        return Ok(());
-      }
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Ok(());
     }
   }
 
@@ -502,7 +500,7 @@ pub async fn connect_any(
   } else {
     BTreeSet::new()
   };
-  all_servers.extend(inner.config.server.hosts().into_iter().map(|server| server.clone()));
+  all_servers.extend(inner.config.server.hosts().into_iter().cloned());
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
   let num_servers = all_servers.len();
@@ -643,7 +641,7 @@ pub async fn sync(
     *cache = state.clone();
 
     // detect changes to the cluster topology
-    let changes = parse_cluster_changes(&state, &writers);
+    let changes = parse_cluster_changes(&state, writers);
     _debug!(inner, "Changing cluster connections: {:?}", changes);
     broadcast_cluster_change(inner, &changes);
 
@@ -670,7 +668,7 @@ pub async fn sync(
         server.tls_server_name.as_ref(),
       )
       .await?;
-      let _ = transport.setup(inner, None).await?;
+      transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       writers.insert(server, writer);

@@ -84,13 +84,13 @@ impl Backpressure {
       Backpressure::Error(e) => Err(e),
       Backpressure::Wait(duration) => {
         _debug!(inner, "Backpressure policy (wait): {}ms", duration.as_millis());
-        trace::backpressure_event(&command, Some(duration.as_millis()));
-        let _ = inner.wait_with_interrupt(duration).await?;
+        trace::backpressure_event(command, Some(duration.as_millis()));
+        inner.wait_with_interrupt(duration).await?;
         Ok(None)
       },
       Backpressure::Block => {
         _debug!(inner, "Backpressure (block)");
-        trace::backpressure_event(&command, None);
+        trace::backpressure_event(command, None);
         if !command.has_router_channel() {
           _trace!(
             inner,
@@ -427,7 +427,7 @@ impl Connections {
     command: RedisCommand,
   ) -> Result<Written, RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
-      let _ = clustered::send_all_cluster_command(inner, writers, command).await?;
+      clustered::send_all_cluster_command(inner, writers, command).await?;
       Ok(Written::SentAll)
     } else {
       Err(RedisError::new(
@@ -462,7 +462,7 @@ impl Connections {
         server.tls_server_name.as_ref(),
       )
       .await?;
-      let _ = transport.setup(inner, None).await?;
+      transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, false, clustered::spawn_reader_task)?;
       writers.insert(server, writer);
@@ -811,7 +811,7 @@ impl Router {
         ))
       },
       Written::SentAll => {
-        let _ = self.check_and_flush().await?;
+        self.check_and_flush().await?;
         Ok(())
       },
       Written::Sent((server, flushed)) => {
@@ -820,7 +820,7 @@ impl Router {
           inner.backchannel.write().await.set_blocked(&server);
         }
         if !flushed {
-          let _ = self.check_and_flush().await?;
+          self.check_and_flush().await?;
         }
 
         Ok(())
@@ -1071,11 +1071,11 @@ impl Router {
         .unwrap_or(true);
 
       if should_sync {
-        let _ = self.sync_cluster().await?;
+        self.sync_cluster().await?;
       }
     } else if *kind == ClusterErrorKind::Ask {
       if !self.connections.has_server_connection(server) {
-        let _ = self.connections.add_connection(&self.inner, server).await?;
+        self.connections.add_connection(&self.inner, server).await?;
         self
           .inner
           .backchannel
@@ -1090,7 +1090,7 @@ impl Router {
       let mut command = RedisCommand::new_asking(slot);
       command.response = ResponseKind::Respond(Some(tx));
 
-      let _ = self.write_once(command, &server).await?;
+      self.write_once(command, server).await?;
       let _ = rx.await??;
     }
 

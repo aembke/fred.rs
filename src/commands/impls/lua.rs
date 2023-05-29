@@ -67,7 +67,7 @@ pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Resu
   let (tx, rx) = oneshot_channel();
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_ScriptLoadCluster, vec![script.into()], response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(hash.into())
@@ -83,7 +83,7 @@ pub async fn script_kill_cluster<C: ClientLike>(client: &C) -> Result<(), RedisE
   let (tx, rx) = oneshot_channel();
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_ScriptKillCluster, vec![], response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())
@@ -110,7 +110,7 @@ pub async fn script_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> R
 
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_ScriptFlushCluster, vec![arg], response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())
@@ -159,7 +159,7 @@ pub async fn evalsha<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::EvalSha, args).into();
     command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
+      .map(ClusterHash::Custom)
       .unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
@@ -192,7 +192,7 @@ pub async fn eval<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::Eval, args).into();
     command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
+      .map(ClusterHash::Custom)
       .unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
@@ -225,7 +225,7 @@ pub async fn fcall<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::Fcall, arguments).into();
     command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
+      .map(ClusterHash::Custom)
       .unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
@@ -258,7 +258,7 @@ pub async fn fcall_ro<C: ClientLike>(
 
     let mut command: RedisCommand = (RedisCommandKind::FcallRO, arguments).into();
     command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
+      .map(ClusterHash::Custom)
       .unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
@@ -287,7 +287,7 @@ pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: St
 
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionDeleteCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())
@@ -322,7 +322,7 @@ pub async fn function_flush_cluster<C: ClientLike>(client: &C, r#async: bool) ->
 
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionFlushCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())
@@ -392,7 +392,7 @@ pub async fn function_load_cluster<C: ClientLike>(
 
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionLoadCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   // each value in the response array is the response from a different primary node
   match rx.await?? {
@@ -446,7 +446,7 @@ pub async fn function_restore_cluster<C: ClientLike>(
 
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionRestoreCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())

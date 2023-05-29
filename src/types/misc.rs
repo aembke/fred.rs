@@ -227,19 +227,13 @@ impl fmt::Display for ClientState {
 ///
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub struct DatabaseMemoryStats {
   pub overhead_hashtable_main:    u64,
   pub overhead_hashtable_expires: u64,
 }
 
-impl Default for DatabaseMemoryStats {
-  fn default() -> Self {
-    DatabaseMemoryStats {
-      overhead_hashtable_expires: 0,
-      overhead_hashtable_main:    0,
-    }
-  }
-}
+
 
 /// The parsed result of the MEMORY STATS command.
 ///
@@ -410,17 +404,15 @@ impl SortOrder {
 
 /// The policy type for the [FUNCTION RESTORE](https://redis.io/commands/function-restore/) command.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Default)]
 pub enum FnPolicy {
   Flush,
+  #[default]
   Append,
   Replace,
 }
 
-impl Default for FnPolicy {
-  fn default() -> Self {
-    FnPolicy::Append
-  }
-}
+
 
 impl FnPolicy {
   pub(crate) fn to_str(&self) -> Str {
@@ -432,7 +424,7 @@ impl FnPolicy {
   }
 
   pub(crate) fn from_str(s: &str) -> Result<Self, RedisError> {
-    Ok(match s.as_ref() {
+    Ok(match s {
       "flush" | "FLUSH" => FnPolicy::Flush,
       "append" | "APPEND" => FnPolicy::Append,
       "replace" | "REPLACE" => FnPolicy::Replace,
@@ -483,6 +475,6 @@ impl TryFrom<&Str> for FnPolicy {
   type Error = RedisError;
 
   fn try_from(value: &Str) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(&value)
+    FnPolicy::from_str(value)
   }
 }

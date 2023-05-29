@@ -259,10 +259,10 @@ impl TryFrom<RedisValue> for RedisKey {
       RedisValue::Bytes(b) => RedisKey { key: b },
       RedisValue::Boolean(b) => match b {
         true => RedisKey {
-          key: TRUE_STR.clone().into_inner().into(),
+          key: TRUE_STR.clone().into_inner(),
         },
         false => RedisKey {
-          key: FALSE_STR.clone().into_inner().into(),
+          key: FALSE_STR.clone().into_inner(),
         },
       },
       RedisValue::Queued => utils::static_str(QUEUED).into(),
@@ -403,7 +403,7 @@ impl RedisMap {
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
     RedisMap {
-      inner: mem::replace(&mut self.inner, HashMap::new()),
+      inner: std::mem::take(&mut self.inner),
     }
   }
 
@@ -972,11 +972,11 @@ impl<'a> RedisValue {
     let s: Cow<str> = match *self {
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
+      RedisValue::String(ref s) => Cow::Borrowed(s.deref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
-      RedisValue::Bytes(ref b) => return str::from_utf8(b).ok().map(|s| Cow::Borrowed(s)),
+      RedisValue::Bytes(ref b) => return str::from_utf8(b).ok().map(Cow::Borrowed),
       _ => return None,
     };
 
@@ -988,7 +988,7 @@ impl<'a> RedisValue {
     let s: Cow<str> = match *self {
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
+      RedisValue::String(ref s) => Cow::Borrowed(s.deref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Null => Cow::Borrowed(NIL),
       RedisValue::Queued => Cow::Borrowed(QUEUED),

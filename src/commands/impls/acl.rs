@@ -43,7 +43,7 @@ pub async fn acl_getuser<C: ClientLike>(client: &C, username: Str) -> Result<Opt
   let frame = protocol_utils::frame_map_or_set_to_nested_array(frame)?;
 
   if let Frame::Array { data, .. } = frame {
-    protocol_utils::parse_acl_getuser_frames(data).map(|u| Some(u))
+    protocol_utils::parse_acl_getuser_frames(data).map(Some)
   } else {
     Err(RedisError::new(
       RedisErrorKind::Protocol,

@@ -41,8 +41,8 @@ fn check_range_type(range: &ZRange, kind: &Option<ZSort>) -> Result<(), RedisErr
 }
 
 fn check_range_types(min: &ZRange, max: &ZRange, kind: &Option<ZSort>) -> Result<(), RedisError> {
-  let _ = check_range_type(min, kind)?;
-  let _ = check_range_type(max, kind)?;
+  check_range_type(min, kind)?;
+  check_range_type(max, kind)?;
   Ok(())
 }
 
@@ -72,7 +72,7 @@ pub async fn bzmpop<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -89,7 +89,7 @@ pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -106,7 +106,7 @@ pub async fn bzpopmax<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -287,7 +287,7 @@ pub async fn zlexcount<C: ClientLike>(
   min: ZRange,
   max: ZRange,
 ) -> Result<RedisValue, RedisError> {
-  let _ = check_range_types(&min, &max, &Some(ZSort::ByLex))?;
+  check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
   let args = vec![key.into(), min.into_value()?, max.into_value()?];
   args_value_cmd(client, RedisCommandKind::Zlexcount, args).await
@@ -379,7 +379,7 @@ pub async fn zrangestore<C: ClientLike>(
   rev: bool,
   limit: Option<Limit>,
 ) -> Result<RedisValue, RedisError> {
-  let _ = check_range_types(&min, &max, &sort)?;
+  check_range_types(&min, &max, &sort)?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(9);
@@ -417,7 +417,7 @@ pub async fn zrange<C: ClientLike>(
   limit: Option<Limit>,
   withscores: bool,
 ) -> Result<RedisValue, RedisError> {
-  let _ = check_range_types(&min, &max, &sort)?;
+  check_range_types(&min, &max, &sort)?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(9);
@@ -454,7 +454,7 @@ pub async fn zrangebylex<C: ClientLike>(
   max: ZRange,
   limit: Option<Limit>,
 ) -> Result<RedisValue, RedisError> {
-  let _ = check_range_types(&min, &max, &Some(ZSort::ByLex))?;
+  check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
@@ -482,7 +482,7 @@ pub async fn zrevrangebylex<C: ClientLike>(
   min: ZRange,
   limit: Option<Limit>,
 ) -> Result<RedisValue, RedisError> {
-  let _ = check_range_types(&min, &max, &Some(ZSort::ByLex))?;
+  check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
@@ -593,7 +593,7 @@ pub async fn zremrangebylex<C: ClientLike>(
   max: ZRange,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    let _ = check_range_types(&min, &max, &Some(ZSort::ByLex))?;
+    check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
     Ok((RedisCommandKind::Zremrangebylex, vec![
       key.into(),
@@ -623,7 +623,7 @@ pub async fn zremrangebyscore<C: ClientLike>(
   max: ZRange,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    let _ = check_range_types(&min, &max, &Some(ZSort::ByScore))?;
+    check_range_types(&min, &max, &Some(ZSort::ByScore))?;
 
     Ok((RedisCommandKind::Zremrangebyscore, vec![
       key.into(),
