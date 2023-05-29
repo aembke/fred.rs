@@ -46,7 +46,6 @@ parking_lot = "0.12"
 lazy_static = "1.4"
 redis-protocol = { version = "4.1", features = ["decode-mut"] }
 log = "0.4"
-pretty_env_logger = "0.4"
 float-cmp = "0.9"
 url = "2.3"
 tokio-stream = "0.1"
@@ -67,6 +66,7 @@ rustls-native-certs = { version = "0.6", optional = true }
 trust-dns-resolver = { version =  "0.22", optional = true }
 
 [dev-dependencies]
+pretty_env_logger = "0.4"
 prometheus = "0.12"
 base64 = "0.13"
 subprocess = "0.2.7"
