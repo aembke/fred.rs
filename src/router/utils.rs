@@ -294,7 +294,6 @@ pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration
     .write()
     .as_mut()
     .and_then(|policy| policy.next_delay())
-    .map(|amt| Duration::from_millis(amt))
     .ok_or(RedisError::new(
       RedisErrorKind::Canceled,
       "Max reconnection attempts reached.",

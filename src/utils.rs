@@ -597,8 +597,8 @@ where
   Ok(out)
 }
 
-pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
-  delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
+pub fn add_jitter(delay: Duration, jitter: Duration) -> Duration {
+  delay.saturating_add(rand::thread_rng().gen_range(Duration::from_millis(0) .. jitter))
 }
 
 pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>

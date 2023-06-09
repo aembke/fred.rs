@@ -6,6 +6,7 @@ use url::Url;
 use crate::mocks::{Echo, Mocks};
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
@@ -17,7 +18,7 @@ pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
 
 pub use crate::protocol::types::Server;
 /// The default amount of jitter when waiting to reconnect.
-pub const DEFAULT_JITTER_MS: u32 = 100;
+pub const DEFAULT_JITTER: Duration = Duration::from_millis(100);
 
 /// The type of reconnection policy to use. This will apply to every connection used by the client.
 ///
@@ -28,25 +29,25 @@ pub enum ReconnectPolicy {
   Constant {
     attempts:     u32,
     max_attempts: u32,
-    delay:        u32,
-    jitter:       u32,
+    delay:        Duration,
+    jitter:       Duration,
   },
   /// Backoff reconnection attempts linearly, adding `delay` each time.
   Linear {
     attempts:     u32,
     max_attempts: u32,
-    max_delay:    u32,
-    delay:        u32,
-    jitter:       u32,
+    max_delay:    Duration,
+    delay:        Duration,
+    jitter:       Duration,
   },
   /// Backoff reconnection attempts exponentially, multiplying the last delay by `mult` each time.
   Exponential {
     attempts:     u32,
     max_attempts: u32,
-    min_delay:    u32,
-    max_delay:    u32,
+    min_delay:    Duration,
+    max_delay:    Duration,
     mult:         u32,
-    jitter:       u32,
+    jitter:       Duration,
   },
 }
 
@@ -55,59 +56,59 @@ impl Default for ReconnectPolicy {
     ReconnectPolicy::Constant {
       attempts:     0,
       max_attempts: 0,
-      delay:        1000,
-      jitter:       DEFAULT_JITTER_MS,
+      delay:        Duration::from_millis(1000),
+      jitter: DEFAULT_JITTER,
     }
   }
 }
 
 impl ReconnectPolicy {
   /// Create a new reconnect policy with a constant backoff.
-  pub fn new_constant(max_attempts: u32, delay: u32) -> ReconnectPolicy {
+  pub fn new_constant(max_attempts: u32, delay: Duration) -> ReconnectPolicy {
     ReconnectPolicy::Constant {
       max_attempts,
       delay,
       attempts: 0,
-      jitter: DEFAULT_JITTER_MS,
+      jitter: DEFAULT_JITTER,
     }
   }
 
   /// Create a new reconnect policy with a linear backoff.
-  pub fn new_linear(max_attempts: u32, max_delay: u32, delay: u32) -> ReconnectPolicy {
+  pub fn new_linear(max_attempts: u32, max_delay: Duration, delay: Duration) -> ReconnectPolicy {
     ReconnectPolicy::Linear {
       max_attempts,
       max_delay,
       delay,
       attempts: 0,
-      jitter: DEFAULT_JITTER_MS,
+      jitter: DEFAULT_JITTER,
     }
   }
 
   /// Create a new reconnect policy with an exponential backoff.
-  pub fn new_exponential(max_attempts: u32, min_delay: u32, max_delay: u32, mult: u32) -> ReconnectPolicy {
+  pub fn new_exponential(max_attempts: u32, min_delay: Duration, max_delay: Duration, mult: u32) -> ReconnectPolicy {
     ReconnectPolicy::Exponential {
       max_delay,
       max_attempts,
       min_delay,
       mult,
       attempts: 0,
-      jitter: DEFAULT_JITTER_MS,
+      jitter: DEFAULT_JITTER,
     }
   }
 
   /// Set the amount of jitter to add to each reconnect delay.
   ///
   /// Default: 50 ms
-  pub fn set_jitter(&mut self, jitter_ms: u32) {
+  pub fn set_jitter(&mut self, new_jitter: Duration) {
     match self {
       ReconnectPolicy::Constant { ref mut jitter, .. } => {
-        *jitter = jitter_ms;
+        *jitter = new_jitter;
       },
       ReconnectPolicy::Linear { ref mut jitter, .. } => {
-        *jitter = jitter_ms;
+        *jitter = new_jitter;
       },
       ReconnectPolicy::Exponential { ref mut jitter, .. } => {
-        *jitter = jitter_ms;
+        *jitter = new_jitter;
       },
     }
   }
@@ -158,7 +159,7 @@ impl ReconnectPolicy {
   }
 
   /// Calculate the next delay, incrementing `attempts` in the process.
-  pub fn next_delay(&mut self) -> Option<u64> {
+  pub fn next_delay(&mut self) -> Option<Duration> {
     match *self {
       ReconnectPolicy::Constant {
         ref mut attempts,
@@ -171,7 +172,7 @@ impl ReconnectPolicy {
           None => return None,
         };
 
-        Some(utils::add_jitter(delay as u64, jitter))
+        Some(utils::add_jitter(delay, jitter))
       },
       ReconnectPolicy::Linear {
         ref mut attempts,
@@ -184,9 +185,10 @@ impl ReconnectPolicy {
           Some(a) => a,
           None => return None,
         };
-        let delay = (delay as u64).saturating_mul(*attempts as u64);
 
-        Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
+        let delay = delay.saturating_mul(*attempts);
+
+        Some(cmp::min(max_delay, utils::add_jitter(delay, jitter)))
       },
       ReconnectPolicy::Exponential {
         ref mut attempts,
@@ -200,11 +202,10 @@ impl ReconnectPolicy {
           Some(a) => a,
           None => return None,
         };
-        let delay = (mult as u64)
-          .saturating_pow(*attempts - 1)
-          .saturating_mul(min_delay as u64);
+        let delay = min_delay.saturating_mul(mult
+          .saturating_pow(*attempts - 1));
 
-        Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
+        Some(cmp::min(max_delay, utils::add_jitter(delay, jitter)))
       },
     }
   }
