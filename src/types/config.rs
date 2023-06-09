@@ -40,13 +40,13 @@ pub enum ReconnectPolicy {
     delay:        Duration,
     jitter:       Duration,
   },
-  /// Backoff reconnection attempts exponentially, multiplying the last delay by `mult` each time.
+  /// Backoff reconnection attempts exponentially, raising `exponent` to the power of the last number of attempts.
   Exponential {
     attempts:     u32,
     max_attempts: u32,
     min_delay:    Duration,
     max_delay:    Duration,
-    mult:         u32,
+    exponent:         u32,
     jitter:       Duration,
   },
 }
@@ -85,12 +85,12 @@ impl ReconnectPolicy {
   }
 
   /// Create a new reconnect policy with an exponential backoff.
-  pub fn new_exponential(max_attempts: u32, min_delay: Duration, max_delay: Duration, mult: u32) -> ReconnectPolicy {
+  pub fn new_exponential(max_attempts: u32, min_delay: Duration, max_delay: Duration, exponent: u32) -> ReconnectPolicy {
     ReconnectPolicy::Exponential {
       max_delay,
       max_attempts,
       min_delay,
-      mult,
+      exponent,
       attempts: 0,
       jitter: DEFAULT_JITTER,
     }
@@ -195,18 +195,18 @@ impl ReconnectPolicy {
         min_delay,
         max_delay,
         max_attempts,
-        mult,
+        exponent,
         jitter,
       } => {
         *attempts = match utils::incr_with_max(*attempts, max_attempts) {
           Some(a) => a,
           None => return None,
         };
-        let delay = min_delay.saturating_mul(mult
+        let delay = min_delay.saturating_mul(exponent
           .saturating_pow(*attempts - 1));
 
         Some(cmp::min(max_delay, utils::add_jitter(delay, jitter)))
-      },
+      }
     }
   }
 }
