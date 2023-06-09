@@ -1,3 +1,4 @@
+use std::time::Duration;
 use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 
 // this library exposes 2 interfaces for implementing client-side caching - a high level `TrackingInterface` trait
@@ -5,7 +6,7 @@ use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 // `CLIENT TRACKING` commands but often requires a centralized server config.
 
 async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
-  let policy = ReconnectPolicy::new_constant(0, 1000);
+  let policy = ReconnectPolicy::new_constant(0, Duration::from_millis(1000));
   let mut config = RedisConfig::default();
   config.version = RespVersion::RESP3;
 

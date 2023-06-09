@@ -11,8 +11,9 @@ use fred::{
 };
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future};
+use std::time::Duration;
 
-const RECONNECT_DELAY: u32 = 1000;
+const RECONNECT_DELAY: Duration = Duration::from_millis(1000);
 
 use fred::types::Server;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]

@@ -1,3 +1,4 @@
+use std::time::Duration;
 use fred::{prelude::*, types::RespVersion};
 
 #[cfg(feature = "partial-tracing")]
@@ -33,7 +34,7 @@ async fn main() -> Result<(), RedisError> {
   };
 
   // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
-  let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
+  let policy = ReconnectPolicy::new_exponential(0, Duration::from_millis(100), Duration::from_millis(30_000), 2);
   let perf = PerformanceConfig::default();
   let client = RedisClient::new(config, Some(perf), Some(policy));
 

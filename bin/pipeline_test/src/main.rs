@@ -33,6 +33,7 @@ use rand::{self, distributions::Alphanumeric, Rng};
 use std::{
   default::Default,
   sync::{atomic::AtomicUsize, Arc},
+  time::Duration,
   thread::{self, JoinHandle as ThreadJoinHandle},
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
@@ -229,7 +230,7 @@ fn main() {
       },
       ..Default::default()
     };
-    let policy = ReconnectPolicy::new_constant(0, 500);
+    let policy = ReconnectPolicy::new_constant(0, Duration::from_millis(500));
 
     let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool)?;
 

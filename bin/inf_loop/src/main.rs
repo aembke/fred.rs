@@ -92,7 +92,7 @@ async fn main() -> Result<(), RedisError> {
     default_command_timeout_ms: 300_000,
     ..Default::default()
   };
-  let policy = ReconnectPolicy::new_linear(0, 5000, 100);
+  let policy = ReconnectPolicy::new_linear(0, Duration::from_millis(5000), Duration::from_millis(100));
   let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool).expect("Failed to create pool.");
 
   info!("Connecting to {}:{}...", argv.host, argv.port);
