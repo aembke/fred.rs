@@ -46,7 +46,7 @@ pub enum ReconnectPolicy {
     max_attempts: u32,
     min_delay:    Duration,
     max_delay:    Duration,
-    exponent:         u32,
+    exponent:     u32,
     jitter:       Duration,
   },
 }
