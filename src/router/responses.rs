@@ -91,7 +91,7 @@ fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
   // so here we check the frame contents according to the RESP2 pubsub rules
   let resp3 = (data.len() == 3 || data.len() == 4) && data[0].as_str().map(check_message_prefix).unwrap_or(false);
 
-  (false, resp3)
+  (resp3, false)
 }
 
 /// Try to parse the frame in either RESP2 or RESP3 pubsub formats.
