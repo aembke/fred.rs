@@ -220,14 +220,20 @@ impl FromRedis for bool {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(bool): {:?}", value);
     if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to bool.",
-      ))
+      Ok(false)
     } else {
-      value
-        .as_bool()
-        .ok_or(RedisError::new_parse("Could not convert to bool."))
+      if let Some(val) = value.as_bool() {
+        Ok(val)
+      } else {
+        // it's not obvious how to convert the value to a bool in this block, so we go with a
+        // tried and true approach that i'm sure we'll never regret - JS semantics
+        Ok(match value {
+          RedisValue::String(s) => !s.is_empty(),
+          RedisValue::Bytes(b) => !b.is_empty(),
+          // everything else should be covered by `as_bool` above
+          _ => return Err(RedisError::new_parse("Could not convert to bool.")),
+        })
+      }
     }
   }
 }

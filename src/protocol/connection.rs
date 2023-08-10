@@ -71,6 +71,38 @@ pub fn connection_timeout(timeout: Option<u64>) -> u64 {
   }
 }
 
+/// Connect to each socket addr and return the first successful connection.
+async fn tcp_connect_any(
+  inner: &Arc<RedisClientInner>,
+  server: &Server,
+  addrs: &Vec<SocketAddr>,
+) -> Result<(TcpStream, SocketAddr), RedisError> {
+  let mut last_error: Option<RedisError> = None;
+
+  for addr in addrs.iter() {
+    _debug!(
+      inner,
+      "Creating TCP connection to {} at {}:{}",
+      server.host,
+      addr.ip(),
+      addr.port()
+    );
+    let socket = match TcpStream::connect(addr).await {
+      Ok(socket) => socket,
+      Err(e) => {
+        _debug!(inner, "Error connecting to {}: {:?}", addr, e);
+        last_error = Some(e.into());
+        continue;
+      },
+    };
+
+    return Ok((socket, addr.clone()));
+  }
+
+  _trace!(inner, "Failed to connect to any of {:?}.", addrs);
+  Err(last_error.unwrap_or(RedisError::new(RedisErrorKind::IO, "Failed to connect.")))
+}
+
 pub enum ConnectionKind {
   Tcp(Framed<TcpStream, RedisCodec>),
   #[cfg(feature = "enable-rustls")]
@@ -325,15 +357,8 @@ impl RedisTransport {
     };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.get_resolver().await.resolve(host, port).await?;
-    _debug!(
-      inner,
-      "Creating TCP connection to {} at {}:{}",
-      server.host,
-      addr.ip(),
-      addr.port()
-    );
-    let socket = TcpStream::connect(addr).await?;
+    let addrs = inner.get_resolver().await.resolve(host, port).await?;
+    let (socket, addr) = tcp_connect_any(inner, &server, &addrs).await?;
     let transport = ConnectionKind::Tcp(Framed::new(socket, codec));
 
     Ok(RedisTransport {
@@ -374,16 +399,9 @@ impl RedisTransport {
     };
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.get_resolver().await.resolve(host.clone(), port).await?;
-    _debug!(
-      inner,
-      "Creating `native-tls` connection to {} at {}:{}",
-      host,
-      addr.ip(),
-      addr.port()
-    );
+    let addrs = inner.get_resolver().await.resolve(host.clone(), port).await?;
+    let (socket, addr) = tcp_connect_any(inner, &server, &addrs).await?;
 
-    let socket = TcpStream::connect(addr).await?;
     _debug!(inner, "native-tls handshake with server name/host: {}", tls_server_name);
     let socket = connector.clone().connect(tls_server_name, socket).await?;
     let transport = ConnectionKind::NativeTls(Framed::new(socket, codec));
@@ -436,15 +454,8 @@ impl RedisTransport {
 
     let default_host = ArcStr::from(host.clone());
     let codec = RedisCodec::new(inner, &server);
-    let addr = inner.get_resolver().await.resolve(host.clone(), port).await?;
-    _debug!(
-      inner,
-      "Creating `rustls` connection to {} at {}:{}",
-      host,
-      addr.ip(),
-      addr.port()
-    );
-    let socket = TcpStream::connect(addr).await?;
+    let addrs = inner.get_resolver().await.resolve(host.clone(), port).await?;
+    let (socket, addr) = tcp_connect_any(inner, &server, &addrs).await?;
     let server_name: ServerName = tls_server_name.try_into()?;
 
     _debug!(inner, "rustls handshake with server name/host: {:?}", tls_server_name);

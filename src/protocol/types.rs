@@ -499,7 +499,7 @@ impl ClusterRouting {
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: Send + Sync + 'static {
   /// Resolve a hostname.
-  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError>;
+  async fn resolve(&self, host: String, port: u16) -> Result<Vec<SocketAddr>, RedisError>;
 }
 
 /// Default DNS resolver that uses `to_socket_addrs` under the hood.
@@ -517,11 +517,12 @@ impl DefaultResolver {
 
 #[async_trait]
 impl Resolve for DefaultResolver {
-  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError> {
+  async fn resolve(&self, host: String, port: u16) -> Result<Vec<SocketAddr>, RedisError> {
     let client_id = self.id.clone();
 
     tokio::task::spawn_blocking(move || {
-      let ips: Vec<SocketAddr> = format!("{}:{}", host, port).to_socket_addrs()?.into_iter().collect();
+      let addr = format!("{}:{}", host, port);
+      let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.into_iter().collect();
 
       if ips.is_empty() {
         Err(RedisError::new(
@@ -529,18 +530,8 @@ impl Resolve for DefaultResolver {
           format!("Failed to resolve {}:{}", host, port),
         ))
       } else {
-        let possible_addrs = ips.len();
-        let addr = ips[0];
-
-        trace!(
-          "{}: Using {} among {} possible socket addresses for {}:{}",
-          client_id,
-          addr.ip(),
-          possible_addrs,
-          host,
-          port
-        );
-        Ok(addr)
+        trace!("{}: Found {} addresses for {}", client_id, ips.len(), addr);
+        Ok(ips)
       }
     })
     .await?
