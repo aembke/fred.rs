@@ -363,7 +363,7 @@ pub async fn cluster_redirect_with_policy(
   slot: u16,
   server: &Server,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.with_perf_config(|perf| Duration::from_millis(perf.cluster_cache_update_delay_ms as u64));
+  let mut delay = Duration::from_millis(inner.connection.cluster_cache_update_delay_ms as u64);
 
   loop {
     if !delay.is_zero() {
@@ -390,7 +390,7 @@ pub async fn send_asking_with_policy(
   server: &Server,
   slot: u16,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.with_perf_config(|perf| Duration::from_millis(perf.cluster_cache_update_delay_ms as u64));
+  let mut delay = Duration::from_millis(inner.connection.cluster_cache_update_delay_ms as u64);
 
   loop {
     if !delay.is_zero() {
@@ -491,7 +491,7 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
 
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
-  let mut delay = inner.with_perf_config(|config| Duration::from_millis(config.cluster_cache_update_delay_ms as u64));
+  let mut delay = Duration::from_millis(inner.connection.cluster_cache_update_delay_ms as u64);
 
   loop {
     if !delay.is_zero() {

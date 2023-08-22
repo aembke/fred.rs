@@ -47,7 +47,7 @@ pub struct RedisClient {
 
 impl Default for RedisClient {
   fn default() -> Self {
-    RedisClient::new(RedisConfig::default(), None, None)
+    RedisClient::new(RedisConfig::default(), None, None, None)
   }
 }
 
@@ -103,9 +103,16 @@ impl TrackingInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
-  pub fn new(config: RedisConfig, perf: Option<PerformanceConfig>, policy: Option<ReconnectPolicy>) -> RedisClient {
+  ///
+  /// See the [builder](crate::types::Builder) interface for more information.
+  pub fn new(
+    config: RedisConfig,
+    perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
+    policy: Option<ReconnectPolicy>,
+  ) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), policy),
+      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 
@@ -121,6 +128,7 @@ impl RedisClient {
     RedisClient::new(
       self.inner.config.as_ref().clone(),
       Some(self.inner.performance_config()),
+      Some(self.inner.connection_config()),
       policy,
     )
   }
@@ -132,6 +140,9 @@ impl RedisClient {
   /// select a specific node in the cluster against which to run the command. This function allows the caller to
   /// create a list of clients such that each connect to one of the primary nodes in the cluster and functions
   /// as if it were operating against a single centralized Redis server.
+  ///
+  /// Alternatively, callers can use [with_cluster_node](crate::clients::RedisClient::with_cluster_node) to avoid
+  /// creating new connections.
   ///
   /// The clients returned by this function will not be connected to their associated servers. The caller needs to
   /// call `connect` on each client before sending any commands.
@@ -246,8 +257,9 @@ impl RedisClient {
   ///
   /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
   ///
-  /// The client will still automatically follow `MOVED` errors via this interface. Callers may not notice this, but
-  /// incorrect server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
+  /// The client will still automatically follow redirection errors via this interface. Callers may not notice this,
+  /// but incorrect server arguments here could result in unnecessary calls to refresh the cached cluster routing
+  /// table.
   pub fn with_cluster_node<S>(&self, server: S) -> Node
   where
     S: Into<Server>,

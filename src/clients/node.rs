@@ -58,7 +58,8 @@ use crate::{
 ///     .cached_cluster_state()
 ///     .expect("Failed to read cached cluster state")
 ///     .unique_primary_nodes();
-///   for server in servers {
+///
+///   for server in servers.into_iter() {
 ///     // verify the server address with `CLIENT INFO`
 ///     let server_addr = client
 ///       .with_cluster_node(&server)

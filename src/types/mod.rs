@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 
 mod acl;
 mod args;
+mod builder;
 mod client;
 mod cluster;
 mod config;
@@ -20,6 +21,7 @@ mod streams;
 
 pub use acl::*;
 pub use args::*;
+pub use builder::*;
 pub use client::*;
 pub use cluster::*;
 pub use config::*;

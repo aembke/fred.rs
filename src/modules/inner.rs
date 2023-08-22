@@ -374,6 +374,8 @@ pub struct RedisClientInner {
   pub state:         RwLock<ClientState>,
   /// Client configuration options.
   pub config:        Arc<RedisConfig>,
+  /// Connection configuration options.
+  pub connection:    Arc<ConnectionConfig>,
   /// Performance config options for the client.
   pub performance:   ArcSwap<PerformanceConfig>,
   /// An optional reconnect policy.
@@ -421,7 +423,12 @@ impl Drop for RedisClientInner {
 }
 
 impl RedisClientInner {
-  pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
+  pub fn new(
+    config: RedisConfig,
+    perf: PerformanceConfig,
+    connection: ConnectionConfig,
+    policy: Option<ReconnectPolicy>,
+  ) -> Arc<RedisClientInner> {
     let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
@@ -437,6 +444,7 @@ impl RedisClientInner {
     } else {
       Arc::new(AtomicBool::new(false))
     };
+    let connection = Arc::new(connection);
 
     let inner = Arc::new(RedisClientInner {
       #[cfg(feature = "metrics")]
@@ -462,6 +470,7 @@ impl RedisClientInner {
       resp3,
       notifications,
       resolver,
+      connection,
       id,
     });
     inner.spawn_timeout_task();
@@ -583,6 +592,10 @@ impl RedisClientInner {
     self.performance.load().as_ref().clone()
   }
 
+  pub fn connection_config(&self) -> ConnectionConfig {
+    self.connection.as_ref().clone()
+  }
+
   pub fn reconnect_policy(&self) -> Option<ReconnectPolicy> {
     self.policy.read().as_ref().map(|p| p.clone())
   }
@@ -597,7 +610,7 @@ impl RedisClientInner {
   }
 
   pub fn max_command_attempts(&self) -> u32 {
-    self.performance.load().max_command_attempts
+    self.connection.max_command_attempts
   }
 
   pub fn max_feed_count(&self) -> u64 {

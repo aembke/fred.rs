@@ -2,6 +2,7 @@ use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
+  prelude::ConnectionConfig,
   types::{ConnectHandle, PerformanceConfig, ReconnectPolicy, RedisConfig},
   utils,
 };
@@ -59,16 +60,24 @@ impl<'a> From<&'a RedisPool> for RedisClient {
 
 impl RedisPool {
   /// Create a new pool without connecting to the server.
+  ///
+  /// See the [builder](crate::types::Builder) interface for more information.
   pub fn new(
     config: RedisConfig,
     perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
     policy: Option<ReconnectPolicy>,
     size: usize,
   ) -> Result<Self, RedisError> {
     if size > 0 {
       let mut clients = Vec::with_capacity(size);
       for _ in 0 .. size {
-        clients.push(RedisClient::new(config.clone(), perf.clone(), policy.clone()));
+        clients.push(RedisClient::new(
+          config.clone(),
+          perf.clone(),
+          connection.clone(),
+          policy.clone(),
+        ));
       }
       let last = Arc::new(AtomicUsize::new(0));
 

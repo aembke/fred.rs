@@ -78,13 +78,18 @@ pub use crate::modules::{globals, pool};
 /// return value types.
 pub mod prelude {
   #[cfg(feature = "partial-tracing")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub use crate::types::TracingConfig;
+
   pub use crate::{
     clients::RedisClient,
     error::{RedisError, RedisErrorKind},
     interfaces::*,
     types::{
       Blocking,
+      Builder,
+      CommandOpts,
+      ConnectionConfig,
       Expiration,
       FromRedis,
       PerformanceConfig,
@@ -94,6 +99,11 @@ pub mod prelude {
       RedisValueKind,
       ServerConfig,
       SetOptions,
+      TcpConfig,
     },
   };
+
+  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  pub use crate::types::{TlsConfig, TlsConnector};
 }

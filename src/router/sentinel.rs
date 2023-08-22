@@ -168,7 +168,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
         server.host.as_str().to_owned(),
         server.port,
         Some(timeout),
-        server.tls_server_name.as_ref()
+        server.get_tls_server_name()
       )
       .await
     );

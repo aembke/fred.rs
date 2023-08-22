@@ -29,7 +29,7 @@ use crate::{
   },
   modules::inner::RedisClientInner,
   prelude::{FromRedis, RedisClient},
-  types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
+  types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
 };
 use bytes_utils::Str;
 use parking_lot::RwLock;
@@ -268,16 +268,19 @@ impl PubsubInterface for SubscriberClient {
 
 impl SubscriberClient {
   /// Create a new client instance without connecting to the server.
+  ///
+  /// See the [builder](crate::types::Builder) interface for more information.
   pub fn new(
     config: RedisConfig,
     perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
     policy: Option<ReconnectPolicy>,
   ) -> SubscriberClient {
     SubscriberClient {
       channels:       Arc::new(RwLock::new(BTreeSet::new())),
       patterns:       Arc::new(RwLock::new(BTreeSet::new())),
       shard_channels: Arc::new(RwLock::new(BTreeSet::new())),
-      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), policy),
+      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 

@@ -95,6 +95,15 @@ async fn tcp_connect_any(
         continue;
       },
     };
+    if inner.connection.tcp.nodelay {
+      let _ = socket.set_nodelay(true)?;
+    }
+    if let Some(dur) = inner.connection.tcp.linger {
+      let _ = socket.set_linger(Some(dur))?;
+    }
+    if let Some(ttl) = inner.connection.tcp.ttl {
+      let _ = socket.set_ttl(ttl)?;
+    }
 
     return Ok((socket, addr.clone()));
   }
@@ -353,6 +362,7 @@ impl RedisTransport {
     let server = Server {
       host: ArcStr::from(&host),
       port,
+      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
       tls_server_name: None,
     };
     let default_host = ArcStr::from(host.clone());

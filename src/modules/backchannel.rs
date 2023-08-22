@@ -2,8 +2,8 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   globals::globals,
   modules::inner::RedisClientInner,
-  router::Connections,
   protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
+  router::Connections,
   utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -32,7 +32,7 @@ async fn check_and_create_transport(
     server.host.as_str().to_owned(),
     server.port,
     None,
-    server.tls_server_name.as_ref(),
+    server.get_tls_server_name(),
   )
   .await?;
   let _ = transport.setup(inner, None).await?;

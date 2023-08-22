@@ -89,8 +89,9 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
         config.server = ServerConfig::Centralized { server };
         let perf = inner.performance_config();
         let policy = inner.reconnect_policy();
+        let connection = inner.connection_config();
 
-        RedisClient::new(config, Some(perf), policy)
+        RedisClient::new(config, Some(perf), Some(connection), policy)
       })
       .collect(),
   )

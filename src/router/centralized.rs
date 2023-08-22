@@ -214,7 +214,7 @@ pub async fn initialize_connection(
         server.host.as_str().to_owned(),
         server.port,
         None,
-        server.tls_server_name.as_ref(),
+        server.get_tls_server_name(),
       )
       .await?;
       let _ = transport.setup(inner, None).await?;

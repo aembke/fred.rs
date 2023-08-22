@@ -518,7 +518,7 @@ pub async fn connect_any(
       server.host.as_str().to_owned(),
       server.port,
       None,
-      server.tls_server_name.as_ref(),
+      server.get_tls_server_name(),
     )
     .await;
     let mut connection = match connection {
@@ -672,7 +672,7 @@ pub async fn sync(
         server.host.as_str().to_owned(),
         server.port,
         None,
-        server.tls_server_name.as_ref(),
+        server.get_tls_server_name(),
       )
       .await?;
       let _ = transport.setup(inner, None).await?;

@@ -64,6 +64,7 @@ pub struct Server {
   /// The port for the server.
   pub port:            u16,
   /// The server name used during the TLS handshake.
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
   pub tls_server_name: Option<ArcStr>,
 }
@@ -85,6 +86,7 @@ impl Server {
     Server {
       host: host.into(),
       port,
+      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
       tls_server_name: None,
     }
   }
@@ -104,6 +106,16 @@ impl Server {
     }
   }
 
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+  pub(crate) fn get_tls_server_name(&self) -> Option<&ArcStr> {
+    self.tls_server_name.as_ref()
+  }
+
+  #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+  pub(crate) fn get_tls_server_name(&self) -> Option<&ArcStr> {
+    None
+  }
+
   /// Attempt to parse a `host:port` string.
   pub(crate) fn from_str(s: &str) -> Option<Server> {
     let parts: Vec<&str> = s.trim().split(":").collect();
@@ -112,6 +124,7 @@ impl Server {
         Some(Server {
           host: parts[0].into(),
           port,
+          #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
           tls_server_name: None,
         })
       } else {
@@ -134,6 +147,7 @@ impl Server {
       Server {
         host,
         port,
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
         tls_server_name: None,
       }
     })
@@ -161,6 +175,7 @@ impl From<(String, u16)> for Server {
     Server {
       host: host.into(),
       port,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls_server_name: None,
     }
   }
@@ -171,6 +186,7 @@ impl From<(&str, u16)> for Server {
     Server {
       host: host.into(),
       port,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls_server_name: None,
     }
   }
