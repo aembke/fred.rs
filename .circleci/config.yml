@@ -178,7 +178,7 @@ jobs:
       - test_sentinel
   test-docs:
     docker:
-      - image: cimg/rust:1.68.0
+      - image: cimg/rust:1.72.0
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
