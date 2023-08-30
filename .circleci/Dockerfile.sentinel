@@ -6,7 +6,7 @@
 
 # note: the top level target directory must be removed prior to running this
 
-FROM cimg/rust:1.62.0
+FROM cimg/rust:1.72.0
 USER circleci
 
 ARG REDIS_VERSION
