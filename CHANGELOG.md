@@ -1,3 +1,9 @@
+## 6.3.1
+
+* Update various dependencies
+* Move `pretty-env-logger` to `dev-dependencies`
+* Update rustfmt.toml
+
 ## 6.3.0
 
 * Fix cluster replica discovery with Elasticache
