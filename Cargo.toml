@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.3.0"
+version = "6.3.1"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -61,13 +61,13 @@ tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
 tokio-rustls = { version = "0.24", optional = true }
-webpki = { package = "rustls-webpki", version = "0.100", features = ["alloc", "std"], optional = true }
+webpki = { package = "rustls-webpki", version = "0.101", features = ["alloc", "std"], optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
-trust-dns-resolver = { version =  "0.22", optional = true }
+trust-dns-resolver = { version = "0.23", optional = true }
 
 [dev-dependencies]
-prometheus = "0.12"
-base64 = "0.13"
+prometheus = "0.13"
+base64 = "0.21"
 subprocess = "0.2.7"
 serde = { version = "1.0", features = ["derive"] }
 pretty_env_logger = "0.5"
