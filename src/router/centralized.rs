@@ -79,7 +79,7 @@ pub fn spawn_reader_task(
 
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
-    utils::check_final_write_attempt(&inner, &buffer, &last_error);
+    utils::check_final_write_attempt(&buffer, &last_error);
     if is_replica {
       responses::broadcast_replica_error(&inner, &server, last_error);
     } else {

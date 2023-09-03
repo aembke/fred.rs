@@ -55,7 +55,7 @@ async fn handle_router_response(
         Ok(Some(command))
       },
       RouterResponse::ConnectionClosed((error, mut command)) => {
-        let command = if command.attempted >= inner.max_command_attempts() {
+        let command = if command.attempts_remaining == 0 {
           command.respond_to_caller(Err(error.clone()));
           None
         } else {
@@ -297,15 +297,15 @@ async fn process_ask(
       },
     };
 
+    if let Err(e) = command.decr_check_redirections() {
+      command.respond_to_caller(Err(e));
+      break;
+    }
     if let Err(e) = utils::send_asking_with_policy(inner, router, &server, slot).await {
       command.respond_to_caller(Err(e.clone()));
       return Err(e);
     }
 
-    if let Err(e) = command.incr_check_attempted(inner.max_command_attempts()) {
-      command.respond_to_caller(Err(e));
-      break;
-    }
     // TODO fix this for blocking commands
     if let Err((error, command)) = router.write_direct(command, &server).await {
       _warn!(inner, "Error retrying command after ASKING: {:?}", error);
@@ -344,11 +344,11 @@ async fn process_moved(
       command.respond_to_caller(Err(e.clone()));
       return Err(e);
     }
-
-    if let Err(e) = command.incr_check_attempted(inner.max_command_attempts()) {
+    if let Err(e) = command.decr_check_redirections() {
       command.respond_to_caller(Err(e));
       break;
     }
+
     // TODO fix this for blocking commands
     if let Err((error, command)) = router.write_direct(command, &server).await {
       _warn!(inner, "Error retrying command after ASKING: {:?}", error);
@@ -648,7 +648,6 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     } else {
       client_utils::set_client_state(&inner.state, ClientState::Connected);
       inner.notifications.broadcast_connect(Ok(()));
-      inner.notifications.broadcast_reconnect();
     }
   } else {
     let _ = utils::reconnect_with_policy(inner, &mut router).await?;

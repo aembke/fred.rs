@@ -42,6 +42,7 @@ impl<'a> From<&'a Arc<RedisClientInner>> for SentinelClient {
   }
 }
 
+impl EventInterface for SentinelClient {}
 impl SentinelInterface for SentinelClient {}
 impl MetricsInterface for SentinelClient {}
 impl AclInterface for SentinelClient {}

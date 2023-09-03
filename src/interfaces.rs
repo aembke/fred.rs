@@ -1,4 +1,5 @@
 use crate::{
+  clients::WithOptions,
   commands,
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
@@ -11,6 +12,7 @@ use crate::{
     CustomCommand,
     FromRedis,
     InfoKind,
+    Options,
     PerformanceConfig,
     ReconnectPolicy,
     RedisConfig,
@@ -24,7 +26,7 @@ use crate::{
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc};
-use tokio::sync::broadcast::Receiver as BroadcastReceiver;
+use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -229,32 +231,6 @@ pub trait ClientLike: Clone + Send + Sized {
     }
   }
 
-  /// Listen for reconnection notifications.
-  ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to
-  /// re-subscribe to channels, etc.
-  ///
-  /// A reconnection event is also triggered upon first connecting to the server.
-  fn on_reconnect(&self) -> BroadcastReceiver<()> {
-    self.inner().notifications.reconnect.load().subscribe()
-  }
-
-  /// Listen for notifications whenever the cluster state changes.
-  ///
-  /// This is usually triggered in response to a `MOVED` error, but can also happen when connections close
-  /// unexpectedly.
-  fn on_cluster_change(&self) -> BroadcastReceiver<Vec<ClusterStateChange>> {
-    self.inner().notifications.cluster_change.load().subscribe()
-  }
-
-  /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
-  /// not appear in the request-response cycle, and so cannot be handled by response futures.
-  ///
-  /// This function does not need to be called again if the connection closes.
-  fn on_error(&self) -> BroadcastReceiver<RedisError> {
-    self.inner().notifications.errors.load().subscribe()
-  }
-
   /// Close the connection to the Redis server. The returned future resolves when the command has been written to the
   /// socket, not when the connection has been fully closed. Some time after this future resolves the future
   /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
@@ -320,6 +296,139 @@ pub trait ClientLike: Clone + Send + Sized {
   {
     let args = utils::try_into_vec(args)?;
     commands::server::custom_raw(self, cmd, args).await
+  }
+
+  /// Customize various configuration options on commands.
+  fn with_options(&self, options: &Options) -> WithOptions<Self> {
+    WithOptions {
+      client:  self.clone(),
+      options: options.clone(),
+    }
+  }
+}
+
+fn spawn_event_listener<T, F>(mut rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
+where
+  T: Clone + Send + 'static,
+  F: Fn(T) -> RedisResult<()> + Send + 'static,
+{
+  tokio::spawn(async move {
+    let mut result = Ok(());
+
+    while let Ok(val) = rx.recv().await {
+      if let Err(err) = func(val) {
+        result = Err(err);
+        break;
+      }
+    }
+
+    result
+  })
+}
+
+/// An interface that exposes various connection events.
+///
+/// Calling [quit](crate::interfaces::ClientLike::quit) will exit or close all event streams.
+pub trait EventInterface: ClientLike {
+  /// Spawn a task that runs the provided function on each reconnection event.
+  ///
+  /// Errors returned by `func` will exit the task.
+  fn on_reconnect<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(Server) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.reconnect_rx();
+    spawn_event_listener(rx, func)
+  }
+
+  /// Spawn a task that runs the provided function on each cluster change event.
+  ///
+  /// Errors returned by `func` will exit the task.
+  fn on_cluster_change<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(Vec<ClusterStateChange>) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.cluster_change_rx();
+    spawn_event_listener(rx, func)
+  }
+
+  /// Spawn a task that runs the provided function on each connection error event.
+  ///
+  /// Errors returned by `func` will exit the task.
+  fn on_error<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(RedisError) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.error_rx();
+    spawn_event_listener(rx, func)
+  }
+
+  /// Spawn one task that listens for all event types.
+  ///
+  /// Errors in any of the provided functions will exit the task.
+  fn on_any<Fe, Fr, Fc>(&self, error_fn: Fe, reconnect_fn: Fr, cluster_change_fn: Fc) -> JoinHandle<RedisResult<()>>
+  where
+    Fe: Fn(RedisError) -> RedisResult<()> + Send + 'static,
+    Fr: Fn(Server) -> RedisResult<()> + Send + 'static,
+    Fc: Fn(Vec<ClusterStateChange>) -> RedisResult<()> + Send + 'static,
+  {
+    let mut error_rx = self.error_rx();
+    let mut reconnect_rx = self.reconnect_rx();
+    let mut cluster_rx = self.cluster_change_rx();
+
+    tokio::spawn(async move {
+      #[allow(unused_assignments)]
+      let mut result = Ok(());
+
+      loop {
+        tokio::select! {
+          Ok(error) = error_rx.recv() => {
+            if let Err(err) = error_fn(error) {
+              result = Err(err);
+              break;
+            }
+          }
+          Ok(server) = reconnect_rx.recv() => {
+            if let Err(err) = reconnect_fn(server) {
+              result = Err(err);
+              break;
+            }
+          }
+          Ok(changes) = cluster_rx.recv() => {
+            if let Err(err) = cluster_change_fn(changes) {
+              result = Err(err);
+              break;
+            }
+          }
+        }
+      }
+
+      result
+    })
+  }
+
+  /// Listen for reconnection notifications.
+  ///
+  /// This function can be used to receive notifications whenever the client successfully reconnects in order to
+  /// re-subscribe to channels, etc.
+  ///
+  /// A reconnection event is also triggered upon first connecting to the server.
+  fn reconnect_rx(&self) -> BroadcastReceiver<Server> {
+    self.inner().notifications.reconnect.load().subscribe()
+  }
+
+  /// Listen for notifications whenever the cluster state changes.
+  ///
+  /// This is usually triggered in response to a `MOVED` error, but can also happen when connections close
+  /// unexpectedly.
+  fn cluster_change_rx(&self) -> BroadcastReceiver<Vec<ClusterStateChange>> {
+    self.inner().notifications.cluster_change.load().subscribe()
+  }
+
+  /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
+  /// not appear in the request-response cycle, and so cannot be handled by response futures.
+  fn error_rx(&self) -> BroadcastReceiver<RedisError> {
+    self.inner().notifications.errors.load().subscribe()
   }
 }
 

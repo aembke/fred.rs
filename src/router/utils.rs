@@ -215,13 +215,13 @@ pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer
 
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
 /// with the underlying error.
-pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+pub fn check_final_write_attempt(buffer: &SharedBuffer, error: &Option<RedisError>) {
   let mut guard = buffer.lock();
   let commands = guard
     .drain(..)
     .filter_map(|mut command| {
       if command.has_router_channel() {
-        if command.attempted >= inner.max_command_attempts() {
+        if command.attempts_remaining == 0 {
           let error = error
             .clone()
             .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
@@ -324,7 +324,6 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
 
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
-    inner.notifications.broadcast_reconnect();
     inner.reset_reconnection_attempts();
     Ok(())
   }

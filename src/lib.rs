@@ -72,7 +72,7 @@ pub mod util {
   }
 }
 
-pub use crate::modules::{globals, pool};
+pub use crate::modules::globals;
 
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or
 /// return value types.
@@ -88,10 +88,10 @@ pub mod prelude {
     types::{
       Blocking,
       Builder,
-      CommandOpts,
       ConnectionConfig,
       Expiration,
       FromRedis,
+      Options,
       PerformanceConfig,
       ReconnectPolicy,
       RedisConfig,

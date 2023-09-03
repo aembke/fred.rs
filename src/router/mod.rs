@@ -557,7 +557,7 @@ impl Router {
   ///
   /// Errors are handled internally, but may be returned if the command was queued to run later.
   pub async fn write_command(&mut self, mut command: RedisCommand, force_flush: bool) -> Result<Written, RedisError> {
-    if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
+    if let Err(e) = command.decr_check_attempted() {
       debug!(
         "{}: Skipping command `{}` after too many failed attempts.",
         self.inner.id,
@@ -565,9 +565,6 @@ impl Router {
       );
       command.respond_to_caller(Err(e));
       return Ok(Written::Ignore);
-    }
-    if command.attempted > 1 {
-      self.inner.counters.incr_redelivery_count();
     }
 
     let send_all_cluster_nodes = command.kind.is_all_cluster_nodes()
@@ -982,12 +979,11 @@ impl Router {
 
       command.skip_backpressure = true;
       trace!(
-        "{}: Retry `{}` ({}) command, attempt {}/{}",
+        "{}: Retry `{}` ({}) command, attempts left: {}",
         self.inner.id,
         command.kind.to_str_debug(),
         command.debug_id(),
-        command.attempted,
-        self.inner.max_command_attempts()
+        command.attempts_remaining,
       );
       match self.write_command(command, true).await {
         Ok(Written::Disconnect((server, command, error))) => {

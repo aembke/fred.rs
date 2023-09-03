@@ -56,7 +56,7 @@ pub struct Notifications {
   /// A broadcast channel for the `on_keyspace_event` interface.
   pub keyspace:       ArcSwap<BroadcastSender<KeyspaceEvent>>,
   /// A broadcast channel for the `on_reconnect` interface.
-  pub reconnect:      ArcSwap<BroadcastSender<()>>,
+  pub reconnect:      ArcSwap<BroadcastSender<Server>>,
   /// A broadcast channel for the `on_cluster_change` interface.
   pub cluster_change: ArcSwap<BroadcastSender<Vec<ClusterStateChange>>>,
   /// A broadcast channel for the `on_connect` interface.
@@ -118,8 +118,8 @@ impl Notifications {
     }
   }
 
-  pub fn broadcast_reconnect(&self) {
-    if let Err(_) = self.reconnect.load().send(()) {
+  pub fn broadcast_reconnect(&self, server: Server) {
+    if let Err(_) = self.reconnect.load().send(server) {
       debug!("{}: No `on_reconnect` listeners.", self.id);
     }
   }

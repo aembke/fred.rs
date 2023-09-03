@@ -8,6 +8,7 @@ use crate::{
     ClientLike,
     ClusterInterface,
     ConfigInterface,
+    EventInterface,
     FunctionInterface,
     GeoInterface,
     HashesInterface,
@@ -107,6 +108,7 @@ impl ClientLike for SubscriberClient {
   }
 }
 
+impl EventInterface for SubscriberClient {}
 impl AclInterface for SubscriberClient {}
 impl ClientInterface for SubscriberClient {}
 impl ClusterInterface for SubscriberClient {}

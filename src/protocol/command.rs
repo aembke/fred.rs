@@ -23,7 +23,7 @@ use std::{
   mem,
   str,
   sync::{atomic::AtomicBool, Arc},
-  time::Instant,
+  time::{Duration, Instant},
 };
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
@@ -1366,47 +1366,51 @@ impl RedisCommandKind {
 
 pub struct RedisCommand {
   /// The command and optional subcommand name.
-  pub kind:              RedisCommandKind,
+  pub kind:                   RedisCommandKind,
   /// The policy to apply when handling the response.
-  pub response:          ResponseKind,
+  pub response:               ResponseKind,
   /// The policy to use when hashing the arguments for cluster routing.
-  pub hasher:            ClusterHash,
+  pub hasher:                 ClusterHash,
   /// The provided arguments.
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
-  pub arguments:         Vec<RedisValue>,
+  pub arguments:              Vec<RedisValue>,
   /// A oneshot sender used to communicate with the router.
-  pub router_tx:         Arc<Mutex<Option<RouterSender>>>,
-  /// The number of times the command was sent to the server.
-  pub attempted:         u32,
+  pub router_tx:              Arc<Mutex<Option<RouterSender>>>,
+  /// The number of write attempts remaining.
+  pub attempts_remaining:     u32,
+  /// The number of cluster redirections remaining.
+  pub redirections_remaining: u32,
   /// Whether or not the command can be pipelined.
   ///
   /// Also used for commands like XREAD that block based on an argument.
-  pub can_pipeline:      bool,
+  pub can_pipeline:           bool,
   /// Whether or not to skip backpressure checks.
-  pub skip_backpressure: bool,
+  pub skip_backpressure:      bool,
   /// The internal ID of a transaction.
-  pub transaction_id:    Option<u64>,
+  pub transaction_id:         Option<u64>,
+  /// The timeout duration provided by the `with_options` interface.
+  pub timeout_dur:            Option<Duration>,
   /// Whether the command has timed out from the perspective of the caller.
-  pub timed_out:         Arc<AtomicBool>,
+  pub timed_out:              Arc<AtomicBool>,
   /// A timestamp of when the command was last written to the socket.
-  pub network_start:     Option<Instant>,
+  pub network_start:          Option<Instant>,
   /// Whether to route the command to a replica, if possible.
-  pub use_replica:       bool,
+  pub use_replica:            bool,
   /// Only send the command to the provided server.
-  pub cluster_node:      Option<Server>,
+  pub cluster_node:           Option<Server>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
-  pub created:           Instant,
+  pub created:                Instant,
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
-  pub traces:            CommandTraces,
+  pub traces:                 CommandTraces,
   /// A counter to differentiate unique commands.
   #[cfg(feature = "debug-ids")]
-  pub counter:           usize,
+  pub counter:                usize,
   /// Whether to send a `CLIENT CACHING yes|no` before the command.
   #[cfg(feature = "client-tracking")]
-  pub caching:           Option<bool>,
+  pub caching:                Option<bool>,
 }
 
 impl Drop for RedisCommand {
@@ -1425,7 +1429,8 @@ impl fmt::Debug for RedisCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisCommand")
       .field("command", &self.kind.to_str_debug())
-      .field("attempted", &self.attempted)
+      .field("attempts_remaining", &self.attempts_remaining)
+      .field("redirections_remaining", &self.redirections_remaining)
       .field("can_pipeline", &self.can_pipeline)
       .field("arguments", &self.args())
       .finish()
@@ -1450,10 +1455,12 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       kind,
       arguments,
       timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
       router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
+      attempts_remaining: 1,
+      redirections_remaining: 1,
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
@@ -1478,10 +1485,12 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       kind,
       arguments,
       timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
       response: ResponseKind::Respond(Some(tx)),
       hasher: ClusterHash::default(),
       router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
+      attempts_remaining: 1,
+      redirections_remaining: 1,
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
@@ -1507,9 +1516,11 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       arguments,
       response,
       timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
       hasher: ClusterHash::default(),
       router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
+      attempts_remaining: 1,
+      redirections_remaining: 1,
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
@@ -1535,10 +1546,12 @@ impl RedisCommand {
       kind,
       arguments: args,
       timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
       response: ResponseKind::Skip,
       hasher: ClusterHash::FirstKey,
       router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
+      attempts_remaining: 1,
+      redirections_remaining: 1,
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
@@ -1564,8 +1577,10 @@ impl RedisCommand {
       response:                                    ResponseKind::Skip,
       hasher:                                      ClusterHash::Custom(hash_slot),
       timed_out:                                   Arc::new(AtomicBool::new(false)),
+      timeout_dur:                                 None,
       router_tx:                                   Arc::new(Mutex::new(None)),
-      attempted:                                   0,
+      attempts_remaining:                          1,
+      redirections_remaining:                      1,
       can_pipeline:                                false,
       skip_backpressure:                           true,
       transaction_id:                              None,
@@ -1605,23 +1620,34 @@ impl RedisCommand {
 
   /// Whether errors writing the command should be returned to the caller.
   pub fn should_send_write_error(&self, inner: &Arc<RedisClientInner>) -> bool {
-    self.attempted >= inner.max_command_attempts() || inner.policy.read().is_none()
+    self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
   /// Mark the command to only run once, returning connection write errors to the caller immediately.
-  pub fn set_try_once(&mut self, inner: &Arc<RedisClientInner>) {
-    self.attempted = inner.max_command_attempts();
+  pub fn set_try_once(&mut self) {
+    self.attempts_remaining = 1;
+    self.redirections_remaining = 1;
   }
 
   /// Increment and check the number of write attempts.
-  pub fn incr_check_attempted(&mut self, max: u32) -> Result<(), RedisError> {
-    self.attempted += 1;
-    if max > 0 && self.attempted > max {
+  pub fn decr_check_attempted(&mut self) -> Result<(), RedisError> {
+    if self.attempts_remaining == 0 {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Too many failed write attempts.",
       ))
     } else {
+      self.attempts_remaining -= 1;
+      Ok(())
+    }
+  }
+
+  ///
+  pub fn decr_check_redirections(&mut self) -> Result<(), RedisError> {
+    if self.redirections_remaining == 0 {
+      Err(RedisError::new(RedisErrorKind::Unknown, "Too many redirections."))
+    } else {
+      self.redirections_remaining -= 1;
       Ok(())
     }
   }
@@ -1710,7 +1736,9 @@ impl RedisCommand {
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
       transaction_id: self.transaction_id.clone(),
-      attempted: self.attempted,
+      attempts_remaining: self.attempts_remaining,
+      redirections_remaining: self.redirections_remaining,
+      timeout_dur: self.timeout_dur.clone(),
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
@@ -1849,10 +1877,9 @@ pub enum RouterCommand {
   /// finished. Callers should use a transaction if they require commands to always finish in order across
   /// arbitrary keys in a cluster. Both a `Pipeline` and `Transaction` will run a series of commands without
   /// interruption, but only a `Transaction` can guarantee in-order execution while accounting for cluster errors.
-  ///
-  /// Note: if the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the
-  /// commands **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands,
-  /// and the client would retry them in the same order.
+  // If the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the
+  // commands **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands,
+  // and the client would retry them in the same order.
   Pipeline { commands: Vec<RedisCommand> },
   /// Send a transaction to the server.
   ///
@@ -1880,16 +1907,13 @@ pub enum RouterCommand {
   },
   /// Retry a command after a `MOVED` error.
   ///
-  /// This will trigger a call to `CLUSTER SLOTS` before the command is retried. Additionally,
-  /// the client will **not** increment the command's write attempt counter.
+  /// This will trigger a call to `CLUSTER SLOTS` before the command is retried.
   Moved {
     slot:    u16,
     server:  Server,
     command: RedisCommand,
   },
   /// Retry a command after an `ASK` error.
-  ///
-  /// The client will **not** increment the command's write attempt counter.
   ///
   /// This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
   Ask {

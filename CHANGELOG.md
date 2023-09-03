@@ -1,6 +1,27 @@
-## 6.3.2
+## 7.0.0
 
-* Fix a bug with connection errors unexpectedly ending the connection task.
+* Remove the majority of the `globals` interface.
+* `FromRedis<bool> for RedisValue` now converts `Null` to `false`.
+* Support multiple IP addresses in the `Resolve` interface.
+  * The client now attempts to connect to each IP rather than just one.
+* Add `with_options` command configuration interface. 
+* Removed the `no-client-setname` FF. This behavior is now the default. 
+* Add an interface to configure TCP socket options.
+* Refactored the `RedisPool` interface.
+* Refactored the `on_*` functions into a new `EventInterface`.
+
+### Updating from 6.x
+
+Notable or breaking changes from 6.x:
+
+* Refactored the majority of the client configuration and initialization interface. The most interesting bits are in the [builder](src/types/builder.rs).
+* The `MEMORY USAGE` interface now returns generic types.
+* Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
+* The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
+* Many of the default timeout values have been lowered significantly.
+* Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans. The old interface was particularly problematic when used with the metrics interface. 
+* The `on_*` event functions changed quite a bit. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
+
 
 ## 6.3.1
 
@@ -9,13 +30,6 @@
 * Update rustfmt.toml
 
 ## 6.3.0
-
-* Fix cluster replica discovery with Elasticache
-* Fix cluster replica `READONLY` usage
-* Fix compilation error with `full-tracing`
-* Support `Vec<(T1, T2, ...)>` with `FromRedis`
-
-## 6.2.2
 
 * Fix cluster replica discovery with Elasticache
 * Fix cluster replica `READONLY` usage

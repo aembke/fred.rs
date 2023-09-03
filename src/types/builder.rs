@@ -1,7 +1,6 @@
 use crate::{
-  clients::RedisClient,
+  clients::{RedisClient, RedisPool},
   error::{RedisError, RedisErrorKind},
-  pool::RedisPool,
   prelude::ReconnectPolicy,
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };

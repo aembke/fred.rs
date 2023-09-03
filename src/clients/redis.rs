@@ -38,6 +38,7 @@ use crate::{clients::Caching, interfaces::TrackingInterface};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+use crate::interfaces::EventInterface;
 
 /// The primary Redis client struct.
 #[derive(Clone)]
@@ -74,6 +75,7 @@ impl ClientLike for RedisClient {
   }
 }
 
+impl EventInterface for RedisClient {}
 impl AclInterface for RedisClient {}
 impl ClientInterface for RedisClient {}
 impl ClusterInterface for RedisClient {}
