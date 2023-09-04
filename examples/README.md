@@ -10,7 +10,6 @@ Examples
 * [Pipeline](./pipeline.rs) - Use the manual pipeline interface.
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
-* [Prometheus](./prometheus.rs) - Use the metrics interface with prometheus.
 * [Pool](./pool.rs) - Use a redis connection pool. 
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.

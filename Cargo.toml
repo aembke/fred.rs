@@ -65,11 +65,10 @@ rustls-native-certs = { version = "0.6", optional = true }
 trust-dns-resolver = { version = "0.22", optional = true }
 
 [dev-dependencies]
-prometheus = "0.13"
 base64 = "0.21"
-subprocess = "0.2.7"
-serde = { version = "1.0", features = ["derive"] }
+subprocess = "0.2"
 pretty_env_logger = "0.5"
+bollard = "0.14"
 
 [lib]
 doc = true
@@ -79,10 +78,6 @@ test = true
 [[example]]
 name = "monitor"
 required-features = ["monitor"]
-
-[[example]]
-name = "prometheus"
-required-features = ["metrics"]
 
 [[example]]
 name = "pubsub"
