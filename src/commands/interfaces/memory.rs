@@ -1,6 +1,7 @@
 use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
+  prelude::FromRedis,
   types::{MemoryStats, RedisKey},
 };
 
@@ -39,8 +40,9 @@ pub trait MemoryInterface: ClientLike + Sized {
   /// The MEMORY USAGE command reports the number of bytes that a key and its value require to be stored in RAM.
   ///
   /// <https://redis.io/commands/memory-usage>
-  async fn memory_usage<K>(&self, key: K, samples: Option<u32>) -> RedisResult<Option<u64>>
+  async fn memory_usage<R, K>(&self, key: K, samples: Option<u32>) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
   {
     into!(key);
