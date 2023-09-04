@@ -1,13 +1,16 @@
 ## 7.0.0
 
-* Remove the majority of the `globals` interface.
+* Rework the majority of the `globals` interface.
 * `FromRedis<bool> for RedisValue` now converts `Null` to `false`.
 * Support multiple IP addresses in the `Resolve` interface.
   * The client now attempts to connect to each IP rather than just one.
 * Add `with_options` command configuration interface. 
 * Replaced the `no-client-setname` feature flag with `auto-client-setname`.
 * Add an interface to configure TCP socket options.
-* Refactored the `RedisPool` interface.
+* Removed the automatic `serde_json::Value` -> `RedisValue` type conversion logic. 
+  * This unintentionally introduced some ambiguity on certain interfaces.
+  * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
+* Reworked the majority of the `RedisPool` interface. 
 * Refactored the `on_*` functions into a new `EventInterface`.
 * Consolidate some dependencies.
 
@@ -15,13 +18,15 @@
 
 Notable or breaking changes from 6.x:
 
-* Refactored the majority of the client configuration and initialization interface. The most interesting bits are in the [builder](src/types/builder.rs).
+* Refactored the majority of the client configuration and initialization interface. 
+  * The most interesting bits are in the [builder](src/types/builder.rs).
 * The `Server` struct now uses `Str` instead of `ArcStr`.
 * The `MEMORY USAGE` interface now returns generic types.
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
 * The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
 * Many of the default timeout values have been lowered significantly.
-* Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans. The old interface was particularly problematic when used with the metrics interface. 
+* Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans. 
+  * The old interface was particularly problematic when used with the metrics interface. 
 * The `on_*` event functions changed quite a bit. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
 * The `dns` interface `Resolve` trait now uses `bytes_utils::Str` instead of `String`. 
 

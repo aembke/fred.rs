@@ -366,28 +366,6 @@ impl_from_str_for_redis_key!(isize);
 impl_from_str_for_redis_key!(f32);
 impl_from_str_for_redis_key!(f64);
 
-#[cfg(feature = "serde-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
-impl TryFrom<Value> for RedisKey {
-  type Error = RedisError;
-
-  fn try_from(value: Value) -> Result<Self, Self::Error> {
-    let value: RedisKey = match value {
-      Value::String(s) => s.into(),
-      Value::Bool(b) => b.to_string().into(),
-      Value::Number(n) => n.to_string().into(),
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Cannot convert to key from JSON.",
-        ))
-      },
-    };
-
-    Ok(value)
-  }
-}
-
 /// A map of `(RedisKey, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisMap {
@@ -519,31 +497,6 @@ where
       inner.insert(to!(key)?, to!(value)?);
     }
     Ok(RedisMap { inner })
-  }
-}
-
-#[cfg(feature = "serde-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
-impl TryFrom<Value> for RedisMap {
-  type Error = RedisError;
-
-  fn try_from(value: Value) -> Result<Self, Self::Error> {
-    if let Value::Object(map) = value {
-      let mut inner = HashMap::with_capacity(map.len());
-      for (key, value) in map.into_iter() {
-        let key: RedisKey = key.into();
-        let value: RedisValue = value.try_into()?;
-
-        inner.insert(key, value);
-      }
-
-      Ok(RedisMap { inner })
-    } else {
-      Err(RedisError::new(
-        RedisErrorKind::InvalidArgument,
-        "Cannot convert non-object JSON value to map.",
-      ))
-    }
   }
 }
 
@@ -1547,45 +1500,6 @@ impl From<RedisMap> for RedisValue {
 impl From<()> for RedisValue {
   fn from(_: ()) -> Self {
     RedisValue::Null
-  }
-}
-
-#[cfg(feature = "serde-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
-impl TryFrom<Value> for RedisValue {
-  type Error = RedisError;
-
-  fn try_from(v: Value) -> Result<Self, Self::Error> {
-    let value = match v {
-      Value::Null => RedisValue::Null,
-      Value::String(s) => RedisValue::String(s.into()),
-      Value::Bool(b) => RedisValue::Boolean(b),
-      Value::Number(n) => {
-        if n.is_i64() {
-          RedisValue::Integer(n.as_i64().unwrap())
-        } else if n.is_f64() {
-          RedisValue::Double(n.as_f64().unwrap())
-        } else {
-          return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Invalid JSON number."));
-        }
-      },
-      Value::Array(a) => {
-        let mut out = Vec::with_capacity(a.len());
-        for value in a.into_iter() {
-          out.push(value.try_into()?);
-        }
-        RedisValue::Array(out)
-      },
-      Value::Object(m) => {
-        let mut out: HashMap<RedisKey, RedisValue> = HashMap::with_capacity(m.len());
-        for (key, value) in m.into_iter() {
-          out.insert(key.into(), value.try_into()?);
-        }
-        RedisValue::Map(RedisMap { inner: out })
-      },
-    };
-
-    Ok(value)
   }
 }
 
