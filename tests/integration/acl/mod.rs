@@ -33,13 +33,13 @@ pub async fn should_auth_as_test_user(client: RedisClient, _: RedisConfig) -> Re
   Ok(())
 }
 
-// note: currently this only works in CI against the centralized server
+// FIXME currently this only works in CI against the centralized server
 pub async fn should_auth_as_test_user_via_config(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   let (username, password) = check_env_creds();
   if let Some(password) = password {
     config.username = username;
     config.password = Some(password);
-    let client = RedisClient::new(config, None, None);
+    let client = RedisClient::new(config, None, None, None);
     let _ = client.connect();
     let _ = client.wait_for_connect().await?;
     let _: () = client.get("foo").await?;

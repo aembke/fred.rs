@@ -1053,14 +1053,10 @@ impl From<SentinelConfig> for RedisConfig {
 ///     ..Default::default()
 ///   };
 ///
-///   let options = Options::default()
-///     .with_max_attempts(10)
-///     .with_max_redirections(2);
-///
 ///   let client = RedisClient::default();
 ///   let _ = client.connect();
 ///   let _ = client.wait_for_connect().await?;
-///   let _: () = client.with_options(options).get("foo").await?;
+///   let _: () = client.with_options(&options).get("foo").await?;
 ///
 ///   Ok(())
 /// }
@@ -1075,7 +1071,7 @@ pub struct Options {
   ///
   /// This interface is more<sup>*</sup> cancellation-safe than a simple [timeout](https://docs.rs/tokio/latest/tokio/time/fn.timeout.html) call.
   ///
-  /// * But it's not perfect. There's no reliable mechanism to cancel a command once it's been written to the
+  /// * But it's not perfect. There's no reliable mechanism to cancel a command once it has been written to the
   /// connection.
   pub timeout:          Option<Duration>,
   /// Whether to skip backpressure checks for a command.
@@ -1094,33 +1090,6 @@ impl Default for Options {
 }
 
 impl Options {
-  /// Set the max number of write attempts for a command.
-  pub fn with_max_attempts(&mut self, count: u32) -> &mut Self {
-    self.max_attempts = Some(count);
-    self
-  }
-
-  /// Set the max number of cluster redirections to follow for a command.
-  pub fn with_max_redirections(&mut self, count: u32) -> &mut Self {
-    self.max_redirections = Some(count);
-    self
-  }
-
-  /// Set the timeout duration for a command.
-  ///
-  /// See the related `timeout` field for more information.
-  // TODO is there a way to link to struct fields like this?
-  pub fn with_timeout(&mut self, dur: Duration) -> &mut Self {
-    self.timeout = Some(dur);
-    self
-  }
-
-  /// Disable backpressure checks for a command.
-  pub fn with_no_backpressure(&mut self) -> &mut Self {
-    self.no_backpressure = true;
-    self
-  }
-
   /// Overwrite the configuration options on the provided command.
   pub(crate) fn apply(&self, command: &mut RedisCommand) {
     command.skip_backpressure = self.no_backpressure;

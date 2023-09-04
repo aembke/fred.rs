@@ -1731,7 +1731,7 @@ impl RedisCommand {
   /// Note: this will **not** clone the router channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
-      timed_out: self.timed_out.clone(),
+      timed_out: Arc::new(AtomicBool::new(false)),
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),

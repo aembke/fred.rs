@@ -1,8 +1,7 @@
 use fred::{
-  clients::RedisClient,
+  clients::{RedisClient, RedisPool},
   error::RedisError,
   interfaces::*,
-  pool::RedisPool,
   types::{Expiration, ReconnectPolicy, RedisConfig, RedisMap, RedisValue},
 };
 use futures::{pin_mut, StreamExt};
@@ -78,7 +77,10 @@ pub async fn should_renamenx(client: RedisClient, _config: RedisConfig) -> Resul
   Ok(())
 }
 
-pub async fn should_error_renamenx_does_not_exist(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_error_renamenx_does_not_exist(
+  client: RedisClient,
+  _config: RedisConfig,
+) -> Result<(), RedisError> {
   check_null!(client, "{foo}");
   client.renamenx("{foo}", "{foo}.bar").await
 }
@@ -89,7 +91,12 @@ pub async fn should_unlink(client: RedisClient, _config: RedisConfig) -> Result<
   let _: () = client.set("{foo}1", "bar", None, None, false).await?;
 
   assert_eq!(client.get::<String, _>("{foo}1").await?, "bar");
-  assert_eq!(client.unlink::<i64, _>(vec!["{foo}1", "{foo}", "{foo}:something"]).await?, 1);
+  assert_eq!(
+    client
+      .unlink::<i64, _>(vec!["{foo}1", "{foo}", "{foo}:something"])
+      .await?,
+    1
+  );
   check_null!(client, "{foo}1");
 
   Ok(())

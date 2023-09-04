@@ -24,8 +24,7 @@ async fn main() -> Result<(), RedisError> {
     ..Default::default()
   };
 
-  let policy = ReconnectPolicy::default();
-  let client = RedisClient::new(config, None, Some(policy));
+  let client = Builder::default_centralized().build()?;
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 

@@ -18,16 +18,14 @@ fn get_hash_slot(client: &RedisClient, key: &'static str) -> (RedisKey, Option<u
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  pretty_env_logger::init();
-
-  let client = RedisClient::new(RedisConfig::default(), None, None);
+  let client = Builder::default_centralized().build()?;
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  let (key, hash_slot) = get_hash_slot(&client, "ts:carbon_monoxide");
+  let (key, hash_slot) = get_hash_slot(&client, "ts:foo");
   let args: Vec<RedisValue> = vec![key.into(), 1112596200.into(), 1112603400.into()];
   let cmd = CustomCommand::new_static("TS.RANGE", hash_slot, false);
-  // >> TS.RANGE ts:carbon_monoxide 1112596200 1112603400
+  // >> TS.RANGE ts:foo 1112596200 1112603400
   // 1) 1) (integer) 1112596200
   // 2) "2.4"
   // 2) 1) (integer) 1112599800

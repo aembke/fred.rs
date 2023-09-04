@@ -14,7 +14,7 @@ use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, futu
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::Server;
+use fred::types::{ConnectionConfig, Server};
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
@@ -342,11 +342,13 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   let (policy, cmd_attempts, fail_fast) = resilience_settings();
-  let (mut config, mut perf) = create_redis_config(true, pipeline, resp3);
-  perf.max_command_attempts = cmd_attempts;
+  let mut connection = ConnectionConfig::default();
+  let (mut config, perf) = create_redis_config(true, pipeline, resp3);
+  connection.max_command_attempts = cmd_attempts;
+  connection.max_redirections = 10;
   config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), policy);
+  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
   let _jh = client.connect();
@@ -363,11 +365,12 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   let (policy, cmd_attempts, fail_fast) = resilience_settings();
-  let (mut config, mut perf) = create_redis_config(false, pipeline, resp3);
-  perf.max_command_attempts = cmd_attempts;
+  let mut connection = ConnectionConfig::default();
+  let (mut config, perf) = create_redis_config(false, pipeline, resp3);
+  connection.max_command_attempts = cmd_attempts;
   config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), policy);
+  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
   let _jh = client.connect();

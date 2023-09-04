@@ -5,11 +5,11 @@ use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 // `CLIENT TRACKING` commands but often requires a centralized server config.
 
 async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
-  let policy = ReconnectPolicy::new_constant(0, 1000);
-  let mut config = RedisConfig::default();
-  config.version = RespVersion::RESP3;
-
-  let client = RedisClient::new(config, None, Some(policy));
+  let client = Builder::default_centralized()
+    .with_config(|config| {
+      config.version = RespVersion::RESP3;
+    })
+    .build()?;
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 

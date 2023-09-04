@@ -5,7 +5,6 @@ use globals::ReconnectError;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  globals::set_sentinel_connection_timeout_ms(10_000);
   #[cfg(feature = "blocking-encoding")]
   globals::set_blocking_encode_threshold(10_000_000);
   #[cfg(feature = "custom-reconnect-errors")]
@@ -14,6 +13,9 @@ async fn main() -> Result<(), RedisError> {
     ReconnectError::MasterDown,
     ReconnectError::ReadOnly,
   ]);
+  globals::set_default_broadcast_channel_capacity(64);
+  #[cfg(feature = "check-unresponsive")]
+  globals::set_unresponsive_interval_ms(1000);
 
   // ...
 

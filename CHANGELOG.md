@@ -20,7 +20,8 @@ Notable or breaking changes from 6.x:
 
 * Refactored the majority of the client configuration and initialization interface. 
   * The most interesting bits are in the [builder](src/types/builder.rs).
-* The `Server` struct now uses `Str` instead of `ArcStr`.
+* `ArcStr` has been replaced with `bytes_utils::Str`. 
+* The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer. 
 * The `MEMORY USAGE` interface now returns generic types.
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
 * The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.

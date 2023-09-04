@@ -1,10 +1,9 @@
 use super::utils;
 use async_trait::async_trait;
 use fred::{
-  clients::RedisClient,
+  clients::{RedisClient, RedisPool},
   error::{RedisError, RedisErrorKind},
   interfaces::*,
-  pool::RedisPool,
   prelude::{Blocking, RedisValue},
   types::{BackpressureConfig, ClientUnblockFlag, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig},
 };
@@ -83,7 +82,7 @@ pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConf
 
 pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Interrupt;
-  let client = RedisClient::new(config, None, None);
+  let client = RedisClient::new(config, None, None, None);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -121,7 +120,7 @@ pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Res
 
 pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Error;
-  let client = RedisClient::new(config, None, None);
+  let client = RedisClient::new(config, None, None, None);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
   let error_client = client.clone();

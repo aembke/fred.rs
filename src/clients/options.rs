@@ -25,7 +25,7 @@ use crate::{
   protocol::command::RedisCommand,
   types::Options,
 };
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Deref, sync::Arc};
 
 /// A client interface used to customize command configuration options.
 ///
@@ -58,6 +58,14 @@ use std::{fmt, sync::Arc};
 pub struct WithOptions<C: ClientLike> {
   pub(crate) client:  C,
   pub(crate) options: Options,
+}
+
+impl<C: ClientLike> Deref for WithOptions<C> {
+  type Target = C;
+
+  fn deref(&self) -> &Self::Target {
+    &self.client
+  }
 }
 
 impl<'a, C: ClientLike> fmt::Debug for WithOptions<C> {

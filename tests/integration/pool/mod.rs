@@ -1,7 +1,12 @@
-use fred::{clients::RedisClient, error::RedisError, interfaces::*, pool::RedisPool, types::RedisConfig};
+use fred::{
+  clients::{RedisClient, RedisPool},
+  error::RedisError,
+  interfaces::*,
+  types::RedisConfig,
+};
 
 async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
-  let pool = RedisPool::new(config.clone(), None, None, count)?;
+  let pool = RedisPool::new(config.clone(), None, None, None, count)?;
   let _ = pool.connect();
   let _ = pool.wait_for_connect().await?;
 
@@ -10,7 +15,7 @@ async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), 
   }
 
   let _: () = pool.ping().await?;
-  let _ = pool.quit_pool().await;
+  let _ = pool.quit().await;
   Ok(())
 }
 

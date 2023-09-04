@@ -9,8 +9,7 @@ use fred::types::TracingConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  pretty_env_logger::init();
-
+  // create a config from a URL
   let _ = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
   // full configuration with testing values
   let config = RedisConfig {
@@ -31,28 +30,24 @@ async fn main() -> Result<(), RedisError> {
       full_tracing_level:                                  Level::DEBUG,
     },
   };
+  // see the Builder interface for more information
+  let client = Builder::from_config(config).build()?;
+  // or use default values
+  let client = Builder::default_centralized().build()?;
 
-  // configure exponential backoff when reconnecting, starting at 100 ms, and doubling each time up to 30 sec.
-  let policy = ReconnectPolicy::new_exponential(0, 100, 30_000, 2);
-  let perf = PerformanceConfig::default();
-  let client = RedisClient::new(config, Some(perf), Some(policy));
-
-  // spawn tasks that listen for connection close or reconnect events
-  let mut error_rx = client.on_error();
-  let mut reconnect_rx = client.on_reconnect();
-
-  tokio::spawn(async move {
-    while let Ok(error) = error_rx.recv().await {
-      println!("Client disconnected with error: {:?}", error);
-    }
+  // spawn tasks that listen for connection events
+  let error_jh = client.on_error(|error| {
+    println!("Client disconnected with error: {:?}", error);
+    Ok(())
   });
-  tokio::spawn(async move {
-    while reconnect_rx.recv().await.is_ok() {
-      println!("Client reconnected.");
-    }
+  let reconnect_jh = client.on_error(|server| {
+    println!("Client reconnected to {:?}", server);
+    Ok(())
   });
+  // or use the broadcast receivers directly
+  let _reconnect_rx = client.reconnect_rx();
 
-  let connection_task = client.connect();
+  let connection_jh = client.connect();
   let _ = client.wait_for_connect().await?;
 
   // convert response types to most common rust types
@@ -67,6 +62,9 @@ async fn main() -> Result<(), RedisError> {
   println!("Foo: {:?}", client.get::<String, _>("foo").await?);
 
   let _ = client.quit().await?;
-  let _ = connection_task.await;
+  // calling quit ends the connection and event listener tasks
+  let _ = connection_jh.await;
+  let _ = error_jh.await;
+  let _ = reconnect_jh.await;
   Ok(())
 }

@@ -33,8 +33,27 @@ use crate::{
   utils,
 };
 use parking_lot::Mutex;
-use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
+use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc, time::Instant};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
+
+#[cfg(feature = "debug-ids")]
+use crate::protocol::command::command_counter;
+
+fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
+  let guard = buffer.lock();
+  let mut out = VecDeque::with_capacity(guard.len());
+
+  for command in guard.iter() {
+    let mut command = command.duplicate(ResponseKind::Skip);
+
+    command.created = Instant::now();
+    #[cfg(feature = "debug-ids")]
+    command.counter = command_counter();
+    out.push_back(command);
+  }
+
+  out
+}
 
 fn prepare_all_commands(
   commands: VecDeque<RedisCommand>,
@@ -166,11 +185,11 @@ impl<C: ClientLike> Pipeline<C> {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn all<R>(self) -> Result<R, RedisError>
+  pub async fn all<R>(&self) -> Result<R, RedisError>
   where
     R: FromRedis,
   {
-    let commands = { self.commands.lock().drain(..).collect() };
+    let commands = clone_buffered_commands(&self.commands);
     send_all(self.client.inner(), commands).await?.convert()
   }
 
@@ -195,11 +214,11 @@ impl<C: ClientLike> Pipeline<C> {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn try_all<R>(self) -> Vec<RedisResult<R>>
+  pub async fn try_all<R>(&self) -> Vec<RedisResult<R>>
   where
     R: FromRedis,
   {
-    let commands = { self.commands.lock().drain(..).collect() };
+    let commands = clone_buffered_commands(&self.commands);
     try_send_all(self.client.inner(), commands)
       .await
       .into_iter()
@@ -221,11 +240,11 @@ impl<C: ClientLike> Pipeline<C> {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn last<R>(self) -> Result<R, RedisError>
+  pub async fn last<R>(&self) -> Result<R, RedisError>
   where
     R: FromRedis,
   {
-    let commands = { self.commands.lock().drain(..).collect() };
+    let commands = clone_buffered_commands(&self.commands);
     send_last(self.client.inner(), commands).await?.convert()
   }
 }

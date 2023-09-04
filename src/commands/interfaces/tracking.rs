@@ -5,7 +5,7 @@ use crate::{
   prelude::RedisResult,
   types::{Invalidation, MultipleStrings},
 };
-use tokio::sync::broadcast::Receiver as BroadcastReceiver;
+use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// A high level interface that supports [client side caching](https://redis.io/docs/manual/client-side-caching/) via the [client tracking](https://redis.io/commands/client-tracking/) interface.
 #[async_trait]
@@ -38,8 +38,30 @@ pub trait TrackingInterface: ClientLike + Sized {
     commands::tracking::stop_tracking(self).await
   }
 
+  /// Spawn a task that processes invalidation messages from the server.
+  ///
+  /// See [invalidation_rx](Self::invalidation_rx) for a more flexible variation of this function.
+  fn on_invalidation<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(Invalidation) -> RedisResult<()>,
+  {
+    let mut invalidation_rx = self.invalidation_rx();
+
+    tokio::spawn(async move {
+      let mut result = Ok(());
+
+      while let Ok(invalidation) = invalidation_rx.recv().await {
+        if let Err(err) = func(invalidation) {
+          result = Err(err);
+          break;
+        }
+      }
+      result
+    })
+  }
+
   /// Subscribe to invalidation messages from the server(s).
-  fn on_invalidation(&self) -> BroadcastReceiver<Invalidation> {
+  fn invalidation_rx(&self) -> BroadcastReceiver<Invalidation> {
     self.inner().notifications.invalidations.load().subscribe()
   }
 
