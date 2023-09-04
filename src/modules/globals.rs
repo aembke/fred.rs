@@ -54,10 +54,6 @@ impl ReconnectError {
 pub(crate) struct Globals {
   /// The default capacity of all broadcast channels behind the `on_*` functions.
   pub default_broadcast_channel_capacity: Arc<AtomicUsize>,
-  /// The default timeout to apply when connecting or initializing connections to servers.
-  pub default_connection_timeout_ms:      Arc<AtomicUsize>,
-  /// The default timeout to apply to connections to sentinel nodes.
-  pub sentinel_connection_timeout_ms:     Arc<AtomicUsize>,
   #[cfg(feature = "blocking-encoding")]
   /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
   pub blocking_encode_threshold:          Arc<AtomicUsize>,
@@ -73,8 +69,6 @@ impl Default for Globals {
   fn default() -> Self {
     Globals {
       default_broadcast_channel_capacity:                              Arc::new(AtomicUsize::new(32)),
-      default_connection_timeout_ms:                                   Arc::new(AtomicUsize::new(60_000)),
-      sentinel_connection_timeout_ms:                                  Arc::new(AtomicUsize::new(2_000)),
       #[cfg(feature = "blocking-encoding")]
       blocking_encode_threshold:                                       Arc::new(AtomicUsize::new(500_000)),
       #[cfg(feature = "custom-reconnect-errors")]
@@ -84,7 +78,7 @@ impl Default for Globals {
         ReconnectError::ReadOnly,
       ])),
       #[cfg(feature = "check-unresponsive")]
-      unresponsive_interval:                                           Arc::new(AtomicUsize::new(5_000)),
+      unresponsive_interval:                                           Arc::new(AtomicUsize::new(2_000)),
     }
   }
 }
@@ -92,14 +86,6 @@ impl Default for Globals {
 impl Globals {
   pub fn default_broadcast_channel_capacity(&self) -> usize {
     read_atomic(&self.default_broadcast_channel_capacity)
-  }
-
-  pub fn default_connection_timeout_ms(&self) -> u64 {
-    read_atomic(&self.default_connection_timeout_ms) as u64
-  }
-
-  pub fn sentinel_connection_timeout_ms(&self) -> usize {
-    read_atomic(&self.sentinel_connection_timeout_ms)
   }
 
   #[cfg(feature = "check-unresponsive")]
@@ -157,33 +143,9 @@ pub fn set_blocking_encode_threshold(val: usize) -> usize {
   set_atomic(&globals().blocking_encode_threshold, val)
 }
 
-/// The timeout to apply to connections to sentinel servers.
-///
-/// Default: 200 ms
-pub fn get_sentinel_connection_timeout_ms() -> usize {
-  read_atomic(&globals().sentinel_connection_timeout_ms)
-}
-
-/// See [get_sentinel_connection_timeout_ms] for more information.
-pub fn set_sentinel_connection_timeout_ms(val: usize) -> usize {
-  set_atomic(&globals().sentinel_connection_timeout_ms, val)
-}
-
-/// The timeout to apply when connecting and initializing connections to servers.
-///
-/// Default: 60 sec
-pub fn get_default_connection_timeout_ms() -> u64 {
-  read_atomic(&globals().default_connection_timeout_ms) as u64
-}
-
-/// See [get_default_connection_timeout_ms] for more information.
-pub fn set_default_connection_timeout_ms(val: u64) -> u64 {
-  set_atomic(&globals().default_connection_timeout_ms, val as usize) as u64
-}
-
 /// The interval on which to check for unresponsive connections.
 ///
-/// Default: 5 sec
+/// Default: 2 sec
 #[cfg(feature = "check-unresponsive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
 pub fn get_unresponsive_interval_ms() -> u64 {

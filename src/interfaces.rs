@@ -329,6 +329,9 @@ where
 /// An interface that exposes various connection events.
 ///
 /// Calling [quit](crate::interfaces::ClientLike::quit) will exit or close all event streams.
+///
+/// See the [globals][crate::globals::set_default_broadcast_channel_capacity] interface to configure the size of the
+/// buffer behind the broadcast channels used here.
 pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each reconnection event.
   ///

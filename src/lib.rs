@@ -82,7 +82,7 @@ pub mod prelude {
   pub use crate::types::TracingConfig;
 
   pub use crate::{
-    clients::RedisClient,
+    clients::{RedisClient, RedisPool},
     error::{RedisError, RedisErrorKind},
     interfaces::*,
     types::{

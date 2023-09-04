@@ -1,6 +1,5 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   interfaces,
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
@@ -559,8 +558,6 @@ pub async fn cluster_slots_backchannel(
   inner: &Arc<RedisClientInner>,
   cache: Option<&ClusterRouting>,
 ) -> Result<ClusterRouting, RedisError> {
-  let timeout = globals().default_connection_timeout_ms();
-
   let (response, host) = {
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
 
@@ -571,10 +568,13 @@ pub async fn cluster_slots_backchannel(
         let default_host = transport.default_host.clone();
 
         _trace!(inner, "Sending backchannel CLUSTER SLOTS to {}", transport.server);
-        client_utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout)
-          .await
-          .ok()
-          .map(|frame| (frame, default_host))
+        client_utils::apply_timeout(
+          transport.request_response(command, inner.is_resp3()),
+          inner.connection.internal_command_timeout_ms,
+        )
+        .await
+        .ok()
+        .map(|frame| (frame, default_host))
       } else {
         None
       }
@@ -591,8 +591,11 @@ pub async fn cluster_slots_backchannel(
       if frame.is_error() {
         // try connecting to any of the nodes, then try again
         let mut transport = connect_any(inner, old_cache).await?;
-        let frame =
-          client_utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout).await?;
+        let frame = client_utils::apply_timeout(
+          transport.request_response(command, inner.is_resp3()),
+          inner.connection.internal_command_timeout_ms,
+        )
+        .await?;
         let host = transport.default_host.clone();
         inner.update_backchannel(transport).await;
 
@@ -604,7 +607,11 @@ pub async fn cluster_slots_backchannel(
     } else {
       // try connecting to any of the nodes, then try again
       let mut transport = connect_any(inner, old_cache).await?;
-      let frame = client_utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout).await?;
+      let frame = client_utils::apply_timeout(
+        transport.request_response(command, inner.is_resp3()),
+        inner.connection.internal_command_timeout_ms,
+      )
+      .await?;
       let host = transport.default_host.clone();
       inner.update_backchannel(transport).await;
 

@@ -1,6 +1,5 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
   router::Connections,
@@ -162,14 +161,12 @@ impl Backchannel {
         command.debug_id(),
         server
       );
-      let timeout = globals().default_connection_timeout_ms();
-      let timeout = if timeout == 0 {
-        connection::DEFAULT_CONNECTION_TIMEOUT_MS
-      } else {
-        timeout
-      };
 
-      utils::apply_timeout(transport.request_response(command, inner.is_resp3()), timeout).await
+      utils::apply_timeout(
+        transport.request_response(command, inner.is_resp3()),
+        inner.connection.connection_timeout_ms,
+      )
+      .await
     } else {
       Err(RedisError::new(
         RedisErrorKind::Unknown,

@@ -1,6 +1,5 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   modules::inner::RedisClientInner,
   protocol::{
     codec::RedisCodec,
@@ -52,24 +51,14 @@ use tokio_rustls::{client::TlsStream as RustlsStream, rustls::ServerName};
 
 /// The contents of a simplestring OK response.
 pub const OK: &'static str = "OK";
-/// The default timeout when establishing new connections.
-pub const DEFAULT_CONNECTION_TIMEOUT_MS: u64 = 60_0000;
+/// The timeout duration used when dropping the split sink and waiting on the split stream to close.
+pub const CONNECTION_CLOSE_TIMEOUT_MS: u64 = 2_000;
 
 pub type CommandBuffer = VecDeque<RedisCommand>;
 pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
 
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
-
-pub fn connection_timeout(timeout: Option<u64>) -> u64 {
-  let timeout = timeout.unwrap_or(globals().default_connection_timeout_ms());
-
-  if timeout == 0 {
-    DEFAULT_CONNECTION_TIMEOUT_MS
-  } else {
-    timeout
-  }
-}
 
 /// Connect to each socket addr and return the first successful connection.
 async fn tcp_connect_any(
@@ -665,11 +654,10 @@ impl RedisTransport {
 
   /// Send `QUIT` and close the connection.
   pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    let timeout = globals().default_connection_timeout_ms();
     let command: RedisCommand = RedisCommandKind::Quit.into();
     let quit_ft = self.request_response(command, inner.is_resp3());
 
-    if let Err(e) = client_utils::apply_timeout(quit_ft, timeout).await {
+    if let Err(e) = client_utils::apply_timeout(quit_ft, inner.connection.internal_command_timeout_ms).await {
       _warn!(inner, "Error calling QUIT on backchannel: {:?}", e);
     }
     let _ = self.transport.close().await;
@@ -730,7 +718,7 @@ impl RedisTransport {
   /// Authenticate, set the protocol version, set the client name, select the provided database, cache the
   /// connection ID and server version, and check the cluster state (if applicable).
   pub async fn setup(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<u64>) -> Result<(), RedisError> {
-    let timeout = connection_timeout(timeout);
+    let timeout = timeout.unwrap_or(inner.connection.internal_command_timeout_ms);
 
     utils::apply_timeout(
       async {
@@ -981,7 +969,6 @@ impl RedisWriter {
   ///
   /// Returns the in-flight commands that had not received a response.
   pub async fn graceful_close(mut self) -> CommandBuffer {
-    let timeout = globals().default_connection_timeout_ms();
     let _ = utils::apply_timeout(
       async {
         let _ = self.sink.close().await;
@@ -991,7 +978,7 @@ impl RedisWriter {
 
         Ok::<_, RedisError>(())
       },
-      timeout,
+      CONNECTION_CLOSE_TIMEOUT_MS,
     )
     .await;
 
@@ -1009,7 +996,7 @@ pub async fn create(
   timeout_ms: Option<u64>,
   tls_server_name: Option<&ArcStr>,
 ) -> Result<RedisTransport, RedisError> {
-  let timeout = connection_timeout(timeout_ms);
+  let timeout = timeout_ms.unwrap_or(inner.connection.connection_timeout_ms);
 
   _trace!(
     inner,

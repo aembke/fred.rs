@@ -1,4 +1,4 @@
-use fred::{pool::RedisPool, prelude::*};
+use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {

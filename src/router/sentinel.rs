@@ -2,7 +2,6 @@
 
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
@@ -158,7 +157,6 @@ async fn read_sentinels(
 /// Connect to any of the sentinel nodes provided on the associated `RedisConfig`.
 async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTransport, RedisError> {
   let (hosts, (username, password)) = read_sentinel_nodes_and_auth(inner)?;
-  let timeout = globals().sentinel_connection_timeout_ms() as u64;
 
   for server in hosts.into_iter() {
     _debug!(inner, "Connecting to sentinel {}", server);
@@ -167,7 +165,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
         inner,
         server.host.as_str().to_owned(),
         server.port,
-        Some(timeout),
+        Some(inner.connection.connection_timeout_ms),
         server.get_tls_server_name()
       )
       .await
