@@ -31,7 +31,7 @@ async fn main() -> Result<(), RedisError> {
     },
   };
   // see the Builder interface for more information
-  let client = Builder::from_config(config).build()?;
+  let _client = Builder::from_config(config).build()?;
   // or use default values
   let client = Builder::default_centralized().build()?;
 

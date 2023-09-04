@@ -38,6 +38,7 @@ async fn main() -> Result<(), RedisError> {
 }
 
 // or use the `Script` utility types
+#[allow(dead_code)]
 async fn scripts() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
@@ -52,6 +53,7 @@ async fn scripts() -> Result<(), RedisError> {
 }
 
 // use the `Function` and `Library` utility types
+#[allow(dead_code)]
 async fn functions() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();

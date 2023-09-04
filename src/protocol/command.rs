@@ -1746,12 +1746,12 @@ impl RedisCommand {
       response,
       use_replica: self.use_replica,
       #[cfg(feature = "metrics")]
-      created: self.created.clone(),
+      created: Instant::now(),
       network_start: self.network_start.clone(),
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
-      counter: self.counter,
+      counter: command_counter(),
       #[cfg(feature = "client-tracking")]
       caching: self.caching.clone(),
     }

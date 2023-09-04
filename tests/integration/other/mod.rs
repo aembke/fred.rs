@@ -239,14 +239,13 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
   config.blocking = Blocking::Block;
   let perf = PerformanceConfig {
     auto_pipeline: true,
-    // default_command_timeout_ms: 20_000,
     backpressure: BackpressureConfig {
       max_in_flight_commands: 100_000_000,
       ..Default::default()
     },
     ..Default::default()
   };
-  let pool = RedisPool::new(config, Some(perf), None, 28)?;
+  let pool = RedisPool::new(config, Some(perf), None, None, 28)?;
   let _ = pool.connect();
   let _ = pool.wait_for_connect().await?;
 
@@ -273,7 +272,7 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
         }
       }
 
-      println!("Task {} finished.", idx);
+      // println!("Task {} finished.", idx);
       Ok::<_, RedisError>(())
     }));
   }

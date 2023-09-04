@@ -33,23 +33,15 @@ use crate::{
   utils,
 };
 use parking_lot::Mutex;
-use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc, time::Instant};
+use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
-
-#[cfg(feature = "debug-ids")]
-use crate::protocol::command::command_counter;
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();
   let mut out = VecDeque::with_capacity(guard.len());
 
   for command in guard.iter() {
-    let mut command = command.duplicate(ResponseKind::Skip);
-
-    command.created = Instant::now();
-    #[cfg(feature = "debug-ids")]
-    command.counter = command_counter();
-    out.push_back(command);
+    out.push_back(command.duplicate(ResponseKind::Skip));
   }
 
   out

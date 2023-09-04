@@ -36,7 +36,7 @@ async fn main() -> Result<(), RedisError> {
     tls: Some(create_tls_config().into()),
     ..RedisConfig::default()
   };
-  let client = RedisClient::new(config, None, None);
+  let client = Builder::from_config(config).build()?;
 
   let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {

@@ -24,7 +24,7 @@ async fn main() -> Result<(), RedisError> {
     ..Default::default()
   };
 
-  let client = Builder::default_centralized().build()?;
+  let client = Builder::from_config(config).build()?;
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 

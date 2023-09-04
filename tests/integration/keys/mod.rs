@@ -350,7 +350,7 @@ pub async fn should_get_keys_from_pool_in_a_stream(
 ) -> Result<(), RedisError> {
   let _ = client.set("foo", "bar", None, None, false).await?;
 
-  let pool = RedisPool::new(config, None, None, 5)?;
+  let pool = RedisPool::new(config, None, None, None, 5)?;
   let _ = pool.connect();
   let _ = pool.wait_for_connect().await?;
 
