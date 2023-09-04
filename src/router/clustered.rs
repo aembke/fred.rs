@@ -512,15 +512,7 @@ pub async fn connect_any(
   let num_servers = all_servers.len();
   let mut last_error = None;
   for (idx, server) in all_servers.into_iter().enumerate() {
-    let connection = connection::create(
-      inner,
-      server.host.as_str().to_owned(),
-      server.port,
-      None,
-      server.get_tls_server_name(),
-    )
-    .await;
-    let mut connection = match connection {
+    let mut connection = match connection::create(inner, &server, None).await {
       Ok(connection) => connection,
       Err(e) => {
         last_error = Some(e);
@@ -631,7 +623,7 @@ pub async fn cluster_slots_backchannel(
 
   let mut new_cache = ClusterRouting::new();
   _debug!(inner, "Rebuilding cluster state from host: {}", host);
-  new_cache.rebuild(inner, response, host.as_str())?;
+  new_cache.rebuild(inner, response, &host)?;
   Ok(new_cache)
 }
 
@@ -674,14 +666,7 @@ pub async fn sync(
     // connect to each of the new nodes
     for server in changes.add.into_iter() {
       _debug!(inner, "Connecting to cluster node {}", server);
-      let mut transport = connection::create(
-        inner,
-        server.host.as_str().to_owned(),
-        server.port,
-        None,
-        server.get_tls_server_name(),
-      )
-      .await?;
+      let mut transport = connection::create(inner, &server, None).await?;
       let _ = transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;

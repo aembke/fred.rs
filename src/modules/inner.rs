@@ -12,7 +12,6 @@ use crate::{
   utils,
 };
 use arc_swap::ArcSwap;
-use arcstr::ArcStr;
 use futures::future::{select, Either};
 use parking_lot::RwLock;
 use semver::Version;
@@ -37,6 +36,7 @@ use tokio::{
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]
 use crate::router::types::NetworkTimeout;
+use bytes_utils::Str;
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
 
@@ -48,7 +48,7 @@ use crate::types::Invalidation;
 
 pub struct Notifications {
   /// The client ID.
-  pub id:             ArcStr,
+  pub id:             Str,
   /// A broadcast channel for the `on_error` interface.
   pub errors:         ArcSwap<BroadcastSender<RedisError>>,
   /// A broadcast channel for the `on_message` interface.
@@ -71,7 +71,7 @@ pub struct Notifications {
 }
 
 impl Notifications {
-  pub fn new(id: &ArcStr) -> Self {
+  pub fn new(id: &Str) -> Self {
     let capacity = globals().default_broadcast_channel_capacity();
 
     Notifications {
@@ -361,13 +361,13 @@ impl ServerKind {
 }
 
 // TODO make a config option for other defaults and extend this
-fn create_resolver(id: &ArcStr) -> Arc<dyn Resolve> {
+fn create_resolver(id: &Str) -> Arc<dyn Resolve> {
   Arc::new(DefaultResolver::new(id))
 }
 
 pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
-  pub id:            ArcStr,
+  pub id:            Str,
   /// Whether the client uses RESP3.
   pub resp3:         Arc<AtomicBool>,
   /// The state of the underlying connection.
@@ -429,7 +429,7 @@ impl RedisClientInner {
     connection: ConnectionConfig,
     policy: Option<ReconnectPolicy>,
   ) -> Arc<RedisClientInner> {
-    let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
+    let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Arc::new(Notifications::new(&id));
@@ -508,7 +508,7 @@ impl RedisClientInner {
     F: FnOnce(&str),
   {
     if log_enabled!(level) {
-      func(self.id.as_str())
+      func(&self.id)
     }
   }
 
@@ -522,7 +522,7 @@ impl RedisClientInner {
   }
 
   pub fn client_name(&self) -> &str {
-    self.id.as_str()
+    &self.id
   }
 
   pub fn num_cluster_nodes(&self) -> usize {

@@ -106,11 +106,8 @@ pub trait ClientLike: Clone + Send + Sized {
   }
 
   /// The unique ID identifying this client and underlying connections.
-  ///
-  /// All connections created by this client will use `CLIENT SETNAME` with this value unless the `no-client-setname`
-  /// feature is enabled.
   fn id(&self) -> &str {
-    self.inner().id.as_str()
+    &self.inner().id
   }
 
   /// Read the config used to initialize the client.
@@ -329,9 +326,6 @@ where
 /// An interface that exposes various connection events.
 ///
 /// Calling [quit](crate::interfaces::ClientLike::quit) will exit or close all event streams.
-///
-/// See the [globals][crate::globals::set_default_broadcast_channel_capacity] interface to configure the size of the
-/// buffer behind the broadcast channels used here.
 pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each reconnection event.
   ///

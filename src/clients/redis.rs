@@ -8,6 +8,7 @@ use crate::{
     ClientInterface,
     ClusterInterface,
     ConfigInterface,
+    EventInterface,
     FunctionInterface,
     GeoInterface,
     HashesInterface,
@@ -38,9 +39,8 @@ use crate::{clients::Caching, interfaces::TrackingInterface};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-use crate::interfaces::EventInterface;
 
-/// The primary Redis client struct.
+/// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
 pub struct RedisClient {
   pub(crate) inner: Arc<RedisClientInner>,
@@ -136,12 +136,6 @@ impl RedisClient {
   }
 
   /// Split a clustered Redis client into a set of centralized clients - one for each primary node in the cluster.
-  ///
-  /// Some Redis commands are not designed to work with hash slots against a clustered deployment. For example,
-  /// `FLUSHDB`, `PING`, etc all work on one node in the cluster, but no interface exists for the client to
-  /// select a specific node in the cluster against which to run the command. This function allows the caller to
-  /// create a list of clients such that each connect to one of the primary nodes in the cluster and functions
-  /// as if it were operating against a single centralized Redis server.
   ///
   /// Alternatively, callers can use [with_cluster_node](crate::clients::RedisClient::with_cluster_node) to avoid
   /// creating new connections.

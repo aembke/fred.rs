@@ -135,7 +135,7 @@ impl CustomCommand {
 
 /// An enum describing the possible ways in which a Redis cluster can change state.
 ///
-/// See [on_cluster_change](crate::interfaces::ClientLike::on_cluster_change) for more information.
+/// See [on_cluster_change](crate::interfaces::EventInterface::on_cluster_change) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterStateChange {
   /// A node was added to the cluster.

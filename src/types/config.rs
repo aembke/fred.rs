@@ -301,15 +301,15 @@ impl Default for BackpressureConfig {
 /// TCP configuration options.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TcpConfig {
-  /// Set the `TCP_NODELAY` value on the socket.
+  /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
   ///
   /// Default: `false`
   pub nodelay: bool,
-  /// Set the `SO_LINGER` value on the socket.
+  /// Set the [SO_LINGER](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_linger) value.
   ///
   /// Default: `None`
   pub linger:  Option<Duration>,
-  /// Set the `IP_TTL` value on the socket.
+  /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
   ///
   /// Default: `None`
   pub ttl:     Option<u32>,
@@ -354,7 +354,7 @@ pub struct ConnectionConfig {
   /// Default: `5`
   pub max_redirections:              u32,
   /// The amount of time a command can wait without a response before the corresponding connection is considered
-  /// unresponsive.
+  /// unresponsive. This will trigger a reconnection and in-flight commands will be retried.
   ///
   /// Default: `10_000` (10 sec)
   #[cfg(feature = "check-unresponsive")]
@@ -402,13 +402,11 @@ pub struct PerformanceConfig {
   /// An optional timeout (in milliseconds) to apply to all commands.
   ///
   /// If `0` this will disable any timeout being applied to commands. Callers can also set timeouts on individual
-  /// commands via the `with_command_options` interface.
-  ///
-  /// Timeouts applied internally by the client will properly cancel the command in more (but not all) circumstances vs simple [timeout](https://docs.rs/tokio/latest/tokio/time/fn.timeout.html) calls.
+  /// commands via the [with_options](crate::interfaces::ClientLike::with_options) interface.
   ///
   /// Default: `0`
   pub default_command_timeout_ms: u64,
-  /// The maximum number of frames that will be passed to a socket before flushing the socket.
+  /// The maximum number of frames that will be fed to a socket before flushing.
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///

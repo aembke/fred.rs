@@ -163,10 +163,11 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
 }
 
 /// Parse the frame from a shard pubsub channel.
-pub fn parse_shard_pubsub_frame(frame: &Resp3Frame) -> Option<Message> {
+pub fn parse_shard_pubsub_frame(server: &Server, frame: &Resp3Frame) -> Option<Message> {
   let value = match frame {
     Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
       if data.len() >= 3 && data.len() <= 5 {
+        // check both resp2 and resp3 formats
         let has_either_prefix = (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
           && data[1].as_str().map(|s| s == "smessage").unwrap_or(false))
           || (data[0].as_str().map(|s| s == "smessage").unwrap_or(false));
@@ -196,6 +197,7 @@ pub fn parse_shard_pubsub_frame(frame: &Resp3Frame) -> Option<Message> {
     channel,
     value,
     kind: MessageKind::SMessage,
+    server: server.clone(),
   })
 }
 
@@ -253,28 +255,33 @@ pub fn parse_message_fields(frame: &Resp3Frame) -> Result<(Str, RedisValue), Red
   Ok((channel, value))
 }
 
-/// Convert the frame to a `(channel, message)` tuple from the pubsub interface.
-pub fn frame_to_pubsub(frame: Resp3Frame) -> Result<Message, RedisError> {
-  if let Some(message) = parse_shard_pubsub_frame(&frame) {
+/// Parse the frame as a pubsub message.
+pub fn frame_to_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, RedisError> {
+  if let Some(message) = parse_shard_pubsub_frame(server, &frame) {
     return Ok(message);
   }
 
   let kind = parse_message_kind(&frame)?;
   let (channel, value) = parse_message_fields(&frame)?;
-  Ok(Message { kind, channel, value })
+  Ok(Message {
+    kind,
+    channel,
+    value,
+    server: server.clone(),
+  })
 }
 
 /// Attempt to parse a RESP3 frame as a pubsub message in the RESP2 format.
 ///
 /// This can be useful in cases where the codec layer automatically upgrades to RESP3,
 /// but the contents of the pubsub message still use the RESP2 format.
-pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<Message, RedisError> {
-  if let Some(message) = parse_shard_pubsub_frame(&frame) {
+// TODO move and redo this in redis_protocol
+pub fn parse_as_resp2_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, RedisError> {
+  if let Some(message) = parse_shard_pubsub_frame(server, &frame) {
     return Ok(message);
   }
 
   // resp3 has an added "pubsub" simple string frame at the front
-  // TODO move and redo this in redis_protocol
   let mut out = Vec::with_capacity(frame.len() + 1);
   out.push(Resp3Frame::SimpleString {
     data:       PUBSUB_PUSH_PREFIX.into(),
@@ -288,7 +295,7 @@ pub fn parse_as_resp2_pubsub(frame: Resp3Frame) -> Result<Message, RedisError> {
       attributes: None,
     };
 
-    frame_to_pubsub(frame)
+    frame_to_pubsub(server, frame)
   } else {
     Err(RedisError::new(
       RedisErrorKind::Protocol,

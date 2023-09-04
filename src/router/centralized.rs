@@ -209,14 +209,7 @@ pub async fn initialize_connection(
         ServerConfig::Centralized { ref server } => server.clone(),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
-      let mut transport = connection::create(
-        inner,
-        server.host.as_str().to_owned(),
-        server.port,
-        None,
-        server.get_tls_server_name(),
-      )
-      .await?;
+      let mut transport = connection::create(inner, &server, None).await?;
       let _ = transport.setup(inner, None).await?;
 
       let (_, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;

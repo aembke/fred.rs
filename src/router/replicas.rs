@@ -260,14 +260,7 @@ impl Replicas {
     );
 
     if !inner.config.replica.lazy_connections || force {
-      let mut transport = connection::create(
-        inner,
-        replica.host.as_str().to_owned(),
-        replica.port,
-        None,
-        replica.tls_server_name.as_ref(),
-      )
-      .await?;
+      let mut transport = connection::create(inner, &replica, None).await?;
       let _ = transport.setup(inner, None).await?;
 
       let (_, writer) = if inner.config.server.is_clustered() {

@@ -454,14 +454,7 @@ impl Connections {
   /// Connect or reconnect to the provided `host:port`.
   pub async fn add_connection(&mut self, inner: &Arc<RedisClientInner>, server: &Server) -> Result<(), RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
-      let mut transport = connection::create(
-        inner,
-        server.host.as_str().to_owned(),
-        server.port,
-        None,
-        server.get_tls_server_name(),
-      )
-      .await?;
+      let mut transport = connection::create(inner, server, None).await?;
       let _ = transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, false, clustered::spawn_reader_task)?;

@@ -22,7 +22,7 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
-use crate::protocol::connection::ConnectionKind;
+use crate::{protocol::connection::ConnectionKind, types::ConnectionConfig};
 
 #[cfg(feature = "blocking-encoding")]
 async fn handle_monitor_frame(
@@ -125,6 +125,7 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
     auto_pipeline: false,
     ..Default::default()
   };
+  let connection = ConnectionConfig::default();
   let server = match config.server {
     ServerConfig::Centralized { ref server } => server.clone(),
     _ => {
@@ -135,8 +136,8 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
     },
   };
 
-  let inner = RedisClientInner::new(config, perf, None);
-  let mut connection = connection::create(&inner, server.host.as_str().to_owned(), server.port, None, None).await?;
+  let inner = RedisClientInner::new(config, perf, connection, None);
+  let mut connection = connection::create(&inner, &server, None).await?;
   let _ = connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;
 

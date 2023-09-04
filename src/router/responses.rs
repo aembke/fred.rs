@@ -94,11 +94,16 @@ fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
 }
 
 /// Try to parse the frame in either RESP2 or RESP3 pubsub formats.
-fn parse_pubsub_message(frame: Resp3Frame, is_resp3: bool, is_resp2: bool) -> Result<Message, RedisError> {
+fn parse_pubsub_message(
+  server: &Server,
+  frame: Resp3Frame,
+  is_resp3: bool,
+  is_resp2: bool,
+) -> Result<Message, RedisError> {
   if is_resp3 {
-    protocol_utils::frame_to_pubsub(frame)
+    protocol_utils::frame_to_pubsub(server, frame)
   } else if is_resp2 {
-    protocol_utils::parse_as_resp2_pubsub(frame)
+    protocol_utils::parse_as_resp2_pubsub(server, frame)
   } else {
     Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub message."))
   }
@@ -191,9 +196,9 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
     let _enter = span.enter();
-    parse_pubsub_message(frame, is_resp3_pubsub, is_resp2_pubsub)
+    parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   } else {
-    parse_pubsub_message(frame, is_resp3_pubsub, is_resp2_pubsub)
+    parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   };
 
   let message = match parsed_frame {

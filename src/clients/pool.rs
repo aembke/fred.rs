@@ -39,7 +39,7 @@ use tokio::time::interval as tokio_interval;
 #[cfg(feature = "dns")]
 use crate::protocol::types::Resolve;
 
-/// A struct to pool multiple Redis clients together into one interface that will round-robin requests among clients.
+/// A cheaply cloneable round-robin client pool.
 ///
 /// ### Restrictions
 ///
@@ -50,9 +50,9 @@ use crate::protocol::types::Resolve;
 /// * [EventInterface](crate::interfaces::EventInterface)
 ///
 /// In some cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
-/// adding a call to [next](Self::next), but in others this may not work. As a general rule, any commands that change
-/// or depend on local connection state will not be implemented directly on `RedisPool`. Callers can use
-/// [clients](Self::clients) to operate on individual clients if needed.
+/// adding a call to [next](Self::next), but in others this may not work. As a general rule, any commands that
+/// change or depend on local connection state will not be implemented directly on `RedisPool`. Callers can use
+/// [clients](Self::clients), [next](Self::next), or [last](Self::last) to operate on individual clients if needed.
 #[derive(Clone)]
 pub struct RedisPool {
   clients: Arc<Vec<RedisClient>>,

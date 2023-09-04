@@ -11,6 +11,7 @@ use crate::{
   router::{centralized, Connections},
   types::{RedisValue, Server, ServerConfig},
 };
+use bytes_utils::Str;
 use std::{
   collections::{HashMap, HashSet},
   sync::Arc,
@@ -160,16 +161,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
 
   for server in hosts.into_iter() {
     _debug!(inner, "Connecting to sentinel {}", server);
-    let mut transport = try_or_continue!(
-      connection::create(
-        inner,
-        server.host.as_str().to_owned(),
-        server.port,
-        Some(inner.connection.connection_timeout_ms),
-        server.get_tls_server_name()
-      )
-      .await
-    );
+    let mut transport = try_or_continue!(connection::create(inner, &server, None).await);
     let _ = try_or_continue!(
       transport
         .authenticate(&inner.id, username.clone(), password.clone(), false)
@@ -208,16 +200,22 @@ async fn discover_primary_node(
   ]);
   let frame = sentinel.request_response(command, false).await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
-  let (host, port): (String, u16) = if response.is_null() {
+  let server = if response.is_null() {
     return Err(RedisError::new(
       RedisErrorKind::Sentinel,
       "Missing primary address in response from sentinel node.",
     ));
   } else {
-    stry!(response.convert())
+    let (host, port): (Str, u16) = stry!(response.convert());
+    Server {
+      host,
+      port,
+      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+      tls_server_name: None,
+    }
   };
 
-  let mut transport = stry!(connection::create(inner, host, port, None, None).await);
+  let mut transport = stry!(connection::create(inner, &server, None).await);
   let _ = stry!(transport.setup(inner, None).await);
   Ok(transport)
 }

@@ -6,7 +6,6 @@ use crate::{
   types::*,
   utils,
 };
-use arcstr::ArcStr;
 use bytes_utils::Str;
 use rand::Rng;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
@@ -60,20 +59,20 @@ impl From<Resp3Frame> for ProtocolFrame {
 #[derive(Debug, Clone)]
 pub struct Server {
   /// The hostname or IP address for the server.
-  pub host:            ArcStr,
+  pub host:            Str,
   /// The port for the server.
   pub port:            u16,
   /// The server name used during the TLS handshake.
   #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
-  pub tls_server_name: Option<ArcStr>,
+  pub tls_server_name: Option<Str>,
 }
 
 impl Server {
   /// Create a new `Server` from parts with a TLS server name.
   #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
-  pub fn new_with_tls<S: Into<ArcStr>>(host: S, port: u16, tls_server_name: Option<String>) -> Self {
+  pub fn new_with_tls<S: Into<Str>>(host: S, port: u16, tls_server_name: Option<String>) -> Self {
     Server {
       host: host.into(),
       port,
@@ -82,7 +81,7 @@ impl Server {
   }
 
   /// Create a new `Server` from parts.
-  pub fn new<S: Into<ArcStr>>(host: S, port: u16) -> Self {
+  pub fn new<S: Into<Str>>(host: S, port: u16) -> Self {
     Server {
       host: host.into(),
       port,
@@ -102,18 +101,8 @@ impl Server {
       Err(_) => return,
     };
     if let Some(tls_server_name) = policy.map(&ip, default_host) {
-      self.tls_server_name = Some(ArcStr::from(tls_server_name));
+      self.tls_server_name = Some(Str::from(tls_server_name));
     }
-  }
-
-  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-  pub(crate) fn get_tls_server_name(&self) -> Option<&ArcStr> {
-    self.tls_server_name.as_ref()
-  }
-
-  #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
-  pub(crate) fn get_tls_server_name(&self) -> Option<&ArcStr> {
-    None
   }
 
   /// Attempt to parse a `host:port` string.
@@ -139,9 +128,9 @@ impl Server {
   pub(crate) fn from_parts(server: &str, default_host: &str) -> Option<Server> {
     server_to_parts(server).ok().map(|(host, port)| {
       let host = if host.is_empty() {
-        ArcStr::from(default_host)
+        Str::from(default_host)
       } else {
-        ArcStr::from(host)
+        Str::from(host)
       };
 
       Server {
@@ -267,6 +256,8 @@ pub struct Message {
   pub value:   RedisValue,
   /// The type of message subscription.
   pub kind:    MessageKind,
+  /// The server that sent the message.
+  pub server:  Server,
 }
 
 pub struct KeyScanInner {
@@ -395,7 +386,7 @@ pub struct SlotRange {
   /// The primary server owner.
   pub primary:  Server,
   /// The internal ID assigned by the server.
-  pub id:       ArcStr,
+  pub id:       Str,
   /// Replica node owners.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -441,7 +432,7 @@ impl ClusterRouting {
     &mut self,
     inner: &Arc<RedisClientInner>,
     cluster_slots: RedisValue,
-    default_host: &str,
+    default_host: &Str,
   ) -> Result<(), RedisError> {
     self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;
     self.data.sort_by(|a, b| a.start.cmp(&b.start));
@@ -515,25 +506,25 @@ impl ClusterRouting {
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: Send + Sync + 'static {
   /// Resolve a hostname.
-  async fn resolve(&self, host: String, port: u16) -> Result<Vec<SocketAddr>, RedisError>;
+  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError>;
 }
 
 /// Default DNS resolver that uses `to_socket_addrs` under the hood.
 #[derive(Clone, Debug)]
 pub struct DefaultResolver {
-  id: ArcStr,
+  id: Str,
 }
 
 impl DefaultResolver {
   /// Create a new resolver using the system's default DNS resolution.
-  pub fn new(id: &ArcStr) -> Self {
+  pub fn new(id: &Str) -> Self {
     DefaultResolver { id: id.clone() }
   }
 }
 
 #[async_trait]
 impl Resolve for DefaultResolver {
-  async fn resolve(&self, host: String, port: u16) -> Result<Vec<SocketAddr>, RedisError> {
+  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError> {
     let client_id = self.id.clone();
 
     tokio::task::spawn_blocking(move || {

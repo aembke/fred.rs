@@ -40,6 +40,22 @@ async fn main() -> Result<(), RedisError> {
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
+  // run all event listener functions in one task
+  let events_task = client.on_any(
+    |error| {
+      println!("Connection error: {:?}", error);
+      Ok(())
+    },
+    |server| {
+      println!("Reconnected to {:?}", server);
+      Ok(())
+    },
+    |changes| {
+      println!("Cluster changed: {:?}", changes);
+      Ok(())
+    },
+  );
+
   // update performance config options
   let mut perf_config = client.perf_config();
   perf_config.max_command_attempts = 100;

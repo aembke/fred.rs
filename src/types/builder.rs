@@ -126,7 +126,7 @@ impl Builder {
   /// Read the sentinel client config.
   #[cfg(feature = "sentinel-client")]
   #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-  pub fn sentinel_config(&self) -> Option<&RedisConfig> {
+  pub fn get_sentinel_config(&self) -> Option<&RedisConfig> {
     self.config.as_ref()
   }
 

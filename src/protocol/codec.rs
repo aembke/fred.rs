@@ -4,8 +4,8 @@ use crate::{
   protocol::{types::ProtocolFrame, utils as protocol_utils},
   utils,
 };
-use arcstr::ArcStr;
 use bytes::BytesMut;
+use bytes_utils::Str;
 use redis_protocol::{
   resp2::{decode::decode_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::Frame as Resp2Frame},
   resp3::{
@@ -186,7 +186,7 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name:            ArcStr,
+  pub name:            Str,
   pub server:          Server,
   pub resp3:           Arc<AtomicBool>,
   pub streaming_state: Option<StreamedFrame>,

@@ -26,14 +26,7 @@ async fn check_and_create_transport(
   }
   backchannel.transport = None;
 
-  let mut transport = connection::create(
-    inner,
-    server.host.as_str().to_owned(),
-    server.port,
-    None,
-    server.get_tls_server_name(),
-  )
-  .await?;
+  let mut transport = connection::create(inner, server, None).await?;
   let _ = transport.setup(inner, None).await?;
   backchannel.transport = Some(transport);
 

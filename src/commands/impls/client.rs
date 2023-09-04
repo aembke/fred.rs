@@ -2,7 +2,7 @@ use super::*;
 use crate::{
   interfaces,
   protocol::{
-    command::{RouterCommand, RedisCommand, RedisCommandKind},
+    command::{RedisCommand, RedisCommandKind, RouterCommand},
     utils as protocol_utils,
   },
   types::*,
@@ -89,14 +89,6 @@ pub async fn client_pause<C: ClientLike>(
 value_cmd!(client_getname, ClientGetName);
 
 pub async fn client_setname<C: ClientLike>(client: &C, name: Str) -> Result<(), RedisError> {
-  let inner = client.inner();
-  _warn!(
-    inner,
-    "Changing client name from {} to {}",
-    client.inner().id.as_str(),
-    name
-  );
-
   let frame =
     utils::request_response(client, move || Ok((RedisCommandKind::ClientSetname, vec![name.into()]))).await?;
   let response = protocol_utils::frame_to_single_result(frame)?;
