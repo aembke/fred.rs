@@ -12,37 +12,41 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 
 /// A client and pool builder interface.
 ///
-///
 /// ```rust
-/// use fred::prelude::*;
-///
+/// # use redis_protocol::resp3::types::RespVersion;
+/// # use fred::prelude::*;
 /// fn example() -> Result<(), RedisError> {
 ///   // use default values
 ///   let client = Builder::default_centralized().build()?;
-///   #[cfg(feature = "subscriber-client")]
-///   let subscriber = Builder::default_centralized().build_subscriber_client()?;
-///   #[cfg(feature = "sentinel-client")]
-///   let sentinel = Builder::default_centralized().build_sentinel_client()?;
 ///
-///   // or customize the config structs
+///   // or initialize from a URL or config
 ///   let config = RedisConfig::from_url("redis://localhost:6379/1")?;
 ///   let perf = PerformanceConfig::default();
 ///   let mut builder = Builder::from_config(config);
-///   // set config structs directly
-///   builder.set_performance_config(perf)
-///     // or modify them in place (creating defaults if needed)
+///   // or modify values in place (creating defaults if needed)
+///   builder
 ///     .with_performance_config(|config| {
 ///       config.auto_pipeline = true;
+///     })
+///     .with_config(|config| {
+///       config.version = RespVersion::RESP3;
+///       config.fail_fast = true;
 ///     })
 ///     .with_connection_config(|config| {
 ///       config.tcp = TcpConfig {
 ///         nodelay: true,
 ///         ..Default::default()
 ///       };
+///       config.internal_command_timeout_ms = 10_000;
 ///     });
+///   // or overwrite configuration structs in place
+///   builder.set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2));
+///   builder.set_performance_config(PerformanceConfig::default());
 ///
+///   // reuse the builder as needed to create any kind of client
 ///   let client = builder.build()?;
 ///   let pool = builder.build_pool(3)?;
+///   let subscriber = builder.build_subscriber_client()?;
 ///
 ///   // ...
 ///
