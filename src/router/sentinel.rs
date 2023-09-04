@@ -10,6 +10,7 @@ use crate::{
   },
   router::{centralized, Connections},
   types::{RedisValue, Server, ServerConfig},
+  utils,
 };
 use bytes_utils::Str;
 use std::{
@@ -163,9 +164,11 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
     _debug!(inner, "Connecting to sentinel {}", server);
     let mut transport = try_or_continue!(connection::create(inner, &server, None).await);
     let _ = try_or_continue!(
-      transport
-        .authenticate(&inner.id, username.clone(), password.clone(), false)
-        .await
+      utils::apply_timeout(
+        transport.authenticate(&inner.id, username.clone(), password.clone(), false),
+        inner.connection.internal_command_timeout_ms
+      )
+      .await
     );
 
     return Ok(transport);
@@ -198,7 +201,11 @@ async fn discover_primary_node(
     static_val!(GET_MASTER_ADDR_BY_NAME),
     service_name.into(),
   ]);
-  let frame = sentinel.request_response(command, false).await?;
+  let frame = utils::apply_timeout(
+    sentinel.request_response(command, false),
+    inner.connection.internal_command_timeout_ms,
+  )
+  .await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
   let server = if response.is_null() {
     return Err(RedisError::new(
@@ -314,9 +321,19 @@ pub async fn initialize_connection(
     Connections::Sentinel { writer } => {
       let mut sentinel = connect_to_sentinel(inner).await?;
       let mut transport = discover_primary_node(inner, &mut sentinel).await?;
-      let _ = check_primary_node_role(inner, &mut transport).await?;
-      let _ = update_cached_client_state(inner, writer, sentinel, transport).await?;
+      let server = transport.server.clone();
 
+      let _ = utils::apply_timeout(
+        async {
+          let _ = check_primary_node_role(inner, &mut transport).await?;
+          let _ = update_cached_client_state(inner, writer, sentinel, transport).await?;
+          Ok::<_, RedisError>(())
+        },
+        inner.connection.internal_command_timeout_ms,
+      )
+      .await?;
+
+      inner.notifications.broadcast_reconnect(server);
       Ok(())
     },
     _ => Err(RedisError::new(

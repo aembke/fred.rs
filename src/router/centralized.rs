@@ -211,8 +211,9 @@ pub async fn initialize_connection(
       };
       let mut transport = connection::create(inner, &server, None).await?;
       let _ = transport.setup(inner, None).await?;
+      let (server, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
+      inner.notifications.broadcast_reconnect(server);
 
-      let (_, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       *writer = Some(_writer);
       Ok(())
     },

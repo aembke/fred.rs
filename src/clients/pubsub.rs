@@ -294,6 +294,7 @@ impl SubscriberClient {
     let inner = RedisClientInner::new(
       self.inner.config.as_ref().clone(),
       self.inner.performance_config(),
+      self.inner.connection.as_ref().clone(),
       self.inner.reconnect_policy(),
     );
 
@@ -309,7 +310,7 @@ impl SubscriberClient {
   pub fn manage_subscriptions(&self) -> JoinHandle<()> {
     let _self = self.clone();
     tokio::spawn(async move {
-      let mut stream = _self.on_reconnect();
+      let mut stream = _self.reconnect_rx();
 
       while let Ok(_) = stream.recv().await {
         if let Err(error) = _self.resubscribe_all().await {

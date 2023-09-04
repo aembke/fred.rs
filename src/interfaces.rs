@@ -406,7 +406,7 @@ pub trait EventInterface: ClientLike {
 
   /// Listen for reconnection notifications.
   ///
-  /// This function can be used to receive notifications whenever the client successfully reconnects in order to
+  /// This function can be used to receive notifications whenever the client reconnects in order to
   /// re-subscribe to channels, etc.
   ///
   /// A reconnection event is also triggered upon first connecting to the server.

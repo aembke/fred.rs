@@ -1,9 +1,8 @@
 ## 7.0.0
 
-* Rework the majority of the `globals` interface.
-* `FromRedis<bool> for RedisValue` now converts `Null` to `false`.
+* Reworked the majority of the `globals` interface.
+* Add a builder interface for all client types.
 * Support multiple IP addresses in the `Resolve` interface.
-  * The client now attempts to connect to each IP rather than just one.
 * Add `with_options` command configuration interface. 
 * Replaced the `no-client-setname` feature flag with `auto-client-setname`.
 * Add an interface to configure TCP socket options.
@@ -11,25 +10,23 @@
   * This unintentionally introduced some ambiguity on certain interfaces.
   * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
 * Reworked the majority of the `RedisPool` interface. 
-* Refactored the `on_*` functions into a new `EventInterface`.
-* Consolidate some dependencies.
+* Moved and refactored the `on_*` functions into a new `EventInterface`.
 
 ### Updating from 6.x
 
 Notable or breaking changes from 6.x:
 
-* Refactored the majority of the client configuration and initialization interface. 
-  * The most interesting bits are in the [builder](src/types/builder.rs).
+* The new [builder](src/types/builder.rs) interface is likely quite a bit easier to use than the old initialization interface.
 * `ArcStr` has been replaced with `bytes_utils::Str`. 
+* `FromRedis<bool> for RedisValue` now converts `Null` to `false`.
 * The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer. 
 * The `MEMORY USAGE` interface now returns generic types.
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
 * The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
-* Many of the default timeout values have been lowered significantly.
-* Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans. 
+* Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
+* Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans.
   * The old interface was particularly problematic when used with the metrics interface. 
-* The `on_*` event functions changed quite a bit. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
-* The `dns` interface `Resolve` trait now uses `bytes_utils::Str` instead of `String`. 
+* The `on_*` event functions were moved. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
 
 ## 6.3.1
 

@@ -15,6 +15,8 @@ use crate::{
   types::ClusterStateChange,
   utils as client_utils,
 };
+use futures::future::try_join_all;
+use parking_lot::Mutex;
 use std::{
   collections::{BTreeSet, HashMap},
   iter::repeat,
@@ -663,13 +665,26 @@ pub async fn sync(
       buffer.extend(commands);
     }
 
+    let mut connections_ft = Vec::with_capacity(changes.add.len());
+    let new_writers = Arc::new(Mutex::new(HashMap::with_capacity(changes.add.len())));
     // connect to each of the new nodes
     for server in changes.add.into_iter() {
-      _debug!(inner, "Connecting to cluster node {}", server);
-      let mut transport = connection::create(inner, &server, None).await?;
-      let _ = transport.setup(inner, None).await?;
+      let _inner = inner.clone();
+      let _new_writers = new_writers.clone();
+      connections_ft.push(async move {
+        _debug!(inner, "Connecting to cluster node {}", server);
+        let mut transport = connection::create(&_inner, &server, None).await?;
+        let _ = transport.setup(&_inner, None).await?;
 
-      let (server, writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
+        let (server, writer) = connection::split_and_initialize(&_inner, transport, false, spawn_reader_task)?;
+        inner.notifications.broadcast_reconnect(server.clone());
+        _new_writers.lock().insert(server, writer);
+        Ok::<_, RedisError>(())
+      });
+    }
+
+    let _ = try_join_all(connections_ft).await?;
+    for (server, writer) in new_writers.lock().drain() {
       writers.insert(server, writer);
     }
 

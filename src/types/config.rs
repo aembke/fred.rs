@@ -366,7 +366,7 @@ pub struct ConnectionConfig {
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub replica:                       ReplicaConfig,
-  /// TCP connection configuration options.
+  /// TCP connection options.
   pub tcp:                           TcpConfig,
 }
 
