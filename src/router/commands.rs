@@ -39,20 +39,30 @@ async fn handle_router_response(
     match response {
       RouterResponse::Continue => Ok(None),
       RouterResponse::Ask((slot, server, mut command)) => {
-        let _ = utils::send_asking_with_policy(inner, router, &server, slot).await?;
-        command.hasher = ClusterHash::Custom(slot);
-        command.use_replica = false;
-        Ok(Some(command))
+        if let Err(e) = command.decr_check_redirections() {
+          command.respond_to_caller(Err(e));
+          Ok(None)
+        } else {
+          let _ = utils::send_asking_with_policy(inner, router, &server, slot).await?;
+          command.hasher = ClusterHash::Custom(slot);
+          command.use_replica = false;
+          Ok(Some(command))
+        }
       },
       RouterResponse::Moved((slot, server, mut command)) => {
         // check if slot belongs to server, if not then run sync cluster
         if !router.cluster_node_owns_slot(slot, &server) {
           let _ = utils::sync_cluster_with_policy(inner, router).await?;
         }
-        command.hasher = ClusterHash::Custom(slot);
-        command.use_replica = false;
 
-        Ok(Some(command))
+        if let Err(e) = command.decr_check_redirections() {
+          command.respond_to_caller(Err(e));
+          Ok(None)
+        } else {
+          command.hasher = ClusterHash::Custom(slot);
+          command.use_replica = false;
+          Ok(Some(command))
+        }
       },
       RouterResponse::ConnectionClosed((error, mut command)) => {
         let command = if command.attempts_remaining == 0 {
@@ -554,7 +564,6 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   };
 
   inner.notifications.broadcast_connect(Ok(()));
-  inner.notifications.broadcast_reconnect();
   let result = process_commands(inner, &mut rx).await;
   inner.store_command_rx(rx);
   result

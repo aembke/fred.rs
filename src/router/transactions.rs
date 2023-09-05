@@ -2,18 +2,11 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  router::{utils, Router},
   protocol::{
-    command::{
-      ClusterErrorKind,
-      RouterReceiver,
-      RouterResponse,
-      RedisCommand,
-      RedisCommandKind,
-      ResponseSender,
-    },
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, ResponseSender, RouterReceiver, RouterResponse},
     responders::ResponseKind,
   },
+  router::{utils, Router},
   types::{ClusterHash, Server},
 };
 use std::sync::Arc;
@@ -136,6 +129,7 @@ pub async fn run(
   }
 
   let mut attempted = 0;
+  let mut redirections = 0;
   'outer: loop {
     _debug!(inner, "Starting transaction {} (attempted: {})", id, attempted);
 
@@ -187,10 +181,18 @@ pub async fn run(
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
+          redirections += 1;
+          if redirections > inner.connection.max_redirections {
+            let _ = tx.send(Err(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Too many cluster redirections.",
+            )));
+            return Ok(());
+          }
+
           _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
           update_hash_slot(&mut commands, slot);
           let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
-
           attempted += 1;
           continue 'outer;
         },
@@ -233,6 +235,15 @@ pub async fn run(
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
+          redirections += 1;
+          if redirections > inner.connection.max_redirections {
+            let _ = tx.send(Err(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Too many cluster redirections.",
+            )));
+            return Ok(());
+          }
+
           update_hash_slot(&mut commands, slot);
           if let Err(e) = send_discard(inner, router, &server, id).await {
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);

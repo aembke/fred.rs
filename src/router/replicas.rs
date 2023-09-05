@@ -396,6 +396,7 @@ impl Replicas {
   }
 
   /// Send a command to one of the replicas associated with the provided primary server.
+  // FIXME this is ugly and leaks implementation details to the caller
   pub async fn write_command(
     &mut self,
     inner: &Arc<RedisClientInner>,
@@ -407,9 +408,7 @@ impl Replicas {
       Some(replica) => replica.clone(),
       None => {
         // these errors indicate we do not know of any replica node associated with the primary node
-
-        return if inner.config.replica.primary_fallback {
-          // FIXME this is ugly and leaks implementation details to the caller
+        return if inner.connection.replica.primary_fallback {
           Err((
             RedisError::new(RedisErrorKind::Replica, "Missing replica node."),
             command,
@@ -425,8 +424,7 @@ impl Replicas {
       None => {
         // these errors indicate that we know a replica node _should_ exist, but we are not connected or cannot
         // connect to it. in this case we want to hide the error, trigger a reconnect, and retry the command later.
-
-        if inner.config.replica.lazy_connections {
+        if inner.connection.replica.lazy_connections {
           _debug!(inner, "Lazily adding {} replica connection", replica);
           if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {
             return Err((e, command));

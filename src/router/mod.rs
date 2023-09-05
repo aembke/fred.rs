@@ -550,16 +550,6 @@ impl Router {
   ///
   /// Errors are handled internally, but may be returned if the command was queued to run later.
   pub async fn write_command(&mut self, mut command: RedisCommand, force_flush: bool) -> Result<Written, RedisError> {
-    if let Err(e) = command.decr_check_attempted() {
-      debug!(
-        "{}: Skipping command `{}` after too many failed attempts.",
-        self.inner.id,
-        command.kind.to_str_debug()
-      );
-      command.respond_to_caller(Err(e));
-      return Ok(Written::Ignore);
-    }
-
     let send_all_cluster_nodes = command.kind.is_all_cluster_nodes()
       || (command.kind.closes_connection() && self.inner.config.server.is_clustered());
 
@@ -590,7 +580,7 @@ impl Router {
     let primary = match self.find_connection(&command) {
       Some(server) => server.clone(),
       None => {
-        if self.inner.config.replica.primary_fallback {
+        if self.inner.connection.replica.primary_fallback {
           debug!(
             "{}: Fallback to primary node connection for {} ({})",
             self.inner.id,
@@ -609,24 +599,11 @@ impl Router {
         }
       },
     };
-    if let Err(e) = command.incr_check_attempted(self.inner.max_command_attempts()) {
-      debug!(
-        "{}: Skipping replica command `{}` after too many failed attempts.",
-        self.inner.id,
-        command.kind.to_str_debug()
-      );
-      command.respond_to_caller(Err(e));
-      return Ok(Written::Ignore);
-    }
-    if command.attempted > 1 {
-      self.inner.counters.incr_redelivery_count();
-    }
 
     let result = self
       .replicas
       .write_command(&self.inner, &primary, command, force_flush)
       .await;
-
     match result {
       Ok(result) => {
         if let Err(e) = self.replicas.check_and_flush().await {
@@ -636,7 +613,7 @@ impl Router {
         Ok(result)
       },
       Err((error, mut command)) => {
-        if self.inner.config.replica.primary_fallback {
+        if self.inner.connection.replica.primary_fallback {
           debug!(
             "{}: Fall back to primary node for {} ({}) after replica error: {:?}",
             self.inner.id,
