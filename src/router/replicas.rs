@@ -205,16 +205,20 @@ impl Replicas {
 
   /// Retry the commands in the cached retry buffer by sending them to the router again.
   pub fn retry_buffer(&mut self, inner: &Arc<RedisClientInner>) {
-    let retry_count = inner.config.replica.connection_error_count;
+    let retry_count = inner.connection.replica.connection_error_count;
     for mut command in self.buffer.drain(..) {
-      if retry_count > 0 && command.attempted >= retry_count {
+      if command.write_attempts >= 1 {
+        inner.counters.incr_redelivery_count();
+      }
+
+      if retry_count > 0 && command.write_attempts >= retry_count {
         _trace!(
           inner,
           "Switch {} ({}) to fall back to primary after retry.",
           command.kind.to_str_debug(),
           command.debug_id()
         );
-        command.attempted = 0;
+        command.write_attempts = 0;
         command.use_replica = false;
       }
 
@@ -466,6 +470,7 @@ impl Replicas {
       command.debug_id(),
       replica
     );
+    command.write_attempts += 1;
     writer.push_command(inner, command);
     if let Err(e) = writer.write_frame(frame, should_flush).await {
       let command = match writer.pop_recent_command() {

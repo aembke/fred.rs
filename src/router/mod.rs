@@ -549,7 +549,7 @@ impl Router {
   /// * The reader task for that connection will close, sending a `Reconnect` message to the router.
   ///
   /// Errors are handled internally, but may be returned if the command was queued to run later.
-  pub async fn write_command(&mut self, mut command: RedisCommand, force_flush: bool) -> Result<Written, RedisError> {
+  pub async fn write_command(&mut self, command: RedisCommand, force_flush: bool) -> Result<Written, RedisError> {
     let send_all_cluster_nodes = command.kind.is_all_cluster_nodes()
       || (command.kind.closes_connection() && self.inner.config.server.is_clustered());
 
@@ -945,6 +945,14 @@ impl Router {
           command.kind.to_str_debug()
         );
         continue;
+      }
+
+      if let Err(e) = command.decr_check_attempted() {
+        command.respond_to_caller(Err(e));
+        continue;
+      }
+      if command.write_attempts >= 1 {
+        self.inner.counters.incr_redelivery_count();
       }
 
       command.skip_backpressure = true;

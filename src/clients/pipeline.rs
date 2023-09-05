@@ -249,7 +249,9 @@ async fn try_send_all(
     return Vec::new();
   }
 
-  let (command, rx) = prepare_all_commands(commands, false);
+  let (mut command, rx) = prepare_all_commands(commands, false);
+  command.inherit_options(inner);
+
   if let Err(e) = interfaces::send_to_router(inner, command) {
     return vec![Err(e)];
   };
@@ -276,7 +278,9 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
     return Ok(RedisValue::Array(Vec::new()));
   }
 
-  let (command, rx) = prepare_all_commands(commands, true);
+  let (mut command, rx) = prepare_all_commands(commands, true);
+  command.inherit_options(inner);
+
   let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
   protocol_utils::frame_to_results_raw(frame)
@@ -294,7 +298,8 @@ async fn send_last(
   let (tx, rx) = oneshot_channel();
   let mut commands: Vec<RedisCommand> = commands.into_iter().collect();
   commands[len - 1].response = ResponseKind::Respond(Some(tx));
-  let command = RouterCommand::Pipeline { commands };
+  let mut command = RouterCommand::Pipeline { commands };
+  command.inherit_options(inner);
 
   let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;

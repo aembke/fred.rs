@@ -39,18 +39,20 @@ pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C)
 where
   C: Into<RedisCommand>,
 {
-  let command: RedisCommand = command.into();
+  let mut command: RedisCommand = command.into();
   _trace!(
     inner,
     "Sending command {} ({}) to router.",
     command.kind.to_str_debug(),
     command.debug_id()
   );
+
+  command.inherit_options(inner);
   send_to_router(inner, command.into())
 }
 
 /// Send a `RouterCommand` to the router.
-pub(crate) fn send_to_router(inner: &RedisClientInner, command: RouterCommand) -> Result<(), RedisError> {
+pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
   if let Err(e) = inner.command_tx.send(command) {
     // usually happens if the caller tries to send a command before calling `connect` or after calling `quit`

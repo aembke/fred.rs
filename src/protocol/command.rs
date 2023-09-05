@@ -1377,6 +1377,8 @@ pub struct RedisCommand {
   pub arguments:              Vec<RedisValue>,
   /// A oneshot sender used to communicate with the router.
   pub router_tx:              Arc<Mutex<Option<RouterSender>>>,
+  /// The number of times the command has been written to a socket.
+  pub write_attempts:         u32,
   /// The number of write attempts remaining.
   pub attempts_remaining:     u32,
   /// The number of cluster redirections remaining.
@@ -1413,18 +1415,6 @@ pub struct RedisCommand {
   pub caching:                Option<bool>,
 }
 
-impl Drop for RedisCommand {
-  fn drop(&mut self) {
-    if self.has_response_tx() {
-      debug!(
-        "Dropping command `{}` ({}) without responding to caller.",
-        self.kind.to_str_debug(),
-        self.debug_id()
-      );
-    }
-  }
-}
-
 impl fmt::Debug for RedisCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisCommand")
@@ -1433,6 +1423,7 @@ impl fmt::Debug for RedisCommand {
       .field("redirections_remaining", &self.redirections_remaining)
       .field("can_pipeline", &self.can_pipeline)
       .field("arguments", &self.args())
+      .field("write_attempts", &self.write_attempts)
       .finish()
   }
 }
@@ -1449,32 +1440,43 @@ impl From<RedisCommandKind> for RedisCommand {
   }
 }
 
+impl Default for RedisCommand {
+  fn default() -> Self {
+    RedisCommand {
+      kind:                                        RedisCommandKind::Ping,
+      arguments:                                   Vec::new(),
+      timed_out:                                   Arc::new(AtomicBool::new(false)),
+      timeout_dur:                                 None,
+      response:                                    ResponseKind::Respond(None),
+      hasher:                                      ClusterHash::default(),
+      router_tx:                                   Arc::new(Mutex::new(None)),
+      attempts_remaining:                          0,
+      redirections_remaining:                      0,
+      can_pipeline:                                true,
+      skip_backpressure:                           false,
+      transaction_id:                              None,
+      use_replica:                                 false,
+      cluster_node:                                None,
+      network_start:                               None,
+      write_attempts:                              0,
+      #[cfg(feature = "metrics")]
+      created:                                     Instant::now(),
+      #[cfg(feature = "partial-tracing")]
+      traces:                                      CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter:                                     command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching:                                     None,
+    }
+  }
+}
+
 impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
   fn from((kind, arguments): (RedisCommandKind, Vec<RedisValue>)) -> Self {
     RedisCommand {
       kind,
       arguments,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      timeout_dur: None,
-      response: ResponseKind::Respond(None),
-      hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
-      attempts_remaining: 1,
-      redirections_remaining: 1,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      cluster_node: None,
-      network_start: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 }
@@ -1484,27 +1486,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
     RedisCommand {
       kind,
       arguments,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      timeout_dur: None,
       response: ResponseKind::Respond(Some(tx)),
-      hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
-      attempts_remaining: 1,
-      redirections_remaining: 1,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      cluster_node: None,
-      network_start: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 }
@@ -1515,26 +1498,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       kind,
       arguments,
       response,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      timeout_dur: None,
-      hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
-      attempts_remaining: 1,
-      redirections_remaining: 1,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      network_start: None,
-      cluster_node: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 }
@@ -1545,56 +1509,16 @@ impl RedisCommand {
     RedisCommand {
       kind,
       arguments: args,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      timeout_dur: None,
-      response: ResponseKind::Skip,
-      hasher: ClusterHash::FirstKey,
-      router_tx: Arc::new(Mutex::new(None)),
-      attempts_remaining: 1,
-      redirections_remaining: 1,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      cluster_node: None,
-      network_start: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
-      kind:                                        RedisCommandKind::Asking,
-      arguments:                                   Vec::new(),
-      response:                                    ResponseKind::Skip,
-      hasher:                                      ClusterHash::Custom(hash_slot),
-      timed_out:                                   Arc::new(AtomicBool::new(false)),
-      timeout_dur:                                 None,
-      router_tx:                                   Arc::new(Mutex::new(None)),
-      attempts_remaining:                          1,
-      redirections_remaining:                      1,
-      can_pipeline:                                false,
-      skip_backpressure:                           true,
-      transaction_id:                              None,
-      use_replica:                                 false,
-      cluster_node:                                None,
-      network_start:                               None,
-      #[cfg(feature = "metrics")]
-      created:                                     Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces:                                      CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter:                                     command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching:                                     None,
+      kind: RedisCommandKind::Asking,
+      hasher: ClusterHash::Custom(hash_slot),
+      ..RedisCommand::default()
     }
   }
 
@@ -1745,15 +1669,32 @@ impl RedisCommand {
       cluster_node: self.cluster_node.clone(),
       response,
       use_replica: self.use_replica,
+      write_attempts: self.write_attempts,
+      network_start: self.network_start.clone(),
       #[cfg(feature = "metrics")]
       created: Instant::now(),
-      network_start: self.network_start.clone(),
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
       #[cfg(feature = "client-tracking")]
       caching: self.caching.clone(),
+    }
+  }
+
+  /// Inherit connection and perf settings from the client.
+  pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
+    if self.attempts_remaining == 0 {
+      self.attempts_remaining = inner.connection.max_command_attempts;
+    }
+    if self.redirections_remaining == 0 {
+      self.redirections_remaining = inner.connection.max_redirections;
+    }
+    if self.timeout_dur.is_none() {
+      let default_dur = inner.default_command_timeout();
+      if default_dur > 0 {
+        self.timeout_dur = Some(Duration::from_millis(default_dur));
+      }
     }
   }
 
@@ -1938,6 +1879,28 @@ pub enum RouterCommand {
   /// Force sync the replica routing table with the server(s).
   #[cfg(feature = "replicas")]
   SyncReplicas { tx: OneshotSender<Result<(), RedisError>> },
+}
+
+impl RouterCommand {
+  /// Inherit settings from the configuration structs on `inner`.
+  pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
+    match self {
+      RouterCommand::Command(ref mut cmd) => {
+        cmd.inherit_options(inner);
+      },
+      RouterCommand::Pipeline { ref mut commands, .. } => {
+        for cmd in commands.iter_mut() {
+          cmd.inherit_options(inner);
+        }
+      },
+      RouterCommand::Transaction { ref mut commands, .. } => {
+        for cmd in commands.iter_mut() {
+          cmd.inherit_options(inner);
+        }
+      },
+      _ => {},
+    };
+  }
 }
 
 impl fmt::Debug for RouterCommand {

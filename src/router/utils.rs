@@ -160,6 +160,7 @@ pub async fn write_command(
     command.debug_id(),
     writer.server
   );
+  command.write_attempts += 1;
   writer.push_command(inner, command);
   if let Err(e) = writer.write_frame(frame, should_flush).await {
     let mut command = match writer.pop_recent_command() {

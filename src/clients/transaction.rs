@@ -273,13 +273,14 @@ async fn exec(
     commands.len(),
     watched.as_ref().map(|c| c.args().len()).unwrap_or(0)
   );
-  let command = RouterCommand::Transaction {
+  let mut command = RouterCommand::Transaction {
     id,
     tx,
     commands,
     watched,
     abort_on_error,
   };
+  command.inherit_options(inner);
 
   let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;

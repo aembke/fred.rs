@@ -105,6 +105,7 @@ async fn write_with_backpressure(
       Some(command) => command,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
     };
+
     // TODO clean this up
     let rx = match _backpressure {
       Some(backpressure) => match backpressure.wait(inner, &mut command).await {
@@ -152,8 +153,12 @@ async fn write_with_backpressure(
         _debug!(inner, "Handle disconnect for {:?} due to {:?}", server, error);
         let commands = router.connections.disconnect(inner, server.as_ref()).await;
         router.buffer_commands(commands);
-        if let Some(command) = command {
-          router.buffer_command(command);
+        if let Some(mut command) = command {
+          if let Err(e) = command.decr_check_attempted() {
+            command.respond_to_caller(Err(e));
+          } else {
+            router.buffer_command(command);
+          }
         }
         router.sync_network_timeout_state();
 
@@ -206,7 +211,12 @@ async fn write_with_backpressure(
           }
         }
 
-        if let Some(command) = handle_router_response(inner, router, rx).await? {
+        if let Some(mut command) = handle_router_response(inner, router, rx).await? {
+          if let Err(e) = command.decr_check_attempted() {
+            command.respond_to_caller(Err(e));
+            break;
+          }
+
           _command = Some(command);
           _backpressure = None;
           continue;
