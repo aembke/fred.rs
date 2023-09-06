@@ -362,6 +362,17 @@ pub trait EventInterface: ClientLike {
     spawn_event_listener(rx, func)
   }
 
+  /// Spawn a task that runs the provided function whenever the client detects an unresponsive connection.
+  #[cfg(feature = "check-unresponsive")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
+  fn on_unresponsive<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(Server) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.unresponsive_rx();
+    spawn_event_listener(rx, func)
+  }
+
   /// Spawn one task that listens for all event types.
   ///
   /// Errors in any of the provided functions will exit the task.
@@ -428,6 +439,13 @@ pub trait EventInterface: ClientLike {
   /// not appear in the request-response cycle, and so cannot be handled by response futures.
   fn error_rx(&self) -> BroadcastReceiver<RedisError> {
     self.inner().notifications.errors.load().subscribe()
+  }
+
+  /// Receive a message when the client initiates a reconnection after detecting an unresponsive connection.
+  #[cfg(feature = "check-unresponsive")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
+  fn unresponsive_rx(&self) -> BroadcastReceiver<Server> {
+    self.inner().notifications.unresponsive.load().subscribe()
   }
 }
 

@@ -4,7 +4,7 @@ use std::{cmp, time::Duration};
 use url::Url;
 
 #[cfg(feature = "mocks")]
-use crate::mocks::{Echo, Mocks};
+use crate::mocks::Mocks;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
@@ -435,7 +435,7 @@ pub struct RedisConfig {
   /// Normally the reconnection logic only applies to connections that close unexpectedly, but this flag can apply
   /// the same logic to the first connection as it is being created.
   ///
-  /// Note: Callers should use caution setting this to `false` since it can make debugging configuration issues more
+  /// Callers should use caution setting this to `false` since it can make debugging configuration issues more
   /// difficult.
   ///
   /// Default: `true`
@@ -479,13 +479,11 @@ pub struct RedisConfig {
   pub database:  Option<u8>,
   /// TLS configuration options.
   ///
-  /// See the `tls` examples on Github for more information.
-  ///
   /// Default: `None`
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   pub tls:       Option<TlsConfig>,
-  /// Configuration of tracing for this client.
+  /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing:   TracingConfig,

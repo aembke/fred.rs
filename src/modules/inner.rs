@@ -68,6 +68,9 @@ pub struct Notifications {
   /// A broadcast channel for the `on_invalidation` interface.
   #[cfg(feature = "client-tracking")]
   pub invalidations:  ArcSwap<BroadcastSender<Invalidation>>,
+  /// A broadcast channel for notifying callers when servers go unresponsive.
+  #[cfg(feature = "check-unresponsive")]
+  pub unresponsive:   ArcSwap<BroadcastSender<Server>>,
 }
 
 impl Notifications {
@@ -75,16 +78,18 @@ impl Notifications {
     let capacity = globals().default_broadcast_channel_capacity();
 
     Notifications {
-      id:                                                id.clone(),
-      close:                                             broadcast::channel(capacity).0,
-      errors:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      pubsub:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      keyspace:                                          ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      reconnect:                                         ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      cluster_change:                                    ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      connect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      id:                                                  id.clone(),
+      close:                                               broadcast::channel(capacity).0,
+      errors:                                              ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      pubsub:                                              ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      keyspace:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      reconnect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      cluster_change:                                      ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      connect:                                             ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
       #[cfg(feature = "client-tracking")]
-      invalidations:                                     ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      invalidations:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      #[cfg(feature = "check-unresponsive")]
+      unresponsive:                                        ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
     }
   }
 
@@ -98,6 +103,8 @@ impl Notifications {
     utils::swap_new_broadcast_channel(&self.connect);
     #[cfg(feature = "client-tracking")]
     utils::swap_new_broadcast_channel(&self.invalidations);
+    #[cfg(feature = "check-unresponsive")]
+    utils::swap_new_broadcast_channel(&self.unresponsive);
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
@@ -146,6 +153,13 @@ impl Notifications {
   pub fn broadcast_invalidation(&self, msg: Invalidation) {
     if let Err(_) = self.invalidations.load().send(msg) {
       debug!("{}: No `on_invalidation` listeners.", self.id);
+    }
+  }
+
+  #[cfg(feature = "check-unresponsive")]
+  pub fn broadcast_unresponsive(&self, server: Server) {
+    if let Err(_) = self.unresponsive.load().send(server) {
+      debug!("{}: No unresponsive listeners", self.id);
     }
   }
 }
