@@ -25,7 +25,9 @@ mod streams;
 #[cfg(feature = "client-tracking")]
 mod tracking;
 
+#[cfg(not(feature = "mocks"))]
 pub mod centralized;
+#[cfg(not(feature = "mocks"))]
 pub mod clustered;
 
 mod macro_tests {

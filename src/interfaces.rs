@@ -122,6 +122,11 @@ pub trait ClientLike: Clone + Send + Sized {
     self.inner().policy.read().clone()
   }
 
+  /// Read the connection config used to initialize the client.
+  fn connection_config(&self) -> &ConnectionConfig {
+    self.inner().connection.as_ref()
+  }
+
   /// Read the RESP version used by the client when communicating with the server.
   fn protocol_version(&self) -> RespVersion {
     if self.inner().is_resp3() {
@@ -475,3 +480,4 @@ pub use crate::commands::interfaces::{
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
 #[cfg(feature = "client-tracking")]
 pub use crate::commands::interfaces::tracking::TrackingInterface;
+use crate::types::ConnectionConfig;

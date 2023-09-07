@@ -369,7 +369,7 @@ pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: Red
 pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.tracing = TracingConfig::new(true);
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
-  let client = RedisClient::new(config, Some(perf), policy);
+  let client = RedisClient::new(config, Some(perf), None, policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -433,7 +433,7 @@ pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisCo
 #[cfg(feature = "subscriber-client")]
 pub async fn should_ping_with_subscriber_client(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
-  let client = SubscriberClient::new(config, Some(perf), policy);
+  let client = SubscriberClient::new(config, Some(perf), None, policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -456,13 +456,11 @@ pub async fn should_replica_set_and_get(client: RedisClient, _: RedisConfig) -> 
 }
 
 #[cfg(feature = "replicas")]
-pub async fn should_replica_set_and_get_not_lazy(
-  client: RedisClient,
-  mut config: RedisConfig,
-) -> Result<(), RedisError> {
-  let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
-  config.replica.lazy_connections = false;
-  let client = RedisClient::new(config, Some(perf), policy);
+pub async fn should_replica_set_and_get_not_lazy(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let policy = client.client_reconnect_policy();
+  let mut connection = client.connection_config().clone();
+  connection.replica.lazy_connections = false;
+  let client = RedisClient::new(config, None, Some(connection), policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -494,20 +492,19 @@ pub async fn should_pipeline_with_replicas(client: RedisClient, _: RedisConfig) 
 #[cfg(feature = "replicas")]
 pub async fn should_use_cluster_replica_without_redirection(
   client: RedisClient,
-  _: RedisConfig,
+  config: RedisConfig,
 ) -> Result<(), RedisError> {
-  let mut config = client.client_config();
-  config.replica = ReplicaConfig {
+  let mut connection = client.connection_config().clone();
+  connection.replica = ReplicaConfig {
     lazy_connections: true,
     primary_fallback: false,
     ignore_reconnection_errors: true,
     ..ReplicaConfig::default()
   };
-  let mut perf = client.perf_config();
-  perf.max_command_attempts = 1;
+  connection.max_redirections = 0;
   let policy = client.client_reconnect_policy();
 
-  let client = RedisClient::new(config, Some(perf), policy);
+  let client = RedisClient::new(config, None, Some(connection), policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 

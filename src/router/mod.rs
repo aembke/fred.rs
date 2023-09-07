@@ -897,7 +897,7 @@ impl Router {
     let replicas = self.connections.replica_map(&self.inner).await?;
 
     for (mut replica, primary) in replicas.into_iter() {
-      let should_use = if let Some(filter) = self.inner.config.replica.filter.as_ref() {
+      let should_use = if let Some(filter) = self.inner.connection.replica.filter.as_ref() {
         filter.filter(&primary, &replica).await
       } else {
         true

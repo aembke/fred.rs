@@ -505,7 +505,7 @@ impl RedisClientInner {
 
   #[cfg(feature = "replicas")]
   pub fn ignore_replica_reconnect_errors(&self) -> bool {
-    self.config.replica.ignore_reconnection_errors
+    self.connection.replica.ignore_reconnection_errors
   }
 
   #[cfg(not(feature = "replicas"))]

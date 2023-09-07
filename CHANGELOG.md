@@ -26,7 +26,7 @@ Notable or breaking changes from 6.x:
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
 * Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans.
   * The old interface was particularly problematic when used with the metrics interface. 
-* The `on_*` event functions were moved. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
+* The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
 * Mocks are now optional even when the feature flag is enabled.
 
 ## 6.3.1

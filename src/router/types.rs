@@ -103,10 +103,8 @@ impl ConnectionState {
     _debug!(inner, "Checking unresponsive connections...");
 
     let now = Instant::now();
-    let timeout_duration = inner.with_perf_config(|perf| {
-      _trace!(inner, "Using network timeout: {}", perf.network_timeout_ms);
-      Duration::from_millis(perf.network_timeout_ms)
-    });
+    let timeout_duration = Duration::from_millis(inner.connection.unresponsive_timeout_ms);
+    _trace!(inner, "Using network timeout: {:?}", timeout_duration);
 
     let mut unresponsive = VecDeque::new();
     for (server, commands) in self.commands.read().iter() {

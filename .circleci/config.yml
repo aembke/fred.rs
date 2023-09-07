@@ -34,6 +34,11 @@ commands:
       - run:
           name: Build documentation
           command: tests/doc.sh
+  test_mocks:
+    steps:
+      - run:
+          name: Run mock tests
+          command: cargo test --lib --features mocks --no-default-features
   test_default_features:
     steps:
       - checkout
@@ -176,7 +181,7 @@ jobs:
       REDIS_VERSION: 7.0.9
     steps:
       - test_sentinel
-  test-docs:
+  test-misc:
     docker:
       - image: cimg/rust:1.72.0
     environment:
@@ -184,6 +189,7 @@ jobs:
     steps:
       - checkout
       - build_docs
+      - test_mocks
 
 workflows:
   version: 2
@@ -198,6 +204,6 @@ workflows:
       - test-all-features-7_0
       - test-no-features-7_0
       - test-sentinel-7_0
-      - test-docs
+      - test-misc
       - test-cluster-tls-features-7_0
       - test-cluster-rustls-features-7_0

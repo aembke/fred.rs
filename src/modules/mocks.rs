@@ -330,13 +330,15 @@ mod tests {
     prelude::Expiration,
     types::{RedisConfig, RedisValue, SetOptions},
   };
+  use std::sync::Arc;
   use tokio::task::JoinHandle;
 
   async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
     let config = RedisConfig {
-      mocks: Some(mocks) .. Default::default(),
+      mocks: Some(mocks),
+      ..Default::default()
     };
-    let client = RedisClient::new(config, None, None);
+    let client = RedisClient::new(config, None, None, None);
     let jh = client.connect();
     let _ = client.wait_for_connect().await.expect("Failed to connect");
 

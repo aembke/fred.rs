@@ -16,8 +16,10 @@ use crate::{
 #[cfg(feature = "replicas")]
 use std::{
   collections::{BTreeSet, HashMap, VecDeque},
+  convert::identity,
   fmt,
   fmt::Formatter,
+  mem,
   sync::Arc,
 };
 
@@ -98,13 +100,65 @@ impl Default for ReplicaConfig {
   }
 }
 
+/// A container for round-robin routing among replica nodes.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+pub struct ReplicaRouter {
+  // use two btrees like a queue, since it's easier to implement an infinite iterator on top of a queue
+  // without any self-referential shenanigans
+  replicas_remaining: BTreeSet<Server>,
+  replicas_next:      BTreeSet<Server>,
+}
+
+#[cfg(feature = "replicas")]
+impl ReplicaRouter {
+  /// Read the server that should receive the next command.
+  pub fn next(&mut self) -> Option<&Server> {
+    if let Some(last_remaining) = self.replicas_remaining.pop_last() {
+      self.replicas_next.insert(last_remaining);
+      self.replicas_next.first()
+    } else {
+      if self.replicas_next.is_empty() {
+        None
+      } else {
+        mem::swap(&mut self.replicas_next, &mut self.replicas_remaining);
+        self.next()
+      }
+    }
+  }
+
+  /// Conditionally add the server to the replica set.
+  pub fn add(&mut self, server: Server) {
+    if !self.replicas_remaining.contains(&server) {
+      self.replicas_next.insert(server);
+    }
+  }
+
+  /// Remove the server from the replica set.
+  pub fn remove(&mut self, server: &Server) {
+    self.replicas_remaining.remove(server);
+    self.replicas_next.remove(server);
+  }
+
+  /// The size of the replica set.
+  pub fn len(&self) -> usize {
+    self.replicas_remaining.len() + self.replicas_next.len()
+  }
+
+  /// Iterate over the replica set.
+  pub fn iter(&self) -> impl Iterator<Item = &Server> {
+    self.replicas_remaining.iter().chain(self.replicas_next.iter())
+  }
+}
+
 /// A container for round-robin routing to replica servers.
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaSet {
   /// A map of primary server IDs to a counter and set of replica server IDs.
-  servers: HashMap<Server, (usize, Vec<Server>)>,
+  servers: HashMap<Server, ReplicaRouter>,
 }
 
 #[cfg(feature = "replicas")]
@@ -119,41 +173,43 @@ impl ReplicaSet {
 
   /// Add a replica node to the routing table.
   pub fn add(&mut self, primary: Server, replica: Server) {
-    let (_, replicas) = self.servers.entry(primary).or_insert((0, Vec::new()));
-
-    if !replicas.contains(&replica) {
-      replicas.push(replica);
-    }
+    let router = self.servers.entry(primary).or_insert(ReplicaRouter::default());
+    router.add(replica);
   }
 
   /// Remove a replica node mapping from the routing table.
   pub fn remove(&mut self, primary: &Server, replica: &Server) {
-    if let Some((count, mut replicas)) = self.servers.remove(primary) {
-      replicas = replicas.drain(..).filter(|node| node != replica).collect();
+    let should_remove = if let Some(router) = self.servers.get_mut(primary) {
+      router.remove(replica);
+      router.len() == 0
+    } else {
+      false
+    };
 
-      if !replicas.is_empty() {
-        self.servers.insert(primary.clone(), (count, replicas));
-      }
+    if should_remove {
+      self.servers.remove(primary);
     }
   }
 
   /// Read the server ID of the next replica that should receive a command.
   pub fn next_replica(&mut self, primary: &Server) -> Option<&Server> {
-    self.servers.get_mut(primary).and_then(|(idx, replicas)| {
-      *idx += 1;
-      replicas.get(*idx % replicas.len())
-    })
+    self.servers.get_mut(primary).and_then(|router| router.next())
   }
 
   /// Read all the replicas associated with the provided primary node.
-  pub fn replicas(&self, primary: &Server) -> Option<&Vec<Server>> {
-    self.servers.get(primary).map(|(_, replicas)| replicas)
+  pub fn replicas(&self, primary: &Server) -> impl Iterator<Item = &Server> {
+    self
+      .servers
+      .get(primary)
+      .map(|router| router.iter())
+      .into_iter()
+      .flat_map(identity)
   }
 
   /// Return a map of replica nodes to primary nodes.
   pub fn to_map(&self) -> HashMap<Server, Server> {
     let mut out = HashMap::with_capacity(self.servers.len());
-    for (primary, (_, replicas)) in self.servers.iter() {
+    for (primary, replicas) in self.servers.iter() {
       for replica in replicas.iter() {
         out.insert(replica.clone(), primary.clone());
       }
@@ -165,7 +221,7 @@ impl ReplicaSet {
   /// Read the set of all known replica nodes for all primary nodes.
   pub fn all_replicas(&self) -> Vec<Server> {
     let mut out = Vec::with_capacity(self.servers.len());
-    for (_, (_, replicas)) in self.servers.iter() {
+    for (_, replicas) in self.servers.iter() {
       for replica in replicas.iter() {
         out.push(replica.clone());
       }
@@ -263,7 +319,7 @@ impl Replicas {
       primary
     );
 
-    if !inner.config.replica.lazy_connections || force {
+    if !inner.connection.replica.lazy_connections || force {
       let mut transport = connection::create(inner, &replica, None).await?;
       let _ = transport.setup(inner, None).await?;
 
@@ -317,11 +373,9 @@ impl Replicas {
 
   /// Whether a working connection exists to any replica for the provided primary node.
   pub fn has_replica_connection(&self, primary: &Server) -> bool {
-    if let Some(replicas) = self.routing.replicas(primary) {
-      for replica in replicas.iter() {
-        if self.has_connection(replica) {
-          return true;
-        }
+    for replica in self.routing.replicas(primary) {
+      if self.has_connection(replica) {
+        return true;
       }
     }
 

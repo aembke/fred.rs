@@ -14,7 +14,7 @@ use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, futu
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::{ConnectionConfig, Server};
+use fred::types::{Builder, ConnectionConfig, Server};
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]

@@ -43,7 +43,7 @@ pub trait TrackingInterface: ClientLike + Sized {
   /// See [invalidation_rx](Self::invalidation_rx) for a more flexible variation of this function.
   fn on_invalidation<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(Invalidation) -> RedisResult<()>,
+    F: Fn(Invalidation) -> RedisResult<()> + Send + 'static,
   {
     let mut invalidation_rx = self.invalidation_rx();
 
