@@ -405,6 +405,17 @@ impl ClusterRouting {
     ClusterRouting { data: Vec::new() }
   }
 
+  /// Create a new routing table from the result of the `CLUSTER SLOTS` command.
+  ///
+  /// The `default_host` value refers to the server that provided the response.
+  pub fn from_cluster_slots(value: RedisValue, default_host: &str) -> Result<Self, RedisError> {
+    let default_host = Str::from(default_host);
+    let mut data = cluster::parse_cluster_slots(value, &default_host)?;
+    data.sort_by(|a, b| a.start.cmp(&b.start));
+
+    Ok(ClusterRouting { data })
+  }
+
   /// Read a set of unique hash slots that each map to a different primary/main node in the cluster.
   pub fn unique_hash_slots(&self) -> Vec<u16> {
     let mut out = BTreeMap::new();

@@ -12,6 +12,7 @@ services:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
       - app-tier
+    privileged: true
     command:
       - "/project/tests/docker/runners/bash/cluster-rustls.sh"
       - "${TEST_ARGV}"
@@ -25,5 +26,6 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       FRED_TEST_TLS_CREDS: "/project/tests/tmp/creds"
     volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
       - "../../..:/project"
       - "~/.cargo/registry:/usr/local/cargo/registry"

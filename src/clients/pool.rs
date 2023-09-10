@@ -160,6 +160,30 @@ impl ClientLike for RedisPool {
     &self.next().inner
   }
 
+  /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) on each client in place with new
+  /// values.
+  fn update_perf_config(&self, config: PerformanceConfig) {
+    for client in self.clients.iter() {
+      client.update_perf_config(config.clone());
+    }
+  }
+
+  /// Read the set of active connections across all clients in the pool.
+  async fn active_connections(&self) -> Result<Vec<Server>, RedisError> {
+    let all_connections = try_join_all(self.clients.iter().map(|c| c.active_connections())).await?;
+    let total_size = if all_connections.is_empty() {
+      return Ok(Vec::new());
+    } else {
+      all_connections.len() * all_connections[0].len()
+    };
+    let mut out = Vec::with_capacity(total_size);
+
+    for connections in all_connections.into_iter() {
+      out.extend(connections);
+    }
+    Ok(out)
+  }
+
   /// Override the DNS resolution logic for all clients in the pool.
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
@@ -187,13 +211,6 @@ impl ClientLike for RedisPool {
     })
   }
 
-  /// Wait for all the clients to connect to the server.
-  async fn wait_for_connect(&self) -> RedisResult<()> {
-    let _ = try_join_all(self.clients.iter().map(|c| c.wait_for_connect())).await?;
-
-    Ok(())
-  }
-
   /// Force a reconnection to the server(s) for each client.
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
@@ -203,28 +220,11 @@ impl ClientLike for RedisPool {
     Ok(())
   }
 
-  /// Read the set of active connections across all clients in the pool.
-  async fn active_connections(&self) -> Result<Vec<Server>, RedisError> {
-    let all_connections = try_join_all(self.clients.iter().map(|c| c.active_connections())).await?;
-    let total_size = if all_connections.is_empty() {
-      return Ok(Vec::new());
-    } else {
-      all_connections.len() * all_connections[0].len()
-    };
-    let mut out = Vec::with_capacity(total_size);
+  /// Wait for all the clients to connect to the server.
+  async fn wait_for_connect(&self) -> RedisResult<()> {
+    let _ = try_join_all(self.clients.iter().map(|c| c.wait_for_connect())).await?;
 
-    for connections in all_connections.into_iter() {
-      out.extend(connections);
-    }
-    Ok(out)
-  }
-
-  /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) on each client in place with new
-  /// values.
-  fn update_perf_config(&self, config: PerformanceConfig) {
-    for client in self.clients.iter() {
-      client.update_perf_config(config.clone());
-    }
+    Ok(())
   }
 
   /// Close the connection to the Redis server for each client. The returned future resolves when the command has been

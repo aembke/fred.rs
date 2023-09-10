@@ -1,7 +1,7 @@
 version: '2'
 
 networks:
-  app-tier:
+  fred-tests:
     driver: bridge
 
 services:
@@ -16,7 +16,7 @@ services:
     ports:
       - "6380:6380"
     networks:
-      - app-tier
+      - fred-tests
     volumes:
       - '../../../tests/users.acl:/opt/bitnami/redis/mounted-etc/users.acl'
   redis-sentinel-replica:
@@ -36,7 +36,7 @@ services:
     ports:
       - "6381:6381"
     networks:
-      - app-tier
+      - fred-tests
     volumes:
       - '../../../tests/users.acl:/opt/bitnami/redis/mounted-etc/users.acl'
   redis-sentinel-1:
@@ -57,7 +57,7 @@ services:
     ports:
       - '26379:26379'
     networks:
-      - app-tier
+      - fred-tests
     volumes:
       - '../../../tests/users.acl:/opt/bitnami/redis/mounted-etc/users.acl'
   redis-sentinel-2:
@@ -79,7 +79,7 @@ services:
     ports:
       - '26380:26380'
     networks:
-      - app-tier
+      - fred-tests
     volumes:
       - '../../../tests/users.acl:/opt/bitnami/redis/mounted-etc/users.acl'
   redis-sentinel-3:
@@ -101,6 +101,6 @@ services:
     ports:
       - '26381:26381'
     networks:
-      - app-tier
+      - fred-tests
     volumes:
       - '../../../tests/users.acl:/opt/bitnami/redis/mounted-etc/users.acl'

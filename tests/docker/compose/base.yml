@@ -14,7 +14,7 @@ services:
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
-      - app-tier
+      - fred-tests
     command:
       - "/bin/bash"
     environment:
@@ -31,5 +31,6 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"
     volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
       - "../../..:/project"
       - "~/.cargo/registry:/usr/local/cargo/registry"

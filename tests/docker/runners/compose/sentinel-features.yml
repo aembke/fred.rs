@@ -14,6 +14,7 @@ services:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
       - app-tier
+    privileged: true
     command:
       - "/project/tests/docker/runners/bash/sentinel-features.sh"
       - "${TEST_ARGV}"
@@ -27,5 +28,6 @@ services:
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"
     volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
       - "../../..:/project"
       - "~/.cargo/registry:/usr/local/cargo/registry"

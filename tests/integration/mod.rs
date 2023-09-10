@@ -1,5 +1,6 @@
 #[macro_use]
 pub mod utils;
+pub mod docker;
 
 mod acl;
 mod client;
@@ -41,5 +42,19 @@ mod macro_tests {
   #[test]
   fn should_use_static_bytes_macro() {
     let _b = b!(b"foo");
+  }
+}
+
+mod docker_tests {
+  use super::*;
+
+  #[tokio::test]
+  async fn should_read_docker_state() {
+    pretty_env_logger::try_init().unwrap();
+
+    // FIXME need a portable way to expose the docker socket
+    // let routing = docker::inspect_cluster(false).await.unwrap();
+    // println!("routing {:?}", routing.slots());
+    // panic!("meh");
   }
 }
