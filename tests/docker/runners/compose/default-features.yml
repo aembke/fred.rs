@@ -12,7 +12,7 @@ services:
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
-      - app-tier
+      - fred-tests
     command:
       - "/project/tests/docker/runners/bash/default-features.sh"
       - "${TEST_ARGV}"

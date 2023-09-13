@@ -24,6 +24,7 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
+use fred::types::Options;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -523,5 +524,30 @@ pub async fn should_gracefully_quit(client: RedisClient, _: RedisConfig) -> Resu
   let _ = client.quit().await?;
   let _ = connection.await;
 
+  Ok(())
+}
+
+pub async fn should_support_options_with_pipeline(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let options = Options {
+    timeout: Some(Duration::from_millis(100)),
+    max_attempts: Some(42),
+    max_redirections: Some(43),
+    ..Default::default()
+  };
+
+  let pipeline = client.pipeline().with_options(&options);
+  let _: () = pipeline.blpop("foo", 2.0).await?;
+  let results = pipeline.try_all::<RedisValue>().await;
+  assert_eq!(results[0].clone().unwrap_err().kind(), &RedisErrorKind::Timeout);
+
+  Ok(())
+}
+
+pub async fn should_reuse_pipeline(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
+  assert_eq!(pipeline.last::<i64>().await?, 2);
+  assert_eq!(pipeline.last::<i64>().await?, 4);
   Ok(())
 }

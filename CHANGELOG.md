@@ -18,15 +18,14 @@ Notable or breaking changes from 6.x:
 
 * The new [builder](src/types/builder.rs) interface is likely quite a bit easier to use than the old initialization interface.
 * `ArcStr` has been replaced with `bytes_utils::Str`. 
-* `FromRedis<bool> for RedisValue` now converts `Null` to `false`.
+* Timeout arguments or fields now all use `Duration`.
+* `FromRedis<bool> for RedisValue` now converts `Null` to `false` rather than returning an error.
 * The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer. 
-* The `MEMORY USAGE` interface now returns generic types.
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
 * The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
 * Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans.
-  * The old interface was particularly problematic when used with the metrics interface. 
-* The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server` too. See the `EventInterface` for more info.
+* The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`. See the `EventInterface` for more info.
 * Mocks are now optional even when the feature flag is enabled.
 
 ## 6.3.1

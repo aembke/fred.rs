@@ -54,6 +54,8 @@ mod other {
   cluster_test!(other, should_pipeline_try_all);
   cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
   cluster_test!(other, should_gracefully_quit);
+  cluster_test!(other, should_support_options_with_pipeline);
+  cluster_test!(other, should_reuse_pipeline);
 
   //#[cfg(feature = "dns")]
   // cluster_test!(other, should_use_trust_dns);

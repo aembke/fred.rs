@@ -194,8 +194,8 @@ pub fn parse_cluster_changes(
   for server in writers.keys() {
     old_servers.insert(server.clone());
   }
-  let add = new_servers.difference(&old_servers).map(|s| s.clone()).collect();
-  let remove = old_servers.difference(&new_servers).map(|s| s.clone()).collect();
+  let add = new_servers.difference(&old_servers).cloned().collect();
+  let remove = old_servers.difference(&new_servers).cloned().collect();
 
   ClusterChange { add, remove }
 }
@@ -564,7 +564,7 @@ pub async fn cluster_slots_backchannel(
         _trace!(inner, "Sending backchannel CLUSTER SLOTS to {}", transport.server);
         client_utils::apply_timeout(
           transport.request_response(command, inner.is_resp3()),
-          inner.connection.internal_command_timeout_ms,
+          inner.internal_command_timeout(),
         )
         .await
         .ok()
@@ -587,7 +587,7 @@ pub async fn cluster_slots_backchannel(
         let mut transport = connect_any(inner, old_cache).await?;
         let frame = client_utils::apply_timeout(
           transport.request_response(command, inner.is_resp3()),
-          inner.connection.internal_command_timeout_ms,
+          inner.internal_command_timeout(),
         )
         .await?;
         let host = transport.default_host.clone();
@@ -603,7 +603,7 @@ pub async fn cluster_slots_backchannel(
       let mut transport = connect_any(inner, old_cache).await?;
       let frame = client_utils::apply_timeout(
         transport.request_response(command, inner.is_resp3()),
-        inner.connection.internal_command_timeout_ms,
+        inner.internal_command_timeout(),
       )
       .await?;
       let host = transport.default_host.clone();

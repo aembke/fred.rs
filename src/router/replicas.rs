@@ -105,24 +105,24 @@ impl Default for ReplicaConfig {
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub struct ReplicaRouter {
-  // use two btrees like a queue, since it's easier to implement an infinite iterator on top of a queue
-  // without any self-referential shenanigans
-  replicas_remaining: BTreeSet<Server>,
-  replicas_next:      BTreeSet<Server>,
+  // use two btrees like a queue since it's easier to implement an infinite iterator on top of a queue
+  // without any self-referential shenanigans, and we get uniqueness and log time contains()
+  remaining: BTreeSet<Server>,
+  next:      BTreeSet<Server>,
 }
 
 #[cfg(feature = "replicas")]
 impl ReplicaRouter {
   /// Read the server that should receive the next command.
   pub fn next(&mut self) -> Option<&Server> {
-    if let Some(last_remaining) = self.replicas_remaining.pop_last() {
-      self.replicas_next.insert(last_remaining);
-      self.replicas_next.first()
+    if let Some(last_remaining) = self.remaining.pop_last() {
+      self.next.insert(last_remaining);
+      self.next.first()
     } else {
-      if self.replicas_next.is_empty() {
+      if self.next.is_empty() {
         None
       } else {
-        mem::swap(&mut self.replicas_next, &mut self.replicas_remaining);
+        mem::swap(&mut self.next, &mut self.remaining);
         self.next()
       }
     }
@@ -130,25 +130,25 @@ impl ReplicaRouter {
 
   /// Conditionally add the server to the replica set.
   pub fn add(&mut self, server: Server) {
-    if !self.replicas_remaining.contains(&server) {
-      self.replicas_next.insert(server);
+    if !self.remaining.contains(&server) {
+      self.next.insert(server);
     }
   }
 
   /// Remove the server from the replica set.
   pub fn remove(&mut self, server: &Server) {
-    self.replicas_remaining.remove(server);
-    self.replicas_next.remove(server);
+    self.remaining.remove(server);
+    self.next.remove(server);
   }
 
   /// The size of the replica set.
   pub fn len(&self) -> usize {
-    self.replicas_remaining.len() + self.replicas_next.len()
+    self.remaining.len() + self.next.len()
   }
 
   /// Iterate over the replica set.
   pub fn iter(&self) -> impl Iterator<Item = &Server> {
-    self.replicas_remaining.iter().chain(self.replicas_next.iter())
+    self.remaining.iter().chain(self.next.iter())
   }
 }
 
@@ -173,8 +173,11 @@ impl ReplicaSet {
 
   /// Add a replica node to the routing table.
   pub fn add(&mut self, primary: Server, replica: Server) {
-    let router = self.servers.entry(primary).or_insert(ReplicaRouter::default());
-    router.add(replica);
+    self
+      .servers
+      .entry(primary)
+      .or_insert(ReplicaRouter::default())
+      .add(replica);
   }
 
   /// Remove a replica node mapping from the routing table.
@@ -188,6 +191,13 @@ impl ReplicaSet {
 
     if should_remove {
       self.servers.remove(primary);
+    }
+  }
+
+  /// Remove the replica from all routing sets.
+  pub fn remove_replica(&mut self, replica: &Server) {
+    for routing in self.servers.values_mut() {
+      routing.remove(replica);
     }
   }
 
@@ -337,6 +347,19 @@ impl Replicas {
     Ok(())
   }
 
+  /// Drop the socket associated with the provided server.
+  pub async fn drop_writer(&mut self, replica: &Server) {
+    if let Some(writer) = self.writers.remove(replica) {
+      let commands = writer.graceful_close().await;
+      self.buffer.extend(commands);
+    }
+  }
+
+  /// Remove the replica from the routing table.
+  pub fn remove_replica(&mut self, replica: &Server) {
+    self.routing.remove_replica(replica);
+  }
+
   /// Close the replica connection and optionally remove the replica from the routing table.
   pub async fn remove_connection(
     &mut self,
@@ -351,10 +374,7 @@ impl Replicas {
       replica,
       primary
     );
-    if let Some(writer) = self.writers.remove(replica) {
-      let commands = writer.graceful_close().await;
-      self.buffer.extend(commands);
-    }
+    self.drop_writer(replica).await;
 
     if !keep_routable {
       self.routing.remove(primary, replica);
@@ -390,6 +410,37 @@ impl Replicas {
   /// Return a map of `replica` -> `primary` server identifiers.
   pub fn routing_table(&self) -> HashMap<Server, Server> {
     self.routing.to_map()
+  }
+
+  /// Check the active connections and drop any without a working reader task.
+  pub async fn drop_broken_connections(&mut self) {
+    let mut new_writers = HashMap::with_capacity(self.writers.len());
+    for (server, writer) in self.writers.drain() {
+      if writer.is_working() {
+        // TODO maybe ping it here as well?
+        new_writers.insert(server, writer);
+      } else {
+        let commands = writer.graceful_close().await;
+        self.buffer.extend(commands);
+      }
+    }
+
+    self.writers = new_writers;
+  }
+
+  /// Read the set of all active connections.
+  pub fn active_connections(&self) -> Vec<Server> {
+    self
+      .writers
+      .iter()
+      .filter_map(|(server, writer)| {
+        if writer.is_working() {
+          Some(server.clone())
+        } else {
+          None
+        }
+      })
+      .collect()
   }
 
   /// Discover and connect to replicas via the `ROLE` command.

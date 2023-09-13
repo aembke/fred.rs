@@ -49,12 +49,12 @@ pub fn check_backpressure(
           BackpressurePolicy::Drain => Ok(Some(Backpressure::Block)),
           BackpressurePolicy::Sleep {
             disable_backpressure_scaling,
-            min_sleep_duration_ms,
+            min_sleep_duration,
           } => {
             let duration = if disable_backpressure_scaling {
-              Duration::from_millis(min_sleep_duration_ms)
+              min_sleep_duration.clone()
             } else {
-              Duration::from_millis(cmp::max(min_sleep_duration_ms, in_flight as u64))
+              Duration::from_millis(cmp::max(min_sleep_duration.as_millis() as u64, in_flight as u64))
             };
 
             Ok(Some(Backpressure::Wait(duration)))
@@ -363,7 +363,7 @@ pub async fn cluster_redirect_with_policy(
   slot: u16,
   server: &Server,
 ) -> Result<(), RedisError> {
-  let mut delay = Duration::from_millis(inner.connection.cluster_cache_update_delay_ms as u64);
+  let mut delay = inner.connection.cluster_cache_update_delay.clone();
 
   loop {
     if !delay.is_zero() {
@@ -390,7 +390,7 @@ pub async fn send_asking_with_policy(
   server: &Server,
   slot: u16,
 ) -> Result<(), RedisError> {
-  let mut delay = Duration::from_millis(inner.connection.cluster_cache_update_delay_ms as u64);
+  let mut delay = inner.connection.cluster_cache_update_delay.clone();
 
   loop {
     if !delay.is_zero() {
@@ -491,7 +491,7 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
 
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
-  let mut delay = Duration::from_millis(inner.connection.cluster_cache_update_delay_ms as u64);
+  let mut delay = inner.connection.cluster_cache_update_delay.clone();
 
   loop {
     if !delay.is_zero() {

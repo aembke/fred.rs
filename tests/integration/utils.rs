@@ -10,7 +10,7 @@ use fred::{
   types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
 };
 use redis_protocol::resp3::prelude::RespVersion;
-use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future};
+use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future, time::Duration};
 
 const RECONNECT_DELAY: u32 = 1000;
 
@@ -227,7 +227,7 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 20_000,
+    default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
 

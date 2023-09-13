@@ -631,8 +631,16 @@ impl RedisClientInner {
     self.performance.load().max_feed_count
   }
 
-  pub fn default_command_timeout(&self) -> u64 {
-    self.performance.load().default_command_timeout_ms
+  pub fn default_command_timeout(&self) -> Duration {
+    self.performance.load().default_command_timeout.clone()
+  }
+
+  pub fn connection_timeout(&self) -> Duration {
+    self.connection.connection_timeout.clone()
+  }
+
+  pub fn internal_command_timeout(&self) -> Duration {
+    self.connection.internal_command_timeout.clone()
   }
 
   pub async fn set_blocked_server(&self, server: &Server) {

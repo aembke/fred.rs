@@ -74,6 +74,8 @@ fn prepare_all_commands(
 }
 
 /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
+///
+/// See the [all](Self::all), [last](Self::last), and [try_all](Self::try_all) functions for more information.
 pub struct Pipeline<C: ClientLike> {
   commands: Arc<Mutex<VecDeque<RedisCommand>>>,
   client:   C,
@@ -227,8 +229,9 @@ impl<C: ClientLike> Pipeline<C> {
   ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
   ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
   ///
-  ///   let result: i64 = pipeline.last().await?;
-  ///   assert_eq!(results, 2);
+  ///   assert_eq!(pipeline.last::<i64>().await?, 2);
+  ///   // pipelines can also be reused
+  ///   assert_eq!(pipeline.last::<i64>().await?, 4);
   ///   Ok(())
   /// }
   /// ```
@@ -251,16 +254,17 @@ async fn try_send_all(
 
   let (mut command, rx) = prepare_all_commands(commands, false);
   command.inherit_options(inner);
+  let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
   if let Err(e) = interfaces::send_to_router(inner, command) {
     return vec![Err(e)];
   };
-  let frame = match utils::apply_timeout(rx, inner.default_command_timeout()).await {
+  let frame = match utils::apply_timeout(rx, timeout_dur).await {
     Ok(result) => match result {
       Ok(f) => f,
       Err(e) => return vec![Err(e)],
     },
-    Err(e) => return vec![Err(e)],
+    Err(e) => return vec![Err(e.into())],
   };
 
   if let Resp3Frame::Array { data, .. } = frame {
@@ -280,9 +284,10 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
 
   let (mut command, rx) = prepare_all_commands(commands, true);
   command.inherit_options(inner);
+  let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
   let _ = interfaces::send_to_router(inner, command)?;
-  let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
+  let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results_raw(frame)
 }
 
@@ -300,8 +305,9 @@ async fn send_last(
   commands[len - 1].response = ResponseKind::Respond(Some(tx));
   let mut command = RouterCommand::Pipeline { commands };
   command.inherit_options(inner);
+  let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
   let _ = interfaces::send_to_router(inner, command)?;
-  let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
+  let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results_raw(frame)
 }

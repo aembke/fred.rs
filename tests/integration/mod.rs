@@ -50,8 +50,7 @@ mod docker_tests {
 
   #[tokio::test]
   async fn should_read_docker_state() {
-    pretty_env_logger::try_init().unwrap();
-
+    // pretty_env_logger::try_init().unwrap();
     // FIXME need a portable way to expose the docker socket
     // let routing = docker::inspect_cluster(false).await.unwrap();
     // println!("routing {:?}", routing.slots());

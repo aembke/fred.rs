@@ -1,7 +1,7 @@
 version: '2'
 
 networks:
-  app-tier:
+  fred-tests:
     driver: bridge
 
 services:

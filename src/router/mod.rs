@@ -13,7 +13,7 @@ use crate::{
 use futures::future::try_join_all;
 use semver::Version;
 use std::{
-  collections::{HashMap, VecDeque},
+  collections::{BTreeSet, HashMap, HashSet, VecDeque},
   fmt,
   fmt::Formatter,
   sync::Arc,
@@ -893,10 +893,25 @@ impl Router {
   #[cfg(feature = "replicas")]
   pub async fn sync_replicas(&mut self) -> Result<(), RedisError> {
     debug!("{}: Syncing replicas...", self.inner.id);
-    let _ = self.replicas.clear_connections(&self.inner).await?;
-    let replicas = self.connections.replica_map(&self.inner).await?;
+    self.replicas.drop_broken_connections().await;
+    let old_connections = self.replicas.active_connections();
+    let new_replica_map = self.connections.replica_map(&self.inner).await?;
 
-    for (mut replica, primary) in replicas.into_iter() {
+    let old_connections_idx: BTreeSet<_> = old_connections.iter().collect();
+    let new_connections_idx: BTreeSet<_> = new_replica_map.keys().collect();
+    let add: HashSet<_> = new_connections_idx.difference(&old_connections_idx).collect();
+    let remove: Vec<_> = old_connections_idx.difference(&new_connections_idx).collect();
+    debug!(
+      "{}: Replica changes - add: {:?}, remove: {:?}",
+      self.inner.id, add, remove
+    );
+
+    for server in remove.into_iter() {
+      self.replicas.drop_writer(&server).await;
+      self.replicas.remove_replica(&server);
+    }
+
+    for (mut replica, primary) in new_replica_map.into_iter() {
       let should_use = if let Some(filter) = self.inner.connection.replica.filter.as_ref() {
         filter.filter(&primary, &replica).await
       } else {
@@ -918,7 +933,6 @@ impl Router {
       .server_state
       .write()
       .update_replicas(self.replicas.routing_table());
-
     self.replicas.retry_buffer(&self.inner);
     Ok(())
   }

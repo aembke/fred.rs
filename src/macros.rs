@@ -8,41 +8,41 @@ macro_rules! to(
 
 macro_rules! _trace(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Trace, |name| {
-      log::trace!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Trace) {
+      log::trace!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _debug(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Debug, |name| {
-      log::debug!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Debug) {
+      log::debug!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _error(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Error, |name| {
-      log::error!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Error) {
+      log::error!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _warn(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Warn, |name| {
-      log::warn!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Warn) {
+      log::warn!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _info(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Info, |name| {
-      log::info!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Info) {
+      log::info!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
@@ -72,16 +72,6 @@ macro_rules! span_lvl {
 macro_rules! fspan (
   ($cmd:ident, $($arg:tt)*) => {
     crate::trace::Span {}
-  }
-);
-
-/// Async try! for `AsyncResult`. This is rarely used on its own, but rather as a part of try_into!.
-macro_rules! atry (
-  ($expr:expr) => {
-    match $expr {
-      Ok(val) => val,
-      Err(e) => return crate::interfaces::AsyncResult::from(Err(e))
-    }
   }
 );
 

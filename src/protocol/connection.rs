@@ -42,6 +42,7 @@ use crate::{
 use bytes_utils::Str;
 #[cfg(feature = "enable-rustls")]
 use std::convert::TryInto;
+use std::time::Duration;
 #[cfg(feature = "replicas")]
 use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]
@@ -641,7 +642,7 @@ impl RedisTransport {
     let command: RedisCommand = RedisCommandKind::Quit.into();
     let quit_ft = self.request_response(command, inner.is_resp3());
 
-    if let Err(e) = client_utils::apply_timeout(quit_ft, inner.connection.internal_command_timeout_ms).await {
+    if let Err(e) = client_utils::apply_timeout(quit_ft, inner.internal_command_timeout()).await {
       _warn!(inner, "Error calling QUIT on backchannel: {:?}", e);
     }
     let _ = self.transport.close().await;
@@ -701,8 +702,8 @@ impl RedisTransport {
 
   /// Authenticate, set the protocol version, set the client name, select the provided database, cache the
   /// connection ID and server version, and check the cluster state (if applicable).
-  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<u64>) -> Result<(), RedisError> {
-    let timeout = timeout.unwrap_or(inner.connection.internal_command_timeout_ms);
+  pub async fn setup(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<Duration>) -> Result<(), RedisError> {
+    let timeout = timeout.unwrap_or(inner.internal_command_timeout());
 
     utils::apply_timeout(
       async {
@@ -722,11 +723,15 @@ impl RedisTransport {
 
   /// Send `READONLY` to the server.
   #[cfg(feature = "replicas")]
-  pub async fn readonly(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<u64>) -> Result<(), RedisError> {
+  pub async fn readonly(
+    &mut self,
+    inner: &Arc<RedisClientInner>,
+    timeout: Option<Duration>,
+  ) -> Result<(), RedisError> {
     if !inner.config.server.is_clustered() {
       return Ok(());
     }
-    let timeout = timeout.unwrap_or(inner.connection.internal_command_timeout_ms);
+    let timeout = timeout.unwrap_or(inner.internal_command_timeout());
 
     utils::apply_timeout(
       async {
@@ -747,9 +752,9 @@ impl RedisTransport {
   pub async fn role(
     &mut self,
     inner: &Arc<RedisClientInner>,
-    timeout: Option<u64>,
+    timeout: Option<Duration>,
   ) -> Result<RedisValue, RedisError> {
-    let timeout = timeout.unwrap_or(inner.connection.internal_command_timeout_ms);
+    let timeout = timeout.unwrap_or(inner.internal_command_timeout());
     let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
 
     utils::apply_timeout(
@@ -962,7 +967,7 @@ impl RedisWriter {
 
         Ok::<_, RedisError>(())
       },
-      CONNECTION_CLOSE_TIMEOUT_MS,
+      Duration::from_millis(CONNECTION_CLOSE_TIMEOUT_MS),
     )
     .await;
 
@@ -976,9 +981,9 @@ impl RedisWriter {
 pub async fn create(
   inner: &Arc<RedisClientInner>,
   server: &Server,
-  timeout_ms: Option<u64>,
+  timeout: Option<Duration>,
 ) -> Result<RedisTransport, RedisError> {
-  let timeout = timeout_ms.unwrap_or(inner.connection.connection_timeout_ms);
+  let timeout = timeout.unwrap_or(inner.connection_timeout());
 
   _trace!(
     inner,
@@ -1042,10 +1047,13 @@ pub async fn request_response(
   inner: &Arc<RedisClientInner>,
   writer: &mut RedisWriter,
   mut command: RedisCommand,
-  timeout: Option<u64>,
+  timeout: Option<Duration>,
 ) -> Result<Resp3Frame, RedisError> {
   let (tx, rx) = oneshot_channel();
   command.response = ResponseKind::Respond(Some(tx));
+  let timeout_dur = timeout
+    .or(command.timeout_dur.clone())
+    .unwrap_or_else(|| inner.default_command_timeout());
 
   _trace!(
     inner,
@@ -1061,12 +1069,6 @@ pub async fn request_response(
     let _ = writer.pop_recent_command();
     Err(e)
   } else {
-    let timeout = timeout.unwrap_or(inner.default_command_timeout());
-
-    if timeout > 0 {
-      utils::apply_timeout(async { rx.await? }, timeout).await
-    } else {
-      rx.await?
-    }
+    utils::apply_timeout(async { rx.await? }, timeout_dur).await
   }
 }

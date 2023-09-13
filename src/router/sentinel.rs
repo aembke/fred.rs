@@ -166,7 +166,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
     let _ = try_or_continue!(
       utils::apply_timeout(
         transport.authenticate(&inner.id, username.clone(), password.clone(), false),
-        inner.connection.internal_command_timeout_ms
+        inner.internal_command_timeout()
       )
       .await
     );
@@ -203,7 +203,7 @@ async fn discover_primary_node(
   ]);
   let frame = utils::apply_timeout(
     sentinel.request_response(command, false),
-    inner.connection.internal_command_timeout_ms,
+    inner.internal_command_timeout(),
   )
   .await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
@@ -329,7 +329,7 @@ pub async fn initialize_connection(
           let _ = update_cached_client_state(inner, writer, sentinel, transport).await?;
           Ok::<_, RedisError>(())
         },
-        inner.connection.internal_command_timeout_ms,
+        inner.internal_command_timeout(),
       )
       .await?;
 

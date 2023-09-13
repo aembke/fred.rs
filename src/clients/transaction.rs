@@ -281,8 +281,9 @@ async fn exec(
     abort_on_error,
   };
   command.inherit_options(inner);
+  let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
   let _ = interfaces::send_to_router(inner, command)?;
-  let frame = utils::apply_timeout(rx, inner.default_command_timeout()).await??;
+  let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results_raw(frame)
 }

@@ -96,6 +96,8 @@ async fn write_with_backpressure(
   command: RedisCommand,
   force_pipeline: bool,
 ) -> Result<(), RedisError> {
+  _trace!(inner, "Writing command: {:?}", command);
+
   let mut _command: Option<RedisCommand> = Some(command);
   let mut _backpressure: Option<Backpressure> = None;
   loop {

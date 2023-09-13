@@ -310,17 +310,17 @@ pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function
   }
 }
 
-pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
+pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
   Fut: Future<Output = Result<T, E>>,
 {
-  if timeout > 0 {
-    let sleep_ft = sleep(Duration::from_millis(timeout));
+  if !timeout.is_zero() {
+    let sleep_ft = sleep(timeout);
     pin_mut!(sleep_ft);
     pin_mut!(ft);
 
-    trace!("Using timeout: {} ms", timeout);
+    trace!("Using timeout: {:?}", timeout);
     match select(ft, sleep_ft).await {
       Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
       Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
@@ -332,7 +332,7 @@ where
 
 pub async fn wait_for_response(
   rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
-  timeout: u64,
+  timeout: Duration,
 ) -> Result<Resp3Frame, RedisError> {
   apply_timeout(rx, timeout).await?
 }
@@ -411,6 +411,16 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
   Ok(())
 }
 
+/// Prepare the command options, returning the timeout duration to apply.
+pub fn prepare_command<C: ClientLike>(client: &C, command: &mut RedisCommand) -> Duration {
+  client.change_command(command);
+  command.inherit_options(client.inner());
+  command
+    .timeout_dur
+    .clone()
+    .unwrap_or_else(|| client.inner().default_command_timeout())
+}
+
 /// Send a command to the server using the default response handler.
 pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
@@ -424,11 +434,12 @@ where
   command.response = ResponseKind::Respond(Some(tx));
 
   let timed_out = command.timed_out.clone();
+  let timeout_dur = prepare_command(client, &mut command);
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = disallow_nested_values(&command)?;
   let _ = client.send_command(command)?;
 
-  wait_for_response(rx, inner.default_command_timeout())
+  wait_for_response(rx, timeout_dur)
     .map_err(move |error| {
       utils::set_bool_atomic(&timed_out, true);
       error
@@ -480,10 +491,11 @@ where
   command.traces.cmd = Some(cmd_span.clone());
   command.traces.queued = Some(queued_span);
 
+  let timeout_dur = prepare_command(client, &mut command);
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = client.send_command(command)?;
 
-  wait_for_response(rx, inner.default_command_timeout())
+  wait_for_response(rx, timeout_dur)
     .map_err(move |error| {
       utils::set_bool_atomic(&timed_out, true);
       error

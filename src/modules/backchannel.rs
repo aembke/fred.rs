@@ -157,7 +157,7 @@ impl Backchannel {
 
       utils::apply_timeout(
         transport.request_response(command, inner.is_resp3()),
-        inner.connection.connection_timeout_ms,
+        inner.connection_timeout(),
       )
       .await
     } else {

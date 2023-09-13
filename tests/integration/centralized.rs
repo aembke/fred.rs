@@ -50,6 +50,8 @@ mod other {
   centralized_test!(other, should_pipeline_try_all);
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
   centralized_test!(other, should_gracefully_quit);
+  centralized_test!(other, should_support_options_with_pipeline);
+  centralized_test!(other, should_reuse_pipeline);
 
   //#[cfg(feature = "dns")]
   // centralized_test!(other, should_use_trust_dns);

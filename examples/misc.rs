@@ -15,8 +15,8 @@ async fn main() -> Result<(), RedisError> {
       };
       config.max_command_attempts = 5;
       config.max_redirections = 5;
-      config.internal_command_timeout_ms = 2_000;
-      config.connection_timeout_ms = 10_000;
+      config.internal_command_timeout = Duration::from_secs(2);
+      config.connection_timeout = Duration::from_secs(10);
     })
     // use exponential backoff, starting at 100 ms and doubling on each failed attempt up to 30 sec
     .set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2))

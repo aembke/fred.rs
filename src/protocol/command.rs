@@ -1424,6 +1424,8 @@ impl fmt::Debug for RedisCommand {
       .field("can_pipeline", &self.can_pipeline)
       .field("arguments", &self.args())
       .field("write_attempts", &self.write_attempts)
+      .field("timeout_dur", &self.timeout_dur)
+      .field("no_backpressure", &self.skip_backpressure)
       .finish()
   }
 }
@@ -1692,8 +1694,8 @@ impl RedisCommand {
     }
     if self.timeout_dur.is_none() {
       let default_dur = inner.default_command_timeout();
-      if default_dur > 0 {
-        self.timeout_dur = Some(Duration::from_millis(default_dur));
+      if !default_dur.is_zero() {
+        self.timeout_dur = Some(default_dur);
       }
     }
   }
@@ -1900,6 +1902,16 @@ impl RouterCommand {
       },
       _ => {},
     };
+  }
+
+  /// Apply a timeout to the response channel receiver based on the command and `inner` context.
+  pub fn timeout_dur(&self) -> Option<Duration> {
+    match self {
+      RouterCommand::Command(ref command) => command.timeout_dur.clone(),
+      RouterCommand::Pipeline { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur.clone()),
+      RouterCommand::Transaction { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur.clone()),
+      _ => None,
+    }
   }
 }
 

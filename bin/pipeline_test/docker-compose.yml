@@ -12,7 +12,7 @@ services:
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
-      - app-tier
+      - fred-tests
     environment:
       RUST_LOG: "${RUST_LOG}"
       REDIS_VERSION: "${REDIS_VERSION}"

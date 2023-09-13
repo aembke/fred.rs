@@ -46,8 +46,8 @@ where
     command.kind.to_str_debug(),
     command.debug_id()
   );
-
   command.inherit_options(inner);
+
   send_to_router(inner, command.into())
 }
 
