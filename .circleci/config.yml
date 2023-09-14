@@ -87,98 +87,79 @@ commands:
           name: Run cluster tests with rustls features
           command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-rustls.sh
       - save-cargo-deps-cache
+  test_loose_nils_features:
+    steps:
+      - checkout
+      - restore-cargo-deps-cache
+      - run:
+          name: Run tests with loose-nils features
+          command: source tests/environ && tests/runners/loose-nils.sh
+      - save-cargo-deps-cache
 
 jobs:
-  test-default-7_0:
+  test-loose-nils-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.9
+      REDIS_VERSION: 7.2.1
+    steps:
+      - test_loose_nils_features
+  test-default-7_2:
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
+    environment:
+      REDIS_VERSION: 7.2.1
     steps:
       - test_default_features
-  test-no-features-7_0:
+  test-no-features-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.9
+      REDIS_VERSION: 7.2.1
     steps:
       - test_no_features
-  test-all-features-7_0:
+  test-all-features-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.9
+      REDIS_VERSION: 7.2.1
     steps:
       - test_all_features
-  test-cluster-tls-features-7_0:
+  test-cluster-tls-features-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.9
+      REDIS_VERSION: 7.2.1
       FRED_CI_TLS: true
     steps:
       - test_tls_cluster
-  test-cluster-rustls-features-7_0:
+  test-cluster-rustls-features-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.0.9
+      REDIS_VERSION: 7.2.1
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
-  test-default-6_2:
+  test-sentinel-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 6.2.2
-    steps:
-      - test_default_features
-  test-no-features-6_2:
-    machine:
-      image: ubuntu-2204:2022.10.2
-      docker_layer_caching: true
-    resource_class: medium
-    environment:
-      REDIS_VERSION: 6.2.2
-    steps:
-      - test_no_features
-  test-all-features-6_2:
-    machine:
-      image: ubuntu-2204:2022.10.2
-      docker_layer_caching: true
-    resource_class: medium
-    environment:
-      REDIS_VERSION: 6.2.2
-    steps:
-      - test_all_features
-  test-sentinel-6_2:
-    machine:
-      image: ubuntu-2204:2022.10.2
-      docker_layer_caching: true
-    resource_class: medium
-    environment:
-      REDIS_VERSION: 6.2.2
-    steps:
-      - test_sentinel
-  test-sentinel-7_0:
-    machine:
-      image: ubuntu-2204:2022.10.2
-      docker_layer_caching: true
-    resource_class: medium
-    environment:
-      REDIS_VERSION: 7.0.9
+      REDIS_VERSION: 7.2.1
     steps:
       - test_sentinel
   test-misc:
@@ -195,15 +176,10 @@ workflows:
   version: 2
   build:
     jobs:
-      # the older bitnami Redis images require a different process to bootstrap ACL rules...
-      #- test-default-6_2
-      #- test-all-features-6_2
-      #- test-no-features-6_2
-      #- test-sentinel-6_2
-      - test-default-7_0
-      - test-all-features-7_0
-      - test-no-features-7_0
-      - test-sentinel-7_0
+      - test-default-7_2
+      - test-all-features-7_2
+      - test-no-features-7_2
+      - test-sentinel-7_2
       - test-misc
-      - test-cluster-tls-features-7_0
-      - test-cluster-rustls-features-7_0
+      - test-cluster-tls-features-7_2
+      - test-cluster-rustls-features-7_2

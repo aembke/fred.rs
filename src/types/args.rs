@@ -1207,68 +1207,6 @@ impl<'a> RedisValue {
   }
 
   /// Attempt to convert this value to any value that implements the [FromRedis](crate::types::FromRedis) trait.
-  ///
-  /// ```rust
-  /// # use fred::types::RedisValue;
-  /// # use std::collections::HashMap;
-  /// let foo: usize = RedisValue::String("123".into()).convert()?;
-  /// let foo: i64 = RedisValue::String("123".into()).convert()?;
-  /// let foo: String = RedisValue::String("123".into()).convert()?;
-  /// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111].into()).convert()?;
-  /// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
-  /// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
-  /// let foo: HashMap<String, u16> =
-  ///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
-  /// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
-  /// let foo: Vec<(String, i64)> =
-  ///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
-  /// // ...
-  /// ```
-  ///
-  /// ## Bulk Values
-  ///
-  /// This interface can also convert single-element vectors to scalar values in certain scenarios. This is often
-  /// useful with commands that conditionally return bulk values, or where the number of elements in the response
-  /// depends on the number of arguments (`MGET`, etc).
-  ///
-  /// For example:
-  ///
-  /// ```rust
-  /// # use fred::types::RedisValue;
-  /// let _: String = RedisValue::Array(vec![]).convert()?; // does not work
-  /// let _: String = RedisValue::Array(vec!["foo".into()]).convert()?; // works
-  /// let _: String = RedisValue::Array(vec!["foo".into(), "bar".into()]).convert()?; // does not work
-  /// let _: Option<String> = RedisValue::Array(vec![]).convert()?; // works
-  /// let _: Option<String> = RedisValue::Array(vec!["foo".into()]).convert()?; // works
-  /// let _: Option<String> = RedisValue::Array(vec!["foo".into(), "bar".into()]).convert()?; // does not work
-  /// ```
-  ///
-  /// ## The `loose-nils` Feature Flag
-  ///
-  /// By default a `nil` value cannot be converted directly into any of the scalar types (`u8`, `String`, `Bytes`,
-  /// etc). In practice this often requires callers to use an `Option<T>` container with commands that can return
-  /// `nil`.
-  ///
-  /// The `loose-nils` feature flag can enable some further type conversion branches, at the risk of perhaps
-  /// introducing ambiguity in certain scenarios. For `RedisValue::Null` these include:
-  ///
-  /// * `impl FromRedis` for `String` or `Str` returns `"nil"`
-  /// * `impl FromRedis` for `Bytes` or `Vec<u8>` returns `b"nil"`
-  /// * `impl FromRedis` for any integer or float type returns `0`
-  /// * `impl FromRedis` for `bool` returns `false`
-  /// * `impl FromRedis` for `Vec<T>` returns `Vec::new()`
-  ///
-  /// ## Performance Considerations
-  ///
-  /// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html).
-  ///
-  /// These values represent views into the buffer that receives data from the Redis server. These types make it
-  /// possible for callers to utilize `RedisValue`s in such a way that the underlying data is never moved or
-  /// copied.
-  ///
-  /// If performance is a concern and callers do not need to modify the underlying data it is recommended to convert
-  /// to `Str` or `Bytes` whenever possible. Converting to `String`, `Vec<u8>`, etc will likely result in at least a
-  /// move, if not a copy, of the underlying data.
   pub fn convert<R>(self) -> Result<R, RedisError>
   where
     R: FromRedis,

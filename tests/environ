@@ -2,7 +2,7 @@
 . ./tests/scripts/utils.sh
 
 if [ -z "$REDIS_VERSION" ]; then
-  export REDIS_VERSION=7.0.9
+  export REDIS_VERSION=7.2.1
 fi
 
 if [ -z "$CARGO_HTTP_DEBUG" ]; then

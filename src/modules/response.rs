@@ -138,9 +138,73 @@ macro_rules! impl_unsigned_number (
   }
 );
 
-/// A trait used to convert various forms of [RedisValue](crate::types::RedisValue) into different types.
+/// A trait used to [convert](RedisValue::convert) various forms of [RedisValue](RedisValue) into different types.
 ///
-/// See the [convert](crate::types::RedisValue::convert) documentation for more information.
+/// ```rust
+/// # use fred::types::RedisValue;
+/// # use std::collections::HashMap;
+/// let foo: usize = RedisValue::String("123".into()).convert()?;
+/// let foo: i64 = RedisValue::String("123".into()).convert()?;
+/// let foo: String = RedisValue::String("123".into()).convert()?;
+/// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111].into()).convert()?;
+/// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
+/// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
+/// let foo: HashMap<String, u16> =
+///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
+/// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
+/// let foo: Vec<(String, i64)> =
+///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
+/// // ...
+/// ```
+///
+/// ## Bulk Values
+///
+/// This interface can also convert single-element vectors to scalar values in certain scenarios. This is often
+/// useful with commands that conditionally return bulk values, or where the number of elements in the response
+/// depends on the number of arguments (`MGET`, etc).
+///
+/// For example:
+///
+/// ```rust
+/// # use fred::types::RedisValue;
+/// let _: String = RedisValue::Array(vec![]).convert()?; // does not work
+/// let _: String = RedisValue::Array(vec!["foo".into()]).convert()?; // works
+/// let _: String = RedisValue::Array(vec!["foo".into(), "bar".into()]).convert()?; // does not work
+/// let _: Option<String> = RedisValue::Array(vec![]).convert()?; // works
+/// let _: Option<String> = RedisValue::Array(vec!["foo".into()]).convert()?; // works
+/// let _: Option<String> = RedisValue::Array(vec!["foo".into(), "bar".into()]).convert()?; // does not work
+/// ```
+///
+/// ## The `loose-nils` Feature Flag
+///
+/// By default a `nil` value cannot be converted directly into any of the scalar types (`u8`, `String`, `Bytes`,
+/// etc). In practice this often requires callers to use an `Option` or `Vec` container with commands that can return
+/// `nil`.
+///
+/// The `loose-nils` feature flag can enable some further type conversion branches, at the risk of perhaps
+/// introducing ambiguity in certain scenarios. For `RedisValue::Null` these include:
+///
+/// * `impl FromRedis` for `String` or `Str` returns `"nil"`
+/// * `impl FromRedis` for `Bytes` returns `b"nil"`
+/// * `impl FromRedis` for any integer or float type returns `0`
+/// * `impl FromRedis` for `bool` returns `false`
+/// * `impl FromRedis` for `Vec<T>` returns `Vec::new()` where T is not `u8`, and `b"nil"` where T is `u8`.
+///   * The intention here is to avoid punishing callers that defer string parsing but want consistent behavior
+///     relative to the other string types.
+///
+/// Callers can always use an `Option` container to remove any ambiguity or to manually handle `nil` values.
+///
+/// ## Performance Considerations
+///
+/// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html).
+///
+/// In general these values represent views into the buffer that receives data from the Redis server. These types make
+/// it possible for callers to utilize `RedisValue`s in such a way that the underlying data is never moved or
+/// copied.
+///
+/// If performance is a concern and callers do not need to modify the underlying data it is recommended to convert
+/// to `Str` or `Bytes` whenever possible. Converting to `String`, `Vec<u8>`, etc will likely result in at least a
+/// move, if not a copy, of the underlying data.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -287,8 +351,9 @@ where
   fn from_value(value: RedisValue) -> Result<Option<T>, RedisError> {
     debug_type!("FromRedis(Option<T>): {:?}", value);
 
-    // TODO specialize empty array to None? or should that be an error?
-    if value.is_null() {
+    if let Some(0) = value.array_len() {
+      Ok(None)
+    } else if value.is_null() {
       Ok(None)
     } else {
       Ok(Some(T::from_value(value)?))
@@ -371,7 +436,7 @@ where
         }
       },
       #[cfg(not(feature = "loose-nils"))]
-      RedisValue::Null => Err(RedisError::new_parse("Cannot convert nil to array.")),
+      RedisValue::Null => Ok(Vec::new()),
     }
   }
 }
@@ -655,8 +720,11 @@ impl FromRedisKey for Bytes {
 
 #[cfg(test)]
 mod tests {
-  use crate::{error::RedisError, types::RedisValue};
+  use crate::types::RedisValue;
   use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+
+  #[cfg(not(feature = "loose-nils"))]
+  use crate::error::RedisError;
 
   #[test]
   fn should_convert_null() {
@@ -724,7 +792,8 @@ mod tests {
   }
 
   #[test]
-  fn should_return_not_found_with_null_scalar_values() {
+  #[cfg(not(feature = "loose-nils"))]
+  fn should_return_not_found_with_null_number_types() {
     let result: Result<u8, RedisError> = RedisValue::Null.convert();
     assert!(result.unwrap_err().is_not_found());
     let result: Result<u16, RedisError> = RedisValue::Null.convert();
@@ -749,6 +818,25 @@ mod tests {
     assert!(result.unwrap_err().is_not_found());
     let result: Result<isize, RedisError> = RedisValue::Null.convert();
     assert!(result.unwrap_err().is_not_found());
+  }
+
+  #[test]
+  #[cfg(feature = "loose-nils")]
+  fn should_return_zero_with_null_number_types() {
+    assert_eq!(0, RedisValue::Null.convert::<u8>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u16>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u32>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u64>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u128>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<usize>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i8>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i16>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i32>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i64>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i128>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<isize>().unwrap());
+    assert_eq!(0.0, RedisValue::Null.convert::<f32>().unwrap());
+    assert_eq!(0.0, RedisValue::Null.convert::<f64>().unwrap());
   }
 
   #[test]
