@@ -122,6 +122,7 @@ check-unresponsive = []
 replicas = []
 auto-client-setname = []
 client-tracking = []
+loose-nils = []
 # Testing Features
 debug-ids = []
 sentinel-tests = []

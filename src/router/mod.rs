@@ -13,13 +13,16 @@ use crate::{
 use futures::future::try_join_all;
 use semver::Version;
 use std::{
-  collections::{BTreeSet, HashMap, HashSet, VecDeque},
+  collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
   sync::Arc,
   time::Duration,
 };
 use tokio::sync::oneshot::channel as oneshot_channel;
+
+#[cfg(feature = "replicas")]
+use std::collections::HashSet;
 
 pub mod centralized;
 pub mod clustered;
@@ -897,8 +900,8 @@ impl Router {
     let old_connections = self.replicas.active_connections();
     let new_replica_map = self.connections.replica_map(&self.inner).await?;
 
-    let old_connections_idx: BTreeSet<_> = old_connections.iter().collect();
-    let new_connections_idx: BTreeSet<_> = new_replica_map.keys().collect();
+    let old_connections_idx: HashSet<_> = old_connections.iter().collect();
+    let new_connections_idx: HashSet<_> = new_replica_map.keys().collect();
     let add: HashSet<_> = new_connections_idx.difference(&old_connections_idx).collect();
     let remove: Vec<_> = old_connections_idx.difference(&new_connections_idx).collect();
     debug!(

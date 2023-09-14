@@ -1,10 +1,11 @@
 version: '2'
 
 services:
-  cluster-rustls-tests:
+  default-features-tests:
     depends_on:
-      - redis-cluster-tls-6
-    container_name: "cluster-rustls-tests"
+      - redis-main
+      - redis-cluster-6
+    container_name: "loose-nils-tests"
     build:
       context: ../../../
       dockerfile: tests/docker/runners/images/base.dockerfile
@@ -12,19 +13,20 @@ services:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
       - fred-tests
-    privileged: true
     command:
-      - "/project/tests/docker/runners/bash/cluster-rustls.sh"
+      - "/project/tests/docker/runners/bash/loose-nils.sh"
       - "${TEST_ARGV}"
+    privileged: true
     environment:
       RUST_LOG: "${RUST_LOG}"
       CIRCLECI_TESTS: "${CIRCLECI_TESTS}"
       REDIS_VERSION: "${REDIS_VERSION}"
-      FRED_REDIS_CLUSTER_TLS_HOST: "${FRED_REDIS_CLUSTER_TLS_HOST}"
-      FRED_REDIS_CLUSTER_TLS_PORT: "${FRED_REDIS_CLUSTER_TLS_PORT}"
+      FRED_REDIS_CENTRALIZED_HOST: "${FRED_REDIS_CENTRALIZED_HOST}"
+      FRED_REDIS_CENTRALIZED_PORT: "${FRED_REDIS_CENTRALIZED_PORT}"
+      FRED_REDIS_CLUSTER_HOST: "${FRED_REDIS_CLUSTER_HOST}"
+      FRED_REDIS_CLUSTER_PORT: "${FRED_REDIS_CLUSTER_PORT}"
       REDIS_USERNAME: "${REDIS_USERNAME}"
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
-      FRED_TEST_TLS_CREDS: "/project/tests/tmp/creds"
     volumes:
       - "../../..:/project"
       - "~/.cargo/registry:/usr/local/cargo/registry"
