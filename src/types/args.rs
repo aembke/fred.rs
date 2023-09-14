@@ -1079,7 +1079,7 @@ impl<'a> RedisValue {
     let v = match self {
       RedisValue::String(s) => s.inner().clone(),
       RedisValue::Bytes(b) => b,
-      RedisValue::Null => Bytes::from_static(NULL.as_bytes()),
+      RedisValue::Null => Bytes::from_static(NIL.as_bytes()),
       RedisValue::Queued => Bytes::from_static(QUEUED.as_bytes()),
       RedisValue::Array(mut inner) => {
         if inner.len() == 1 {
@@ -1100,6 +1100,26 @@ impl<'a> RedisValue {
     match self {
       RedisValue::Array(ref a) => Some(a.len()),
       _ => None,
+    }
+  }
+
+  /// Whether the value is an array with one element.
+  pub(crate) fn is_single_element_vec(&self) -> bool {
+    if let RedisValue::Array(ref d) = self {
+      d.len() == 1
+    } else {
+      false
+    }
+  }
+
+  /// Pop the first value in the inner array or return the original value.
+  ///
+  /// This uses unwrap. Use [is_single_element_vec] first.
+  pub(crate) fn pop_or_take(self) -> Self {
+    if let RedisValue::Array(mut values) = self {
+      values.pop().unwrap()
+    } else {
+      self
     }
   }
 

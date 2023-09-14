@@ -23,6 +23,19 @@ macro_rules! debug_type(
   }
 );
 
+macro_rules! check_single_bulk_reply(
+  ($v:expr) => {
+    if $v.is_single_element_vec() {
+      return Self::from_value($v.pop_or_take());
+    }
+  };
+  ($t:ty, $v:expr) => {
+    if $v.is_single_element_vec() {
+      return $t::from_value($v.pop_or_take());
+    }
+  }
+);
+
 macro_rules! to_signed_number(
   ($t:ty, $v:expr) => {
     match $v {
@@ -83,6 +96,7 @@ macro_rules! impl_signed_number (
   ($t:ty) => {
     impl FromRedis for $t {
       fn from_value(value: RedisValue) -> Result<$t, RedisError> {
+        check_single_bulk_reply!(value);
         to_signed_number!($t, value)
       }
     }
@@ -93,6 +107,7 @@ macro_rules! impl_unsigned_number (
   ($t:ty) => {
     impl FromRedis for $t {
       fn from_value(value: RedisValue) -> Result<$t, RedisError> {
+        check_single_bulk_reply!(value);
         to_unsigned_number!($t, value)
       }
     }
@@ -101,8 +116,7 @@ macro_rules! impl_unsigned_number (
 
 /// A trait used to convert various forms of [RedisValue](crate::types::RedisValue) into different types.
 ///
-/// See the [convert](crate::types::RedisValue::convert) documentation for important information regarding performance
-/// considerations and examples.
+/// See the [convert](crate::types::RedisValue::convert) documentation for more information.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -143,6 +157,7 @@ impl_signed_number!(isize);
 
 impl FromRedis for u8 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    check_single_bulk_reply!(value);
     to_unsigned_number!(u8, value)
   }
 
@@ -160,6 +175,8 @@ impl_unsigned_number!(usize);
 impl FromRedis for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(String): {:?}", value);
+    check_single_bulk_reply!(value);
+
     if value.is_null() {
       Ok(NIL.to_owned())
     } else {
@@ -173,6 +190,8 @@ impl FromRedis for String {
 impl FromRedis for Str {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(Str): {:?}", value);
+    check_single_bulk_reply!(value);
+
     if value.is_null() {
       Ok(utils::static_str(NIL))
     } else {
@@ -186,6 +205,8 @@ impl FromRedis for Str {
 impl FromRedis for f64 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(f64): {:?}", value);
+    check_single_bulk_reply!(value);
+
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -202,6 +223,8 @@ impl FromRedis for f64 {
 impl FromRedis for f32 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(f32): {:?}", value);
+    check_single_bulk_reply!(value);
+
     if value.is_null() {
       Err(RedisError::new(
         RedisErrorKind::NotFound,
@@ -219,6 +242,8 @@ impl FromRedis for f32 {
 impl FromRedis for bool {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(bool): {:?}", value);
+    check_single_bulk_reply!(value);
+
     if value.is_null() {
       Ok(false)
     } else {
@@ -244,6 +269,7 @@ where
 {
   fn from_value(value: RedisValue) -> Result<Option<T>, RedisError> {
     debug_type!("FromRedis(Option<T>): {:?}", value);
+
     if value.is_null() {
       Ok(None)
     } else {
@@ -255,6 +281,8 @@ where
 impl FromRedis for Bytes {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(Bytes): {:?}", value);
+    check_single_bulk_reply!(value);
+
     value
       .into_bytes()
       .ok_or(RedisError::new_parse("Cannot parse into bytes."))
@@ -273,7 +301,7 @@ where
       },
       RedisValue::String(string) => {
         // hacky way to check if T is bytes without consuming `string`
-        if T::from_owned_bytes(vec![]).is_some() {
+        if T::from_owned_bytes(Vec::new()).is_some() {
           T::from_owned_bytes(string.into_inner().to_vec())
             .ok_or(RedisError::new_parse("Could not convert string to bytes."))
         } else {
