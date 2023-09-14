@@ -1,7 +1,9 @@
 ## 7.0.0
 
-* Reworked the majority of the `globals` interface.
-* Add a builder interface for all client types.
+* **Async functions in traits**
+  * The legacy interface can be enabled via the `legacy-async-trait` feature flag.
+* Added a new client [builder](src/types/builder.rs) and configuration interface.
+* Reworked or removed the majority of the `globals` interface.
 * Support multiple IP addresses in the `Resolve` interface.
 * Add `with_options` command configuration interface. 
 * Replaced the `no-client-setname` feature flag with `auto-client-setname`.
@@ -11,22 +13,27 @@
   * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
 * Reworked the majority of the `RedisPool` interface. 
 * Moved and refactored the `on_*` functions into a new `EventInterface`.
+* Fixed the `tls_server_name` field on `Server` so that it is now properly gated by the TLS feature flags.
+* Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
 
-### Updating from 6.x
+### Notable changes from 6.x
 
-Notable or breaking changes from 6.x:
+**Things `rustc` should tell you about:**
 
-* The new [builder](src/types/builder.rs) interface is likely quite a bit easier to use than the old initialization interface.
-* `ArcStr` has been replaced with `bytes_utils::Str`. 
+* `ArcStr` has been replaced with `bytes_utils::Str`.
 * Timeout arguments or fields now all use `Duration`.
-* `FromRedis<bool> for RedisValue` now converts `Null` to `false` rather than returning an error.
-* The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer. 
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
-* The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
-* Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
 * Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans.
-* The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`. See the `EventInterface` for more info.
+  * This should remove several footguns with certain interfaces, especially the metrics and event interfaces.
+* The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`.
 * Mocks are now optional even when the feature flag is enabled.
+
+**Things `rustc` probably won't tell you about:**
+
+* The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer.
+* Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
+* In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. Most of these were consolidated under the `loose-nils` feature flag.
+  * It is strongly recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs).
 
 ## 6.3.1
 

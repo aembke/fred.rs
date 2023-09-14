@@ -29,7 +29,8 @@ features = [
   "sentinel-auth",
   "check-unresponsive",
   "replicas",
-  "client-tracking"
+  "client-tracking",
+  "loose-nils"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -50,8 +51,9 @@ url = "2.3"
 tokio-stream = "0.1.1"
 sha-1 = "0.10"
 rand = "0.8"
-async-trait = "0.1"
 semver = "1.0"
+#async-trait = { version = "0.1", optional = true }
+async-trait = { version = "0.1" }
 rustls = { version = "0.21", optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
@@ -123,6 +125,7 @@ replicas = []
 auto-client-setname = []
 client-tracking = []
 loose-nils = []
+#legacy-async-trait = ["async-trait"]
 # Testing Features
 debug-ids = []
 sentinel-tests = []

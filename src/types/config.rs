@@ -1059,6 +1059,8 @@ impl From<SentinelConfig> for RedisConfig {
 ///   Ok(())
 /// }
 /// ```
+///
+/// See [WithOptions](crate::clients::WithOptions) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Options {
   /// Set the max number of write attempts for a command.

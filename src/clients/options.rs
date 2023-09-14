@@ -39,17 +39,25 @@ use std::{fmt, ops::Deref, sync::Arc};
 ///   let _ = client.connect();
 ///   let _ = client.wait_for_connect().await?;
 ///
-///   let options = Options::default()
-///     .with_max_attempts(5)
-///     .with_max_redirections(3)
-///     .with_timeout(Duration::from_secs(30));
-///
+///   let options = Options {
+///     max_redirections: Some(3),
+///     max_attempts: Some(1),
+///     timeout: Some(Duration::from_secs(10)),
+///     ..Default::default()
+///   };
 ///   let foo: Option<String> = client.with_options(&options).get("foo").await?;
 ///
-///   // or reuse the options bindings
-///   let with_safe_options = client.with_options(&options);
-///   let foo: () = with_safe_options.get("foo").await?;
-///   let bar: () = with_safe_options.get("bar").await?;
+///   // reuse the options bindings
+///   let with_options = client.with_options(&options);
+///   let foo: () = with_options.get("foo").await?;
+///   let bar: () = with_options.get("bar").await?;
+///
+///   // combine with other client types
+///   let pipeline = client.pipeline().with_options(&options);
+///   let _: () = pipeline.get("foo").await?;
+///   let _: () = pipeline.get("bar").await?;
+///   // custom options will be applied to each command
+///   println!("results: {:?}", pipeline.all::<i64>().await?);
 ///
 ///   Ok(())
 /// }

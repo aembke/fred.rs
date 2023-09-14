@@ -10,7 +10,9 @@ use std::{
 };
 
 #[cfg(feature = "loose-nils")]
-use crate::{types::NIL, utils};
+use crate::types::NIL;
+#[cfg(any(feature = "loose-nils", feature = "serde-json"))]
+use crate::utils;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
@@ -139,6 +141,18 @@ macro_rules! impl_unsigned_number (
 );
 
 /// A trait used to [convert](RedisValue::convert) various forms of [RedisValue](RedisValue) into different types.
+///
+/// These type conversion patterns can be used interchangeably:
+///
+/// ```rust
+/// # use fred::prelude::*;
+/// // this option is by far the most common
+/// let foo: i64 = RedisValue::Integer(42).convert()?;
+/// let foo = RedisValue::Integer(42).convert::<i64>()?;
+/// let foo = i64::from_value(RedisValue::Integer(42))?;
+/// ```
+///
+/// ## Examples
 ///
 /// ```rust
 /// # use fred::types::RedisValue;
@@ -727,11 +741,6 @@ mod tests {
   use crate::error::RedisError;
 
   #[test]
-  fn should_convert_null() {
-    let _foo: () = RedisValue::Null.convert().unwrap();
-  }
-
-  #[test]
   fn should_convert_signed_numeric_types() {
     let _foo: i8 = RedisValue::String("123".into()).convert().unwrap();
     assert_eq!(_foo, 123);
@@ -840,9 +849,8 @@ mod tests {
   }
 
   #[test]
-  fn should_return_not_found_with_null_strings_and_bools() {
-    let result: bool = RedisValue::Null.convert().unwrap();
-    assert!(!result);
+  fn should_convert_null_to_false() {
+    assert!(!RedisValue::Null.convert::<bool>().unwrap());
   }
 
   #[test]
@@ -852,27 +860,27 @@ mod tests {
   }
 
   #[test]
-  fn should_convert_bools() {
-    let _foo: bool = RedisValue::Integer(0).convert().unwrap();
-    assert_eq!(_foo, false);
-    let _foo: bool = RedisValue::Integer(1).convert().unwrap();
-    assert_eq!(_foo, true);
-    let _foo: bool = RedisValue::String("0".into()).convert().unwrap();
-    assert_eq!(_foo, false);
-    let _foo: bool = RedisValue::String("1".into()).convert().unwrap();
-    assert_eq!(_foo, true);
+  fn should_convert_numbers_to_bools() {
+    let foo: bool = RedisValue::Integer(0).convert().unwrap();
+    assert_eq!(foo, false);
+    let foo: bool = RedisValue::Integer(1).convert().unwrap();
+    assert_eq!(foo, true);
+    let foo: bool = RedisValue::String("0".into()).convert().unwrap();
+    assert_eq!(foo, false);
+    let foo: bool = RedisValue::String("1".into()).convert().unwrap();
+    assert_eq!(foo, true);
   }
 
   #[test]
   fn should_convert_bytes() {
-    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into()).convert().unwrap();
-    assert_eq!(_foo, "foo".as_bytes().to_vec());
-    let _foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
-    assert_eq!(_foo, "foo".as_bytes().to_vec());
-    let _foo: Vec<u8> = RedisValue::Array(vec![102.into(), 111.into(), 111.into()])
+    let foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into()).convert().unwrap();
+    assert_eq!(foo, "foo".as_bytes().to_vec());
+    let foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
+    assert_eq!(foo, "foo".as_bytes().to_vec());
+    let foo: Vec<u8> = RedisValue::Array(vec![102.into(), 111.into(), 111.into()])
       .convert()
       .unwrap();
-    assert_eq!(_foo, "foo".as_bytes().to_vec());
+    assert_eq!(foo, "foo".as_bytes().to_vec());
   }
 
   #[test]
