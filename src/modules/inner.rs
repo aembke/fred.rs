@@ -13,7 +13,7 @@ use crate::{
 };
 use arc_swap::ArcSwap;
 use futures::future::{select, Either};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use semver::Version;
 use std::{
   ops::DerefMut,
@@ -380,6 +380,8 @@ fn create_resolver(id: &Str) -> Arc<dyn Resolve> {
 }
 
 pub struct RedisClientInner {
+  /// An internal lock used to sync certain operations that should not run concurrently across tasks.
+  pub _lock:         Mutex<()>,
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id:            Str,
   /// Whether the client uses RESP3.
@@ -397,7 +399,7 @@ pub struct RedisClientInner {
   /// Notification channels for the event interfaces.
   pub notifications: Arc<Notifications>,
   /// An mpsc sender for commands to the router.
-  pub command_tx:    CommandSender,
+  pub command_tx:    ArcSwap<CommandSender>,
   /// Temporary storage for the receiver half of the router command channel.
   pub command_rx:    RwLock<Option<CommandReceiver>>,
   /// Shared counters.
@@ -459,8 +461,10 @@ impl RedisClientInner {
       Arc::new(AtomicBool::new(false))
     };
     let connection = Arc::new(connection);
+    let command_tx = ArcSwap::new(Arc::new(command_tx));
 
     let inner = Arc::new(RedisClientInner {
+      _lock: Mutex::new(()),
       #[cfg(feature = "metrics")]
       latency_stats: RwLock::new(MovingStats::default()),
       #[cfg(feature = "metrics")]
@@ -511,6 +515,17 @@ impl RedisClientInner {
   #[cfg(not(feature = "replicas"))]
   pub fn ignore_replica_reconnect_errors(&self) -> bool {
     true
+  }
+
+  /// Swap the command channel sender, returning the old one.
+  pub fn swap_command_tx(&self, tx: CommandSender) -> Arc<CommandSender> {
+    self.command_tx.swap(Arc::new(tx))
+  }
+
+  /// Whether the client has the command channel receiver stored. If not then the caller can assume another
+  /// connection/router instance is using it.
+  pub fn has_command_rx(&self) -> bool {
+    self.command_rx.read().is_some()
   }
 
   pub fn shared_resp3(&self) -> Arc<AtomicBool> {
@@ -582,9 +597,11 @@ impl RedisClientInner {
     self.command_rx.write().take()
   }
 
-  pub fn store_command_rx(&self, rx: CommandReceiver) {
+  pub fn store_command_rx(&self, rx: CommandReceiver, force: bool) {
     let mut guard = self.command_rx.write();
-    *guard = Some(rx);
+    if guard.is_none() || force {
+      *guard = Some(rx);
+    }
   }
 
   pub fn is_resp3(&self) -> bool {

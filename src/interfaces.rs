@@ -26,7 +26,10 @@ use crate::{
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc};
-use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
+use tokio::{
+  sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel},
+  task::JoinHandle,
+};
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -54,7 +57,7 @@ where
 /// Send a `RouterCommand` to the router.
 pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
   inner.counters.incr_cmd_buffer_len();
-  if let Err(e) = inner.command_tx.send(command) {
+  if let Err(e) = inner.command_tx.load().send(command) {
     // usually happens if the caller tries to send a command before calling `connect` or after calling `quit`
     inner.counters.decr_cmd_buffer_len();
 
@@ -200,17 +203,37 @@ pub trait ClientLike: Clone + Send + Sized {
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the
   /// connection closes, and if a reconnection policy with unlimited attempts is provided then the `JoinHandle` will
   /// run forever, or until `QUIT` is called.
+  ///
+  /// **Calling this function more than once will drop all state associated with the previous connection(s).** Any
+  /// pending commands on the old connection(s) will receive a `RedisErrorKind::Canceled` error. This behavior can be
+  /// used to recover from a panic in the connection task, or from a manual call to [abort](https://docs.rs/tokio/latest/tokio/task/struct.JoinHandle.html#method.abort), etc.
   fn connect(&self) -> ConnectHandle {
     let inner = self.inner().clone();
+    {
+      let _guard = inner._lock.lock();
+
+      if !self.inner().has_command_rx() {
+        _trace!(inner, "Resetting command channel before connecting.");
+        // another connection task is running. this will let the command channel drain, then it'll drop everything on
+        // the old connection/router interface. pending commands will be canceled.
+        let (tx, rx) = unbounded_channel();
+        inner.store_command_rx(rx, true);
+        let _ = inner.swap_command_tx(tx);
+      }
+    }
 
     tokio::spawn(async move {
       let result = router_commands::start(&inner).await;
+      // a canceled error means we intentionally closed the client
       _trace!(inner, "Ending connection task with {:?}", result);
 
-      if let Err(ref e) = result {
-        inner.notifications.broadcast_connect(Err(e.clone()));
+      if let Err(ref error) = result {
+        if !error.is_canceled() {
+          inner.notifications.broadcast_connect(Err(error.clone()));
+        }
       }
-      utils::set_client_state(&inner.state, ClientState::Disconnected);
+
+      utils::check_and_set_client_state(&inner.state, ClientState::Disconnecting, ClientState::Disconnected);
       result
     })
   }

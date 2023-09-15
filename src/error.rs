@@ -346,7 +346,7 @@ impl RedisError {
   }
 
   /// Create a new empty Canceled error.
-  pub(crate) fn new_canceled() -> Self {
+  pub fn new_canceled() -> Self {
     RedisError::new(RedisErrorKind::Canceled, "Canceled.")
   }
 

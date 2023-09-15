@@ -1,7 +1,5 @@
 ## 7.0.0
 
-* **Async functions in traits**
-  * The legacy interface can be enabled via the `legacy-async-trait` feature flag.
 * Added a new client [builder](src/types/builder.rs) and configuration interface.
 * Reworked or removed the majority of the `globals` interface.
 * Support multiple IP addresses in the `Resolve` interface.
@@ -14,6 +12,7 @@
 * Reworked the majority of the `RedisPool` interface. 
 * Moved and refactored the `on_*` functions into a new `EventInterface`.
 * Fixed the `tls_server_name` field on `Server` so that it is now properly gated by the TLS feature flags.
+* Fixed several bugs with the `Replica` routing implementation.
 * Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
 
 ### Notable changes from 6.x
@@ -34,6 +33,7 @@
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
 * In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. Most of these were consolidated under the `loose-nils` feature flag.
   * It is strongly recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs).
+* The `connect` function can now be called more than once to forcefully reset all client state.
 
 ## 6.3.1
 

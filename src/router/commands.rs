@@ -7,8 +7,8 @@ use crate::{
   utils as client_utils,
 };
 use redis_protocol::resp3::types::Frame as Resp3Frame;
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::oneshot::Sender as OneshotSender, time::sleep};
+use std::sync::Arc;
+use tokio::sync::oneshot::Sender as OneshotSender;
 
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
@@ -557,42 +557,43 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     return mocking::start(inner, mocks).await;
   }
 
-  sleep(Duration::from_millis(5)).await;
-  if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
-    return Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Connections are already initialized or connecting.",
-    ));
-  }
-  inner.reset_reconnection_attempts();
-  let mut router = Router::new(inner);
-
-  _debug!(inner, "Initializing router with policy: {:?}", inner.reconnect_policy());
-  if inner.config.fail_fast {
-    if let Err(e) = router.connect().await {
-      inner.notifications.broadcast_connect(Err(e.clone()));
-      inner.notifications.broadcast_error(e.clone());
-      return Err(e);
-    } else {
-      client_utils::set_client_state(&inner.state, ClientState::Connected);
-      inner.notifications.broadcast_connect(Ok(()));
-    }
-  } else {
-    let _ = utils::reconnect_with_policy(inner, &mut router).await?;
-  }
-
   let mut rx = match inner.take_command_rx() {
     Some(rx) => rx,
     None => {
+      // the `_lock` field on inner synchronizes the getters/setters on the command channel halves, so if this field
+      // is None then another task must have set and removed the receiver concurrently.
       return Err(RedisError::new(
         RedisErrorKind::Config,
-        "Redis client is already initialized.",
-      ))
+        "Another connection task is already running.",
+      ));
     },
   };
-  let result = process_commands(inner, &mut router, &mut rx).await;
-  inner.store_command_rx(rx);
-  result
+
+  inner.reset_reconnection_attempts();
+  let mut router = Router::new(inner);
+  _debug!(inner, "Initializing router with policy: {:?}", inner.reconnect_policy());
+  let result = if inner.config.fail_fast {
+    if let Err(e) = router.connect().await {
+      inner.notifications.broadcast_connect(Err(e.clone()));
+      inner.notifications.broadcast_error(e.clone());
+      Err(e)
+    } else {
+      client_utils::set_client_state(&inner.state, ClientState::Connected);
+      inner.notifications.broadcast_connect(Ok(()));
+      Ok(())
+    }
+  } else {
+    utils::reconnect_with_policy(inner, &mut router).await
+  };
+
+  if let Err(error) = result {
+    inner.store_command_rx(rx, false);
+    Err(error)
+  } else {
+    let result = process_commands(inner, &mut router, &mut rx).await;
+    inner.store_command_rx(rx, false);
+    result
+  }
 }
 
 #[cfg(feature = "mocks")]
@@ -665,14 +666,6 @@ mod mocking {
   }
 
   pub async fn start(inner: &Arc<RedisClientInner>, mocks: &Arc<dyn Mocks>) -> Result<(), RedisError> {
-    sleep(Duration::from_millis(10)).await;
-    if !client_utils::check_and_set_client_state(&inner.state, ClientState::Disconnected, ClientState::Connecting) {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Connections are already initialized or connecting.",
-      ));
-    }
-
     _debug!(inner, "Starting mocking layer");
     let mut rx = match inner.take_command_rx() {
       Some(rx) => rx,
@@ -686,7 +679,7 @@ mod mocking {
 
     inner.notifications.broadcast_connect(Ok(()));
     let result = process_commands(inner, mocks, &mut rx).await;
-    inner.store_command_rx(rx);
+    inner.store_command_rx(rx, false);
     result
   }
 }
