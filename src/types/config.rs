@@ -300,7 +300,7 @@ impl Default for BackpressureConfig {
 }
 
 /// TCP configuration options.
-#[derive(Clone, Debug, Eq, PartialEq, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct TcpConfig {
   /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
   pub nodelay:   Option<bool>,
@@ -311,6 +311,14 @@ pub struct TcpConfig {
   /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
   pub keepalive: Option<TcpKeepalive>,
 }
+
+impl PartialEq for TcpConfig {
+  fn eq(&self, other: &Self) -> bool {
+    self.nodelay == other.nodelay && self.linger == other.linger && self.ttl == other.ttl
+  }
+}
+
+impl Eq for TcpConfig {}
 
 /// Configuration options related to the creation or management of TCP connection.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -1,8 +1,8 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  interfaces,
+  globals::globals,
   interfaces::ClientLike,
-  modules::inner::RedisClientInner,
+  modules::inner::{CommandSender, RedisClientInner},
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     responders::ResponseKind,
@@ -48,10 +48,8 @@ use url::Url;
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
-use crate::{globals::globals, modules::inner::CommandSender, protocol::command::RouterCommand};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
-use tokio::sync::mpsc::UnboundedSender;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -855,17 +853,6 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
     }
   })
 }
-
-#[cfg(feature = "check-unresponsive")]
-pub fn abort_network_timeout_task(inner: &Arc<RedisClientInner>) {
-  if let Some(jh) = inner.network_timeouts.take_handle() {
-    _trace!(inner, "Shut down network timeout task.");
-    jh.abort();
-  }
-}
-
-#[cfg(not(feature = "check-unresponsive"))]
-pub fn abort_network_timeout_task(_: &Arc<RedisClientInner>) {}
 
 pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
   inner.backchannel.write().await.clear_router_state(&inner).await;

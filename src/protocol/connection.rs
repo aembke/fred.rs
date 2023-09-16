@@ -20,7 +20,7 @@ use futures::{
 use parking_lot::Mutex;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
-use socket2::{SockRef, TcpKeepalive};
+use socket2::SockRef;
 use std::{
   collections::VecDeque,
   fmt,
