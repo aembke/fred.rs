@@ -96,8 +96,7 @@ async fn tcp_connect_any(
       socket.set_ttl(ttl)?;
     }
     if let Some(ref keepalive) = inner.connection.tcp.keepalive {
-      let sock2 = SockRef::from(&socket);
-      sock2.set_tcp_keepalive(keepalive)?;
+      SockRef::from(&socket).set_tcp_keepalive(keepalive)?;
     }
 
     return Ok((socket, addr.clone()));

@@ -62,15 +62,15 @@ pub async fn should_xinfo_groups(client: RedisClient, _: RedisConfig) -> Result<
   assert!(result.is_err());
 
   let _ = create_fake_group_and_stream(&client, "foo{1}").await?;
-  let result: Vec<HashMap<String, String>> = client.xinfo_groups("foo{1}").await?;
+  let result: Vec<HashMap<String, RedisValue>> = client.xinfo_groups("foo{1}").await?;
   assert_eq!(result.len(), 1);
-  assert_eq!(result[0].get("name"), Some(&"group1".to_owned()));
+  assert_eq!(result[0].get("name"), Some(&"group1".into()));
 
   let _: () = client.xgroup_create("foo{1}", "group2", "$", true).await?;
-  let result: Vec<HashMap<String, String>> = client.xinfo_groups("foo{1}").await?;
+  let result: Vec<HashMap<String, RedisValue>> = client.xinfo_groups("foo{1}").await?;
   assert_eq!(result.len(), 2);
-  assert_eq!(result[0].get("name"), Some(&"group1".to_owned()));
-  assert_eq!(result[1].get("name"), Some(&"group2".to_owned()));
+  assert_eq!(result[0].get("name"), Some(&"group1".into()));
+  assert_eq!(result[1].get("name"), Some(&"group2".into()));
 
   Ok(())
 }
