@@ -543,7 +543,7 @@ pub enum RedisValue {
   Double(f64),
   /// A string value.
   String(Str),
-  /// A value to represent non-UTF8 strings or byte arrays.
+  /// A byte array value.
   Bytes(Bytes),
   /// A `nil` value.
   Null,
@@ -553,7 +553,7 @@ pub enum RedisValue {
   Map(RedisMap),
   /// An ordered list of values.
   ///
-  /// In RESP2 mode the server may send map structures as an array of key/value pairs.
+  /// In RESP2 mode the server usually sends map structures as an array of key/value pairs.
   Array(Vec<RedisValue>),
 }
 
