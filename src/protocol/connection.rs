@@ -20,6 +20,7 @@ use futures::{
 use parking_lot::Mutex;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
+use socket2::{SockRef, TcpKeepalive};
 use std::{
   collections::VecDeque,
   fmt,
@@ -85,14 +86,18 @@ async fn tcp_connect_any(
         continue;
       },
     };
-    if inner.connection.tcp.nodelay {
-      let _ = socket.set_nodelay(true)?;
+    if let Some(val) = inner.connection.tcp.nodelay {
+      socket.set_nodelay(val)?;
     }
     if let Some(dur) = inner.connection.tcp.linger {
-      let _ = socket.set_linger(Some(dur))?;
+      socket.set_linger(Some(dur))?;
     }
     if let Some(ttl) = inner.connection.tcp.ttl {
-      let _ = socket.set_ttl(ttl)?;
+      socket.set_ttl(ttl)?;
+    }
+    if let Some(ref keepalive) = inner.connection.tcp.keepalive {
+      let sock2 = SockRef::from(&socket);
+      sock2.set_tcp_keepalive(keepalive)?;
     }
 
     return Ok((socket, addr.clone()));

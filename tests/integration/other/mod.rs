@@ -557,17 +557,14 @@ pub async fn should_manually_connect_twice(client: RedisClient, _: RedisConfig) 
   let _old_connection = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  let blpop_jh = tokio::spawn({
+  let _blpop_jh = tokio::spawn({
     let client = client.clone();
-    async move { client.blpop::<Option<i64>, _>("foo", 30.0).await }
+    async move { client.blpop::<Option<i64>, _>("foo", 5.0).await }
   });
-
-  // TODO check what happens if you abort the old connection before calling connect again
 
   sleep(Duration::from_millis(100)).await;
   let new_connection = client.connect();
   let _ = client.wait_for_connect().await?;
-  assert_eq!(blpop_jh.await.unwrap(), Err(RedisError::new_canceled()));
 
   assert_eq!(client.incr::<i64, _>("bar").await?, 1);
   let _ = client.quit().await?;

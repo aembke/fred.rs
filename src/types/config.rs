@@ -5,6 +5,7 @@ use url::Url;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
+use socket2::TcpKeepalive;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
@@ -299,30 +300,16 @@ impl Default for BackpressureConfig {
 }
 
 /// TCP configuration options.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct TcpConfig {
   /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
-  ///
-  /// Default: `false`
-  pub nodelay: bool,
+  pub nodelay:   Option<bool>,
   /// Set the [SO_LINGER](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_linger) value.
-  ///
-  /// Default: `None`
-  pub linger:  Option<Duration>,
+  pub linger:    Option<Duration>,
   /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
-  ///
-  /// Default: `None`
-  pub ttl:     Option<u32>,
-}
-
-impl Default for TcpConfig {
-  fn default() -> Self {
-    TcpConfig {
-      nodelay: false,
-      linger:  None,
-      ttl:     None,
-    }
-  }
+  pub ttl:       Option<u32>,
+  /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
+  pub keepalive: Option<TcpKeepalive>,
 }
 
 /// Configuration options related to the creation or management of TCP connection.

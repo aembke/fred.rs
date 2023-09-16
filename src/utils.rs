@@ -1,5 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   interfaces::ClientLike,
   modules::inner::RedisClientInner,
   protocol::{
@@ -43,13 +44,14 @@ use tokio::{
 };
 use url::Url;
 
-use crate::globals::globals;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
+use crate::{globals::globals, modules::inner::CommandSender, protocol::command::RouterCommand};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
+use tokio::sync::mpsc::UnboundedSender;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -864,6 +866,23 @@ pub fn abort_network_timeout_task(inner: &Arc<RedisClientInner>) {
 
 #[cfg(not(feature = "check-unresponsive"))]
 pub fn abort_network_timeout_task(_: &Arc<RedisClientInner>) {}
+
+pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
+  inner.backchannel.write().await.clear_router_state(&inner).await;
+}
+
+/// Send QUIT to the servers and clean up the old router task's state.
+pub fn close_router_channel(inner: &Arc<RedisClientInner>, command_tx: Arc<CommandSender>) {
+  set_client_state(&inner.state, ClientState::Disconnecting);
+  inner.notifications.broadcast_close();
+
+  let command = RedisCommand::new(RedisCommandKind::Quit, vec![]);
+  inner.counters.incr_cmd_buffer_len();
+  if let Err(_) = command_tx.send(command.into()) {
+    inner.counters.decr_cmd_buffer_len();
+    _warn!(inner, "Failed to send QUIT when dropping old command channel.");
+  }
+}
 
 #[cfg(test)]
 mod tests {

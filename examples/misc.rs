@@ -10,7 +10,7 @@ async fn main() -> Result<(), RedisError> {
     })
     .with_connection_config(|config| {
       config.tcp = TcpConfig {
-        nodelay: true,
+        nodelay: Some(true),
         ..Default::default()
       };
       config.max_command_attempts = 5;

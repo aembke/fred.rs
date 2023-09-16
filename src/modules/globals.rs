@@ -70,7 +70,7 @@ impl Default for Globals {
     Globals {
       default_broadcast_channel_capacity:                              Arc::new(AtomicUsize::new(32)),
       #[cfg(feature = "blocking-encoding")]
-      blocking_encode_threshold:                                       Arc::new(AtomicUsize::new(500_000)),
+      blocking_encode_threshold:                                       Arc::new(AtomicUsize::new(50_000_000)),
       #[cfg(feature = "custom-reconnect-errors")]
       reconnect_errors:                                                Arc::new(RwLock::new(vec![
         ReconnectError::ClusterDown,
@@ -129,7 +129,7 @@ pub fn set_custom_reconnect_errors(prefixes: Vec<ReconnectError>) {
 ///
 /// See [block_in_place](https://docs.rs/tokio/1.9.0/tokio/task/fn.block_in_place.html) for more information.
 ///
-/// Default: 500 Kb
+/// Default: 50 MB
 #[cfg(feature = "blocking-encoding")]
 #[cfg_attr(docsrs, doc(cfg(feature = "blocking-encoding")))]
 pub fn get_blocking_encode_threshold() -> usize {

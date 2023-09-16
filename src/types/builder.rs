@@ -34,7 +34,7 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 ///     })
 ///     .with_connection_config(|config| {
 ///       config.tcp = TcpConfig {
-///         nodelay: true,
+///         nodelay: Some(true),
 ///         ..Default::default()
 ///       };
 ///       config.internal_command_timeout_ms = 10_000;

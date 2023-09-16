@@ -61,6 +61,17 @@ impl Backchannel {
     }
   }
 
+  /// Clear all local state that depends on the associated `Router` instance.
+  pub async fn clear_router_state(&mut self, inner: &Arc<RedisClientInner>) {
+    self.connection_ids.clear();
+    self.blocked = None;
+
+    if let Some(ref mut transport) = self.transport {
+      let _ = transport.disconnect(inner).await;
+    }
+    self.transport = None;
+  }
+
   /// Set the connection IDs from the router.
   pub fn update_connection_ids(&mut self, connections: &Connections) {
     self.connection_ids = connections.connection_ids();
