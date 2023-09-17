@@ -1484,6 +1484,23 @@ where
   }
 }
 
+impl<T, const N: usize> TryFrom<[T; N]> for RedisValue
+where
+  T: TryInto<RedisValue> + Clone,
+  T::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: [T; N]) -> Result<Self, Self::Error> {
+    let values = value
+      .into_iter()
+      .map(|v| v.try_into().map_err(|e| e.into()))
+      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+
+    Ok(RedisValue::Array(values))
+  }
+}
+
 impl<T> TryFrom<Vec<T>> for RedisValue
 where
   T: TryInto<RedisValue>,
