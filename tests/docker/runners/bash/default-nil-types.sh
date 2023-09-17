@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="network-logs serde-json debug-ids replicas client-tracking loose-nils"
+FEATURES="network-logs serde-json debug-ids replicas client-tracking default-nil-types"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

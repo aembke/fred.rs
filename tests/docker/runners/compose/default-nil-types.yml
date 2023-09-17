@@ -1,11 +1,11 @@
 version: '2'
 
 services:
-  loose-nils-tests:
+  default-nil-types-tests:
     depends_on:
       - redis-main
       - redis-cluster-6
-    container_name: "loose-nils-tests"
+    container_name: "default-nil-types-tests"
     build:
       context: ../../../
       dockerfile: tests/docker/runners/images/base.dockerfile
@@ -14,7 +14,7 @@ services:
     networks:
       - fred-tests
     command:
-      - "/project/tests/docker/runners/bash/loose-nils.sh"
+      - "/project/tests/docker/runners/bash/default-nil-types.sh"
       - "${TEST_ARGV}"
     privileged: true
     environment:

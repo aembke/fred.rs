@@ -87,17 +87,17 @@ commands:
           name: Run cluster tests with rustls features
           command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-rustls.sh
       - save-cargo-deps-cache
-  test_loose_nils_features:
+  test_default_nil_types_features:
     steps:
       - checkout
       - restore-cargo-deps-cache
       - run:
-          name: Run tests with loose-nils features
-          command: source tests/environ && tests/runners/loose-nils.sh
+          name: Run tests with default-nil-types features
+          command: source tests/environ && tests/runners/default-nil-types.sh
       - save-cargo-deps-cache
 
 jobs:
-  test-loose-nils-7_2:
+  test-default-nil-types-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
@@ -105,7 +105,7 @@ jobs:
     environment:
       REDIS_VERSION: 7.2.1
     steps:
-      - test_loose_nils_features
+      - test_default_nil_types_features
   test-default-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
@@ -179,6 +179,7 @@ workflows:
       - test-default-7_2
       - test-all-features-7_2
       - test-no-features-7_2
+      - test-default-nil-types-7_2
       - test-sentinel-7_2
       - test-misc
       - test-cluster-tls-features-7_2

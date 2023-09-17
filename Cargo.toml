@@ -30,7 +30,7 @@ features = [
   "check-unresponsive",
   "replicas",
   "client-tracking",
-  "loose-nils"
+  "default-nil-types"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -124,7 +124,8 @@ check-unresponsive = []
 replicas = []
 auto-client-setname = []
 client-tracking = []
-loose-nils = []
+default-nil-types = []
+
 # Testing Features
 debug-ids = []
 sentinel-tests = []

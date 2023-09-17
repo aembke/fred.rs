@@ -12,9 +12,9 @@ use std::{
 #[allow(unused_imports)]
 use std::any::type_name;
 
-#[cfg(feature = "loose-nils")]
+#[cfg(feature = "default-nil-types")]
 use crate::types::NIL;
-#[cfg(any(feature = "loose-nils", feature = "serde-json"))]
+#[cfg(any(feature = "default-nil-types", feature = "serde-json"))]
 use crate::utils;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
@@ -28,7 +28,7 @@ macro_rules! debug_type(
 
 macro_rules! check_loose_nil (
   ($v:expr, $o:expr) => {
-    #[cfg(feature = "loose-nils")]
+    #[cfg(feature = "default-nil-types")]
     {
       if $v.is_null() {
         return Ok($o);
@@ -60,18 +60,18 @@ macro_rules! to_signed_number(
         match a.pop().unwrap() {
           RedisValue::Integer(i) => Ok(i as $t),
           RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
-          #[cfg(feature = "loose-nils")]
+          #[cfg(feature = "default-nil-types")]
           RedisValue::Null => Ok(0),
-          #[cfg(not(feature = "loose-nils"))]
+          #[cfg(not(feature = "default-nil-types"))]
           RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
           _ => Err(RedisError::new_parse("Cannot convert to number."))
         }
       }else{
         Err(RedisError::new_parse("Cannot convert array to number."))
       }
-      #[cfg(feature = "loose-nils")]
+      #[cfg(feature = "default-nil-types")]
       RedisValue::Null => Ok(0),
-      #[cfg(not(feature = "loose-nils"))]
+      #[cfg(not(feature = "default-nil-types"))]
       RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       _ => Err(RedisError::new_parse("Cannot convert to number.")),
     }
@@ -99,9 +99,9 @@ macro_rules! to_unsigned_number(
           }else{
             Ok(i as $t)
           },
-          #[cfg(feature = "loose-nils")]
+          #[cfg(feature = "default-nil-types")]
           RedisValue::Null => Ok(0),
-          #[cfg(not(feature = "loose-nils"))]
+          #[cfg(not(feature = "default-nil-types"))]
           RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
           RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
           _ => Err(RedisError::new_parse("Cannot convert to number."))
@@ -109,9 +109,9 @@ macro_rules! to_unsigned_number(
       }else{
         Err(RedisError::new_parse("Cannot convert array to number."))
       },
-      #[cfg(feature = "loose-nils")]
+      #[cfg(feature = "default-nil-types")]
       RedisValue::Null => Ok(0),
-      #[cfg(not(feature = "loose-nils"))]
+      #[cfg(not(feature = "default-nil-types"))]
       RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       _ => Err(RedisError::new_parse("Cannot convert to number.")),
     }
@@ -182,36 +182,27 @@ macro_rules! impl_unsigned_number (
 /// ```rust
 /// # use fred::types::RedisValue;
 /// let _: String = RedisValue::Array(vec![]).convert()?; // does not work
-/// let _: String = RedisValue::Array(vec!["foo".into()]).convert()?; // works
-/// let _: String = RedisValue::Array(vec!["foo".into(), "bar".into()]).convert()?; // does not work
-/// let _: Option<String> = RedisValue::Array(vec![]).convert()?; // works
-/// let _: Option<String> = RedisValue::Array(vec!["foo".into()]).convert()?; // works
-/// let _: Option<String> = RedisValue::Array(vec!["foo".into(), "bar".into()]).convert()?; // does not work
+/// let _: String = RedisValue::Array(vec!["a".into()]).convert()?; // "a"
+/// let _: String = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?; // does not work
+/// let _: Option<String> = RedisValue::Array(vec![]).convert()?; // None
+/// let _: Option<String> = RedisValue::Array(vec!["a".into()]).convert()?; // Some("a")
+/// let _: Option<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?; // does not work
 /// ```
 ///
-/// ## The `loose-nils` Feature Flag
+/// ## The `default-nil-types` Feature Flag
 ///
 /// By default a `nil` value cannot be converted directly into any of the scalar types (`u8`, `String`, `Bytes`,
 /// etc). In practice this often requires callers to use an `Option` or `Vec` container with commands that can return
 /// `nil`.
 ///
-/// The `loose-nils` feature flag can enable some further type conversion branches, at the risk of perhaps
-/// introducing ambiguity in certain scenarios. For `RedisValue::Null` these include:
+/// The `default-nil-types` feature flag can enable some further type conversion branches that treat `nil` values as
+/// default values for the relevant type. For `RedisValue::Null` these include:
 ///
-/// * `impl FromRedis` for `String` or `Str` returns `"nil"`
-/// * `impl FromRedis` for `Bytes` returns `b"nil"`
+/// * `impl FromRedis` for `String` or `Str` returns an empty string.
+/// * `impl FromRedis` for `Bytes` or `Vec<T>` return an empty array.
 /// * `impl FromRedis` for any integer or float type returns `0`
 /// * `impl FromRedis` for `bool` returns `false`
-/// * `impl FromRedis` for `Vec<T>` returns `Vec::new()` where T is not `u8`, and `b"nil"` where T is `u8`.
-///   * The intention here is to avoid punishing callers that defer string parsing but want consistent behavior with
-///     to the other string types.
-///
-/// Callers can always use an `Option` container to remove any ambiguity or to manually handle `nil` values.
-///
-/// ## Performance Considerations
-///
-/// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html). These types make
-/// it possible for callers to utilize `RedisValue`s in such a way that the underlying data is never moved or copied.
+/// * `impl FromRedis` for map or set types return an empty map or set.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -432,7 +423,7 @@ where
       RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
       RedisValue::Boolean(b) => Ok(vec![T::from_value(RedisValue::Boolean(b))?]),
       RedisValue::Queued => Ok(vec![T::from_value(RedisValue::from_static_str(QUEUED))?]),
-      #[cfg(feature = "loose-nils")]
+      #[cfg(feature = "default-nil-types")]
       RedisValue::Null => {
         // specialize Vec<u8> so we don't punish callers that defer string parsing, but still want consistent behavior
         // with the other `nil` -> string type conversion branches
@@ -442,7 +433,7 @@ where
           Ok(Vec::new())
         }
       },
-      #[cfg(not(feature = "loose-nils"))]
+      #[cfg(not(feature = "default-nil-types"))]
       RedisValue::Null => Ok(Vec::new()),
     }
   }
@@ -760,7 +751,7 @@ mod tests {
   use crate::types::RedisValue;
   use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-  #[cfg(not(feature = "loose-nils"))]
+  #[cfg(not(feature = "default-nil-types"))]
   use crate::error::RedisError;
 
   #[test]
@@ -824,7 +815,7 @@ mod tests {
   }
 
   #[test]
-  #[cfg(not(feature = "loose-nils"))]
+  #[cfg(not(feature = "default-nil-types"))]
   fn should_return_not_found_with_null_number_types() {
     let result: Result<u8, RedisError> = RedisValue::Null.convert();
     assert!(result.unwrap_err().is_not_found());
@@ -853,7 +844,7 @@ mod tests {
   }
 
   #[test]
-  #[cfg(feature = "loose-nils")]
+  #[cfg(feature = "default-nil-types")]
   fn should_return_zero_with_null_number_types() {
     assert_eq!(0, RedisValue::Null.convert::<u8>().unwrap());
     assert_eq!(0, RedisValue::Null.convert::<u16>().unwrap());
@@ -992,14 +983,14 @@ mod tests {
   }
 
   #[test]
-  #[cfg(not(feature = "loose-nils"))]
+  #[cfg(not(feature = "default-nil-types"))]
   fn should_not_specialize_nil_with_byte_vec() {
     assert_eq!(Vec::<String>::new(), RedisValue::Null.convert::<Vec<String>>().unwrap());
     assert_eq!(Vec::<u8>::new(), RedisValue::Null.convert::<Vec<u8>>().unwrap());
   }
 
   #[test]
-  #[cfg(feature = "loose-nils")]
+  #[cfg(feature = "default-nil-types")]
   fn should_specialize_loose_nil_with_byte_vec() {
     assert_eq!(b"nil".to_vec(), RedisValue::Null.convert::<Vec<u8>>().unwrap());
     assert_eq!(Vec::<String>::new(), RedisValue::Null.convert::<Vec<String>>().unwrap());
