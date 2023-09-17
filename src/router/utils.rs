@@ -221,16 +221,12 @@ pub fn check_final_write_attempt(buffer: &SharedBuffer, error: &Option<RedisErro
   let commands = guard
     .drain(..)
     .filter_map(|mut command| {
-      if command.has_router_channel() {
-        if command.attempts_remaining == 0 {
-          let error = error
-            .clone()
-            .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
-          command.respond_to_caller(Err(error));
-          None
-        } else {
-          Some(command)
-        }
+      if command.attempts_remaining == 0 {
+        let error = error
+          .clone()
+          .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
+        command.respond_to_caller(Err(error));
+        None
       } else {
         Some(command)
       }

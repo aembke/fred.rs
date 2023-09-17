@@ -168,7 +168,7 @@ pub async fn pubsub_channels<C: ClientLike>(client: &C, pattern: Str) -> Result<
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn pubsub_numpat<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
@@ -193,7 +193,7 @@ pub async fn pubsub_numsub<C: ClientLike>(client: &C, channels: MultipleStrings)
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn pubsub_shardchannels<C: ClientLike>(client: &C, pattern: Str) -> Result<RedisValue, RedisError> {
@@ -202,7 +202,7 @@ pub async fn pubsub_shardchannels<C: ClientLike>(client: &C, pattern: Str) -> Re
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn pubsub_shardnumsub<C: ClientLike>(
@@ -221,5 +221,5 @@ pub async fn pubsub_shardnumsub<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }

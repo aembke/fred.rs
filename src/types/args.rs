@@ -21,7 +21,7 @@ use std::{
   str,
 };
 
-use crate::types::{Function, Server};
+use crate::types::{Function, GeoRadiusInfo, Server};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
@@ -295,14 +295,6 @@ impl<'a> From<&'a [u8]> for RedisKey {
     RedisKey { key: b.to_vec().into() }
   }
 }
-
-// doing this prevents MultipleKeys from being generic in its `From` implementations since the compiler cant know what
-// to do with `Vec<u8>`.
-// impl From<Vec<u8>> for RedisKey {
-// fn from(b: Vec<u8>) -> Self {
-// RedisKey { key: b.into() }
-// }
-// }
 
 impl From<String> for RedisKey {
   fn from(s: String) -> Self {
@@ -1015,6 +1007,20 @@ impl<'a> RedisValue {
     }
   }
 
+  pub(crate) fn into_multiple_values(self) -> Vec<RedisValue> {
+    match self {
+      RedisValue::Array(values) => values,
+      RedisValue::Map(map) => map
+        .inner()
+        .into_iter()
+        .map(|(k, v)| [RedisValue::Bytes(k.into_bytes()), v])
+        .flatten()
+        .collect(),
+      RedisValue::Null => Vec::new(),
+      _ => vec![self],
+    }
+  }
+
   /// Convert the array value to a set, if possible.
   pub fn into_set(self) -> Result<HashSet<RedisValue>, RedisError> {
     if let RedisValue::Array(values) = self {
@@ -1198,7 +1204,29 @@ impl<'a> RedisValue {
   ///
   /// Null values are returned as `None` to work more easily with the result of the `GEOPOS` command.
   pub fn as_geo_position(&self) -> Result<Option<GeoPosition>, RedisError> {
-    utils::value_to_geo_pos(self)
+    if self.is_null() {
+      Ok(None)
+    } else {
+      GeoPosition::try_from(self.clone()).map(Some)
+    }
+  }
+
+  /// Parse the value as the response to any of the relevant GEO commands that return an array of
+  /// [GeoRadiusInfo](crate::types::GeoRadiusInfo) values, such as `GEOSEARCH`, GEORADIUS`, etc.
+  pub fn into_geo_radius_result(
+    self,
+    withcoord: bool,
+    withdist: bool,
+    withhash: bool,
+  ) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+    match self {
+      RedisValue::Array(data) => data
+        .into_iter()
+        .map(|value| GeoRadiusInfo::from_redis_value(value, withcoord, withdist, withhash))
+        .collect(),
+      RedisValue::Null => Ok(Vec::new()),
+      _ => Err(RedisError::new(RedisErrorKind::Parse, "Expected array.")),
+    }
   }
 
   /// Replace this value with `RedisValue::Null`, returning the original value.
@@ -1439,9 +1467,63 @@ where
   }
 }
 
-impl FromIterator<RedisValue> for RedisValue {
-  fn from_iter<I: IntoIterator<Item = RedisValue>>(iter: I) -> Self {
-    RedisValue::Array(iter.into_iter().collect())
+impl<'a, T, const N: usize> TryFrom<&'a [T; N]> for RedisValue
+where
+  T: TryInto<RedisValue> + Clone,
+  T::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: &'a [T; N]) -> Result<Self, Self::Error> {
+    let values = value
+      .iter()
+      .map(|v| v.clone().try_into().map_err(|e| e.into()))
+      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+
+    Ok(RedisValue::Array(values))
+  }
+}
+
+impl<T> TryFrom<Vec<T>> for RedisValue
+where
+  T: TryInto<RedisValue>,
+  T::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
+    let values = value
+      .into_iter()
+      .map(|v| v.try_into().map_err(|e| e.into()))
+      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+
+    Ok(RedisValue::Array(values))
+  }
+}
+
+impl<T> TryFrom<VecDeque<T>> for RedisValue
+where
+  T: TryInto<RedisValue>,
+  T::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: VecDeque<T>) -> Result<Self, Self::Error> {
+    let values = value
+      .into_iter()
+      .map(|v| v.try_into().map_err(|e| e.into()))
+      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+
+    Ok(RedisValue::Array(values))
+  }
+}
+
+impl<V> FromIterator<V> for RedisValue
+where
+  V: Into<RedisValue>,
+{
+  fn from_iter<I: IntoIterator<Item = V>>(iter: I) -> Self {
+    RedisValue::Array(iter.into_iter().map(|v| v.into()).collect())
   }
 }
 

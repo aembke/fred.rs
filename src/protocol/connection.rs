@@ -766,7 +766,7 @@ impl RedisTransport {
         self
           .request_response(command, inner.is_resp3())
           .await
-          .and_then(protocol_utils::frame_to_results_raw)
+          .and_then(protocol_utils::frame_to_results)
       },
       timeout,
     )
@@ -891,7 +891,7 @@ impl RedisWriter {
     let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
     let role = connection::request_response(inner, self, command, None)
       .await
-      .and_then(protocol_utils::frame_to_results_raw)?;
+      .and_then(protocol_utils::frame_to_results)?;
 
     protocol_utils::parse_master_role_replicas(role)
   }

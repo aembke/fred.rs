@@ -573,10 +573,11 @@ pub async fn zrem<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Zrem, args))
@@ -751,10 +752,11 @@ pub async fn zmscore<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Zmscore, args))

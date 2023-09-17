@@ -273,7 +273,7 @@ async fn try_send_all(
       .map(|frame| protocol_utils::frame_to_results(frame))
       .collect()
   } else {
-    vec![protocol_utils::frame_to_results_raw(frame)]
+    vec![protocol_utils::frame_to_results(frame)]
   }
 }
 
@@ -288,7 +288,7 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
 
   let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, timeout_dur).await??;
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 async fn send_last(
@@ -309,5 +309,5 @@ async fn send_last(
 
   let _ = interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, timeout_dur).await??;
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }

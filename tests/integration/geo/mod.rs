@@ -1,5 +1,7 @@
-use fred::prelude::*;
-use fred::types::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, SortOrder};
+use fred::{
+  prelude::*,
+  types::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, SortOrder},
+};
 use std::convert::TryInto;
 
 fn loose_eq(lhs: f64, rhs: f64, precision: u32) -> bool {
@@ -57,7 +59,7 @@ pub async fn should_geohash_values(client: RedisClient, _: RedisConfig) -> Resul
 pub async fn should_geopos_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let expected = create_fake_data(&client, "foo").await?;
 
-  let result = client.geopos("foo", vec!["Palermo", "Catania"]).await?;
+  let result: RedisValue = client.geopos("foo", vec!["Palermo", "Catania"]).await?;
   let result: Vec<GeoPosition> = result
     .into_array()
     .into_iter()
@@ -69,12 +71,12 @@ pub async fn should_geopos_values(client: RedisClient, _: RedisConfig) -> Result
     }
   }
 
-  let result = client.geopos("foo", "Palermo").await?;
-  let result = result.as_geo_position().unwrap().unwrap();
+  let result: Vec<RedisValue> = client.geopos("foo", "Palermo").await?;
+  let result = result[0].as_geo_position().unwrap().unwrap();
   assert!(loose_eq_pos(&result, &expected[0]));
 
-  let result = client.geopos("foo", "Catania").await?;
-  let result = result.as_geo_position().unwrap().unwrap();
+  let result: Vec<RedisValue> = client.geopos("foo", "Catania").await?;
+  let result = result[0].as_geo_position().unwrap().unwrap();
   assert!(loose_eq_pos(&result, &expected[1]));
 
   Ok(())
@@ -101,7 +103,7 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
   let _ = create_fake_data(&client, "foo").await?;
 
   let result = client
-    .georadius(
+    .georadius::<RedisValue, _, _>(
       "foo",
       (15.0, 37.0),
       200.0,
@@ -114,25 +116,26 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
       None,
       None,
     )
-    .await?;
+    .await?
+    .into_geo_radius_result(false, true, false)?;
   let expected: Vec<GeoRadiusInfo> = vec![
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: Some(190.4424),
       position: None,
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: Some(56.4413),
       position: None,
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
 
   let result = client
-    .georadius(
+    .georadius::<RedisValue, _, _>(
       "foo",
       (15.0, 37.0),
       200.0,
@@ -145,25 +148,26 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
       None,
       None,
     )
-    .await?;
+    .await?
+    .into_geo_radius_result(true, false, false)?;
   let expected: Vec<GeoRadiusInfo> = vec![
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: None,
       position: Some((13.36138933897018433, 38.11555639549629859).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: None,
       position: Some((15.08726745843887329, 37.50266842333162032).into()),
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
 
   let result = client
-    .georadius(
+    .georadius::<RedisValue, _, _>(
       "foo",
       (15.0, 37.0),
       200.0,
@@ -176,19 +180,20 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
       None,
       None,
     )
-    .await?;
+    .await?
+    .into_geo_radius_result(true, true, false)?;
   let expected: Vec<GeoRadiusInfo> = vec![
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: Some(190.4424),
       position: Some((13.36138933897018433, 38.11555639549629859).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: Some(56.4413),
       position: Some((15.08726745843887329, 37.50266842333162032).into()),
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -202,7 +207,7 @@ pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig
   let _ = client.geoadd("foo", None, false, agrigento).await?;
 
   let result = client
-    .georadiusbymember(
+    .georadiusbymember::<RedisValue, _, _>(
       "foo",
       "Agrigento",
       100.0,
@@ -215,19 +220,20 @@ pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig
       None,
       None,
     )
-    .await?;
+    .await?
+    .into_geo_radius_result(false, false, false)?;
   let expected = vec![
     GeoRadiusInfo {
-      member: "Agrigento".into(),
+      member:   "Agrigento".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
@@ -245,7 +251,7 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
 
   let lonlat: GeoPosition = (15.0, 37.0).into();
   let result = client
-    .geosearch(
+    .geosearch::<RedisValue, _>(
       "foo",
       None,
       Some(lonlat.clone()),
@@ -257,25 +263,26 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
       false,
       false,
     )
-    .await?;
+    .await?
+    .into_geo_radius_result(false, false, false)?;
   let expected = vec![
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: None,
       position: None,
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);
 
   let result = client
-    .geosearch(
+    .geosearch::<RedisValue, _>(
       "foo",
       None,
       Some(lonlat),
@@ -287,31 +294,32 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
       true,
       false,
     )
-    .await?;
+    .await?
+    .into_geo_radius_result(true, true, false)?;
   let expected = vec![
     GeoRadiusInfo {
-      member: "Catania".into(),
+      member:   "Catania".into(),
       distance: Some(56.4413),
       position: Some((15.08726745843887329, 37.50266842333162032).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "Palermo".into(),
+      member:   "Palermo".into(),
       distance: Some(190.4424),
       position: Some((13.36138933897018433, 38.11555639549629859).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "edge2".into(),
+      member:   "edge2".into(),
       distance: Some(279.7403),
       position: Some((17.24151045083999634, 38.78813451624225195).into()),
-      hash: None,
+      hash:     None,
     },
     GeoRadiusInfo {
-      member: "edge1".into(),
+      member:   "edge1".into(),
       distance: Some(279.7405),
       position: Some((12.7584877610206604, 38.78813451624225195).into()),
-      hash: None,
+      hash:     None,
     },
   ];
   assert_eq!(result, expected);

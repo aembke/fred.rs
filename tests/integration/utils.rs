@@ -30,6 +30,15 @@ pub fn read_env_var(name: &str) -> Option<String> {
   env::var_os(name).and_then(|s| s.into_string().ok())
 }
 
+pub fn should_flushall_between_tests() -> bool {
+  read_env_var("FRED_NO_FLUSHALL_DURING_TESTS")
+    .map(|s| match s.as_ref() {
+      "1" | "t" | "true" | "yes" => false,
+      _ => true,
+    })
+    .unwrap_or(true)
+}
+
 pub fn read_ci_tls_env() -> bool {
   match env::var_os("FRED_CI_TLS") {
     Some(s) => match s.into_string() {
@@ -301,6 +310,14 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   (config, perf)
 }
 
+async fn flushall_between_tests(client: &RedisClient) -> Result<(), RedisError> {
+  if should_flushall_between_tests() {
+    client.flushall_cluster().await
+  } else {
+    Ok(())
+  }
+}
+
 #[cfg(feature = "sentinel-tests")]
 pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
 where
@@ -308,6 +325,7 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
+  let connection = ConnectionConfig::default();
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: ServerConfig::Sentinel {
@@ -322,16 +340,15 @@ where
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
     ..Default::default()
   };
-  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
+  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), Some(policy));
   let _client = client.clone();
 
   let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _: () = client.flushall(false).await.expect("Failed to flushall");
+  flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -354,7 +371,7 @@ where
   let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _: () = client.flushall_cluster().await.expect("Failed to flushall");
+  flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -376,7 +393,7 @@ where
   let _jh = client.connect();
   let _ = client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _: () = client.flushall(false).await.expect("Failed to flushall");
+  flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }

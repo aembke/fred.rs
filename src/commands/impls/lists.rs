@@ -229,10 +229,11 @@ pub async fn lpush<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -249,10 +250,11 @@ pub async fn lpushx<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -356,10 +358,11 @@ pub async fn rpush<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -376,10 +379,11 @@ pub async fn rpushx<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 

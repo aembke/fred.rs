@@ -9,6 +9,10 @@ use std::{
   hash::{BuildHasher, Hash},
 };
 
+#[allow(unused_imports)]
+use std::any::type_name;
+
+use crate::types::GeoPosition;
 #[cfg(feature = "loose-nils")]
 use crate::types::NIL;
 #[cfg(any(feature = "loose-nils", feature = "serde-json"))]
@@ -18,11 +22,8 @@ use serde_json::{Map, Value};
 
 macro_rules! debug_type(
   ($($arg:tt)*) => {
-    cfg_if::cfg_if! {
-      if #[cfg(feature="network-logs")] {
-        log::trace!($($arg)*);
-      }
-    }
+    #[cfg(feature="network-logs")]
+    log::trace!($($arg)*);
   }
 );
 
@@ -203,22 +204,15 @@ macro_rules! impl_unsigned_number (
 /// * `impl FromRedis` for any integer or float type returns `0`
 /// * `impl FromRedis` for `bool` returns `false`
 /// * `impl FromRedis` for `Vec<T>` returns `Vec::new()` where T is not `u8`, and `b"nil"` where T is `u8`.
-///   * The intention here is to avoid punishing callers that defer string parsing but want consistent behavior
-///     relative to the other string types.
+///   * The intention here is to avoid punishing callers that defer string parsing but want consistent behavior with
+///     to the other string types.
 ///
 /// Callers can always use an `Option` container to remove any ambiguity or to manually handle `nil` values.
 ///
 /// ## Performance Considerations
 ///
-/// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html).
-///
-/// In general these values represent views into the buffer that receives data from the Redis server. These types make
-/// it possible for callers to utilize `RedisValue`s in such a way that the underlying data is never moved or
-/// copied.
-///
-/// If performance is a concern and callers do not need to modify the underlying data it is recommended to convert
-/// to `Str` or `Bytes` whenever possible. Converting to `String`, `Vec<u8>`, etc will likely result in at least a
-/// move, if not a copy, of the underlying data.
+/// The backing data type for potentially large values is either [Str](https://docs.rs/bytes-utils/latest/bytes_utils/string/type.Str.html) or [Bytes](https://docs.rs/bytes/latest/bytes/struct.Bytes.html). These types make
+/// it possible for callers to utilize `RedisValue`s in such a way that the underlying data is never moved or copied.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -363,7 +357,7 @@ where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Option<T>, RedisError> {
-    debug_type!("FromRedis(Option<T>): {:?}", value);
+    debug_type!("FromRedis(Option<{}>): {:?}", type_name::<T>(), value);
 
     if let Some(0) = value.array_len() {
       Ok(None)
@@ -392,7 +386,8 @@ where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
-    debug_type!("FromRedis(Vec<T>): {:?}", value);
+    debug_type!("FromRedis(Vec<{}>): {:?}", type_name::<T>(), value);
+
     match value {
       RedisValue::Bytes(bytes) => {
         T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
@@ -443,8 +438,7 @@ where
         // specialize Vec<u8> so we don't punish callers that defer string parsing, but still want consistent behavior
         // with the other `nil` -> string type conversion branches
         if T::from_owned_bytes(Vec::new()).is_some() {
-          T::from_owned_bytes(NIL.as_bytes().to_vec())
-            .ok_or(RedisError::new_parse("Could not convert null to array."))
+          T::from_owned_bytes(NIL.as_bytes().to_vec()).ok_or(RedisError::new_parse("Could not convert null to vec."))
         } else {
           Ok(Vec::new())
         }
@@ -455,6 +449,20 @@ where
   }
 }
 
+impl<T, const N: usize> FromRedis for [T; N]
+where
+  T: FromRedis,
+{
+  fn from_value(value: RedisValue) -> Result<[T; N], RedisError> {
+    debug_type!("FromRedis([{}; {}]): {:?}", type_name::<T>(), N, value);
+    // use the `from_value` impl for Vec<T>
+    value
+      .convert::<Vec<T>>()?
+      .try_into()
+      .map_err(|_| RedisError::new_parse("Failed to convert to array."))
+  }
+}
+
 impl<K, V, S> FromRedis for HashMap<K, V, S>
 where
   K: FromRedisKey + Eq + Hash,
@@ -462,7 +470,13 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(HashMap<K,V>): {:?}", value);
+    debug_type!(
+      "FromRedis(HashMap<{}, {}>): {:?}",
+      type_name::<K>(),
+      type_name::<V>(),
+      value
+    );
+
     if value.is_null() {
       return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to map."));
     }
@@ -475,7 +489,6 @@ where
       return Err(RedisError::new_parse("Cannot convert to map."));
     };
 
-    debug_type!("FromRedis(HashMap<K,V>) Map: {:?}", as_map);
     as_map
       .inner()
       .into_iter()
@@ -490,7 +503,7 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(HashSet<V>): {:?}", value);
+    debug_type!("FromRedis(HashSet<{}>): {:?}", type_name::<V>(), value);
     value.into_array().into_iter().map(|v| V::from_value(v)).collect()
   }
 }
@@ -501,7 +514,12 @@ where
   V: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(BTreeMap<K,V>): {:?}", value);
+    debug_type!(
+      "FromRedis(BTreeMap<{}, {}>): {:?}",
+      type_name::<K>(),
+      type_name::<V>(),
+      value
+    );
     let as_map = if value.is_array() || value.is_map() {
       value
         .into_map()
@@ -523,7 +541,7 @@ where
   V: FromRedis + Ord,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(BTreeSet<V>): {:?}", value);
+    debug_type!("FromRedis(BTreeSet<{}>): {:?}", type_name::<V>(), value);
     value.into_array().into_iter().map(|v| V::from_value(v)).collect()
   }
 }
@@ -644,6 +662,12 @@ impl FromRedis for Value {
     };
 
     Ok(value)
+  }
+}
+
+impl FromRedis for GeoPosition {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    GeoPosition::try_from(value)
   }
 }
 
@@ -980,5 +1004,16 @@ mod tests {
   fn should_specialize_loose_nil_with_byte_vec() {
     assert_eq!(b"nil".to_vec(), RedisValue::Null.convert::<Vec<u8>>().unwrap());
     assert_eq!(Vec::<String>::new(), RedisValue::Null.convert::<Vec<String>>().unwrap());
+  }
+
+  #[test]
+  fn should_convert_to_fixed_arrays() {
+    let foo: [i64; 2] = RedisValue::Array(vec![1.into(), 2.into()]).convert().unwrap();
+    assert_eq!(foo, [1, 2]);
+
+    assert!(RedisValue::Array(vec![1.into(), 2.into()])
+      .convert::<[i64; 3]>()
+      .is_err());
+    assert!(RedisValue::Array(vec![]).convert::<[i64; 3]>().is_err());
   }
 }

@@ -71,11 +71,11 @@ pub async fn should_evalsha_get_script(client: RedisClient, _: RedisConfig) -> R
   let hash = load_script(&client, GET_SCRIPT).await?;
   assert_eq!(hash, script_hash);
 
-  let result: Option<String> = client.evalsha(&script_hash, vec!["foo"], None).await?;
+  let result: Option<String> = client.evalsha(&script_hash, vec!["foo"], ()).await?;
   assert!(result.is_none());
 
   let _: () = client.set("foo", "bar", None, None, false).await?;
-  let result: String = client.evalsha(&script_hash, vec!["foo"], None).await?;
+  let result: String = client.evalsha(&script_hash, vec!["foo"], ()).await?;
   assert_eq!(result, "bar");
 
   let _ = flush_scripts(&client).await?;
@@ -93,18 +93,18 @@ pub async fn should_eval_echo_script(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_eval_get_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let result: Option<String> = client.eval(GET_SCRIPT, vec!["foo"], None).await?;
+  let result: Option<String> = client.eval(GET_SCRIPT, vec!["foo"], ()).await?;
   assert!(result.is_none());
 
   let hash = util::sha1_hash(GET_SCRIPT);
-  let result: Option<String> = client.evalsha(&hash, vec!["foo"], None).await?;
+  let result: Option<String> = client.evalsha(&hash, vec!["foo"], ()).await?;
   assert!(result.is_none());
 
   let _: () = client.set("foo", "bar", None, None, false).await?;
-  let result: String = client.eval(GET_SCRIPT, vec!["foo"], None).await?;
+  let result: String = client.eval(GET_SCRIPT, vec!["foo"], ()).await?;
   assert_eq!(result, "bar");
 
-  let result: String = client.evalsha(&hash, vec!["foo"], None).await?;
+  let result: String = client.evalsha(&hash, vec!["foo"], ()).await?;
   assert_eq!(result, "bar");
 
   let _ = flush_scripts(&client).await?;

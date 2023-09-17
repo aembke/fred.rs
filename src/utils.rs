@@ -233,31 +233,6 @@ pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   }
 }
 
-pub fn value_to_f64(value: &RedisValue) -> Result<f64, RedisError> {
-  value.as_f64().ok_or(RedisError::new(
-    RedisErrorKind::Unknown,
-    "Could not parse value as float.",
-  ))
-}
-
-pub fn value_to_geo_pos(value: &RedisValue) -> Result<Option<GeoPosition>, RedisError> {
-  if let RedisValue::Array(value) = value {
-    if value.len() == 2 {
-      let longitude = value_to_f64(&value[0])?;
-      let latitude = value_to_f64(&value[1])?;
-
-      Ok(Some(GeoPosition { longitude, latitude }))
-    } else {
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Expected array with 2 elements.",
-      ))
-    }
-  } else {
-    Ok(None)
-  }
-}
-
 fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(functions) = value {
     let mut out = Vec::with_capacity(functions.len());

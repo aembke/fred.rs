@@ -612,7 +612,7 @@ pub async fn cluster_slots_backchannel(
       (frame, host)
     };
 
-    (protocol_utils::frame_to_results_raw(frame)?, host)
+    (protocol_utils::frame_to_results(frame)?, host)
   };
   _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
   if response.is_null() {

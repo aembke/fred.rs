@@ -149,6 +149,7 @@ pub async fn evalsha<C: ClientLike>(
   let custom_key_slot = check_key_slot(client.inner(), &keys)?;
 
   let frame = utils::request_response(client, move || {
+    let cmd_args = cmd_args.into_multiple_values();
     let mut args = Vec::with_capacity(2 + keys.len() + cmd_args.len());
     args.push(hash.into());
     args.push(keys.len().try_into()?);
@@ -156,7 +157,7 @@ pub async fn evalsha<C: ClientLike>(
     for key in keys.into_iter() {
       args.push(key.into());
     }
-    for arg in cmd_args.inner().into_iter() {
+    for arg in cmd_args.into_iter() {
       args.push(arg);
     }
 
@@ -182,6 +183,7 @@ pub async fn eval<C: ClientLike>(
   let custom_key_slot = check_key_slot(client.inner(), &keys)?;
 
   let frame = utils::request_response(client, move || {
+    let cmd_args = cmd_args.into_multiple_values();
     let mut args = Vec::with_capacity(2 + keys.len() + cmd_args.len());
     args.push(script.into());
     args.push(keys.len().try_into()?);
@@ -189,7 +191,7 @@ pub async fn eval<C: ClientLike>(
     for key in keys.into_iter() {
       args.push(key.into());
     }
-    for arg in cmd_args.inner().into_iter() {
+    for arg in cmd_args.into_iter() {
       args.push(arg);
     }
 
@@ -212,6 +214,7 @@ pub async fn fcall<C: ClientLike>(
   args: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let args = args.into_multiple_values();
     let mut arguments = Vec::with_capacity(keys.len() + args.len() + 2);
     let mut custom_key_slot = None;
 
@@ -222,7 +225,7 @@ pub async fn fcall<C: ClientLike>(
       custom_key_slot = Some(key.cluster_hash());
       arguments.push(key.into());
     }
-    for arg in args.inner().into_iter() {
+    for arg in args.into_iter() {
       arguments.push(arg);
     }
 
@@ -245,6 +248,7 @@ pub async fn fcall_ro<C: ClientLike>(
   args: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let args = args.into_multiple_values();
     let mut arguments = Vec::with_capacity(keys.len() + args.len() + 2);
     let mut custom_key_slot = None;
 
@@ -255,7 +259,7 @@ pub async fn fcall_ro<C: ClientLike>(
       custom_key_slot = Some(key.cluster_hash());
       arguments.push(key.into());
     }
-    for arg in args.inner().into_iter() {
+    for arg in args.into_iter() {
       arguments.push(arg);
     }
 
@@ -361,7 +365,7 @@ pub async fn function_list<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) -> Result<RedisValue, RedisError> {
@@ -465,7 +469,7 @@ pub async fn function_stats<C: ClientLike>(client: &C) -> Result<RedisValue, Red
   let command = RedisCommand::new(RedisCommandKind::FunctionStats, vec![]);
 
   let frame = utils::backchannel_request_response(inner, command, true).await?;
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 value_cmd!(function_dump, FunctionDump);

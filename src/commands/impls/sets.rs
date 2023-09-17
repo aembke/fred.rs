@@ -12,10 +12,11 @@ pub async fn sadd<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Sadd, args))
@@ -109,10 +110,11 @@ pub async fn smismember<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Smismember, args))
@@ -176,10 +178,11 @@ pub async fn srem<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Srem, args))

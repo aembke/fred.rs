@@ -384,20 +384,6 @@ pub fn frame_to_str(frame: &Resp3Frame) -> Option<Str> {
   }
 }
 
-fn parse_nested_array(data: Vec<Resp3Frame>) -> Result<RedisValue, RedisError> {
-  let mut out = Vec::with_capacity(data.len());
-
-  for frame in data.into_iter() {
-    out.push(frame_to_results(frame)?);
-  }
-
-  if out.len() == 1 {
-    Ok(out.pop().unwrap())
-  } else {
-    Ok(RedisValue::Array(out))
-  }
-}
-
 fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
   let mut out = HashMap::with_capacity(data.len());
 
@@ -424,56 +410,8 @@ pub fn check_null_timeout(frame: &Resp3Frame) -> Result<(), RedisError> {
 
 /// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
 ///
-/// If the array contains one element then that element will be returned.
-pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
-  let value = match frame {
-    Resp3Frame::Null => RedisValue::Null,
-    Resp3Frame::SimpleString { data, .. } => {
-      let value = string_or_bytes(data);
-
-      if value.as_str().map(|s| s == QUEUED).unwrap_or(false) {
-        RedisValue::Queued
-      } else {
-        value
-      }
-    },
-    Resp3Frame::SimpleError { data, .. } => return Err(pretty_error(&data)),
-    Resp3Frame::BlobString { data, .. } => string_or_bytes(data),
-    Resp3Frame::BlobError { data, .. } => {
-      let parsed = String::from_utf8_lossy(&data);
-      return Err(pretty_error(parsed.as_ref()));
-    },
-    Resp3Frame::VerbatimString { data, .. } => string_or_bytes(data),
-    Resp3Frame::Number { data, .. } => data.into(),
-    Resp3Frame::Double { data, .. } => data.into(),
-    Resp3Frame::BigNumber { data, .. } => string_or_bytes(data),
-    Resp3Frame::Boolean { data, .. } => data.into(),
-    Resp3Frame::Array { data, .. } => parse_nested_array(data)?,
-    Resp3Frame::Push { data, .. } => parse_nested_array(data)?,
-    Resp3Frame::Set { data, .. } => {
-      let mut out = Vec::with_capacity(data.len());
-      for frame in data.into_iter() {
-        out.push(frame_to_results(frame)?);
-      }
-
-      RedisValue::Array(out)
-    },
-    Resp3Frame::Map { data, .. } => RedisValue::Map(parse_nested_map(data)?),
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        "Invalid response frame type.",
-      ))
-    },
-  };
-
-  Ok(value)
-}
-
-/// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
-///
 /// Unlike `frame_to_results` this will not unwrap single-element arrays.
-pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
+pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   let value = match frame {
     Resp3Frame::Null => RedisValue::Null,
     Resp3Frame::SimpleString { data, .. } => {
@@ -499,7 +437,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
     Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
       let mut out = Vec::with_capacity(data.len());
       for frame in data.into_iter() {
-        out.push(frame_to_results_raw(frame)?);
+        out.push(frame_to_results(frame)?);
       }
 
       RedisValue::Array(out)
@@ -507,7 +445,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
     Resp3Frame::Set { data, .. } => {
       let mut out = Vec::with_capacity(data.len());
       for frame in data.into_iter() {
-        out.push(frame_to_results_raw(frame)?);
+        out.push(frame_to_results(frame)?);
       }
 
       RedisValue::Array(out)
@@ -516,7 +454,7 @@ pub fn frame_to_results_raw(frame: Resp3Frame) -> Result<RedisValue, RedisError>
       let mut out = HashMap::with_capacity(data.len());
       for (key, value) in data.into_iter() {
         let key: RedisKey = frame_to_single_result(key)?.try_into()?;
-        let value = frame_to_results_raw(value)?;
+        let value = frame_to_results(value)?;
 
         out.insert(key, value);
       }
@@ -1227,169 +1165,14 @@ pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, Redis
   }
 }
 
-fn frame_to_f64(frame: &Resp3Frame) -> Result<f64, RedisError> {
-  match frame {
-    Resp3Frame::Double { ref data, .. } => Ok(*data),
-    _ => {
-      if let Some(s) = frame.as_str() {
-        utils::redis_string_to_f64(s)
-      } else {
-        Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Expected bulk string or double.",
-        ))
-      }
-    },
-  }
-}
-
-pub fn parse_geo_position(frame: &Resp3Frame) -> Result<GeoPosition, RedisError> {
-  if let Resp3Frame::Array { ref data, .. } = frame {
-    if data.len() == 2 {
-      let longitude = frame_to_f64(&data[0])?;
-      let latitude = frame_to_f64(&data[1])?;
-
-      Ok(GeoPosition { longitude, latitude })
-    } else {
-      Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        "Expected array with 2 coordinates.",
-      ))
-    }
-  } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array."))
-  }
-}
-
-fn assert_frame_len(frames: &Vec<Resp3Frame>, len: usize) -> Result<(), RedisError> {
-  if frames.len() != len {
-    Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      format!("Expected {} frames", len),
-    ))
-  } else {
+pub fn assert_array_len<T>(data: &Vec<T>, len: usize) -> Result<(), RedisError> {
+  if data.len() == len {
     Ok(())
-  }
-}
-
-fn parse_geo_member(frame: &Resp3Frame) -> Result<RedisValue, RedisError> {
-  frame
-    .as_str()
-    .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected string"))
-    .map(|s| s.into())
-}
-
-fn parse_geo_dist(frame: &Resp3Frame) -> Result<f64, RedisError> {
-  match frame {
-    Resp3Frame::Double { ref data, .. } => Ok(*data),
-    _ => frame
-      .as_str()
-      .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected double."))
-      .and_then(|s| utils::redis_string_to_f64(s)),
-  }
-}
-
-fn parse_geo_hash(frame: &Resp3Frame) -> Result<i64, RedisError> {
-  if let Resp3Frame::Number { ref data, .. } = frame {
-    Ok(*data)
   } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer."))
-  }
-}
-
-pub fn parse_georadius_info(
-  frame: &Resp3Frame,
-  withcoord: bool,
-  withdist: bool,
-  withhash: bool,
-) -> Result<GeoRadiusInfo, RedisError> {
-  if let Resp3Frame::Array { ref data, .. } = frame {
-    let mut out = GeoRadiusInfo::default();
-
-    if withcoord && withdist && withhash {
-      // 4 elements: member, dist, hash, position
-      let _ = assert_frame_len(data, 4)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.distance = Some(parse_geo_dist(&data[1])?);
-      out.hash = Some(parse_geo_hash(&data[2])?);
-      out.position = Some(parse_geo_position(&data[3])?);
-    } else if withcoord && withdist {
-      // 3 elements: member, dist, position
-      let _ = assert_frame_len(data, 3)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.distance = Some(parse_geo_dist(&data[1])?);
-      out.position = Some(parse_geo_position(&data[2])?);
-    } else if withcoord && withhash {
-      // 3 elements: member, hash, position
-      let _ = assert_frame_len(data, 3)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.hash = Some(parse_geo_hash(&data[1])?);
-      out.position = Some(parse_geo_position(&data[2])?);
-    } else if withdist && withhash {
-      // 3 elements: member, dist, hash
-      let _ = assert_frame_len(data, 3)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.distance = Some(parse_geo_dist(&data[1])?);
-      out.hash = Some(parse_geo_hash(&data[2])?);
-    } else if withcoord {
-      // 2 elements: member, position
-      let _ = assert_frame_len(data, 2)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.position = Some(parse_geo_position(&data[1])?);
-    } else if withdist {
-      // 2 elements: member, dist
-      let _ = assert_frame_len(data, 2)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.distance = Some(parse_geo_dist(&data[1])?);
-    } else if withhash {
-      // 2 elements: member, hash
-      let _ = assert_frame_len(data, 2)?;
-
-      out.member = parse_geo_member(&data[0])?;
-      out.hash = Some(parse_geo_hash(&data[1])?);
-    }
-
-    Ok(out)
-  } else {
-    let member: RedisValue = match frame.as_str() {
-      Some(s) => s.into(),
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Expected string or array of frames.",
-        ))
-      },
-    };
-
-    Ok(GeoRadiusInfo {
-      member,
-      ..Default::default()
-    })
-  }
-}
-
-pub fn parse_georadius_result(
-  frame: Resp3Frame,
-  withcoord: bool,
-  withdist: bool,
-  withhash: bool,
-) -> Result<Vec<GeoRadiusInfo>, RedisError> {
-  if let Resp3Frame::Array { data, .. } = frame {
-    let mut out = Vec::with_capacity(data.len());
-
-    for frame in data.into_iter() {
-      out.push(parse_georadius_info(&frame, withcoord, withdist, withhash)?);
-    }
-
-    Ok(out)
-  } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array."))
+    Err(RedisError::new(
+      RedisErrorKind::Parse,
+      format!("Expected {} values.", len),
+    ))
   }
 }
 
