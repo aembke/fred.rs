@@ -82,7 +82,7 @@ async fn send_monitor_command(
   let frame = connection.request_response(command, inner.is_resp3()).await?;
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   let _ = protocol_utils::expect_ok(&response)?;
   Ok(connection)
 }

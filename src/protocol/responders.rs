@@ -391,7 +391,7 @@ fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), R
         let mut values = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
-          values.push(protocol_utils::frame_to_single_result(frame)?);
+          values.push(protocol_utils::frame_to_results(frame)?);
         }
 
         Ok((cursor, values))

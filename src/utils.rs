@@ -358,7 +358,7 @@ pub async fn interrupt_blocked_connection(
   let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
 
   let frame = backchannel_request_response(inner, command, true).await?;
-  protocol_utils::frame_to_single_result(frame).map(|_| ())
+  protocol_utils::frame_to_results(frame).map(|_| ())
 }
 
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should

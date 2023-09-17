@@ -22,7 +22,7 @@ pub async fn pfadd<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn pfcount<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -46,5 +46,5 @@ pub async fn pfmerge<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

@@ -44,7 +44,7 @@ pub async fn geoadd<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn geohash<C: ClientLike>(
@@ -110,7 +110,7 @@ pub async fn geodist<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn georadius<C: ClientLike>(
@@ -346,5 +346,5 @@ pub async fn geosearchstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

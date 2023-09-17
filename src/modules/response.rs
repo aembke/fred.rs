@@ -12,6 +12,7 @@ use std::{
 #[allow(unused_imports)]
 use std::any::type_name;
 
+use crate::types::SlowlogEntry;
 #[cfg(feature = "default-nil-types")]
 use crate::types::NIL;
 #[cfg(any(feature = "default-nil-types", feature = "serde-json"))]
@@ -658,6 +659,12 @@ impl FromRedis for Value {
 impl FromRedis for GeoPosition {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     GeoPosition::try_from(value)
+  }
+}
+
+impl FromRedis for SlowlogEntry {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    SlowlogEntry::try_from(value)
   }
 }
 

@@ -197,7 +197,7 @@ pub async fn zdiffstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zincrby<C: ClientLike>(
@@ -278,7 +278,7 @@ pub async fn zinterstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zlexcount<C: ClientLike>(
@@ -404,7 +404,7 @@ pub async fn zrangestore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zrange<C: ClientLike>(
@@ -584,7 +584,7 @@ pub async fn zrem<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zremrangebylex<C: ClientLike>(
@@ -604,7 +604,7 @@ pub async fn zremrangebylex<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zremrangebyrank<C: ClientLike>(
@@ -634,7 +634,7 @@ pub async fn zremrangebyscore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zrevrange<C: ClientLike>(
@@ -743,7 +743,7 @@ pub async fn zunionstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn zmscore<C: ClientLike>(

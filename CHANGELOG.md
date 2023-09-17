@@ -12,7 +12,8 @@
 * Reworked the majority of the `RedisPool` interface. 
 * Moved and refactored the `on_*` functions into a new `EventInterface`.
 * Fixed the `tls_server_name` field on `Server` so that it is now properly gated by the TLS feature flags.
-* Fixed several bugs with the `Replica` routing implementation.
+* Fixed bugs with the `Replica` routing implementation.
+* Fixed bugs related to parsing single-element arrays.
 * Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
 
 ### Upgrading from 6.x

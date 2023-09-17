@@ -687,7 +687,7 @@ impl RedisTransport {
     _trace!(inner, "Checking cluster info for {}", self.server);
     let command = RedisCommand::new(RedisCommandKind::ClusterInfo, vec![]);
     let response = self.request_response(command, inner.is_resp3()).await?;
-    let response: String = protocol_utils::frame_to_single_result(response)?.convert()?;
+    let response: String = protocol_utils::frame_to_results(response)?.convert()?;
 
     for line in response.lines() {
       let parts: Vec<&str> = line.split(":").collect();
@@ -742,7 +742,7 @@ impl RedisTransport {
         _debug!(inner, "Sending READONLY to {}", self.server);
         let command = RedisCommand::new(RedisCommandKind::Readonly, vec![]);
         let response = self.request_response(command, inner.is_resp3()).await?;
-        let _ = protocol_utils::frame_to_single_result(response)?;
+        let _ = protocol_utils::frame_to_results(response)?;
 
         Ok::<_, RedisError>(())
       },

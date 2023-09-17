@@ -63,7 +63,7 @@ pub async fn publish<C: ClientLike>(client: &C, channel: Str, message: RedisValu
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn psubscribe<C: ClientLike>(client: &C, patterns: MultipleStrings) -> Result<RedisValue, RedisError> {
@@ -114,7 +114,7 @@ pub async fn spublish<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn ssubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) -> Result<RedisValue, RedisError> {

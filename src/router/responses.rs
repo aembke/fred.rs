@@ -235,7 +235,7 @@ pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_error() {
-    match protocol_utils::frame_to_single_result(frame.clone()) {
+    match protocol_utils::frame_to_results(frame.clone()) {
       Ok(_) => None,
       Err(e) => match e.kind() {
         RedisErrorKind::Auth => Some(e),

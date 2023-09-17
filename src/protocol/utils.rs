@@ -390,7 +390,7 @@ fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
   // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types
   // as keys...
   for (key, value) in data.into_iter() {
-    let key: RedisKey = frame_to_single_result(key)?.try_into()?;
+    let key: RedisKey = frame_to_results(key)?.try_into()?;
     let value = frame_to_results(value)?;
 
     out.insert(key, value);
@@ -453,7 +453,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
     Resp3Frame::Map { data, .. } => {
       let mut out = HashMap::with_capacity(data.len());
       for (key, value) in data.into_iter() {
-        let key: RedisKey = frame_to_single_result(key)?.try_into()?;
+        let key: RedisKey = frame_to_results(key)?.try_into()?;
         let value = frame_to_results(value)?;
 
         out.insert(key, value);
@@ -470,72 +470,6 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   };
 
   Ok(value)
-}
-
-/// Parse the protocol frame into a single redis value, returning an error if the result contains nested arrays, an
-/// array with more than one value, or any other aggregate type.
-///
-/// If the array only contains one value then that value will be returned.
-///
-/// This function is equivalent to [frame_to_results] but with an added validation layer if the result set is a nested
-/// array, aggregate type, etc.
-#[cfg(not(feature = "mocks"))]
-pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
-  match frame {
-    Resp3Frame::SimpleString { data, .. } => {
-      let value = string_or_bytes(data);
-
-      if value.as_str().map(|s| s == QUEUED).unwrap_or(false) {
-        Ok(RedisValue::Queued)
-      } else {
-        Ok(value)
-      }
-    },
-    Resp3Frame::SimpleError { data, .. } => Err(pretty_error(&data)),
-    Resp3Frame::Number { data, .. } => Ok(data.into()),
-    Resp3Frame::Double { data, .. } => Ok(data.into()),
-    Resp3Frame::BigNumber { data, .. } => Ok(string_or_bytes(data)),
-    Resp3Frame::Boolean { data, .. } => Ok(data.into()),
-    Resp3Frame::VerbatimString { data, .. } => Ok(string_or_bytes(data)),
-    Resp3Frame::BlobString { data, .. } => Ok(string_or_bytes(data)),
-    Resp3Frame::BlobError { data, .. } => {
-      // errors don't have a great way to represent non-utf8 strings...
-      let parsed = String::from_utf8_lossy(&data);
-      Err(pretty_error(parsed.as_ref()))
-    },
-    Resp3Frame::Array { mut data, .. } | Resp3Frame::Push { mut data, .. } => {
-      if data.len() > 1 {
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Could not convert multiple frames to RedisValue.",
-        ));
-      } else if data.is_empty() {
-        return Ok(RedisValue::Null);
-      }
-
-      let first_frame = data.pop().unwrap();
-      if first_frame.is_array() || first_frame.is_error() {
-        // there shouldn't be errors buried in arrays, nor should there be more than one layer of nested arrays
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Invalid nested array or error.",
-        ));
-      }
-
-      frame_to_single_result(first_frame)
-    },
-    Resp3Frame::Map { .. } | Resp3Frame::Set { .. } => {
-      Err(RedisError::new(RedisErrorKind::Protocol, "Invalid aggregate type."))
-    },
-    Resp3Frame::Null => Ok(RedisValue::Null),
-    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Unexpected frame kind.")),
-  }
-}
-
-/// Remove the (often unwanted) validation and parsing layer when using the mocking layer.
-#[cfg(feature = "mocks")]
-pub fn frame_to_single_result(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
-  frame_to_results(frame)
 }
 
 /// Flatten a single nested layer of arrays or sets into one array.
@@ -610,7 +544,7 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
       let mut inner = HashMap::with_capacity(data.len() / 2);
       while data.len() >= 2 {
         let value = frame_to_results(data.pop().unwrap())?;
-        let key = frame_to_single_result(data.pop().unwrap())?.try_into()?;
+        let key = frame_to_results(data.pop().unwrap())?.try_into()?;
 
         inner.insert(key, value);
       }
@@ -1014,81 +948,6 @@ pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, Redi
   Ok(user)
 }
 
-fn parse_slowlog_entry(frames: Vec<Resp3Frame>) -> Result<SlowlogEntry, RedisError> {
-  if frames.len() < 4 {
-    return Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Expected at least 4 response frames.",
-    ));
-  }
-
-  let id = match frames[0] {
-    Resp3Frame::Number { ref data, .. } => *data,
-    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer ID.")),
-  };
-  let timestamp = match frames[1] {
-    Resp3Frame::Number { ref data, .. } => *data,
-    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer timestamp.")),
-  };
-  let duration = match frames[2] {
-    Resp3Frame::Number { ref data, .. } => *data as u64,
-    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected integer duration.")),
-  };
-  let args = match frames[3] {
-    Resp3Frame::Array { ref data, .. } => data
-      .iter()
-      .filter_map(|frame| frame.as_str().map(|s| s.to_owned()))
-      .collect(),
-    _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected arguments array.")),
-  };
-
-  let (ip, name) = if frames.len() == 6 {
-    let ip = match frames[4].as_str() {
-      Some(s) => s.to_owned(),
-      None => return Err(RedisError::new(RedisErrorKind::Protocol, "Expected IP address string.")),
-    };
-    let name = match frames[5].as_str() {
-      Some(s) => s.to_owned(),
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Expected client name string.",
-        ))
-      },
-    };
-
-    (Some(ip), Some(name))
-  } else {
-    (None, None)
-  };
-
-  Ok(SlowlogEntry {
-    id,
-    timestamp,
-    duration,
-    args,
-    ip,
-    name,
-  })
-}
-
-pub fn parse_slowlog_entries(frames: Vec<Resp3Frame>) -> Result<Vec<SlowlogEntry>, RedisError> {
-  let mut out = Vec::with_capacity(frames.len());
-
-  for frame in frames.into_iter() {
-    if let Resp3Frame::Array { data, .. } = frame {
-      out.push(parse_slowlog_entry(data)?);
-    } else {
-      return Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        "Expected array of slowlog fields.",
-      ));
-    }
-  }
-
-  Ok(out)
-}
-
 fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
   let parts: Vec<&str> = line.split(":").collect();
   if parts.len() != 2 {
@@ -1439,7 +1298,7 @@ pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<Protoc
 #[cfg(test)]
 mod tests {
   use super::*;
-  use std::collections::HashMap;
+  use std::{collections::HashMap, time::Duration};
 
   fn str_to_f(s: &str) -> Resp3Frame {
     Resp3Frame::SimpleString {
@@ -1645,29 +1504,33 @@ mod tests {
     // 2) "get"
     // 3) "100"
 
-    let input = vec![
-      Resp3Frame::Array {
-        data:       vec![int_to_f(14), int_to_f(1309448221), int_to_f(15), Resp3Frame::Array {
-          data:       vec![str_to_bs("ping")],
+    let input = frame_to_results(Resp3Frame::Array {
+      data:       vec![
+        Resp3Frame::Array {
+          data:       vec![int_to_f(14), int_to_f(1309448221), int_to_f(15), Resp3Frame::Array {
+            data:       vec![str_to_bs("ping")],
+            attributes: None,
+          }],
           attributes: None,
-        }],
-        attributes: None,
-      },
-      Resp3Frame::Array {
-        data:       vec![int_to_f(13), int_to_f(1309448128), int_to_f(30), Resp3Frame::Array {
-          data:       vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+        },
+        Resp3Frame::Array {
+          data:       vec![int_to_f(13), int_to_f(1309448128), int_to_f(30), Resp3Frame::Array {
+            data:       vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+            attributes: None,
+          }],
           attributes: None,
-        }],
-        attributes: None,
-      },
-    ];
-    let actual = parse_slowlog_entries(input).unwrap();
+        },
+      ],
+      attributes: None,
+    })
+    .unwrap();
+    let actual: Vec<SlowlogEntry> = input.convert().unwrap();
 
     let expected = vec![
       SlowlogEntry {
         id:        14,
         timestamp: 1309448221,
-        duration:  15,
+        duration:  Duration::from_micros(15),
         args:      vec!["ping".into()],
         ip:        None,
         name:      None,
@@ -1675,7 +1538,7 @@ mod tests {
       SlowlogEntry {
         id:        13,
         timestamp: 1309448128,
-        duration:  30,
+        duration:  Duration::from_micros(30),
         args:      vec!["slowlog".into(), "get".into(), "100".into()],
         ip:        None,
         name:      None,
@@ -1703,43 +1566,47 @@ mod tests {
     // 5) "127.0.0.1:58217"
     // 6) "worker-123"
 
-    let input = vec![
-      Resp3Frame::Array {
-        data:       vec![
-          int_to_f(14),
-          int_to_f(1309448221),
-          int_to_f(15),
-          Resp3Frame::Array {
-            data:       vec![str_to_bs("ping")],
-            attributes: None,
-          },
-          str_to_bs("127.0.0.1:58217"),
-          str_to_bs("worker-123"),
-        ],
-        attributes: None,
-      },
-      Resp3Frame::Array {
-        data:       vec![
-          int_to_f(13),
-          int_to_f(1309448128),
-          int_to_f(30),
-          Resp3Frame::Array {
-            data:       vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
-            attributes: None,
-          },
-          str_to_bs("127.0.0.1:58217"),
-          str_to_bs("worker-123"),
-        ],
-        attributes: None,
-      },
-    ];
-    let actual = parse_slowlog_entries(input).unwrap();
+    let input = frame_to_results(Resp3Frame::Array {
+      data:       vec![
+        Resp3Frame::Array {
+          data:       vec![
+            int_to_f(14),
+            int_to_f(1309448221),
+            int_to_f(15),
+            Resp3Frame::Array {
+              data:       vec![str_to_bs("ping")],
+              attributes: None,
+            },
+            str_to_bs("127.0.0.1:58217"),
+            str_to_bs("worker-123"),
+          ],
+          attributes: None,
+        },
+        Resp3Frame::Array {
+          data:       vec![
+            int_to_f(13),
+            int_to_f(1309448128),
+            int_to_f(30),
+            Resp3Frame::Array {
+              data:       vec![str_to_bs("slowlog"), str_to_bs("get"), str_to_bs("100")],
+              attributes: None,
+            },
+            str_to_bs("127.0.0.1:58217"),
+            str_to_bs("worker-123"),
+          ],
+          attributes: None,
+        },
+      ],
+      attributes: None,
+    })
+    .unwrap();
+    let actual: Vec<SlowlogEntry> = input.convert().unwrap();
 
     let expected = vec![
       SlowlogEntry {
         id:        14,
         timestamp: 1309448221,
-        duration:  15,
+        duration:  Duration::from_micros(15),
         args:      vec!["ping".into()],
         ip:        Some("127.0.0.1:58217".into()),
         name:      Some("worker-123".into()),
@@ -1747,7 +1614,7 @@ mod tests {
       SlowlogEntry {
         id:        13,
         timestamp: 1309448128,
-        duration:  30,
+        duration:  Duration::from_micros(30),
         args:      vec!["slowlog".into(), "get".into(), "100".into()],
         ip:        Some("127.0.0.1:58217".into()),
         name:      Some("worker-123".into()),

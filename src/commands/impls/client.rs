@@ -31,7 +31,7 @@ pub async fn client_kill<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn client_list<C: ClientLike>(
@@ -62,7 +62,7 @@ pub async fn client_list<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn client_pause<C: ClientLike>(
@@ -82,7 +82,7 @@ pub async fn client_pause<C: ClientLike>(
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -91,7 +91,7 @@ value_cmd!(client_getname, ClientGetName);
 pub async fn client_setname<C: ClientLike>(client: &C, name: Str) -> Result<(), RedisError> {
   let frame =
     utils::request_response(client, move || Ok((RedisCommandKind::ClientSetname, vec![name.into()]))).await?;
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -103,7 +103,7 @@ pub async fn client_reply<C: ClientLike>(client: &C, flag: ClientReplyFlag) -> R
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -122,7 +122,7 @@ pub async fn client_unblock<C: ClientLike>(
   let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
 
   let frame = utils::backchannel_request_response(inner, command, false).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockFlag>) -> Result<(), RedisError> {

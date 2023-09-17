@@ -27,7 +27,7 @@ pub async fn acl_setuser<C: ClientLike>(client: &C, username: Str, rules: Vec<Ac
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -55,7 +55,7 @@ pub async fn acl_getuser<C: ClientLike>(client: &C, username: Str) -> Result<Opt
 pub async fn acl_deluser<C: ClientLike>(client: &C, usernames: MultipleKeys) -> Result<RedisValue, RedisError> {
   let args: Vec<RedisValue> = usernames.inner().into_iter().map(|k| k.into()).collect();
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::AclDelUser, args))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn acl_cat<C: ClientLike>(client: &C, category: Option<Str>) -> Result<RedisValue, RedisError> {
@@ -77,12 +77,12 @@ pub async fn acl_genpass<C: ClientLike>(client: &C, bits: Option<u16>) -> Result
   };
 
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::AclGenPass, args))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn acl_log_reset<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let frame = utils::request_response(client, || Ok((RedisCommandKind::AclLog, vec![static_val!(RESET)]))).await?;
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 

@@ -61,7 +61,7 @@ macro_rules! ok_cmd(
   ($name:ident, $cmd:tt) => {
     pub async fn $name<C: ClientLike>(client: &C) -> Result<(), RedisError> {
       let frame = crate::utils::request_response(client, || Ok((RedisCommandKind::$cmd, vec![]))).await?;
-      let response = crate::protocol::utils::frame_to_single_result(frame)?;
+      let response = crate::protocol::utils::frame_to_results(frame)?;
       crate::protocol::utils::expect_ok(&response)
     }
   }
@@ -72,7 +72,7 @@ macro_rules! simple_cmd(
   ($name:ident, $cmd:tt, $res:ty) => {
     pub async fn $name<C: ClientLike>(client: &C) -> Result<$res, RedisError> {
       let frame = crate::utils::request_response(client, || Ok((RedisCommandKind::$cmd, vec![]))).await?;
-      crate::protocol::utils::frame_to_single_result(frame)
+      crate::protocol::utils::frame_to_results(frame)
     }
   }
 );
@@ -102,7 +102,7 @@ pub async fn one_arg_value_cmd<C: ClientLike>(
   arg: RedisValue,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, vec![arg]))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 /// A function that issues a command that only takes one argument and returns a potentially nested `RedisValue`.
@@ -124,7 +124,7 @@ pub async fn one_arg_ok_cmd<C: ClientLike>(
 ) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, vec![arg]))).await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -136,7 +136,7 @@ pub async fn args_value_cmd<C: ClientLike>(
   args: Vec<RedisValue>,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, args))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 /// A function that issues a command that takes any number of arguments and returns a potentially nested `RedisValue`
@@ -158,7 +158,7 @@ pub async fn args_ok_cmd<C: ClientLike>(
   args: Vec<RedisValue>,
 ) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, args))).await?;
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 

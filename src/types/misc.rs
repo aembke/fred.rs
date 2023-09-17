@@ -5,10 +5,10 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
-use std::{collections::HashMap, convert::TryFrom, fmt};
+use std::{collections::HashMap, convert::TryFrom, fmt, time::Duration};
 
 pub use crate::protocol::types::{Message, MessageKind};
-use crate::types::RedisKey;
+use crate::types::{RedisKey, RedisValue};
 
 /// Arguments passed to the SHUTDOWN command.
 ///
@@ -347,10 +347,62 @@ impl Eq for MemoryStats {}
 pub struct SlowlogEntry {
   pub id:        i64,
   pub timestamp: i64,
-  pub duration:  u64,
-  pub args:      Vec<String>,
-  pub ip:        Option<String>,
-  pub name:      Option<String>,
+  pub duration:  Duration,
+  pub args:      Vec<RedisValue>,
+  pub ip:        Option<Str>,
+  pub name:      Option<Str>,
+}
+
+impl TryFrom<RedisValue> for SlowlogEntry {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    if let RedisValue::Array(values) = value {
+      if values.len() < 4 {
+        return Err(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Expected at least 4 response values.",
+        ));
+      }
+
+      let id = values[0]
+        .as_i64()
+        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer ID."))?;
+      let timestamp = values[1]
+        .as_i64()
+        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer timestamp."))?;
+      let duration = values[2]
+        .as_u64()
+        .map(Duration::from_micros)
+        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer duration."))?;
+      let args = values[3].clone().into_multiple_values();
+
+      let (ip, name) = if values.len() == 6 {
+        let ip = values[4]
+          .as_bytes_str()
+          .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected IP address string."))?;
+        let name = values[5].as_bytes_str().ok_or(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Expected client name string.",
+        ))?;
+
+        (Some(ip), Some(name))
+      } else {
+        (None, None)
+      };
+
+      Ok(SlowlogEntry {
+        id,
+        timestamp,
+        duration,
+        args,
+        ip,
+        name,
+      })
+    } else {
+      Err(RedisError::new_parse("Expected array."))
+    }
+  }
 }
 
 /// Flags for the SCRIPT DEBUG command.

@@ -98,7 +98,7 @@ pub async fn script_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<()
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -135,7 +135,7 @@ pub async fn script_debug<C: ClientLike>(client: &C, flag: ScriptDebugFlag) -> R
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -281,7 +281,7 @@ pub async fn function_delete<C: ClientLike>(client: &C, library_name: Str) -> Re
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: Str) -> Result<(), RedisError> {
@@ -314,7 +314,7 @@ pub async fn function_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> Result<(), RedisError> {
@@ -380,7 +380,7 @@ pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) 
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_load_cluster<C: ClientLike>(
@@ -409,7 +409,7 @@ pub async fn function_load_cluster<C: ClientLike>(
   match utils::apply_timeout(rx, timeout_dur).await?? {
     Frame::Array { mut data, .. } => {
       if let Some(frame) = data.pop() {
-        protocol_utils::frame_to_single_result(frame)
+        protocol_utils::frame_to_results(frame)
       } else {
         Err(RedisError::new(
           RedisErrorKind::Protocol,
@@ -440,7 +440,7 @@ pub async fn function_restore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_restore_cluster<C: ClientLike>(

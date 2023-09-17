@@ -2,7 +2,7 @@ use super::*;
 use crate::{
   interfaces,
   protocol::{
-    command::{RouterCommand, RedisCommandKind},
+    command::{RedisCommandKind, RouterCommand},
     utils as protocol_utils,
   },
   types::*,
@@ -36,7 +36,7 @@ pub async fn cluster_add_slots<C: ClientLike>(client: &C, slots: MultipleHashSlo
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -48,7 +48,7 @@ pub async fn cluster_count_failure_reports<C: ClientLike>(
     Ok((RedisCommandKind::ClusterCountFailureReports, vec![node_id.into()]))
   })
   .await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn cluster_count_keys_in_slot<C: ClientLike>(client: &C, slot: u16) -> Result<RedisValue, RedisError> {
@@ -57,7 +57,7 @@ pub async fn cluster_count_keys_in_slot<C: ClientLike>(client: &C, slot: u16) ->
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn cluster_del_slots<C: ClientLike>(client: &C, slots: MultipleHashSlots) -> Result<(), RedisError> {
@@ -72,7 +72,7 @@ pub async fn cluster_del_slots<C: ClientLike>(client: &C, slots: MultipleHashSlo
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -91,7 +91,7 @@ pub async fn cluster_failover<C: ClientLike>(
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -142,7 +142,7 @@ pub async fn cluster_reset<C: ClientLike>(client: &C, mode: Option<ClusterResetF
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -170,7 +170,7 @@ pub async fn cluster_setslot<C: ClientLike>(
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
