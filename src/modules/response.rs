@@ -1,6 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::{RedisKey, RedisValue, QUEUED},
+  types::{GeoPosition, RedisKey, RedisValue, QUEUED},
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -12,7 +12,6 @@ use std::{
 #[allow(unused_imports)]
 use std::any::type_name;
 
-use crate::types::GeoPosition;
 #[cfg(feature = "loose-nils")]
 use crate::types::NIL;
 #[cfg(any(feature = "loose-nils", feature = "serde-json"))]

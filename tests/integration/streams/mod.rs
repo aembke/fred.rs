@@ -85,8 +85,8 @@ pub async fn should_xinfo_streams(client: RedisClient, _: RedisConfig) -> Result
   assert!(result.len() >= 6);
   assert_eq!(result.get("length"), Some(&RedisValue::Integer(0)));
 
-  let groups: HashMap<String, RedisValue> = result.remove("groups").unwrap().convert()?;
-  assert_eq!(groups.get("name"), Some(&RedisValue::from("group1")));
+  let groups: [HashMap<String, RedisValue>; 1] = result.remove("groups").unwrap().convert()?;
+  assert_eq!(groups[0].get("name"), Some(&RedisValue::from("group1")));
 
   Ok(())
 }

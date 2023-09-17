@@ -15,15 +15,14 @@
 * Fixed several bugs with the `Replica` routing implementation.
 * Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
 
-### Notable changes from 6.x
+### Upgrading from 6.x
 
-**Things `rustc` should tell you about:**
+Notable or breaking changes:
 
 * `ArcStr` has been replaced with `bytes_utils::Str`.
 * Timeout arguments or fields now all use `Duration`.
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
-* Switched the `RedisPool` interface to directly implement `ClientLike` rather than relying on `Deref` shenanigans.
-  * This should remove several footguns with certain interfaces, especially the metrics and event interfaces.
+* The `RedisPool` interface now directly implements `ClientLike` rather than relying on `Deref` shenanigans.
 * The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`.
 * Mocks are now optional even when the feature flag is enabled.
 
@@ -31,9 +30,10 @@
 
 * The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer.
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
-* In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. Most of these were consolidated under the `loose-nils` feature flag.
-  * It is strongly recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs).
-* The `connect` function can now be called more than once to forcefully reset all client state.
+* In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. 
+  * Most of these were consolidated under the `loose-nils` feature flag.
+  * It is recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs).
+* The `connect` function can now be called more than once to force reset all client state.
 
 ## 6.3.1
 
