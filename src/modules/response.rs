@@ -14,7 +14,7 @@ use std::any::type_name;
 
 #[cfg(feature = "default-nil-types")]
 use crate::types::NIL;
-use crate::types::{ClusterInfo, SlowlogEntry};
+use crate::types::{ClusterInfo, DatabaseMemoryStats, MemoryStats, SlowlogEntry};
 #[cfg(any(feature = "default-nil-types", feature = "serde-json"))]
 use crate::utils;
 #[cfg(feature = "serde-json")]
@@ -671,6 +671,18 @@ impl FromRedis for SlowlogEntry {
 impl FromRedis for ClusterInfo {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     ClusterInfo::try_from(value)
+  }
+}
+
+impl FromRedis for MemoryStats {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    MemoryStats::try_from(value)
+  }
+}
+
+impl FromRedis for DatabaseMemoryStats {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    DatabaseMemoryStats::try_from(value)
   }
 }
 

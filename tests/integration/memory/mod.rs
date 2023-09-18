@@ -1,4 +1,4 @@
-use fred::prelude::*;
+use fred::{prelude::*, types::MemoryStats};
 
 pub async fn should_run_memory_doctor(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = client.memory_doctor().await?;
@@ -16,7 +16,7 @@ pub async fn should_run_memory_purge(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_run_memory_stats(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let stats = client.memory_stats().await?;
+  let stats: MemoryStats = client.memory_stats().await?;
   assert!(stats.total_allocated > 0);
 
   Ok(())

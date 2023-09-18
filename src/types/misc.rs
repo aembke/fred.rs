@@ -1,14 +1,14 @@
-pub use crate::protocol::hashers::ClusterHash;
+pub use crate::protocol::{
+  hashers::ClusterHash,
+  types::{Message, MessageKind},
+};
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::Server,
-  utils,
+  types::{RedisKey, RedisValue, Server},
+  utils::{self, convert_or_default},
 };
 use bytes_utils::Str;
 use std::{collections::HashMap, convert::TryFrom, fmt, time::Duration};
-
-pub use crate::protocol::types::{Message, MessageKind};
-use crate::types::{RedisKey, RedisValue};
 
 /// Arguments passed to the SHUTDOWN command.
 ///
@@ -228,16 +228,41 @@ impl fmt::Display for ClientState {
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DatabaseMemoryStats {
-  pub overhead_hashtable_main:    u64,
-  pub overhead_hashtable_expires: u64,
+  pub overhead_hashtable_main:         u64,
+  pub overhead_hashtable_expires:      u64,
+  pub overhead_hashtable_slot_to_keys: u64,
 }
 
 impl Default for DatabaseMemoryStats {
   fn default() -> Self {
     DatabaseMemoryStats {
-      overhead_hashtable_expires: 0,
-      overhead_hashtable_main:    0,
+      overhead_hashtable_expires:      0,
+      overhead_hashtable_main:         0,
+      overhead_hashtable_slot_to_keys: 0,
     }
+  }
+}
+
+fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value: RedisValue) {
+  match key.as_ref() {
+    "overhead.hashtable.main" => stats.overhead_hashtable_main = convert_or_default(value),
+    "overhead.hashtable.expires" => stats.overhead_hashtable_expires = convert_or_default(value),
+    "overhead.hashtable.slot-to-keys" => stats.overhead_hashtable_slot_to_keys = convert_or_default(value),
+    _ => {},
+  };
+}
+
+impl TryFrom<RedisValue> for DatabaseMemoryStats {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    let values: HashMap<Str, RedisValue> = value.convert()?;
+    let mut out = DatabaseMemoryStats::default();
+
+    for (key, value) in values.into_iter() {
+      parse_database_memory_stat(&mut out, &key, value);
+    }
+    Ok(out)
   }
 }
 
@@ -339,6 +364,64 @@ impl PartialEq for MemoryStats {
 }
 
 impl Eq for MemoryStats {}
+
+fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue) {
+  match key.as_ref() {
+    "peak.allocated" => stats.peak_allocated = convert_or_default(value),
+    "total.allocated" => stats.total_allocated = convert_or_default(value),
+    "startup.allocated" => stats.startup_allocated = convert_or_default(value),
+    "replication.backlog" => stats.replication_backlog = convert_or_default(value),
+    "clients.slaves" => stats.clients_slaves = convert_or_default(value),
+    "clients.normal" => stats.clients_normal = convert_or_default(value),
+    "aof.buffer" => stats.aof_buffer = convert_or_default(value),
+    "lua.caches" => stats.lua_caches = convert_or_default(value),
+    "overhead.total" => stats.overhead_total = convert_or_default(value),
+    "keys.count" => stats.keys_count = convert_or_default(value),
+    "keys.bytes-per-key" => stats.keys_bytes_per_key = convert_or_default(value),
+    "dataset.bytes" => stats.dataset_bytes = convert_or_default(value),
+    "dataset.percentage" => stats.dataset_percentage = convert_or_default(value),
+    "peak.percentage" => stats.peak_percentage = convert_or_default(value),
+    "allocator.allocated" => stats.allocator_allocated = convert_or_default(value),
+    "allocator.active" => stats.allocator_active = convert_or_default(value),
+    "allocator.resident" => stats.allocator_resident = convert_or_default(value),
+    "allocator-fragmentation.ratio" => stats.allocator_fragmentation_ratio = convert_or_default(value),
+    "allocator-fragmentation.bytes" => stats.allocator_fragmentation_bytes = convert_or_default(value),
+    "allocator-rss.ratio" => stats.allocator_rss_ratio = convert_or_default(value),
+    "allocator-rss.bytes" => stats.allocator_rss_bytes = convert_or_default(value),
+    "rss-overhead.ratio" => stats.rss_overhead_ratio = convert_or_default(value),
+    "rss-overhead.bytes" => stats.rss_overhead_bytes = convert_or_default(value),
+    "fragmentation" => stats.fragmentation = convert_or_default(value),
+    "fragmentation.bytes" => stats.fragmentation_bytes = convert_or_default(value),
+    _ => {
+      if key.starts_with("db.") {
+        let db = match key.split(".").last().and_then(|v| v.parse::<u16>().ok()) {
+          Some(db) => db,
+          None => return,
+        };
+        let parsed: DatabaseMemoryStats = match value.convert().ok() {
+          Some(db) => db,
+          None => return,
+        };
+
+        stats.db.insert(db, parsed);
+      }
+    },
+  }
+}
+
+impl TryFrom<RedisValue> for MemoryStats {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    let values: HashMap<Str, RedisValue> = value.convert()?;
+    let mut out = MemoryStats::default();
+
+    for (key, value) in values.into_iter() {
+      parse_memory_stat_field(&mut out, &key, value);
+    }
+    Ok(out)
+  }
+}
 
 /// The output of an entry in the slow queries log.
 ///

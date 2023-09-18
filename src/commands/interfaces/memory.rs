@@ -2,7 +2,7 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   prelude::FromRedis,
-  types::{MemoryStats, RedisKey},
+  types::RedisKey,
 };
 
 /// Functions that implement the [memory](https://redis.io/commands#server) interface.
@@ -12,14 +12,20 @@ pub trait MemoryInterface: ClientLike + Sized {
   /// advises about possible remedies.
   ///
   /// <https://redis.io/commands/memory-doctor>
-  async fn memory_doctor(&self) -> RedisResult<String> {
+  async fn memory_doctor<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::memory::memory_doctor(self).await?.convert()
   }
 
   /// The MEMORY MALLOC-STATS command provides an internal statistics report from the memory allocator.
   ///
   /// <https://redis.io/commands/memory-malloc-stats>
-  async fn memory_malloc_stats(&self) -> RedisResult<String> {
+  async fn memory_malloc_stats<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::memory::memory_malloc_stats(self).await?.convert()
   }
 
@@ -33,8 +39,11 @@ pub trait MemoryInterface: ClientLike + Sized {
   /// The MEMORY STATS command returns an Array reply about the memory usage of the server.
   ///
   /// <https://redis.io/commands/memory-stats>
-  async fn memory_stats(&self) -> RedisResult<MemoryStats> {
-    commands::memory::memory_stats(self).await
+  async fn memory_stats<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::memory::memory_stats(self).await?.convert()
   }
 
   /// The MEMORY USAGE command reports the number of bytes that a key and its value require to be stored in RAM.

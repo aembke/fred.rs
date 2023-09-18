@@ -8,7 +8,6 @@ use crate::{
   },
   types::*,
   utils,
-  utils::redis_string_to_f64,
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -690,131 +689,6 @@ pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {
   }
 }
 
-fn parse_u64(val: &Resp3Frame) -> u64 {
-  match *val {
-    Resp3Frame::Number { ref data, .. } => {
-      if *data < 0 {
-        0
-      } else {
-        *data as u64
-      }
-    },
-    Resp3Frame::Double { ref data, .. } => *data as u64,
-    Resp3Frame::BlobString { ref data, .. } | Resp3Frame::SimpleString { ref data, .. } => str::from_utf8(data)
-      .ok()
-      .and_then(|s| s.parse::<u64>().ok())
-      .unwrap_or(0),
-    _ => 0,
-  }
-}
-
-fn parse_f64(val: &Resp3Frame) -> f64 {
-  match *val {
-    Resp3Frame::Number { ref data, .. } => *data as f64,
-    Resp3Frame::Double { ref data, .. } => *data,
-    Resp3Frame::BlobString { ref data, .. } | Resp3Frame::SimpleString { ref data, .. } => str::from_utf8(data)
-      .ok()
-      .and_then(|s| redis_string_to_f64(s).ok())
-      .unwrap_or(0.0),
-    _ => 0.0,
-  }
-}
-
-fn parse_db_memory_stats(data: &Vec<Resp3Frame>) -> Result<DatabaseMemoryStats, RedisError> {
-  if data.len() % 2 != 0 {
-    return Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid MEMORY STATS database response. Result must have an even number of frames.",
-    ));
-  }
-
-  let mut out = DatabaseMemoryStats::default();
-  for chunk in data.chunks(2) {
-    let key = match chunk[0].as_str() {
-      Some(s) => s,
-      None => continue,
-    };
-
-    match key.as_ref() {
-      "overhead.hashtable.main" => out.overhead_hashtable_main = parse_u64(&chunk[1]),
-      "overhead.hashtable.expires" => out.overhead_hashtable_expires = parse_u64(&chunk[1]),
-      _ => {},
-    };
-  }
-
-  Ok(out)
-}
-
-fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: &Resp3Frame) {
-  match key.as_ref() {
-    "peak.allocated" => stats.peak_allocated = parse_u64(value),
-    "total.allocated" => stats.total_allocated = parse_u64(value),
-    "startup.allocated" => stats.startup_allocated = parse_u64(value),
-    "replication.backlog" => stats.replication_backlog = parse_u64(value),
-    "clients.slaves" => stats.clients_slaves = parse_u64(value),
-    "clients.normal" => stats.clients_normal = parse_u64(value),
-    "aof.buffer" => stats.aof_buffer = parse_u64(value),
-    "lua.caches" => stats.lua_caches = parse_u64(value),
-    "overhead.total" => stats.overhead_total = parse_u64(value),
-    "keys.count" => stats.keys_count = parse_u64(value),
-    "keys.bytes-per-key" => stats.keys_bytes_per_key = parse_u64(value),
-    "dataset.bytes" => stats.dataset_bytes = parse_u64(value),
-    "dataset.percentage" => stats.dataset_percentage = parse_f64(value),
-    "peak.percentage" => stats.peak_percentage = parse_f64(value),
-    "allocator.allocated" => stats.allocator_allocated = parse_u64(value),
-    "allocator.active" => stats.allocator_active = parse_u64(value),
-    "allocator.resident" => stats.allocator_resident = parse_u64(value),
-    "allocator-fragmentation.ratio" => stats.allocator_fragmentation_ratio = parse_f64(value),
-    "allocator-fragmentation.bytes" => stats.allocator_fragmentation_bytes = parse_u64(value),
-    "allocator-rss.ratio" => stats.allocator_rss_ratio = parse_f64(value),
-    "allocator-rss.bytes" => stats.allocator_rss_bytes = parse_u64(value),
-    "rss-overhead.ratio" => stats.rss_overhead_ratio = parse_f64(value),
-    "rss-overhead.bytes" => stats.rss_overhead_bytes = parse_u64(value),
-    "fragmentation" => stats.fragmentation = parse_f64(value),
-    "fragmentation.bytes" => stats.fragmentation_bytes = parse_u64(value),
-    _ => {},
-  }
-}
-
-pub fn parse_memory_stats(data: &Vec<Resp3Frame>) -> Result<MemoryStats, RedisError> {
-  if data.len() % 2 != 0 {
-    return Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid MEMORY STATS response. Result must have an even number of frames.",
-    ));
-  }
-
-  let mut out = MemoryStats::default();
-  for chunk in data.chunks(2) {
-    let key = match chunk[0].as_str() {
-      Some(s) => s,
-      None => continue,
-    };
-
-    if key.starts_with("db.") {
-      let db = match key.split(".").last() {
-        Some(db) => match db.parse::<u16>().ok() {
-          Some(db) => db,
-          None => continue,
-        },
-        None => continue,
-      };
-
-      let inner = match chunk[1] {
-        Resp3Frame::Array { ref data, .. } => data,
-        _ => continue,
-      };
-      let parsed = parse_db_memory_stats(inner)?;
-
-      out.db.insert(db, parsed);
-    } else {
-      parse_memory_stat_field(&mut out, key, &chunk[1]);
-    }
-  }
-
-  Ok(out)
-}
-
 fn parse_acl_getuser_flag(value: &Resp3Frame) -> Result<Vec<AclUserFlag>, RedisError> {
   if let Resp3Frame::Array { ref data, .. } = value {
     let mut out = Vec::with_capacity(data.len());
@@ -1275,73 +1149,78 @@ mod tests {
   #[test]
   fn should_parse_memory_stats() {
     // better from()/into() interfaces for frames coming in the next redis-protocol version...
-    let frames: Vec<Resp3Frame> = vec![
-      str_to_f("peak.allocated"),
-      int_to_f(934192),
-      str_to_f("total.allocated"),
-      int_to_f(872040),
-      str_to_f("startup.allocated"),
-      int_to_f(809912),
-      str_to_f("replication.backlog"),
-      int_to_f(0),
-      str_to_f("clients.slaves"),
-      int_to_f(0),
-      str_to_f("clients.normal"),
-      int_to_f(20496),
-      str_to_f("aof.buffer"),
-      int_to_f(0),
-      str_to_f("lua.caches"),
-      int_to_f(0),
-      str_to_f("db.0"),
-      Resp3Frame::Array {
-        data:       vec![
-          str_to_f("overhead.hashtable.main"),
-          int_to_f(72),
-          str_to_f("overhead.hashtable.expires"),
-          int_to_f(0),
-        ],
-        attributes: None,
-      },
-      str_to_f("overhead.total"),
-      int_to_f(830480),
-      str_to_f("keys.count"),
-      int_to_f(1),
-      str_to_f("keys.bytes-per-key"),
-      int_to_f(62128),
-      str_to_f("dataset.bytes"),
-      int_to_f(41560),
-      str_to_f("dataset.percentage"),
-      str_to_f("66.894157409667969"),
-      str_to_f("peak.percentage"),
-      str_to_f("93.346977233886719"),
-      str_to_f("allocator.allocated"),
-      int_to_f(1022640),
-      str_to_f("allocator.active"),
-      int_to_f(1241088),
-      str_to_f("allocator.resident"),
-      int_to_f(5332992),
-      str_to_f("allocator-fragmentation.ratio"),
-      str_to_f("1.2136118412017822"),
-      str_to_f("allocator-fragmentation.bytes"),
-      int_to_f(218448),
-      str_to_f("allocator-rss.ratio"),
-      str_to_f("4.2970294952392578"),
-      str_to_f("allocator-rss.bytes"),
-      int_to_f(4091904),
-      str_to_f("rss-overhead.ratio"),
-      str_to_f("2.0268816947937012"),
-      str_to_f("rss-overhead.bytes"),
-      int_to_f(5476352),
-      str_to_f("fragmentation"),
-      str_to_f("13.007383346557617"),
-      str_to_f("fragmentation.bytes"),
-      int_to_f(9978328),
-    ];
-    let memory_stats = parse_memory_stats(&frames).unwrap();
+    let input = frame_to_results(Resp3Frame::Array {
+      data:       vec![
+        str_to_f("peak.allocated"),
+        int_to_f(934192),
+        str_to_f("total.allocated"),
+        int_to_f(872040),
+        str_to_f("startup.allocated"),
+        int_to_f(809912),
+        str_to_f("replication.backlog"),
+        int_to_f(0),
+        str_to_f("clients.slaves"),
+        int_to_f(0),
+        str_to_f("clients.normal"),
+        int_to_f(20496),
+        str_to_f("aof.buffer"),
+        int_to_f(0),
+        str_to_f("lua.caches"),
+        int_to_f(0),
+        str_to_f("db.0"),
+        Resp3Frame::Array {
+          data:       vec![
+            str_to_f("overhead.hashtable.main"),
+            int_to_f(72),
+            str_to_f("overhead.hashtable.expires"),
+            int_to_f(0),
+          ],
+          attributes: None,
+        },
+        str_to_f("overhead.total"),
+        int_to_f(830480),
+        str_to_f("keys.count"),
+        int_to_f(1),
+        str_to_f("keys.bytes-per-key"),
+        int_to_f(62128),
+        str_to_f("dataset.bytes"),
+        int_to_f(41560),
+        str_to_f("dataset.percentage"),
+        str_to_f("66.894157409667969"),
+        str_to_f("peak.percentage"),
+        str_to_f("93.346977233886719"),
+        str_to_f("allocator.allocated"),
+        int_to_f(1022640),
+        str_to_f("allocator.active"),
+        int_to_f(1241088),
+        str_to_f("allocator.resident"),
+        int_to_f(5332992),
+        str_to_f("allocator-fragmentation.ratio"),
+        str_to_f("1.2136118412017822"),
+        str_to_f("allocator-fragmentation.bytes"),
+        int_to_f(218448),
+        str_to_f("allocator-rss.ratio"),
+        str_to_f("4.2970294952392578"),
+        str_to_f("allocator-rss.bytes"),
+        int_to_f(4091904),
+        str_to_f("rss-overhead.ratio"),
+        str_to_f("2.0268816947937012"),
+        str_to_f("rss-overhead.bytes"),
+        int_to_f(5476352),
+        str_to_f("fragmentation"),
+        str_to_f("13.007383346557617"),
+        str_to_f("fragmentation.bytes"),
+        int_to_f(9978328),
+      ],
+      attributes: None,
+    })
+    .unwrap();
+    let memory_stats: MemoryStats = input.convert().unwrap();
 
     let expected_db_0 = DatabaseMemoryStats {
-      overhead_hashtable_expires: 0,
-      overhead_hashtable_main:    72,
+      overhead_hashtable_expires:      0,
+      overhead_hashtable_main:         72,
+      overhead_hashtable_slot_to_keys: 0,
     };
     let mut expected_db = HashMap::new();
     expected_db.insert(0, expected_db_0);

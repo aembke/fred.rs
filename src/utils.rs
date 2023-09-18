@@ -155,6 +155,13 @@ pub fn random_string(len: usize) -> String {
     .collect()
 }
 
+pub fn convert_or_default<R>(value: RedisValue) -> R
+where
+  R: FromRedis + Default,
+{
+  value.convert().ok().unwrap_or_default()
+}
+
 pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
 }
