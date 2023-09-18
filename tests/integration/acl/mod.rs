@@ -3,8 +3,9 @@ use fred::{
   clients::RedisClient,
   error::RedisError,
   interfaces::*,
-  types::{AclUserFlag, RedisConfig},
+  types::{RedisConfig, RedisValue},
 };
+use std::collections::HashMap;
 
 // the docker image we use for sentinel tests doesn't allow for configuring users, just passwords,
 // so for the tests here we just use an empty username so it uses the `default` user
@@ -49,8 +50,9 @@ pub async fn should_auth_as_test_user_via_config(_: RedisClient, mut config: Red
 }
 
 pub async fn should_run_acl_getuser(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let user = client.acl_getuser("default").await?.unwrap();
-  assert!(user.flags.contains(&AclUserFlag::On));
+  let user: HashMap<String, RedisValue> = client.acl_getuser("default").await?;
+  let flags: Vec<String> = user.get("flags").unwrap().clone().convert()?;
+  assert!(flags.contains(&"on".to_string()));
 
   Ok(())
 }

@@ -1,7 +1,8 @@
 use crate::{
   commands,
+  error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{AclRule, AclUser, FromRedis, MultipleStrings, RedisValue},
+  types::{FromRedis, MultipleStrings, MultipleValues, RedisValue},
 };
 use bytes_utils::Str;
 
@@ -11,11 +12,14 @@ pub trait AclInterface: ClientLike + Sized {
   /// Create an ACL user with the specified rules or modify the rules of an existing user.
   ///
   /// <https://redis.io/commands/acl-setuser>
-  async fn acl_setuser<S>(&self, username: S, rules: Vec<AclRule>) -> RedisResult<()>
+  async fn acl_setuser<S, V>(&self, username: S, rules: V) -> RedisResult<()>
   where
     S: Into<Str> + Send,
+    V: TryInto<MultipleValues> + Send,
+    V::Error: Into<RedisError> + Send,
   {
     into!(username);
+    try_into!(rules);
     commands::acl::acl_setuser(self, username, rules).await
   }
 
@@ -58,12 +62,13 @@ pub trait AclInterface: ClientLike + Sized {
   /// The command returns all the rules defined for an existing ACL user.
   ///
   /// <https://redis.io/commands/acl-getuser>
-  async fn acl_getuser<S>(&self, username: S) -> RedisResult<Option<AclUser>>
+  async fn acl_getuser<R, S>(&self, username: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(username);
-    commands::acl::acl_getuser(self, username).await
+    commands::acl::acl_getuser(self, username).await?.convert()
   }
 
   /// Delete all the specified ACL users and terminate all the connections that are authenticated with such users.

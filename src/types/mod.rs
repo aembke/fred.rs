@@ -3,7 +3,6 @@ pub use crate::modules::response::{FromRedis, FromRedisKey};
 pub use redis_protocol::resp3::types::{Frame, RespVersion};
 use tokio::task::JoinHandle;
 
-mod acl;
 mod args;
 mod builder;
 mod client;
@@ -18,7 +17,6 @@ mod scripts;
 mod sorted_sets;
 mod streams;
 
-pub use acl::*;
 pub use args::*;
 pub use builder::*;
 pub use client::*;

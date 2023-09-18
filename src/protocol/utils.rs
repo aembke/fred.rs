@@ -15,7 +15,6 @@ use redis_protocol::{
   resp2::types::Frame as Resp2Frame,
   resp3::types::{Auth, Frame as Resp3Frame, FrameMap, PUBSUB_PUSH_PREFIX},
 };
-use semver::Version;
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
 
 pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
@@ -25,12 +24,6 @@ pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
   } else {
     1
   }
-}
-
-/// Read the major redis version, assuming version 6 if a version is not provided.
-#[allow(dead_code)]
-pub fn major_redis_version(version: &Option<Version>) -> u8 {
-  version.as_ref().map(|v| v.major as u8).unwrap_or(6)
 }
 
 pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
@@ -65,14 +58,6 @@ pub fn frame_is_queued(frame: &Resp3Frame) -> bool {
 pub fn is_ok(frame: &Resp3Frame) -> bool {
   match frame {
     Resp3Frame::SimpleString { ref data, .. } => data == OK,
-    _ => false,
-  }
-}
-
-/// Whether the provided frame is null.
-pub fn is_null(frame: &Resp3Frame) -> bool {
-  match frame {
-    Resp3Frame::Null => true,
     _ => false,
   }
 }
@@ -689,133 +674,6 @@ pub fn expect_ok(value: &RedisValue) -> Result<(), RedisError> {
   }
 }
 
-fn parse_acl_getuser_flag(value: &Resp3Frame) -> Result<Vec<AclUserFlag>, RedisError> {
-  if let Resp3Frame::Array { ref data, .. } = value {
-    let mut out = Vec::with_capacity(data.len());
-
-    for frame in data.iter() {
-      let flag = match frame.as_str() {
-        Some(s) => match s.as_ref() {
-          "on" => AclUserFlag::On,
-          "off" => AclUserFlag::Off,
-          "allcommands" => AclUserFlag::AllCommands,
-          "allkeys" => AclUserFlag::AllKeys,
-          "allchannels" => AclUserFlag::AllChannels,
-          "nopass" => AclUserFlag::NoPass,
-          _ => continue,
-        },
-        None => continue,
-      };
-
-      out.push(flag);
-    }
-
-    Ok(out)
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid ACL user flags. Expected array.",
-    ))
-  }
-}
-
-fn frames_to_strings(frames: &Resp3Frame) -> Result<Vec<String>, RedisError> {
-  match frames {
-    Resp3Frame::Array { ref data, .. } => {
-      let mut out = Vec::with_capacity(data.len());
-
-      for frame in data.iter() {
-        let val = match frame.as_str() {
-          Some(v) => v.to_owned(),
-          None => continue,
-        };
-
-        out.push(val);
-      }
-
-      Ok(out)
-    },
-    Resp3Frame::SimpleString { ref data, .. } => Ok(vec![String::from_utf8(data.to_vec())?]),
-    Resp3Frame::BlobString { ref data, .. } => Ok(vec![String::from_utf8(data.to_vec())?]),
-    _ => Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Expected string or array of frames.",
-    )),
-  }
-}
-
-fn parse_acl_getuser_field(user: &mut AclUser, key: &str, value: &Resp3Frame) -> Result<(), RedisError> {
-  match key.as_ref() {
-    "passwords" => user.passwords = frames_to_strings(value)?,
-    "keys" => user.keys = frames_to_strings(value)?,
-    "channels" => user.channels = frames_to_strings(value)?,
-    "commands" => {
-      if let Some(commands) = value.as_str() {
-        user.commands = commands.split(" ").map(|s| s.to_owned()).collect();
-      }
-    },
-    _ => {
-      debug!("Skip ACL GETUSER field: {}", key);
-    },
-  };
-
-  Ok(())
-}
-
-pub fn frame_map_or_set_to_nested_array(frame: Resp3Frame) -> Result<Resp3Frame, RedisError> {
-  match frame {
-    Resp3Frame::Map { data, .. } => {
-      let mut out = Vec::with_capacity(data.len() * 2);
-      for (key, value) in data.into_iter() {
-        out.push(key);
-        out.push(frame_map_or_set_to_nested_array(value)?);
-      }
-
-      Ok(Resp3Frame::Array {
-        data:       out,
-        attributes: None,
-      })
-    },
-    Resp3Frame::Set { data, .. } => {
-      let mut out = Vec::with_capacity(data.len());
-      for frame in data.into_iter() {
-        out.push(frame_map_or_set_to_nested_array(frame)?);
-      }
-
-      Ok(Resp3Frame::Array {
-        data:       out,
-        attributes: None,
-      })
-    },
-    _ => Ok(frame),
-  }
-}
-
-pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, RedisError> {
-  if frames.len() % 2 != 0 {
-    return Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid number of response frames.",
-    ));
-  }
-
-  let mut user = AclUser::default();
-  for chunk in frames.chunks(2) {
-    let key = match chunk[0].as_str() {
-      Some(s) => s,
-      None => continue,
-    };
-
-    if key == "flags" {
-      user.flags = parse_acl_getuser_flag(&chunk[1])?;
-    } else {
-      parse_acl_getuser_field(&mut user, key, &chunk[1])?
-    }
-  }
-
-  Ok(user)
-}
-
 /// Parse the replicas from the ROLE response returned from a master/primary node.
 #[cfg(feature = "replicas")]
 pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, RedisError> {
@@ -1142,10 +1000,6 @@ mod tests {
     }
   }
 
-  fn string_vec(d: Vec<&str>) -> Vec<String> {
-    d.into_iter().map(|s| s.to_owned()).collect()
-  }
-
   #[test]
   fn should_parse_memory_stats() {
     // better from()/into() interfaces for frames coming in the next redis-protocol version...
@@ -1254,66 +1108,6 @@ mod tests {
     };
 
     assert_eq!(memory_stats, expected);
-  }
-
-  #[test]
-  fn should_parse_acl_getuser_response() {
-    // 127.0.0.1:6379> acl getuser alec
-    // 1) "flags"
-    // 2) 1) "on"
-    // 3) "passwords"
-    // 4) 1) "c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"
-    // 2) "39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"
-    // 5) "commands"
-    // 6) "-@all +@sortedset +@geo +config|get"
-    // 7) "keys"
-    // 8) 1) "a"
-    // 2) "b"
-    // 3) "c"
-    // 9) "channels"
-    // 10) 1) "c1"
-    // 2) "c2"
-
-    let input = vec![
-      str_to_bs("flags"),
-      Resp3Frame::Array {
-        data:       vec![str_to_bs("on")],
-        attributes: None,
-      },
-      str_to_bs("passwords"),
-      Resp3Frame::Array {
-        data:       vec![
-          str_to_bs("c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5"),
-          str_to_bs("39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45"),
-        ],
-        attributes: None,
-      },
-      str_to_bs("commands"),
-      str_to_bs("-@all +@sortedset +@geo +config|get"),
-      str_to_bs("keys"),
-      Resp3Frame::Array {
-        data:       vec![str_to_bs("a"), str_to_bs("b"), str_to_bs("c")],
-        attributes: None,
-      },
-      str_to_bs("channels"),
-      Resp3Frame::Array {
-        data:       vec![str_to_bs("c1"), str_to_bs("c2")],
-        attributes: None,
-      },
-    ];
-    let actual = parse_acl_getuser_frames(input).unwrap();
-
-    let expected = AclUser {
-      flags:     vec![AclUserFlag::On],
-      passwords: string_vec(vec![
-        "c56e8629954a900e993e84ed3d4b134b9450da1b411a711d047d547808c3ece5",
-        "39b039a94deaa548cf6382282c4591eccdc648706f9d608eceb687d452a31a45",
-      ]),
-      commands:  string_vec(vec!["-@all", "+@sortedset", "+@geo", "+config|get"]),
-      keys:      string_vec(vec!["a", "b", "c"]),
-      channels:  string_vec(vec!["c1", "c2"]),
-    };
-    assert_eq!(actual, expected);
   }
 
   #[test]
