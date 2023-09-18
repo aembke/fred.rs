@@ -844,6 +844,7 @@ pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
 pub fn close_router_channel(inner: &Arc<RedisClientInner>, command_tx: Arc<CommandSender>) {
   set_client_state(&inner.state, ClientState::Disconnecting);
   inner.notifications.broadcast_close();
+  inner.reset_server_state();
 
   let command = RedisCommand::new(RedisCommandKind::Quit, vec![]);
   inner.counters.incr_cmd_buffer_len();

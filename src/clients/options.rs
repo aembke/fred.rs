@@ -85,8 +85,6 @@ impl<'a, C: ClientLike> fmt::Debug for WithOptions<C> {
   }
 }
 
-// TODO make sure the attempts and redirection counts are set correctly on all the old code paths
-
 impl<C: ClientLike> ClientLike for WithOptions<C> {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {

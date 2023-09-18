@@ -238,7 +238,7 @@ impl ServerState {
   }
 }
 
-/// Added state associated with different server deployment types.
+/// Added state associated with different server deployment types, synchronized by the router task.
 pub enum ServerKind {
   Sentinel {
     version:   Option<Version>,
@@ -528,6 +528,11 @@ impl RedisClientInner {
   /// connection/router instance is using it.
   pub fn has_command_rx(&self) -> bool {
     self.command_rx.read().is_some()
+  }
+
+  pub fn reset_server_state(&self) {
+    #[cfg(feature = "replicas")]
+    self.server_state.write().replicas.clear()
   }
 
   pub fn shared_resp3(&self) -> Arc<AtomicBool> {

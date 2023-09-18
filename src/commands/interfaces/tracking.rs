@@ -1,5 +1,4 @@
 use crate::{
-  clients::Caching,
   commands,
   interfaces::ClientLike,
   prelude::RedisResult,
@@ -63,10 +62,5 @@ pub trait TrackingInterface: ClientLike + Sized {
   /// Subscribe to invalidation messages from the server(s).
   fn invalidation_rx(&self) -> BroadcastReceiver<Invalidation> {
     self.inner().notifications.invalidations.load().subscribe()
-  }
-
-  /// Send a `CLIENT CACHING yes|no` command before each subsequent command.
-  fn caching(&self, enabled: bool) -> Caching {
-    Caching::new(self.inner(), enabled)
   }
 }

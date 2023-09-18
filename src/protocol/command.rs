@@ -1289,7 +1289,7 @@ impl RedisCommandKind {
       // default is false, but can be changed by the BLOCKING args. the RedisCommand::can_pipeline function checks the
       // args too.
       RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => false,
-      RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
+      RedisCommandKind::_Custom(ref kind) => kind.blocking,
       _ => false,
     }
   }

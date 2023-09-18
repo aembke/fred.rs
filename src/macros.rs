@@ -121,6 +121,33 @@ macro_rules! b(
   }
 );
 
+/// Shorthand to create a [CustomCommand](crate::types::CustomCommand).
+///
+/// ```rust no_run
+/// # use fred::{cmd, types::{CustomCommand, ClusterHash}};
+/// let _cmd = cmd!("FOO.BAR");
+/// let _cmd = cmd!("FOO.BAR", blocking: true);
+/// let _cmd = cmd!("FOO.BAR", hash: ClusterHash::FirstKey);
+/// let _cmd = cmd!("FOO.BAR", hash: ClusterHash::FirstKey, blocking: true);
+/// // which is shorthand for
+/// let _cmd = CustomCommand::new("FOO.BAR", ClusterHash::FirstKey, true);
+/// ```
+#[macro_export]
+macro_rules! cmd(
+  ($name:expr) => {
+    fred::types::CustomCommand::new($name, fred::types::ClusterHash::FirstKey, false)
+  };
+  ($name:expr, blocking: $blk:expr) => {
+    fred::types::CustomCommand::new($name, fred::types::ClusterHash::FirstKey, $blk)
+  };
+  ($name:expr, hash: $hash:expr) => {
+    fred::types::CustomCommand::new($name, $hash, false)
+  };
+  ($name:expr, hash: $hash:expr, blocking: $blk:expr) => {
+    fred::types::CustomCommand::new($name, $hash, $blk)
+  };
+);
+
 macro_rules! static_val(
   ($val:expr) => {
     RedisValue::from_static_str($val)

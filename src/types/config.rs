@@ -1056,7 +1056,7 @@ impl From<SentinelConfig> for RedisConfig {
 /// ```
 ///
 /// See [WithOptions](crate::clients::WithOptions) for more information.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Options {
   /// Set the max number of write attempts for a command.
   pub max_attempts:     Option<u32>,
@@ -1071,17 +1071,10 @@ pub struct Options {
   pub timeout:          Option<Duration>,
   /// Whether to skip backpressure checks for a command.
   pub no_backpressure:  bool,
-}
-
-impl Default for Options {
-  fn default() -> Self {
-    Options {
-      max_attempts:     None,
-      max_redirections: None,
-      timeout:          None,
-      no_backpressure:  false,
-    }
-  }
+  /// Whether to send `CLIENT CACHING yes|no` before the command.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  pub caching:          Option<bool>,
 }
 
 impl Options {
@@ -1090,6 +1083,10 @@ impl Options {
     command.skip_backpressure = self.no_backpressure;
     command.timeout_dur = self.timeout.clone();
 
+    #[cfg(feature = "client-tracking")]
+    if let Some(val) = self.caching {
+      command.caching = Some(val);
+    }
     if let Some(attempts) = self.max_attempts {
       command.attempts_remaining = attempts;
     }

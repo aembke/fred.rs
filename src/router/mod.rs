@@ -561,8 +561,13 @@ impl Router {
     } else {
       match self.connections.write_command(&self.inner, command, force_flush).await {
         Ok(result) => Ok(result),
-        Err((error, command)) => {
-          self.buffer_command(command);
+        Err((error, mut command)) => {
+          if command.attempts_remaining == 0 {
+            command.respond_to_caller(Err(error.clone()));
+          } else {
+            self.buffer_command(command);
+          }
+
           Err(error)
         },
       }

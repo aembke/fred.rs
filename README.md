@@ -16,12 +16,7 @@ use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let perf = PerformanceConfig::default();
-  let policy = ReconnectPolicy::default();
-  let client = RedisClient::new(config, Some(perf), Some(policy));
-  
-  // connect to the server, returning a handle to the task that drives the connection
+  let client = RedisClient::default();
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
  
@@ -46,24 +41,21 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 ## Features
 
-* Supports RESP2 and RESP3 protocol modes.
-* Supports clustered, centralized, and sentinel Redis deployments.
-* Optional built-in reconnection logic with multiple backoff policies.
+* RESP2 and RESP3 protocol modes.
+* Clustered, centralized, and sentinel Redis deployments.
+* Optional reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
-* Supports transactions.
-* Supports Lua scripts. 
-* Supports streaming results from the `MONITOR` command. 
-* Supports custom commands provided by third party modules. 
-* Supports TLS connections via `native-tls` and/or `rustls`.
-* Supports streaming interfaces for scanning functions.
-* Supports [pipelining](https://redis.io/topics/pipelining). 
-* Automatically retry requests under bad network conditions.
-* Optional built-in tracking for network latency and payload size metrics.
-* An optional client pooling interface to round-robin requests among a pool of clients.
-* An optional sentinel client for interacting directly with sentinel nodes to manually fail over servers, etc.
+* A round-robin client pooling interface.
+* [Transactions](https://redis.io/docs/interact/transactions/)
+* Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/) or [functions](https://redis.io/docs/interact/programmability/functions-intro/). 
+* Streaming results from the `MONITOR` command. 
+* Custom commands.
+* TLS connections via `native-tls` and/or `rustls`.
+* Streaming interfaces for scanning functions.
+* [Pipelines](https://redis.io/topics/pipelining). 
+* Optional network latency and payload size metrics.
+* An optional sentinel client for interacting directly with sentinel nodes.
 * An optional pubsub subscriber client that will automatically manage channel subscriptions.
-* An optional interface to override DNS resolution logic.
-* Optional support for JSON values.
 
 ## Build Time Features 
 

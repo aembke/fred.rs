@@ -101,7 +101,7 @@ pub struct CustomCommand {
   /// Cluster clients will use the default policy if not provided.
   pub cluster_hash: ClusterHash,
   /// Whether or not the command should block the connection while waiting on a response.
-  pub is_blocking:  bool,
+  pub blocking:     bool,
 }
 
 impl CustomCommand {
@@ -114,9 +114,9 @@ impl CustomCommand {
     H: Into<ClusterHash>,
   {
     CustomCommand {
-      cmd:          cmd.into(),
+      cmd: cmd.into(),
       cluster_hash: cluster_hash.into(),
-      is_blocking:  blocking,
+      blocking,
     }
   }
 
@@ -126,9 +126,9 @@ impl CustomCommand {
     H: Into<ClusterHash>,
   {
     CustomCommand {
-      cmd:          utils::static_str(cmd),
+      cmd: utils::static_str(cmd),
       cluster_hash: cluster_hash.into(),
-      is_blocking:  blocking,
+      blocking,
     }
   }
 }

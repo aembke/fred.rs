@@ -269,13 +269,6 @@ impl RedisClient {
   pub fn replicas(&self) -> Replicas {
     Replicas::from(&self.inner)
   }
-
-  /// Send a [CLIENT CACHING yes|no](https://redis.io/commands/client-caching/) command before subsequent commands.
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  pub fn caching(&self, enabled: bool) -> Caching {
-    Caching::new(&self.inner, enabled)
-  }
 }
 
 #[cfg(test)]

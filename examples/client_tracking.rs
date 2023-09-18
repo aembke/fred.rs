@@ -1,6 +1,6 @@
 use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 
-// this library exposes 2 interfaces for implementing client-side caching - a high level `TrackingInterface` trait
+// this library supports 2 interfaces for implementing client-side caching - a high level `TrackingInterface` trait
 // that requires RESP3 and works with all deployment types, and a lower level interface that directly exposes the
 // `CLIENT TRACKING` commands but often requires a centralized server config.
 
@@ -14,11 +14,9 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
   let _ = client.wait_for_connect().await?;
 
   // spawn a task that processes invalidation messages.
-  let mut invalidations = client.on_invalidation();
-  tokio::spawn(async move {
-    while let Ok(invalidation) = invalidations.recv().await {
-      println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
-    }
+  let _ = client.on_invalidation(|invalidation| {
+    println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
+    Ok(())
   });
 
   // enable client tracking on all connections. it's usually a good idea to do this in an `on_reconnect` block.
@@ -27,10 +25,23 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
 
   // send `CLIENT CACHING yes|no` before subsequent commands. the preceding `CLIENT CACHING yes|no` command will be
   // sent when the command is retried as well.
-  println!("foo: {}", client.caching(false).incr::<i64, _>("foo").await?);
-  println!("foo: {}", client.caching(true).incr::<i64, _>("foo").await?);
-  let _ = client.stop_tracking().await?;
+  let foo: i64 = client
+    .with_options(&Options {
+      caching: Some(true),
+      ..Default::default()
+    })
+    .incr("foo")
+    .await?;
+  let bar: i64 = client
+    .with_options(&Options {
+      caching: Some(false),
+      ..Default::default()
+    })
+    .incr("bar")
+    .await?;
 
+  println!("foo: {}, bar: {}", foo, bar);
+  let _ = client.stop_tracking().await?;
   Ok(())
 }
 
@@ -46,7 +57,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 
   // the invalidation subscriber interface is the same as above even in RESP2 mode **as long as the `client-tracking`
   // feature is enabled**. if the feature is disabled then the message will appear on the `on_message` receiver.
-  let mut invalidations = subscriber.on_invalidation();
+  let mut invalidations = subscriber.invalidation_rx();
   tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
       println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
@@ -80,10 +91,8 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 }
 
 #[tokio::main]
-// see https://redis.io/docs/manual/client-side-caching/ for more information
+// see https://redis.io/docs/manual/client-side-caching/
 async fn main() -> Result<(), RedisError> {
-  pretty_env_logger::init();
-
   resp3_tracking_interface_example().await?;
   // resp2_basic_interface_example().await?;
 

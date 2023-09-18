@@ -1,4 +1,4 @@
-use super::utils::read_env_var;
+use super::utils::{read_env_var, should_use_sentinel_config};
 use fred::{
   clients::RedisClient,
   error::RedisError,
@@ -9,14 +9,12 @@ use std::collections::HashMap;
 
 // the docker image we use for sentinel tests doesn't allow for configuring users, just passwords,
 // so for the tests here we just use an empty username so it uses the `default` user
-#[cfg(feature = "sentinel-tests")]
 fn read_redis_username() -> Option<String> {
-  None
-}
-
-#[cfg(not(feature = "sentinel-tests"))]
-fn read_redis_username() -> Option<String> {
-  read_env_var("REDIS_USERNAME")
+  if should_use_sentinel_config() {
+    None
+  } else {
+    read_env_var("REDIS_USERNAME")
+  }
 }
 
 fn check_env_creds() -> (Option<String>, Option<String>) {

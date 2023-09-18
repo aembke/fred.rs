@@ -32,7 +32,7 @@ pub mod centralized;
 pub mod clustered;
 
 mod macro_tests {
-  use fred::{b, s};
+  use fred::{b, cmd, s, types::ClusterHash};
 
   #[test]
   fn should_use_static_str_macro() {
@@ -42,6 +42,26 @@ mod macro_tests {
   #[test]
   fn should_use_static_bytes_macro() {
     let _b = b!(b"foo");
+  }
+
+  #[test]
+  fn should_use_cmd_macro() {
+    let command = cmd!("GET");
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstKey);
+    assert_eq!(command.blocking, false);
+    let command = cmd!("GET", blocking: true);
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstKey);
+    assert_eq!(command.blocking, true);
+    let command = cmd!("GET", hash: ClusterHash::FirstValue);
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
+    assert_eq!(command.blocking, false);
+    let command = cmd!("GET", hash: ClusterHash::FirstValue, blocking: true);
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
+    assert_eq!(command.blocking, true);
   }
 }
 

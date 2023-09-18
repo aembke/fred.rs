@@ -27,6 +27,7 @@ services:
       REDIS_USERNAME: "${REDIS_USERNAME}"
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"
+      FRED_SENTINEL_TESTS: "1"
     volumes:
       - "../../..:/project"
       - "~/.cargo/registry:/usr/local/cargo/registry"

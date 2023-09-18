@@ -59,6 +59,8 @@ impl ConnectionState {
     let guard = self.interrupts.read();
 
     for server in servers.into_iter() {
+      inner.notifications.broadcast_unresponsive(server.clone());
+
       if let Some(tx) = guard.get(&server) {
         _debug!(inner, "Interrupting reader task for {}", server);
         let _ = tx.send(());

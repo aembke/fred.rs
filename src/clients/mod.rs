@@ -29,9 +29,3 @@ mod replica;
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use replica::Replicas;
-
-#[cfg(feature = "client-tracking")]
-mod caching;
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-pub use caching::Caching;
