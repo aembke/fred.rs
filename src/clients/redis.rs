@@ -1,5 +1,5 @@
 use crate::{
-  clients::{Node, Pipeline},
+  clients::Pipeline,
   commands,
   error::{RedisError, RedisErrorKind},
   interfaces::{
@@ -35,10 +35,11 @@ use futures::Stream;
 use std::{fmt, sync::Arc};
 
 #[cfg(feature = "client-tracking")]
-use crate::{clients::Caching, interfaces::TrackingInterface};
+use crate::interfaces::TrackingInterface;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+use crate::clients::WithOptions;
 
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
@@ -249,18 +250,61 @@ impl RedisClient {
     Pipeline::from(self.clone())
   }
 
-  /// Send commands to the provided cluster node.
+  /// Shorthand to bind subsequent commands to the provided server.
   ///
-  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  /// See [with_options](crate::interfaces::ClientLike::with_options) for more information.
   ///
-  /// The client will still automatically follow redirection errors via this interface. Callers may not notice this,
-  /// but incorrect server arguments here could result in unnecessary calls to refresh the cached cluster routing
-  /// table.
-  pub fn with_cluster_node<S>(&self, server: S) -> Node
+  /// ```rust
+  /// # use fred::prelude::*;
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   // discover servers via the `RedisConfig` or active connections
+  ///   let connections = client.active_connections().await?;
+  ///
+  ///   // ping each node in the cluster individually
+  ///   for server in connections.into_iter() {
+  ///     let _: () = client.with_cluster_node(server).ping().await?;
+  ///   }
+  ///
+  ///   // or use the cached cluster routing table to discover servers
+  ///   let servers = client
+  ///     .cached_cluster_state()
+  ///     .expect("Failed to read cached cluster state")
+  ///     .unique_primary_nodes();
+  ///
+  ///   for server in servers.into_iter() {
+  ///     // verify the server address with `CLIENT INFO`
+  ///     let server_addr = client
+  ///       .with_cluster_node(&server)
+  ///       .client_info::<String>()
+  ///       .await?
+  ///       .split(" ")
+  ///       .find_map(|s| {
+  ///         let parts: Vec<&str> = s.split("=").collect();
+  ///         if parts[0] == "laddr" {
+  ///           Some(parts[1].to_owned())
+  ///         } else {
+  ///           None
+  ///         }
+  ///       })
+  ///       .expect("Failed to read or parse client info.");
+  ///
+  ///     assert_eq!(server_addr, server.to_string());
+  ///   }
+  ///
+  ///   Ok(())
+  /// }
+  /// ```
+  pub fn with_cluster_node<S>(&self, server: S) -> WithOptions<Self>
   where
     S: Into<Server>,
   {
-    Node::new(&self.inner, server.into())
+    WithOptions {
+      client:  self.clone(),
+      options: Options {
+        cluster_node: Some(server.into()),
+        ..Default::default()
+      },
+    }
   }
 
   /// Create a client that interacts with replica nodes.

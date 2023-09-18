@@ -1069,6 +1069,13 @@ pub struct Options {
   /// <sup>*</sup> But it's not perfect. There's no reliable mechanism to cancel a command once it has been written
   /// to the connection.
   pub timeout:          Option<Duration>,
+  /// The cluster node that should receive the command.
+  ///
+  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  ///
+  /// The client will still follow redirection errors via this interface. Callers may not notice this, but incorrect
+  /// server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
+  pub cluster_node:     Option<Server>,
   /// Whether to skip backpressure checks for a command.
   pub no_backpressure:  bool,
   /// Whether to send `CLIENT CACHING yes|no` before the command.
@@ -1082,11 +1089,13 @@ impl Options {
   pub(crate) fn apply(&self, command: &mut RedisCommand) {
     command.skip_backpressure = self.no_backpressure;
     command.timeout_dur = self.timeout.clone();
+    command.cluster_node = self.cluster_node.clone();
 
     #[cfg(feature = "client-tracking")]
-    if let Some(val) = self.caching {
-      command.caching = Some(val);
+    {
+      command.caching = self.caching.clone();
     }
+
     if let Some(attempts) = self.max_attempts {
       command.attempts_remaining = attempts;
     }

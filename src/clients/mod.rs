@@ -1,11 +1,9 @@
-mod node;
 mod options;
 mod pipeline;
 mod pool;
 mod redis;
 mod transaction;
 
-pub use node::Node;
 pub use options::WithOptions;
 pub use pipeline::Pipeline;
 pub use pool::RedisPool;

@@ -68,6 +68,13 @@ pub struct WithOptions<C: ClientLike> {
   pub(crate) options: Options,
 }
 
+impl<C: ClientLike> WithOptions<C> {
+  /// Read the options that will be applied to commands.
+  pub fn options(&self) -> &Options {
+    &self.options
+  }
+}
+
 impl<C: ClientLike> Deref for WithOptions<C> {
   type Target = C;
 
