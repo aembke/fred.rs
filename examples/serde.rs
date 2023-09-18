@@ -22,9 +22,9 @@ async fn main() -> Result<(), RedisError> {
   });
   let _: () = client.set("wibble", value.to_string(), None, None, false).await?;
 
-  // converting back to a json `Value` will also try to parse nested json strings, if possible.
-  // the type conversion logic will not attempt the json parsing if the value doesn't look like json.
-  // if a value looks like json, but cannot be parsed as json, then it will be returned as a string.
+  // converting back to a json `Value` will also try to parse nested json strings. the type conversion logic will not
+  // attempt the json parsing if the value doesn't look like json. if a value looks like json, but cannot be parsed
+  // as json, then it will be returned as a string.
   assert_eq!(value, client.get("wibble").await?);
 
   // or store types as json strings via Serialize and Deserialize

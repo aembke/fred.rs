@@ -5,8 +5,6 @@ use futures::stream::StreamExt;
 use std::time::Duration;
 use tokio::time::sleep;
 
-const COUNT: usize = 60;
-
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let publisher_client = RedisClient::default();
@@ -30,9 +28,9 @@ async fn main() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0 .. COUNT {
+  for idx in 0 .. 50 {
     let _ = publisher_client.publish("foo", idx).await?;
-    sleep(Duration::from_millis(1000)).await;
+    sleep(Duration::from_secs(1)).await;
   }
 
   let _ = subscribe_task.abort();
@@ -41,8 +39,7 @@ async fn main() -> Result<(), RedisError> {
 
 #[cfg(feature = "subscriber-client")]
 async fn subscriber_example() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let subscriber = SubscriberClient::new(config, None, None);
+  let subscriber = Builder::default_centralized().build_subscriber_client()?;
   let _ = subscriber.connect();
   let _ = subscriber.wait_for_connect().await?;
 

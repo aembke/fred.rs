@@ -1,7 +1,7 @@
 use fred::{prelude::*, types::Scanner};
 use futures::stream::StreamExt;
 
-static COUNT: u32 = 50;
+static COUNT: usize = 50;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0 .. COUNT {
@@ -25,7 +25,7 @@ async fn main() -> Result<(), RedisError> {
   let _ = create_fake_data(&client).await?;
 
   // build up a buffer of (key, value) pairs from pages (~10 keys per page)
-  let mut buffer = Vec::with_capacity(COUNT as usize);
+  let mut buffer = Vec::with_capacity(COUNT);
   let mut scan_stream = client.scan("foo*", Some(10), None);
 
   while let Some(result) = scan_stream.next().await {

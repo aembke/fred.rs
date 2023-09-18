@@ -13,7 +13,8 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 /// A client and pool builder interface.
 ///
 /// ```rust
-/// # use redis_protocol::resp3::types::RespVersion;
+/// # use std::time::Duration;
+/// use redis_protocol::resp3::types::RespVersion;
 /// # use fred::prelude::*;
 /// fn example() -> Result<(), RedisError> {
 ///   // use default values
@@ -21,7 +22,6 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 ///
 ///   // or initialize from a URL or config
 ///   let config = RedisConfig::from_url("redis://localhost:6379/1")?;
-///   let perf = PerformanceConfig::default();
 ///   let mut builder = Builder::from_config(config);
 ///   // or modify values in place (creating defaults if needed)
 ///   builder
@@ -37,7 +37,7 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 ///         nodelay: Some(true),
 ///         ..Default::default()
 ///       };
-///       config.internal_command_timeout_ms = 10_000;
+///       config.internal_command_timeout = Duration::from_secs(10);
 ///     });
 ///   // or overwrite configuration structs in place
 ///   builder.set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2));

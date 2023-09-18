@@ -67,9 +67,6 @@ async fn main() -> Result<(), RedisError> {
     for server in connections.into_iter() {
       let info: String = client.with_cluster_node(&server).client_info().await?;
       println!("Client info for {}: {}", server, info);
-
-      // or combine client wrappers
-      let _: () = client.with_cluster_node(&server).with_options(&options).ping().await?;
     }
   }
 

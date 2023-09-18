@@ -13,7 +13,6 @@ async fn main() -> Result<(), RedisError> {
         Server::new("localhost", 26380),
         Server::new("localhost", 26381),
       ],
-      // note: by default sentinel nodes use the same authentication settings as the redis servers, however
       // callers can also use the `sentinel-auth` feature to use different credentials to sentinel nodes
       #[cfg(feature = "sentinel-auth")]
       username:                                   None,

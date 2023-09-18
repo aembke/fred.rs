@@ -1,11 +1,9 @@
 use fred::{prelude::*, types::RespVersion};
 
-#[cfg(feature = "partial-tracing")]
-use fred::tracing::Level;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use fred::types::TlsConfig;
 #[cfg(feature = "partial-tracing")]
-use fred::types::TracingConfig;
+use fred::{tracing::Level, types::TracingConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
@@ -34,19 +32,6 @@ async fn main() -> Result<(), RedisError> {
   let _client = Builder::from_config(config).build()?;
   // or use default values
   let client = Builder::default_centralized().build()?;
-
-  // spawn tasks that listen for connection events
-  let error_jh = client.on_error(|error| {
-    println!("Client disconnected with error: {:?}", error);
-    Ok(())
-  });
-  let reconnect_jh = client.on_error(|server| {
-    println!("Client reconnected to {:?}", server);
-    Ok(())
-  });
-  // or use the broadcast receivers directly
-  let _reconnect_rx = client.reconnect_rx();
-
   let connection_jh = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -59,12 +44,10 @@ async fn main() -> Result<(), RedisError> {
     .await?;
 
   // or use turbofish. the first type is always the response type.
-  println!("Foo: {:?}", client.get::<String, _>("foo").await?);
+  println!("Foo: {:?}", client.get::<Option<String>, _>("foo").await?);
 
   let _ = client.quit().await?;
   // calling quit ends the connection and event listener tasks
   let _ = connection_jh.await;
-  let _ = error_jh.await;
-  let _ = reconnect_jh.await;
   Ok(())
 }
