@@ -19,12 +19,6 @@ use redis_protocol::{
 use semver::Version;
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
 
-macro_rules! parse_or_zero(
-  ($data:ident, $t:ty) => {
-    $data.parse::<$t>().ok().unwrap_or(0)
-  }
-);
-
 pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
   if inner.performance.load().as_ref().auto_pipeline {
     // TODO make this configurable
@@ -948,53 +942,6 @@ pub fn parse_acl_getuser_frames(frames: Vec<Resp3Frame>) -> Result<AclUser, Redi
   Ok(user)
 }
 
-fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
-  let parts: Vec<&str> = line.split(":").collect();
-  if parts.len() != 2 {
-    return Err(RedisError::new(RedisErrorKind::Protocol, "Expected key:value pair."));
-  }
-  let (field, val) = (parts[0], parts[1]);
-
-  match field.as_ref() {
-    "cluster_state" => match val.as_ref() {
-      "ok" => info.cluster_state = ClusterState::Ok,
-      "fail" => info.cluster_state = ClusterState::Fail,
-      _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster state.")),
-    },
-    "cluster_slots_assigned" => info.cluster_slots_assigned = parse_or_zero!(val, u16),
-    "cluster_slots_ok" => info.cluster_slots_ok = parse_or_zero!(val, u16),
-    "cluster_slots_pfail" => info.cluster_slots_pfail = parse_or_zero!(val, u16),
-    "cluster_slots_fail" => info.cluster_slots_fail = parse_or_zero!(val, u16),
-    "cluster_known_nodes" => info.cluster_known_nodes = parse_or_zero!(val, u16),
-    "cluster_size" => info.cluster_size = parse_or_zero!(val, u32),
-    "cluster_current_epoch" => info.cluster_current_epoch = parse_or_zero!(val, u64),
-    "cluster_my_epoch" => info.cluster_my_epoch = parse_or_zero!(val, u64),
-    "cluster_stats_messages_sent" => info.cluster_stats_messages_sent = parse_or_zero!(val, u64),
-    "cluster_stats_messages_received" => info.cluster_stats_messages_received = parse_or_zero!(val, u64),
-    _ => {
-      warn!("Invalid cluster info field: {}", line);
-    },
-  };
-
-  Ok(())
-}
-
-pub fn parse_cluster_info(data: Resp3Frame) -> Result<ClusterInfo, RedisError> {
-  if let Some(data) = data.as_str() {
-    let mut out = ClusterInfo::default();
-
-    for line in data.lines().into_iter() {
-      let trimmed = line.trim();
-      if !trimmed.is_empty() {
-        let _ = parse_cluster_info_line(&mut out, trimmed)?;
-      }
-    }
-    Ok(out)
-  } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected string response."))
-  }
-}
-
 /// Parse the replicas from the ROLE response returned from a master/primary node.
 #[cfg(feature = "replicas")]
 pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, RedisError> {
@@ -1626,7 +1573,7 @@ mod tests {
 
   #[test]
   fn should_parse_cluster_info() {
-    let input = "cluster_state:fail
+    let input: RedisValue = "cluster_state:fail
 cluster_slots_assigned:16384
 cluster_slots_ok:16384
 cluster_slots_pfail:3
@@ -1636,7 +1583,8 @@ cluster_size:3
 cluster_current_epoch:6
 cluster_my_epoch:2
 cluster_stats_messages_sent:1483972
-cluster_stats_messages_received:1483968";
+cluster_stats_messages_received:1483968"
+      .into();
 
     let expected = ClusterInfo {
       cluster_state:                   ClusterState::Fail,
@@ -1651,12 +1599,8 @@ cluster_stats_messages_received:1483968";
       cluster_stats_messages_sent:     1483972,
       cluster_stats_messages_received: 1483968,
     };
+    let actual: ClusterInfo = input.convert().unwrap();
 
-    let actual = parse_cluster_info(Resp3Frame::BlobString {
-      data:       input.as_bytes().into(),
-      attributes: None,
-    })
-    .unwrap();
     assert_eq!(actual, expected);
   }
 }

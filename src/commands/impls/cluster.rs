@@ -19,9 +19,9 @@ value_cmd!(cluster_nodes, ClusterNodes);
 ok_cmd!(cluster_saveconfig, ClusterSaveConfig);
 values_cmd!(cluster_slots, ClusterSlots);
 
-pub async fn cluster_info<C: ClientLike>(client: &C) -> Result<ClusterInfo, RedisError> {
+pub async fn cluster_info<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, || Ok((RedisCommandKind::ClusterInfo, vec![]))).await?;
-  protocol_utils::parse_cluster_info(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn cluster_add_slots<C: ClientLike>(client: &C, slots: MultipleHashSlots) -> Result<(), RedisError> {
