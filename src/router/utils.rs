@@ -173,10 +173,10 @@ pub async fn write_command(
     _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
     if command.should_send_write_error(inner) {
       command.respond_to_caller(Err(e.clone()));
-      Written::Disconnect((writer.server.clone(), None, e))
+      Written::Disconnect((Some(writer.server.clone()), None, e))
     } else {
       inner.notifications.broadcast_error(e.clone());
-      Written::Disconnect((writer.server.clone(), Some(command), e))
+      Written::Disconnect((Some(writer.server.clone()), Some(command), e))
     }
   } else {
     Written::Sent((writer.server.clone(), should_flush))

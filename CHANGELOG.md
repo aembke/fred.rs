@@ -1,3 +1,7 @@
+## 6.3.2
+
+* Fix a bug with connection errors unexpectedly ending the connection task.
+
 ## 6.3.1
 
 * Update various dependencies
@@ -5,6 +9,13 @@
 * Update rustfmt.toml
 
 ## 6.3.0
+
+* Fix cluster replica discovery with Elasticache
+* Fix cluster replica `READONLY` usage
+* Fix compilation error with `full-tracing`
+* Support `Vec<(T1, T2, ...)>` with `FromRedis`
+
+## 6.2.2
 
 * Fix cluster replica discovery with Elasticache
 * Fix cluster replica `READONLY` usage
