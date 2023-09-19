@@ -1,3 +1,7 @@
+## 6.3.2
+
+* Fix a bug with connection errors unexpectedly ending the connection task.
+
 ## 6.3.1
 
 * Update various dependencies

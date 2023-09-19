@@ -44,7 +44,7 @@ pub enum Written {
   /// Indicates that the command was sent to all servers.
   SentAll,
   /// Disconnect from the provided server and retry the command later.
-  Disconnect((Server, Option<RedisCommand>, RedisError)),
+  Disconnect((Option<Server>, Option<RedisCommand>, RedisError)),
   /// Indicates that the result should be ignored since the command will not be retried.
   Ignore,
   /// (Cluster only) Synchronize the cached cluster routing table and retry.
@@ -294,7 +294,7 @@ impl Connections {
           if let Some(writer) = writers.remove(server) {
             _debug!(inner, "Disconnecting from {}", writer.server);
             let commands = writer.graceful_close().await;
-            out.extend(commands.into_iter());
+            out.extend(commands);
           }
         }
         out
@@ -784,7 +784,7 @@ impl Router {
 
     match write_result {
       Written::Disconnect((server, command, error)) => {
-        let buffer = self.connections.disconnect(&inner, Some(&server)).await;
+        let buffer = self.connections.disconnect(&inner, server.as_ref()).await;
         self.buffer_commands(buffer);
         self.sync_network_timeout_state();
 
@@ -996,7 +996,7 @@ impl Router {
           }
 
           warn!(
-            "{}: Disconnect from {} while replaying command: {:?}",
+            "{}: Disconnect from {:?} while replaying command: {:?}",
             self.inner.id, server, error
           );
           self.disconnect_all().await; // triggers a reconnect if needed
