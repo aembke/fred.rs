@@ -48,6 +48,7 @@ mod utils;
 #[derive(Debug)]
 struct Argv {
   pub cluster:  bool,
+  pub replicas: bool,
   pub tracing:  bool,
   pub count:    usize,
   pub tasks:    usize,
@@ -62,8 +63,13 @@ fn parse_argv() -> Arc<Argv> {
   let yaml = load_yaml!("../cli.yml");
   let matches = App::from_yaml(yaml).get_matches();
   let tracing = matches.is_present("tracing");
-  let cluster = matches.is_present("cluster");
+  let mut cluster = matches.is_present("cluster");
+  let replica = matches.is_present("replicas");
   let quiet = matches.is_present("quiet");
+
+  if replicas {
+    cluster = true;
+  }
 
   let count = matches
     .value_of("count")
@@ -105,6 +111,7 @@ fn parse_argv() -> Arc<Argv> {
     port,
     pipeline,
     pool,
+    replicas,
   })
 }
 
@@ -185,12 +192,16 @@ fn spawn_client_task(
     let mut expected = 0;
 
     while utils::incr_atomic(&counter) < argv.count {
-      expected += 1;
-      let actual: i64 = client.incr(&key).await?;
+      if argv.replicas {
+        let _: () = client.replicas().get(&key).await?;
+      } else {
+        expected += 1;
+        let actual: i64 = client.incr(&key).await?;
+        // assert_eq!(actual, expected);
+      }
       if let Some(ref bar) = bar {
         bar.inc(1);
       }
-      // assert_eq!(actual, expected);
     }
 
     Ok::<_, RedisError>(())
@@ -219,19 +230,16 @@ fn main() {
       tracing: TracingConfig::new(argv.tracing),
       ..Default::default()
     };
-    let perf = PerformanceConfig {
-      auto_pipeline: argv.pipeline,
-      default_command_timeout_ms: 5000,
-      backpressure: BackpressureConfig {
-        policy: BackpressurePolicy::Drain,
-        max_in_flight_commands: 100_000_000,
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let policy = ReconnectPolicy::new_constant(0, 500);
-
-    let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool)?;
+    let pool = Builder::from_config(config)
+      .with_performance_config(|config| {
+        config.auto_pipeline = argv.pipeline;
+        config.backpressure.max_in_flight_commands = 100_000_000;
+      })
+      .with_connection_config(|config| {
+        config.internal_command_timeout = Duration::from_secs(5);
+      })
+      .set_policy(ReconnectPolicy::new_constnat(0, 500))
+      .build_pool(argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
     let _ = pool.connect();

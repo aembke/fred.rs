@@ -12,6 +12,10 @@ args:
       long: cluster
       help: Whether or not to assume a clustered deployment.
       takes_value: false
+  - replicas:
+      long: replicas
+      help: Whether or not to use `GET` with replica nodes instead of `INCR` with primary nodes.
+      takes_value: false
   - quiet:
       short: q
       long: quiet

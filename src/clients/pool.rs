@@ -39,6 +39,9 @@ use tokio::time::interval as tokio_interval;
 #[cfg(feature = "dns")]
 use crate::protocol::types::Resolve;
 
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
+
 /// A cheaply cloneable round-robin client pool.
 ///
 /// ### Restrictions
@@ -50,8 +53,8 @@ use crate::protocol::types::Resolve;
 /// * [EventInterface](crate::interfaces::EventInterface)
 ///
 /// In some cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
-/// adding a call to [next](Self::next), but in others this may not work. As a general rule, any commands that
-/// change or depend on local connection state will not be implemented directly on `RedisPool`. Callers can use
+/// adding a call to [next](Self::next), but in other scenarios this may not work. As a general rule, any commands
+/// that change or depend on local connection state will not be implemented directly on `RedisPool`. Callers can use
 /// [clients](Self::clients), [next](Self::next), or [last](Self::last) to operate on individual clients if needed.
 #[derive(Clone)]
 pub struct RedisPool {
@@ -151,6 +154,13 @@ impl RedisPool {
   pub fn last(&self) -> &RedisClient {
     &self.clients[utils::read_atomic(&self.counter) % self.clients.len()]
   }
+
+  /// Create a client that interacts with the replica nodes associated with the [next](Self::next) client.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub fn replicas(&self) -> Replicas {
+    Replicas::from(self.inner())
+  }
 }
 
 #[async_trait]
@@ -202,8 +212,8 @@ impl ClientLike for RedisPool {
   fn connect(&self) -> ConnectHandle {
     let clients = self.clients.clone();
     tokio::spawn(async move {
-      let results = join_all(clients.iter().map(|c| c.connect())).await;
-      for result in results.into_iter() {
+      let tasks: Vec<_> = clients.iter().map(|c| c.connect()).collect();
+      for result in join_all(tasks).await.into_iter() {
         let _ = result??;
       }
 

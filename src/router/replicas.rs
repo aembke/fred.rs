@@ -249,9 +249,9 @@ impl ReplicaSet {
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
 pub struct Replicas {
-  writers: HashMap<Server, RedisWriter>,
-  routing: ReplicaSet,
-  buffer:  CommandBuffer,
+  pub(crate) writers: HashMap<Server, RedisWriter>,
+  routing:            ReplicaSet,
+  buffer:             CommandBuffer,
 }
 
 #[cfg(feature = "replicas")]

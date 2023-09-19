@@ -1,5 +1,5 @@
 use crate::{
-  clients::Pipeline,
+  clients::{Pipeline, WithOptions},
   commands,
   error::{RedisError, RedisErrorKind},
   interfaces::{
@@ -39,7 +39,6 @@ use crate::interfaces::TrackingInterface;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-use crate::clients::WithOptions;
 
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]

@@ -530,6 +530,13 @@ impl Router {
   #[cfg(feature = "check-unresponsive")]
   pub fn sync_network_timeout_state(&self) {
     self.inner.network_timeouts.state().sync(&self.inner, &self.connections);
+
+    #[cfg(feature = "replicas")]
+    self
+      .inner
+      .network_timeouts
+      .state()
+      .sync_replicas(&self.inner, &self.replicas);
   }
 
   #[cfg(not(feature = "check-unresponsive"))]
@@ -907,14 +914,10 @@ impl Router {
 
     let old_connections_idx: HashSet<_> = old_connections.iter().collect();
     let new_connections_idx: HashSet<_> = new_replica_map.keys().collect();
-    let add: HashSet<_> = new_connections_idx.difference(&old_connections_idx).collect();
     let remove: Vec<_> = old_connections_idx.difference(&new_connections_idx).collect();
-    debug!(
-      "{}: Replica changes - add: {:?}, remove: {:?}",
-      self.inner.id, add, remove
-    );
 
     for server in remove.into_iter() {
+      debug!("{}: Dropping replica connection to {}", self.inner.id, server);
       self.replicas.drop_writer(&server).await;
       self.replicas.remove_replica(&server);
     }
@@ -942,6 +945,7 @@ impl Router {
       .write()
       .update_replicas(self.replicas.routing_table());
     self.replicas.retry_buffer(&self.inner);
+    self.sync_network_timeout_state();
     Ok(())
   }
 

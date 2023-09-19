@@ -18,16 +18,16 @@
 
 ### Upgrading from 6.x
 
-Notable or breaking changes:
+Notable interface changes:
 
 * `ArcStr` has been replaced with `bytes_utils::Str`.
-* Timeout arguments or fields now all use `Duration`.
+* Timeout arguments or fields now all use `std::time::Duration`.
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
 * The `RedisPool` interface now directly implements `ClientLike` rather than relying on `Deref` shenanigans.
 * The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`.
 * Mocks are now optional even when the feature flag is enabled.
 
-**Things `rustc` probably won't tell you about:**
+Notable implementation Changes:
 
 * The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer.
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.

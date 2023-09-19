@@ -14,7 +14,7 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 ///
 /// ```rust
 /// # use std::time::Duration;
-/// use redis_protocol::resp3::types::RespVersion;
+/// # use redis_protocol::resp3::types::RespVersion;
 /// # use fred::prelude::*;
 /// fn example() -> Result<(), RedisError> {
 ///   // use default values

@@ -1,5 +1,7 @@
 use crate::protocol::types::Server;
 
+#[cfg(feature = "replicas")]
+use crate::router::replicas::Replicas;
 #[cfg(feature = "check-unresponsive")]
 use crate::{
   globals::globals,
@@ -99,6 +101,19 @@ impl ConnectionState {
         }
       },
     };
+  }
+
+  /// Add the replica connections to the internal connection map.
+  #[cfg(feature = "replicas")]
+  pub fn sync_replicas(&self, inner: &Arc<RedisClientInner>, replicas: &Replicas) {
+    _debug!(
+      inner,
+      "Syncing replica connection state with unresponsive network task."
+    );
+    let mut guard = self.commands.write();
+    for (server, writer) in replicas.writers.iter() {
+      guard.insert(server.clone(), writer.buffer.clone());
+    }
   }
 
   pub fn unresponsive_connections(&self, inner: &Arc<RedisClientInner>) -> VecDeque<Server> {
