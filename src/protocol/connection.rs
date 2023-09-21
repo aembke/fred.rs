@@ -29,6 +29,7 @@ use std::{
   str,
   sync::{atomic::AtomicUsize, Arc},
   task::{Context, Poll},
+  time::Duration,
 };
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
@@ -42,8 +43,8 @@ use crate::{
 };
 use bytes_utils::Str;
 #[cfg(feature = "enable-rustls")]
-use std::convert::TryInto;
-use std::time::Duration;
+use std::{convert::TryInto, ops::Deref};
+
 #[cfg(feature = "replicas")]
 use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]

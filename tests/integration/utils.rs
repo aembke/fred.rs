@@ -283,7 +283,7 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 20_000,
+    default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
 
@@ -311,7 +311,7 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 20_000,
+    default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
 
