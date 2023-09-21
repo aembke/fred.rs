@@ -36,6 +36,10 @@ Notable implementation Changes:
   * It is recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs).
 * The `connect` function can now be called more than once to force reset all client state.
 
+## 6.3.2
+
+* Fix a bug with connection errors unexpectedly ending the connection task.
+
 ## 6.3.1
 
 * Update various dependencies

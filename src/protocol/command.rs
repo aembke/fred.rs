@@ -1545,7 +1545,7 @@ impl RedisCommand {
   }
 
   /// Whether errors writing the command should be returned to the caller.
-  pub fn should_send_write_error(&self, inner: &Arc<RedisClientInner>) -> bool {
+  pub fn should_finish_with_error(&self, inner: &Arc<RedisClientInner>) -> bool {
     self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
@@ -1739,6 +1739,12 @@ impl RedisCommand {
     if let Some(tx) = self.take_responder() {
       let _ = tx.send(result);
     }
+  }
+
+  /// Finish the command, responding to both the caller and router.
+  pub fn finish(mut self, inner: &Arc<RedisClientInner>, result: Result<Resp3Frame, RedisError>) {
+    self.respond_to_caller(result);
+    self.respond_to_router(inner, RouterResponse::Continue);
   }
 
   /// Read the first key in the arguments according to the `FirstKey` cluster hash policy.

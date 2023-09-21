@@ -896,7 +896,7 @@ impl RedisWriter {
     protocol_utils::parse_master_role_replicas(role)
   }
 
-  /// Check if the connection is connected and can send frames.
+  /// Check if the reader task is still running or awaiting frames.
   pub fn is_working(&self) -> bool {
     self
       .reader

@@ -408,8 +408,8 @@ impl ClusterRouting {
   /// Create a new routing table from the result of the `CLUSTER SLOTS` command.
   ///
   /// The `default_host` value refers to the server that provided the response.
-  pub fn from_cluster_slots(value: RedisValue, default_host: &str) -> Result<Self, RedisError> {
-    let default_host = Str::from(default_host);
+  pub fn from_cluster_slots<S: Into<Str>>(value: RedisValue, default_host: S) -> Result<Self, RedisError> {
+    let default_host = default_host.into();
     let mut data = cluster::parse_cluster_slots(value, &default_host)?;
     data.sort_by(|a, b| a.start.cmp(&b.start));
 

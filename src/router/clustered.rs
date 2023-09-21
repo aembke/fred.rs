@@ -18,87 +18,94 @@ use crate::{
 use futures::future::try_join_all;
 use parking_lot::Mutex;
 use std::{
-  collections::{BTreeSet, HashMap},
+  collections::{BTreeSet, HashMap, VecDeque},
   iter::repeat,
   sync::Arc,
 };
 use tokio::task::JoinHandle;
 
-pub fn find_cluster_node<'a>(
+/// Find the cluster node that should receive the command.
+pub fn route_command<'a>(
   inner: &Arc<RedisClientInner>,
   state: &'a ClusterRouting,
   command: &RedisCommand,
 ) -> Option<&'a Server> {
-  command
-    .cluster_hash()
-    .and_then(|slot| state.get_server(slot))
-    .or_else(|| {
-      let node = state.random_node();
-      _trace!(
-        inner,
-        "Using random cluster node `{:?}` for {}",
-        node,
-        command.kind.to_str_debug()
-      );
-      node
-    })
-}
-
-/// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
-pub async fn send_command(
-  inner: &Arc<RedisClientInner>,
-  writers: &mut HashMap<Server, RedisWriter>,
-  state: &ClusterRouting,
-  mut command: RedisCommand,
-  force_flush: bool,
-) -> Result<Written, (RedisError, RedisCommand)> {
-  // first check whether the caller specified a specific cluster node that should receive the command
-  let server = if let Some(ref _server) = command.cluster_node {
+  if let Some(ref server) = command.cluster_node {
     // this `_server` has a lifetime tied to `command`, so we switch `server` to refer to the record in `state` while
-    // we check whether that node exists in the cluster
-    let server = state.slots().iter().find_map(|slot| {
-      if slot.primary == *_server {
+    // we check whether that node exists in the cluster. we return None here if the command specifies a server that
+    // does not exist in the cluster.
+    _trace!(inner, "Routing with custom cluster node: {}", server);
+    state.slots().iter().find_map(|slot| {
+      if slot.primary == *server {
         Some(&slot.primary)
       } else {
         None
       }
-    });
-
-    if let Some(server) = server {
-      server
-    } else {
-      _debug!(
-        inner,
-        "Respond to caller with error from missing cluster node override ({})",
-        _server
-      );
-      command.respond_to_caller(Err(RedisError::new(
-        RedisErrorKind::Cluster,
-        "Missing cluster node override.",
-      )));
-      command.respond_to_router(inner, RouterResponse::Continue);
-
-      return Ok(Written::Ignore);
-    }
+    })
   } else {
-    // otherwise apply whichever cluster hash policy exists in the command
-    match find_cluster_node(inner, state, &command) {
-      Some(server) => server,
-      None => {
+    command
+      .cluster_hash()
+      .and_then(|slot| state.get_server(slot))
+      .or_else(|| {
+        // for some commands we know they can go to any node, but for others it may depend on the arguments provided.
+        if command.args().is_empty() || command.kind.use_random_cluster_node() {
+          let node = state.random_node();
+          _trace!(
+            inner,
+            "Using random cluster node `{:?}` for {}",
+            node,
+            command.kind.to_str_debug()
+          );
+          node
+        } else {
+          None
+        }
+      })
+  }
+}
+
+/// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
+pub async fn write(
+  inner: &Arc<RedisClientInner>,
+  writers: &mut HashMap<Server, RedisWriter>,
+  state: &ClusterRouting,
+  command: RedisCommand,
+  force_flush: bool,
+) -> Written {
+  let has_custom_server = command.cluster_node.is_some();
+  let server = match route_command(inner, &state, &command) {
+    Some(server) => server,
+    None => {
+      return if has_custom_server {
+        _debug!(
+          inner,
+          "Respond to caller with error from missing cluster node override ({:?})",
+          command.cluster_node
+        );
+        command.finish(
+          inner,
+          Err(RedisError::new(
+            RedisErrorKind::Cluster,
+            "Missing cluster node override.",
+          )),
+        );
+
+        Written::Ignore
+      } else {
         // these errors usually mean the cluster is partially down or misconfigured
         _warn!(
           inner,
           "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
           command.cluster_hash()
         );
-        return Ok(Written::Sync(command));
-      },
-    }
+        Written::NotFound(command)
+      };
+    },
   };
 
   if let Some(writer) = writers.get_mut(server) {
     _debug!(inner, "Writing command `{}` to {}", command.kind.to_str_debug(), server);
-    Ok(utils::write_command(inner, writer, command, force_flush).await)
+    utils::write_command(inner, writer, command, force_flush).await
   } else {
     // a reconnect message should already be queued from the reader task
     _debug!(
@@ -108,11 +115,11 @@ pub async fn send_command(
       command.kind.to_str_debug()
     );
 
-    Ok(Written::Disconnect((
+    Written::Disconnect((
       Some(server.clone()),
       Some(command),
       RedisError::new(RedisErrorKind::IO, "Missing connection."),
-    )))
+    ))
   }
 }
 
@@ -272,7 +279,7 @@ pub fn spawn_reader_task(
 
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
-    utils::check_final_write_attempt(&buffer, &last_error);
+    utils::check_final_write_attempt(&inner, &buffer, &last_error);
     if is_replica {
       responses::broadcast_replica_error(&inner, &server, last_error);
     } else {
@@ -629,6 +636,23 @@ pub async fn cluster_slots_backchannel(
   Ok(new_cache)
 }
 
+/// Check each connection and remove it from the writer map if it's not [working](RedisWriter::is_working).
+pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisWriter>) -> CommandBuffer {
+  let mut new_writers = HashMap::with_capacity(writers.len());
+  let mut buffer = VecDeque::new();
+
+  for (server, writer) in writers.drain() {
+    if writer.is_working() {
+      new_writers.insert(server, writer);
+    } else {
+      buffer.extend(writer.graceful_close().await);
+    }
+  }
+
+  *writers = new_writers;
+  buffer
+}
+
 /// Run `CLUSTER SLOTS`, update the cached routing table, and modify the connection map.
 pub async fn sync(
   inner: &Arc<RedisClientInner>,
@@ -648,6 +672,7 @@ pub async fn sync(
       .update_cluster_state(Some(state.clone()));
     *cache = state.clone();
 
+    buffer.extend(drop_broken_connections(writers).await);
     // detect changes to the cluster topology
     let changes = parse_cluster_changes(&state, &writers);
     _debug!(inner, "Changing cluster connections: {:?}", changes);

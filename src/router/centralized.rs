@@ -16,21 +16,21 @@ use crate::{
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub async fn send_command(
+pub async fn write(
   inner: &Arc<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   command: RedisCommand,
   force_flush: bool,
-) -> Result<Written, (RedisError, RedisCommand)> {
+) -> Written {
   if let Some(writer) = writer.as_mut() {
-    Ok(utils::write_command(inner, writer, command, force_flush).await)
+    utils::write_command(inner, writer, command, force_flush).await
   } else {
     _debug!(inner, "Failed to read connection for {}", command.kind.to_str_debug());
-    Ok(Written::Disconnect((
+    Written::Disconnect((
       None,
       Some(command),
       RedisError::new(RedisErrorKind::IO, "Missing connection."),
-    )))
+    ))
   }
 }
 
@@ -79,7 +79,7 @@ pub fn spawn_reader_task(
 
     utils::reader_unsubscribe(&inner, &server);
     utils::check_blocked_router(&inner, &buffer, &last_error);
-    utils::check_final_write_attempt(&buffer, &last_error);
+    utils::check_final_write_attempt(&inner, &buffer, &last_error);
     if is_replica {
       responses::broadcast_replica_error(&inner, &server, last_error);
     } else {

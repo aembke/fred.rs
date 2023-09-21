@@ -1085,6 +1085,30 @@ pub struct Options {
 }
 
 impl Options {
+  /// Set the non-null values from `other` onto `self`.
+  pub fn extend(&mut self, other: &Self) -> &mut Self {
+    if let Some(val) = other.max_attempts {
+      self.max_attempts = Some(val);
+    }
+    if let Some(val) = other.max_redirections {
+      self.max_redirections = Some(val);
+    }
+    if let Some(val) = other.timeout {
+      self.timeout = Some(val);
+    }
+    if let Some(ref val) = other.cluster_node {
+      self.cluster_node = Some(val.clone());
+    }
+    self.no_backpressure |= other.no_backpressure;
+
+    #[cfg(feature = "client-tracking")]
+    if let Some(val) = other.caching {
+      self.caching = Some(val);
+    }
+
+    self
+  }
+
   /// Overwrite the configuration options on the provided command.
   pub(crate) fn apply(&self, command: &mut RedisCommand) {
     command.skip_backpressure = self.no_backpressure;

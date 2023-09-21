@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 #[cfg(feature = "client-tracking")]
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::RedisError,
   types::{MultipleStrings, Toggle},
 };
 

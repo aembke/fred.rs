@@ -6,8 +6,9 @@ use crate::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, ResponseSender, RouterReceiver, RouterResponse},
     responders::ResponseKind,
   },
-  router::{utils, Router},
+  router::{utils, Router, Written},
   types::{ClusterHash, Server},
+  utils as client_utils,
 };
 use std::sync::Arc;
 
@@ -47,12 +48,19 @@ async fn write_command(
     server
   );
 
-  if let Err(e) = router.write_once(command, server).await {
+  let timeout_dur = command.timeout_dur.unwrap_or_else(|| inner.default_command_timeout());
+  let result = match router.write_direct(command, server).await {
+    Written::Error((error, _)) => Err(error),
+    Written::Disconnect((_, _, error)) => Err(error),
+    Written::NotFound(_) => Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
+    _ => Ok(()),
+  };
+  if let Err(e) = result {
     _debug!(inner, "Error writing trx command: {:?}", e);
     return Ok(TransactionResponse::Retry(e));
   }
 
-  match rx.await? {
+  match client_utils::apply_timeout(rx, timeout_dur).await? {
     RouterResponse::Continue => Ok(TransactionResponse::Continue),
     RouterResponse::Ask((slot, server, _)) => {
       Ok(TransactionResponse::Redirection((ClusterErrorKind::Ask, slot, server)))
@@ -133,21 +141,25 @@ pub async fn run(
   'outer: loop {
     _debug!(inner, "Starting transaction {} (attempted: {})", id, attempted);
 
-    let server = match router.find_connection(&commands[0]) {
-      Some(server) => server.clone(),
-      None => {
-        let _ = if inner.config.server.is_clustered() {
-          // optimistically sync the cluster, then fall back to a full reconnect
-          if router.sync_cluster().await.is_err() {
+    let server = if let Some(server) = commands[0].cluster_node.as_ref() {
+      server.clone()
+    } else {
+      match router.find_connection(&commands[0]) {
+        Some(server) => server.clone(),
+        None => {
+          let _ = if inner.config.server.is_clustered() {
+            // optimistically sync the cluster, then fall back to a full reconnect
+            if router.sync_cluster().await.is_err() {
+              utils::reconnect_with_policy(inner, router).await?
+            }
+          } else {
             utils::reconnect_with_policy(inner, router).await?
-          }
-        } else {
-          utils::reconnect_with_policy(inner, router).await?
-        };
+          };
 
-        attempted += 1;
-        continue;
-      },
+          attempted += 1;
+          continue;
+        },
+      }
     };
     let mut idx = 0;
 

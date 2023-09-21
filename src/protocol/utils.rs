@@ -387,8 +387,6 @@ pub fn check_null_timeout(frame: &Resp3Frame) -> Result<(), RedisError> {
 }
 
 /// Parse the protocol frame into a redis value, with support for arbitrarily nested arrays.
-///
-/// Unlike `frame_to_results` this will not unwrap single-element arrays.
 pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   let value = match frame {
     Resp3Frame::Null => RedisValue::Null,
@@ -412,22 +410,18 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
     Resp3Frame::Double { data, .. } => data.into(),
     Resp3Frame::BigNumber { data, .. } => string_or_bytes(data),
     Resp3Frame::Boolean { data, .. } => data.into(),
-    Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
-      let mut out = Vec::with_capacity(data.len());
-      for frame in data.into_iter() {
-        out.push(frame_to_results(frame)?);
-      }
-
-      RedisValue::Array(out)
-    },
-    Resp3Frame::Set { data, .. } => {
-      let mut out = Vec::with_capacity(data.len());
-      for frame in data.into_iter() {
-        out.push(frame_to_results(frame)?);
-      }
-
-      RedisValue::Array(out)
-    },
+    Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => RedisValue::Array(
+      data
+        .into_iter()
+        .map(frame_to_results)
+        .collect::<Result<Vec<RedisValue>, _>>()?,
+    ),
+    Resp3Frame::Set { data, .. } => RedisValue::Array(
+      data
+        .into_iter()
+        .map(frame_to_results)
+        .collect::<Result<Vec<RedisValue>, _>>()?,
+    ),
     Resp3Frame::Map { data, .. } => {
       let mut out = HashMap::with_capacity(data.len());
       for (key, value) in data.into_iter() {
