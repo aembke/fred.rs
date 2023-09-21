@@ -536,7 +536,7 @@ impl Router {
       .inner
       .network_timeouts
       .state()
-      .sync_replicas(&self.inner, &self.replicas);
+      .sync_replicas(&self.inner, &self.replicas.writers);
   }
 
   /// Sync the local connection state with the task that periodically scans for unresponsive connection timeouts.
