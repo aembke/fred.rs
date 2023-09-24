@@ -55,6 +55,14 @@ commands:
           name: Run tests with all features
           command: source tests/environ && tests/runners/all-features.sh
       - save-cargo-deps-cache
+  test_redis_stack:
+    steps:
+      - checkout
+      - restore-cargo-deps-cache
+      - run:
+          name: Run tests with redis-stack features
+          command: source tests/environ && tests/runners/redis-stack.sh
+      - save-cargo-deps-cache
   test_no_features:
     steps:
       - checkout
@@ -115,6 +123,15 @@ jobs:
       REDIS_VERSION: 7.2.1
     steps:
       - test_default_features
+  test-redis-stack:
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
+    environment:
+      REDIS_VERSION: 7.2.1
+    steps:
+      - test_redis_stack
   test-no-features-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
@@ -180,6 +197,7 @@ workflows:
       - test-all-features-7_2
       - test-no-features-7_2
       - test-default-nil-types-7_2
+      - test-redis-stack-7_2
       - test-sentinel-7_2
       - test-misc
       - test-cluster-tls-features-7_2

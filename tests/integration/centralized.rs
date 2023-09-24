@@ -1,5 +1,5 @@
 mod keys {
-
+  centralized_test!(keys, should_handle_missing_keys);
   centralized_test!(keys, should_set_and_get_a_value);
   centralized_test!(keys, should_set_and_del_a_value);
   centralized_test!(keys, should_set_with_get_argument);
@@ -308,4 +308,22 @@ mod streams {
 mod tracking {
   centralized_test!(tracking, should_invalidate_foo_resp3);
   centralized_test!(tracking, should_invalidate_foo_resp2_centralized);
+}
+
+// The CI settings for redis-stack only support centralized configs for now.
+#[cfg(feature = "redis-json")]
+mod redis_json {
+  centralized_test!(redis_json, should_get_and_set_basic_obj);
+  centralized_test!(redis_json, should_get_and_set_stringified_obj);
+  centralized_test!(redis_json, should_array_append);
+  centralized_test!(redis_json, should_modify_arrays);
+  centralized_test!(redis_json, should_pop_and_trim_arrays);
+  centralized_test!(redis_json, should_get_set_del_obj);
+  centralized_test!(redis_json, should_merge_objects);
+  centralized_test!(redis_json, should_mset_and_mget);
+  centralized_test!(redis_json, should_incr_numbers);
+  centralized_test!(redis_json, should_inspect_objects);
+  centralized_test!(redis_json, should_modify_strings);
+  centralized_test!(redis_json, should_toggle_boolean);
+  centralized_test!(redis_json, should_get_value_type);
 }

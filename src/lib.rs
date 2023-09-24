@@ -59,6 +59,13 @@ pub mod util {
   pub use crate::utils::{f64_to_redis_string, redis_string_to_f64, static_bytes, static_str};
   pub use redis_protocol::redis_keyslot;
 
+  /// A convenience constant for `None` values used as generic arguments.
+  ///
+  /// Functions that take `Option<T>` as an argument often require the caller to use a turbofish when the
+  /// variant is `None`. In many cases this constant can be used instead.
+  // pretty much everything in this crate supports From<String>
+  pub const NONE: Option<String> = None;
+
   /// Calculate the SHA1 hash output as a hex string. This is provided for clients that use the Lua interface to
   /// manage their own script caches.
   pub fn sha1_hash(input: &str) -> String {

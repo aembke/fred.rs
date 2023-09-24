@@ -2,30 +2,7 @@ use crate::{
   clients::{Pipeline, WithOptions},
   commands,
   error::{RedisError, RedisErrorKind},
-  interfaces::{
-    AclInterface,
-    AuthInterface,
-    ClientInterface,
-    ClusterInterface,
-    ConfigInterface,
-    EventInterface,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HeartbeatInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    LuaInterface,
-    MemoryInterface,
-    MetricsInterface,
-    PubsubInterface,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    TransactionInterface,
-  },
+  interfaces::*,
   modules::inner::RedisClientInner,
   prelude::{ClientLike, StreamsInterface},
   types::*,
@@ -39,6 +16,7 @@ use crate::interfaces::TrackingInterface;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+use crate::interfaces::RedisJsonInterface;
 
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
@@ -98,6 +76,9 @@ impl SortedSetsInterface for RedisClient {}
 impl HeartbeatInterface for RedisClient {}
 impl StreamsInterface for RedisClient {}
 impl FunctionInterface for RedisClient {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl RedisJsonInterface for RedisClient {}
 
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]

@@ -9,6 +9,7 @@ if [ -z "$CARGO_HTTP_DEBUG" ]; then
   export CARGO_HTTP_DEBUG=false
 fi
 
+# FIXME: changing the redis stack port here doesn't work. this might just be a limitation on the image's config interface though
 export ROOT=$PWD \
   RUST_BACKTRACE=full \
   FRED_REDIS_CLUSTER_HOST=redis-cluster-1 \
@@ -19,6 +20,8 @@ export ROOT=$PWD \
   FRED_REDIS_CENTRALIZED_PORT=6379 \
   FRED_REDIS_SENTINEL_HOST=redis-sentinel-1 \
   FRED_REDIS_SENTINEL_PORT=26379 \
+  FRED_REDIS_STACK_HOST=redis-stack-main \
+  FRED_REDIS_STACK_PORT=6379 \
   FRED_TEST_TLS_CREDS=$PWD/tests/tmp/creds \
   REDIS_USERNAME=foo \
   REDIS_PASSWORD=bar \

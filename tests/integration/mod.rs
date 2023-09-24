@@ -23,6 +23,9 @@ mod slowlog;
 mod sorted_sets;
 mod streams;
 
+#[cfg(feature = "redis-json")]
+mod redis_json;
+
 #[cfg(feature = "client-tracking")]
 mod tracking;
 

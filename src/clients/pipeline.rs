@@ -16,6 +16,7 @@ use crate::{
     ListInterface,
     MemoryInterface,
     PubsubInterface,
+    RedisJsonInterface,
     Resp3Frame,
     ServerInterface,
     SetsInterface,
@@ -161,6 +162,9 @@ impl<C: SetsInterface> SetsInterface for Pipeline<C> {}
 impl<C: SortedSetsInterface> SortedSetsInterface for Pipeline<C> {}
 impl<C: StreamsInterface> StreamsInterface for Pipeline<C> {}
 impl<C: FunctionInterface> FunctionInterface for Pipeline<C> {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl<C: RedisJsonInterface> RedisJsonInterface for Pipeline<C> {}
 
 impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.

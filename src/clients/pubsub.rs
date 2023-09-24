@@ -1,33 +1,7 @@
 use crate::{
   commands,
   error::RedisError,
-  interfaces::{
-    AclInterface,
-    AuthInterface,
-    ClientInterface,
-    ClientLike,
-    ClusterInterface,
-    ConfigInterface,
-    EventInterface,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HeartbeatInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    LuaInterface,
-    MemoryInterface,
-    MetricsInterface,
-    PubsubInterface,
-    RedisResult,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    StreamsInterface,
-    TransactionInterface,
-  },
+  interfaces::*,
   modules::inner::RedisClientInner,
   prelude::{FromRedis, RedisClient},
   types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
@@ -130,6 +104,9 @@ impl SortedSetsInterface for SubscriberClient {}
 impl HeartbeatInterface for SubscriberClient {}
 impl StreamsInterface for SubscriberClient {}
 impl FunctionInterface for SubscriberClient {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl RedisJsonInterface for SubscriberClient {}
 
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]

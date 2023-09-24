@@ -74,6 +74,17 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
+#[cfg(feature = "redis-stack")]
+pub fn read_redis_centralized_host() -> (String, u16) {
+  let host = read_env_var("FRED_REDIS_STACK_HOST").unwrap_or("redis-main".into());
+  let port = read_env_var("FRED_REDIS_STACK_PORT")
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(6379);
+
+  (host, port)
+}
+
+#[cfg(not(feature = "redis-stack"))]
 pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CENTRALIZED_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_CENTRALIZED_PORT")
@@ -107,8 +118,15 @@ pub fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
 }
 
+#[cfg(not(feature = "redis-stack"))]
 pub fn read_redis_username() -> String {
   read_env_var("REDIS_USERNAME").expect("Failed to read REDIS_USERNAME env")
+}
+
+// the CI settings for redis-stack don't set up custom ACL rules
+#[cfg(feature = "redis-stack")]
+pub fn read_redis_username() -> String {
+  read_env_var("REDIS_USERNAME").unwrap_or("default".into())
 }
 
 #[cfg(feature = "sentinel-auth")]
@@ -469,6 +487,7 @@ macro_rules! centralized_test_panic(
 macro_rules! cluster_test_panic(
   ($module:tt, $name:tt) => {
     mod $name {
+      #[cfg(not(feature = "redis-stack"))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
@@ -493,6 +512,7 @@ macro_rules! cluster_test_panic(
         }
       }
 
+      #[cfg(not(feature = "redis-stack"))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
@@ -574,6 +594,7 @@ macro_rules! centralized_test(
 macro_rules! cluster_test(
   ($module:tt, $name:tt) => {
     mod $name {
+      #[cfg(not(feature = "redis-stack"))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
@@ -596,6 +617,7 @@ macro_rules! cluster_test(
         }
       }
 
+      #[cfg(not(feature = "redis-stack"))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {

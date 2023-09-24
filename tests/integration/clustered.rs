@@ -1,5 +1,5 @@
 mod keys {
-
+  cluster_test!(keys, should_handle_missing_keys);
   cluster_test!(keys, should_set_and_get_a_value);
   cluster_test!(keys, should_set_and_del_a_value);
   cluster_test!(keys, should_set_with_get_argument);
@@ -267,6 +267,7 @@ pub mod geo {
   cluster_test!(geo, should_geosearch_values);
 }
 
+#[cfg(not(feature = "redis-stack"))]
 pub mod acl {
   cluster_test!(acl, should_run_acl_getuser);
 }

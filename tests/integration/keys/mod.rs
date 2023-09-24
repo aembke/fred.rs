@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use fred::{
   clients::{RedisClient, RedisPool},
   error::RedisError,
@@ -7,6 +8,18 @@ use fred::{
 use futures::{pin_mut, StreamExt};
 use std::{collections::HashMap, time::Duration};
 use tokio::{self, time::sleep};
+
+#[cfg(feature = "default-nil-types")]
+pub async fn should_handle_missing_keys(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  assert!(client.get::<Bytes, _>("foo").await?.is_empty());
+  Ok(())
+}
+
+#[cfg(not(feature = "default-nil-types"))]
+pub async fn should_handle_missing_keys(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  assert!(client.get::<Bytes, _>("foo").await.is_err());
+  Ok(())
+}
 
 pub async fn should_set_and_get_a_value(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
   check_null!(client, "foo");

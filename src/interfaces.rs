@@ -9,6 +9,7 @@ use crate::{
     ClientState,
     ClusterStateChange,
     ConnectHandle,
+    ConnectionConfig,
     CustomCommand,
     FromRedis,
     InfoKind,
@@ -501,8 +502,9 @@ pub use crate::commands::interfaces::{
   transactions::TransactionInterface,
 };
 
+#[cfg(feature = "redis-json")]
+pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
 #[cfg(feature = "client-tracking")]
 pub use crate::commands::interfaces::tracking::TrackingInterface;
-use crate::types::ConnectionConfig;

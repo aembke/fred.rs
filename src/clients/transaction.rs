@@ -97,6 +97,9 @@ impl SetsInterface for Transaction {}
 impl SortedSetsInterface for Transaction {}
 impl StreamsInterface for Transaction {}
 impl FunctionInterface for Transaction {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl RedisJsonInterface for Transaction {}
 
 impl Transaction {
   /// Check and update the hash slot for the transaction.

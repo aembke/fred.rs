@@ -1,26 +1,6 @@
 use crate::{
   error::RedisError,
-  interfaces::{
-    AclInterface,
-    AuthInterface,
-    ClientInterface,
-    ClientLike,
-    ClusterInterface,
-    ConfigInterface,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    MemoryInterface,
-    PubsubInterface,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    StreamsInterface,
-  },
+  interfaces::*,
   modules::inner::RedisClientInner,
   protocol::command::RedisCommand,
   types::Options,
@@ -133,3 +113,6 @@ impl<C: SetsInterface> SetsInterface for WithOptions<C> {}
 impl<C: SortedSetsInterface> SortedSetsInterface for WithOptions<C> {}
 impl<C: StreamsInterface> StreamsInterface for WithOptions<C> {}
 impl<C: FunctionInterface> FunctionInterface for WithOptions<C> {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl<C: RedisJsonInterface> RedisJsonInterface for WithOptions<C> {}

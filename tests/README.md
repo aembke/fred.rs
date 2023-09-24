@@ -22,10 +22,12 @@ The runner scripts will set up the Redis servers and run the tests inside docker
 
 * [all-features](runners/all-features.sh) will run tests with all features (except sentinel tests).
 * [default-features](runners/default-features.sh) will run tests with default features (except sentinel tests).
+* [default-nil-types](runners/default-nil-types.sh) will run tests with `default-nil-types`.
 * [no-features](runners/no-features.sh) will run the tests without any of the feature flags.
 * [sentinel-features](runners/sentinel-features.sh) will run the centralized tests against a sentinel deployment. This is the only test runner that requires the sentinel deployment via docker-compose.
 * [cluster-rustls](runners/cluster-rustls.sh) will set up a cluster with TLS enabled and run the cluster tests against it with `rustls`.
 * [cluster-native-tls](runners/cluster-native-tls.sh) will set up a cluster with TLS enabled and run the cluster tests against it with `native-tls`.
+* [redis-stack](runners/redis-stack.sh) will set up a centralized `redis/redis-stack` container and run with `redis-stack` features.
 * [everything](runners/everything.sh) will run all of the above scripts. 
 
 These scripts will pass through any extra argv so callers can filter tests as needed.

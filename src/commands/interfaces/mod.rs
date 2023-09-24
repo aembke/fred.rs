@@ -25,3 +25,6 @@ pub mod tracking;
 
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;
+
+#[cfg(feature = "redis-json")]
+pub mod redis_json;

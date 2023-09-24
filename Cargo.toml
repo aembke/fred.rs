@@ -30,7 +30,8 @@ features = [
   "check-unresponsive",
   "replicas",
   "client-tracking",
-  "default-nil-types"
+  "default-nil-types",
+  "redis-json",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -123,6 +124,9 @@ replicas = []
 auto-client-setname = []
 client-tracking = []
 default-nil-types = []
+# Redis Stack Features
+redis-stack = ["redis-json"]
+redis-json = ["serde-json"]
 # Debugging Features
 debug-ids = []
 network-logs = []
