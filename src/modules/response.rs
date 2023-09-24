@@ -564,13 +564,13 @@ impl FromRedis for Value {
       RedisValue::Null => Value::Null,
       RedisValue::Queued => QUEUED.into(),
       RedisValue::String(s) => {
-        if let Some(parsed) = utils::parse_nested_json(&s) {
-          parsed
-        } else {
-          s.to_string().into()
-        }
+        // check for nested json. this is particularly useful with JSON.GET
+        utils::parse_nested_json(&s).unwrap_or_else(|| s.to_string().into())
       },
-      RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
+      RedisValue::Bytes(b) => {
+        let val = RedisValue::String(Str::from_inner(b)?);
+        Self::from_value(val)?
+      },
       RedisValue::Integer(i) => i.into(),
       RedisValue::Double(f) => f.into(),
       RedisValue::Boolean(b) => b.into(),
@@ -831,7 +831,15 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "default-nil-types")]
   fn should_convert_null_to_false() {
+    assert!(!RedisValue::Null.convert::<bool>().unwrap());
+  }
+
+  #[test]
+  #[should_panic]
+  #[cfg(not(feature = "default-nil-types"))]
+  fn should_not_convert_null_to_false() {
     assert!(!RedisValue::Null.convert::<bool>().unwrap());
   }
 

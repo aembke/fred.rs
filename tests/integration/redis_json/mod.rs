@@ -11,7 +11,7 @@ pub async fn should_get_and_set_basic_obj(client: RedisClient, _: RedisConfig) -
   });
   let _: () = client.json_set("foo", "$", value.clone(), None).await?;
   let result: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
-  assert_eq!(value, result);
+  assert_eq!(value, result[0]);
 
   Ok(())
 }
@@ -28,7 +28,7 @@ pub async fn should_get_and_set_stringified_obj(client: RedisClient, _: RedisCon
     .json_set("foo", "$", serde_json::to_string(&value)?, None)
     .await?;
   let result: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
-  assert_eq!(value, result);
+  assert_eq!(value, result[0]);
 
   Ok(())
 }

@@ -4,7 +4,7 @@ Tests are organized by category, similar to the [commands](../src/commands) fold
 
 By default, most tests run 8 times based on the following configuration parameters: clustered vs centralized servers, pipelined vs non-pipelined clients, and RESP2 vs RESP3 mode. Helper macros exist to make this easy so each test only has to be written once.
 
-**The tests require Redis version >=6.2** As of writing the default version used is 7.0.5.
+**The tests require Redis version >=6.2** As of writing the default version used is 7.2.1.
 
 ## Installation
 

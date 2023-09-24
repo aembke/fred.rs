@@ -182,6 +182,8 @@ pub mod sorted_sets;
 pub mod streams;
 pub mod strings;
 
+#[cfg(feature = "redis-json")]
+pub mod redis_json;
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;
 #[cfg(feature = "client-tracking")]
