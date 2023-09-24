@@ -123,7 +123,7 @@ jobs:
       REDIS_VERSION: 7.2.1
     steps:
       - test_default_features
-  test-redis-stack:
+  test-redis-stack-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
