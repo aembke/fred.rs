@@ -41,7 +41,6 @@ pub use crate::modules::metrics::Stats;
 pub use crate::protocol::types::Resolve;
 
 pub(crate) static QUEUED: &'static str = "QUEUED";
-pub(crate) static NIL: &'static str = "nil";
 
 /// The ANY flag used on certain GEO commands.
 pub type Any = bool;

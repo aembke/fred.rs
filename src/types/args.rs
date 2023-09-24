@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::{ClientLike, Resp3Frame},
   protocol::{connection::OK, utils as protocol_utils},
-  types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, NIL, QUEUED},
+  types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, QUEUED},
   utils,
 };
 use bytes::Bytes;
@@ -596,7 +596,7 @@ impl PartialEq for RedisValue {
 
 impl Eq for RedisValue {}
 
-impl<'a> RedisValue {
+impl RedisValue {
   /// Create a new `RedisValue::Bytes` from a static byte slice without copying.
   pub fn from_static(b: &'static [u8]) -> Self {
     RedisValue::Bytes(Bytes::from_static(b))
@@ -770,6 +770,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(0),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -786,6 +790,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(0),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -808,6 +816,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(0),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -825,6 +837,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(0.0),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -845,6 +861,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(String::new()),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -868,6 +888,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(Str::new()),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -891,6 +915,10 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(Str::new()),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -906,6 +934,10 @@ impl<'a> RedisValue {
       RedisValue::Bytes(ref b) => str::from_utf8(b).ok().map(|s| s.to_owned()),
       RedisValue::Integer(ref i) => Some(i.to_string()),
       RedisValue::Queued => Some(QUEUED.to_owned()),
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(String::new()),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
@@ -919,9 +951,12 @@ impl<'a> RedisValue {
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
       RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
-      RedisValue::Null => Cow::Borrowed(NIL),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
       RedisValue::Bytes(ref b) => return str::from_utf8(b).ok().map(|s| Cow::Borrowed(s)),
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Cow::Borrowed(""),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => return None,
       _ => return None,
     };
 
@@ -935,9 +970,12 @@ impl<'a> RedisValue {
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
       RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
-      RedisValue::Null => Cow::Borrowed(NIL),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
       RedisValue::Bytes(ref b) => String::from_utf8_lossy(b),
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Cow::Borrowed(""),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => return None,
       _ => return None,
     };
 
@@ -968,7 +1006,6 @@ impl<'a> RedisValue {
         b"false" | b"FALSE" | b"f" | b"F" | b"0" => Some(false),
         _ => None,
       },
-      RedisValue::Null => Some(false),
       RedisValue::Array(ref inner) => {
         if inner.len() == 1 {
           inner.first().and_then(|v| v.as_bool())
@@ -976,34 +1013,38 @@ impl<'a> RedisValue {
           None
         }
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Some(false),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => None,
       _ => None,
     }
   }
 
   /// Attempt to convert this value to a Redis map if it's an array with an even number of elements.
   pub fn into_map(self) -> Result<RedisMap, RedisError> {
-    if let RedisValue::Map(map) = self {
-      return Ok(map);
-    }
+    match self {
+      RedisValue::Map(map) => Ok(map),
+      RedisValue::Array(mut values) => {
+        if values.len() % 2 != 0 {
+          return Err(RedisError::new(
+            RedisErrorKind::Unknown,
+            "Expected an even number of elements.",
+          ));
+        }
+        let mut inner = HashMap::with_capacity(values.len() / 2);
+        while values.len() >= 2 {
+          let value = values.pop().unwrap();
+          let key: RedisKey = values.pop().unwrap().try_into()?;
 
-    if let RedisValue::Array(mut values) = self {
-      if values.len() % 2 != 0 {
-        return Err(RedisError::new(
-          RedisErrorKind::Unknown,
-          "Expected an even number of elements.",
-        ));
-      }
-      let mut inner = HashMap::with_capacity(values.len() / 2);
-      while values.len() >= 2 {
-        let value = values.pop().unwrap();
-        let key: RedisKey = values.pop().unwrap().try_into()?;
+          inner.insert(key, value);
+        }
 
-        inner.insert(key, value);
-      }
-
-      Ok(RedisMap { inner })
-    } else {
-      Err(RedisError::new(RedisErrorKind::Unknown, "Expected array."))
+        Ok(RedisMap { inner })
+      },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Ok(RedisMap::new()),
+      _ => Err(RedisError::new(RedisErrorKind::Unknown, "Could not convert to map.")),
     }
   }
 
@@ -1023,15 +1064,11 @@ impl<'a> RedisValue {
 
   /// Convert the array value to a set, if possible.
   pub fn into_set(self) -> Result<HashSet<RedisValue>, RedisError> {
-    if let RedisValue::Array(values) = self {
-      let mut out = HashSet::with_capacity(values.len());
-
-      for value in values.into_iter() {
-        out.insert(value);
-      }
-      Ok(out)
-    } else {
-      Err(RedisError::new(RedisErrorKind::Unknown, "Expected array."))
+    match self {
+      RedisValue::Array(values) => Ok(values.into_iter().collect()),
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Ok(HashSet::new()),
+      _ => Err(RedisError::new_parse("Could not convert to set.")),
     }
   }
 
@@ -1064,7 +1101,6 @@ impl<'a> RedisValue {
     let v = match self {
       RedisValue::String(s) => s.to_string().into_bytes(),
       RedisValue::Bytes(b) => b.to_vec(),
-      RedisValue::Null => NULL.as_bytes().to_vec(),
       RedisValue::Queued => QUEUED.as_bytes().to_vec(),
       RedisValue::Array(mut inner) => {
         if inner.len() == 1 {
@@ -1074,6 +1110,10 @@ impl<'a> RedisValue {
         }
       },
       RedisValue::Integer(i) => i.to_string().into_bytes(),
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Vec::new(),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => return None,
       _ => return None,
     };
 
@@ -1085,7 +1125,6 @@ impl<'a> RedisValue {
     let v = match self {
       RedisValue::String(s) => s.inner().clone(),
       RedisValue::Bytes(b) => b,
-      RedisValue::Null => Bytes::from_static(NIL.as_bytes()),
       RedisValue::Queued => Bytes::from_static(QUEUED.as_bytes()),
       RedisValue::Array(mut inner) => {
         if inner.len() == 1 {
@@ -1095,6 +1134,10 @@ impl<'a> RedisValue {
         }
       },
       RedisValue::Integer(i) => i.to_string().into(),
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Bytes::new(),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => return None,
       _ => return None,
     };
 

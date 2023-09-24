@@ -11,12 +11,10 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, sync::Arc};
 
-#[cfg(feature = "client-tracking")]
-use crate::interfaces::TrackingInterface;
-
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-use crate::interfaces::RedisJsonInterface;
+#[cfg(feature = "client-tracking")]
+use crate::interfaces::TrackingInterface;
 
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]

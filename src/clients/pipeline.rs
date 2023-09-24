@@ -16,7 +16,6 @@ use crate::{
     ListInterface,
     MemoryInterface,
     PubsubInterface,
-    RedisJsonInterface,
     Resp3Frame,
     ServerInterface,
     SetsInterface,
@@ -36,6 +35,9 @@ use crate::{
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
+
+#[cfg(feature = "redis-json")]
+use crate::interfaces::RedisJsonInterface;
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();

@@ -24,7 +24,9 @@ pub async fn should_get_and_set_stringified_obj(client: RedisClient, _: RedisCon
     "a": "b",
     "c": 1
   });
-  let _: () = client.json_set("foo", "$", serde_json::to_string(&value), None).await?;
+  let _: () = client
+    .json_set("foo", "$", serde_json::to_string(&value)?, None)
+    .await?;
   let result: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
   assert_eq!(value, result);
 

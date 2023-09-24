@@ -42,8 +42,8 @@ async fn main() -> Result<(), RedisError> {
       }
     }
 
-    // move on to the next page now that we're done reading the values. or move this before we call `get` on each key
-    // to scan results in the background as quickly as possible.
+    // **important:** move on to the next page now that we're done reading the values. or move this before we call
+    // `get` on each key to scan results in the background as quickly as possible.
     let _ = page.next();
   }
 
