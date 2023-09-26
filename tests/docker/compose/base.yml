@@ -7,6 +7,7 @@ services:
       - redis-main
       - redis-cluster-6
       - redis-sentinel-3
+      - redis-stack-main
     container_name: "debug"
     build:
       context: ../../../
@@ -27,10 +28,11 @@ services:
       FRED_REDIS_CLUSTER_PORT: "${FRED_REDIS_CLUSTER_PORT}"
       FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
       FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
+      FRED_REDIS_STACK_HOST: "${FRED_REDIS_STACK_HOST}"
+      FRED_REDIS_STACK_PORT: "${FRED_REDIS_STACK_PORT}"
       REDIS_USERNAME: "${REDIS_USERNAME}"
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"
     volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
       - "../../..:/project"
       - "~/.cargo/registry:/usr/local/cargo/registry"

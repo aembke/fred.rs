@@ -8,8 +8,41 @@ use serde_json::Value;
 
 /// The client commands in the [RedisJSON](https://redis.io/docs/data-types/json/) interface.
 ///
+/// ## String Values
+///
 /// This interface uses [serde_json::Value](serde_json::Value) as the baseline type and will convert non-string values
 /// to RESP bulk strings via [to_string](serde_json::to_string).
+///
+/// Some of the RedisJSON commands include the following notice in the documentation:
+///
+/// > To specify a string as an array value to append, wrap the quoted string with an additional set of single quotes.
+/// > Example: '"silver"'.
+///
+/// The [serde_json::to_string](serde_json::to_string) functions are often the easiest way to do
+/// this. The [json_quote](crate::json_quote) macro can also help.
+///
+/// For example:
+///
+/// ```rust
+/// use fred::{json_quote, prelude::*};
+/// use serde_json::json;
+/// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+///   let _: () = client.json_set("foo", "$", json!(["a", "b"]), None).await?;
+///
+///   // need to double quote string values in this context
+///   let size: i64 = client
+///     .json_arrappend("foo", Some("$"), vec![
+///       json!("c").to_string(),
+///       // or
+///       serde_json::to_string(&json!("d"))?,
+///       // or
+///       json_quote!("e"),
+///     ])
+///     .await?;
+///   assert_eq!(size, 5);
+///   Ok(())
+/// }
+/// ```
 #[async_trait]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 pub trait RedisJsonInterface: ClientLike + Sized {

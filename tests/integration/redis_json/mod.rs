@@ -1,4 +1,11 @@
-use fred::{clients::RedisClient, error::RedisError, interfaces::RedisJsonInterface, types::RedisConfig, util::NONE};
+use fred::{
+  clients::RedisClient,
+  error::RedisError,
+  interfaces::RedisJsonInterface,
+  json_quote,
+  types::RedisConfig,
+  util::NONE,
+};
 use serde_json::{json, Value};
 
 pub async fn should_get_and_set_basic_obj(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -34,21 +41,31 @@ pub async fn should_get_and_set_stringified_obj(client: RedisClient, _: RedisCon
 }
 
 pub async fn should_array_append(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let size: i64 = client.json_arrappend("foo", NONE, vec!["a", "b"]).await?;
-  assert_eq!(size, 2);
+  let _: () = client.json_set("foo", "$", json!(["a", "b"]), None).await?;
+
+  // need to double quote string values
+  let size: i64 = client
+    .json_arrappend("foo", Some("$"), vec![json_quote!("c"), json_quote!("d")])
+    .await?;
+  assert_eq!(size, 4);
+  let size: i64 = client.json_arrappend("foo", Some("$"), vec![json!({"e": "f"})]).await?;
+  assert_eq!(size, 5);
   let len: i64 = client.json_arrlen("foo", NONE).await?;
-  assert_eq!(len, 2);
+  assert_eq!(len, 5);
+
+  let result: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
+  assert_eq!(result[0], json!(["a", "b", "c", "d", {"e": "f"}]));
 
   Ok(())
 }
 
 pub async fn should_modify_arrays(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _: () = client
-    .json_set("foo", "$", Value::Array(vec!["a".into(), "b".into()]), None)
+  let _: () = client.json_set("foo", "$", json!(["a", "d"]), None).await?;
+  let len: i64 = client
+    .json_arrinsert("foo", "$", 1, vec![json_quote!("b"), json_quote!("c")])
     .await?;
-  let len: i64 = client.json_arrinsert("foo", "$", 1, vec!["1", "2"]).await?;
   assert_eq!(len, 4);
-  let idx: usize = client.json_arrindex("foo", "$", "1", None, None).await?;
+  let idx: usize = client.json_arrindex("foo", "$", json_quote!("b"), None, None).await?;
   assert_eq!(idx, 1);
   let len: usize = client.json_arrlen("foo", NONE).await?;
   assert_eq!(len, 4);
