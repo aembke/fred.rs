@@ -69,7 +69,6 @@ pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterComma
         command.kind.to_str_debug()
       );
 
-      // if a caller manages to trigger this it means that a connection task is not running
       command.respond_to_caller(Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Client is not initialized.",

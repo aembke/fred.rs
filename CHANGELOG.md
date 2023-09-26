@@ -11,10 +11,10 @@
   * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
 * Reworked the majority of the `RedisPool` interface. 
 * Moved and refactored the `on_*` functions into a new `EventInterface`.
-* Fixed the `tls_server_name` field on `Server` so that it is now properly gated by the TLS feature flags.
 * Fixed bugs with the `Replica` routing implementation.
 * Fixed bugs related to parsing single-element arrays.
 * Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
+* Add a [RedisJSON](https://github.com/RedisJSON/RedisJSON/) interface.
 
 ### Upgrading from 6.x
 
@@ -25,6 +25,7 @@ Notable interface changes:
 * Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
 * The `RedisPool` interface now directly implements `ClientLike` rather than relying on `Deref` shenanigans.
 * The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`.
+* The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
 * Mocks are now optional even when the feature flag is enabled.
 
 Notable implementation Changes:

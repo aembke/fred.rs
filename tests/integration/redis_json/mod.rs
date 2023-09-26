@@ -34,17 +34,41 @@ pub async fn should_get_and_set_stringified_obj(client: RedisClient, _: RedisCon
 }
 
 pub async fn should_array_append(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  // arrayappend and arrlen
-  unimplemented!()
+  let size: i64 = client.json_arrappend("foo", NONE, vec!["a", "b"]).await?;
+  assert_eq!(size, 2);
+  let len: i64 = client.json_arrlen("foo", NONE).await?;
+  assert_eq!(len, 2);
+
+  Ok(())
 }
 
 pub async fn should_modify_arrays(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  // arrayinsert and arrayindex and arrlen
-  unimplemented!()
+  let _: () = client
+    .json_set("foo", "$", Value::Array(vec!["a".into(), "b".into()]), None)
+    .await?;
+  let len: i64 = client.json_arrinsert("foo", "$", 1, vec!["1", "2"]).await?;
+  assert_eq!(len, 4);
+  let idx: usize = client.json_arrindex("foo", "$", "1", None, None).await?;
+  assert_eq!(idx, 1);
+  let len: usize = client.json_arrlen("foo", NONE).await?;
+  assert_eq!(len, 4);
+
+  Ok(())
 }
 
 pub async fn should_pop_and_trim_arrays(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  let _: () = client.json_set("foo", "$", json!(["a", "b"]), None).await?;
+  let val: String = client.json_arrpop("foo", NONE, None).await?;
+  assert_eq!(val, "b");
+
+  let _: () = client.json_set("foo", "$", json!(["a", "b", "c", "d"]), None).await?;
+  let len: usize = client.json_arrtrim("foo", "$", 0, -1).await?;
+  assert_eq!(len, 3);
+
+  let vals: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
+  assert_eq!(vals, json!(["a", "b", "c"]));
+
+  Ok(())
 }
 
 pub async fn should_get_set_del_obj(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -60,7 +84,11 @@ pub async fn should_mset_and_mget(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_incr_numbers(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  let _: () = client.json_set("foo", "$", json!({ "a": 1 }), None).await?;
+  let val: i64 = client.json_numincrby("foo", "$.a", 2).await?;
+  assert_eq!(val, 3);
+
+  Ok(())
 }
 
 pub async fn should_inspect_objects(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -74,9 +102,21 @@ pub async fn should_modify_strings(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_toggle_boolean(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  let _: () = client.json_set("foo", "$", json!({ "a": 1, "b": true }), None).await?;
+  let new_val: bool = client.json_toggle("foo", "$.b").await?;
+  assert_eq!(new_val, false);
+
+  Ok(())
 }
 
 pub async fn should_get_value_type(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  let _: () = client.json_set("foo", "$", json!({ "a": 1, "b": true }), None).await?;
+  let val: String = client.json_type("foo", NONE).await?;
+  assert_eq!(val, "object");
+  let val: String = client.json_type("foo", Some("$.a")).await?;
+  assert_eq!(val, "integer");
+  let val: String = client.json_type("foo", Some("$.b")).await?;
+  assert_eq!(val, "boolean");
+
+  Ok(())
 }
