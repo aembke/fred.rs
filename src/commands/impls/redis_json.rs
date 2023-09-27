@@ -1,5 +1,5 @@
 use crate::{
-  error::RedisError,
+  error::{RedisError, RedisErrorKind},
   interfaces::{ClientLike, RedisResult},
   protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::{MultipleKeys, MultipleStrings, RedisKey, RedisValue, SetOptions},
@@ -21,11 +21,35 @@ fn key_path_args(key: RedisKey, path: Option<Str>, extra: usize) -> Vec<RedisVal
   out
 }
 
+/// Convert the provided json value to a redis value by serializing into a json string.
 fn value_to_bulk_str(value: &Value) -> Result<RedisValue, RedisError> {
   Ok(match value {
     Value::String(ref s) => RedisValue::String(Str::from(s)),
     _ => RedisValue::String(Str::from(serde_json::to_string(value)?)),
   })
+}
+
+/// Convert the provided json value to a redis value directly without serializing into a string. This only works with
+/// scalar values.
+fn json_to_redis(value: Value) -> Result<RedisValue, RedisError> {
+  let out = match value {
+    Value::String(s) => Some(RedisValue::String(Str::from(s))),
+    Value::Null => Some(RedisValue::Null),
+    Value::Number(n) => {
+      if n.is_f64() {
+        n.as_f64().map(RedisValue::Double)
+      } else {
+        n.as_i64().map(RedisValue::Integer)
+      }
+    },
+    Value::Bool(b) => Some(RedisValue::Boolean(b)),
+    _ => None,
+  };
+
+  out.ok_or(RedisError::new(
+    RedisErrorKind::InvalidArgument,
+    "Expected string or number.",
+  ))
 }
 
 fn values_to_bulk(values: &Vec<Value>) -> Result<Vec<RedisValue>, RedisError> {
@@ -246,7 +270,7 @@ pub async fn json_numincrby<C: ClientLike>(
     Ok((RedisCommandKind::JsonNumIncrBy, vec![
       key.into(),
       path.into(),
-      value_to_bulk_str(&value)?,
+      json_to_redis(value)?,
     ]))
   })
   .await?;

@@ -48,8 +48,6 @@ use url::Url;
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
-#[cfg(feature = "serde-json")]
-use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -611,19 +609,6 @@ where
     out.insert(to!(key)?, to!(value)?);
   }
   Ok(out)
-}
-
-#[cfg(feature = "serde-json")]
-pub fn parse_nested_json(s: &str) -> Option<Value> {
-  let trimmed = s.trim();
-  let is_maybe_json =
-    (trimmed.starts_with("{") && trimmed.ends_with("}")) || (trimmed.starts_with("[") && trimmed.ends_with("]"));
-
-  if is_maybe_json {
-    serde_json::from_str(s).ok()
-  } else {
-    None
-  }
 }
 
 pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValue {

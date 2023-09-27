@@ -12,8 +12,6 @@ use std::{
 #[allow(unused_imports)]
 use std::any::type_name;
 
-#[cfg(any(feature = "default-nil-types", feature = "serde-json"))]
-use crate::utils;
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
@@ -565,7 +563,7 @@ impl FromRedis for Value {
       RedisValue::Queued => QUEUED.into(),
       RedisValue::String(s) => {
         // check for nested json. this is particularly useful with JSON.GET
-        utils::parse_nested_json(&s).unwrap_or_else(|| s.to_string().into())
+        serde_json::from_str(&s).ok().unwrap_or_else(|| s.to_string().into())
       },
       RedisValue::Bytes(b) => {
         let val = RedisValue::String(Str::from_inner(b)?);
