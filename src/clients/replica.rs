@@ -9,7 +9,7 @@ use crate::{
 use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-/// A struct for interacting with replica nodes.
+/// A struct for interacting with cluster replica nodes.
 ///
 /// All commands sent via this interface will use a replica node, if possible. The underlying connections are shared
 /// with the main client in order to maintain an up-to-date view of the system in the event that replicas change or

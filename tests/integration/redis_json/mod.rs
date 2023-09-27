@@ -75,8 +75,8 @@ pub async fn should_modify_arrays(client: RedisClient, _: RedisConfig) -> Result
 
 pub async fn should_pop_and_trim_arrays(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _: () = client.json_set("foo", "$", json!(["a", "b"]), None).await?;
-  let val: String = client.json_arrpop("foo", NONE, None).await?;
-  assert_eq!(val, "b");
+  let val: Value = client.json_arrpop("foo", NONE, None).await?;
+  assert_eq!(val, json!("b"));
 
   let _: () = client.json_set("foo", "$", json!(["a", "b", "c", "d"]), None).await?;
   let len: usize = client.json_arrtrim("foo", "$", 0, -1).await?;
@@ -102,7 +102,7 @@ pub async fn should_mset_and_mget(client: RedisClient, _: RedisConfig) -> Result
 
 pub async fn should_incr_numbers(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _: () = client.json_set("foo", "$", json!({ "a": 1 }), None).await?;
-  let val: i64 = client.json_numincrby("foo", "$.a", 2).await?;
+  let val: i64 = client.json_numincrby("foo", "$.a", json_quote!("2")).await?;
   assert_eq!(val, 3);
 
   Ok(())

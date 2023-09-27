@@ -30,6 +30,7 @@ services:
       - 'REDIS_MASTER_PASSWORD=${REDIS_PASSWORD}'
       - 'ALLOW_EMPTY_PASSWORD=yes'
       - 'REDIS_REPLICATION_MODE=slave'
+      - 'REDIS_REPLICA_PORT=6381'
       - 'REDIS_MASTER_HOST=redis-sentinel-main'
       - 'REDIS_MASTER_PORT_NUMBER=6380'
       - 'REDIS_ACLFILE=/opt/bitnami/redis/mounted-etc/users.acl'
