@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, MultipleStrings, MultipleValues, RedisValue},
+  types::{FromRedis, MultipleStrings, MultipleValues},
 };
 use bytes_utils::Str;
 
@@ -87,14 +87,20 @@ pub trait AclInterface: ClientLike + Sized {
   /// the command shows all the Redis commands in the specified category.
   ///
   /// <https://redis.io/commands/acl-cat>
-  async fn acl_cat(&self, category: Option<Str>) -> RedisResult<Vec<String>> {
+  async fn acl_cat<R>(&self, category: Option<Str>) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::acl::acl_cat(self, category).await?.convert()
   }
 
   /// Generate a password with length `bits`, returning the password.
   ///
   /// <https://redis.io/commands/acl-genpass>
-  async fn acl_genpass(&self, bits: Option<u16>) -> RedisResult<String> {
+  async fn acl_genpass<R>(&self, bits: Option<u16>) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::acl::acl_genpass(self, bits).await?.convert()
   }
 
@@ -102,15 +108,21 @@ pub trait AclInterface: ClientLike + Sized {
   /// with the "default" user.
   ///
   /// <https://redis.io/commands/acl-whoami>
-  async fn acl_whoami(&self) -> RedisResult<String> {
+  async fn acl_whoami<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::acl::acl_whoami(self).await?.convert()
   }
 
   /// Read `count` recent ACL security events.
   ///
   /// <https://redis.io/commands/acl-log>
-  async fn acl_log_count(&self, count: Option<u32>) -> RedisResult<RedisValue> {
-    commands::acl::acl_log_count(self, count).await
+  async fn acl_log_count<R>(&self, count: Option<u32>) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::acl::acl_log_count(self, count).await?.convert()
   }
 
   /// Clear the ACL security events logs.

@@ -61,7 +61,10 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// [cached_cluster_state](Self::cached_cluster_state).
   ///
   /// <https://redis.io/commands/cluster-nodes>
-  async fn cluster_nodes(&self) -> RedisResult<String> {
+  async fn cluster_nodes<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::cluster::cluster_nodes(self).await?.convert()
   }
 
@@ -214,8 +217,9 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// The command provides a list of replica nodes replicating from the specified master node.
   ///
   /// <https://redis.io/commands/cluster-replicas>
-  async fn cluster_replicas<S>(&self, node_id: S) -> RedisResult<String>
+  async fn cluster_replicas<R, S>(&self, node_id: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(node_id);
