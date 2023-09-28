@@ -59,11 +59,11 @@ fn values_to_bulk(values: &Vec<Value>) -> Result<Vec<RedisValue>, RedisError> {
 pub async fn json_arrappend<C: ClientLike>(
   client: &C,
   key: RedisKey,
-  path: Option<Str>,
+  path: Str,
   values: Vec<Value>,
 ) -> RedisResult<RedisValue> {
   let frame = utils::request_response(client, || {
-    let mut args = key_path_args(key, path, values.len());
+    let mut args = key_path_args(key, Some(path), values.len());
     args.extend(values_to_bulk(&values)?);
 
     Ok((RedisCommandKind::JsonArrAppend, args))

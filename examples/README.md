@@ -13,7 +13,8 @@ Examples
 * [Pool](./pool.rs) - Use a redis connection pool. 
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
-* [Serde](./serde.rs) - Use the `serde-json` feature to convert between Redis types and JSON. 
+* [Serde JSON](./serde_json.rs) - Use the `serde-json` feature to convert between Redis types and JSON. 
+* [Redis JSON](./redis_json.rs) - Use the `redis-json` feature with `serde-json` types.
 * [Custom](./custom.rs) - Send custom commands or operate on RESP frames.
 * [DNS](./dns.rs) - Customize the DNS resolution logic. 
 * [Client Tracking](./client_tracking.rs) - Implement [client side caching](https://redis.io/docs/manual/client-side-caching/). 

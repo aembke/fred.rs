@@ -45,10 +45,10 @@ pub async fn should_array_append(client: RedisClient, _: RedisConfig) -> Result<
 
   // need to double quote string values
   let size: i64 = client
-    .json_arrappend("foo", Some("$"), vec![json_quote!("c"), json_quote!("d")])
+    .json_arrappend("foo", "$", vec![json_quote!("c"), json_quote!("d")])
     .await?;
   assert_eq!(size, 4);
-  let size: i64 = client.json_arrappend("foo", Some("$"), vec![json!({"e": "f"})]).await?;
+  let size: i64 = client.json_arrappend("foo", "$", vec![json!({"e": "f"})]).await?;
   assert_eq!(size, 5);
   let len: i64 = client.json_arrlen("foo", NONE).await?;
   assert_eq!(len, 5);
@@ -108,11 +108,28 @@ pub async fn should_get_set_del_obj(client: RedisClient, _: RedisConfig) -> Resu
 }
 
 pub async fn should_merge_objects(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  let foo = json!({ "a": "b", "c": { "d": "e" } });
+  let bar = json!({ "a": "b1", "c": { "d1": "e1" }, "y": "z" });
+  let expected = json!({ "a": "b1", "c": {"d": "e", "d1": "e1"}, "y": "z" });
+
+  let _: () = client.json_set("foo", "$", foo.clone(), None).await?;
+  let _: () = client.json_merge("foo", "$", bar.clone()).await?;
+  let merged: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
+  assert_eq!(merged[0], expected);
+
+  Ok(())
 }
 
 pub async fn should_mset_and_mget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  let values = vec![json!({ "a": "b" }), json!({ "c": "d" })];
+  let args = vec![("foo{1}", "$", values[0].clone()), ("bar{1}", "$", values[1].clone())];
+  let _: () = client.json_mset(args).await?;
+
+  let result: Value = client.json_mget(vec!["foo{1}", "bar{1}"], "$").await?;
+  // response is nested: Array [Array [Object {"a": String("b")}], Array [Object {"c": String("d")}]]
+  assert_eq!(result, json!([[values[0]], [values[1]]]));
+
+  Ok(())
 }
 
 pub async fn should_incr_numbers(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {

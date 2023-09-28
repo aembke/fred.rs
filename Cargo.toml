@@ -87,8 +87,12 @@ name = "pubsub"
 required-features = ["subscriber-client"]
 
 [[example]]
-name = "serde"
+name = "serde_json"
 required-features = ["serde-json"]
+
+[[example]]
+name = "redis_json"
+required-features = ["redis-json"]
 
 [[example]]
 name = "dns"

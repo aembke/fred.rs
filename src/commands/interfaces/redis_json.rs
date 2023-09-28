@@ -49,15 +49,14 @@ pub trait RedisJsonInterface: ClientLike + Sized {
   /// Append the json values into the array at path after the last element in it.
   ///
   /// <https://redis.io/commands/json.arrappend>
-  async fn json_arrappend<R, K, P, V>(&self, key: K, path: Option<P>, values: Vec<V>) -> RedisResult<R>
+  async fn json_arrappend<R, K, P, V>(&self, key: K, path: P, values: Vec<V>) -> RedisResult<R>
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     P: Into<Str> + Send,
     V: Into<Value> + Send,
   {
-    into!(key);
-    let path = path.map(|p| p.into());
+    into!(key, path);
     let values = values.into_iter().map(|v| v.into()).collect();
     commands::redis_json::json_arrappend(self, key, path, values)
       .await?
