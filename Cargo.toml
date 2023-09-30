@@ -32,7 +32,8 @@ features = [
   "client-tracking",
   "default-nil-types",
   "codec",
-  "redis-json"
+  "redis-json",
+  "sha-1"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -50,7 +51,7 @@ log = "0.4"
 float-cmp = "0.9"
 url = "2.3"
 tokio-stream = "0.1.1"
-sha-1 = "0.10"
+sha-1 = { version = "0.10", optional = true }
 rand = "0.8"
 semver = "1.0"
 socket2 = "0.5"

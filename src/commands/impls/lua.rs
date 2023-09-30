@@ -10,9 +10,10 @@ use crate::{
     utils as protocol_utils,
   },
   types::*,
-  util::sha1_hash,
   utils,
 };
+#[cfg(feature = "sha-1")]
+use crate::util::sha1_hash;
 use bytes::Bytes;
 use bytes_utils::Str;
 use std::{convert::TryInto, str, sync::Arc};
@@ -58,6 +59,7 @@ pub async fn script_load<C: ClientLike>(client: &C, script: Str) -> Result<Redis
   one_arg_value_cmd(client, RedisCommandKind::ScriptLoad, script.into()).await
 }
 
+#[cfg(feature="sha-1")]
 pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Result<RedisValue, RedisError> {
   if !client.inner().config.server.is_clustered() {
     return script_load(client, script).await;
