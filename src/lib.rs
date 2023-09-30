@@ -63,6 +63,7 @@ pub mod util {
 
   /// Calculate the SHA1 hash output as a hex string. This is provided for clients that use the Lua interface to
   /// manage their own script caches.
+  #[cfg(feature = "sha-1")]
   pub fn sha1_hash(input: &str) -> String {
     use sha1::Digest;
 

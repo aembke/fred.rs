@@ -29,6 +29,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// A clustered variant of [script_load](Self::script_load) that loads the script on all primary nodes in a cluster.
   ///
   /// Returns the SHA-1 hash of the script.
+  #[cfg(feature="sha-1")]
   async fn script_load_cluster<R, S>(&self, script: S) -> RedisResult<R>
   where
     R: FromRedis,

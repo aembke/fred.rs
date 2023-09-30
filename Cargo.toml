@@ -29,7 +29,8 @@ features = [
   "sentinel-auth",
   "check-unresponsive",
   "replicas",
-  "client-tracking"
+  "client-tracking",
+  "sha-1"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -49,7 +50,7 @@ log = "0.4"
 float-cmp = "0.9"
 url = "2.3"
 tokio-stream = "0.1.1"
-sha-1 = "0.10"
+sha-1 = { version = "0.10", optional = true }
 rand = "0.8"
 async-trait = "0.1"
 semver = "1.0"
@@ -102,7 +103,7 @@ name = "client_tracking"
 required-features = ["client-tracking"]
 
 [features]
-default = ["ignore-auth-error", "pool-prefer-active"]
+default = ["ignore-auth-error", "pool-prefer-active", "sha-1"]
 fallback = []
 serde-json = ["serde_json"]
 subscriber-client = []
