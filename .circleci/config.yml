@@ -196,7 +196,7 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Run clippy
+          name: Clippy
           command: cargo clippy -- -Dwarnings
 
 
