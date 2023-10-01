@@ -220,7 +220,7 @@ pub async fn should_dump_key(client: RedisClient, _: RedisConfig) -> Result<(), 
   check_null!(client, "foo");
 
   let _: () = client.set("foo", "abc123", None, None, false).await?;
-  let dump = client.dump("foo").await?;
+  let dump: RedisValue = client.dump("foo").await?;
   assert!(dump.is_bytes());
 
   Ok(())

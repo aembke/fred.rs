@@ -9,7 +9,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Stream;
-use std::{fmt, sync::Arc};
+use std::{fmt, fmt::Formatter, sync::Arc};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
@@ -28,12 +28,18 @@ impl Default for RedisClient {
   }
 }
 
-impl fmt::Display for RedisClient {
+impl fmt::Debug for RedisClient {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisClient")
       .field("id", &self.inner.id)
       .field("state", &self.state())
       .finish()
+  }
+}
+
+impl fmt::Display for RedisClient {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.inner.id)
   }
 }
 

@@ -15,6 +15,7 @@
 * Fixed bugs related to parsing single-element arrays.
 * Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
 * Add a [RedisJSON](https://github.com/RedisJSON/RedisJSON/) interface.
+* Add a RESP2 and RESP3 codec interface.
 
 ### Upgrading from 6.x
 

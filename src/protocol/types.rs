@@ -26,6 +26,7 @@ pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use std::{net::IpAddr, str::FromStr};
 
+/// Any kind of RESP frame.
 #[derive(Debug)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
@@ -33,12 +34,21 @@ pub enum ProtocolFrame {
 }
 
 impl ProtocolFrame {
+  /// Convert the frame tp RESP3.
   pub fn into_resp3(self) -> Resp3Frame {
     // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
     // we can just change everything to RESP3 above the protocol layer
     match self {
       ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
       ProtocolFrame::Resp3(frame) => frame,
+    }
+  }
+
+  /// Whether the frame is encoded as a RESP3 frame.
+  pub fn is_resp3(&self) -> bool {
+    match self {
+      ProtocolFrame::Resp3(_) => true,
+      _ => false,
     }
   }
 }

@@ -22,6 +22,9 @@ pub extern crate rustls_native_certs;
 #[cfg(feature = "serde-json")]
 pub extern crate serde_json;
 pub extern crate socket2;
+#[cfg(feature = "codec")]
+#[cfg_attr(docsrs, doc(cfg(feature = "codec")))]
+pub extern crate tokio_util;
 #[cfg(feature = "partial-tracing")]
 #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
 pub extern crate tracing;
@@ -53,6 +56,13 @@ pub use modules::mocks;
 pub mod monitor;
 /// The structs and enums used by the Redis client.
 pub mod types;
+
+/// Codecs for use with the [tokio codec](https://docs.rs/tokio-util/latest/tokio_util/codec/index.html) interface.
+#[cfg(feature = "codec")]
+#[cfg_attr(docsrs, doc(cfg(feature = "codec")))]
+pub mod codec {
+  pub use super::protocol::public::*;
+}
 
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {

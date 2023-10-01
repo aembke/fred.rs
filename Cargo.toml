@@ -31,7 +31,8 @@ features = [
   "replicas",
   "client-tracking",
   "default-nil-types",
-  "redis-json",
+  "codec",
+  "redis-json"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -128,6 +129,7 @@ replicas = []
 auto-client-setname = []
 client-tracking = []
 default-nil-types = []
+codec = []
 # Redis Stack Features
 redis-stack = ["redis-json"]
 redis-json = ["serde-json"]

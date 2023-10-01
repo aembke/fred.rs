@@ -73,6 +73,11 @@ mod other {
   cluster_test!(other, should_use_cluster_replica_without_redirection);
   #[cfg(feature = "replicas")]
   cluster_test!(other, should_pipeline_with_replicas);
+
+  #[cfg(feature = "codec")]
+  cluster_test!(other, should_use_resp3_codec_example);
+  #[cfg(feature = "codec")]
+  cluster_test!(other, should_use_resp2_codec_example);
 }
 
 mod pool {

@@ -69,6 +69,11 @@ mod other {
   centralized_test!(other, should_replica_set_and_get_not_lazy);
   #[cfg(feature = "replicas")]
   centralized_test!(other, should_pipeline_with_replicas);
+
+  #[cfg(feature = "codec")]
+  centralized_test!(other, should_use_resp3_codec_example);
+  #[cfg(feature = "codec")]
+  centralized_test!(other, should_use_resp2_codec_example);
 }
 
 mod pool {

@@ -722,7 +722,7 @@ pub async fn should_zunion_values(client: RedisClient, _: RedisConfig) -> Result
     assert_eq!(result, 1);
   }
 
-  let result = client.zunion(vec!["foo{1}", "bar{1}"], None, None, false).await?;
+  let result: RedisValue = client.zunion(vec!["foo{1}", "bar{1}"], None, None, false).await?;
   let _expected: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
   assert_eq!(result.into_array(), _expected);
 
@@ -736,7 +736,7 @@ pub async fn should_zunion_values(client: RedisClient, _: RedisConfig) -> Result
       expected[0 .. expected.len() - 1].to_vec(),
     )
     .await?;
-  let result = client.zunion(vec!["foo{1}", "bar{1}"], None, None, true).await?;
+  let result: RedisValue = client.zunion(vec!["foo{1}", "bar{1}"], None, None, true).await?;
   // scores are added together with a weight of 1 in this example
   let mut _expected: Vec<(RedisValue, f64)> = expected[0 .. expected.len() - 1]
     .iter()

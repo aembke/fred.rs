@@ -5,7 +5,16 @@ use fred::{
   error::{RedisError, RedisErrorKind},
   interfaces::*,
   prelude::{Blocking, RedisValue},
-  types::{BackpressureConfig, ClientUnblockFlag, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig},
+  types::{
+    BackpressureConfig,
+    ClientUnblockFlag,
+    Options,
+    PerformanceConfig,
+    RedisConfig,
+    RedisKey,
+    RedisMap,
+    ServerConfig,
+  },
 };
 use futures::future::try_join;
 use parking_lot::RwLock;
@@ -24,7 +33,8 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
-use fred::types::Options;
+#[cfg(feature = "codec")]
+use fred::codec::*;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -35,6 +45,13 @@ use fred::types::TracingConfig;
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
+
+#[cfg(feature = "codec")]
+use futures::{SinkExt, StreamExt};
+#[cfg(feature = "codec")]
+use tokio::net::TcpStream;
+#[cfg(feature = "codec")]
+use tokio_util::codec::{Decoder, Encoder, Framed};
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
@@ -569,5 +586,55 @@ pub async fn should_manually_connect_twice(client: RedisClient, _: RedisConfig) 
   assert_eq!(client.incr::<i64, _>("bar").await?, 1);
   let _ = client.quit().await?;
   let _ = new_connection.await?;
+  Ok(())
+}
+
+#[cfg(feature = "codec")]
+pub async fn should_use_resp3_codec_example(_: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let addr = format!("{}", config.server.hosts().first().unwrap());
+  let socket = TcpStream::connect(addr).await?;
+  let mut framed = Framed::new(socket, Resp3::default());
+
+  let hello = Resp3Frame::Hello {
+    version: RespVersion::RESP3,
+    auth:    Some(Auth {
+      username: utils::read_redis_username().into(),
+      password: utils::read_redis_password().into(),
+    }),
+  };
+  let get_foo = resp3_encode_command("GET foo");
+
+  let _ = framed.send(hello).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response.as_bytes().unwrap(), b"OK");
+
+  let _ = framed.send(get_foo).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response, Resp3Frame::Null);
+
+  Ok(())
+}
+
+#[cfg(feature = "codec")]
+pub async fn should_use_resp2_codec_example(_: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let addr = format!("{}", config.server.hosts().first().unwrap());
+  let socket = TcpStream::connect(addr).await?;
+  let mut framed = Framed::new(socket, Resp2::default());
+
+  let auth = resp2_encode_command(&format!(
+    "AUTH {} {}",
+    utils::read_redis_username(),
+    utils::read_redis_password()
+  ));
+  let get_foo = resp2_encode_command("GET foo");
+
+  let _ = framed.send(auth).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response.as_str().unwrap(), "OK");
+
+  let _ = framed.send(get_foo).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response, Resp2Frame::Null);
+
   Ok(())
 }
