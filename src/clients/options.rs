@@ -63,7 +63,7 @@ impl<C: ClientLike> Deref for WithOptions<C> {
   }
 }
 
-impl<'a, C: ClientLike> fmt::Debug for WithOptions<C> {
+impl<C: ClientLike> fmt::Debug for WithOptions<C> {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("WithOptions")
       .field("client", &self.client.id())
