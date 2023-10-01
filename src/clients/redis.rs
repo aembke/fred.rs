@@ -40,7 +40,7 @@ use crate::{clients::Caching, interfaces::TrackingInterface};
 use crate::clients::Replicas;
 
 /// The primary Redis client struct.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct RedisClient {
   pub(crate) inner: Arc<RedisClientInner>,
 }
