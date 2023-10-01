@@ -33,7 +33,7 @@ pub async fn subscribe<C: ClientLike>(client: &C, channels: MultipleStrings) -> 
   cluster_hash_legacy_command(client, &mut command);
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
@@ -51,7 +51,7 @@ pub async fn unsubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) -
   cluster_hash_legacy_command(client, &mut command);
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(RedisValue::Null)
@@ -78,7 +78,7 @@ pub async fn psubscribe<C: ClientLike>(client: &C, patterns: MultipleStrings) ->
   cluster_hash_legacy_command(client, &mut command);
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
@@ -96,7 +96,7 @@ pub async fn punsubscribe<C: ClientLike>(client: &C, patterns: MultipleStrings) 
   cluster_hash_legacy_command(client, &mut command);
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(RedisValue::Null)
 }
@@ -129,7 +129,7 @@ pub async fn ssubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) ->
   command.hasher = ClusterHash::FirstKey;
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
@@ -147,7 +147,7 @@ pub async fn sunsubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) 
   let mut command: RedisCommand = (RedisCommandKind::Sunsubscribe, args, response).into();
   command.hasher = hasher;
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(RedisValue::Null)
@@ -211,7 +211,7 @@ pub async fn pubsub_shardnumsub<C: ClientLike>(
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, || {
     let args: Vec<RedisValue> = channels.inner().into_iter().map(|s| s.into()).collect();
-    let has_args = args.len() > 0;
+    let has_args = !args.is_empty();
     let mut command: RedisCommand = RedisCommand::new(RedisCommandKind::PubsubShardnumsub, args);
     if !has_args {
       cluster_hash_legacy_command(client, &mut command);

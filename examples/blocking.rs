@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -11,8 +14,8 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = publisher_client.connect();
   let _ = subscriber_client.connect();
-  let _ = publisher_client.wait_for_connect().await?;
-  let _ = subscriber_client.wait_for_connect().await?;
+  publisher_client.wait_for_connect().await?;
+  subscriber_client.wait_for_connect().await?;
 
   let subscriber_jh = tokio::spawn(async move {
     loop {
@@ -26,10 +29,10 @@ async fn main() -> Result<(), RedisError> {
   });
 
   for idx in 0 .. 30 {
-    let _ = publisher_client.rpush("foo", idx).await?;
+    publisher_client.rpush("foo", idx).await?;
     sleep(Duration::from_secs(1)).await;
   }
 
-  let _ = subscriber_jh.abort();
+  subscriber_jh.abort();
   Ok(())
 }

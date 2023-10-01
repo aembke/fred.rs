@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::prelude::*;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
@@ -45,6 +48,6 @@ async fn main() -> Result<(), RedisError> {
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

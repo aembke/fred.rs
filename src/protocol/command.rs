@@ -108,7 +108,7 @@ impl<'a> TryFrom<&'a str> for ClusterErrorKind {
   type Error = RedisError;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-    match value.as_ref() {
+    match value {
       "MOVED" => Ok(ClusterErrorKind::Moved),
       "ASK" => Ok(ClusterErrorKind::Ask),
       _ => Err(RedisError::new(
@@ -463,101 +463,65 @@ impl fmt::Debug for RedisCommandKind {
 
 impl RedisCommandKind {
   pub fn is_scan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Scan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Scan)
   }
 
   pub fn is_hscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Hscan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Hscan)
   }
 
   pub fn is_sscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Sscan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Sscan)
   }
 
   pub fn is_zscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Zscan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Zscan)
   }
 
   pub fn is_hello(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Hello(_) | RedisCommandKind::_HelloAllCluster(_) => true,
-      _ => false,
-    }
+    matches!(
+      *self,
+      RedisCommandKind::_Hello(_) | RedisCommandKind::_HelloAllCluster(_)
+    )
   }
 
   pub fn is_auth(&self) -> bool {
-    match *self {
-      RedisCommandKind::Auth => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Auth)
   }
 
   pub fn is_value_scan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Zscan | RedisCommandKind::Hscan | RedisCommandKind::Sscan => true,
-      _ => false,
-    }
+    matches!(
+      *self,
+      RedisCommandKind::Zscan | RedisCommandKind::Hscan | RedisCommandKind::Sscan
+    )
   }
 
   pub fn is_multi(&self) -> bool {
-    match *self {
-      RedisCommandKind::Multi => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Multi)
   }
 
   pub fn is_exec(&self) -> bool {
-    match *self {
-      RedisCommandKind::Exec => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Exec)
   }
 
   pub fn is_discard(&self) -> bool {
-    match *self {
-      RedisCommandKind::Discard => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Discard)
   }
 
   pub fn ends_transaction(&self) -> bool {
-    match *self {
-      RedisCommandKind::Exec | RedisCommandKind::Discard => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Exec | RedisCommandKind::Discard)
   }
 
   pub fn is_mset(&self) -> bool {
-    match *self {
-      RedisCommandKind::Mset | RedisCommandKind::Msetnx => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Mset | RedisCommandKind::Msetnx)
   }
 
   pub fn is_custom(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Custom(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::_Custom(_))
   }
 
   pub fn closes_connection(&self) -> bool {
-    match *self {
-      RedisCommandKind::Quit | RedisCommandKind::Shutdown => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Quit | RedisCommandKind::Shutdown)
   }
 
   pub fn custom_hash_slot(&self) -> Option<u16> {
@@ -1333,15 +1297,15 @@ impl RedisCommandKind {
   }
 
   pub fn use_random_cluster_node(&self) -> bool {
-    match self {
+    matches!(
+      *self,
       RedisCommandKind::Publish
-      | RedisCommandKind::Ping
-      | RedisCommandKind::Info
-      | RedisCommandKind::Scan
-      | RedisCommandKind::FlushAll
-      | RedisCommandKind::FlushDB => true,
-      _ => false,
-    }
+        | RedisCommandKind::Ping
+        | RedisCommandKind::Info
+        | RedisCommandKind::Scan
+        | RedisCommandKind::FlushAll
+        | RedisCommandKind::FlushDB
+    )
   }
 
   pub fn is_blocking(&self) -> bool {
@@ -1366,38 +1330,38 @@ impl RedisCommandKind {
   }
 
   pub fn is_all_cluster_nodes(&self) -> bool {
-    match *self {
+    matches!(
+      *self,
       RedisCommandKind::_FlushAllCluster
-      | RedisCommandKind::_AuthAllCluster
-      | RedisCommandKind::_ScriptFlushCluster
-      | RedisCommandKind::_ScriptKillCluster
-      | RedisCommandKind::_HelloAllCluster(_)
-      | RedisCommandKind::_ClientTrackingCluster
-      | RedisCommandKind::_ScriptLoadCluster
-      | RedisCommandKind::_FunctionFlushCluster
-      | RedisCommandKind::_FunctionDeleteCluster
-      | RedisCommandKind::_FunctionRestoreCluster
-      | RedisCommandKind::_FunctionLoadCluster => true,
-      _ => false,
-    }
+        | RedisCommandKind::_AuthAllCluster
+        | RedisCommandKind::_ScriptFlushCluster
+        | RedisCommandKind::_ScriptKillCluster
+        | RedisCommandKind::_HelloAllCluster(_)
+        | RedisCommandKind::_ClientTrackingCluster
+        | RedisCommandKind::_ScriptLoadCluster
+        | RedisCommandKind::_FunctionFlushCluster
+        | RedisCommandKind::_FunctionDeleteCluster
+        | RedisCommandKind::_FunctionRestoreCluster
+        | RedisCommandKind::_FunctionLoadCluster
+    )
   }
 
   pub fn should_flush(&self) -> bool {
-    match self {
+    matches!(
+      *self,
       RedisCommandKind::Quit
-      | RedisCommandKind::Shutdown
-      | RedisCommandKind::Ping
-      | RedisCommandKind::Auth
-      | RedisCommandKind::_Hello(_)
-      | RedisCommandKind::Exec
-      | RedisCommandKind::Discard
-      | RedisCommandKind::Eval
-      | RedisCommandKind::EvalSha
-      | RedisCommandKind::Fcall
-      | RedisCommandKind::FcallRO
-      | RedisCommandKind::_Custom(_) => true,
-      _ => false,
-    }
+        | RedisCommandKind::Shutdown
+        | RedisCommandKind::Ping
+        | RedisCommandKind::Auth
+        | RedisCommandKind::_Hello(_)
+        | RedisCommandKind::Exec
+        | RedisCommandKind::Discard
+        | RedisCommandKind::Eval
+        | RedisCommandKind::EvalSha
+        | RedisCommandKind::Fcall
+        | RedisCommandKind::FcallRO
+        | RedisCommandKind::_Custom(_)
+    )
   }
 
   pub fn can_pipeline(&self) -> bool {
@@ -1426,12 +1390,10 @@ impl RedisCommandKind {
   }
 
   pub fn is_eval(&self) -> bool {
-    match *self {
-      RedisCommandKind::EvalSha | RedisCommandKind::Eval | RedisCommandKind::Fcall | RedisCommandKind::FcallRO => {
-        true
-      },
-      _ => false,
-    }
+    matches!(
+      *self,
+      RedisCommandKind::EvalSha | RedisCommandKind::Eval | RedisCommandKind::Fcall | RedisCommandKind::FcallRO
+    )
   }
 }
 
@@ -1732,10 +1694,10 @@ impl RedisCommand {
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
-      transaction_id: self.transaction_id.clone(),
+      transaction_id: self.transaction_id,
       attempts_remaining: self.attempts_remaining,
       redirections_remaining: self.redirections_remaining,
-      timeout_dur: self.timeout_dur.clone(),
+      timeout_dur: self.timeout_dur,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
@@ -1743,7 +1705,7 @@ impl RedisCommand {
       response,
       use_replica: self.use_replica,
       write_attempts: self.write_attempts,
-      network_start: self.network_start.clone(),
+      network_start: self.network_start,
       #[cfg(feature = "metrics")]
       created: Instant::now(),
       #[cfg(feature = "partial-tracing")]
@@ -1835,7 +1797,7 @@ impl RedisCommand {
   /// Read the custom hash slot assigned to a scan operation.
   pub fn scan_hash_slot(&self) -> Option<u16> {
     match self.response {
-      ResponseKind::KeyScan(ref inner) => inner.hash_slot.clone(),
+      ResponseKind::KeyScan(ref inner) => inner.hash_slot,
       _ => None,
     }
   }
@@ -1984,9 +1946,9 @@ impl RouterCommand {
   /// Apply a timeout to the response channel receiver based on the command and `inner` context.
   pub fn timeout_dur(&self) -> Option<Duration> {
     match self {
-      RouterCommand::Command(ref command) => command.timeout_dur.clone(),
-      RouterCommand::Pipeline { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur.clone()),
-      RouterCommand::Transaction { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur.clone()),
+      RouterCommand::Command(ref command) => command.timeout_dur,
+      RouterCommand::Pipeline { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
+      RouterCommand::Transaction { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
       _ => None,
     }
   }

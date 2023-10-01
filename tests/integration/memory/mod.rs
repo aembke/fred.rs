@@ -1,17 +1,17 @@
 use fred::{prelude::*, types::MemoryStats};
 
 pub async fn should_run_memory_doctor(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.memory_doctor().await?;
+  client.memory_doctor().await?;
   Ok(())
 }
 
 pub async fn should_run_memory_malloc_stats(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.memory_malloc_stats().await?;
+  client.memory_malloc_stats().await?;
   Ok(())
 }
 
 pub async fn should_run_memory_purge(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.memory_purge().await?;
+  client.memory_purge().await?;
   Ok(())
 }
 
@@ -23,7 +23,7 @@ pub async fn should_run_memory_stats(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_run_memory_usage(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _: () = client.set("foo", "bar", None, None, false).await?;
+  client.set("foo", "bar", None, None, false).await?;
   assert!(client.memory_usage::<u64, _>("foo", None).await? > 0);
 
   Ok(())

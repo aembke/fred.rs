@@ -60,7 +60,7 @@ fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) 
     res
   );
   log_resp2_frame(&codec.name, &item, true);
-  sample_stats(&codec, false, len as i64);
+  sample_stats(codec, false, len as i64);
 
   Ok(())
 }
@@ -79,7 +79,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
   if let Some((frame, amt, _)) = resp2_decode(src)? {
     trace!("{}: Parsed {} bytes from {}", codec.name, amt, codec.server);
     log_resp2_frame(&codec.name, &frame, false);
-    sample_stats(&codec, true, amt as i64);
+    sample_stats(codec, true, amt as i64);
 
     Ok(Some(protocol_utils::check_resp2_auth_error(frame)))
   } else {
@@ -101,7 +101,7 @@ fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) 
     res
   );
   log_resp3_frame(&codec.name, &item, true);
-  sample_stats(&codec, false, len as i64);
+  sample_stats(codec, false, len as i64);
 
   Ok(())
 }
@@ -118,7 +118,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
   }
 
   if let Some((frame, amt, _)) = resp3_decode(src)? {
-    sample_stats(&codec, true, amt as i64);
+    sample_stats(codec, true, amt as i64);
 
     if codec.streaming_state.is_some() && frame.is_streaming() {
       return Err(RedisError::new(
@@ -221,8 +221,8 @@ impl Encoder<ProtocolFrame> for RedisCodec {
   #[cfg(not(feature = "blocking-encoding"))]
   fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
     match item {
-      ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
-      ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
+      ProtocolFrame::Resp2(frame) => resp2_encode_frame(self, frame, dst),
+      ProtocolFrame::Resp3(frame) => resp3_encode_frame(self, frame, dst),
     }
   }
 

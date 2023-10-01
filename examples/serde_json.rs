@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

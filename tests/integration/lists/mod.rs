@@ -11,7 +11,7 @@ const COUNT: i64 = 10;
 async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<RedisValue>, RedisError> {
   let mut values = Vec::with_capacity(COUNT as usize);
   for idx in 0 .. COUNT {
-    let _: () = client.rpush(key, idx).await?;
+    client.rpush(key, idx).await?;
     values.push(idx.to_string().into());
   }
 
@@ -20,8 +20,8 @@ async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<RedisV
 
 pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect();
-  let _ = publisher.wait_for_connect().await?;
+  publisher.connect();
+  publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
     for idx in 0 .. COUNT {
@@ -46,8 +46,8 @@ pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<
 
 pub async fn should_brpop_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect();
-  let _ = publisher.wait_for_connect().await?;
+  publisher.connect();
+  publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
     for idx in 0 .. COUNT {
@@ -72,8 +72,8 @@ pub async fn should_brpop_values(client: RedisClient, _: RedisConfig) -> Result<
 
 pub async fn should_brpoplpush_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect();
-  let _ = publisher.wait_for_connect().await?;
+  publisher.connect();
+  publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
     for idx in 0 .. COUNT {
@@ -100,8 +100,8 @@ pub async fn should_brpoplpush_values(client: RedisClient, _: RedisConfig) -> Re
 
 pub async fn should_blmove_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let publisher = client.clone_new();
-  let _ = publisher.connect();
-  let _ = publisher.wait_for_connect().await?;
+  publisher.connect();
+  publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
     for idx in 0 .. COUNT {
@@ -145,7 +145,7 @@ pub async fn should_linsert_values(client: RedisClient, _: RedisConfig) -> Resul
   let result: usize = client.llen("foo").await?;
   assert_eq!(result, 0);
 
-  let _: () = client.lpush("foo", 0).await?;
+  client.lpush("foo", 0).await?;
   let mut expected: Vec<RedisValue> = vec!["0".into()];
   for idx in 1 .. COUNT {
     let result: i64 = client.linsert("foo", ListLocation::After, idx - 1, idx).await?;
@@ -219,7 +219,7 @@ pub async fn should_lpushx_values(client: RedisClient, _: RedisConfig) -> Result
   let result: i64 = client.lpushx("foo", 0).await?;
   assert_eq!(result, 0);
 
-  let _: () = client.lpush("foo", 0).await?;
+  client.lpush("foo", 0).await?;
   for idx in 0 .. COUNT {
     let result: i64 = client.lpushx("foo", idx).await?;
     assert_eq!(result, idx + 2);
@@ -273,7 +273,7 @@ pub async fn should_lset_values(client: RedisClient, _: RedisConfig) -> Result<(
   expected.reverse();
 
   for idx in 0 .. COUNT {
-    let _: () = client.lset("foo", idx, COUNT - (idx + 1)).await?;
+    client.lset("foo", idx, COUNT - (idx + 1)).await?;
   }
   let result: Vec<RedisValue> = client.lrange("foo", 0, COUNT).await?;
   assert_eq!(result, expected);
@@ -284,16 +284,16 @@ pub async fn should_lset_values(client: RedisClient, _: RedisConfig) -> Result<(
 pub async fn should_ltrim_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let expected = create_count_data(&client, "foo").await?;
 
-  let _: () = client.ltrim("foo", 0, COUNT).await?;
+  client.ltrim("foo", 0, COUNT).await?;
   let result: Vec<RedisValue> = client.lrange("foo", 0, COUNT).await?;
   assert_eq!(result, expected);
 
   for idx in 0 .. COUNT {
-    let _: () = client.ltrim("foo", 0, idx).await?;
+    client.ltrim("foo", 0, idx).await?;
     let result: Vec<RedisValue> = client.lrange("foo", 0, COUNT).await?;
     assert_eq!(result, expected[0 .. (idx + 1) as usize]);
 
-    let _: () = client.del("foo").await?;
+    client.del("foo").await?;
     let _ = create_count_data(&client, "foo").await?;
   }
 
@@ -361,7 +361,7 @@ pub async fn should_rpushx_values(client: RedisClient, _: RedisConfig) -> Result
   let result: i64 = client.rpushx("foo", 0).await?;
   assert_eq!(result, 0);
 
-  let _: () = client.rpush("foo", 0).await?;
+  client.rpush("foo", 0).await?;
   for idx in 0 .. COUNT {
     let result: i64 = client.rpushx("foo", idx).await?;
     assert_eq!(result, idx + 2);

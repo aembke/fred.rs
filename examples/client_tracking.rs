@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 
 // this library supports 2 interfaces for implementing client-side caching - a high level `TrackingInterface` trait

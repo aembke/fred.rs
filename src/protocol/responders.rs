@@ -27,7 +27,7 @@ use parking_lot::RwLock;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
-const LAST_CURSOR: &'static str = "0";
+const LAST_CURSOR: &str = "0";
 
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
@@ -112,14 +112,14 @@ impl ResponseKind {
         frames:      frames.clone(),
         tx:          tx.clone(),
         received:    received.clone(),
-        index:       index.clone(),
-        expected:    expected.clone(),
-        error_early: error_early.clone(),
+        index:       *index,
+        expected:    *expected,
+        error_early: *error_early,
       },
       ResponseKind::Multiple { received, tx, expected } => ResponseKind::Multiple {
         received: received.clone(),
         tx:       tx.clone(),
-        expected: expected.clone(),
+        expected: *expected,
       },
       ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
     })
@@ -586,7 +586,7 @@ pub fn respond_buffer(
   );
 
   // errors are buffered like normal frames and are not returned early
-  if let Err(e) = add_buffered_frame(&server, &frames, index, frame) {
+  if let Err(e) = add_buffered_frame(server, &frames, index, frame) {
     respond_locked(inner, &tx, Err(e));
     command.respond_to_router(inner, RouterResponse::Continue);
     _error!(

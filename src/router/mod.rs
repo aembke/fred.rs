@@ -97,13 +97,13 @@ impl Backpressure {
       Backpressure::Error(e) => Err(e),
       Backpressure::Wait(duration) => {
         _debug!(inner, "Backpressure policy (wait): {:?}", duration);
-        trace::backpressure_event(&command, Some(duration.as_millis()));
-        let _ = inner.wait_with_interrupt(duration).await?;
+        trace::backpressure_event(command, Some(duration.as_millis()));
+        inner.wait_with_interrupt(duration).await?;
         Ok(None)
       },
       Backpressure::Block => {
         _debug!(inner, "Backpressure (block)");
-        trace::backpressure_event(&command, None);
+        trace::backpressure_event(command, None);
         if !command.has_router_channel() {
           _trace!(
             inner,
@@ -453,7 +453,7 @@ impl Connections {
   pub async fn add_connection(&mut self, inner: &Arc<RedisClientInner>, server: &Server) -> Result<(), RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
       let mut transport = connection::create(inner, server, None).await?;
-      let _ = transport.setup(inner, None).await?;
+      transport.setup(inner, None).await?;
 
       let (server, writer) = connection::split_and_initialize(inner, transport, false, clustered::spawn_reader_task)?;
       writers.insert(server, writer);
@@ -933,11 +933,11 @@ impl Router {
         .unwrap_or(true);
 
       if should_sync {
-        let _ = self.sync_cluster().await?;
+        self.sync_cluster().await?;
       }
     } else if *kind == ClusterErrorKind::Ask {
       if !self.connections.has_server_connection(server) {
-        let _ = self.connections.add_connection(&self.inner, server).await?;
+        self.connections.add_connection(&self.inner, server).await?;
         self
           .inner
           .backchannel
@@ -953,7 +953,7 @@ impl Router {
       command.response = ResponseKind::Respond(Some(tx));
       command.skip_backpressure = true;
 
-      match self.write_direct(command, &server).await {
+      match self.write_direct(command, server).await {
         Written::Error((error, _)) => return Err(error),
         Written::Disconnect((_, _, error)) => return Err(error),
         Written::NotFound(_) => return Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),

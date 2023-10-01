@@ -13,14 +13,14 @@ macro_rules! parse_or_zero(
 );
 
 fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
-  let parts: Vec<&str> = line.split(":").collect();
+  let parts: Vec<&str> = line.split(':').collect();
   if parts.len() != 2 {
     return Err(RedisError::new(RedisErrorKind::Protocol, "Expected key:value pair."));
   }
   let (field, val) = (parts[0], parts[1]);
 
-  match field.as_ref() {
-    "cluster_state" => match val.as_ref() {
+  match field {
+    "cluster_state" => match val {
       "ok" => info.cluster_state = ClusterState::Ok,
       "fail" => info.cluster_state = ClusterState::Fail,
       _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster state.")),
@@ -81,7 +81,7 @@ impl TryFrom<RedisValue> for ClusterInfo {
     if let Some(data) = value.as_bytes_str() {
       let mut out = ClusterInfo::default();
 
-      for line in data.lines().into_iter() {
+      for line in data.lines() {
         let trimmed = line.trim();
         if !trimmed.is_empty() {
           parse_cluster_info_line(&mut out, trimmed)?;

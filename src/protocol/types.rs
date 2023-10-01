@@ -46,10 +46,7 @@ impl ProtocolFrame {
 
   /// Whether the frame is encoded as a RESP3 frame.
   pub fn is_resp3(&self) -> bool {
-    match self {
-      ProtocolFrame::Resp3(_) => true,
-      _ => false,
-    }
+    matches!(*self, ProtocolFrame::Resp3(_))
   }
 }
 
@@ -117,9 +114,9 @@ impl Server {
 
   /// Attempt to parse a `host:port` string.
   pub(crate) fn from_str(s: &str) -> Option<Server> {
-    let parts: Vec<&str> = s.trim().split(":").collect();
+    let parts: Vec<&str> = s.trim().split(':').collect();
     if parts.len() == 2 {
-      if let Some(port) = parts[1].parse::<u16>().ok() {
+      if let Ok(port) = parts[1].parse::<u16>() {
         Some(Server {
           host: parts[0].into(),
           port,
@@ -349,7 +346,7 @@ impl ValueScanInner {
       out.insert(key, value);
     }
 
-    Ok(out.try_into()?)
+    out.try_into()
   }
 
   pub fn transform_zscan_result(mut data: Vec<RedisValue>) -> Result<Vec<(RedisValue, f64)>, RedisError> {
@@ -506,7 +503,7 @@ impl ClusterRouting {
 
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<&SlotRange> {
-    if self.data.len() > 0 {
+    if !self.data.is_empty() {
       let idx = rand::thread_rng().gen_range(0 .. self.data.len());
       Some(&self.data[idx])
     } else {
@@ -550,7 +547,7 @@ impl Resolve for DefaultResolver {
 
     tokio::task::spawn_blocking(move || {
       let addr = format!("{}:{}", host, port);
-      let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.into_iter().collect();
+      let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
       if ips.is_empty() {
         Err(RedisError::new(

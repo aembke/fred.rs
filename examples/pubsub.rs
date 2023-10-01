@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 #[allow(unused_imports)]
 use fred::clients::SubscriberClient;
 use fred::{prelude::*, types::PerformanceConfig};

@@ -54,7 +54,7 @@ pub fn check_backpressure(
             min_sleep_duration,
           } => {
             let duration = if disable_backpressure_scaling {
-              min_sleep_duration.clone()
+              min_sleep_duration
             } else {
               Duration::from_millis(cmp::max(min_sleep_duration.as_millis() as u64, in_flight as u64))
             };
@@ -285,7 +285,7 @@ pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration
     .write()
     .as_mut()
     .and_then(|policy| policy.next_delay())
-    .map(|amt| Duration::from_millis(amt))
+    .map(Duration::from_millis)
     .ok_or(RedisError::new(
       RedisErrorKind::Canceled,
       "Max reconnection attempts reached.",
@@ -329,7 +329,7 @@ pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut R
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = reconnect_once(inner, router).await {
@@ -355,12 +355,12 @@ pub async fn cluster_redirect_with_policy(
   slot: u16,
   server: &Server,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.connection.cluster_cache_update_delay.clone();
+  let mut delay = inner.connection.cluster_cache_update_delay;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = router.cluster_redirection(&kind, slot, server).await {
@@ -384,12 +384,12 @@ pub async fn send_asking_with_policy(
   server: &Server,
   slot: u16,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.connection.cluster_cache_update_delay.clone();
+  let mut delay = inner.connection.cluster_cache_update_delay;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if !router.connections.has_server_connection(server) {
@@ -415,14 +415,12 @@ pub async fn send_asking_with_policy(
     if let Err(error) = result {
       if error.should_not_reconnect() {
         break;
+      } else if let Err(_) = reconnect_once(inner, router).await {
+        delay = utils::next_reconnection_delay(inner)?;
+        continue;
       } else {
-        if let Err(_) = reconnect_once(inner, router).await {
-          delay = utils::next_reconnection_delay(inner)?;
-          continue;
-        } else {
-          delay = Duration::from_millis(0);
-          continue;
-        }
+        delay = Duration::from_millis(0);
+        continue;
       }
     } else {
       match client_utils::apply_timeout(rx, inner.internal_command_timeout()).await {
@@ -494,12 +492,12 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
 ///
 /// Errors from this function should end the connection task.
 pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
-  let mut delay = inner.connection.cluster_cache_update_delay.clone();
+  let mut delay = inner.connection.cluster_cache_update_delay;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = router.sync_cluster().await {

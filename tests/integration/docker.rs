@@ -95,7 +95,7 @@ pub async fn run_in_redis_container(docker: &Docker, command: Vec<String>) -> Re
   )?
   .id;
   debug!("Starting test cli container...");
-  let _ = e!(
+  e!(
     docker
       .start_container(&container_id, None::<StartContainerOptions<String>>)
       .await
@@ -103,7 +103,7 @@ pub async fn run_in_redis_container(docker: &Docker, command: Vec<String>) -> Re
 
   let test_network = read_network_name(docker).await?;
   debug!("Connecting container to the test network...");
-  let _ = e!(
+  e!(
     docker
       .connect_network(&test_network, ConnectNetworkOptions {
         container: container_id.clone(),
@@ -166,7 +166,7 @@ pub async fn run_in_redis_container(docker: &Docker, command: Vec<String>) -> Re
 // docker run -it --name redis-cli-tmp --rm --network compose_fred-tests bitnami/redis:7.0.9
 // redis-cli -h redis-cluster-1 -p 30001 -a bar --raw CLUSTER SLOTS
 pub async fn inspect_cluster(tls: bool) -> Result<ClusterRouting, RedisError> {
-  let docker = e!(Docker::connect_with_http("", 10, &API_DEFAULT_VERSION))?;
+  let docker = e!(Docker::connect_with_http("", 10, API_DEFAULT_VERSION))?;
 
   debug!("Connected to docker");
   let password = env::try_read("REDIS_PASSWORD")?;
@@ -182,14 +182,14 @@ pub async fn inspect_cluster(tls: bool) -> Result<ClusterRouting, RedisError> {
       "redis-cli -h {} -p {} -a {} --raw --tls CLUSTER SLOTS",
       host, port, password
     )
-    .split(" ")
+    .split(' ')
     .map(|s| s.to_owned())
     .collect()
   } else {
     let (host, port) = (env::try_read(env::CLUSTER_HOST)?, env::try_read(env::CLUSTER_PORT)?);
 
     format!("redis-cli -h {} -p {} -a {} --raw CLUSTER SLOTS", host, port, password)
-      .split(" ")
+      .split(' ')
       .map(|s| s.to_owned())
       .collect()
   };

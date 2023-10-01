@@ -32,7 +32,7 @@ pub async fn blmpop<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -50,7 +50,7 @@ pub async fn blpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) 
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -68,7 +68,7 @@ pub async fn brpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) 
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -89,7 +89,7 @@ pub async fn brpoplpush<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -116,7 +116,7 @@ pub async fn blmove<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 

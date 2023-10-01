@@ -30,7 +30,7 @@ pub struct Transaction {
 impl Clone for Transaction {
   fn clone(&self) -> Self {
     Transaction {
-      id:        self.id.clone(),
+      id:        self.id,
       inner:     self.inner.clone(),
       commands:  self.commands.clone(),
       watched:   self.watched.clone(),
@@ -62,9 +62,9 @@ impl ClientLike for Transaction {
     C: Into<RedisCommand>,
   {
     let mut command: RedisCommand = command.into();
-    let _ = self.disallow_all_cluster_commands(&command)?;
+    self.disallow_all_cluster_commands(&command)?;
     // check cluster slot mappings as commands are added
-    let _ = self.update_hash_slot(&command)?;
+    self.update_hash_slot(&command)?;
 
     if let Some(tx) = command.take_responder() {
       trace!(
@@ -247,9 +247,9 @@ async fn exec(
       command.response = ResponseKind::Skip;
       command.can_pipeline = false;
       command.skip_backpressure = true;
-      command.transaction_id = Some(id.clone());
+      command.transaction_id = Some(id);
       if let Some(hash_slot) = hash_slot.as_ref() {
-        command.hasher = ClusterHash::Custom(hash_slot.clone());
+        command.hasher = ClusterHash::Custom(*hash_slot);
       }
       command
     })
@@ -262,9 +262,9 @@ async fn exec(
     let mut watch_cmd = RedisCommand::new(RedisCommandKind::Watch, args);
     watch_cmd.can_pipeline = false;
     watch_cmd.skip_backpressure = true;
-    watch_cmd.transaction_id = Some(id.clone());
+    watch_cmd.transaction_id = Some(id);
     if let Some(hash_slot) = hash_slot.as_ref() {
-      watch_cmd.hasher = ClusterHash::Custom(hash_slot.clone());
+      watch_cmd.hasher = ClusterHash::Custom(*hash_slot);
     }
     Some(watch_cmd)
   };
@@ -286,7 +286,7 @@ async fn exec(
   command.inherit_options(inner);
   let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
-  let _ = interfaces::send_to_router(inner, command)?;
+  interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
 }

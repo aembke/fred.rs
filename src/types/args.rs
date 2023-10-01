@@ -259,10 +259,10 @@ impl TryFrom<RedisValue> for RedisKey {
       RedisValue::Bytes(b) => RedisKey { key: b },
       RedisValue::Boolean(b) => match b {
         true => RedisKey {
-          key: TRUE_STR.clone().into_inner().into(),
+          key: TRUE_STR.clone().into_inner(),
         },
         false => RedisKey {
-          key: FALSE_STR.clone().into_inner().into(),
+          key: FALSE_STR.clone().into_inner(),
         },
       },
       RedisValue::Queued => utils::static_str(QUEUED).into(),
@@ -373,7 +373,7 @@ impl RedisMap {
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
     RedisMap {
-      inner: mem::replace(&mut self.inner, HashMap::new()),
+      inner: std::mem::take(&mut self.inner),
     }
   }
 
@@ -549,6 +549,7 @@ pub enum RedisValue {
   Array(Vec<RedisValue>),
 }
 
+#[allow(clippy::match_like_matches_macro)]
 impl PartialEq for RedisValue {
   fn eq(&self, other: &Self) -> bool {
     use RedisValue::*;
@@ -649,37 +650,26 @@ impl RedisValue {
 
   /// Check if the value is null.
   pub fn is_null(&self) -> bool {
-    match *self {
-      RedisValue::Null => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::Null)
   }
 
   /// Check if the value is an integer.
   pub fn is_integer(&self) -> bool {
-    match *self {
-      RedisValue::Integer(_) => true,
-      _ => false,
-    }
+    matches!(self, RedisValue::Integer(_))
   }
 
   /// Check if the value is a string.
   pub fn is_string(&self) -> bool {
-    match *self {
-      RedisValue::String(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::String(_))
   }
 
   /// Check if the value is an array of bytes.
   pub fn is_bytes(&self) -> bool {
-    match *self {
-      RedisValue::Bytes(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::Bytes(_))
   }
 
   /// Whether or not the value is a boolean value or can be parsed as a boolean value.
+  #[allow(clippy::match_like_matches_macro)]
   pub fn is_boolean(&self) -> bool {
     match *self {
       RedisValue::Boolean(_) => true,
@@ -706,18 +696,12 @@ impl RedisValue {
 
   /// Check if the value is a `QUEUED` response.
   pub fn is_queued(&self) -> bool {
-    match *self {
-      RedisValue::Queued => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::Queued)
   }
 
   /// Whether or not the value is an array or map.
   pub fn is_aggregate_type(&self) -> bool {
-    match *self {
-      RedisValue::Array(_) | RedisValue::Map(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::Array(_) | RedisValue::Map(_))
   }
 
   /// Whether or not the value is a `RedisMap`.
@@ -725,10 +709,7 @@ impl RedisValue {
   /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in
   /// RESP2 mode.
   pub fn is_map(&self) -> bool {
-    match *self {
-      RedisValue::Map(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::Map(_))
   }
 
   /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered
@@ -746,10 +727,7 @@ impl RedisValue {
 
   /// Whether or not the value is an array.
   pub fn is_array(&self) -> bool {
-    match *self {
-      RedisValue::Array(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisValue::Array(_))
   }
 
   /// Read and return the inner value as a `u64`, if possible.
@@ -949,10 +927,10 @@ impl RedisValue {
     let s: Cow<str> = match *self {
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
+      RedisValue::String(ref s) => Cow::Borrowed(s.deref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
-      RedisValue::Bytes(ref b) => return str::from_utf8(b).ok().map(|s| Cow::Borrowed(s)),
+      RedisValue::Bytes(ref b) => return str::from_utf8(b).ok().map(Cow::Borrowed),
       #[cfg(feature = "default-nil-types")]
       RedisValue::Null => Cow::Borrowed(""),
       #[cfg(not(feature = "default-nil-types"))]
@@ -968,7 +946,7 @@ impl RedisValue {
     let s: Cow<str> = match *self {
       RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
       RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.deref().as_ref()),
+      RedisValue::String(ref s) => Cow::Borrowed(s.deref()),
       RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
       RedisValue::Queued => Cow::Borrowed(QUEUED),
       RedisValue::Bytes(ref b) => String::from_utf8_lossy(b),
@@ -1054,8 +1032,7 @@ impl RedisValue {
       RedisValue::Map(map) => map
         .inner()
         .into_iter()
-        .map(|(k, v)| [RedisValue::Bytes(k.into_bytes()), v])
-        .flatten()
+        .flat_map(|(k, v)| [RedisValue::Bytes(k.into_bytes()), v])
         .collect(),
       RedisValue::Null => Vec::new(),
       _ => vec![self],
@@ -1290,17 +1267,17 @@ impl RedisValue {
   /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate
   /// type can panic, and this function can be used to more gracefully handle this situation.
   pub fn can_hash(&self) -> bool {
-    match self.kind() {
+    matches!(
+      self.kind(),
       RedisValueKind::String
-      | RedisValueKind::Boolean
-      | RedisValueKind::Double
-      | RedisValueKind::Integer
-      | RedisValueKind::Bytes
-      | RedisValueKind::Null
-      | RedisValueKind::Array
-      | RedisValueKind::Queued => true,
-      _ => false,
-    }
+        | RedisValueKind::Boolean
+        | RedisValueKind::Double
+        | RedisValueKind::Integer
+        | RedisValueKind::Bytes
+        | RedisValueKind::Null
+        | RedisValueKind::Array
+        | RedisValueKind::Queued
+    )
   }
 
   /// Convert the value to JSON.

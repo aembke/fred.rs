@@ -9,9 +9,9 @@ pub async fn should_use_each_cluster_node(client: RedisClient, _: RedisConfig) -
       .with_cluster_node(server)
       .client_info::<String>()
       .await?
-      .split(" ")
+      .split(' ')
       .find_map(|s| {
-        let parts: Vec<&str> = s.split("=").collect();
+        let parts: Vec<&str> = s.split('=').collect();
         if parts[0] == "laddr" {
           Some(parts[1].to_owned())
         } else {

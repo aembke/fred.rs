@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::prelude::*;
 use std::time::Duration;
 
@@ -22,7 +25,7 @@ async fn main() -> Result<(), RedisError> {
     .set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2))
     .build()?;
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // run all event listener functions in one task
   let events_task = client.on_any(
@@ -56,8 +59,8 @@ async fn main() -> Result<(), RedisError> {
 
   // apply custom options to a pipeline
   let pipeline = client.pipeline().with_options(&options);
-  let _: () = pipeline.get("foo").await?;
-  let _: () = pipeline.get("bar").await?;
+  pipeline.get("foo").await?;
+  pipeline.get("bar").await?;
   let (_, _): (Option<i64>, Option<i64>) = pipeline.all().await?;
 
   // interact with specific cluster nodes
@@ -70,7 +73,7 @@ async fn main() -> Result<(), RedisError> {
     }
   }
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   let _ = events_task.await;
   Ok(())
 }

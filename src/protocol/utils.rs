@@ -27,7 +27,7 @@ pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
 }
 
 pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
-  let parts: Vec<&str> = data.split(" ").collect();
+  let parts: Vec<&str> = data.split(' ').collect();
   if parts.len() == 3 {
     let kind: ClusterErrorKind = parts[0].try_into()?;
     let slot: u16 = parts[1].parse()?;
@@ -63,7 +63,7 @@ pub fn is_ok(frame: &Resp3Frame) -> bool {
 }
 
 pub fn server_to_parts(server: &str) -> Result<(&str, u16), RedisError> {
-  let parts: Vec<&str> = server.split(":").collect();
+  let parts: Vec<&str> = server.split(':').collect();
   if parts.len() < 2 {
     return Err(RedisError::new(RedisErrorKind::IO, "Invalid server."));
   }
@@ -103,13 +103,13 @@ pub fn pretty_error(resp: &str) -> RedisError {
   let kind = {
     let mut parts = resp.split_whitespace();
 
-    match parts.next().unwrap_or("").as_ref() {
+    match parts.next().unwrap_or("") {
       "" => RedisErrorKind::Unknown,
       "ERR" => RedisErrorKind::Unknown,
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" | "WRONGPASS" => RedisErrorKind::Auth,
       "MOVED" | "ASK" | "CLUSTERDOWN" => RedisErrorKind::Cluster,
-      "Invalid" => match parts.next().unwrap_or("").as_ref() {
+      "Invalid" => match parts.next().unwrap_or("") {
         "argument(s)" | "Argument" => RedisErrorKind::InvalidArgument,
         "command" | "Command" => RedisErrorKind::InvalidCommand,
         _ => RedisErrorKind::Unknown,
@@ -331,7 +331,7 @@ pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
 
 /// Try to parse the data as a string, and failing that return a byte slice.
 pub fn string_or_bytes(data: Bytes) -> RedisValue {
-  if let Some(s) = Str::from_inner(data.clone()).ok() {
+  if let Ok(s) = Str::from_inner(data.clone()) {
     RedisValue::String(s)
   } else {
     RedisValue::Bytes(data)
@@ -881,7 +881,7 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
 
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
-      let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
+      let parts: Vec<&str> = kind.cmd.trim().split(' ').collect();
       let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
 
       for part in parts.into_iter() {
@@ -931,7 +931,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
 
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
-      let parts: Vec<&str> = kind.cmd.trim().split(" ").collect();
+      let parts: Vec<&str> = kind.cmd.trim().split(' ').collect();
       let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
 
       for part in parts.into_iter() {
@@ -1086,16 +1086,16 @@ mod tests {
       keys_count:                    1,
       keys_bytes_per_key:            62128,
       dataset_bytes:                 41560,
-      dataset_percentage:            66.894157409667969,
-      peak_percentage:               93.346977233886719,
+      dataset_percentage:            66.894_157_409_667_97,
+      peak_percentage:               93.346_977_233_886_72,
       allocator_allocated:           1022640,
       allocator_active:              1241088,
       allocator_resident:            5332992,
       allocator_fragmentation_ratio: 1.2136118412017822,
       allocator_fragmentation_bytes: 218448,
-      allocator_rss_ratio:           4.2970294952392578,
+      allocator_rss_ratio:           4.297_029_495_239_258,
       allocator_rss_bytes:           4091904,
-      rss_overhead_ratio:            2.0268816947937012,
+      rss_overhead_ratio:            2.026_881_694_793_701,
       rss_overhead_bytes:            5476352,
       fragmentation:                 13.007383346557617,
       fragmentation_bytes:           9978328,

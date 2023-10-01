@@ -876,34 +876,25 @@ impl ServerConfig {
 
   /// Whether or not the config is for a cluster.
   pub fn is_clustered(&self) -> bool {
-    match self {
-      ServerConfig::Clustered { .. } => true,
-      _ => false,
-    }
+    matches!(*self, ServerConfig::Clustered { .. })
   }
 
   /// Whether or not the config is for a centralized server behind a sentinel node(s).
   pub fn is_sentinel(&self) -> bool {
-    match self {
-      ServerConfig::Sentinel { .. } => true,
-      _ => false,
-    }
+    matches!(*self, ServerConfig::Sentinel { .. })
   }
 
   /// Whether or not the config is for a centralized server.
   pub fn is_centralized(&self) -> bool {
-    match self {
-      ServerConfig::Centralized { .. } => true,
-      _ => false,
-    }
+    matches!(*self, ServerConfig::Centralized { .. })
   }
 
   /// Read the server hosts or sentinel hosts if using the sentinel interface.
   pub fn hosts(&self) -> Vec<&Server> {
     match *self {
       ServerConfig::Centralized { ref server } => vec![server],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().map(|s| s).collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|s| s).collect(),
+      ServerConfig::Clustered { ref hosts } => hosts.iter().collect(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().collect(),
     }
   }
 }
@@ -1112,7 +1103,7 @@ impl Options {
   /// Overwrite the configuration options on the provided command.
   pub(crate) fn apply(&self, command: &mut RedisCommand) {
     command.skip_backpressure = self.no_backpressure;
-    command.timeout_dur = self.timeout.clone();
+    command.timeout_dur = self.timeout;
     command.cluster_node = self.cluster_node.clone();
 
     #[cfg(feature = "client-tracking")]

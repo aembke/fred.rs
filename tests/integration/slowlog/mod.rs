@@ -1,7 +1,7 @@
 use fred::{prelude::*, types::SlowlogEntry};
 
 pub async fn should_read_slowlog_length(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.slowlog_length().await?;
+  client.slowlog_length().await?;
   // cant assert much here since the tests run in any order, and the call to reset the slowlog might run just before
   // this
 
@@ -20,7 +20,7 @@ pub async fn should_read_slowlog_entries(client: RedisClient, _: RedisConfig) ->
 }
 
 pub async fn should_reset_slowlog(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let _ = client.slowlog_reset().await?;
+  client.slowlog_reset().await?;
   let len: i64 = client.slowlog_length().await?;
   // the slowlog length call might show up here
   assert!(len < 2);

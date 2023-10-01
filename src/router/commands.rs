@@ -41,7 +41,7 @@ async fn handle_router_response(
           command.respond_to_caller(Err(e));
           Ok(None)
         } else {
-          let _ = utils::send_asking_with_policy(inner, router, &server, slot).await?;
+          utils::send_asking_with_policy(inner, router, &server, slot).await?;
           command.hasher = ClusterHash::Custom(slot);
           command.use_replica = false;
           command.attempts_remaining += 1;
@@ -51,7 +51,7 @@ async fn handle_router_response(
       RouterResponse::Moved((slot, server, mut command)) => {
         // check if slot belongs to server, if not then run sync cluster
         if !router.cluster_node_owns_slot(slot, &server) {
-          let _ = utils::sync_cluster_with_policy(inner, router).await?;
+          utils::sync_cluster_with_policy(inner, router).await?;
         }
 
         if let Err(e) = command.decr_check_redirections() {
@@ -72,7 +72,7 @@ async fn handle_router_response(
           Some(command)
         };
 
-        let _ = utils::reconnect_with_policy(inner, router).await?;
+        utils::reconnect_with_policy(inner, router).await?;
         Ok(command)
       },
       RouterResponse::TransactionError(_) | RouterResponse::TransactionResult(_) => {

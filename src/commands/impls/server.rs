@@ -33,7 +33,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   inner.notifications.broadcast_close();
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
   inner.notifications.close_public_receivers();
   inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
@@ -62,7 +62,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   inner.notifications.broadcast_close();
 
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
   inner.notifications.close_public_receivers();
   inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
@@ -106,7 +106,7 @@ pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), Red
     #[cfg(feature = "replicas")]
     replica:                              false,
   };
-  let _ = interfaces::send_to_router(inner, command)?;
+  interfaces::send_to_router(inner, command)?;
 
   rx.await?.map(|_| ())
 }
@@ -127,7 +127,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   let response = ResponseKind::new_buffer(tx);
   let mut command: RedisCommand = (RedisCommandKind::_FlushAllCluster, vec![], response).into();
   let timeout_dur = utils::prepare_command(client, &mut command);
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(())
@@ -174,7 +174,7 @@ pub async fn hello<C: ClientLike>(
     command.response = ResponseKind::new_buffer(tx);
 
     let timeout_dur = utils::prepare_command(client, &mut command);
-    let _ = client.send_command(command)?;
+    client.send_command(command)?;
     let _ = utils::apply_timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
@@ -197,7 +197,7 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
     let mut command: RedisCommand = (RedisCommandKind::_AuthAllCluster, args, response).into();
 
     let timeout_dur = utils::prepare_command(client, &mut command);
-    let _ = client.send_command(command)?;
+    client.send_command(command)?;
     let _ = utils::apply_timeout(rx, timeout_dur).await??;
     Ok(())
   } else {

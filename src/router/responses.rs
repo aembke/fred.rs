@@ -14,19 +14,19 @@ use crate::globals::globals;
 #[cfg(feature = "client-tracking")]
 use crate::types::Invalidation;
 
-const KEYSPACE_PREFIX: &'static str = "__keyspace@";
-const KEYEVENT_PREFIX: &'static str = "__keyevent@";
+const KEYSPACE_PREFIX: &str = "__keyspace@";
+const KEYEVENT_PREFIX: &str = "__keyevent@";
 #[cfg(feature = "client-tracking")]
 const INVALIDATION_CHANNEL: &'static str = "__redis__:invalidate";
 
 fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
   if channel.starts_with(KEYEVENT_PREFIX) {
-    let parts: Vec<&str> = channel.splitn(2, "@").collect();
+    let parts: Vec<&str> = channel.splitn(2, '@').collect();
     if parts.len() < 2 {
       return None;
     }
 
-    let suffix: Vec<&str> = parts[1].splitn(2, ":").collect();
+    let suffix: Vec<&str> = parts[1].splitn(2, ':').collect();
     if suffix.len() < 2 {
       return None;
     }
@@ -43,12 +43,12 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
 
     Some(KeyspaceEvent { db, key, operation })
   } else if channel.starts_with(KEYSPACE_PREFIX) {
-    let parts: Vec<&str> = channel.splitn(2, "@").collect();
+    let parts: Vec<&str> = channel.splitn(2, '@').collect();
     if parts.len() < 2 {
       return None;
     }
 
-    let suffix: Vec<&str> = parts[1].splitn(2, ":").collect();
+    let suffix: Vec<&str> = parts[1].splitn(2, ':').collect();
     if suffix.len() < 2 {
       return None;
     }
@@ -195,7 +195,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   let span = trace::create_pubsub_span(inner, &frame);
   _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
-    let _enter = span.enter();
+    span.enter();
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   } else {
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
@@ -214,12 +214,10 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
 
   if is_pubsub_invalidation(&message) {
     broadcast_pubsub_invalidation(inner, message, server);
+  } else if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
+    inner.notifications.broadcast_keyspace(event);
   } else {
-    if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
-      inner.notifications.broadcast_keyspace(event);
-    } else {
-      inner.notifications.broadcast_pubsub(message);
-    }
+    inner.notifications.broadcast_pubsub(message);
   }
 
   None
@@ -280,13 +278,13 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
   match frame {
     Resp3Frame::SimpleError { data, .. } => {
       if data.trim().starts_with("CLUSTERDOWN") {
-        Some(&data)
+        Some(data)
       } else {
         None
       }
     },
     Resp3Frame::BlobError { data, .. } => {
-      let parsed = match str::from_utf8(&data) {
+      let parsed = match str::from_utf8(data) {
         Ok(s) => s,
         Err(_) => return None,
       };

@@ -140,14 +140,12 @@ pub async fn process_response_frame(
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
+    } else if command.kind.ends_transaction() {
+      command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
+      return Ok(());
     } else {
-      if command.kind.ends_transaction() {
-        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
-        return Ok(());
-      } else {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        return Ok(());
-      }
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Ok(());
     }
   }
 
@@ -210,7 +208,7 @@ pub async fn initialize_connection(
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
       let mut transport = connection::create(inner, &server, None).await?;
-      let _ = transport.setup(inner, None).await?;
+      transport.setup(inner, None).await?;
       let (server, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       inner.notifications.broadcast_reconnect(server);
 

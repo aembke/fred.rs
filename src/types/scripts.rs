@@ -140,6 +140,7 @@ pub enum FunctionFlag {
 
 impl FunctionFlag {
   /// Parse the string representation of the flag.
+  #[allow(clippy::should_implement_trait)]
   pub fn from_str(s: &str) -> Option<Self> {
     Some(match s {
       "allow-oom" => FunctionFlag::AllowOOM,
@@ -303,7 +304,7 @@ impl Library {
       .as_functions(&name)?;
 
     Ok(Library {
-      name:      name.into(),
+      name,
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
   }
@@ -322,7 +323,7 @@ impl Library {
       .as_functions(&name)?;
 
     Ok(Library {
-      name:      name.into(),
+      name,
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
   }

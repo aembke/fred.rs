@@ -244,7 +244,7 @@ impl Default for DatabaseMemoryStats {
 }
 
 fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value: RedisValue) {
-  match key.as_ref() {
+  match key {
     "overhead.hashtable.main" => stats.overhead_hashtable_main = convert_or_default(value),
     "overhead.hashtable.expires" => stats.overhead_hashtable_expires = convert_or_default(value),
     "overhead.hashtable.slot-to-keys" => stats.overhead_hashtable_slot_to_keys = convert_or_default(value),
@@ -366,7 +366,7 @@ impl PartialEq for MemoryStats {
 impl Eq for MemoryStats {}
 
 fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue) {
-  match key.as_ref() {
+  match key {
     "peak.allocated" => stats.peak_allocated = convert_or_default(value),
     "total.allocated" => stats.total_allocated = convert_or_default(value),
     "startup.allocated" => stats.startup_allocated = convert_or_default(value),
@@ -394,7 +394,7 @@ fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue
     "fragmentation.bytes" => stats.fragmentation_bytes = convert_or_default(value),
     _ => {
       if key.starts_with("db.") {
-        let db = match key.split(".").last().and_then(|v| v.parse::<u16>().ok()) {
+        let db = match key.split('.').last().and_then(|v| v.parse::<u16>().ok()) {
           Some(db) => db,
           None => return,
         };
@@ -567,7 +567,7 @@ impl FnPolicy {
   }
 
   pub(crate) fn from_str(s: &str) -> Result<Self, RedisError> {
-    Ok(match s.as_ref() {
+    Ok(match s {
       "flush" | "FLUSH" => FnPolicy::Flush,
       "append" | "APPEND" => FnPolicy::Append,
       "replace" | "REPLACE" => FnPolicy::Replace,
@@ -618,6 +618,6 @@ impl TryFrom<&Str> for FnPolicy {
   type Error = RedisError;
 
   fn try_from(value: &Str) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(&value)
+    FnPolicy::from_str(value)
   }
 }

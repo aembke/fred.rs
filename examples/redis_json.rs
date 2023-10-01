@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{interfaces::RedisJsonInterface, json_quote, prelude::*, util::NONE};
 use serde_json::{json, Value};
 

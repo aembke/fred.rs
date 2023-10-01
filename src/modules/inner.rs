@@ -635,7 +635,7 @@ impl RedisClientInner {
   }
 
   pub fn reconnect_policy(&self) -> Option<ReconnectPolicy> {
-    self.policy.read().as_ref().map(|p| p.clone())
+    self.policy.read().as_ref().cloned()
   }
 
   pub fn reset_protocol_version(&self) {
@@ -656,15 +656,15 @@ impl RedisClientInner {
   }
 
   pub fn default_command_timeout(&self) -> Duration {
-    self.performance.load().default_command_timeout.clone()
+    self.performance.load().default_command_timeout
   }
 
   pub fn connection_timeout(&self) -> Duration {
-    self.connection.connection_timeout.clone()
+    self.connection.connection_timeout
   }
 
   pub fn internal_command_timeout(&self) -> Duration {
-    self.connection.internal_command_timeout.clone()
+    self.connection.internal_command_timeout
   }
 
   pub async fn set_blocked_server(&self, server: &Server) {

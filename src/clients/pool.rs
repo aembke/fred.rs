@@ -192,7 +192,7 @@ impl ClientLike for RedisPool {
     tokio::spawn(async move {
       let tasks: Vec<_> = clients.iter().map(|c| c.connect()).collect();
       for result in join_all(tasks).await.into_iter() {
-        let _ = result??;
+        result??;
       }
 
       Ok(())

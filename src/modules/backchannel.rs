@@ -17,17 +17,15 @@ async fn check_and_create_transport(
   server: &Server,
 ) -> Result<bool, RedisError> {
   if let Some(ref mut transport) = backchannel.transport {
-    if &transport.server == server {
-      if transport.ping(inner).await.is_ok() {
-        _debug!(inner, "Using existing backchannel connection to {}", server);
-        return Ok(false);
-      }
+    if &transport.server == server && transport.ping(inner).await.is_ok() {
+      _debug!(inner, "Using existing backchannel connection to {}", server);
+      return Ok(false);
     }
   }
   backchannel.transport = None;
 
   let mut transport = connection::create(inner, server, None).await?;
-  let _ = transport.setup(inner, None).await?;
+  transport.setup(inner, None).await?;
   backchannel.transport = Some(transport);
 
   Ok(true)
@@ -201,36 +199,34 @@ impl Backchannel {
         // should this be more relaxed?
         Err(RedisError::new(RedisErrorKind::Unknown, "No connections are blocked."))
       }
-    } else {
-      if inner.config.server.is_clustered() {
-        if command.kind.use_random_cluster_node() {
-          self.any_server().ok_or(RedisError::new(
-            RedisErrorKind::Unknown,
-            "Failed to find backchannel server.",
-          ))
-        } else {
-          inner.with_cluster_state(|state| {
-            let slot = match command.cluster_hash() {
-              Some(slot) => slot,
-              None => {
-                return Err(RedisError::new(
-                  RedisErrorKind::Cluster,
-                  "Failed to find cluster hash slot.",
-                ))
-              },
-            };
-            state.get_server(slot).cloned().ok_or(RedisError::new(
-              RedisErrorKind::Cluster,
-              "Failed to find cluster owner.",
-            ))
-          })
-        }
-      } else {
+    } else if inner.config.server.is_clustered() {
+      if command.kind.use_random_cluster_node() {
         self.any_server().ok_or(RedisError::new(
           RedisErrorKind::Unknown,
           "Failed to find backchannel server.",
         ))
+      } else {
+        inner.with_cluster_state(|state| {
+          let slot = match command.cluster_hash() {
+            Some(slot) => slot,
+            None => {
+              return Err(RedisError::new(
+                RedisErrorKind::Cluster,
+                "Failed to find cluster hash slot.",
+              ))
+            },
+          };
+          state.get_server(slot).cloned().ok_or(RedisError::new(
+            RedisErrorKind::Cluster,
+            "Failed to find cluster owner.",
+          ))
+        })
       }
+    } else {
+      self.any_server().ok_or(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Failed to find backchannel server.",
+      ))
     }
   }
 }

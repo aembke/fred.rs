@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{
   cmd,
   prelude::*,
@@ -9,8 +12,8 @@ use std::convert::TryInto;
 async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
-  let _: () = client.lpush("foo", vec![1, 2, 3]).await?;
+  client.wait_for_connect().await?;
+  client.lpush("foo", vec![1, 2, 3]).await?;
 
   // some types require TryInto
   let args: Vec<RedisValue> = vec!["foo".into(), 0.into(), 3_u64.try_into()?];

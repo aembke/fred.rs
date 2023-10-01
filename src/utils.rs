@@ -51,11 +51,11 @@ use crate::trace;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
-const REDIS_TLS_SCHEME: &'static str = "rediss";
-const REDIS_CLUSTER_SCHEME_SUFFIX: &'static str = "-cluster";
-const REDIS_SENTINEL_SCHEME_SUFFIX: &'static str = "-sentinel";
-const SENTINEL_NAME_QUERY: &'static str = "sentinelServiceName";
-const CLUSTER_NODE_QUERY: &'static str = "node";
+const REDIS_TLS_SCHEME: &str = "rediss";
+const REDIS_CLUSTER_SCHEME_SUFFIX: &str = "-cluster";
+const REDIS_SENTINEL_SCHEME_SUFFIX: &str = "-sentinel";
+const SENTINEL_NAME_QUERY: &str = "sentinelServiceName";
+const CLUSTER_NODE_QUERY: &str = "node";
 #[cfg(feature = "sentinel-auth")]
 const SENTINEL_USERNAME_QUERY: &'static str = "sentinelUsername";
 #[cfg(feature = "sentinel-auth")]
@@ -225,16 +225,14 @@ pub fn take_mutex<T>(locked: &Mutex<Option<T>>) -> Option<T> {
 }
 
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
-  let formatted = val.starts_with("(") || val.starts_with("[") || val == "+" || val == "-";
+  let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
   if formatted {
     val
+  } else if *kind == ZRangeKind::Exclusive {
+    format!("({}", val)
   } else {
-    if *kind == ZRangeKind::Exclusive {
-      format!("({}", val)
-    } else {
-      format!("[{}", val)
-    }
+    format!("[{}", val)
   }
 }
 
@@ -369,7 +367,7 @@ pub async fn interrupt_blocked_connection(
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should
 /// be unblocked automatically.
 async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
-  if should_enforce_blocking_policy(inner, &command).await {
+  if should_enforce_blocking_policy(inner, command).await {
     _debug!(
       inner,
       "Checking to enforce blocking policy for {}",
@@ -397,7 +395,6 @@ pub fn prepare_command<C: ClientLike>(client: &C, command: &mut RedisCommand) ->
   command.inherit_options(client.inner());
   command
     .timeout_dur
-    .clone()
     .unwrap_or_else(|| client.inner().default_command_timeout())
 }
 
@@ -415,9 +412,9 @@ where
 
   let timed_out = command.timed_out.clone();
   let timeout_dur = prepare_command(client, &mut command);
-  let _ = check_blocking_policy(inner, &command).await?;
-  let _ = disallow_nested_values(&command)?;
-  let _ = client.send_command(command)?;
+  check_blocking_policy(inner, &command).await?;
+  disallow_nested_values(&command)?;
+  client.send_command(command)?;
 
   wait_for_response(rx, timeout_dur)
     .map_err(move |error| {
@@ -652,8 +649,8 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
 }
 
 pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
-  if arr.len() > 0 && arr.len() % 2 == 0 {
-    arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
+  if !arr.is_empty() && arr.len() % 2 == 0 {
+    arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
   } else {
     false
   }
@@ -769,7 +766,7 @@ pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, RedisError> {
 
   for (key, value) in url.query_pairs().into_iter() {
     if key == CLUSTER_NODE_QUERY {
-      let parts: Vec<&str> = value.split(":").collect();
+      let parts: Vec<&str> = value.split(':').collect();
       if parts.len() != 2 {
         return Err(RedisError::new(
           RedisErrorKind::Config,
@@ -822,7 +819,7 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
 }
 
 pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
-  inner.backchannel.write().await.clear_router_state(&inner).await;
+  inner.backchannel.write().await.clear_router_state(inner).await;
 }
 
 /// Send QUIT to the servers and clean up the old router task's state.

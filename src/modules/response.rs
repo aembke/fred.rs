@@ -347,7 +347,7 @@ where
         }
       },
       RedisValue::Array(values) => {
-        if values.len() > 0 {
+        if !values.is_empty() {
           if let RedisValue::Array(_) = &values[0] {
             values.into_iter().map(|x| T::from_value(x)).collect()
           } else {
@@ -360,18 +360,16 @@ where
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
         let out = Vec::with_capacity(map.len() * 2);
-        map.inner().into_iter().fold(Ok(out), |out, (key, value)| {
-          out.and_then(|mut out| {
-            if T::is_tuple() {
-              // try to convert to a 2-element tuple since that's a common use case from `HGETALL`, etc
-              out.push(T::from_value(RedisValue::Array(vec![key.into(), value]))?);
-            } else {
-              out.push(T::from_value(key.into())?);
-              out.push(T::from_value(value)?);
-            }
+        map.inner().into_iter().try_fold(out, |mut out, (key, value)| {
+          if T::is_tuple() {
+            // try to convert to a 2-element tuple since that's a common use case from `HGETALL`, etc
+            out.push(T::from_value(RedisValue::Array(vec![key.into(), value]))?);
+          } else {
+            out.push(T::from_value(key.into())?);
+            out.push(T::from_value(value)?);
+          }
 
-            Ok(out)
-          })
+          Ok(out)
         })
       },
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
@@ -850,13 +848,13 @@ mod tests {
   #[test]
   fn should_convert_numbers_to_bools() {
     let foo: bool = RedisValue::Integer(0).convert().unwrap();
-    assert_eq!(foo, false);
+    assert!(!foo);
     let foo: bool = RedisValue::Integer(1).convert().unwrap();
-    assert_eq!(foo, true);
+    assert!(foo);
     let foo: bool = RedisValue::String("0".into()).convert().unwrap();
-    assert_eq!(foo, false);
+    assert!(!foo);
     let foo: bool = RedisValue::String("1".into()).convert().unwrap();
-    assert_eq!(foo, true);
+    assert!(foo);
   }
 
   #[test]

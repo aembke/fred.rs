@@ -52,19 +52,19 @@ mod macro_tests {
     let command = cmd!("GET");
     assert_eq!(command.cmd, "GET");
     assert_eq!(command.cluster_hash, ClusterHash::FirstKey);
-    assert_eq!(command.blocking, false);
+    assert!(!command.blocking);
     let command = cmd!("GET", blocking: true);
     assert_eq!(command.cmd, "GET");
     assert_eq!(command.cluster_hash, ClusterHash::FirstKey);
-    assert_eq!(command.blocking, true);
+    assert!(command.blocking);
     let command = cmd!("GET", hash: ClusterHash::FirstValue);
     assert_eq!(command.cmd, "GET");
     assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
-    assert_eq!(command.blocking, false);
+    assert!(!command.blocking);
     let command = cmd!("GET", hash: ClusterHash::FirstValue, blocking: true);
     assert_eq!(command.cmd, "GET");
     assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
-    assert_eq!(command.blocking, true);
+    assert!(command.blocking);
   }
 }
 

@@ -1,7 +1,9 @@
-use fred::{prelude::*, types::RespVersion};
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use fred::types::TlsConfig;
+use fred::{prelude::*, types::RespVersion};
 #[cfg(feature = "partial-tracing")]
 use fred::{tracing::Level, types::TracingConfig};
 
@@ -33,20 +35,20 @@ async fn main() -> Result<(), RedisError> {
   // or use default values
   let client = Builder::default_centralized().build()?;
   let connection_jh = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // convert response types to most common rust types
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);
 
-  let _: () = client
+  client
     .set("foo", "bar", Some(Expiration::EX(1)), Some(SetOptions::NX), false)
     .await?;
 
   // or use turbofish. the first type is always the response type.
   println!("Foo: {:?}", client.get::<Option<String>, _>("foo").await?);
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   // calling quit ends the connection and event listener tasks
   let _ = connection_jh.await;
   Ok(())

@@ -114,7 +114,7 @@ async fn send_discard(
   write_command(inner, router, server, command, true, rx).await
 }
 
-fn update_hash_slot(commands: &mut Vec<RedisCommand>, slot: u16) {
+fn update_hash_slot(commands: &mut [RedisCommand], slot: u16) {
   for command in commands.iter_mut() {
     command.hasher = ClusterHash::Custom(slot);
   }
@@ -147,7 +147,7 @@ pub async fn run(
       match router.find_connection(&commands[0]) {
         Some(server) => server.clone(),
         None => {
-          let _ = if inner.config.server.is_clustered() {
+          if inner.config.server.is_clustered() {
             // optimistically sync the cluster, then fall back to a full reconnect
             if router.sync_cluster().await.is_err() {
               utils::reconnect_with_policy(inner, router).await?
@@ -186,7 +186,7 @@ pub async fn run(
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
-            let _ = utils::reconnect_with_policy(inner, router).await?;
+            utils::reconnect_with_policy(inner, router).await?;
           }
 
           attempted += 1;
@@ -204,7 +204,7 @@ pub async fn run(
 
           _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
           update_hash_slot(&mut commands, slot);
-          let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
+          utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
           attempted += 1;
           continue 'outer;
         },
@@ -240,7 +240,7 @@ pub async fn run(
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
-            let _ = utils::reconnect_with_policy(inner, router).await?;
+            utils::reconnect_with_policy(inner, router).await?;
           }
 
           attempted += 1;
@@ -260,7 +260,7 @@ pub async fn run(
           if let Err(e) = send_discard(inner, router, &server, id).await {
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
-          let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
+          utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
 
           attempted += 1;
           continue 'outer;
@@ -293,7 +293,7 @@ pub async fn run(
           let _ = tx.send(Err(error));
           return Ok(());
         } else {
-          let _ = utils::reconnect_with_policy(inner, router).await?;
+          utils::reconnect_with_policy(inner, router).await?;
         }
 
         attempted += 1;

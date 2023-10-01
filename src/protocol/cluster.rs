@@ -29,7 +29,7 @@ fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
 }
 
 fn is_ip_address(value: &Str) -> bool {
-  IpAddr::from_str(&value).is_ok()
+  IpAddr::from_str(value).is_ok()
 }
 
 fn check_metadata_hostname(data: &HashMap<Str, Str>) -> Option<&Str> {
@@ -96,7 +96,7 @@ fn parse_node_block(data: &Vec<RedisValue>, default_host: &Str) -> Option<(Str, 
     return None;
   }
 
-  let hostname = match parse_cluster_slot_hostname(&data, default_host) {
+  let hostname = match parse_cluster_slot_hostname(data, default_host) {
     Ok(host) => host,
     Err(_) => return None,
   };
@@ -105,11 +105,7 @@ fn parse_node_block(data: &Vec<RedisValue>, default_host: &Str) -> Option<(Str, 
     Err(_) => return None,
   };
   let primary = Str::from(format!("{}:{}", hostname, port));
-  let id = if let Some(id) = data[2].as_bytes_str() {
-    id
-  } else {
-    return None;
-  };
+  let id = data[2].as_bytes_str()?;
 
   Some((hostname, port, primary, id))
 }

@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{prelude::*, types::Server};
 
 #[tokio::main]
@@ -25,10 +28,10 @@ async fn main() -> Result<(), RedisError> {
 
   let client = Builder::from_config(config).build()?;
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

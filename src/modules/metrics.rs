@@ -103,7 +103,7 @@ impl<'a> From<&'a MovingStats> for Stats {
       stddev:  stats.variance.sqrt(),
       min:     stats.min,
       max:     stats.max,
-      samples: stats.samples as u64,
+      samples: stats.samples,
       sum:     stats.sum,
     }
   }

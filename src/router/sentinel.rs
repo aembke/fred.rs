@@ -18,22 +18,22 @@ use std::{
   sync::Arc,
 };
 
-pub static CONFIG: &'static str = "CONFIG";
-pub static SET: &'static str = "SET";
-pub static CKQUORUM: &'static str = "CKQUORUM";
-pub static FLUSHCONFIG: &'static str = "FLUSHCONFIG";
-pub static FAILOVER: &'static str = "FAILOVER";
-pub static GET_MASTER_ADDR_BY_NAME: &'static str = "GET-MASTER-ADDR-BY-NAME";
-pub static INFO_CACHE: &'static str = "INFO-CACHE";
-pub static MASTERS: &'static str = "MASTERS";
-pub static MASTER: &'static str = "MASTER";
-pub static MONITOR: &'static str = "MONITOR";
-pub static MYID: &'static str = "MYID";
-pub static PENDING_SCRIPTS: &'static str = "PENDING-SCRIPTS";
-pub static REMOVE: &'static str = "REMOVE";
-pub static REPLICAS: &'static str = "REPLICAS";
-pub static SENTINELS: &'static str = "SENTINELS";
-pub static SIMULATE_FAILURE: &'static str = "SIMULATE-FAILURE";
+pub static CONFIG: &str = "CONFIG";
+pub static SET: &str = "SET";
+pub static CKQUORUM: &str = "CKQUORUM";
+pub static FLUSHCONFIG: &str = "FLUSHCONFIG";
+pub static FAILOVER: &str = "FAILOVER";
+pub static GET_MASTER_ADDR_BY_NAME: &str = "GET-MASTER-ADDR-BY-NAME";
+pub static INFO_CACHE: &str = "INFO-CACHE";
+pub static MASTERS: &str = "MASTERS";
+pub static MASTER: &str = "MASTER";
+pub static MONITOR: &str = "MONITOR";
+pub static MYID: &str = "MYID";
+pub static PENDING_SCRIPTS: &str = "PENDING-SCRIPTS";
+pub static REMOVE: &str = "REMOVE";
+pub static REPLICAS: &str = "REPLICAS";
+pub static SENTINELS: &str = "SENTINELS";
+pub static SIMULATE_FAILURE: &str = "SIMULATE-FAILURE";
 
 macro_rules! stry (
   ($expr:expr) => {
@@ -163,7 +163,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
   for server in hosts.into_iter() {
     _debug!(inner, "Connecting to sentinel {}", server);
     let mut transport = try_or_continue!(connection::create(inner, &server, None).await);
-    let _ = try_or_continue!(
+    try_or_continue!(
       utils::apply_timeout(
         transport.authenticate(&inner.id, username.clone(), password.clone(), false),
         inner.internal_command_timeout()
@@ -223,7 +223,7 @@ async fn discover_primary_node(
   };
 
   let mut transport = stry!(connection::create(inner, &server, None).await);
-  let _ = stry!(transport.setup(inner, None).await);
+  stry!(transport.setup(inner, None).await);
   Ok(transport)
 }
 
@@ -323,10 +323,10 @@ pub async fn initialize_connection(
       let mut transport = discover_primary_node(inner, &mut sentinel).await?;
       let server = transport.server.clone();
 
-      let _ = utils::apply_timeout(
+      utils::apply_timeout(
         async {
-          let _ = check_primary_node_role(inner, &mut transport).await?;
-          let _ = update_cached_client_state(inner, writer, sentinel, transport).await?;
+          check_primary_node_role(inner, &mut transport).await?;
+          update_cached_client_state(inner, writer, sentinel, transport).await?;
           Ok::<_, RedisError>(())
         },
         inner.internal_command_timeout(),

@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
+#![allow(clippy::match_like_matches_macro)]
 
 use fred::{
   clients::RedisClient,
@@ -373,7 +374,7 @@ where
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
   flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
@@ -396,7 +397,7 @@ where
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
   flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
@@ -422,7 +423,7 @@ where
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
   flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");

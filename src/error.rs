@@ -365,44 +365,29 @@ impl RedisError {
 
   /// Whether reconnection logic should be skipped in all cases.
   pub(crate) fn should_not_reconnect(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::Config | RedisErrorKind::Url => true,
-      _ => false,
-    }
+    matches!(self.kind, RedisErrorKind::Config | RedisErrorKind::Url)
   }
 
   /// Whether the error is a `Cluster` error.
   pub fn is_cluster(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::Cluster => true,
-      _ => false,
-    }
+    matches!(self.kind, RedisErrorKind::Cluster)
   }
 
   /// Whether the error is a `Canceled` error.
   pub fn is_canceled(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::Canceled => true,
-      _ => false,
-    }
+    matches!(self.kind, RedisErrorKind::Canceled)
   }
 
   /// Whether the error is a `Replica` error.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn is_replica(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::Replica => true,
-      _ => false,
-    }
+    matches!(self.kind, RedisErrorKind::Replica)
   }
 
   /// Whether the error is a `NotFound` error.
   pub fn is_not_found(&self) -> bool {
-    match self.kind {
-      RedisErrorKind::NotFound => true,
-      _ => false,
-    }
+    matches!(self.kind, RedisErrorKind::NotFound)
   }
 }
 

@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use async_trait::async_trait;
 use bytes_utils::Str;
 use fred::{prelude::*, types::Resolve};

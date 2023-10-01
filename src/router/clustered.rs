@@ -73,7 +73,7 @@ pub async fn write(
   force_flush: bool,
 ) -> Written {
   let has_custom_server = command.cluster_node.is_some();
-  let server = match route_command(inner, &state, &command) {
+  let server = match route_command(inner, state, &command) {
     Some(server) => server,
     None => {
       return if has_custom_server {
@@ -452,14 +452,12 @@ pub async fn process_response_frame(
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
+    } else if command.kind.ends_transaction() {
+      command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
+      return Ok(());
     } else {
-      if command.kind.ends_transaction() {
-        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
-        return Ok(());
-      } else {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        return Ok(());
-      }
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Ok(());
     }
   }
 
@@ -515,7 +513,7 @@ pub async fn connect_any(
   } else {
     BTreeSet::new()
   };
-  all_servers.extend(inner.config.server.hosts().into_iter().map(|server| server.clone()));
+  all_servers.extend(inner.config.server.hosts().into_iter().cloned());
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
   let num_servers = all_servers.len();
@@ -674,7 +672,7 @@ pub async fn sync(
 
     buffer.extend(drop_broken_connections(writers).await);
     // detect changes to the cluster topology
-    let changes = parse_cluster_changes(&state, &writers);
+    let changes = parse_cluster_changes(&state, writers);
     _debug!(inner, "Changing cluster connections: {:?}", changes);
     broadcast_cluster_change(inner, &changes);
 
@@ -699,7 +697,7 @@ pub async fn sync(
       connections_ft.push(async move {
         _debug!(inner, "Connecting to cluster node {}", server);
         let mut transport = connection::create(&_inner, &server, None).await?;
-        let _ = transport.setup(&_inner, None).await?;
+        transport.setup(&_inner, None).await?;
 
         let (server, writer) = connection::split_and_initialize(&_inner, transport, false, spawn_reader_task)?;
         inner.notifications.broadcast_reconnect(server.clone());
