@@ -195,7 +195,8 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   let span = trace::create_pubsub_span(inner, &frame);
   _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
-    span.enter();
+    #[allow(clippy::let_unit_value)]
+    let _ = span.enter();
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   } else {
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)

@@ -602,15 +602,15 @@ pub async fn should_use_resp3_codec_example(_: RedisClient, config: RedisConfig)
       password: utils::read_redis_password().into(),
     }),
   };
-  let get_foo = resp3_encode_command("GET foo");
+  let echo_foo = resp3_encode_command("ECHO foo");
 
   let _ = framed.send(hello).await?;
   let response = framed.next().await.unwrap().unwrap();
   assert_eq!(response.as_bytes().unwrap(), b"OK");
 
-  let _ = framed.send(get_foo).await?;
+  let _ = framed.send(echo_foo).await?;
   let response = framed.next().await.unwrap().unwrap();
-  assert_eq!(response, Resp3Frame::Null);
+  assert_eq!(response.as_str().unwrap(), "foo");
 
   Ok(())
 }
@@ -626,15 +626,15 @@ pub async fn should_use_resp2_codec_example(_: RedisClient, config: RedisConfig)
     utils::read_redis_username(),
     utils::read_redis_password()
   ));
-  let get_foo = resp2_encode_command("GET foo");
+  let echo_foo = resp2_encode_command("ECHO foo");
 
   let _ = framed.send(auth).await?;
   let response = framed.next().await.unwrap().unwrap();
   assert_eq!(response.as_str().unwrap(), "OK");
 
-  let _ = framed.send(get_foo).await?;
+  let _ = framed.send(echo_foo).await?;
   let response = framed.next().await.unwrap().unwrap();
-  assert_eq!(response, Resp2Frame::Null);
+  assert_eq!(response.as_str().unwrap(), "foo");
 
   Ok(())
 }

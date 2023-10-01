@@ -188,6 +188,17 @@ jobs:
       - checkout
       - build_docs
       - test_mocks
+  clippy-lint:
+    docker:
+      - image: cimg/rust:1.72.1
+    environment:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+    steps:
+      - checkout
+      - run:
+          name: Run clippy
+          command: cargo clippy -- -Dwarnings
+
 
 workflows:
   version: 2
@@ -202,3 +213,4 @@ workflows:
       - test-misc
       - test-cluster-tls-features-7_2
       - test-cluster-rustls-features-7_2
+      - clippy-lint
