@@ -29,6 +29,7 @@ use crate::clients::Replicas;
 /// * [PubsubInterface](crate::interfaces::PubsubInterface)
 /// * [TransactionInterface](crate::interfaces::TransactionInterface)
 /// * [EventInterface](crate::interfaces::EventInterface)
+/// * [ClientInterface](crate::interfaces::ClientInterface)
 ///
 /// In some cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
 /// adding a call to [next](Self::next), but in other scenarios this may not work. As a general rule, any commands
@@ -247,7 +248,6 @@ impl HeartbeatInterface for RedisPool {
 }
 
 impl AclInterface for RedisPool {}
-impl ClientInterface for RedisPool {}
 impl ClusterInterface for RedisPool {}
 impl ConfigInterface for RedisPool {}
 impl GeoInterface for RedisPool {}
