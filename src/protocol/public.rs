@@ -77,6 +77,9 @@ impl Encoder<Resp2Frame> for Resp2 {
   type Error = RedisError;
 
   fn encode(&mut self, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    #[cfg(feature = "network-logs")]
+    trace!("RESP2 codec encode: {:?}", item);
+
     resp2_encode(dst, &item).map(|_| ()).map_err(RedisError::from)
   }
 }
@@ -89,10 +92,14 @@ impl Decoder for Resp2 {
     if src.is_empty() {
       return Ok(None);
     }
+    let parsed = match resp2_decode(src)? {
+      Some((frame, _, _)) => frame,
+      None => return Ok(None),
+    };
+    #[cfg(feature = "network-logs")]
+    trace!("RESP2 codec decode: {:?}", parsed);
 
-    resp2_decode(src)
-      .map(|parsed| parsed.map(|(f, _, _)| f))
-      .map_err(RedisError::from)
+    Ok(Some(parsed))
   }
 }
 
@@ -143,6 +150,9 @@ impl Encoder<Resp3Frame> for Resp3 {
   type Error = RedisError;
 
   fn encode(&mut self, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    #[cfg(feature = "network-logs")]
+    trace!("RESP3 codec encode: {:?}", item);
+
     resp3_encode(dst, &item).map(|_| ()).map_err(RedisError::from)
   }
 }
@@ -192,6 +202,9 @@ impl Decoder for Resp3 {
     if result.is_some() {
       let _ = self.streaming.take();
     }
+
+    #[cfg(feature = "network-logs")]
+    trace!("RESP3 codec decode: {:?}", result);
     Ok(result)
   }
 }

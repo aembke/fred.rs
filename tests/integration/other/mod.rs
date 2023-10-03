@@ -606,7 +606,7 @@ pub async fn should_use_resp3_codec_example(_: RedisClient, config: RedisConfig)
 
   let _ = framed.send(hello).await?;
   let response = framed.next().await.unwrap().unwrap();
-  assert_eq!(response.as_bytes().unwrap(), b"OK");
+  assert_eq!(response.kind(), Resp3FrameKind::Map);
 
   let _ = framed.send(echo_foo).await?;
   let response = framed.next().await.unwrap().unwrap();
