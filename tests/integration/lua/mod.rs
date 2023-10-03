@@ -10,8 +10,10 @@ use std::{
 };
 
 static ECHO_SCRIPT: &str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
+#[cfg(feature = "sha-1")]
 static GET_SCRIPT: &str = "return redis.call('get', KEYS[1])";
 
+#[cfg(feature = "sha-1")]
 pub async fn load_script(client: &RedisClient, script: &str) -> Result<String, RedisError> {
   if client.is_clustered() {
     client.script_load_cluster(script).await
@@ -28,6 +30,7 @@ pub async fn flush_scripts(client: &RedisClient) -> Result<(), RedisError> {
   }
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_load_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script_hash = util::sha1_hash(ECHO_SCRIPT);
   let hash: String = client.script_load(ECHO_SCRIPT).await?;
@@ -36,6 +39,7 @@ pub async fn should_load_script(client: RedisClient, _: RedisConfig) -> Result<(
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_load_script_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script_hash = util::sha1_hash(ECHO_SCRIPT);
   let hash: String = client.script_load_cluster(ECHO_SCRIPT).await?;
@@ -44,6 +48,7 @@ pub async fn should_load_script_cluster(client: RedisClient, _: RedisConfig) -> 
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_evalsha_echo_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let hash = load_script(&client, ECHO_SCRIPT).await?;
 
@@ -54,6 +59,7 @@ pub async fn should_evalsha_echo_script(client: RedisClient, _: RedisConfig) -> 
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_evalsha_with_reload_echo_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script = Script::from_lua(ECHO_SCRIPT);
 
@@ -66,6 +72,7 @@ pub async fn should_evalsha_with_reload_echo_script(client: RedisClient, _: Redi
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_evalsha_get_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let script_hash = util::sha1_hash(GET_SCRIPT);
   let hash = load_script(&client, GET_SCRIPT).await?;
@@ -92,6 +99,7 @@ pub async fn should_eval_echo_script(client: RedisClient, _: RedisConfig) -> Res
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_eval_get_script(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let result: Option<String> = client.eval(GET_SCRIPT, vec!["foo"], ()).await?;
   assert!(result.is_none());
@@ -262,6 +270,7 @@ pub async fn should_function_fcall_ro_echo(client: RedisClient, _: RedisConfig) 
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_create_lua_script_helper_from_code(
   client: RedisClient,
   _: RedisConfig,
@@ -276,6 +285,7 @@ pub async fn should_create_lua_script_helper_from_code(
   Ok(())
 }
 
+#[cfg(feature = "sha-1")]
 pub async fn should_create_lua_script_helper_from_hash(
   client: RedisClient,
   _: RedisConfig,

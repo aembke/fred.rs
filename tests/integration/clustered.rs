@@ -181,12 +181,18 @@ pub mod memory {
 
 pub mod lua {
 
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_load_script);
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_load_script_cluster);
   cluster_test!(lua, should_eval_echo_script);
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_eval_get_script);
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_evalsha_echo_script);
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_evalsha_with_reload_echo_script);
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_evalsha_get_script);
 
   cluster_test!(lua, should_function_load_scripts);
@@ -199,7 +205,9 @@ pub mod lua {
   cluster_test!(lua, should_function_fcall_echo);
   cluster_test!(lua, should_function_fcall_ro_echo);
 
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_create_lua_script_helper_from_code);
+  #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_create_lua_script_helper_from_hash);
   cluster_test!(lua, should_create_function_from_code);
   cluster_test!(lua, should_create_function_from_name);

@@ -173,11 +173,16 @@ pub mod memory {
 
 pub mod lua {
 
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_load_script);
   centralized_test!(lua, should_eval_echo_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_eval_get_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_evalsha_echo_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_evalsha_with_reload_echo_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_evalsha_get_script);
 
   centralized_test!(lua, should_function_load_scripts);
@@ -190,7 +195,9 @@ pub mod lua {
   centralized_test!(lua, should_function_fcall_echo);
   centralized_test!(lua, should_function_fcall_ro_echo);
 
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_create_lua_script_helper_from_code);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_create_lua_script_helper_from_hash);
   centralized_test!(lua, should_create_function_from_code);
   centralized_test!(lua, should_create_function_from_name);

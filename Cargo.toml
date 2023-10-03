@@ -104,9 +104,12 @@ required-features = ["dns"]
 name = "client_tracking"
 required-features = ["client-tracking"]
 
+[[example]]
+name = "lua"
+required-features = ["sha-1"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active"]
-fallback = []
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []

@@ -301,9 +301,11 @@ impl RedisClient {
 
 #[cfg(test)]
 mod tests {
+  #[cfg(feature = "sha-1")]
   use crate::util;
 
   #[test]
+  #[cfg(feature = "sha-1")]
   fn should_correctly_sha1_hash() {
     assert_eq!(
       &util::sha1_hash("foobarbaz"),
