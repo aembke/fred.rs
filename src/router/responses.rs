@@ -69,6 +69,7 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
   }
 }
 
+/// Check for any of the expected pubsub prefix frames.
 fn check_message_prefix(s: &str) -> bool {
   s == "message" || s == "pmessage" || s == "smessage"
 }

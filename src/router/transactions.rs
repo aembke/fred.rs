@@ -51,7 +51,7 @@ async fn write_command(
   let timeout_dur = command.timeout_dur.unwrap_or_else(|| inner.default_command_timeout());
   let result = match router.write_direct(command, server).await {
     Written::Error((error, _)) => Err(error),
-    Written::Disconnect((_, _, error)) => Err(error),
+    Written::Disconnected((_, _, error)) => Err(error),
     Written::NotFound(_) => Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
     _ => Ok(()),
   };

@@ -159,7 +159,7 @@ pub fn set_unresponsive_interval_ms(val: u64) -> u64 {
   set_atomic(&globals().unresponsive_interval, val as usize) as u64
 }
 
-/// The default capacity used when creating [broadcast channels](https://docs.rs/tokio/latest/tokio/sync/broadcast/fn.channel.html) for the `on_*` notification functions.
+/// The default capacity used when creating [broadcast channels](https://docs.rs/tokio/latest/tokio/sync/broadcast/fn.channel.html) in the [EventInterface](crate::interfaces::EventInterface).
 ///
 /// Default: 32
 pub fn get_default_broadcast_channel_capacity() -> usize {

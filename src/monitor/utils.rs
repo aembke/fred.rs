@@ -5,11 +5,11 @@ use crate::{
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, RedisTransport},
+    connection::{self, ConnectionKind, RedisTransport},
     types::ProtocolFrame,
     utils as protocol_utils,
   },
-  types::{PerformanceConfig, RedisConfig, ServerConfig},
+  types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
 use std::sync::Arc;
@@ -22,7 +22,6 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
-use crate::{protocol::connection::ConnectionKind, types::ConnectionConfig};
 
 #[cfg(feature = "blocking-encoding")]
 async fn handle_monitor_frame(

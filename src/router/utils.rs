@@ -167,7 +167,7 @@ pub async fn write_command(
   if let Err(e) = writer.write_frame(frame, should_flush).await {
     let command = writer.pop_recent_command();
     _debug!(inner, "Error sending command: {:?}", e);
-    Written::Disconnect((Some(writer.server.clone()), command, e))
+    Written::Disconnected((Some(writer.server.clone()), command, e))
   } else {
     Written::Sent((writer.server.clone(), should_flush))
   }
@@ -301,9 +301,6 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
     inner.notifications.broadcast_error(e.clone());
     Err(e)
   } else {
-    // try to flush any previously in-flight commands
-    router.retry_buffer().await;
-
     if let Err(e) = router.sync_replicas().await {
       _warn!(inner, "Error syncing replicas: {:?}", e);
       if !inner.ignore_replica_reconnect_errors() {
@@ -312,6 +309,8 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
         return Err(e);
       }
     }
+    // try to flush any previously in-flight commands
+    router.retry_buffer().await;
 
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
@@ -407,7 +406,7 @@ pub async fn send_asking_with_policy(
 
     let result = match router.write_direct(command, server).await {
       Written::Error((error, _)) => Err(error),
-      Written::Disconnect((_, _, error)) => Err(error),
+      Written::Disconnected((_, _, error)) => Err(error),
       Written::NotFound(_) => Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
       _ => Ok(()),
     };

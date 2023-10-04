@@ -115,7 +115,7 @@ pub async fn write(
       command.kind.to_str_debug()
     );
 
-    Written::Disconnect((
+    Written::Disconnected((
       Some(server.clone()),
       Some(command),
       RedisError::new(RedisErrorKind::IO, "Missing connection."),
@@ -172,7 +172,7 @@ pub async fn send_all_cluster_command(
     let mut cmd = command.duplicate(cmd_responder);
     cmd.skip_backpressure = true;
 
-    if let Written::Disconnect((server, _, err)) = utils::write_command(inner, writer, cmd, true).await {
+    if let Written::Disconnected((server, _, err)) = utils::write_command(inner, writer, cmd, true).await {
       _debug!(
         inner,
         "Exit all nodes command early ({}/{}: {:?}) from error: {:?}",

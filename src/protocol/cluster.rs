@@ -67,7 +67,7 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Res
     HashMap::new()
   };
   if server[0].is_null() {
-    // step 3
+    // option 3
     Ok(check_metadata_hostname(&metadata).unwrap_or(default_host).clone())
   } else {
     let preferred_host = match server[0].clone().convert::<Str>() {
@@ -81,10 +81,10 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Res
     };
 
     if is_ip_address(&preferred_host) {
-      // step 2
+      // option 2
       Ok(check_metadata_hostname(&metadata).unwrap_or(&preferred_host).clone())
     } else {
-      // step 1
+      // option 1
       Ok(preferred_host)
     }
   }

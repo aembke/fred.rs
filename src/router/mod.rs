@@ -48,8 +48,8 @@ pub enum Written {
   Sent((Server, bool)),
   /// Indicates that the command was sent to all servers.
   SentAll,
-  /// Disconnect from the provided server and retry the command later.
-  Disconnect((Option<Server>, Option<RedisCommand>, RedisError)),
+  /// The command could not be written since the connection is down.  
+  Disconnected((Option<Server>, Option<RedisCommand>, RedisError)),
   /// Ignore the result and move on to the next command.
   Ignore,
   /// The command could not be routed to any server.
@@ -67,7 +67,7 @@ impl fmt::Display for Written {
       Written::Backpressure(_) => "Backpressure",
       Written::Sent(_) => "Sent",
       Written::SentAll => "SentAll",
-      Written::Disconnect(_) => "Disconnect",
+      Written::Disconnected(_) => "Disconnected",
       Written::Ignore => "Ignore",
       Written::NotFound(_) => "NotFound",
       Written::Error(_) => "Error",
@@ -423,7 +423,7 @@ impl Connections {
   pub async fn write_all_cluster(&mut self, inner: &Arc<RedisClientInner>, command: RedisCommand) -> Written {
     if let Connections::Clustered { ref mut writers, .. } = self {
       if let Err(error) = clustered::send_all_cluster_command(inner, writers, command).await {
-        Written::Disconnect((None, None, error))
+        Written::Disconnected((None, None, error))
       } else {
         Written::SentAll
       }
@@ -662,7 +662,7 @@ impl Router {
     if let Err(error) = writer.write_frame(frame, true).await {
       let command = writer.pop_recent_command();
       debug!("{}: Error sending command: {:?}", self.inner.id, error);
-      Written::Disconnect((Some(writer.server.clone()), command, error))
+      Written::Disconnected((Some(writer.server.clone()), command, error))
     } else {
       if blocks_connection {
         self.inner.backchannel.write().await.set_blocked(&writer.server);
@@ -749,13 +749,13 @@ impl Router {
     self.sync_network_timeout_state();
 
     if result.is_ok() {
-      self.retry_buffer().await;
-
       if let Err(e) = self.sync_replicas().await {
         if !self.inner.ignore_replica_reconnect_errors() {
           return Err(e);
         }
       }
+
+      self.retry_buffer().await;
     }
 
     result
@@ -802,7 +802,6 @@ impl Router {
       .write()
       .update_replicas(self.replicas.routing_table());
     self.sync_network_timeout_state();
-    self.retry_buffer().await;
     Ok(())
   }
 
@@ -849,7 +848,7 @@ impl Router {
       };
 
       match result {
-        Written::Disconnect((server, command, error)) => {
+        Written::Disconnected((server, command, error)) => {
           if let Some(command) = command {
             failed_commands.push_back(command);
           }
@@ -955,7 +954,7 @@ impl Router {
 
       match self.write_direct(command, server).await {
         Written::Error((error, _)) => return Err(error),
-        Written::Disconnect((_, _, error)) => return Err(error),
+        Written::Disconnected((_, _, error)) => return Err(error),
         Written::NotFound(_) => return Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
         _ => {},
       };

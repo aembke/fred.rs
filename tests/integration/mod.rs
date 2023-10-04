@@ -36,6 +36,7 @@ pub mod clustered;
 
 mod macro_tests {
   use fred::{b, cmd, s, types::ClusterHash};
+  use socket2::TcpKeepalive;
 
   #[test]
   fn should_use_static_str_macro() {

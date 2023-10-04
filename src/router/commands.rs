@@ -153,7 +153,7 @@ async fn write_with_backpressure(
 
         continue;
       },
-      Written::Disconnect((server, command, error)) => {
+      Written::Disconnected((server, command, error)) => {
         _debug!(inner, "Handle disconnect for {:?} due to {:?}", server, error);
         let commands = router.connections.disconnect(inner, server.as_ref()).await;
         router.buffer_commands(commands);

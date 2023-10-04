@@ -14,11 +14,10 @@ use crate::{
 };
 #[cfg(feature = "replicas")]
 use std::{
-  collections::{BTreeSet, HashMap, VecDeque},
+  collections::{HashMap, VecDeque},
   convert::identity,
   fmt,
   fmt::Formatter,
-  mem,
   sync::Arc,
 };
 
@@ -100,54 +99,43 @@ impl Default for ReplicaConfig {
 }
 
 /// A container for round-robin routing among replica nodes.
+// This implementation optimizes for next() at the cost of add() and remove()
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub struct ReplicaRouter {
-  // use two btrees like a queue since it's easier to implement an infinite iterator on top of a queue
-  // without any self-referential shenanigans, and we get uniqueness and log time contains()
-  remaining: BTreeSet<Server>,
-  next:      BTreeSet<Server>,
+  counter: usize,
+  servers: Vec<Server>,
 }
 
 #[cfg(feature = "replicas")]
 impl ReplicaRouter {
   /// Read the server that should receive the next command.
   pub fn next(&mut self) -> Option<&Server> {
-    if let Some(last_remaining) = self.remaining.pop_last() {
-      self.next.insert(last_remaining);
-      self.next.first()
-    } else {
-      if self.next.is_empty() {
-        None
-      } else {
-        mem::swap(&mut self.next, &mut self.remaining);
-        self.next()
-      }
-    }
+    self.counter = (self.counter + 1) % self.servers.len();
+    self.servers.get(self.counter)
   }
 
   /// Conditionally add the server to the replica set.
   pub fn add(&mut self, server: Server) {
-    if !self.remaining.contains(&server) {
-      self.next.insert(server);
+    if !self.servers.contains(&server) {
+      self.servers.push(server);
     }
   }
 
   /// Remove the server from the replica set.
   pub fn remove(&mut self, server: &Server) {
-    self.remaining.remove(server);
-    self.next.remove(server);
+    self.servers = self.servers.drain(..).filter(|_server| server != _server).collect();
   }
 
   /// The size of the replica set.
   pub fn len(&self) -> usize {
-    self.remaining.len() + self.next.len()
+    self.servers.len()
   }
 
   /// Iterate over the replica set.
   pub fn iter(&self) -> impl Iterator<Item = &Server> {
-    self.remaining.iter().chain(self.next.iter())
+    self.servers.iter()
   }
 }
 
@@ -195,9 +183,19 @@ impl ReplicaSet {
 
   /// Remove the replica from all routing sets.
   pub fn remove_replica(&mut self, replica: &Server) {
-    for routing in self.servers.values_mut() {
-      routing.remove(replica);
-    }
+    self.servers = self
+      .servers
+      .drain()
+      .filter_map(|(primary, mut routing)| {
+        routing.remove(replica);
+
+        if routing.len() > 0 {
+          Some((primary, routing))
+        } else {
+          None
+        }
+      })
+      .collect();
   }
 
   /// Read the server ID of the next replica that should receive a command.
@@ -267,7 +265,6 @@ impl Replicas {
   /// Sync the connection map in place based on the cached routing table.
   pub async fn sync_connections(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     for (_, writer) in self.writers.drain() {
-      // TODO store these somewhere else
       let commands = writer.graceful_close().await;
       self.buffer.extend(commands);
     }
@@ -413,67 +410,6 @@ impl Replicas {
       .collect()
   }
 
-  /// Discover and connect to replicas via the `ROLE` command.
-  pub async fn sync_by_role(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    primary: &mut RedisWriter,
-  ) -> Result<(), RedisError> {
-    for replica in primary.discover_replicas(inner).await? {
-      self.routing.add(primary.server.clone(), replica);
-    }
-
-    Ok(())
-  }
-
-  /// Discover and connect to replicas by inspecting the cached `CLUSTER SLOTS` state.
-  pub fn sync_by_cached_cluster_state(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    primary: &Server,
-  ) -> Result<(), RedisError> {
-    let replicas: Vec<Server> = inner.with_cluster_state(|state| {
-      Ok(
-        state
-          .slots()
-          .iter()
-          .fold(BTreeSet::new(), |mut replicas, slot| {
-            if slot.primary == *primary {
-              replicas.extend(slot.replicas.clone());
-            }
-
-            replicas
-          })
-          .into_iter()
-          .collect(),
-      )
-    })?;
-
-    for replica in replicas.into_iter() {
-      self.routing.add(primary.clone(), replica);
-    }
-
-    Ok(())
-  }
-
-  /// Check if the provided connection has any known replica nodes, and if so add them to the cached routing table.
-  pub async fn check_replicas(
-    &mut self,
-    inner: &Arc<RedisClientInner>,
-    primary: &mut RedisWriter,
-  ) -> Result<(), RedisError> {
-    if inner.config.server.is_clustered() {
-      if let Err(_) = self.sync_by_cached_cluster_state(inner, &primary.server) {
-        _warn!(inner, "Failed to discover replicas via cached CLUSTER SLOTS.");
-        self.sync_by_role(inner, primary).await
-      } else {
-        Ok(())
-      }
-    } else {
-      self.sync_by_role(inner, primary).await
-    }
-  }
-
   /// Send a command to one of the replicas associated with the provided primary server.
   pub async fn write(
     &mut self,
@@ -506,14 +442,14 @@ impl Replicas {
           _debug!(inner, "Lazily adding {} replica connection", replica);
           if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {
             // we tried connecting once but failed.
-            return Written::Disconnect((Some(replica.clone()), Some(command), e));
+            return Written::Disconnected((Some(replica.clone()), Some(command), e));
           }
 
           match self.writers.get_mut(&replica) {
             Some(writer) => writer,
             None => {
               // the connection should be here if self.add_connection succeeded
-              return Written::Disconnect((
+              return Written::Disconnected((
                 Some(replica.clone()),
                 Some(command),
                 RedisError::new(RedisErrorKind::Replica, "Missing connection."),
@@ -561,7 +497,7 @@ impl Replicas {
         command.kind.to_str_debug(),
         e
       );
-      Written::Disconnect((Some(writer.server.clone()), Some(command), e))
+      Written::Disconnected((Some(writer.server.clone()), Some(command), e))
     } else {
       if blocks_connection {
         inner.backchannel.write().await.set_blocked(&writer.server);

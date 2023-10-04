@@ -1582,12 +1582,6 @@ impl RedisCommand {
     self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
-  /// Mark the command to only run once, returning connection write errors to the caller immediately.
-  pub fn set_try_once(&mut self) {
-    self.attempts_remaining = 1;
-    self.redirections_remaining = 1;
-  }
-
   /// Increment and check the number of write attempts.
   pub fn decr_check_attempted(&mut self) -> Result<(), RedisError> {
     if self.attempts_remaining == 0 {
@@ -1846,40 +1840,23 @@ pub enum RouterCommand {
   /// Send a command to the server.
   Command(RedisCommand),
   /// Send a pipelined series of commands to the server.
-  ///
-  /// Commands may finish out of order in the following cluster scenario:
-  /// 1. The client sends `GET foo`.
-  /// 2. The client sends `GET bar`.
-  /// 3. The client sends `GET baz`.
-  /// 4. The client receives a successful response from `GET foo`.
-  /// 5. The client receives `MOVED` or `ASK` from `GET bar`.
-  /// 6. The client receives a successful response from `GET baz`.
-  ///
-  /// In this scenario the client will retry `GET bar` against the correct node, but after `GET baz` has already
-  /// finished. Callers should use a transaction if they require commands to always finish in order across
-  /// arbitrary keys in a cluster. Both a `Pipeline` and `Transaction` will run a series of commands without
-  /// interruption, but only a `Transaction` can guarantee in-order execution while accounting for cluster errors.
-  // If the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the
-  // commands **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands,
-  // and the client would retry them in the same order.
   Pipeline { commands: Vec<RedisCommand> },
   /// Send a transaction to the server.
-  ///
-  /// Notes:
-  /// * The inner command buffer will not contain the trailing `EXEC` command.
-  /// * Transactions are never pipelined in order to handle ASK responses.
-  /// * IDs must be unique w/r/t other transactions buffered in memory.
-  ///
-  /// There is one special failure mode that must be considered:
-  /// 1. The client sends `MULTI` and we receive an `OK` response.
-  /// 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
-  /// 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
-  ///
-  /// According to the cluster spec the client should retry the entire transaction against the node in the `ASK`
-  /// response, but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET
-  /// foo{1}` will have already finished at this point. To account for this the client will never pipeline
-  /// transactions against a cluster, and may clone commands before sending them in order to replay them later with
-  /// a different cluster node mapping.
+  // Notes:
+  // * The inner command buffer will not contain the trailing `EXEC` command.
+  // * Transactions are never pipelined in order to handle ASK responses.
+  // * IDs must be unique w/r/t other transactions buffered in memory.
+  //
+  // There is one special failure mode that must be considered:
+  // 1. The client sends `MULTI` and we receive an `OK` response.
+  // 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
+  // 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
+  //
+  // According to the cluster spec the client should retry the entire transaction against the node in the `ASK`
+  // response, but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET
+  // foo{1}` will have already finished at this point. To account for this the client will never pipeline
+  // transactions against a cluster, and may clone commands before sending them in order to replay them later with
+  // a different cluster node mapping.
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
@@ -1888,24 +1865,21 @@ pub enum RouterCommand {
     tx:             ResponseSender,
   },
   /// Retry a command after a `MOVED` error.
-  ///
-  /// This will trigger a call to `CLUSTER SLOTS` before the command is retried.
+  // This will trigger a call to `CLUSTER SLOTS` before the command is retried.
   Moved {
     slot:    u16,
     server:  Server,
     command: RedisCommand,
   },
   /// Retry a command after an `ASK` error.
-  ///
-  /// This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
+  // This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
   Ask {
     slot:    u16,
     server:  Server,
     command: RedisCommand,
   },
   /// Initiate a reconnection to the provided server, or all servers.
-  ///
-  /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
+  // The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
     server:  Option<Server>,
     force:   bool,

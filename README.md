@@ -52,7 +52,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * Custom commands.
 * Streaming interfaces for scanning functions.
 * [Transactions](https://redis.io/docs/interact/transactions/)
-* [Pipelining](https://redis.io/topics/pipelining). 
+* [Pipelining](https://redis.io/topics/pipelining)
 * [Client Tracking](https://redis.io/docs/manual/client-side-caching/)
 * An optional [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.
 * A round-robin cluster replica routing interface.

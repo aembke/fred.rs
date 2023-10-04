@@ -26,7 +26,7 @@ pub async fn write(
     utils::write_command(inner, writer, command, force_flush).await
   } else {
     _debug!(inner, "Failed to read connection for {}", command.kind.to_str_debug());
-    Written::Disconnect((
+    Written::Disconnected((
       None,
       Some(command),
       RedisError::new(RedisErrorKind::IO, "Missing connection."),
