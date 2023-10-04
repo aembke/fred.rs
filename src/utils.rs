@@ -9,7 +9,6 @@ use crate::{
     utils as protocol_utils,
   },
   types::*,
-  utils,
 };
 use arc_swap::ArcSwap;
 use bytes::Bytes;
@@ -413,12 +412,11 @@ where
   let timed_out = command.timed_out.clone();
   let timeout_dur = prepare_command(client, &mut command);
   check_blocking_policy(inner, &command).await?;
-  disallow_nested_values(&command)?;
   client.send_command(command)?;
 
   wait_for_response(rx, timeout_dur)
     .map_err(move |error| {
-      utils::set_bool_atomic(&timed_out, true);
+      set_bool_atomic(&timed_out, true);
       error
     })
     .await
@@ -450,7 +448,6 @@ where
 
     let req_size = protocol_utils::args_size(&command.args());
     args_span.record("num_args", &command.args().len());
-    let _ = disallow_nested_values(&command)?;
     (command, rx, req_size)
   };
   cmd_span.record("cmd", &command.kind.to_str_debug());
@@ -474,7 +471,7 @@ where
 
   wait_for_response(rx, timeout_dur)
     .map_err(move |error| {
-      utils::set_bool_atomic(&timed_out, true);
+      set_bool_atomic(&timed_out, true);
       error
     })
     .and_then(|frame| async move {
@@ -517,19 +514,6 @@ pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
   } else {
     Ok(())
   }
-}
-
-pub fn disallow_nested_values(cmd: &RedisCommand) -> Result<(), RedisError> {
-  for arg in cmd.args().iter() {
-    if arg.is_map() || arg.is_array() {
-      return Err(RedisError::new(
-        RedisErrorKind::InvalidArgument,
-        format!("Invalid argument type: {:?}", arg.kind()),
-      ));
-    }
-  }
-
-  Ok(())
 }
 
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.

@@ -35,7 +35,7 @@ Notable implementation Changes:
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
 * In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. 
   * Most of these were consolidated under the `default-nil-types` feature flag.
-  * It is recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs).
+  * It is recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs). 
 * The `connect` function can now be called more than once to force reset all client state.
 
 ## 6.3.2

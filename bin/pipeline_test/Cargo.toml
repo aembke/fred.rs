@@ -27,13 +27,12 @@ indicatif = "=0.17.1"
 [dependencies.fred]
 #path = "../.."
 path = "/fred"
-features = ["ignore-auth-error"]
+features = ["ignore-auth-error", "replicas"]
 default-features = false
 
 [features]
 default = []
 debug-ids = ["fred/debug-ids"]
-replicas = ["fred/replicas"]
 stdout-tracing = ["fred/partial-tracing"]
 partial-tracing = ["fred/partial-tracing"]
 full-tracing = ["fred/full-tracing"]

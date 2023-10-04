@@ -37,5 +37,6 @@ async fn main() -> Result<(), RedisError> {
   let result: Value = client.json_get("foo", NONE, NONE, NONE, "$").await?;
   assert_eq!(result[0], json!(["a", "b", "c", "d", { "e": "f" }]));
 
+  // or see the redis-json integration tests for more
   Ok(())
 }

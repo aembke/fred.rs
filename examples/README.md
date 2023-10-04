@@ -18,6 +18,6 @@ Examples
 * [Custom](./custom.rs) - Send custom commands or operate on RESP frames.
 * [DNS](./dns.rs) - Customize the DNS resolution logic. 
 * [Client Tracking](./client_tracking.rs) - Implement [client side caching](https://redis.io/docs/manual/client-side-caching/). 
-* [Misc](./misc.rs) - Miscellaneous features or examples. 
+* [Misc](./misc.rs) - Miscellaneous or advanced features. 
 
 Or see the [tests](../tests/integration) for more examples.

@@ -1,8 +1,6 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::let_underscore_future)]
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use fred::types::TlsConfig;
 use fred::{prelude::*, types::RespVersion};
 #[cfg(feature = "partial-tracing")]
 use fred::{tracing::Level, types::TracingConfig};
@@ -34,7 +32,7 @@ async fn main() -> Result<(), RedisError> {
   let _client = Builder::from_config(config).build()?;
   // or use default values
   let client = Builder::default_centralized().build()?;
-  let connection_jh = client.connect();
+  let connection_task = client.connect();
   client.wait_for_connect().await?;
 
   // convert response types to most common rust types
@@ -50,6 +48,6 @@ async fn main() -> Result<(), RedisError> {
 
   client.quit().await?;
   // calling quit ends the connection and event listener tasks
-  let _ = connection_jh.await;
+  let _ = connection_task.await;
   Ok(())
 }

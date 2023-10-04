@@ -56,6 +56,12 @@ args:
       help: The number of clients in the redis connection pool.
       takes_value: true
       default_value: "1"
+  - auth:
+      short: a
+      long: auth
+      value_name: "STRING"
+      help: The password/key to use.
+      takes_value: true
 subcommands:
   - pipeline:
       about: Run the test with pipelining.
