@@ -43,8 +43,9 @@ async fn write_command(
 ) -> Result<TransactionResponse, RedisError> {
   _trace!(
     inner,
-    "Sending trx command {} to {}",
+    "Sending trx command {} ({}) to {}",
     command.kind.to_str_debug(),
+    command.debug_id(),
     server
   );
 
@@ -135,6 +136,17 @@ pub async fn run(
     let _ = tx.send(Ok(Resp3Frame::Null));
     return Ok(());
   }
+  // each of the commands should have the same options
+  let max_attempts = if commands[0].attempts_remaining == 0 {
+    inner.max_command_attempts()
+  } else {
+    commands[0].attempts_remaining
+  };
+  let max_redirections = if commands[0].redirections_remaining == 0 {
+    inner.connection.max_redirections
+  } else {
+    commands[0].redirections_remaining
+  };
 
   let mut attempted = 0;
   let mut redirections = 0;
@@ -156,7 +168,6 @@ pub async fn run(
             utils::reconnect_with_policy(inner, router).await?
           };
 
-          attempted += 1;
           continue;
         },
       }
@@ -182,19 +193,19 @@ pub async fn run(
         Ok(TransactionResponse::Retry(error)) => {
           _debug!(inner, "Retrying trx {} after WATCH error: {:?}.", id, error);
 
-          if attempted >= inner.max_command_attempts() {
+          attempted += 1;
+          if attempted >= max_attempts {
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
             utils::reconnect_with_policy(inner, router).await?;
           }
 
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
           redirections += 1;
-          if redirections > inner.connection.max_redirections {
+          if redirections > max_redirections {
             let _ = tx.send(Err(RedisError::new(
               RedisErrorKind::Cluster,
               "Too many cluster redirections.",
@@ -205,7 +216,6 @@ pub async fn run(
           _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
           update_hash_slot(&mut commands, slot);
           utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Finished(frame)) => {
@@ -220,7 +230,10 @@ pub async fn run(
       };
     }
 
-    // start sending the trx commands
+    if attempted > 0 {
+      inner.counters.incr_redelivery_count();
+    }
+    // send each of the commands. the first one is always MULTI
     'inner: while idx < commands.len() {
       let command = commands[idx].duplicate(ResponseKind::Skip);
       let rx = command.create_router_channel();
@@ -236,19 +249,19 @@ pub async fn run(
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
 
-          if attempted >= inner.max_command_attempts() {
+          attempted += 1;
+          if attempted >= max_attempts {
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
             utils::reconnect_with_policy(inner, router).await?;
           }
 
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
           redirections += 1;
-          if redirections > inner.connection.max_redirections {
+          if redirections > max_redirections {
             let _ = tx.send(Err(RedisError::new(
               RedisErrorKind::Cluster,
               "Too many cluster redirections.",
@@ -262,7 +275,6 @@ pub async fn run(
           }
           utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
 
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Finished(frame)) => {
@@ -289,14 +301,14 @@ pub async fn run(
           _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
         }
 
-        if attempted >= inner.max_command_attempts() {
+        attempted += 1;
+        if attempted >= max_attempts {
           let _ = tx.send(Err(error));
           return Ok(());
         } else {
           utils::reconnect_with_policy(inner, router).await?;
         }
 
-        attempted += 1;
         continue 'outer;
       },
       Ok(TransactionResponse::Redirection((kind, slot, dest))) => {

@@ -1,11 +1,11 @@
 pub use crate::protocol::types::Server;
 use crate::{error::RedisError, protocol::command::RedisCommand, types::RespVersion, utils};
+use socket2::TcpKeepalive;
 use std::{cmp, time::Duration};
 use url::Url;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
-use socket2::TcpKeepalive;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
@@ -1098,6 +1098,19 @@ impl Options {
     }
 
     self
+  }
+
+  /// Create options from a command.
+  pub(crate) fn from_command(cmd: &RedisCommand) -> Self {
+    Options {
+      max_attempts:                                Some(cmd.attempts_remaining),
+      max_redirections:                            Some(cmd.redirections_remaining),
+      timeout:                                     cmd.timeout_dur.clone(),
+      no_backpressure:                             cmd.skip_backpressure,
+      cluster_node:                                cmd.cluster_node.clone(),
+      #[cfg(feature = "client-tracking")]
+      caching:                                     cmd.caching.clone(),
+    }
   }
 
   /// Overwrite the configuration options on the provided command.

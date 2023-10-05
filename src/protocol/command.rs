@@ -1450,16 +1450,20 @@ pub struct RedisCommand {
 
 impl fmt::Debug for RedisCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("RedisCommand")
+    let mut formatter = f.debug_struct("RedisCommand");
+    formatter
       .field("command", &self.kind.to_str_debug())
       .field("attempts_remaining", &self.attempts_remaining)
       .field("redirections_remaining", &self.redirections_remaining)
       .field("can_pipeline", &self.can_pipeline)
-      .field("arguments", &self.args())
       .field("write_attempts", &self.write_attempts)
       .field("timeout_dur", &self.timeout_dur)
-      .field("no_backpressure", &self.skip_backpressure)
-      .finish()
+      .field("no_backpressure", &self.skip_backpressure);
+
+    #[cfg(feature = "network-logs")]
+    formatter.field("arguments", &self.args());
+
+    formatter.finish()
   }
 }
 

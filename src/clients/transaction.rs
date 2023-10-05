@@ -10,33 +10,21 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  types::{FromRedis, MultipleKeys, RedisKey, Server},
+  types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
   utils,
 };
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-/// A client struct for commands in a `MULTI`/`EXEC` transaction block.
+/// A cheaply cloneable transaction block.
+#[derive(Clone)]
 pub struct Transaction {
   id:        u64,
   inner:     Arc<RedisClientInner>,
   commands:  Arc<Mutex<VecDeque<RedisCommand>>>,
   watched:   Arc<Mutex<VecDeque<RedisKey>>>,
   hash_slot: Arc<Mutex<Option<u16>>>,
-}
-
-#[doc(hidden)]
-impl Clone for Transaction {
-  fn clone(&self) -> Self {
-    Transaction {
-      id:        self.id,
-      inner:     self.inner.clone(),
-      commands:  self.commands.clone(),
-      watched:   self.watched.clone(),
-      hash_slot: self.hash_slot.clone(),
-    }
-  }
 }
 
 impl fmt::Debug for Transaction {
@@ -49,6 +37,14 @@ impl fmt::Debug for Transaction {
       .finish()
   }
 }
+
+impl PartialEq for Transaction {
+  fn eq(&self, other: &Self) -> bool {
+    self.id == other.id
+  }
+}
+
+impl Eq for Transaction {}
 
 impl ClientLike for Transaction {
   #[doc(hidden)]
@@ -102,6 +98,17 @@ impl FunctionInterface for Transaction {}
 impl RedisJsonInterface for Transaction {}
 
 impl Transaction {
+  /// Create a new transaction.
+  pub(crate) fn from_inner(inner: &Arc<RedisClientInner>) -> Self {
+    Transaction {
+      inner:     inner.clone(),
+      commands:  Arc::new(Mutex::new(VecDeque::new())),
+      watched:   Arc::new(Mutex::new(VecDeque::new())),
+      hash_slot: Arc::new(Mutex::new(None)),
+      id:        utils::random_u64(u64::MAX),
+    }
+  }
+
   /// Check and update the hash slot for the transaction.
   pub(crate) fn update_hash_slot(&self, command: &RedisCommand) -> Result<(), RedisError> {
     if !self.inner.config.server.is_clustered() {
@@ -144,6 +151,28 @@ impl Transaction {
     }
   }
 
+  /// An ID identifying the underlying transaction state.
+  pub fn id(&self) -> u64 {
+    self.id
+  }
+
+  /// Clear the internal command buffer and watched keys.
+  pub fn reset(&self) {
+    self.commands.lock().clear();
+    self.watched.lock().clear();
+    self.hash_slot.lock().take();
+  }
+
+  /// Read the number of commands queued to run.
+  pub fn len(&self) -> usize {
+    self.commands.lock().len()
+  }
+
+  /// Read the number of keys to `WATCH` before the starting the transaction.
+  pub fn watched_len(&self) -> usize {
+    self.watched.lock().len()
+  }
+
   /// Executes all previously queued commands in a transaction.
   ///
   /// If `abort_on_error` is `true` the client will automatically send `DISCARD` if an error is received from
@@ -167,13 +196,20 @@ impl Transaction {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn exec<R>(self, abort_on_error: bool) -> Result<R, RedisError>
+  pub async fn exec<R>(&self, abort_on_error: bool) -> Result<R, RedisError>
   where
     R: FromRedis,
   {
-    let commands = { self.commands.lock().drain(..).collect() };
-    let watched = { self.watched.lock().drain(..).collect() };
-    let hash_slot = utils::take_mutex(&self.hash_slot);
+    let commands = {
+      self
+        .commands
+        .lock()
+        .iter()
+        .map(|cmd| cmd.duplicate(ResponseKind::Skip))
+        .collect()
+    };
+    let watched = { self.watched.lock().iter().cloned().collect() };
+    let hash_slot = utils::read_mutex(&self.hash_slot);
     exec(&self.inner, commands, watched, hash_slot, abort_on_error, self.id)
       .await?
       .convert()
@@ -185,14 +221,6 @@ impl Transaction {
     K: Into<MultipleKeys>,
   {
     self.watched.lock().extend(keys.into().inner());
-  }
-
-  /// Flushes all previously queued commands in a transaction.
-  ///
-  /// <https://redis.io/commands/discard>
-  pub async fn discard(self) -> Result<(), RedisError> {
-    // don't need to do anything here since the commands are queued in memory
-    Ok(())
   }
 
   /// Read the hash slot against which this transaction will run, if known.  
@@ -212,22 +240,6 @@ impl Transaction {
   }
 }
 
-#[doc(hidden)]
-impl<'a> From<&'a Arc<RedisClientInner>> for Transaction {
-  fn from(inner: &'a Arc<RedisClientInner>) -> Self {
-    let mut commands = VecDeque::with_capacity(4);
-    commands.push_back(RedisCommandKind::Multi.into());
-
-    Transaction {
-      inner:     inner.clone(),
-      commands:  Arc::new(Mutex::new(commands)),
-      watched:   Arc::new(Mutex::new(VecDeque::new())),
-      hash_slot: Arc::new(Mutex::new(None)),
-      id:        utils::random_u64(u64::MAX),
-    }
-  }
-}
-
 async fn exec(
   inner: &Arc<RedisClientInner>,
   commands: VecDeque<RedisCommand>,
@@ -240,14 +252,21 @@ async fn exec(
     return Ok(RedisValue::Null);
   }
   let (tx, rx) = oneshot_channel();
+  let trx_options = Options::from_command(&commands[0]);
 
-  let commands: Vec<RedisCommand> = commands
+  let mut multi = RedisCommand::new(RedisCommandKind::Multi, vec![]);
+  trx_options.apply(&mut multi);
+
+  let commands: Vec<RedisCommand> = [multi]
     .into_iter()
+    .chain(commands.into_iter())
     .map(|mut command| {
+      command.inherit_options(inner);
       command.response = ResponseKind::Skip;
       command.can_pipeline = false;
       command.skip_backpressure = true;
       command.transaction_id = Some(id);
+      command.use_replica = false;
       if let Some(hash_slot) = hash_slot.as_ref() {
         command.hasher = ClusterHash::Custom(*hash_slot);
       }
@@ -276,15 +295,14 @@ async fn exec(
     commands.len(),
     watched.as_ref().map(|c| c.args().len()).unwrap_or(0)
   );
-  let mut command = RouterCommand::Transaction {
+  let command = RouterCommand::Transaction {
     id,
     tx,
     commands,
     watched,
     abort_on_error,
   };
-  command.inherit_options(inner);
-  let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
+  let timeout_dur = trx_options.timeout.unwrap_or_else(|| inner.default_command_timeout());
 
   interfaces::send_to_router(inner, command)?;
   let frame = utils::apply_timeout(rx, timeout_dur).await??;

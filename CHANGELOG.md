@@ -31,7 +31,7 @@ Notable interface changes:
 
 Notable implementation Changes:
 
-* The `Pipeline` struct can now be reused. Calling `all`, `last`, or `try_all` no longer drains the inner command buffer.
+* `Pipeline` and `Transaction` structs can now be reused. Calling `exec`, `all`, `last`, or `try_all` no longer drains the inner command buffer.
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
 * In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. 
   * Most of these were consolidated under the `default-nil-types` feature flag.

@@ -569,6 +569,25 @@ pub async fn should_reuse_pipeline(client: RedisClient, _: RedisConfig) -> Resul
   Ok(())
 }
 
+pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let options = Options {
+    max_attempts: Some(1),
+    timeout: Some(Duration::from_secs(1)),
+    ..Default::default()
+  };
+  let trx = client.multi().with_options(&options);
+
+  let _: () = trx.get("foo{1}").await?;
+  let _: () = trx.set("foo{1}", "bar", None, None, false).await?;
+  let _: () = trx.get("foo{1}").await?;
+  let (first, second, third): (Option<RedisValue>, bool, String) = trx.exec(true).await?;
+
+  assert_eq!(first, None);
+  assert_eq!(second, true);
+  assert_eq!(third, "bar");
+  Ok(())
+}
+
 pub async fn should_manually_connect_twice(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let client = client.clone_new();
   let _old_connection = client.connect();

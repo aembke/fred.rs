@@ -177,7 +177,7 @@ pub async fn inspect_cluster(tls: bool) -> Result<ClusterRouting, RedisError> {
       env::try_read(env::CLUSTER_TLS_PORT)?,
     );
 
-    // TODO add ca/cert/key argv?
+    // TODO add ca/cert/key argv
     format!(
       "redis-cli -h {} -p {} -a {} --raw --tls CLUSTER SLOTS",
       host, port, password

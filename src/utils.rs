@@ -219,10 +219,7 @@ pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
   mem::replace(&mut *locked.lock(), value)
 }
 
-pub fn take_mutex<T>(locked: &Mutex<Option<T>>) -> Option<T> {
-  locked.lock().take()
-}
-
+///
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
@@ -235,6 +232,7 @@ pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   }
 }
 
+/// Parse the response from `FUNCTION LIST`.
 fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(functions) = value {
     let mut out = Vec::with_capacity(functions.len());
@@ -264,6 +262,7 @@ fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   }
 }
 
+/// Check and parse the response to `FUNCTION LIST`.
 pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(ref libraries) = value {
     for library in libraries.iter() {
@@ -307,13 +306,6 @@ where
   }
 }
 
-pub async fn wait_for_response(
-  rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
-  timeout: Duration,
-) -> Result<Resp3Frame, RedisError> {
-  apply_timeout(rx, timeout).await?
-}
-
 pub fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.blocking == Blocking::Error
 }
@@ -322,11 +314,11 @@ pub fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.blocking == Blocking::Interrupt
 }
 
+/// Whether the router should check and interrupt the blocked command.
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
-  // TODO switch the blocked flag to an AtomicBool to avoid this locked check on each command
   !command.kind.closes_connection()
-    && (inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
-    && inner.backchannel.read().await.is_blocked()
+    && ((inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
+      && inner.backchannel.read().await.is_blocked())
 }
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
@@ -414,7 +406,7 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  wait_for_response(rx, timeout_dur)
+  apply_timeout(rx, timeout_dur)
     .map_err(move |error| {
       set_bool_atomic(&timed_out, true);
       error
@@ -469,7 +461,7 @@ where
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = client.send_command(command)?;
 
-  wait_for_response(rx, timeout_dur)
+  apply_timeout(rx, timeout_dur)
     .map_err(move |error| {
       set_bool_atomic(&timed_out, true);
       error
