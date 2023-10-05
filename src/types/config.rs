@@ -1105,7 +1105,7 @@ impl Options {
     Options {
       max_attempts:                                Some(cmd.attempts_remaining),
       max_redirections:                            Some(cmd.redirections_remaining),
-      timeout:                                     cmd.timeout_dur.clone(),
+      timeout:                                     cmd.timeout_dur,
       no_backpressure:                             cmd.skip_backpressure,
       cluster_node:                                cmd.cluster_node.clone(),
       #[cfg(feature = "client-tracking")]

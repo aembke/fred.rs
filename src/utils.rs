@@ -37,7 +37,7 @@ use std::{
 use tokio::{
   sync::{
     broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
-    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
+    oneshot::channel as oneshot_channel,
   },
   time::sleep,
 };
@@ -407,6 +407,7 @@ where
   client.send_command(command)?;
 
   apply_timeout(rx, timeout_dur)
+    .and_then(|r| async { r })
     .map_err(move |error| {
       set_bool_atomic(&timed_out, true);
       error
@@ -462,6 +463,7 @@ where
   let _ = client.send_command(command)?;
 
   apply_timeout(rx, timeout_dur)
+    .and_then(|r| async { r })
     .map_err(move |error| {
       set_bool_atomic(&timed_out, true);
       error
