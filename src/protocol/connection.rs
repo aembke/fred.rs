@@ -489,7 +489,7 @@ impl RedisTransport {
   pub async fn set_client_name(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     _debug!(inner, "Setting client name.");
     let name = &inner.id;
-    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.as_str().into()]);
+    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.clone().into()]);
     let response = self.request_response(command, inner.is_resp3()).await?;
 
     if protocol_utils::is_ok(&response) {

@@ -10,6 +10,7 @@ use parking_lot::RwLock;
 /// `MOVED`, `ASK`, and `NOAUTH` errors are handled separately by the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "custom-reconnect-errors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
 pub enum ReconnectError {
   /// The CLUSTERDOWN prefix.
   ClusterDown,
@@ -28,7 +29,7 @@ pub enum ReconnectError {
   NoReplicas,
   /// A case-sensitive prefix on an error message.
   ///
-  /// See [the source](https://github.com/redis/redis/blob/unstable/src/server.c#L2506-L2538) for examples.
+  /// See [the source](https://github.com/redis/redis/blob/fe37e4fc874a92dcf61b3b0de899ec6f674d2442/src/server.c#L1845) for examples.
   Custom(&'static str),
 }
 

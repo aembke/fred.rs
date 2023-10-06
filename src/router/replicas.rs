@@ -1,5 +1,5 @@
 #[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
-use crate::types::{HostMapping, TlsHostMapping};
+use crate::types::TlsHostMapping;
 #[cfg(feature = "replicas")]
 use crate::{
   error::{RedisError, RedisErrorKind},
@@ -527,7 +527,7 @@ pub fn map_replica_tls_names(inner: &Arc<RedisClientInner>, primary: &Server, re
     return;
   }
 
-  replica.set_tls_server_name(policy, primary.host.as_str());
+  replica.set_tls_server_name(policy, &primary.host);
 }
 
 #[cfg(all(
