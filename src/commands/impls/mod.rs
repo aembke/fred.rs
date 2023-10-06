@@ -6,54 +6,54 @@ use crate::{
   utils,
 };
 
-pub static MATCH: &'static str = "MATCH";
-pub static COUNT: &'static str = "COUNT";
-pub static TYPE: &'static str = "TYPE";
-pub static CHANGED: &'static str = "CH";
-pub static INCR: &'static str = "INCR";
-pub static WITH_SCORES: &'static str = "WITHSCORES";
-pub static LIMIT: &'static str = "LIMIT";
-pub static AGGREGATE: &'static str = "AGGREGATE";
-pub static WEIGHTS: &'static str = "WEIGHTS";
-pub static GET: &'static str = "GET";
-pub static RESET: &'static str = "RESET";
-pub static TO: &'static str = "TO";
-pub static FORCE: &'static str = "FORCE";
-pub static ABORT: &'static str = "ABORT";
-pub static TIMEOUT: &'static str = "TIMEOUT";
-pub static LEN: &'static str = "LEN";
-pub static DB: &'static str = "DB";
-pub static REPLACE: &'static str = "REPLACE";
-pub static ID: &'static str = "ID";
-pub static ANY: &'static str = "ANY";
-pub static STORE: &'static str = "STORE";
-pub static WITH_VALUES: &'static str = "WITHVALUES";
-pub static SYNC: &'static str = "SYNC";
-pub static ASYNC: &'static str = "ASYNC";
-pub static RANK: &'static str = "RANK";
-pub static MAXLEN: &'static str = "MAXLEN";
-pub static REV: &'static str = "REV";
-pub static ABSTTL: &'static str = "ABSTTL";
-pub static IDLE_TIME: &'static str = "IDLETIME";
-pub static FREQ: &'static str = "FREQ";
-pub static FULL: &'static str = "FULL";
-pub static NOMKSTREAM: &'static str = "NOMKSTREAM";
-pub static MINID: &'static str = "MINID";
-pub static BLOCK: &'static str = "BLOCK";
-pub static STREAMS: &'static str = "STREAMS";
-pub static MKSTREAM: &'static str = "MKSTREAM";
-pub static GROUP: &'static str = "GROUP";
-pub static NOACK: &'static str = "NOACK";
-pub static IDLE: &'static str = "IDLE";
-pub static TIME: &'static str = "TIME";
-pub static RETRYCOUNT: &'static str = "RETRYCOUNT";
-pub static JUSTID: &'static str = "JUSTID";
-pub static SAMPLES: &'static str = "SAMPLES";
-pub static LIBRARYNAME: &'static str = "LIBRARYNAME";
-pub static WITHCODE: &'static str = "WITHCODE";
-pub static IDX: &'static str = "IDX";
-pub static MINMATCHLEN: &'static str = "MINMATCHLEN";
-pub static WITHMATCHLEN: &'static str = "WITHMATCHLEN";
+pub static MATCH: &str = "MATCH";
+pub static COUNT: &str = "COUNT";
+pub static TYPE: &str = "TYPE";
+pub static CHANGED: &str = "CH";
+pub static INCR: &str = "INCR";
+pub static WITH_SCORES: &str = "WITHSCORES";
+pub static LIMIT: &str = "LIMIT";
+pub static AGGREGATE: &str = "AGGREGATE";
+pub static WEIGHTS: &str = "WEIGHTS";
+pub static GET: &str = "GET";
+pub static RESET: &str = "RESET";
+pub static TO: &str = "TO";
+pub static FORCE: &str = "FORCE";
+pub static ABORT: &str = "ABORT";
+pub static TIMEOUT: &str = "TIMEOUT";
+pub static LEN: &str = "LEN";
+pub static DB: &str = "DB";
+pub static REPLACE: &str = "REPLACE";
+pub static ID: &str = "ID";
+pub static ANY: &str = "ANY";
+pub static STORE: &str = "STORE";
+pub static WITH_VALUES: &str = "WITHVALUES";
+pub static SYNC: &str = "SYNC";
+pub static ASYNC: &str = "ASYNC";
+pub static RANK: &str = "RANK";
+pub static MAXLEN: &str = "MAXLEN";
+pub static REV: &str = "REV";
+pub static ABSTTL: &str = "ABSTTL";
+pub static IDLE_TIME: &str = "IDLETIME";
+pub static FREQ: &str = "FREQ";
+pub static FULL: &str = "FULL";
+pub static NOMKSTREAM: &str = "NOMKSTREAM";
+pub static MINID: &str = "MINID";
+pub static BLOCK: &str = "BLOCK";
+pub static STREAMS: &str = "STREAMS";
+pub static MKSTREAM: &str = "MKSTREAM";
+pub static GROUP: &str = "GROUP";
+pub static NOACK: &str = "NOACK";
+pub static IDLE: &str = "IDLE";
+pub static TIME: &str = "TIME";
+pub static RETRYCOUNT: &str = "RETRYCOUNT";
+pub static JUSTID: &str = "JUSTID";
+pub static SAMPLES: &str = "SAMPLES";
+pub static LIBRARYNAME: &str = "LIBRARYNAME";
+pub static WITHCODE: &str = "WITHCODE";
+pub static IDX: &str = "IDX";
+pub static MINMATCHLEN: &str = "MINMATCHLEN";
+pub static WITHMATCHLEN: &str = "WITHMATCHLEN";
 
 /// Macro to generate a command function that takes no arguments and expects an OK response - returning `()` to the
 /// caller.
@@ -61,7 +61,7 @@ macro_rules! ok_cmd(
   ($name:ident, $cmd:tt) => {
     pub async fn $name<C: ClientLike>(client: &C) -> Result<(), RedisError> {
       let frame = crate::utils::request_response(client, || Ok((RedisCommandKind::$cmd, vec![]))).await?;
-      let response = crate::protocol::utils::frame_to_single_result(frame)?;
+      let response = crate::protocol::utils::frame_to_results(frame)?;
       crate::protocol::utils::expect_ok(&response)
     }
   }
@@ -72,7 +72,7 @@ macro_rules! simple_cmd(
   ($name:ident, $cmd:tt, $res:ty) => {
     pub async fn $name<C: ClientLike>(client: &C) -> Result<$res, RedisError> {
       let frame = crate::utils::request_response(client, || Ok((RedisCommandKind::$cmd, vec![]))).await?;
-      crate::protocol::utils::frame_to_single_result(frame)
+      crate::protocol::utils::frame_to_results(frame)
     }
   }
 );
@@ -102,7 +102,7 @@ pub async fn one_arg_value_cmd<C: ClientLike>(
   arg: RedisValue,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, vec![arg]))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 /// A function that issues a command that only takes one argument and returns a potentially nested `RedisValue`.
@@ -124,7 +124,7 @@ pub async fn one_arg_ok_cmd<C: ClientLike>(
 ) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, vec![arg]))).await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -136,7 +136,7 @@ pub async fn args_value_cmd<C: ClientLike>(
   args: Vec<RedisValue>,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, args))).await?;
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 /// A function that issues a command that takes any number of arguments and returns a potentially nested `RedisValue`
@@ -158,7 +158,7 @@ pub async fn args_ok_cmd<C: ClientLike>(
   args: Vec<RedisValue>,
 ) -> Result<(), RedisError> {
   let frame = utils::request_response(client, move || Ok((kind, args))).await?;
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -182,6 +182,8 @@ pub mod sorted_sets;
 pub mod streams;
 pub mod strings;
 
+#[cfg(feature = "redis-json")]
+pub mod redis_json;
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;
 #[cfg(feature = "client-tracking")]

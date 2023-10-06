@@ -9,6 +9,6 @@ pub trait TransactionInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/multi>
   fn multi(&self) -> Transaction {
-    self.inner().into()
+    Transaction::from_inner(self.inner())
   }
 }

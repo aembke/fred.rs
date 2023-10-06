@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{monitor, prelude::*};
 use futures::stream::StreamExt;
 use std::time::Duration;

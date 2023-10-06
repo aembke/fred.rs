@@ -3,8 +3,9 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::types::{Server, SlotRange},
   types::RedisValue,
+  utils,
 };
-use arcstr::ArcStr;
+use bytes_utils::Str;
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
@@ -27,12 +28,12 @@ fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
   }
 }
 
-fn is_ip_address(value: &str) -> bool {
+fn is_ip_address(value: &Str) -> bool {
   IpAddr::from_str(value).is_ok()
 }
 
-fn check_metadata_hostname(data: &HashMap<String, String>) -> Option<&str> {
-  data.get("hostname").map(|s| s.as_str())
+fn check_metadata_hostname(data: &HashMap<Str, Str>) -> Option<&Str> {
+  data.get(&utils::static_str("hostname"))
 }
 
 /// Find the correct hostname for the server, preferring hostnames over IP addresses for TLS purposes.
@@ -47,8 +48,10 @@ fn check_metadata_hostname(data: &HashMap<String, String>) -> Option<&str> {
 /// 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata field, then use the metadata field. Otherwise
 /// use `default_host`.
 ///
+/// The `default_host` is the host that returned the `CLUSTER SLOTS` response.
+///
 /// <https://redis.io/commands/cluster-slots/#nested-result-array>
-fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Result<String, RedisError> {
+fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Result<Str, RedisError> {
   if server.is_empty() {
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
@@ -57,19 +60,19 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Res
   }
   let should_parse_metadata = server.len() >= 4 && !server[3].is_null() && server[3].array_len().unwrap_or(0) > 0;
 
-  let metadata: HashMap<String, String> = if should_parse_metadata {
-    // not ideal, but all the variants with data on the heap are ref counted (`Bytes`, `Str`, etc)
+  let metadata: HashMap<Str, Str> = if should_parse_metadata {
+    // all the variants with data on the heap are ref counted (`Bytes`, `Str`, etc)
     server[3].clone().convert()?
   } else {
     HashMap::new()
   };
   if server[0].is_null() {
-    // step 3
-    Ok(check_metadata_hostname(&metadata).unwrap_or(default_host).to_owned())
+    // option 3
+    Ok(check_metadata_hostname(&metadata).unwrap_or(default_host).clone())
   } else {
-    let preferred_host = match server[0].clone().into_string() {
-      Some(host) => host,
-      None => {
+    let preferred_host = match server[0].clone().convert::<Str>() {
+      Ok(host) => host,
+      Err(_) => {
         return Err(RedisError::new(
           RedisErrorKind::Protocol,
           "Invalid CLUSTER SLOTS server block hostname.",
@@ -78,26 +81,22 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &str) -> Res
     };
 
     if is_ip_address(&preferred_host) {
-      // step 2
-      Ok(
-        check_metadata_hostname(&metadata)
-          .map(|s| s.to_owned())
-          .unwrap_or(preferred_host),
-      )
+      // option 2
+      Ok(check_metadata_hostname(&metadata).unwrap_or(&preferred_host).clone())
     } else {
-      // step 1
+      // option 1
       Ok(preferred_host)
     }
   }
 }
 
 /// Read the node block with format `<hostname>|null, <port>, <id>, [metadata]`
-fn parse_node_block(data: &Vec<RedisValue>, default_host: &str) -> Option<(String, u16, ArcStr, ArcStr)> {
+fn parse_node_block(data: &Vec<RedisValue>, default_host: &Str) -> Option<(Str, u16, Str, Str)> {
   if data.len() < 3 {
     return None;
   }
 
-  let hostname = match parse_cluster_slot_hostname(&data, default_host) {
+  let hostname = match parse_cluster_slot_hostname(data, default_host) {
     Ok(host) => host,
     Err(_) => return None,
   };
@@ -105,19 +104,15 @@ fn parse_node_block(data: &Vec<RedisValue>, default_host: &str) -> Option<(Strin
     Ok(port) => port,
     Err(_) => return None,
   };
-  let primary = ArcStr::from(format!("{}:{}", hostname, port));
-  let id = if let Some(s) = data[2].as_str() {
-    ArcStr::from(s.as_ref().to_string())
-  } else {
-    return None;
-  };
+  let primary = Str::from(format!("{}:{}", hostname, port));
+  let id = data[2].as_bytes_str()?;
 
   Some((hostname, port, primary, id))
 }
 
 /// Parse the optional trailing replica nodes in each `CLUSTER SLOTS` slot range block.
 #[cfg(feature = "replicas")]
-fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &str) -> Vec<Server> {
+fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &Str) -> Vec<Server> {
   slot_range
     .into_iter()
     .filter_map(|value| {
@@ -130,7 +125,7 @@ fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &
       };
 
       let (host, port) = match parse_node_block(&server_block, default_host) {
-        Some((h, p, _, _)) => (ArcStr::from(h), p),
+        Some((h, p, _, _)) => (h, p),
         None => {
           warn!("Skip replica CLUSTER SLOTS block from {}", default_host);
           return None;
@@ -140,6 +135,7 @@ fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &
       Some(Server {
         host,
         port,
+        #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
         tls_server_name: None,
       })
     })
@@ -147,7 +143,7 @@ fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &
 }
 
 /// Parse the cluster slot range and associated server blocks.
-fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str) -> Result<SlotRange, RedisError> {
+fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &Str) -> Result<SlotRange, RedisError> {
   if slot_range.len() < 3 {
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
@@ -163,7 +159,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
   // length checked above. format is `<hostname>|null, <port>, <id>, [metadata]`
   let server_block: Vec<RedisValue> = slot_range.pop().unwrap().convert()?;
   let (host, port, id) = match parse_node_block(&server_block, default_host) {
-    Some((h, p, _, i)) => (ArcStr::from(h), p, i),
+    Some((h, p, _, i)) => (h, p, i),
     None => {
       trace!("Failed to parse CLUSTER SLOTS response: {:?}", server_block);
       return Err(RedisError::new(
@@ -180,6 +176,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
     primary: Server {
       host,
       port,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls_server_name: None,
     },
     #[cfg(feature = "replicas")]
@@ -189,7 +186,7 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &str)
 
 /// Parse the entire CLUSTER SLOTS response with the provided `default_host` of the connection used to send the
 /// command.
-pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<SlotRange>, RedisError> {
+pub fn parse_cluster_slots(frame: RedisValue, default_host: &Str) -> Result<Vec<SlotRange>, RedisError> {
   let slot_ranges: Vec<Vec<RedisValue>> = frame.convert()?;
   let mut out: Vec<SlotRange> = Vec::with_capacity(slot_ranges.len());
 
@@ -202,7 +199,7 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &str) -> Result<Vec<
 }
 
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &str) {
+fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &Str) {
   for slot_range in ranges.iter_mut() {
     slot_range.primary.set_tls_server_name(policy, default_host);
 
@@ -215,7 +212,7 @@ fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>
 
 /// Modify the `CLUSTER SLOTS` command according to the hostname mapping policy in the `TlsHostMapping`.
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut Vec<SlotRange>, default_host: &str) {
+pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut Vec<SlotRange>, default_host: &Str) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {
@@ -232,7 +229,7 @@ pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut
 }
 
 #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
-pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, _: &mut Vec<SlotRange>, _: &str) {
+pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, _: &mut Vec<SlotRange>, _: &Str) {
   _trace!(inner, "Skip modifying TLS hostnames.")
 }
 
@@ -359,8 +356,8 @@ mod tests {
   fn should_modify_cluster_slot_hostnames_default_host_without_metadata() {
     let policy = TlsHostMapping::DefaultHost;
     let fake_data = fake_cluster_slots_without_metadata();
-    let mut ranges = parse_cluster_slots(fake_data, "default-host").unwrap();
-    replace_tls_server_names(&policy, &mut ranges, "default-host");
+    let mut ranges = parse_cluster_slots(fake_data, &Str::from("default-host")).unwrap();
+    replace_tls_server_names(&policy, &mut ranges, &Str::from("default-host"));
 
     for slot_range in ranges.iter() {
       assert_ne!(slot_range.primary.host, "default-host");
@@ -379,8 +376,8 @@ mod tests {
   fn should_not_modify_cluster_slot_hostnames_default_host_with_metadata() {
     let policy = TlsHostMapping::DefaultHost;
     let fake_data = fake_cluster_slots_with_metadata();
-    let mut ranges = parse_cluster_slots(fake_data, "default-host").unwrap();
-    replace_tls_server_names(&policy, &mut ranges, "default-host");
+    let mut ranges = parse_cluster_slots(fake_data, &Str::from("default-host")).unwrap();
+    replace_tls_server_names(&policy, &mut ranges, &Str::from("default-host"));
 
     for slot_range in ranges.iter() {
       assert_ne!(slot_range.primary.host, "default-host");
@@ -400,8 +397,8 @@ mod tests {
   fn should_modify_cluster_slot_hostnames_custom() {
     let policy = TlsHostMapping::Custom(Arc::new(FakeHostMapper));
     let fake_data = fake_cluster_slots_without_metadata();
-    let mut ranges = parse_cluster_slots(fake_data, "default-host").unwrap();
-    replace_tls_server_names(&policy, &mut ranges, "default-host");
+    let mut ranges = parse_cluster_slots(fake_data, &Str::from("default-host")).unwrap();
+    replace_tls_server_names(&policy, &mut ranges, &Str::from("default-host"));
 
     for slot_range in ranges.iter() {
       assert_ne!(slot_range.primary.host, "default-host");
@@ -419,21 +416,23 @@ mod tests {
   fn should_parse_cluster_slots_example_metadata_hostnames() {
     let input = fake_cluster_slots_with_metadata();
 
-    let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
+    let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
         start:                                 0,
         end:                                   5460,
         primary:                               Server {
-          host:            "host-1.redis.example.com".into(),
-          port:            30001,
+          host: "host-1.redis.example.com".into(),
+          port: 30001,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "host-2.redis.example.com".into(),
-          port:            30004,
+          host: "host-2.redis.example.com".into(),
+          port: 30004,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -441,15 +440,17 @@ mod tests {
         start:                                 5461,
         end:                                   10922,
         primary:                               Server {
-          host:            "host-3.redis.example.com".into(),
-          port:            30002,
+          host: "host-3.redis.example.com".into(),
+          port: 30002,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "host-4.redis.example.com".into(),
-          port:            30005,
+          host: "host-4.redis.example.com".into(),
+          port: 30005,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -457,15 +458,17 @@ mod tests {
         start:                                 10923,
         end:                                   16383,
         primary:                               Server {
-          host:            "host-5.redis.example.com".into(),
-          port:            30003,
+          host: "host-5.redis.example.com".into(),
+          port: 30003,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "host-6.redis.example.com".into(),
-          port:            30006,
+          host: "host-6.redis.example.com".into(),
+          port: 30006,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -477,21 +480,23 @@ mod tests {
   fn should_parse_cluster_slots_example_no_metadata() {
     let input = fake_cluster_slots_without_metadata();
 
-    let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
+    let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
         start:                                 0,
         end:                                   5460,
         primary:                               Server {
-          host:            "127.0.0.1".into(),
-          port:            30001,
+          host: "127.0.0.1".into(),
+          port: 30001,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "127.0.0.1".into(),
-          port:            30004,
+          host: "127.0.0.1".into(),
+          port: 30004,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -499,15 +504,17 @@ mod tests {
         start:                                 5461,
         end:                                   10922,
         primary:                               Server {
-          host:            "127.0.0.1".into(),
-          port:            30002,
+          host: "127.0.0.1".into(),
+          port: 30002,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "127.0.0.1".into(),
-          port:            30005,
+          host: "127.0.0.1".into(),
+          port: 30005,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -515,15 +522,17 @@ mod tests {
         start:                                 10923,
         end:                                   16383,
         primary:                               Server {
-          host:            "127.0.0.1".into(),
-          port:            30003,
+          host: "127.0.0.1".into(),
+          port: 30003,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "127.0.0.1".into(),
-          port:            30006,
+          host: "127.0.0.1".into(),
+          port: 30006,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -583,21 +592,23 @@ mod tests {
     ]);
     let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
 
-    let actual = parse_cluster_slots(input, "bad-host").expect("Failed to parse input");
+    let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
         start:                                 0,
         end:                                   5460,
         primary:                               Server {
-          host:            "127.0.0.1".into(),
-          port:            30001,
+          host: "127.0.0.1".into(),
+          port: 30001,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "127.0.0.1".into(),
-          port:            30004,
+          host: "127.0.0.1".into(),
+          port: 30004,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -605,15 +616,17 @@ mod tests {
         start:                                 5461,
         end:                                   10922,
         primary:                               Server {
-          host:            "127.0.0.1".into(),
-          port:            30002,
+          host: "127.0.0.1".into(),
+          port: 30002,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "127.0.0.1".into(),
-          port:            30005,
+          host: "127.0.0.1".into(),
+          port: 30005,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -621,15 +634,17 @@ mod tests {
         start:                                 10923,
         end:                                   16383,
         primary:                               Server {
-          host:            "127.0.0.1".into(),
-          port:            30003,
+          host: "127.0.0.1".into(),
+          port: 30003,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "127.0.0.1".into(),
-          port:            30006,
+          host: "127.0.0.1".into(),
+          port: 30006,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -689,21 +704,23 @@ mod tests {
     ]);
     let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
 
-    let actual = parse_cluster_slots(input, "fake-host").expect("Failed to parse input");
+    let actual = parse_cluster_slots(input, &Str::from("fake-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
         start:                                 0,
         end:                                   5460,
         primary:                               Server {
-          host:            "fake-host".into(),
-          port:            30001,
+          host: "fake-host".into(),
+          port: 30001,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "fake-host".into(),
-          port:            30004,
+          host: "fake-host".into(),
+          port: 30004,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -711,15 +728,17 @@ mod tests {
         start:                                 5461,
         end:                                   10922,
         primary:                               Server {
-          host:            "fake-host".into(),
-          port:            30002,
+          host: "fake-host".into(),
+          port: 30002,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "fake-host".into(),
-          port:            30005,
+          host: "fake-host".into(),
+          port: 30005,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },
@@ -727,15 +746,17 @@ mod tests {
         start:                                 10923,
         end:                                   16383,
         primary:                               Server {
-          host:            "fake-host".into(),
-          port:            30003,
+          host: "fake-host".into(),
+          port: 30003,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         },
         id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
         replicas:                              vec![Server {
-          host:            "fake-host".into(),
-          port:            30006,
+          host: "fake-host".into(),
+          port: 30006,
+          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
           tls_server_name: None,
         }],
       },

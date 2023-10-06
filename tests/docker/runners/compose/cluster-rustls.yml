@@ -11,7 +11,8 @@ services:
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
-      - app-tier
+      - fred-tests
+    privileged: true
     command:
       - "/project/tests/docker/runners/bash/cluster-rustls.sh"
       - "${TEST_ARGV}"

@@ -19,7 +19,7 @@ pub async fn hdel<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn hexists<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
@@ -99,7 +99,7 @@ pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
@@ -116,7 +116,7 @@ pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) ->
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn hsetnx<C: ClientLike>(
@@ -130,7 +130,7 @@ pub async fn hsetnx<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn hrandfield<C: ClientLike>(
@@ -158,12 +158,12 @@ pub async fn hrandfield<C: ClientLike>(
   if has_count {
     if has_values && !protocol_utils::frame_is_queued(&frame) {
       let frame = protocol_utils::flatten_frame(frame);
-      protocol_utils::frame_to_map(frame).map(|m| RedisValue::Map(m))
+      protocol_utils::frame_to_map(frame).map(RedisValue::Map)
     } else {
       protocol_utils::frame_to_results(frame)
     }
   } else {
-    protocol_utils::frame_to_single_result(frame)
+    protocol_utils::frame_to_results(frame)
   }
 }
 
@@ -173,7 +173,7 @@ pub async fn hstrlen<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) 
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn hvals<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {

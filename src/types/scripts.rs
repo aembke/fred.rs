@@ -1,10 +1,11 @@
 use crate::{
   clients::RedisClient,
   interfaces::{FunctionInterface, LuaInterface},
-  prelude::{FromRedis, RedisError, RedisErrorKind, RedisResult},
+  prelude::{FromRedis, RedisError, RedisResult},
   types::{MultipleKeys, MultipleValues, RedisValue},
-  util::sha1_hash,
 };
+#[cfg(feature = "sha-1")]
+use crate::{prelude::RedisErrorKind, util::sha1_hash};
 use bytes_utils::Str;
 use std::{
   cmp::Ordering,
@@ -59,6 +60,8 @@ impl PartialOrd for Script {
 
 impl Script {
   /// Create a new `Script` from a lua script.
+  #[cfg(feature = "sha-1")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "sha-1")))]
   pub fn from_lua<S: Into<Str>>(lua: S) -> Self {
     let lua: Str = lua.into();
     let hash = Str::from(sha1_hash(&lua));
@@ -86,6 +89,8 @@ impl Script {
 
   /// Call `SCRIPT LOAD` on all the associated servers. This must be
   /// called once before calling [evalsha](Self::evalsha).
+  #[cfg(feature = "sha-1")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "sha-1")))]
   pub async fn load(&self, client: &RedisClient) -> RedisResult<()> {
     if let Some(ref lua) = self.lua {
       client.script_load_cluster::<(), _>(lua.clone()).await
@@ -108,6 +113,8 @@ impl Script {
 
   /// Send `EVALSHA` to the server with the provided arguments. Automatically `SCRIPT LOAD` in case
   /// of `NOSCRIPT` error and try `EVALSHA` again.
+  #[cfg(feature = "sha-1")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "sha-1")))]
   pub async fn evalsha_with_reload<R, K, V>(&self, client: &RedisClient, keys: K, args: V) -> RedisResult<R>
   where
     R: FromRedis,
@@ -140,6 +147,7 @@ pub enum FunctionFlag {
 
 impl FunctionFlag {
   /// Parse the string representation of the flag.
+  #[allow(clippy::should_implement_trait)]
   pub fn from_str(s: &str) -> Option<Self> {
     Some(match s {
       "allow-oom" => FunctionFlag::AllowOOM,
@@ -303,7 +311,7 @@ impl Library {
       .as_functions(&name)?;
 
     Ok(Library {
-      name:      name.into(),
+      name,
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
   }
@@ -322,7 +330,7 @@ impl Library {
       .as_functions(&name)?;
 
     Ok(Library {
-      name:      name.into(),
+      name,
       functions: functions.into_iter().map(|f| (f.name.clone(), f)).collect(),
     })
   }

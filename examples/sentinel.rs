@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{prelude::*, types::Server};
 
 #[tokio::main]
@@ -13,7 +16,6 @@ async fn main() -> Result<(), RedisError> {
         Server::new("localhost", 26380),
         Server::new("localhost", 26381),
       ],
-      // note: by default sentinel nodes use the same authentication settings as the redis servers, however
       // callers can also use the `sentinel-auth` feature to use different credentials to sentinel nodes
       #[cfg(feature = "sentinel-auth")]
       username:                                   None,
@@ -24,13 +26,12 @@ async fn main() -> Result<(), RedisError> {
     ..Default::default()
   };
 
-  let policy = ReconnectPolicy::default();
-  let client = RedisClient::new(config, None, Some(policy));
+  let client = Builder::from_config(config).build()?;
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

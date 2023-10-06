@@ -12,17 +12,18 @@ pub async fn sadd<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Sadd, args))
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn scard<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
@@ -59,7 +60,7 @@ pub async fn sdiffstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn sinter<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -92,7 +93,7 @@ pub async fn sinterstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn sismember<C: ClientLike>(
@@ -109,10 +110,11 @@ pub async fn smismember<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Smismember, args))
@@ -176,17 +178,18 @@ pub async fn srem<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
     Ok((RedisCommandKind::Srem, args))
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn sunion<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -219,5 +222,5 @@ pub async fn sunionstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

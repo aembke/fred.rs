@@ -1,25 +1,7 @@
 use crate::{
   clients::{Pipeline, RedisClient},
   error::RedisError,
-  interfaces::{
-    self,
-    AuthInterface,
-    ClientLike,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    LuaInterface,
-    MemoryInterface,
-    MetricsInterface,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    StreamsInterface,
-  },
+  interfaces::{self, *},
   modules::inner::RedisClientInner,
   protocol::command::{RedisCommand, RouterCommand},
   types::Server,
@@ -27,7 +9,7 @@ use crate::{
 use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-/// A struct for interacting with replica nodes.
+/// A struct for interacting with cluster replica nodes.
 ///
 /// All commands sent via this interface will use a replica node, if possible. The underlying connections are shared
 /// with the main client in order to maintain an up-to-date view of the system in the event that replicas change or
@@ -81,6 +63,9 @@ impl SlowlogInterface for Replicas {}
 impl SetsInterface for Replicas {}
 impl SortedSetsInterface for Replicas {}
 impl StreamsInterface for Replicas {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl RedisJsonInterface for Replicas {}
 
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.

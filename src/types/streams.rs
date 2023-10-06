@@ -30,7 +30,7 @@ impl<'a> TryFrom<&'a str> for XCapTrim {
   type Error = RedisError;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
-    Ok(match s.as_ref() {
+    Ok(match s {
       "=" => XCapTrim::Exact,
       "~" => XCapTrim::AlmostExact,
       _ => {
@@ -185,7 +185,7 @@ impl<'a> TryFrom<&'a str> for XCapKind {
   type Error = RedisError;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-    Ok(match value.as_ref() {
+    Ok(match value {
       "MAXLEN" => XCapKind::MaxLen,
       "MINID" => XCapKind::MinID,
       _ => {
@@ -289,14 +289,14 @@ impl XID {
       XID::Auto => utils::static_str("*"),
       XID::Max => utils::static_str("$"),
       XID::NewInGroup => utils::static_str(">"),
-      XID::Manual(s) => s.into(),
+      XID::Manual(s) => s,
     }
   }
 }
 
 impl<'a> From<&'a str> for XID {
   fn from(value: &'a str) -> Self {
-    match value.as_ref() {
+    match value {
       "*" => XID::Auto,
       "$" => XID::Max,
       ">" => XID::NewInGroup,

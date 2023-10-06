@@ -55,18 +55,19 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Serialize the value stored at `key` in a Redis-specific format and return it as bulk string.
   ///
   /// <https://redis.io/commands/dump>
-  async fn dump<K>(&self, key: K) -> RedisResult<RedisValue>
+  async fn dump<R, K>(&self, key: K) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
   {
     into!(key);
-    commands::keys::dump(self, key).await
+    commands::keys::dump(self, key).await?.convert()
   }
 
   /// Create a key associated with a value that is obtained by deserializing the provided serialized value
   ///
   /// <https://redis.io/commands/restore>
-  async fn restore<K>(
+  async fn restore<R, K>(
     &self,
     key: K,
     ttl: i64,
@@ -75,12 +76,15 @@ pub trait KeysInterface: ClientLike + Sized {
     absttl: bool,
     idletime: Option<i64>,
     frequency: Option<i64>,
-  ) -> RedisResult<RedisValue>
+  ) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
   {
     into!(key);
-    commands::keys::restore(self, key, ttl, serialized, replace, absttl, idletime, frequency).await
+    commands::keys::restore(self, key, ttl, serialized, replace, absttl, idletime, frequency)
+      .await?
+      .convert()
   }
 
   /// Set a value with optional NX|XX, EX|PX|EXAT|PXAT|KEEPTTL, and GET arguments.
@@ -256,7 +260,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Append `value` to `key` if it's a string.
   ///
   /// <https://redis.io/commands/append/>
-  async fn append<R, K, V>(&self, key: K, value: V) -> Result<R, RedisError>
+  async fn append<R, K, V>(&self, key: K, value: V) -> RedisResult<R>
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,

@@ -22,7 +22,7 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
   let invalidated = Arc::new(AtomicBool::new(false));
   let _invalidated = invalidated.clone();
 
-  let mut invalidations = client.on_invalidation();
+  let mut invalidations = client.invalidation_rx();
   tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
       if invalidation.keys.contains(&key) {
@@ -61,7 +61,7 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
   let invalidated = Arc::new(AtomicBool::new(false));
   let _invalidated = invalidated.clone();
 
-  let mut invalidations = subscriber.on_invalidation();
+  let mut invalidations = subscriber.invalidation_rx();
   tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
       if invalidation.keys.contains(&key) {

@@ -8,41 +8,41 @@ macro_rules! to(
 
 macro_rules! _trace(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Trace, |name| {
-      log::trace!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Trace) {
+      log::trace!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _debug(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Debug, |name| {
-      log::debug!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Debug) {
+      log::debug!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _error(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Error, |name| {
-      log::error!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Error) {
+      log::error!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _warn(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Warn, |name| {
-      log::warn!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Warn) {
+      log::warn!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
 macro_rules! _info(
   ($inner:tt, $($arg:tt)*) => { {
-    $inner.log_client_name_fn(log::Level::Info, |name| {
-      log::info!("{}: {}", name, format!($($arg)*));
-    })
+    if log::log_enabled!(log::Level::Info) {
+      log::info!("{}: {}", $inner.id, format!($($arg)*))
+    }
    } }
 );
 
@@ -75,16 +75,6 @@ macro_rules! fspan (
   }
 );
 
-/// Async try! for `AsyncResult`. This is rarely used on its own, but rather as a part of try_into!.
-macro_rules! atry (
-  ($expr:expr) => {
-    match $expr {
-      Ok(val) => val,
-      Err(e) => return crate::interfaces::AsyncResult::from(Err(e))
-    }
-  }
-);
-
 /// Similar to `try`/`?`, but `continue` instead of breaking out with an error.  
 macro_rules! try_or_continue (
   ($expr:expr) => {
@@ -105,30 +95,43 @@ macro_rules! static_str(
   }
 );
 
-/// Public macro to create a `Str` from a static str slice without copying.
+/// A helper macro to wrap a string value in quotes via the [json](serde_json::json) macro.
 ///
-/// ```rust no_run
-/// // use "foo" without copying or parsing the underlying data. this uses the `Bytes::from_static` interface under the hood.
-/// let _ = client.get(s!("foo")).await?;
-/// ```
+/// See the [RedisJSON interface](crate::interfaces::RedisJsonInterface) for more information.
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 #[macro_export]
-macro_rules! s(
-  ($val:expr) => {
-    fred::util::static_str($val)
+macro_rules! json_quote(
+  ($($json:tt)+) => {
+    serde_json::json!($($json)+).to_string()
   }
 );
 
-/// Public macro to create a `Bytes` from a static byte slice without copying.
+/// Shorthand to create a [CustomCommand](crate::types::CustomCommand).
 ///
 /// ```rust no_run
-/// // use "bar" without copying or parsing the underlying data. this uses the `Bytes::from_static` interface under the hood.
-/// let _ = client.set(s!("foo"), b!(b"bar")).await?;
+/// # use fred::{cmd, types::{CustomCommand, ClusterHash}};
+/// let _cmd = cmd!("FOO.BAR");
+/// let _cmd = cmd!("FOO.BAR", blocking: true);
+/// let _cmd = cmd!("FOO.BAR", hash: ClusterHash::FirstKey);
+/// let _cmd = cmd!("FOO.BAR", hash: ClusterHash::FirstKey, blocking: true);
+/// // which is shorthand for
+/// let _cmd = CustomCommand::new("FOO.BAR", ClusterHash::FirstKey, true);
 /// ```
 #[macro_export]
-macro_rules! b(
-  ($val:expr) => {
-    fred::util::static_bytes($val)
-  }
+macro_rules! cmd(
+  ($name:expr) => {
+    fred::types::CustomCommand::new($name, fred::types::ClusterHash::FirstKey, false)
+  };
+  ($name:expr, blocking: $blk:expr) => {
+    fred::types::CustomCommand::new($name, fred::types::ClusterHash::FirstKey, $blk)
+  };
+  ($name:expr, hash: $hash:expr) => {
+    fred::types::CustomCommand::new($name, $hash, false)
+  };
+  ($name:expr, hash: $hash:expr, blocking: $blk:expr) => {
+    fred::types::CustomCommand::new($name, $hash, $blk)
+  };
 );
 
 macro_rules! static_val(

@@ -32,7 +32,7 @@ pub async fn blmpop<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -50,7 +50,7 @@ pub async fn blpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) 
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -68,7 +68,7 @@ pub async fn brpop<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) 
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -89,7 +89,7 @@ pub async fn brpoplpush<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -116,7 +116,7 @@ pub async fn blmove<C: ClientLike>(
   })
   .await?;
 
-  let _ = protocol_utils::check_null_timeout(&frame)?;
+  protocol_utils::check_null_timeout(&frame)?;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -167,7 +167,7 @@ pub async fn linsert<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn llen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
@@ -229,10 +229,11 @@ pub async fn lpush<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -240,7 +241,7 @@ pub async fn lpush<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn lpushx<C: ClientLike>(
@@ -249,10 +250,11 @@ pub async fn lpushx<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -260,7 +262,7 @@ pub async fn lpushx<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn lrange<C: ClientLike>(
@@ -347,7 +349,7 @@ pub async fn lmove<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn rpush<C: ClientLike>(
@@ -356,10 +358,11 @@ pub async fn rpush<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -367,7 +370,7 @@ pub async fn rpush<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn rpushx<C: ClientLike>(
@@ -376,10 +379,11 @@ pub async fn rpushx<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
 
@@ -387,5 +391,5 @@ pub async fn rpushx<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

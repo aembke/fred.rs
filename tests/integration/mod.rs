@@ -1,5 +1,6 @@
 #[macro_use]
 pub mod utils;
+pub mod docker;
 
 mod acl;
 mod client;
@@ -22,22 +23,51 @@ mod slowlog;
 mod sorted_sets;
 mod streams;
 
+#[cfg(feature = "redis-json")]
+mod redis_json;
+
 #[cfg(feature = "client-tracking")]
 mod tracking;
 
+#[cfg(not(feature = "mocks"))]
 pub mod centralized;
+#[cfg(not(feature = "mocks"))]
 pub mod clustered;
 
 mod macro_tests {
-  use fred::{b, s};
+  use fred::{cmd, types::ClusterHash};
+  use socket2::TcpKeepalive;
 
   #[test]
-  fn should_use_static_str_macro() {
-    let _s = s!("foo");
+  fn should_use_cmd_macro() {
+    let command = cmd!("GET");
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstKey);
+    assert!(!command.blocking);
+    let command = cmd!("GET", blocking: true);
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstKey);
+    assert!(command.blocking);
+    let command = cmd!("GET", hash: ClusterHash::FirstValue);
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
+    assert!(!command.blocking);
+    let command = cmd!("GET", hash: ClusterHash::FirstValue, blocking: true);
+    assert_eq!(command.cmd, "GET");
+    assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
+    assert!(command.blocking);
   }
+}
 
-  #[test]
-  fn should_use_static_bytes_macro() {
-    let _b = b!(b"foo");
+mod docker_tests {
+  use super::*;
+
+  #[tokio::test]
+  async fn should_read_docker_state() {
+    // pretty_env_logger::try_init().unwrap();
+    // FIXME need a portable way to expose the docker socket
+    // let routing = docker::inspect_cluster(false).await.unwrap();
+    // println!("routing {:?}", routing.slots());
+    // panic!("meh");
   }
 }

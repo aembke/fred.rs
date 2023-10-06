@@ -1,4 +1,4 @@
-use crate::{error::RedisError, types::RedisValue, utils};
+use crate::{error::RedisError, protocol::utils as protocol_utils, types::RedisValue, utils};
 use bytes_utils::Str;
 use std::{
   collections::VecDeque,
@@ -29,6 +29,15 @@ impl From<(f64, f64)> for GeoPosition {
   }
 }
 
+impl TryFrom<RedisValue> for GeoPosition {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    let (longitude, latitude): (f64, f64) = value.convert()?;
+    Ok(GeoPosition { longitude, latitude })
+  }
+}
+
 /// Units for the GEO DIST command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GeoUnit {
@@ -54,13 +63,6 @@ impl GeoUnit {
 pub struct GeoValue {
   pub coordinates: GeoPosition,
   pub member:      RedisValue,
-}
-
-impl GeoValue {
-  pub fn new<V: Into<RedisValue>>(coordinates: GeoPosition, member: V) -> Self {
-    let member = member.into();
-    GeoValue { coordinates, member }
-  }
 }
 
 impl<T> TryFrom<(f64, f64, T)> for GeoValue
@@ -147,3 +149,74 @@ impl PartialEq for GeoRadiusInfo {
 }
 
 impl Eq for GeoRadiusInfo {}
+
+impl GeoRadiusInfo {
+  /// Parse the value with context from the calling command.
+  pub fn from_redis_value(
+    value: RedisValue,
+    withcoord: bool,
+    withdist: bool,
+    withhash: bool,
+  ) -> Result<Self, RedisError> {
+    if let RedisValue::Array(mut data) = value {
+      let mut out = GeoRadiusInfo::default();
+      data.reverse();
+
+      if withcoord && withdist && withhash {
+        // 4 elements: member, dist, hash, position
+        protocol_utils::assert_array_len(&data, 4)?;
+
+        out.member = data.pop().unwrap();
+        out.distance = data.pop().unwrap().convert()?;
+        out.hash = data.pop().unwrap().convert()?;
+        out.position = data.pop().unwrap().convert()?;
+      } else if withcoord && withdist {
+        // 3 elements: member, dist, position
+        protocol_utils::assert_array_len(&data, 3)?;
+
+        out.member = data.pop().unwrap();
+        out.distance = data.pop().unwrap().convert()?;
+        out.position = data.pop().unwrap().convert()?;
+      } else if withcoord && withhash {
+        // 3 elements: member, hash, position
+        protocol_utils::assert_array_len(&data, 3)?;
+
+        out.member = data.pop().unwrap();
+        out.hash = data.pop().unwrap().convert()?;
+        out.position = data.pop().unwrap().convert()?;
+      } else if withdist && withhash {
+        // 3 elements: member, dist, hash
+        protocol_utils::assert_array_len(&data, 3)?;
+
+        out.member = data.pop().unwrap();
+        out.distance = data.pop().unwrap().convert()?;
+        out.hash = data.pop().unwrap().convert()?;
+      } else if withcoord {
+        // 2 elements: member, position
+        protocol_utils::assert_array_len(&data, 2)?;
+
+        out.member = data.pop().unwrap();
+        out.position = data.pop().unwrap().convert()?;
+      } else if withdist {
+        // 2 elements: member, dist
+        protocol_utils::assert_array_len(&data, 2)?;
+
+        out.member = data.pop().unwrap();
+        out.distance = data.pop().unwrap().convert()?;
+      } else if withhash {
+        // 2 elements: member, hash
+        protocol_utils::assert_array_len(&data, 2)?;
+
+        out.member = data.pop().unwrap();
+        out.hash = data.pop().unwrap().convert()?;
+      }
+
+      Ok(out)
+    } else {
+      Ok(GeoRadiusInfo {
+        member: value,
+        ..Default::default()
+      })
+    }
+  }
+}

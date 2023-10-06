@@ -24,6 +24,8 @@ use tokio::{
   sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
 };
 
+#[cfg(feature = "replicas")]
+use crate::{interfaces, protocol::command::RouterCommand};
 #[cfg(feature = "check-unresponsive")]
 use futures::future::Either;
 #[cfg(feature = "check-unresponsive")]
@@ -49,12 +51,12 @@ pub fn check_backpressure(
           BackpressurePolicy::Drain => Ok(Some(Backpressure::Block)),
           BackpressurePolicy::Sleep {
             disable_backpressure_scaling,
-            min_sleep_duration_ms,
+            min_sleep_duration,
           } => {
             let duration = if disable_backpressure_scaling {
-              Duration::from_millis(min_sleep_duration_ms)
+              min_sleep_duration
             } else {
-              Duration::from_millis(cmp::max(min_sleep_duration_ms, in_flight as u64))
+              Duration::from_millis(cmp::max(min_sleep_duration.as_millis() as u64, in_flight as u64))
             };
 
             Ok(Some(Backpressure::Wait(duration)))
@@ -137,7 +139,7 @@ pub async fn write_command(
     },
     Err(e) => {
       // return manual backpressure errors directly to the caller
-      command.respond_to_caller(Err(e));
+      command.finish(inner, Err(e));
       return Written::Ignore;
     },
     _ => {},
@@ -148,7 +150,7 @@ pub async fn write_command(
     Err(e) => {
       _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
       // do not retry commands that trigger frame encoding errors
-      command.respond_to_caller(Err(e));
+      command.finish(inner, Err(e));
       return Written::Ignore;
     },
   };
@@ -160,24 +162,12 @@ pub async fn write_command(
     command.debug_id(),
     writer.server
   );
+  command.write_attempts += 1;
   writer.push_command(inner, command);
   if let Err(e) = writer.write_frame(frame, should_flush).await {
-    let mut command = match writer.pop_recent_command() {
-      Some(cmd) => cmd,
-      None => {
-        _error!(inner, "Failed to take recent command off queue after write failure.");
-        return Written::Ignore;
-      },
-    };
-
-    _debug!(inner, "Error sending command {}: {:?}", command.kind.to_str_debug(), e);
-    if command.should_send_write_error(inner) {
-      command.respond_to_caller(Err(e.clone()));
-      Written::Disconnect((Some(writer.server.clone()), None, e))
-    } else {
-      inner.notifications.broadcast_error(e.clone());
-      Written::Disconnect((Some(writer.server.clone()), Some(command), e))
-    }
+    let command = writer.pop_recent_command();
+    _debug!(inner, "Error sending command: {:?}", e);
+    Written::Disconnected((Some(writer.server.clone()), command, e))
   } else {
     Written::Sent((writer.server.clone(), should_flush))
   }
@@ -219,17 +209,18 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
   let mut guard = buffer.lock();
   let commands = guard
     .drain(..)
-    .filter_map(|mut command| {
-      if command.has_router_channel() {
-        if command.attempted >= inner.max_command_attempts() {
-          let error = error
-            .clone()
-            .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
-          command.respond_to_caller(Err(error));
-          None
-        } else {
-          Some(command)
-        }
+    .filter_map(|command| {
+      if command.should_finish_with_error(inner) {
+        command.finish(
+          inner,
+          Err(
+            error
+              .clone()
+              .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed")),
+          ),
+        );
+
+        None
       } else {
         Some(command)
       }
@@ -294,7 +285,7 @@ pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration
     .write()
     .as_mut()
     .and_then(|policy| policy.next_delay())
-    .map(|amt| Duration::from_millis(amt))
+    .map(Duration::from_millis)
     .ok_or(RedisError::new(
       RedisErrorKind::Canceled,
       "Max reconnection attempts reached.",
@@ -310,9 +301,6 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
     inner.notifications.broadcast_error(e.clone());
     Err(e)
   } else {
-    // try to flush any previously in-flight commands
-    router.retry_buffer().await;
-
     if let Err(e) = router.sync_replicas().await {
       _warn!(inner, "Error syncing replicas: {:?}", e);
       if !inner.ignore_replica_reconnect_errors() {
@@ -321,23 +309,26 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
         return Err(e);
       }
     }
+    // try to flush any previously in-flight commands
+    router.retry_buffer().await;
 
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
-    inner.notifications.broadcast_reconnect();
     inner.reset_reconnection_attempts();
     Ok(())
   }
 }
 
 /// Reconnect to the server(s) until the max reconnect policy attempts are reached.
+///
+/// Errors from this function should end the connection task.
 pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   let mut delay = utils::next_reconnection_delay(inner)?;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = reconnect_once(inner, router).await {
@@ -363,12 +354,12 @@ pub async fn cluster_redirect_with_policy(
   slot: u16,
   server: &Server,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.with_perf_config(|perf| Duration::from_millis(perf.cluster_cache_update_delay_ms as u64));
+  let mut delay = inner.connection.cluster_cache_update_delay;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = router.cluster_redirection(&kind, slot, server).await {
@@ -383,19 +374,21 @@ pub async fn cluster_redirect_with_policy(
   Ok(())
 }
 
-/// Repeatedly try to send `ASKING` to the provided server, reconnecting as needed.
+/// Repeatedly try to send `ASKING` to the provided server, reconnecting as needed.f
+///
+/// Errors from this function should end the connection task.
 pub async fn send_asking_with_policy(
   inner: &Arc<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   slot: u16,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.with_perf_config(|perf| Duration::from_millis(perf.cluster_cache_update_delay_ms as u64));
+  let mut delay = inner.connection.cluster_cache_update_delay;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if !router.connections.has_server_connection(server) {
@@ -411,20 +404,25 @@ pub async fn send_asking_with_policy(
     command.skip_backpressure = true;
     command.response = ResponseKind::Respond(Some(tx));
 
-    if let Err(error) = router.write_once(command, server).await {
+    let result = match router.write_direct(command, server).await {
+      Written::Error((error, _)) => Err(error),
+      Written::Disconnected((_, _, error)) => Err(error),
+      Written::NotFound(_) => Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
+      _ => Ok(()),
+    };
+
+    if let Err(error) = result {
       if error.should_not_reconnect() {
         break;
+      } else if let Err(_) = reconnect_once(inner, router).await {
+        delay = utils::next_reconnection_delay(inner)?;
+        continue;
       } else {
-        if let Err(_) = reconnect_once(inner, router).await {
-          delay = utils::next_reconnection_delay(inner)?;
-          continue;
-        } else {
-          delay = Duration::from_millis(0);
-          continue;
-        }
+        delay = Duration::from_millis(0);
+        continue;
       }
     } else {
-      match rx.await {
+      match client_utils::apply_timeout(rx, inner.internal_command_timeout()).await {
         Ok(Err(e)) => {
           // error writing the command
           _debug!(inner, "Reconnect once after error from ASKING: {:?}", e);
@@ -490,13 +488,15 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
 }
 
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
+///
+/// Errors from this function should end the connection task.
 pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
-  let mut delay = inner.with_perf_config(|config| Duration::from_millis(config.cluster_cache_update_delay_ms as u64));
+  let mut delay = inner.connection.cluster_cache_update_delay;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = router.sync_cluster().await {
@@ -519,6 +519,15 @@ pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mu
   }
 
   Ok(())
+}
+
+#[cfg(feature = "replicas")]
+pub fn defer_replica_sync(inner: &Arc<RedisClientInner>) {
+  let (tx, _) = oneshot_channel();
+  let cmd = RouterCommand::SyncReplicas { tx };
+  if let Err(_) = interfaces::send_to_router(inner, cmd) {
+    _warn!(inner, "Failed to start deferred replica sync.")
+  }
 }
 
 #[cfg(feature = "check-unresponsive")]

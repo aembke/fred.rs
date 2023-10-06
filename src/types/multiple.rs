@@ -1,12 +1,5 @@
-use crate::{
-  error::RedisError,
-  types::{RedisKey, RedisValue},
-};
-use std::{
-  collections::VecDeque,
-  convert::{TryFrom, TryInto},
-  iter::FromIterator,
-};
+use crate::types::{RedisKey, RedisValue};
+use std::{collections::VecDeque, iter::FromIterator};
 
 /// Convenience struct for commands that take 1 or more keys.
 ///
@@ -62,6 +55,17 @@ where
   }
 }
 
+impl<'a, K, const N: usize> From<&'a [K; N]> for MultipleKeys
+where
+  K: Into<RedisKey> + Clone,
+{
+  fn from(value: &'a [K; N]) -> Self {
+    MultipleKeys {
+      keys: value.iter().map(|k| k.clone().into()).collect(),
+    }
+  }
+}
+
 impl<T> From<Vec<T>> for MultipleKeys
 where
   T: Into<RedisKey>,
@@ -90,109 +94,11 @@ impl From<()> for MultipleKeys {
   }
 }
 
-/// Convenience struct for commands that take 1 or more strings.
+/// Convenience interface for commands that take 1 or more strings.
 pub type MultipleStrings = MultipleKeys;
 
-/// Convenience struct for commands that take 1 or more values.
-///
-/// **Note: this can be used to represent an empty set of values by using `None` for any function that takes
-/// `Into<MultipleValues>`.** This is most useful for `EVAL` and `EVALSHA`.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MultipleValues {
-  values: Vec<RedisValue>,
-}
-
-impl MultipleValues {
-  pub fn inner(self) -> Vec<RedisValue> {
-    self.values
-  }
-
-  pub fn len(&self) -> usize {
-    self.values.len()
-  }
-
-  /// Convert this a nested `RedisValue`.
-  pub fn into_values(self) -> RedisValue {
-    RedisValue::Array(self.values)
-  }
-}
-
-impl From<Option<RedisValue>> for MultipleValues {
-  fn from(val: Option<RedisValue>) -> Self {
-    let values = if let Some(val) = val { vec![val] } else { vec![] };
-    MultipleValues { values }
-  }
-}
-
-// https://github.com/rust-lang/rust/issues/50133
-// FIXME there has to be a way around this issue?
-// impl<T> TryFrom<T> for MultipleValues
-// where
-// T: TryInto<RedisValue>,
-// T::Error: Into<RedisError>,
-// {
-// type Error = RedisError;
-//
-// fn try_from(d: T) -> Result<Self, Self::Error> {
-// Ok(MultipleValues { values: vec![to!(d)?] })
-// }
-// }
-
-// TODO consider supporting conversion from tuples with a reasonable size
-
-impl<T> From<T> for MultipleValues
-where
-  T: Into<RedisValue>,
-{
-  fn from(d: T) -> Self {
-    MultipleValues { values: vec![d.into()] }
-  }
-}
-
-impl<T> FromIterator<T> for MultipleValues
-where
-  T: Into<RedisValue>,
-{
-  fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-    MultipleValues {
-      values: iter.into_iter().map(|v| v.into()).collect(),
-    }
-  }
-}
-
-impl<T> TryFrom<Vec<T>> for MultipleValues
-where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
-{
-  type Error = RedisError;
-
-  fn try_from(d: Vec<T>) -> Result<Self, Self::Error> {
-    let mut values = Vec::with_capacity(d.len());
-    for value in d.into_iter() {
-      values.push(to!(value)?);
-    }
-
-    Ok(MultipleValues { values })
-  }
-}
-
-impl<T> TryFrom<VecDeque<T>> for MultipleValues
-where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
-{
-  type Error = RedisError;
-
-  fn try_from(d: VecDeque<T>) -> Result<Self, Self::Error> {
-    let mut values = Vec::with_capacity(d.len());
-    for value in d.into_iter() {
-      values.push(to!(value)?);
-    }
-
-    Ok(MultipleValues { values })
-  }
-}
+/// Convenience interface for commands that take 1 or more values.
+pub type MultipleValues = RedisValue;
 
 /// A convenience struct for functions that take one or more hash slot values.
 pub struct MultipleHashSlots {

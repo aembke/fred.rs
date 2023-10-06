@@ -14,19 +14,19 @@ use crate::globals::globals;
 #[cfg(feature = "client-tracking")]
 use crate::types::Invalidation;
 
-const KEYSPACE_PREFIX: &'static str = "__keyspace@";
-const KEYEVENT_PREFIX: &'static str = "__keyevent@";
+const KEYSPACE_PREFIX: &str = "__keyspace@";
+const KEYEVENT_PREFIX: &str = "__keyevent@";
 #[cfg(feature = "client-tracking")]
 const INVALIDATION_CHANNEL: &'static str = "__redis__:invalidate";
 
 fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
   if channel.starts_with(KEYEVENT_PREFIX) {
-    let parts: Vec<&str> = channel.splitn(2, "@").collect();
+    let parts: Vec<&str> = channel.splitn(2, '@').collect();
     if parts.len() < 2 {
       return None;
     }
 
-    let suffix: Vec<&str> = parts[1].splitn(2, ":").collect();
+    let suffix: Vec<&str> = parts[1].splitn(2, ':').collect();
     if suffix.len() < 2 {
       return None;
     }
@@ -43,12 +43,12 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
 
     Some(KeyspaceEvent { db, key, operation })
   } else if channel.starts_with(KEYSPACE_PREFIX) {
-    let parts: Vec<&str> = channel.splitn(2, "@").collect();
+    let parts: Vec<&str> = channel.splitn(2, '@').collect();
     if parts.len() < 2 {
       return None;
     }
 
-    let suffix: Vec<&str> = parts[1].splitn(2, ":").collect();
+    let suffix: Vec<&str> = parts[1].splitn(2, ':').collect();
     if suffix.len() < 2 {
       return None;
     }
@@ -69,6 +69,7 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
   }
 }
 
+/// Check for any of the expected pubsub prefix frames.
 fn check_message_prefix(s: &str) -> bool {
   s == "message" || s == "pmessage" || s == "smessage"
 }
@@ -94,11 +95,16 @@ fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
 }
 
 /// Try to parse the frame in either RESP2 or RESP3 pubsub formats.
-fn parse_pubsub_message(frame: Resp3Frame, is_resp3: bool, is_resp2: bool) -> Result<Message, RedisError> {
+fn parse_pubsub_message(
+  server: &Server,
+  frame: Resp3Frame,
+  is_resp3: bool,
+  is_resp2: bool,
+) -> Result<Message, RedisError> {
   if is_resp3 {
-    protocol_utils::frame_to_pubsub(frame)
+    protocol_utils::frame_to_pubsub(server, frame)
   } else if is_resp2 {
-    protocol_utils::parse_as_resp2_pubsub(frame)
+    protocol_utils::parse_as_resp2_pubsub(server, frame)
   } else {
     Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub message."))
   }
@@ -190,10 +196,11 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   let span = trace::create_pubsub_span(inner, &frame);
   _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
-    let _enter = span.enter();
-    parse_pubsub_message(frame, is_resp3_pubsub, is_resp2_pubsub)
+    #[allow(clippy::let_unit_value)]
+    let _ = span.enter();
+    parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   } else {
-    parse_pubsub_message(frame, is_resp3_pubsub, is_resp2_pubsub)
+    parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   };
 
   let message = match parsed_frame {
@@ -209,12 +216,10 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
 
   if is_pubsub_invalidation(&message) {
     broadcast_pubsub_invalidation(inner, message, server);
+  } else if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
+    inner.notifications.broadcast_keyspace(event);
   } else {
-    if let Some(event) = parse_keyspace_notification(&message.channel, &message.value) {
-      inner.notifications.broadcast_keyspace(event);
-    } else {
-      inner.notifications.broadcast_pubsub(message);
-    }
+    inner.notifications.broadcast_pubsub(message);
   }
 
   None
@@ -230,7 +235,7 @@ pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_error() {
-    match protocol_utils::frame_to_single_result(frame.clone()) {
+    match protocol_utils::frame_to_results(frame.clone()) {
       Ok(_) => None,
       Err(e) => match e.kind() {
         RedisErrorKind::Auth => Some(e),
@@ -275,13 +280,13 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
   match frame {
     Resp3Frame::SimpleError { data, .. } => {
       if data.trim().starts_with("CLUSTERDOWN") {
-        Some(&data)
+        Some(data)
       } else {
         None
       }
     },
     Resp3Frame::BlobError { data, .. } => {
-      let parsed = match str::from_utf8(&data) {
+      let parsed = match str::from_utf8(data) {
         Ok(s) => s,
         Err(_) => return None,
       };

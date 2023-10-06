@@ -45,12 +45,12 @@ pub async fn xinfo_consumers<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xinfo_groups<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::XinfoGroups, vec![key.into()]))).await?;
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xinfo_stream<C: ClientLike>(
@@ -158,7 +158,7 @@ pub async fn xrange<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xrevrange<C: ClientLike>(
@@ -183,7 +183,7 @@ pub async fn xrevrange<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
@@ -233,7 +233,7 @@ pub async fn xread<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xgroup_create<C: ClientLike>(
@@ -377,7 +377,7 @@ pub async fn xreadgroup<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xack<C: ClientLike>(
@@ -447,7 +447,7 @@ pub async fn xclaim<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xautoclaim<C: ClientLike>(
@@ -480,7 +480,7 @@ pub async fn xautoclaim<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn xpending<C: ClientLike>(

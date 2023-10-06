@@ -1,9 +1,11 @@
-use crate::{error::RedisError, types::RespVersion, utils};
-use std::cmp;
+pub use crate::protocol::types::Server;
+use crate::{error::RedisError, protocol::command::RedisCommand, types::RespVersion, utils};
+use socket2::TcpKeepalive;
+use std::{cmp, time::Duration};
 use url::Url;
 
 #[cfg(feature = "mocks")]
-use crate::mocks::{Echo, Mocks};
+use crate::mocks::Mocks;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
@@ -15,7 +17,6 @@ pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapp
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
 
-pub use crate::protocol::types::Server;
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
 
@@ -245,8 +246,8 @@ pub enum BackpressurePolicy {
     /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless
     /// `disable_auto_backpressure` is `true`.
     ///
-    /// Default: 50 ms
-    min_sleep_duration_ms:        u64,
+    /// Default: 10 ms
+    min_sleep_duration:           Duration,
   },
   /// Wait for all in-flight commands to finish before sending the next command.
   Drain,
@@ -263,7 +264,7 @@ impl BackpressurePolicy {
   pub fn default_sleep() -> Self {
     BackpressurePolicy::Sleep {
       disable_backpressure_scaling: false,
-      min_sleep_duration_ms:        50,
+      min_sleep_duration:           Duration::from_millis(10),
     }
   }
 }
@@ -273,7 +274,8 @@ impl BackpressurePolicy {
 pub struct BackpressureConfig {
   /// Whether or not to disable the automatic backpressure features when pipelining is enabled.
   ///
-  /// If `true` then `RedisErrorKind::Backpressure` errors may be surfaced to callers.
+  /// If `true` then `RedisErrorKind::Backpressure` errors may be surfaced to callers. Callers can set this to `true`
+  /// and `max_in_flight_commands` to `0` to effectively disable the backpressure logic.
   ///
   /// Default: `false`
   pub disable_auto_backpressure: bool,
@@ -297,6 +299,89 @@ impl Default for BackpressureConfig {
   }
 }
 
+/// TCP configuration options.
+#[derive(Clone, Debug, Default)]
+pub struct TcpConfig {
+  /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
+  pub nodelay:   Option<bool>,
+  /// Set the [SO_LINGER](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_linger) value.
+  pub linger:    Option<Duration>,
+  /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
+  pub ttl:       Option<u32>,
+  /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
+  pub keepalive: Option<TcpKeepalive>,
+}
+
+impl PartialEq for TcpConfig {
+  fn eq(&self, other: &Self) -> bool {
+    self.nodelay == other.nodelay && self.linger == other.linger && self.ttl == other.ttl
+  }
+}
+
+impl Eq for TcpConfig {}
+
+/// Configuration options related to the creation or management of TCP connection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConnectionConfig {
+  /// The timeout to apply when attempting to create a new TCP connection.
+  ///
+  /// This also includes the TLS handshake if using any of the TLS features.
+  ///
+  /// Default: 10 sec
+  pub connection_timeout:         Duration,
+  /// The timeout to apply when sending internal commands such as `AUTH`, `SELECT`, `CLUSTER SLOTS`, `READONLY`, etc.
+  ///
+  /// Default: 10 sec
+  pub internal_command_timeout:   Duration,
+  /// The amount of time to wait after a `MOVED` error is received before the client will update the cached cluster
+  /// state.
+  ///
+  /// Default: `0`
+  pub cluster_cache_update_delay: Duration,
+  /// The maximum number of times the client will attempt to send a command.
+  ///
+  /// This value be incremented whenever the connection closes while the command is in-flight.
+  ///
+  /// Default: `3`
+  pub max_command_attempts:       u32,
+  /// The maximum number of times the client will attempt to follow a `MOVED` or `ASK` redirection per command.
+  ///
+  /// Default: `5`
+  pub max_redirections:           u32,
+  /// The amount of time a command can wait without a response before the corresponding connection is considered
+  /// unresponsive. This will trigger a reconnection and in-flight commands will be retried.
+  ///
+  /// Default: 10 sec
+  #[cfg(feature = "check-unresponsive")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
+  pub unresponsive_timeout:       Duration,
+  /// Configuration options for replica nodes.
+  ///
+  /// Default: `None`
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+  pub replica:                    ReplicaConfig,
+  /// TCP connection options.
+  pub tcp:                        TcpConfig,
+}
+
+impl Default for ConnectionConfig {
+  fn default() -> Self {
+    ConnectionConfig {
+      connection_timeout: Duration::from_millis(10_000),
+      internal_command_timeout: Duration::from_millis(10_000),
+      max_redirections: 5,
+      max_command_attempts: 3,
+      cluster_cache_update_delay: Duration::from_millis(0),
+      tcp: TcpConfig::default(),
+      #[cfg(feature = "check-unresponsive")]
+      unresponsive_timeout: Duration::from_millis(10_000),
+      #[cfg(feature = "replicas")]
+      replica: ReplicaConfig::default(),
+    }
+  }
+}
+
 /// Configuration options that can affect the performance of the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PerformanceConfig {
@@ -306,52 +391,31 @@ pub struct PerformanceConfig {
   /// whereas this flag can automatically pipeline commands across tasks.
   ///
   /// Default: `true`
-  pub auto_pipeline:                 bool,
-  /// The maximum number of times the client will attempt to send a command.
-  ///
-  /// This value be incremented whenever the connection closes while the command is in-flight or following a
-  /// MOVED/ASK error.
-  ///
-  /// Default: `3`
-  pub max_command_attempts:          u32,
+  pub auto_pipeline:           bool,
   /// Configuration options for backpressure features in the client.
-  pub backpressure:                  BackpressureConfig,
-  /// An optional timeout (in milliseconds) to apply to all commands.
+  pub backpressure:            BackpressureConfig,
+  /// An optional timeout to apply to all commands.
   ///
-  /// If `0` this will disable any timeout being applied to commands.
+  /// If `0` this will disable any timeout being applied to commands. Callers can also set timeouts on individual
+  /// commands via the [with_options](crate::interfaces::ClientLike::with_options) interface.
   ///
   /// Default: `0`
-  pub default_command_timeout_ms:    u64,
-  /// The maximum number of frames that will be passed to a socket before flushing the socket.
+  pub default_command_timeout: Duration,
+  /// The maximum number of frames that will be fed to a socket before flushing.
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///
-  /// Default: 500
-  pub max_feed_count:                u64,
-  /// The amount of time, in milliseconds, to wait after a `MOVED` error is received before the client will update
-  /// the cached cluster state.
-  ///
-  /// Default: 0 ms
-  pub cluster_cache_update_delay_ms: u32,
-  /// The amount of time a command can wait without a response before a connection is considered unresponsive.
-  ///
-  /// Default: 60000 ms (1 min)
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
-  pub network_timeout_ms:            u64,
+  /// Default: 200
+  pub max_feed_count:          u64,
 }
 
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      auto_pipeline:                                             true,
-      backpressure:                                              BackpressureConfig::default(),
-      max_command_attempts:                                      3,
-      default_command_timeout_ms:                                0,
-      max_feed_count:                                            500,
-      cluster_cache_update_delay_ms:                             0,
-      #[cfg(feature = "check-unresponsive")]
-      network_timeout_ms:                                        60_000,
+      auto_pipeline:           true,
+      backpressure:            BackpressureConfig::default(),
+      default_command_timeout: Duration::from_millis(0),
+      max_feed_count:          200,
     }
   }
 }
@@ -366,7 +430,7 @@ pub struct RedisConfig {
   /// Normally the reconnection logic only applies to connections that close unexpectedly, but this flag can apply
   /// the same logic to the first connection as it is being created.
   ///
-  /// Note: Callers should use caution setting this to `false` since it can make debugging configuration issues more
+  /// Callers should use caution setting this to `false` since it can make debugging configuration issues more
   /// difficult.
   ///
   /// Default: `true`
@@ -410,28 +474,20 @@ pub struct RedisConfig {
   pub database:  Option<u8>,
   /// TLS configuration options.
   ///
-  /// See the `tls` examples on Github for more information.
-  ///
   /// Default: `None`
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   pub tls:       Option<TlsConfig>,
-  /// Configuration of tracing for this client.
+  /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub tracing:   TracingConfig,
-  /// Configuration options for replica nodes.
-  ///
-  /// Default: `None`
-  #[cfg(feature = "replicas")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replica:   ReplicaConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
-  /// Default: [Echo](crate::mocks::Echo)
+  /// Default: `None`
   #[cfg(feature = "mocks")]
   #[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
-  pub mocks:     Arc<dyn Mocks>,
+  pub mocks:     Option<Arc<dyn Mocks>>,
 }
 
 impl PartialEq for RedisConfig {
@@ -462,10 +518,8 @@ impl Default for RedisConfig {
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: TracingConfig::default(),
-      #[cfg(feature = "replicas")]
-      replica: ReplicaConfig::default(),
       #[cfg(feature = "mocks")]
-      mocks: Arc::new(Echo),
+      mocks: None,
     }
   }
 }
@@ -555,7 +609,7 @@ impl RedisConfig {
   /// * `redis-sentinel` - TCP connected to a centralized server behind a sentinel layer.
   /// * `rediss-sentinel` - TLS connected to a centralized server behind a sentinel layer.
   ///
-  /// **Note: The `rediss` scheme prefix requires the `enable-native-tls` or `enable-rustls` feature.**
+  /// **The `rediss` scheme prefix requires the `enable-native-tls` or `enable-rustls` feature.**
   ///
   /// # Query Parameters
   ///
@@ -822,34 +876,25 @@ impl ServerConfig {
 
   /// Whether or not the config is for a cluster.
   pub fn is_clustered(&self) -> bool {
-    match self {
-      ServerConfig::Clustered { .. } => true,
-      _ => false,
-    }
+    matches!(*self, ServerConfig::Clustered { .. })
   }
 
   /// Whether or not the config is for a centralized server behind a sentinel node(s).
   pub fn is_sentinel(&self) -> bool {
-    match self {
-      ServerConfig::Sentinel { .. } => true,
-      _ => false,
-    }
+    matches!(*self, ServerConfig::Sentinel { .. })
   }
 
   /// Whether or not the config is for a centralized server.
   pub fn is_centralized(&self) -> bool {
-    match self {
-      ServerConfig::Centralized { .. } => true,
-      _ => false,
-    }
+    matches!(*self, ServerConfig::Centralized { .. })
   }
 
   /// Read the server hosts or sentinel hosts if using the sentinel interface.
   pub fn hosts(&self) -> Vec<&Server> {
     match *self {
       ServerConfig::Centralized { ref server } => vec![server],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().map(|s| s).collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().map(|s| s).collect(),
+      ServerConfig::Clustered { ref hosts } => hosts.iter().collect(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().collect(),
     }
   }
 }
@@ -973,8 +1018,117 @@ impl From<SentinelConfig> for RedisConfig {
       tls: config.tls,
       #[cfg(feature = "partial-tracing")]
       tracing: config.tracing,
-      #[cfg(feature = "replicas")]
-      replica: ReplicaConfig::default(),
+      #[cfg(feature = "mocks")]
+      mocks: None,
+    }
+  }
+}
+
+/// Options to configure or overwrite for individual commands.
+///
+/// Fields left as `None` will use the value from the corresponding client or global config option.
+///
+/// ```rust
+/// # use fred::prelude::*;
+/// async fn example() -> Result<(), RedisError> {
+///   let options = Options {
+///     max_attempts: Some(10),
+///     max_redirections: Some(2),
+///     ..Default::default()
+///   };
+///
+///   let client = RedisClient::default();
+///   let _ = client.connect();
+///   let _ = client.wait_for_connect().await?;
+///   let _: () = client.with_options(&options).get("foo").await?;
+///
+///   Ok(())
+/// }
+/// ```
+///
+/// See [WithOptions](crate::clients::WithOptions) for more information.
+#[derive(Clone, Debug, Eq, PartialEq, Default)]
+pub struct Options {
+  /// Set the max number of write attempts for a command.
+  pub max_attempts:     Option<u32>,
+  /// Set the max number of cluster redirections to follow for a command.
+  pub max_redirections: Option<u32>,
+  /// Set the timeout duration for a command.
+  ///
+  /// This interface is more<sup>*</sup> cancellation-safe than a simple [timeout](https://docs.rs/tokio/latest/tokio/time/fn.timeout.html) call.
+  ///
+  /// <sup>*</sup> But it's not perfect. There's no reliable mechanism to cancel a command once it has been written
+  /// to the connection.
+  pub timeout:          Option<Duration>,
+  /// The cluster node that should receive the command.
+  ///
+  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  ///
+  /// The client will still follow redirection errors via this interface. Callers may not notice this, but incorrect
+  /// server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
+  pub cluster_node:     Option<Server>,
+  /// Whether to skip backpressure checks for a command.
+  pub no_backpressure:  bool,
+  /// Whether to send `CLIENT CACHING yes|no` before the command.
+  #[cfg(feature = "client-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  pub caching:          Option<bool>,
+}
+
+impl Options {
+  /// Set the non-null values from `other` onto `self`.
+  pub fn extend(&mut self, other: &Self) -> &mut Self {
+    if let Some(val) = other.max_attempts {
+      self.max_attempts = Some(val);
+    }
+    if let Some(val) = other.max_redirections {
+      self.max_redirections = Some(val);
+    }
+    if let Some(val) = other.timeout {
+      self.timeout = Some(val);
+    }
+    if let Some(ref val) = other.cluster_node {
+      self.cluster_node = Some(val.clone());
+    }
+    self.no_backpressure |= other.no_backpressure;
+
+    #[cfg(feature = "client-tracking")]
+    if let Some(val) = other.caching {
+      self.caching = Some(val);
+    }
+
+    self
+  }
+
+  /// Create options from a command.
+  pub(crate) fn from_command(cmd: &RedisCommand) -> Self {
+    Options {
+      max_attempts:                                Some(cmd.attempts_remaining),
+      max_redirections:                            Some(cmd.redirections_remaining),
+      timeout:                                     cmd.timeout_dur,
+      no_backpressure:                             cmd.skip_backpressure,
+      cluster_node:                                cmd.cluster_node.clone(),
+      #[cfg(feature = "client-tracking")]
+      caching:                                     cmd.caching.clone(),
+    }
+  }
+
+  /// Overwrite the configuration options on the provided command.
+  pub(crate) fn apply(&self, command: &mut RedisCommand) {
+    command.skip_backpressure = self.no_backpressure;
+    command.timeout_dur = self.timeout;
+    command.cluster_node = self.cluster_node.clone();
+
+    #[cfg(feature = "client-tracking")]
+    {
+      command.caching = self.caching.clone();
+    }
+
+    if let Some(attempts) = self.max_attempts {
+      command.attempts_remaining = attempts;
+    }
+    if let Some(redirections) = self.max_redirections {
+      command.redirections_remaining = redirections;
     }
   }
 }

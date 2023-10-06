@@ -10,9 +10,10 @@ use crate::{
     utils as protocol_utils,
   },
   types::*,
-  util::sha1_hash,
   utils,
 };
+#[cfg(feature = "sha-1")]
+use crate::util::sha1_hash;
 use bytes::Bytes;
 use bytes_utils::Str;
 use std::{convert::TryInto, str, sync::Arc};
@@ -20,7 +21,7 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// Check that all the keys in an EVAL* command belong to the same server, returning a key slot that maps to that
 /// server.
-pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &Vec<RedisKey>) -> Result<Option<u16>, RedisError> {
+pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &[RedisKey]) -> Result<Option<u16>, RedisError> {
   if inner.config.server.is_clustered() {
     inner.with_cluster_state(|state| {
       let (mut cmd_server, mut cmd_slot) = (None, None);
@@ -58,6 +59,7 @@ pub async fn script_load<C: ClientLike>(client: &C, script: Str) -> Result<Redis
   one_arg_value_cmd(client, RedisCommandKind::ScriptLoad, script.into()).await
 }
 
+#[cfg(feature="sha-1")]
 pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Result<RedisValue, RedisError> {
   if !client.inner().config.server.is_clustered() {
     return script_load(client, script).await;
@@ -66,10 +68,11 @@ pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Resu
 
   let (tx, rx) = oneshot_channel();
   let response = ResponseKind::new_buffer(tx);
-  let command: RedisCommand = (RedisCommandKind::_ScriptLoadCluster, vec![script.into()], response).into();
-  let _ = client.send_command(command)?;
+  let mut command: RedisCommand = (RedisCommandKind::_ScriptLoadCluster, vec![script.into()], response).into();
 
-  let _ = rx.await??;
+  let timeout_dur = utils::prepare_command(client, &mut command);
+  client.send_command(command)?;
+  let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(hash.into())
 }
 
@@ -82,10 +85,11 @@ pub async fn script_kill_cluster<C: ClientLike>(client: &C) -> Result<(), RedisE
 
   let (tx, rx) = oneshot_channel();
   let response = ResponseKind::new_buffer(tx);
-  let command: RedisCommand = (RedisCommandKind::_ScriptKillCluster, vec![], response).into();
-  let _ = client.send_command(command)?;
+  let mut command: RedisCommand = (RedisCommandKind::_ScriptKillCluster, vec![], response).into();
 
-  let _ = rx.await??;
+  let timeout_dur = utils::prepare_command(client, &mut command);
+  client.send_command(command)?;
+  let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -96,7 +100,7 @@ pub async fn script_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<()
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -107,12 +111,13 @@ pub async fn script_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> R
 
   let (tx, rx) = oneshot_channel();
   let arg = static_val!(if r#async { ASYNC } else { SYNC });
-
   let response = ResponseKind::new_buffer(tx);
-  let command: RedisCommand = (RedisCommandKind::_ScriptFlushCluster, vec![arg], response).into();
-  let _ = client.send_command(command)?;
+  let mut command: RedisCommand = (RedisCommandKind::_ScriptFlushCluster, vec![arg], response).into();
 
-  let _ = rx.await??;
+  let timeout_dur = utils::prepare_command(client, &mut command);
+  client.send_command(command)?;
+
+  let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -132,7 +137,7 @@ pub async fn script_debug<C: ClientLike>(client: &C, flag: ScriptDebugFlag) -> R
   })
   .await?;
 
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   protocol_utils::expect_ok(&response)
 }
 
@@ -146,6 +151,7 @@ pub async fn evalsha<C: ClientLike>(
   let custom_key_slot = check_key_slot(client.inner(), &keys)?;
 
   let frame = utils::request_response(client, move || {
+    let cmd_args = cmd_args.into_multiple_values();
     let mut args = Vec::with_capacity(2 + keys.len() + cmd_args.len());
     args.push(hash.into());
     args.push(keys.len().try_into()?);
@@ -153,14 +159,12 @@ pub async fn evalsha<C: ClientLike>(
     for key in keys.into_iter() {
       args.push(key.into());
     }
-    for arg in cmd_args.inner().into_iter() {
+    for arg in cmd_args.into_iter() {
       args.push(arg);
     }
 
     let mut command: RedisCommand = (RedisCommandKind::EvalSha, args).into();
-    command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -179,6 +183,7 @@ pub async fn eval<C: ClientLike>(
   let custom_key_slot = check_key_slot(client.inner(), &keys)?;
 
   let frame = utils::request_response(client, move || {
+    let cmd_args = cmd_args.into_multiple_values();
     let mut args = Vec::with_capacity(2 + keys.len() + cmd_args.len());
     args.push(script.into());
     args.push(keys.len().try_into()?);
@@ -186,14 +191,12 @@ pub async fn eval<C: ClientLike>(
     for key in keys.into_iter() {
       args.push(key.into());
     }
-    for arg in cmd_args.inner().into_iter() {
+    for arg in cmd_args.into_iter() {
       args.push(arg);
     }
 
     let mut command: RedisCommand = (RedisCommandKind::Eval, args).into();
-    command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -209,6 +212,7 @@ pub async fn fcall<C: ClientLike>(
   args: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let args = args.into_multiple_values();
     let mut arguments = Vec::with_capacity(keys.len() + args.len() + 2);
     let mut custom_key_slot = None;
 
@@ -219,14 +223,12 @@ pub async fn fcall<C: ClientLike>(
       custom_key_slot = Some(key.cluster_hash());
       arguments.push(key.into());
     }
-    for arg in args.inner().into_iter() {
+    for arg in args.into_iter() {
       arguments.push(arg);
     }
 
     let mut command: RedisCommand = (RedisCommandKind::Fcall, arguments).into();
-    command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -242,6 +244,7 @@ pub async fn fcall_ro<C: ClientLike>(
   args: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let args = args.into_multiple_values();
     let mut arguments = Vec::with_capacity(keys.len() + args.len() + 2);
     let mut custom_key_slot = None;
 
@@ -252,14 +255,12 @@ pub async fn fcall_ro<C: ClientLike>(
       custom_key_slot = Some(key.cluster_hash());
       arguments.push(key.into());
     }
-    for arg in args.inner().into_iter() {
+    for arg in args.into_iter() {
       arguments.push(arg);
     }
 
     let mut command: RedisCommand = (RedisCommandKind::FcallRO, arguments).into();
-    command.hasher = custom_key_slot
-      .map(|slot| ClusterHash::Custom(slot))
-      .unwrap_or(ClusterHash::Random);
+    command.hasher = custom_key_slot.map(ClusterHash::Custom).unwrap_or(ClusterHash::Random);
     command.can_pipeline = false;
     Ok(command)
   })
@@ -274,7 +275,7 @@ pub async fn function_delete<C: ClientLike>(client: &C, library_name: Str) -> Re
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: Str) -> Result<(), RedisError> {
@@ -286,10 +287,12 @@ pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: St
   let args: Vec<RedisValue> = vec![library_name.into()];
 
   let response = ResponseKind::new_buffer(tx);
-  let command: RedisCommand = (RedisCommandKind::_FunctionDeleteCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  let mut command: RedisCommand = (RedisCommandKind::_FunctionDeleteCluster, args, response).into();
 
-  let _ = rx.await??;
+  let timeout_dur = utils::prepare_command(client, &mut command);
+  client.send_command(command)?;
+
+  let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -305,7 +308,7 @@ pub async fn function_flush<C: ClientLike>(client: &C, r#async: bool) -> Result<
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> Result<(), RedisError> {
@@ -322,7 +325,7 @@ pub async fn function_flush_cluster<C: ClientLike>(client: &C, r#async: bool) ->
 
   let response = ResponseKind::new_buffer(tx);
   let command: RedisCommand = (RedisCommandKind::_FunctionFlushCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  client.send_command(command)?;
 
   let _ = rx.await??;
   Ok(())
@@ -356,7 +359,7 @@ pub async fn function_list<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) -> Result<RedisValue, RedisError> {
@@ -371,7 +374,7 @@ pub async fn function_load<C: ClientLike>(client: &C, replace: bool, code: Str) 
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_load_cluster<C: ClientLike>(
@@ -391,14 +394,16 @@ pub async fn function_load_cluster<C: ClientLike>(
   args.push(code.into());
 
   let response = ResponseKind::new_buffer(tx);
-  let command: RedisCommand = (RedisCommandKind::_FunctionLoadCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  let mut command: RedisCommand = (RedisCommandKind::_FunctionLoadCluster, args, response).into();
+
+  let timeout_dur = utils::prepare_command(client, &mut command);
+  client.send_command(command)?;
 
   // each value in the response array is the response from a different primary node
-  match rx.await?? {
+  match utils::apply_timeout(rx, timeout_dur).await?? {
     Frame::Array { mut data, .. } => {
       if let Some(frame) = data.pop() {
-        protocol_utils::frame_to_single_result(frame)
+        protocol_utils::frame_to_results(frame)
       } else {
         Err(RedisError::new(
           RedisErrorKind::Protocol,
@@ -429,7 +434,7 @@ pub async fn function_restore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn function_restore_cluster<C: ClientLike>(
@@ -445,10 +450,11 @@ pub async fn function_restore_cluster<C: ClientLike>(
   let args: Vec<RedisValue> = vec![serialized.into(), policy.to_str().into()];
 
   let response = ResponseKind::new_buffer(tx);
-  let command: RedisCommand = (RedisCommandKind::_FunctionRestoreCluster, args, response).into();
-  let _ = client.send_command(command)?;
+  let mut command: RedisCommand = (RedisCommandKind::_FunctionRestoreCluster, args, response).into();
 
-  let _ = rx.await??;
+  let timeout_dur = utils::prepare_command(client, &mut command);
+  client.send_command(command)?;
+  let _ = utils::apply_timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -457,7 +463,7 @@ pub async fn function_stats<C: ClientLike>(client: &C) -> Result<RedisValue, Red
   let command = RedisCommand::new(RedisCommandKind::FunctionStats, vec![]);
 
   let frame = utils::backchannel_request_response(inner, command, true).await?;
-  protocol_utils::frame_to_results_raw(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 value_cmd!(function_dump, FunctionDump);

@@ -3,16 +3,7 @@ use crate::{
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   protocol::types::ClusterRouting,
-  types::{
-    ClusterFailoverFlag,
-    ClusterInfo,
-    ClusterResetFlag,
-    ClusterSetSlotState,
-    FromRedis,
-    MultipleHashSlots,
-    RedisKey,
-    RedisValue,
-  },
+  types::{ClusterFailoverFlag, ClusterResetFlag, ClusterSetSlotState, FromRedis, MultipleHashSlots, RedisKey},
 };
 use bytes_utils::Str;
 
@@ -70,7 +61,10 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// [cached_cluster_state](Self::cached_cluster_state).
   ///
   /// <https://redis.io/commands/cluster-nodes>
-  async fn cluster_nodes(&self) -> RedisResult<String> {
+  async fn cluster_nodes<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
     commands::cluster::cluster_nodes(self).await?.convert()
   }
 
@@ -84,15 +78,21 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// CLUSTER SLOTS returns details about which cluster slots map to which Redis instances.
   ///
   /// <https://redis.io/commands/cluster-slots>
-  async fn cluster_slots(&self) -> RedisResult<RedisValue> {
-    commands::cluster::cluster_slots(self).await
+  async fn cluster_slots<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::cluster::cluster_slots(self).await?.convert()
   }
 
   /// CLUSTER INFO provides INFO style information about Redis Cluster vital parameters.
   ///
   /// <https://redis.io/commands/cluster-info>
-  async fn cluster_info(&self) -> RedisResult<ClusterInfo> {
-    commands::cluster::cluster_info(self).await
+  async fn cluster_info<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::cluster::cluster_info(self).await?.convert()
   }
 
   /// This command is useful in order to modify a node's view of the cluster configuration. Specifically it assigns a
@@ -217,8 +217,9 @@ pub trait ClusterInterface: ClientLike + Sized {
   /// The command provides a list of replica nodes replicating from the specified master node.
   ///
   /// <https://redis.io/commands/cluster-replicas>
-  async fn cluster_replicas<S>(&self, node_id: S) -> RedisResult<String>
+  async fn cluster_replicas<R, S>(&self, node_id: S) -> RedisResult<R>
   where
+    R: FromRedis,
     S: Into<Str> + Send,
   {
     into!(node_id);

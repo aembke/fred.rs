@@ -1,45 +1,22 @@
 use crate::{
-  clients::{Node, Pipeline},
+  clients::{Pipeline, WithOptions},
   commands,
   error::{RedisError, RedisErrorKind},
-  interfaces::{
-    AclInterface,
-    AuthInterface,
-    ClientInterface,
-    ClusterInterface,
-    ConfigInterface,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HeartbeatInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    LuaInterface,
-    MemoryInterface,
-    MetricsInterface,
-    PubsubInterface,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    TransactionInterface,
-  },
+  interfaces::*,
   modules::inner::RedisClientInner,
   prelude::{ClientLike, StreamsInterface},
   types::*,
 };
 use bytes_utils::Str;
 use futures::Stream;
-use std::{fmt, sync::Arc};
-
-#[cfg(feature = "client-tracking")]
-use crate::{clients::Caching, interfaces::TrackingInterface};
+use std::{fmt, fmt::Formatter, sync::Arc};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+#[cfg(feature = "client-tracking")]
+use crate::interfaces::TrackingInterface;
 
-/// The primary Redis client struct.
+/// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
 pub struct RedisClient {
   pub(crate) inner: Arc<RedisClientInner>,
@@ -47,16 +24,22 @@ pub struct RedisClient {
 
 impl Default for RedisClient {
   fn default() -> Self {
-    RedisClient::new(RedisConfig::default(), None, None)
+    RedisClient::new(RedisConfig::default(), None, None, None)
   }
 }
 
-impl fmt::Display for RedisClient {
+impl fmt::Debug for RedisClient {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisClient")
       .field("id", &self.inner.id)
       .field("state", &self.state())
       .finish()
+  }
+}
+
+impl fmt::Display for RedisClient {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.inner.id)
   }
 }
 
@@ -74,6 +57,7 @@ impl ClientLike for RedisClient {
   }
 }
 
+impl EventInterface for RedisClient {}
 impl AclInterface for RedisClient {}
 impl ClientInterface for RedisClient {}
 impl ClusterInterface for RedisClient {}
@@ -96,6 +80,9 @@ impl SortedSetsInterface for RedisClient {}
 impl HeartbeatInterface for RedisClient {}
 impl StreamsInterface for RedisClient {}
 impl FunctionInterface for RedisClient {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl RedisJsonInterface for RedisClient {}
 
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
@@ -103,9 +90,16 @@ impl TrackingInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
-  pub fn new(config: RedisConfig, perf: Option<PerformanceConfig>, policy: Option<ReconnectPolicy>) -> RedisClient {
+  ///
+  /// See the [builder](crate::types::Builder) interface for more information.
+  pub fn new(
+    config: RedisConfig,
+    perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
+    policy: Option<ReconnectPolicy>,
+  ) -> RedisClient {
     RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), policy),
+      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 
@@ -121,17 +115,15 @@ impl RedisClient {
     RedisClient::new(
       self.inner.config.as_ref().clone(),
       Some(self.inner.performance_config()),
+      Some(self.inner.connection_config()),
       policy,
     )
   }
 
   /// Split a clustered Redis client into a set of centralized clients - one for each primary node in the cluster.
   ///
-  /// Some Redis commands are not designed to work with hash slots against a clustered deployment. For example,
-  /// `FLUSHDB`, `PING`, etc all work on one node in the cluster, but no interface exists for the client to
-  /// select a specific node in the cluster against which to run the command. This function allows the caller to
-  /// create a list of clients such that each connect to one of the primary nodes in the cluster and functions
-  /// as if it were operating against a single centralized Redis server.
+  /// Alternatively, callers can use [with_cluster_node](crate::clients::RedisClient::with_cluster_node) to avoid
+  /// creating new connections.
   ///
   /// The clients returned by this function will not be connected to their associated servers. The caller needs to
   /// call `connect` on each client before sending any commands.
@@ -242,17 +234,61 @@ impl RedisClient {
     Pipeline::from(self.clone())
   }
 
-  /// Send commands to the provided cluster node.
+  /// Shorthand to bind subsequent commands to the provided server.
   ///
-  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  /// See [with_options](crate::interfaces::ClientLike::with_options) for more information.
   ///
-  /// The client will still automatically follow `MOVED` errors via this interface. Callers may not notice this, but
-  /// incorrect server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
-  pub fn with_cluster_node<S>(&self, server: S) -> Node
+  /// ```rust
+  /// # use fred::prelude::*;
+  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  ///   // discover servers via the `RedisConfig` or active connections
+  ///   let connections = client.active_connections().await?;
+  ///
+  ///   // ping each node in the cluster individually
+  ///   for server in connections.into_iter() {
+  ///     let _: () = client.with_cluster_node(server).ping().await?;
+  ///   }
+  ///
+  ///   // or use the cached cluster routing table to discover servers
+  ///   let servers = client
+  ///     .cached_cluster_state()
+  ///     .expect("Failed to read cached cluster state")
+  ///     .unique_primary_nodes();
+  ///
+  ///   for server in servers.into_iter() {
+  ///     // verify the server address with `CLIENT INFO`
+  ///     let server_addr = client
+  ///       .with_cluster_node(&server)
+  ///       .client_info::<String>()
+  ///       .await?
+  ///       .split(" ")
+  ///       .find_map(|s| {
+  ///         let parts: Vec<&str> = s.split("=").collect();
+  ///         if parts[0] == "laddr" {
+  ///           Some(parts[1].to_owned())
+  ///         } else {
+  ///           None
+  ///         }
+  ///       })
+  ///       .expect("Failed to read or parse client info.");
+  ///
+  ///     assert_eq!(server_addr, server.to_string());
+  ///   }
+  ///
+  ///   Ok(())
+  /// }
+  /// ```
+  pub fn with_cluster_node<S>(&self, server: S) -> WithOptions<Self>
   where
     S: Into<Server>,
   {
-    Node::new(&self.inner, server.into())
+    WithOptions {
+      client:  self.clone(),
+      options: Options {
+        cluster_node: Some(server.into()),
+        ..Default::default()
+      },
+    }
   }
 
   /// Create a client that interacts with replica nodes.
@@ -261,20 +297,15 @@ impl RedisClient {
   pub fn replicas(&self) -> Replicas {
     Replicas::from(&self.inner)
   }
-
-  /// Send a [CLIENT CACHING yes|no](https://redis.io/commands/client-caching/) command before subsequent commands.
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  pub fn caching(&self, enabled: bool) -> Caching {
-    Caching::new(&self.inner, enabled)
-  }
 }
 
 #[cfg(test)]
 mod tests {
+  #[cfg(feature = "sha-1")]
   use crate::util;
 
   #[test]
+  #[cfg(feature = "sha-1")]
   fn should_correctly_sha1_hash() {
     assert_eq!(
       &util::sha1_hash("foobarbaz"),

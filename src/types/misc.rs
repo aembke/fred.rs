@@ -1,14 +1,14 @@
-pub use crate::protocol::hashers::ClusterHash;
+pub use crate::protocol::{
+  hashers::ClusterHash,
+  types::{Message, MessageKind},
+};
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::Server,
-  utils,
+  types::{RedisKey, RedisValue, Server},
+  utils::{self, convert_or_default},
 };
 use bytes_utils::Str;
-use std::{collections::HashMap, convert::TryFrom, fmt};
-
-pub use crate::protocol::types::{Message, MessageKind};
-use crate::types::RedisKey;
+use std::{collections::HashMap, convert::TryFrom, fmt, time::Duration};
 
 /// Arguments passed to the SHUTDOWN command.
 ///
@@ -101,7 +101,7 @@ pub struct CustomCommand {
   /// Cluster clients will use the default policy if not provided.
   pub cluster_hash: ClusterHash,
   /// Whether or not the command should block the connection while waiting on a response.
-  pub is_blocking:  bool,
+  pub blocking:     bool,
 }
 
 impl CustomCommand {
@@ -114,9 +114,9 @@ impl CustomCommand {
     H: Into<ClusterHash>,
   {
     CustomCommand {
-      cmd:          cmd.into(),
+      cmd: cmd.into(),
       cluster_hash: cluster_hash.into(),
-      is_blocking:  blocking,
+      blocking,
     }
   }
 
@@ -126,16 +126,16 @@ impl CustomCommand {
     H: Into<ClusterHash>,
   {
     CustomCommand {
-      cmd:          utils::static_str(cmd),
+      cmd: utils::static_str(cmd),
       cluster_hash: cluster_hash.into(),
-      is_blocking:  blocking,
+      blocking,
     }
   }
 }
 
 /// An enum describing the possible ways in which a Redis cluster can change state.
 ///
-/// See [on_cluster_change](crate::interfaces::ClientLike::on_cluster_change) for more information.
+/// See [on_cluster_change](crate::interfaces::EventInterface::on_cluster_change) for more information.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterStateChange {
   /// A node was added to the cluster.
@@ -228,16 +228,41 @@ impl fmt::Display for ClientState {
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DatabaseMemoryStats {
-  pub overhead_hashtable_main:    u64,
-  pub overhead_hashtable_expires: u64,
+  pub overhead_hashtable_main:         u64,
+  pub overhead_hashtable_expires:      u64,
+  pub overhead_hashtable_slot_to_keys: u64,
 }
 
 impl Default for DatabaseMemoryStats {
   fn default() -> Self {
     DatabaseMemoryStats {
-      overhead_hashtable_expires: 0,
-      overhead_hashtable_main:    0,
+      overhead_hashtable_expires:      0,
+      overhead_hashtable_main:         0,
+      overhead_hashtable_slot_to_keys: 0,
     }
+  }
+}
+
+fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value: RedisValue) {
+  match key {
+    "overhead.hashtable.main" => stats.overhead_hashtable_main = convert_or_default(value),
+    "overhead.hashtable.expires" => stats.overhead_hashtable_expires = convert_or_default(value),
+    "overhead.hashtable.slot-to-keys" => stats.overhead_hashtable_slot_to_keys = convert_or_default(value),
+    _ => {},
+  };
+}
+
+impl TryFrom<RedisValue> for DatabaseMemoryStats {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    let values: HashMap<Str, RedisValue> = value.convert()?;
+    let mut out = DatabaseMemoryStats::default();
+
+    for (key, value) in values.into_iter() {
+      parse_database_memory_stat(&mut out, &key, value);
+    }
+    Ok(out)
   }
 }
 
@@ -340,6 +365,64 @@ impl PartialEq for MemoryStats {
 
 impl Eq for MemoryStats {}
 
+fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue) {
+  match key {
+    "peak.allocated" => stats.peak_allocated = convert_or_default(value),
+    "total.allocated" => stats.total_allocated = convert_or_default(value),
+    "startup.allocated" => stats.startup_allocated = convert_or_default(value),
+    "replication.backlog" => stats.replication_backlog = convert_or_default(value),
+    "clients.slaves" => stats.clients_slaves = convert_or_default(value),
+    "clients.normal" => stats.clients_normal = convert_or_default(value),
+    "aof.buffer" => stats.aof_buffer = convert_or_default(value),
+    "lua.caches" => stats.lua_caches = convert_or_default(value),
+    "overhead.total" => stats.overhead_total = convert_or_default(value),
+    "keys.count" => stats.keys_count = convert_or_default(value),
+    "keys.bytes-per-key" => stats.keys_bytes_per_key = convert_or_default(value),
+    "dataset.bytes" => stats.dataset_bytes = convert_or_default(value),
+    "dataset.percentage" => stats.dataset_percentage = convert_or_default(value),
+    "peak.percentage" => stats.peak_percentage = convert_or_default(value),
+    "allocator.allocated" => stats.allocator_allocated = convert_or_default(value),
+    "allocator.active" => stats.allocator_active = convert_or_default(value),
+    "allocator.resident" => stats.allocator_resident = convert_or_default(value),
+    "allocator-fragmentation.ratio" => stats.allocator_fragmentation_ratio = convert_or_default(value),
+    "allocator-fragmentation.bytes" => stats.allocator_fragmentation_bytes = convert_or_default(value),
+    "allocator-rss.ratio" => stats.allocator_rss_ratio = convert_or_default(value),
+    "allocator-rss.bytes" => stats.allocator_rss_bytes = convert_or_default(value),
+    "rss-overhead.ratio" => stats.rss_overhead_ratio = convert_or_default(value),
+    "rss-overhead.bytes" => stats.rss_overhead_bytes = convert_or_default(value),
+    "fragmentation" => stats.fragmentation = convert_or_default(value),
+    "fragmentation.bytes" => stats.fragmentation_bytes = convert_or_default(value),
+    _ => {
+      if key.starts_with("db.") {
+        let db = match key.split('.').last().and_then(|v| v.parse::<u16>().ok()) {
+          Some(db) => db,
+          None => return,
+        };
+        let parsed: DatabaseMemoryStats = match value.convert().ok() {
+          Some(db) => db,
+          None => return,
+        };
+
+        stats.db.insert(db, parsed);
+      }
+    },
+  }
+}
+
+impl TryFrom<RedisValue> for MemoryStats {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    let values: HashMap<Str, RedisValue> = value.convert()?;
+    let mut out = MemoryStats::default();
+
+    for (key, value) in values.into_iter() {
+      parse_memory_stat_field(&mut out, &key, value);
+    }
+    Ok(out)
+  }
+}
+
 /// The output of an entry in the slow queries log.
 ///
 /// <https://redis.io/commands/slowlog#output-format>
@@ -347,10 +430,62 @@ impl Eq for MemoryStats {}
 pub struct SlowlogEntry {
   pub id:        i64,
   pub timestamp: i64,
-  pub duration:  u64,
-  pub args:      Vec<String>,
-  pub ip:        Option<String>,
-  pub name:      Option<String>,
+  pub duration:  Duration,
+  pub args:      Vec<RedisValue>,
+  pub ip:        Option<Str>,
+  pub name:      Option<Str>,
+}
+
+impl TryFrom<RedisValue> for SlowlogEntry {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    if let RedisValue::Array(values) = value {
+      if values.len() < 4 {
+        return Err(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Expected at least 4 response values.",
+        ));
+      }
+
+      let id = values[0]
+        .as_i64()
+        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer ID."))?;
+      let timestamp = values[1]
+        .as_i64()
+        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer timestamp."))?;
+      let duration = values[2]
+        .as_u64()
+        .map(Duration::from_micros)
+        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer duration."))?;
+      let args = values[3].clone().into_multiple_values();
+
+      let (ip, name) = if values.len() == 6 {
+        let ip = values[4]
+          .as_bytes_str()
+          .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected IP address string."))?;
+        let name = values[5].as_bytes_str().ok_or(RedisError::new(
+          RedisErrorKind::Protocol,
+          "Expected client name string.",
+        ))?;
+
+        (Some(ip), Some(name))
+      } else {
+        (None, None)
+      };
+
+      Ok(SlowlogEntry {
+        id,
+        timestamp,
+        duration,
+        args,
+        ip,
+        name,
+      })
+    } else {
+      Err(RedisError::new_parse("Expected array."))
+    }
+  }
 }
 
 /// Flags for the SCRIPT DEBUG command.
@@ -432,7 +567,7 @@ impl FnPolicy {
   }
 
   pub(crate) fn from_str(s: &str) -> Result<Self, RedisError> {
-    Ok(match s.as_ref() {
+    Ok(match s {
       "flush" | "FLUSH" => FnPolicy::Flush,
       "append" | "APPEND" => FnPolicy::Append,
       "replace" | "REPLACE" => FnPolicy::Replace,
@@ -483,6 +618,6 @@ impl TryFrom<&Str> for FnPolicy {
   type Error = RedisError;
 
   fn try_from(value: &Str) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(&value)
+    FnPolicy::from_str(value)
   }
 }
