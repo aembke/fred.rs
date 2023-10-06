@@ -23,7 +23,7 @@ use std::{
   mem,
   str,
   sync::{atomic::AtomicBool, Arc},
-  time::Instant,
+  time::{Duration, Instant},
 };
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
@@ -108,7 +108,7 @@ impl<'a> TryFrom<&'a str> for ClusterErrorKind {
   type Error = RedisError;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-    match value.as_ref() {
+    match value {
       "MOVED" => Ok(ClusterErrorKind::Moved),
       "ASK" => Ok(ClusterErrorKind::Ask),
       _ => Err(RedisError::new(
@@ -276,11 +276,7 @@ pub enum RedisCommandKind {
   Pfmerge,
   Ping,
   Psetex,
-  Psubscribe,
-  Pubsub,
   Pttl,
-  Publish,
-  Punsubscribe,
   Quit,
   Randomkey,
   Readonly,
@@ -319,7 +315,6 @@ pub enum RedisCommandKind {
   Srandmember,
   Srem,
   Strlen,
-  Subscribe,
   Sunion,
   Sunionstore,
   Swapdb,
@@ -328,11 +323,11 @@ pub enum RedisCommandKind {
   Touch,
   Ttl,
   Type,
-  Unsubscribe,
   Unlink,
   Unwatch,
   Wait,
   Watch,
+  // Streams
   XinfoConsumers,
   XinfoGroups,
   XinfoStream,
@@ -353,6 +348,7 @@ pub enum RedisCommandKind {
   Xclaim,
   Xautoclaim,
   Xpending,
+  // Sorted Sets
   Zadd,
   Zcard,
   Zcount,
@@ -383,18 +379,18 @@ pub enum RedisCommandKind {
   Zpopmax,
   Zpopmin,
   Zmpop,
+  // Scripts
   ScriptLoad,
   ScriptDebug,
   ScriptExists,
   ScriptFlush,
   ScriptKill,
+  // Scanning
   Scan,
   Sscan,
   Hscan,
   Zscan,
-  Spublish,
-  Ssubscribe,
-  Sunsubscribe,
+  // Function
   Fcall,
   FcallRO,
   FunctionDelete,
@@ -405,11 +401,43 @@ pub enum RedisCommandKind {
   FunctionLoad,
   FunctionRestore,
   FunctionStats,
+  // Pubsub
+  Publish,
   PubsubChannels,
   PubsubNumpat,
   PubsubNumsub,
   PubsubShardchannels,
   PubsubShardnumsub,
+  Spublish,
+  Ssubscribe,
+  Sunsubscribe,
+  Unsubscribe,
+  Subscribe,
+  Psubscribe,
+  Punsubscribe,
+  // RedisJSON
+  JsonArrAppend,
+  JsonArrIndex,
+  JsonArrInsert,
+  JsonArrLen,
+  JsonArrPop,
+  JsonArrTrim,
+  JsonClear,
+  JsonDebugMemory,
+  JsonDel,
+  JsonGet,
+  JsonMerge,
+  JsonMGet,
+  JsonMSet,
+  JsonNumIncrBy,
+  JsonObjKeys,
+  JsonObjLen,
+  JsonResp,
+  JsonSet,
+  JsonStrAppend,
+  JsonStrLen,
+  JsonToggle,
+  JsonType,
   // Commands with custom state or commands that don't map directly to the server's command interface.
   _Hello(RespVersion),
   _AuthAllCluster,
@@ -435,101 +463,65 @@ impl fmt::Debug for RedisCommandKind {
 
 impl RedisCommandKind {
   pub fn is_scan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Scan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Scan)
   }
 
   pub fn is_hscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Hscan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Hscan)
   }
 
   pub fn is_sscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Sscan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Sscan)
   }
 
   pub fn is_zscan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Zscan => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Zscan)
   }
 
   pub fn is_hello(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Hello(_) | RedisCommandKind::_HelloAllCluster(_) => true,
-      _ => false,
-    }
+    matches!(
+      *self,
+      RedisCommandKind::_Hello(_) | RedisCommandKind::_HelloAllCluster(_)
+    )
   }
 
   pub fn is_auth(&self) -> bool {
-    match *self {
-      RedisCommandKind::Auth => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Auth)
   }
 
   pub fn is_value_scan(&self) -> bool {
-    match *self {
-      RedisCommandKind::Zscan | RedisCommandKind::Hscan | RedisCommandKind::Sscan => true,
-      _ => false,
-    }
+    matches!(
+      *self,
+      RedisCommandKind::Zscan | RedisCommandKind::Hscan | RedisCommandKind::Sscan
+    )
   }
 
   pub fn is_multi(&self) -> bool {
-    match *self {
-      RedisCommandKind::Multi => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Multi)
   }
 
   pub fn is_exec(&self) -> bool {
-    match *self {
-      RedisCommandKind::Exec => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Exec)
   }
 
   pub fn is_discard(&self) -> bool {
-    match *self {
-      RedisCommandKind::Discard => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Discard)
   }
 
   pub fn ends_transaction(&self) -> bool {
-    match *self {
-      RedisCommandKind::Exec | RedisCommandKind::Discard => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Exec | RedisCommandKind::Discard)
   }
 
   pub fn is_mset(&self) -> bool {
-    match *self {
-      RedisCommandKind::Mset | RedisCommandKind::Msetnx => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Mset | RedisCommandKind::Msetnx)
   }
 
   pub fn is_custom(&self) -> bool {
-    match *self {
-      RedisCommandKind::_Custom(_) => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::_Custom(_))
   }
 
   pub fn closes_connection(&self) -> bool {
-    match *self {
-      RedisCommandKind::Quit | RedisCommandKind::Shutdown => true,
-      _ => false,
-    }
+    matches!(*self, RedisCommandKind::Quit | RedisCommandKind::Shutdown)
   }
 
   pub fn custom_hash_slot(&self) -> Option<u16> {
@@ -704,7 +696,6 @@ impl RedisCommandKind {
       RedisCommandKind::Ping => "PING",
       RedisCommandKind::Psetex => "PSETEX",
       RedisCommandKind::Psubscribe => "PSUBSCRIBE",
-      RedisCommandKind::Pubsub => "PUBSUB",
       RedisCommandKind::Pttl => "PTTL",
       RedisCommandKind::Publish => "PUBLISH",
       RedisCommandKind::Punsubscribe => "PUNSUBSCRIBE",
@@ -848,6 +839,28 @@ impl RedisCommandKind {
       RedisCommandKind::PubsubNumsub => "PUBSUB NUMSUB",
       RedisCommandKind::PubsubShardchannels => "PUBSUB SHARDCHANNELS",
       RedisCommandKind::PubsubShardnumsub => "PUBSUB SHARDNUMSUB",
+      RedisCommandKind::JsonArrAppend => "JSON.ARRAPPEND",
+      RedisCommandKind::JsonArrIndex => "JSON.ARRINDEX",
+      RedisCommandKind::JsonArrInsert => "JSON.ARRINSERT",
+      RedisCommandKind::JsonArrLen => "JSON.ARRLEN",
+      RedisCommandKind::JsonArrPop => "JSON.ARRPOP",
+      RedisCommandKind::JsonArrTrim => "JSON.ARRTRIM",
+      RedisCommandKind::JsonClear => "JSON.CLEAR",
+      RedisCommandKind::JsonDebugMemory => "JSON.DEBUG MEMORY",
+      RedisCommandKind::JsonDel => "JSON.DEL",
+      RedisCommandKind::JsonGet => "JSON.GET",
+      RedisCommandKind::JsonMerge => "JSON.MERGE",
+      RedisCommandKind::JsonMGet => "JSON.MGET",
+      RedisCommandKind::JsonMSet => "JSON.MSET",
+      RedisCommandKind::JsonNumIncrBy => "JSON.NUMINCRBY",
+      RedisCommandKind::JsonObjKeys => "JSON.OBJKEYS",
+      RedisCommandKind::JsonObjLen => "JSON.OBJLEN",
+      RedisCommandKind::JsonResp => "JSON.RESP",
+      RedisCommandKind::JsonSet => "JSON.SET",
+      RedisCommandKind::JsonStrAppend => "JSON.STRAPPEND",
+      RedisCommandKind::JsonStrLen => "JSON.STRLEN",
+      RedisCommandKind::JsonToggle => "JSON.TOGGLE",
+      RedisCommandKind::JsonType => "JSON.TYPE",
       RedisCommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
@@ -1014,7 +1027,6 @@ impl RedisCommandKind {
       RedisCommandKind::Ping => "PING",
       RedisCommandKind::Psetex => "PSETEX",
       RedisCommandKind::Psubscribe => "PSUBSCRIBE",
-      RedisCommandKind::Pubsub => "PUBSUB",
       RedisCommandKind::Pttl => "PTTL",
       RedisCommandKind::Publish => "PUBLISH",
       RedisCommandKind::Punsubscribe => "PUNSUBSCRIBE",
@@ -1155,6 +1167,28 @@ impl RedisCommandKind {
       RedisCommandKind::_AuthAllCluster => "AUTH",
       RedisCommandKind::_HelloAllCluster(_) => "HELLO",
       RedisCommandKind::_ClientTrackingCluster => "CLIENT",
+      RedisCommandKind::JsonArrAppend => "JSON.ARRAPPEND",
+      RedisCommandKind::JsonArrIndex => "JSON.ARRINDEX",
+      RedisCommandKind::JsonArrInsert => "JSON.ARRINSERT",
+      RedisCommandKind::JsonArrLen => "JSON.ARRLEN",
+      RedisCommandKind::JsonArrPop => "JSON.ARRPOP",
+      RedisCommandKind::JsonArrTrim => "JSON.ARRTRIM",
+      RedisCommandKind::JsonClear => "JSON.CLEAR",
+      RedisCommandKind::JsonDebugMemory => "JSON.DEBUG",
+      RedisCommandKind::JsonDel => "JSON.DEL",
+      RedisCommandKind::JsonGet => "JSON.GET",
+      RedisCommandKind::JsonMerge => "JSON.MERGE",
+      RedisCommandKind::JsonMGet => "JSON.MGET",
+      RedisCommandKind::JsonMSet => "JSON.MSET",
+      RedisCommandKind::JsonNumIncrBy => "JSON.NUMINCRBY",
+      RedisCommandKind::JsonObjKeys => "JSON.OBJKEYS",
+      RedisCommandKind::JsonObjLen => "JSON.OBJLEN",
+      RedisCommandKind::JsonResp => "JSON.RESP",
+      RedisCommandKind::JsonSet => "JSON.SET",
+      RedisCommandKind::JsonStrAppend => "JSON.STRAPPEND",
+      RedisCommandKind::JsonStrLen => "JSON.STRLEN",
+      RedisCommandKind::JsonToggle => "JSON.TOGGLE",
+      RedisCommandKind::JsonType => "JSON.TYPE",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
     };
 
@@ -1255,6 +1289,7 @@ impl RedisCommandKind {
       RedisCommandKind::_FunctionDeleteCluster => "DELETE",
       RedisCommandKind::_FunctionRestoreCluster => "RESTORE",
       RedisCommandKind::_ClientTrackingCluster => "TRACKING",
+      RedisCommandKind::JsonDebugMemory => "MEMORY",
       _ => return None,
     };
 
@@ -1262,15 +1297,15 @@ impl RedisCommandKind {
   }
 
   pub fn use_random_cluster_node(&self) -> bool {
-    match self {
+    matches!(
+      *self,
       RedisCommandKind::Publish
-      | RedisCommandKind::Ping
-      | RedisCommandKind::Info
-      | RedisCommandKind::Scan
-      | RedisCommandKind::FlushAll
-      | RedisCommandKind::FlushDB => true,
-      _ => false,
-    }
+        | RedisCommandKind::Ping
+        | RedisCommandKind::Info
+        | RedisCommandKind::Scan
+        | RedisCommandKind::FlushAll
+        | RedisCommandKind::FlushDB
+    )
   }
 
   pub fn is_blocking(&self) -> bool {
@@ -1289,44 +1324,44 @@ impl RedisCommandKind {
       // default is false, but can be changed by the BLOCKING args. the RedisCommand::can_pipeline function checks the
       // args too.
       RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => false,
-      RedisCommandKind::_Custom(ref kind) => kind.is_blocking,
+      RedisCommandKind::_Custom(ref kind) => kind.blocking,
       _ => false,
     }
   }
 
   pub fn is_all_cluster_nodes(&self) -> bool {
-    match *self {
+    matches!(
+      *self,
       RedisCommandKind::_FlushAllCluster
-      | RedisCommandKind::_AuthAllCluster
-      | RedisCommandKind::_ScriptFlushCluster
-      | RedisCommandKind::_ScriptKillCluster
-      | RedisCommandKind::_HelloAllCluster(_)
-      | RedisCommandKind::_ClientTrackingCluster
-      | RedisCommandKind::_ScriptLoadCluster
-      | RedisCommandKind::_FunctionFlushCluster
-      | RedisCommandKind::_FunctionDeleteCluster
-      | RedisCommandKind::_FunctionRestoreCluster
-      | RedisCommandKind::_FunctionLoadCluster => true,
-      _ => false,
-    }
+        | RedisCommandKind::_AuthAllCluster
+        | RedisCommandKind::_ScriptFlushCluster
+        | RedisCommandKind::_ScriptKillCluster
+        | RedisCommandKind::_HelloAllCluster(_)
+        | RedisCommandKind::_ClientTrackingCluster
+        | RedisCommandKind::_ScriptLoadCluster
+        | RedisCommandKind::_FunctionFlushCluster
+        | RedisCommandKind::_FunctionDeleteCluster
+        | RedisCommandKind::_FunctionRestoreCluster
+        | RedisCommandKind::_FunctionLoadCluster
+    )
   }
 
   pub fn should_flush(&self) -> bool {
-    match self {
+    matches!(
+      *self,
       RedisCommandKind::Quit
-      | RedisCommandKind::Shutdown
-      | RedisCommandKind::Ping
-      | RedisCommandKind::Auth
-      | RedisCommandKind::_Hello(_)
-      | RedisCommandKind::Exec
-      | RedisCommandKind::Discard
-      | RedisCommandKind::Eval
-      | RedisCommandKind::EvalSha
-      | RedisCommandKind::Fcall
-      | RedisCommandKind::FcallRO
-      | RedisCommandKind::_Custom(_) => true,
-      _ => false,
-    }
+        | RedisCommandKind::Shutdown
+        | RedisCommandKind::Ping
+        | RedisCommandKind::Auth
+        | RedisCommandKind::_Hello(_)
+        | RedisCommandKind::Exec
+        | RedisCommandKind::Discard
+        | RedisCommandKind::Eval
+        | RedisCommandKind::EvalSha
+        | RedisCommandKind::Fcall
+        | RedisCommandKind::FcallRO
+        | RedisCommandKind::_Custom(_)
+    )
   }
 
   pub fn can_pipeline(&self) -> bool {
@@ -1355,80 +1390,80 @@ impl RedisCommandKind {
   }
 
   pub fn is_eval(&self) -> bool {
-    match *self {
-      RedisCommandKind::EvalSha | RedisCommandKind::Eval | RedisCommandKind::Fcall | RedisCommandKind::FcallRO => {
-        true
-      },
-      _ => false,
-    }
+    matches!(
+      *self,
+      RedisCommandKind::EvalSha | RedisCommandKind::Eval | RedisCommandKind::Fcall | RedisCommandKind::FcallRO
+    )
   }
 }
 
 pub struct RedisCommand {
   /// The command and optional subcommand name.
-  pub kind:              RedisCommandKind,
+  pub kind:                   RedisCommandKind,
   /// The policy to apply when handling the response.
-  pub response:          ResponseKind,
+  pub response:               ResponseKind,
   /// The policy to use when hashing the arguments for cluster routing.
-  pub hasher:            ClusterHash,
+  pub hasher:                 ClusterHash,
   /// The provided arguments.
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
-  pub arguments:         Vec<RedisValue>,
+  pub arguments:              Vec<RedisValue>,
   /// A oneshot sender used to communicate with the router.
-  pub router_tx:         Arc<Mutex<Option<RouterSender>>>,
-  /// The number of times the command was sent to the server.
-  pub attempted:         u32,
+  pub router_tx:              Arc<Mutex<Option<RouterSender>>>,
+  /// The number of times the command has been written to a socket.
+  pub write_attempts:         u32,
+  /// The number of write attempts remaining.
+  pub attempts_remaining:     u32,
+  /// The number of cluster redirections remaining.
+  pub redirections_remaining: u32,
   /// Whether or not the command can be pipelined.
   ///
   /// Also used for commands like XREAD that block based on an argument.
-  pub can_pipeline:      bool,
+  pub can_pipeline:           bool,
   /// Whether or not to skip backpressure checks.
-  pub skip_backpressure: bool,
+  pub skip_backpressure:      bool,
   /// The internal ID of a transaction.
-  pub transaction_id:    Option<u64>,
+  pub transaction_id:         Option<u64>,
+  /// The timeout duration provided by the `with_options` interface.
+  pub timeout_dur:            Option<Duration>,
   /// Whether the command has timed out from the perspective of the caller.
-  pub timed_out:         Arc<AtomicBool>,
+  pub timed_out:              Arc<AtomicBool>,
   /// A timestamp of when the command was last written to the socket.
-  pub network_start:     Option<Instant>,
+  pub network_start:          Option<Instant>,
   /// Whether to route the command to a replica, if possible.
-  pub use_replica:       bool,
+  pub use_replica:            bool,
   /// Only send the command to the provided server.
-  pub cluster_node:      Option<Server>,
+  pub cluster_node:           Option<Server>,
   /// A timestamp of when the command was first created from the public interface.
   #[cfg(feature = "metrics")]
-  pub created:           Instant,
+  pub created:                Instant,
   /// Tracing state that has to carry over across writer/reader tasks to track certain fields (response size, etc).
   #[cfg(feature = "partial-tracing")]
-  pub traces:            CommandTraces,
+  pub traces:                 CommandTraces,
   /// A counter to differentiate unique commands.
   #[cfg(feature = "debug-ids")]
-  pub counter:           usize,
+  pub counter:                usize,
   /// Whether to send a `CLIENT CACHING yes|no` before the command.
   #[cfg(feature = "client-tracking")]
-  pub caching:           Option<bool>,
-}
-
-impl Drop for RedisCommand {
-  fn drop(&mut self) {
-    if self.has_response_tx() {
-      debug!(
-        "Dropping command `{}` ({}) without responding to caller.",
-        self.kind.to_str_debug(),
-        self.debug_id()
-      );
-    }
-  }
+  pub caching:                Option<bool>,
 }
 
 impl fmt::Debug for RedisCommand {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("RedisCommand")
+    let mut formatter = f.debug_struct("RedisCommand");
+    formatter
       .field("command", &self.kind.to_str_debug())
-      .field("attempted", &self.attempted)
+      .field("attempts_remaining", &self.attempts_remaining)
+      .field("redirections_remaining", &self.redirections_remaining)
       .field("can_pipeline", &self.can_pipeline)
-      .field("arguments", &self.args())
-      .finish()
+      .field("write_attempts", &self.write_attempts)
+      .field("timeout_dur", &self.timeout_dur)
+      .field("no_backpressure", &self.skip_backpressure);
+
+    #[cfg(feature = "network-logs")]
+    formatter.field("arguments", &self.args());
+
+    formatter.finish()
   }
 }
 
@@ -1444,30 +1479,43 @@ impl From<RedisCommandKind> for RedisCommand {
   }
 }
 
+impl Default for RedisCommand {
+  fn default() -> Self {
+    RedisCommand {
+      kind:                                        RedisCommandKind::Ping,
+      arguments:                                   Vec::new(),
+      timed_out:                                   Arc::new(AtomicBool::new(false)),
+      timeout_dur:                                 None,
+      response:                                    ResponseKind::Respond(None),
+      hasher:                                      ClusterHash::default(),
+      router_tx:                                   Arc::new(Mutex::new(None)),
+      attempts_remaining:                          0,
+      redirections_remaining:                      0,
+      can_pipeline:                                true,
+      skip_backpressure:                           false,
+      transaction_id:                              None,
+      use_replica:                                 false,
+      cluster_node:                                None,
+      network_start:                               None,
+      write_attempts:                              0,
+      #[cfg(feature = "metrics")]
+      created:                                     Instant::now(),
+      #[cfg(feature = "partial-tracing")]
+      traces:                                      CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter:                                     command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching:                                     None,
+    }
+  }
+}
+
 impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
   fn from((kind, arguments): (RedisCommandKind, Vec<RedisValue>)) -> Self {
     RedisCommand {
       kind,
       arguments,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      response: ResponseKind::Respond(None),
-      hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      cluster_node: None,
-      network_start: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 }
@@ -1477,25 +1525,8 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
     RedisCommand {
       kind,
       arguments,
-      timed_out: Arc::new(AtomicBool::new(false)),
       response: ResponseKind::Respond(Some(tx)),
-      hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      cluster_node: None,
-      network_start: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 }
@@ -1506,24 +1537,7 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       kind,
       arguments,
       response,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      network_start: None,
-      cluster_node: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 }
@@ -1534,52 +1548,16 @@ impl RedisCommand {
     RedisCommand {
       kind,
       arguments: args,
-      timed_out: Arc::new(AtomicBool::new(false)),
-      response: ResponseKind::Skip,
-      hasher: ClusterHash::FirstKey,
-      router_tx: Arc::new(Mutex::new(None)),
-      attempted: 0,
-      can_pipeline: true,
-      skip_backpressure: false,
-      transaction_id: None,
-      use_replica: false,
-      cluster_node: None,
-      network_start: None,
-      #[cfg(feature = "metrics")]
-      created: Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces: CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter: command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching: None,
+      ..RedisCommand::default()
     }
   }
 
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
     RedisCommand {
-      kind:                                        RedisCommandKind::Asking,
-      arguments:                                   Vec::new(),
-      response:                                    ResponseKind::Skip,
-      hasher:                                      ClusterHash::Custom(hash_slot),
-      timed_out:                                   Arc::new(AtomicBool::new(false)),
-      router_tx:                                   Arc::new(Mutex::new(None)),
-      attempted:                                   0,
-      can_pipeline:                                false,
-      skip_backpressure:                           true,
-      transaction_id:                              None,
-      use_replica:                                 false,
-      cluster_node:                                None,
-      network_start:                               None,
-      #[cfg(feature = "metrics")]
-      created:                                     Instant::now(),
-      #[cfg(feature = "partial-tracing")]
-      traces:                                      CommandTraces::default(),
-      #[cfg(feature = "debug-ids")]
-      counter:                                     command_counter(),
-      #[cfg(feature = "client-tracking")]
-      caching:                                     None,
+      kind: RedisCommandKind::Asking,
+      hasher: ClusterHash::Custom(hash_slot),
+      ..RedisCommand::default()
     }
   }
 
@@ -1604,24 +1582,29 @@ impl RedisCommand {
   }
 
   /// Whether errors writing the command should be returned to the caller.
-  pub fn should_send_write_error(&self, inner: &Arc<RedisClientInner>) -> bool {
-    self.attempted >= inner.max_command_attempts() || inner.policy.read().is_none()
-  }
-
-  /// Mark the command to only run once, returning connection write errors to the caller immediately.
-  pub fn set_try_once(&mut self, inner: &Arc<RedisClientInner>) {
-    self.attempted = inner.max_command_attempts();
+  pub fn should_finish_with_error(&self, inner: &Arc<RedisClientInner>) -> bool {
+    self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
   /// Increment and check the number of write attempts.
-  pub fn incr_check_attempted(&mut self, max: u32) -> Result<(), RedisError> {
-    self.attempted += 1;
-    if max > 0 && self.attempted > max {
+  pub fn decr_check_attempted(&mut self) -> Result<(), RedisError> {
+    if self.attempts_remaining == 0 {
       Err(RedisError::new(
         RedisErrorKind::Unknown,
         "Too many failed write attempts.",
       ))
     } else {
+      self.attempts_remaining -= 1;
+      Ok(())
+    }
+  }
+
+  ///
+  pub fn decr_check_redirections(&mut self) -> Result<(), RedisError> {
+    if self.redirections_remaining == 0 {
+      Err(RedisError::new(RedisErrorKind::Unknown, "Too many redirections."))
+    } else {
+      self.redirections_remaining -= 1;
       Ok(())
     }
   }
@@ -1705,27 +1688,46 @@ impl RedisCommand {
   /// Note: this will **not** clone the router channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
-      timed_out: self.timed_out.clone(),
+      timed_out: Arc::new(AtomicBool::new(false)),
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
-      transaction_id: self.transaction_id.clone(),
-      attempted: self.attempted,
+      transaction_id: self.transaction_id,
+      attempts_remaining: self.attempts_remaining,
+      redirections_remaining: self.redirections_remaining,
+      timeout_dur: self.timeout_dur,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
       cluster_node: self.cluster_node.clone(),
       response,
       use_replica: self.use_replica,
+      write_attempts: self.write_attempts,
+      network_start: self.network_start,
       #[cfg(feature = "metrics")]
-      created: self.created.clone(),
-      network_start: self.network_start.clone(),
+      created: Instant::now(),
       #[cfg(feature = "partial-tracing")]
       traces: CommandTraces::default(),
       #[cfg(feature = "debug-ids")]
-      counter: self.counter,
+      counter: command_counter(),
       #[cfg(feature = "client-tracking")]
       caching: self.caching.clone(),
+    }
+  }
+
+  /// Inherit connection and perf settings from the client.
+  pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
+    if self.attempts_remaining == 0 {
+      self.attempts_remaining = inner.connection.max_command_attempts;
+    }
+    if self.redirections_remaining == 0 {
+      self.redirections_remaining = inner.connection.max_redirections;
+    }
+    if self.timeout_dur.is_none() {
+      let default_dur = inner.default_command_timeout();
+      if !default_dur.is_zero() {
+        self.timeout_dur = Some(default_dur);
+      }
     }
   }
 
@@ -1770,6 +1772,12 @@ impl RedisCommand {
     }
   }
 
+  /// Finish the command, responding to both the caller and router.
+  pub fn finish(mut self, inner: &Arc<RedisClientInner>, result: Result<Resp3Frame, RedisError>) {
+    self.respond_to_caller(result);
+    self.respond_to_router(inner, RouterResponse::Continue);
+  }
+
   /// Read the first key in the arguments according to the `FirstKey` cluster hash policy.
   pub fn first_key(&self) -> Option<&[u8]> {
     ClusterHash::FirstKey.find_key(self.args())
@@ -1787,7 +1795,7 @@ impl RedisCommand {
   /// Read the custom hash slot assigned to a scan operation.
   pub fn scan_hash_slot(&self) -> Option<u16> {
     match self.response {
-      ResponseKind::KeyScan(ref inner) => inner.hash_slot.clone(),
+      ResponseKind::KeyScan(ref inner) => inner.hash_slot,
       _ => None,
     }
   }
@@ -1836,41 +1844,23 @@ pub enum RouterCommand {
   /// Send a command to the server.
   Command(RedisCommand),
   /// Send a pipelined series of commands to the server.
-  ///
-  /// Commands may finish out of order in the following cluster scenario:
-  /// 1. The client sends `GET foo`.
-  /// 2. The client sends `GET bar`.
-  /// 3. The client sends `GET baz`.
-  /// 4. The client receives a successful response from `GET foo`.
-  /// 5. The client receives `MOVED` or `ASK` from `GET bar`.
-  /// 6. The client receives a successful response from `GET baz`.
-  ///
-  /// In this scenario the client will retry `GET bar` against the correct node, but after `GET baz` has already
-  /// finished. Callers should use a transaction if they require commands to always finish in order across
-  /// arbitrary keys in a cluster. Both a `Pipeline` and `Transaction` will run a series of commands without
-  /// interruption, but only a `Transaction` can guarantee in-order execution while accounting for cluster errors.
-  ///
-  /// Note: if the third command also operated on the `bar` key (such as `TTL bar` instead of `GET baz`) then the
-  /// commands **would** finish in order, since the server would respond with `MOVED` or `ASK` to both commands,
-  /// and the client would retry them in the same order.
   Pipeline { commands: Vec<RedisCommand> },
   /// Send a transaction to the server.
-  ///
-  /// Notes:
-  /// * The inner command buffer will not contain the trailing `EXEC` command.
-  /// * Transactions are never pipelined in order to handle ASK responses.
-  /// * IDs must be unique w/r/t other transactions buffered in memory.
-  ///
-  /// There is one special failure mode that must be considered:
-  /// 1. The client sends `MULTI` and we receive an `OK` response.
-  /// 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
-  /// 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
-  ///
-  /// According to the cluster spec the client should retry the entire transaction against the node in the `ASK`
-  /// response, but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET
-  /// foo{1}` will have already finished at this point. To account for this the client will never pipeline
-  /// transactions against a cluster, and may clone commands before sending them in order to replay them later with
-  /// a different cluster node mapping.
+  // Notes:
+  // * The inner command buffer will not contain the trailing `EXEC` command.
+  // * Transactions are never pipelined in order to handle ASK responses.
+  // * IDs must be unique w/r/t other transactions buffered in memory.
+  //
+  // There is one special failure mode that must be considered:
+  // 1. The client sends `MULTI` and we receive an `OK` response.
+  // 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
+  // 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
+  //
+  // According to the cluster spec the client should retry the entire transaction against the node in the `ASK`
+  // response, but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET
+  // foo{1}` will have already finished at this point. To account for this the client will never pipeline
+  // transactions against a cluster, and may clone commands before sending them in order to replay them later with
+  // a different cluster node mapping.
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
@@ -1879,27 +1869,21 @@ pub enum RouterCommand {
     tx:             ResponseSender,
   },
   /// Retry a command after a `MOVED` error.
-  ///
-  /// This will trigger a call to `CLUSTER SLOTS` before the command is retried. Additionally,
-  /// the client will **not** increment the command's write attempt counter.
+  // This will trigger a call to `CLUSTER SLOTS` before the command is retried.
   Moved {
     slot:    u16,
     server:  Server,
     command: RedisCommand,
   },
   /// Retry a command after an `ASK` error.
-  ///
-  /// The client will **not** increment the command's write attempt counter.
-  ///
-  /// This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
+  // This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
   Ask {
     slot:    u16,
     server:  Server,
     command: RedisCommand,
   },
   /// Initiate a reconnection to the provided server, or all servers.
-  ///
-  /// The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
+  // The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
     server:  Option<Server>,
     force:   bool,
@@ -1914,6 +1898,38 @@ pub enum RouterCommand {
   /// Force sync the replica routing table with the server(s).
   #[cfg(feature = "replicas")]
   SyncReplicas { tx: OneshotSender<Result<(), RedisError>> },
+}
+
+impl RouterCommand {
+  /// Inherit settings from the configuration structs on `inner`.
+  pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
+    match self {
+      RouterCommand::Command(ref mut cmd) => {
+        cmd.inherit_options(inner);
+      },
+      RouterCommand::Pipeline { ref mut commands, .. } => {
+        for cmd in commands.iter_mut() {
+          cmd.inherit_options(inner);
+        }
+      },
+      RouterCommand::Transaction { ref mut commands, .. } => {
+        for cmd in commands.iter_mut() {
+          cmd.inherit_options(inner);
+        }
+      },
+      _ => {},
+    };
+  }
+
+  /// Apply a timeout to the response channel receiver based on the command and `inner` context.
+  pub fn timeout_dur(&self) -> Option<Duration> {
+    match self {
+      RouterCommand::Command(ref command) => command.timeout_dur,
+      RouterCommand::Pipeline { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
+      RouterCommand::Transaction { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
+      _ => None,
+    }
+  }
 }
 
 impl fmt::Debug for RouterCommand {

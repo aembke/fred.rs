@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "6.3.2"
+version = "7.0.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -29,16 +29,18 @@ features = [
   "sentinel-auth",
   "check-unresponsive",
   "replicas",
-  "client-tracking"
+  "client-tracking",
+  "default-nil-types",
+  "codec",
+  "redis-json",
+  "sha-1"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-arcstr = "1.1"
 arc-swap = "1.5"
 tokio = { version = "1.19.0", features = ["net", "sync", "rt", "rt-multi-thread", "macros"] }
 tokio-util = { version = "0.7.1", features = ["codec"] }
-cfg-if = "1.0.0"
 bytes = "1.1"
 bytes-utils = "0.1"
 futures = "0.3"
@@ -49,10 +51,11 @@ log = "0.4"
 float-cmp = "0.9"
 url = "2.3"
 tokio-stream = "0.1.1"
-sha-1 = "0.10"
+sha-1 = { version = "0.10", optional = true }
 rand = "0.8"
-async-trait = "0.1"
 semver = "1.0"
+socket2 = "0.5"
+async-trait = { version = "0.1" }
 rustls = { version = "0.21", optional = true }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
@@ -66,11 +69,11 @@ rustls-native-certs = { version = "0.6", optional = true }
 trust-dns-resolver = { version = "0.23", optional = true }
 
 [dev-dependencies]
-prometheus = "0.13"
 base64 = "0.21"
-subprocess = "0.2.7"
-serde = { version = "1.0", features = ["derive"] }
+subprocess = "0.2"
 pretty_env_logger = "0.5"
+bollard = "0.14"
+serde = "1.0"
 
 [lib]
 doc = true
@@ -82,16 +85,16 @@ name = "monitor"
 required-features = ["monitor"]
 
 [[example]]
-name = "prometheus"
-required-features = ["metrics"]
-
-[[example]]
 name = "pubsub"
 required-features = ["subscriber-client"]
 
 [[example]]
-name = "serde"
+name = "serde_json"
 required-features = ["serde-json"]
+
+[[example]]
+name = "redis_json"
+required-features = ["redis-json"]
 
 [[example]]
 name = "dns"
@@ -101,9 +104,12 @@ required-features = ["dns"]
 name = "client_tracking"
 required-features = ["client-tracking"]
 
+[[example]]
+name = "lua"
+required-features = ["sha-1"]
+
 [features]
 default = ["ignore-auth-error", "pool-prefer-active"]
-fallback = []
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []
@@ -118,15 +124,19 @@ pool-prefer-active = []
 full-tracing = ["partial-tracing", "tracing", "tracing-futures"]
 partial-tracing = ["tracing", "tracing-futures"]
 blocking-encoding = ["tokio/rt-multi-thread"]
-network-logs = []
 custom-reconnect-errors = []
 monitor = ["nom"]
 sentinel-client = []
 sentinel-auth = []
-no-client-setname = []
 check-unresponsive = []
 replicas = []
+auto-client-setname = []
 client-tracking = []
-# Testing Features
+default-nil-types = []
+codec = []
+# Redis Stack Features
+redis-stack = ["redis-json"]
+redis-json = ["serde-json"]
+# Debugging Features
 debug-ids = []
-sentinel-tests = []
+network-logs = []

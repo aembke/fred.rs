@@ -7,6 +7,7 @@ services:
       - redis-main
       - redis-cluster-6
       - redis-sentinel-3
+      - redis-stack-main
     container_name: "debug"
     build:
       context: ../../../
@@ -14,7 +15,7 @@ services:
       args:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
-      - app-tier
+      - fred-tests
     command:
       - "/bin/bash"
     environment:
@@ -27,6 +28,8 @@ services:
       FRED_REDIS_CLUSTER_PORT: "${FRED_REDIS_CLUSTER_PORT}"
       FRED_REDIS_SENTINEL_HOST: "${FRED_REDIS_SENTINEL_HOST}"
       FRED_REDIS_SENTINEL_PORT: "${FRED_REDIS_SENTINEL_PORT}"
+      FRED_REDIS_STACK_HOST: "${FRED_REDIS_STACK_HOST}"
+      FRED_REDIS_STACK_PORT: "${FRED_REDIS_STACK_PORT}"
       REDIS_USERNAME: "${REDIS_USERNAME}"
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
       REDIS_SENTINEL_PASSWORD: "${REDIS_SENTINEL_PASSWORD}"

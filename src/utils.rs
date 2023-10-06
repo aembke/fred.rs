@@ -1,14 +1,14 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  globals::globals,
   interfaces::ClientLike,
-  modules::inner::RedisClientInner,
+  modules::inner::{CommandSender, RedisClientInner},
   protocol::{
     command::{RedisCommand, RedisCommandKind},
     responders::ResponseKind,
     utils as protocol_utils,
   },
   types::*,
-  utils,
 };
 use arc_swap::ArcSwap;
 use bytes::Bytes;
@@ -37,27 +37,24 @@ use std::{
 use tokio::{
   sync::{
     broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
-    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver},
+    oneshot::channel as oneshot_channel,
   },
   time::sleep,
 };
 use url::Url;
 
-use crate::globals::globals;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
-#[cfg(feature = "serde-json")]
-use serde_json::Value;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
-const REDIS_TLS_SCHEME: &'static str = "rediss";
-const REDIS_CLUSTER_SCHEME_SUFFIX: &'static str = "-cluster";
-const REDIS_SENTINEL_SCHEME_SUFFIX: &'static str = "-sentinel";
-const SENTINEL_NAME_QUERY: &'static str = "sentinelServiceName";
-const CLUSTER_NODE_QUERY: &'static str = "node";
+const REDIS_TLS_SCHEME: &str = "rediss";
+const REDIS_CLUSTER_SCHEME_SUFFIX: &str = "-cluster";
+const REDIS_SENTINEL_SCHEME_SUFFIX: &str = "-sentinel";
+const SENTINEL_NAME_QUERY: &str = "sentinelServiceName";
+const CLUSTER_NODE_QUERY: &str = "node";
 #[cfg(feature = "sentinel-auth")]
 const SENTINEL_USERNAME_QUERY: &'static str = "sentinelUsername";
 #[cfg(feature = "sentinel-auth")]
@@ -155,6 +152,13 @@ pub fn random_string(len: usize) -> String {
     .collect()
 }
 
+pub fn convert_or_default<R>(value: RedisValue) -> R
+where
+  R: FromRedis + Default,
+{
+  value.convert().ok().unwrap_or_default()
+}
+
 pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
 }
@@ -215,49 +219,20 @@ pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
   mem::replace(&mut *locked.lock(), value)
 }
 
-pub fn take_mutex<T>(locked: &Mutex<Option<T>>) -> Option<T> {
-  locked.lock().take()
-}
-
+///
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
-  let formatted = val.starts_with("(") || val.starts_with("[") || val == "+" || val == "-";
+  let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
   if formatted {
     val
+  } else if *kind == ZRangeKind::Exclusive {
+    format!("({}", val)
   } else {
-    if *kind == ZRangeKind::Exclusive {
-      format!("({}", val)
-    } else {
-      format!("[{}", val)
-    }
+    format!("[{}", val)
   }
 }
 
-pub fn value_to_f64(value: &RedisValue) -> Result<f64, RedisError> {
-  value.as_f64().ok_or(RedisError::new(
-    RedisErrorKind::Unknown,
-    "Could not parse value as float.",
-  ))
-}
-
-pub fn value_to_geo_pos(value: &RedisValue) -> Result<Option<GeoPosition>, RedisError> {
-  if let RedisValue::Array(value) = value {
-    if value.len() == 2 {
-      let longitude = value_to_f64(&value[0])?;
-      let latitude = value_to_f64(&value[1])?;
-
-      Ok(Some(GeoPosition { longitude, latitude }))
-    } else {
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Expected array with 2 elements.",
-      ))
-    }
-  } else {
-    Ok(None)
-  }
-}
-
+/// Parse the response from `FUNCTION LIST`.
 fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(functions) = value {
     let mut out = Vec::with_capacity(functions.len());
@@ -287,6 +262,7 @@ fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   }
 }
 
+/// Check and parse the response to `FUNCTION LIST`.
 pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(ref libraries) = value {
     for library in libraries.iter() {
@@ -310,17 +286,17 @@ pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function
   }
 }
 
-pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: u64) -> Result<T, RedisError>
+pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
   Fut: Future<Output = Result<T, E>>,
 {
-  if timeout > 0 {
-    let sleep_ft = sleep(Duration::from_millis(timeout));
+  if !timeout.is_zero() {
+    let sleep_ft = sleep(timeout);
     pin_mut!(sleep_ft);
     pin_mut!(ft);
 
-    trace!("Using timeout: {} ms", timeout);
+    trace!("Using timeout: {:?}", timeout);
     match select(ft, sleep_ft).await {
       Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
       Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
@@ -328,13 +304,6 @@ where
   } else {
     ft.await.map_err(|e| e.into())
   }
-}
-
-pub async fn wait_for_response(
-  rx: OneshotReceiver<Result<Resp3Frame, RedisError>>,
-  timeout: u64,
-) -> Result<Resp3Frame, RedisError> {
-  apply_timeout(rx, timeout).await?
 }
 
 pub fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
@@ -345,11 +314,11 @@ pub fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.blocking == Blocking::Interrupt
 }
 
+/// Whether the router should check and interrupt the blocked command.
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
-  // TODO switch the blocked flag to an AtomicBool to avoid this locked check on each command
   !command.kind.closes_connection()
-    && (inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
-    && inner.backchannel.read().await.is_blocked()
+    && ((inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
+      && inner.backchannel.read().await.is_blocked())
 }
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
@@ -383,13 +352,13 @@ pub async fn interrupt_blocked_connection(
   let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
 
   let frame = backchannel_request_response(inner, command, true).await?;
-  protocol_utils::frame_to_single_result(frame).map(|_| ())
+  protocol_utils::frame_to_results(frame).map(|_| ())
 }
 
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should
 /// be unblocked automatically.
 async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
-  if should_enforce_blocking_policy(inner, &command).await {
+  if should_enforce_blocking_policy(inner, command).await {
     _debug!(
       inner,
       "Checking to enforce blocking policy for {}",
@@ -411,6 +380,15 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
   Ok(())
 }
 
+/// Prepare the command options, returning the timeout duration to apply.
+pub fn prepare_command<C: ClientLike>(client: &C, command: &mut RedisCommand) -> Duration {
+  client.change_command(command);
+  command.inherit_options(client.inner());
+  command
+    .timeout_dur
+    .unwrap_or_else(|| client.inner().default_command_timeout())
+}
+
 /// Send a command to the server using the default response handler.
 pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
@@ -424,13 +402,14 @@ where
   command.response = ResponseKind::Respond(Some(tx));
 
   let timed_out = command.timed_out.clone();
-  let _ = check_blocking_policy(inner, &command).await?;
-  let _ = disallow_nested_values(&command)?;
-  let _ = client.send_command(command)?;
+  let timeout_dur = prepare_command(client, &mut command);
+  check_blocking_policy(inner, &command).await?;
+  client.send_command(command)?;
 
-  wait_for_response(rx, inner.default_command_timeout())
+  apply_timeout(rx, timeout_dur)
+    .and_then(|r| async { r })
     .map_err(move |error| {
-      utils::set_bool_atomic(&timed_out, true);
+      set_bool_atomic(&timed_out, true);
       error
     })
     .await
@@ -462,7 +441,6 @@ where
 
     let req_size = protocol_utils::args_size(&command.args());
     args_span.record("num_args", &command.args().len());
-    let _ = disallow_nested_values(&command)?;
     (command, rx, req_size)
   };
   cmd_span.record("cmd", &command.kind.to_str_debug());
@@ -480,12 +458,14 @@ where
   command.traces.cmd = Some(cmd_span.clone());
   command.traces.queued = Some(queued_span);
 
+  let timeout_dur = prepare_command(client, &mut command);
   let _ = check_blocking_policy(inner, &command).await?;
   let _ = client.send_command(command)?;
 
-  wait_for_response(rx, inner.default_command_timeout())
+  apply_timeout(rx, timeout_dur)
+    .and_then(|r| async { r })
     .map_err(move |error| {
-      utils::set_bool_atomic(&timed_out, true);
+      set_bool_atomic(&timed_out, true);
       error
     })
     .and_then(|frame| async move {
@@ -528,19 +508,6 @@ pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
   } else {
     Ok(())
   }
-}
-
-pub fn disallow_nested_values(cmd: &RedisCommand) -> Result<(), RedisError> {
-  for arg in cmd.args().iter() {
-    if arg.is_map() || arg.is_array() {
-      return Err(RedisError::new(
-        RedisErrorKind::InvalidArgument,
-        format!("Invalid argument type: {:?}", arg.kind()),
-      ));
-    }
-  }
-
-  Ok(())
 }
 
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.
@@ -619,19 +586,6 @@ where
   Ok(out)
 }
 
-#[cfg(feature = "serde-json")]
-pub fn parse_nested_json(s: &str) -> Option<Value> {
-  let trimmed = s.trim();
-  let is_maybe_json =
-    (trimmed.starts_with("{") && trimmed.ends_with("}")) || (trimmed.starts_with("[") && trimmed.ends_with("]"));
-
-  if is_maybe_json {
-    serde_json::from_str(s).ok()
-  } else {
-    None
-  }
-}
-
 pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValue {
   if depth == 0 {
     return value;
@@ -673,8 +627,8 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
 }
 
 pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
-  if arr.len() > 0 && arr.len() % 2 == 0 {
-    arr.chunks(2).fold(true, |b, chunk| b && !chunk[0].is_aggregate_type())
+  if !arr.is_empty() && arr.len() % 2 == 0 {
+    arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
   } else {
     false
   }
@@ -790,7 +744,7 @@ pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, RedisError> {
 
   for (key, value) in url.query_pairs().into_iter() {
     if key == CLUSTER_NODE_QUERY {
-      let parts: Vec<&str> = value.split(":").collect();
+      let parts: Vec<&str> = value.split(':').collect();
       if parts.len() != 2 {
         return Err(RedisError::new(
           RedisErrorKind::Config,
@@ -842,16 +796,23 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
   })
 }
 
-#[cfg(feature = "check-unresponsive")]
-pub fn abort_network_timeout_task(inner: &Arc<RedisClientInner>) {
-  if let Some(jh) = inner.network_timeouts.take_handle() {
-    _trace!(inner, "Shut down network timeout task.");
-    jh.abort();
-  }
+pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
+  inner.backchannel.write().await.clear_router_state(inner).await;
 }
 
-#[cfg(not(feature = "check-unresponsive"))]
-pub fn abort_network_timeout_task(_: &Arc<RedisClientInner>) {}
+/// Send QUIT to the servers and clean up the old router task's state.
+pub fn close_router_channel(inner: &Arc<RedisClientInner>, command_tx: Arc<CommandSender>) {
+  set_client_state(&inner.state, ClientState::Disconnecting);
+  inner.notifications.broadcast_close();
+  inner.reset_server_state();
+
+  let command = RedisCommand::new(RedisCommandKind::Quit, vec![]);
+  inner.counters.incr_cmd_buffer_len();
+  if let Err(_) = command_tx.send(command.into()) {
+    inner.counters.decr_cmd_buffer_len();
+    _warn!(inner, "Failed to send QUIT when dropping old command channel.");
+  }
+}
 
 #[cfg(test)]
 mod tests {

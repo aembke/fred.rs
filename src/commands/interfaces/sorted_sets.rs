@@ -551,19 +551,22 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// client.
   ///
   /// <https://redis.io/commands/zunion>
-  async fn zunion<K, W>(
+  async fn zunion<R, K, W>(
     &self,
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
     withscores: bool,
-  ) -> RedisResult<RedisValue>
+  ) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<MultipleKeys> + Send,
     W: Into<MultipleWeights> + Send,
   {
     into!(keys, weights);
-    commands::sorted_sets::zunion(self, keys, weights, aggregate, withscores).await
+    commands::sorted_sets::zunion(self, keys, weights, aggregate, withscores)
+      .await?
+      .convert()
   }
 
   /// Computes the union of the sorted sets given by the specified keys, and stores the result in `destination`.

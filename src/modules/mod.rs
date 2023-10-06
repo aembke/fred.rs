@@ -3,8 +3,6 @@ pub mod backchannel;
 pub mod globals;
 pub mod inner;
 pub mod metrics;
-/// Client pooling structs.
-pub mod pool;
 pub mod response;
 
 #[cfg(feature = "mocks")]

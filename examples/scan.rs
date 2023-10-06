@@ -1,18 +1,21 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::{prelude::*, types::Scanner};
 use futures::stream::StreamExt;
 
-static COUNT: u32 = 50;
+static COUNT: usize = 50;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0 .. COUNT {
-    let _ = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   Ok(())
 }
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0 .. COUNT {
-    let _ = client.del(format!("foo-{}", idx)).await?;
+    client.del(format!("foo-{}", idx)).await?;
   }
   Ok(())
 }
@@ -21,11 +24,11 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
-  let _ = create_fake_data(&client).await?;
+  client.wait_for_connect().await?;
+  create_fake_data(&client).await?;
 
   // build up a buffer of (key, value) pairs from pages (~10 keys per page)
-  let mut buffer = Vec::with_capacity(COUNT as usize);
+  let mut buffer = Vec::with_capacity(COUNT);
   let mut scan_stream = client.scan("foo*", Some(10), None);
 
   while let Some(result) = scan_stream.next().await {
@@ -42,12 +45,12 @@ async fn main() -> Result<(), RedisError> {
       }
     }
 
-    // move on to the next page now that we're done reading the values. or move this before we call `get` on each key
-    // to scan results in the background as quickly as possible.
+    // **important:** move on to the next page now that we're done reading the values. or move this before we call
+    // `get` on each key to scan results in the background as quickly as possible.
     let _ = page.next();
   }
 
-  let _ = delete_fake_data(&client).await?;
-  let _ = client.quit().await?;
+  delete_fake_data(&client).await?;
+  client.quit().await?;
   Ok(())
 }

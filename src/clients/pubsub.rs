@@ -1,35 +1,10 @@
 use crate::{
   commands,
   error::RedisError,
-  interfaces::{
-    AclInterface,
-    AuthInterface,
-    ClientInterface,
-    ClientLike,
-    ClusterInterface,
-    ConfigInterface,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HeartbeatInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    LuaInterface,
-    MemoryInterface,
-    MetricsInterface,
-    PubsubInterface,
-    RedisResult,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    StreamsInterface,
-    TransactionInterface,
-  },
+  interfaces::*,
   modules::inner::RedisClientInner,
   prelude::{FromRedis, RedisClient},
-  types::{MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
+  types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
 };
 use bytes_utils::Str;
 use parking_lot::RwLock;
@@ -107,6 +82,7 @@ impl ClientLike for SubscriberClient {
   }
 }
 
+impl EventInterface for SubscriberClient {}
 impl AclInterface for SubscriberClient {}
 impl ClientInterface for SubscriberClient {}
 impl ClusterInterface for SubscriberClient {}
@@ -128,6 +104,9 @@ impl SortedSetsInterface for SubscriberClient {}
 impl HeartbeatInterface for SubscriberClient {}
 impl StreamsInterface for SubscriberClient {}
 impl FunctionInterface for SubscriberClient {}
+#[cfg(feature = "redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+impl RedisJsonInterface for SubscriberClient {}
 
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
@@ -268,16 +247,19 @@ impl PubsubInterface for SubscriberClient {
 
 impl SubscriberClient {
   /// Create a new client instance without connecting to the server.
+  ///
+  /// See the [builder](crate::types::Builder) interface for more information.
   pub fn new(
     config: RedisConfig,
     perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
     policy: Option<ReconnectPolicy>,
   ) -> SubscriberClient {
     SubscriberClient {
       channels:       Arc::new(RwLock::new(BTreeSet::new())),
       patterns:       Arc::new(RwLock::new(BTreeSet::new())),
       shard_channels: Arc::new(RwLock::new(BTreeSet::new())),
-      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), policy),
+      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 
@@ -289,6 +271,7 @@ impl SubscriberClient {
     let inner = RedisClientInner::new(
       self.inner.config.as_ref().clone(),
       self.inner.performance_config(),
+      self.inner.connection.as_ref().clone(),
       self.inner.reconnect_policy(),
     );
 
@@ -304,7 +287,7 @@ impl SubscriberClient {
   pub fn manage_subscriptions(&self) -> JoinHandle<()> {
     let _self = self.clone();
     tokio::spawn(async move {
-      let mut stream = _self.on_reconnect();
+      let mut stream = _self.reconnect_rx();
 
       while let Ok(_) = stream.recv().await {
         if let Err(error) = _self.resubscribe_all().await {

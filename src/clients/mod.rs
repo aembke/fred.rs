@@ -1,10 +1,12 @@
-mod node;
+mod options;
 mod pipeline;
+mod pool;
 mod redis;
 mod transaction;
 
-pub use node::Node;
+pub use options::WithOptions;
 pub use pipeline::Pipeline;
+pub use pool::RedisPool;
 pub use redis::RedisClient;
 pub use transaction::Transaction;
 
@@ -25,9 +27,3 @@ mod replica;
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use replica::Replicas;
-
-#[cfg(feature = "client-tracking")]
-mod caching;
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-pub use caching::Caching;

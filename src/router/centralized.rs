@@ -16,21 +16,21 @@ use crate::{
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-pub async fn send_command(
+pub async fn write(
   inner: &Arc<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   command: RedisCommand,
   force_flush: bool,
-) -> Result<Written, (RedisError, RedisCommand)> {
+) -> Written {
   if let Some(writer) = writer.as_mut() {
-    Ok(utils::write_command(inner, writer, command, force_flush).await)
+    utils::write_command(inner, writer, command, force_flush).await
   } else {
     _debug!(inner, "Failed to read connection for {}", command.kind.to_str_debug());
-    Ok(Written::Disconnect((
+    Written::Disconnected((
       None,
       Some(command),
       RedisError::new(RedisErrorKind::IO, "Missing connection."),
-    )))
+    ))
   }
 }
 
@@ -140,14 +140,12 @@ pub async fn process_response_frame(
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
+    } else if command.kind.ends_transaction() {
+      command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
+      return Ok(());
     } else {
-      if command.kind.ends_transaction() {
-        command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
-        return Ok(());
-      } else {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        return Ok(());
-      }
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Ok(());
     }
   }
 
@@ -209,17 +207,11 @@ pub async fn initialize_connection(
         ServerConfig::Centralized { ref server } => server.clone(),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
-      let mut transport = connection::create(
-        inner,
-        server.host.as_str().to_owned(),
-        server.port,
-        None,
-        server.tls_server_name.as_ref(),
-      )
-      .await?;
-      let _ = transport.setup(inner, None).await?;
+      let mut transport = connection::create(inner, &server, None).await?;
+      transport.setup(inner, None).await?;
+      let (server, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
+      inner.notifications.broadcast_reconnect(server);
 
-      let (_, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
       *writer = Some(_writer);
       Ok(())
     },

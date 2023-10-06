@@ -16,6 +16,7 @@ use std::{
   fmt,
   fmt::Formatter,
   iter::repeat,
+  mem,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
 };
@@ -27,7 +28,7 @@ use parking_lot::RwLock;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
-const LAST_CURSOR: &'static str = "0";
+const LAST_CURSOR: &str = "0";
 
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
@@ -112,14 +113,14 @@ impl ResponseKind {
         frames:      frames.clone(),
         tx:          tx.clone(),
         received:    received.clone(),
-        index:       index.clone(),
-        expected:    expected.clone(),
-        error_early: error_early.clone(),
+        index:       *index,
+        expected:    *expected,
+        error_early: *error_early,
       },
       ResponseKind::Multiple { received, tx, expected } => ResponseKind::Multiple {
         received: received.clone(),
         tx:       tx.clone(),
-        expected: expected.clone(),
+        expected: *expected,
       },
       ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
     })
@@ -287,36 +288,18 @@ fn add_buffered_frame(
   Ok(())
 }
 
-/// Merge multiple potentially nested frames into one flat array of frames.
+/// Check for errors while merging the provided frames into one Array frame.
 fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>, error_early: bool) -> Resp3Frame {
-  let inner_len = frames.iter().fold(0, |count, frame| {
-    count
-      + match frame {
-        Resp3Frame::Array { ref data, .. } => data.len(),
-        Resp3Frame::Push { ref data, .. } => data.len(),
-        _ => 1,
+  if error_early {
+    for frame in frames.iter() {
+      if frame.is_error() {
+        return frame.clone();
       }
-  });
-
-  let mut out = Vec::with_capacity(inner_len);
-  for frame in frames.drain(..) {
-    // unwrap and return errors early
-    if error_early && frame.is_error() {
-      return frame;
     }
-
-    match frame {
-      Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
-        for inner_frame in data.into_iter() {
-          out.push(inner_frame);
-        }
-      },
-      _ => out.push(frame),
-    };
   }
 
   Resp3Frame::Array {
-    data:       out,
+    data:       mem::take(frames),
     attributes: None,
   }
 }
@@ -391,7 +374,7 @@ fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), R
         let mut values = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
-          values.push(protocol_utils::frame_to_single_result(frame)?);
+          values.push(protocol_utils::frame_to_results(frame)?);
         }
 
         Ok((cursor, values))
@@ -586,7 +569,7 @@ pub fn respond_buffer(
   );
 
   // errors are buffered like normal frames and are not returned early
-  if let Err(e) = add_buffered_frame(&server, &frames, index, frame) {
+  if let Err(e) = add_buffered_frame(server, &frames, index, frame) {
     respond_locked(inner, &tx, Err(e));
     command.respond_to_router(inner, RouterResponse::Continue);
     _error!(
@@ -614,7 +597,7 @@ pub fn respond_buffer(
       command.debug_id()
     );
 
-    let frame = merge_multiple_frames(frames.lock().deref_mut(), error_early);
+    let frame = merge_multiple_frames(&mut frames.lock(), error_early);
     if frame.is_error() {
       let err = match frame.as_str() {
         Some(s) => protocol_utils::pretty_error(s),

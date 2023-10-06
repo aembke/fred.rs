@@ -7,14 +7,14 @@ use crate::{
 };
 use std::convert::TryInto;
 
-static WITH_COORD: &'static str = "WITHCOORD";
-static WITH_DIST: &'static str = "WITHDIST";
-static WITH_HASH: &'static str = "WITHHASH";
-static STORE_DIST: &'static str = "STOREDIST";
-static FROM_MEMBER: &'static str = "FROMMEMBER";
-static FROM_LONLAT: &'static str = "FROMLONLAT";
-static BY_RADIUS: &'static str = "BYRADIUS";
-static BY_BOX: &'static str = "BYBOX";
+static WITH_COORD: &str = "WITHCOORD";
+static WITH_DIST: &str = "WITHDIST";
+static WITH_HASH: &str = "WITHHASH";
+static STORE_DIST: &str = "STOREDIST";
+static FROM_MEMBER: &str = "FROMMEMBER";
+static FROM_LONLAT: &str = "FROMLONLAT";
+static BY_RADIUS: &str = "BYRADIUS";
+static BY_BOX: &str = "BYBOX";
 
 pub async fn geoadd<C: ClientLike>(
   client: &C,
@@ -44,7 +44,7 @@ pub async fn geoadd<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn geohash<C: ClientLike>(
@@ -53,10 +53,11 @@ pub async fn geohash<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
 
@@ -73,10 +74,11 @@ pub async fn geopos<C: ClientLike>(
   members: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
     args.push(key.into());
 
-    for member in members.inner().into_iter() {
+    for member in members.into_iter() {
       args.push(member);
     }
 
@@ -108,7 +110,7 @@ pub async fn geodist<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn georadius<C: ClientLike>(
@@ -124,7 +126,7 @@ pub async fn georadius<C: ClientLike>(
   ord: Option<SortOrder>,
   store: Option<RedisKey>,
   storedist: Option<RedisKey>,
-) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(16);
     args.push(key.into());
@@ -165,7 +167,7 @@ pub async fn georadius<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::parse_georadius_result(frame, withcoord, withdist, withhash)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn georadiusbymember<C: ClientLike>(
@@ -181,7 +183,7 @@ pub async fn georadiusbymember<C: ClientLike>(
   ord: Option<SortOrder>,
   store: Option<RedisKey>,
   storedist: Option<RedisKey>,
-) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(15);
     args.push(key.into());
@@ -221,7 +223,7 @@ pub async fn georadiusbymember<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::parse_georadius_result(frame, withcoord, withdist, withhash)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn geosearch<C: ClientLike>(
@@ -236,7 +238,7 @@ pub async fn geosearch<C: ClientLike>(
   withcoord: bool,
   withdist: bool,
   withhash: bool,
-) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(15);
     args.push(key.into());
@@ -286,7 +288,7 @@ pub async fn geosearch<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::parse_georadius_result(frame, withcoord, withdist, withhash)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn geosearchstore<C: ClientLike>(
@@ -344,5 +346,5 @@ pub async fn geosearchstore<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

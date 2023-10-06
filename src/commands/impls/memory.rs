@@ -1,25 +1,17 @@
 use super::*;
 use crate::{
-  error::*,
   protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
-use redis_protocol::resp3::types::Frame;
 
 value_cmd!(memory_doctor, MemoryDoctor);
 value_cmd!(memory_malloc_stats, MemoryMallocStats);
 ok_cmd!(memory_purge, MemoryPurge);
 
-pub async fn memory_stats<C: ClientLike>(client: &C) -> Result<MemoryStats, RedisError> {
+pub async fn memory_stats<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
   let response = utils::request_response(client, || Ok((RedisCommandKind::MemoryStats, vec![]))).await?;
-
-  let frame = protocol_utils::frame_map_or_set_to_nested_array(response)?;
-  if let Frame::Array { data, .. } = frame {
-    protocol_utils::parse_memory_stats(&data)
-  } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected array response."))
-  }
+  protocol_utils::frame_to_results(response)
 }
 
 pub async fn memory_usage<C: ClientLike>(
@@ -40,5 +32,5 @@ pub async fn memory_usage<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

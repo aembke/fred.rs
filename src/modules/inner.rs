@@ -12,9 +12,8 @@ use crate::{
   utils,
 };
 use arc_swap::ArcSwap;
-use arcstr::ArcStr;
 use futures::future::{select, Either};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use semver::Version;
 use std::{
   ops::DerefMut,
@@ -37,6 +36,7 @@ use tokio::{
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "check-unresponsive")]
 use crate::router::types::NetworkTimeout;
+use bytes_utils::Str;
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
 
@@ -48,7 +48,7 @@ use crate::types::Invalidation;
 
 pub struct Notifications {
   /// The client ID.
-  pub id:             ArcStr,
+  pub id:             Str,
   /// A broadcast channel for the `on_error` interface.
   pub errors:         ArcSwap<BroadcastSender<RedisError>>,
   /// A broadcast channel for the `on_message` interface.
@@ -56,7 +56,7 @@ pub struct Notifications {
   /// A broadcast channel for the `on_keyspace_event` interface.
   pub keyspace:       ArcSwap<BroadcastSender<KeyspaceEvent>>,
   /// A broadcast channel for the `on_reconnect` interface.
-  pub reconnect:      ArcSwap<BroadcastSender<()>>,
+  pub reconnect:      ArcSwap<BroadcastSender<Server>>,
   /// A broadcast channel for the `on_cluster_change` interface.
   pub cluster_change: ArcSwap<BroadcastSender<Vec<ClusterStateChange>>>,
   /// A broadcast channel for the `on_connect` interface.
@@ -68,23 +68,28 @@ pub struct Notifications {
   /// A broadcast channel for the `on_invalidation` interface.
   #[cfg(feature = "client-tracking")]
   pub invalidations:  ArcSwap<BroadcastSender<Invalidation>>,
+  /// A broadcast channel for notifying callers when servers go unresponsive.
+  #[cfg(feature = "check-unresponsive")]
+  pub unresponsive:   ArcSwap<BroadcastSender<Server>>,
 }
 
 impl Notifications {
-  pub fn new(id: &ArcStr) -> Self {
+  pub fn new(id: &Str) -> Self {
     let capacity = globals().default_broadcast_channel_capacity();
 
     Notifications {
-      id:                                                id.clone(),
-      close:                                             broadcast::channel(capacity).0,
-      errors:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      pubsub:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      keyspace:                                          ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      reconnect:                                         ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      cluster_change:                                    ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      connect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      id:                                                  id.clone(),
+      close:                                               broadcast::channel(capacity).0,
+      errors:                                              ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      pubsub:                                              ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      keyspace:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      reconnect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      cluster_change:                                      ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      connect:                                             ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
       #[cfg(feature = "client-tracking")]
-      invalidations:                                     ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      invalidations:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      #[cfg(feature = "check-unresponsive")]
+      unresponsive:                                        ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
     }
   }
 
@@ -98,6 +103,8 @@ impl Notifications {
     utils::swap_new_broadcast_channel(&self.connect);
     #[cfg(feature = "client-tracking")]
     utils::swap_new_broadcast_channel(&self.invalidations);
+    #[cfg(feature = "check-unresponsive")]
+    utils::swap_new_broadcast_channel(&self.unresponsive);
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
@@ -118,8 +125,8 @@ impl Notifications {
     }
   }
 
-  pub fn broadcast_reconnect(&self) {
-    if let Err(_) = self.reconnect.load().send(()) {
+  pub fn broadcast_reconnect(&self, server: Server) {
+    if let Err(_) = self.reconnect.load().send(server) {
       debug!("{}: No `on_reconnect` listeners.", self.id);
     }
   }
@@ -136,6 +143,8 @@ impl Notifications {
     }
   }
 
+  /// Interrupt any tokio `sleep` calls.
+  //`RedisClientInner::wait_with_interrupt` hides the subscription part from callers.
   pub fn broadcast_close(&self) {
     if let Err(_) = self.close.send(()) {
       debug!("{}: No `close` listeners.", self.id);
@@ -146,6 +155,13 @@ impl Notifications {
   pub fn broadcast_invalidation(&self, msg: Invalidation) {
     if let Err(_) = self.invalidations.load().send(msg) {
       debug!("{}: No `on_invalidation` listeners.", self.id);
+    }
+  }
+
+  #[cfg(feature = "check-unresponsive")]
+  pub fn broadcast_unresponsive(&self, server: Server) {
+    if let Err(_) = self.unresponsive.load().send(server) {
+      debug!("{}: No unresponsive listeners", self.id);
     }
   }
 }
@@ -222,7 +238,7 @@ impl ServerState {
   }
 }
 
-/// Added state associated with different server deployment types.
+/// Added state associated with different server deployment types, synchronized by the router task.
 pub enum ServerKind {
   Sentinel {
     version:   Option<Version>,
@@ -361,19 +377,23 @@ impl ServerKind {
 }
 
 // TODO make a config option for other defaults and extend this
-fn create_resolver(id: &ArcStr) -> Arc<dyn Resolve> {
+fn create_resolver(id: &Str) -> Arc<dyn Resolve> {
   Arc::new(DefaultResolver::new(id))
 }
 
 pub struct RedisClientInner {
+  /// An internal lock used to sync certain operations that should not run concurrently across tasks.
+  pub _lock:         Mutex<()>,
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
-  pub id:            ArcStr,
+  pub id:            Str,
   /// Whether the client uses RESP3.
   pub resp3:         Arc<AtomicBool>,
   /// The state of the underlying connection.
   pub state:         RwLock<ClientState>,
   /// Client configuration options.
   pub config:        Arc<RedisConfig>,
+  /// Connection configuration options.
+  pub connection:    Arc<ConnectionConfig>,
   /// Performance config options for the client.
   pub performance:   ArcSwap<PerformanceConfig>,
   /// An optional reconnect policy.
@@ -381,7 +401,7 @@ pub struct RedisClientInner {
   /// Notification channels for the event interfaces.
   pub notifications: Arc<Notifications>,
   /// An mpsc sender for commands to the router.
-  pub command_tx:    CommandSender,
+  pub command_tx:    ArcSwap<CommandSender>,
   /// Temporary storage for the receiver half of the router command channel.
   pub command_rx:    RwLock<Option<CommandReceiver>>,
   /// Shared counters.
@@ -421,8 +441,13 @@ impl Drop for RedisClientInner {
 }
 
 impl RedisClientInner {
-  pub fn new(config: RedisConfig, perf: PerformanceConfig, policy: Option<ReconnectPolicy>) -> Arc<RedisClientInner> {
-    let id = ArcStr::from(format!("fred-{}", utils::random_string(10)));
+  pub fn new(
+    config: RedisConfig,
+    perf: PerformanceConfig,
+    connection: ConnectionConfig,
+    policy: Option<ReconnectPolicy>,
+  ) -> Arc<RedisClientInner> {
+    let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
     let notifications = Arc::new(Notifications::new(&id));
@@ -437,8 +462,11 @@ impl RedisClientInner {
     } else {
       Arc::new(AtomicBool::new(false))
     };
+    let connection = Arc::new(connection);
+    let command_tx = ArcSwap::new(Arc::new(command_tx));
 
     let inner = Arc::new(RedisClientInner {
+      _lock: Mutex::new(()),
       #[cfg(feature = "metrics")]
       latency_stats: RwLock::new(MovingStats::default()),
       #[cfg(feature = "metrics")]
@@ -462,6 +490,7 @@ impl RedisClientInner {
       resp3,
       notifications,
       resolver,
+      connection,
       id,
     });
     inner.spawn_timeout_task();
@@ -482,12 +511,28 @@ impl RedisClientInner {
 
   #[cfg(feature = "replicas")]
   pub fn ignore_replica_reconnect_errors(&self) -> bool {
-    self.config.replica.ignore_reconnection_errors
+    self.connection.replica.ignore_reconnection_errors
   }
 
   #[cfg(not(feature = "replicas"))]
   pub fn ignore_replica_reconnect_errors(&self) -> bool {
     true
+  }
+
+  /// Swap the command channel sender, returning the old one.
+  pub fn swap_command_tx(&self, tx: CommandSender) -> Arc<CommandSender> {
+    self.command_tx.swap(Arc::new(tx))
+  }
+
+  /// Whether the client has the command channel receiver stored. If not then the caller can assume another
+  /// connection/router instance is using it.
+  pub fn has_command_rx(&self) -> bool {
+    self.command_rx.read().is_some()
+  }
+
+  pub fn reset_server_state(&self) {
+    #[cfg(feature = "replicas")]
+    self.server_state.write().replicas.clear()
   }
 
   pub fn shared_resp3(&self) -> Arc<AtomicBool> {
@@ -499,7 +544,7 @@ impl RedisClientInner {
     F: FnOnce(&str),
   {
     if log_enabled!(level) {
-      func(self.id.as_str())
+      func(&self.id)
     }
   }
 
@@ -513,7 +558,7 @@ impl RedisClientInner {
   }
 
   pub fn client_name(&self) -> &str {
-    self.id.as_str()
+    &self.id
   }
 
   pub fn num_cluster_nodes(&self) -> usize {
@@ -559,9 +604,11 @@ impl RedisClientInner {
     self.command_rx.write().take()
   }
 
-  pub fn store_command_rx(&self, rx: CommandReceiver) {
+  pub fn store_command_rx(&self, rx: CommandReceiver, force: bool) {
     let mut guard = self.command_rx.write();
-    *guard = Some(rx);
+    if guard.is_none() || force {
+      *guard = Some(rx);
+    }
   }
 
   pub fn is_resp3(&self) -> bool {
@@ -583,8 +630,12 @@ impl RedisClientInner {
     self.performance.load().as_ref().clone()
   }
 
+  pub fn connection_config(&self) -> ConnectionConfig {
+    self.connection.as_ref().clone()
+  }
+
   pub fn reconnect_policy(&self) -> Option<ReconnectPolicy> {
-    self.policy.read().as_ref().map(|p| p.clone())
+    self.policy.read().as_ref().cloned()
   }
 
   pub fn reset_protocol_version(&self) {
@@ -597,15 +648,23 @@ impl RedisClientInner {
   }
 
   pub fn max_command_attempts(&self) -> u32 {
-    self.performance.load().max_command_attempts
+    self.connection.max_command_attempts
   }
 
   pub fn max_feed_count(&self) -> u64 {
     self.performance.load().max_feed_count
   }
 
-  pub fn default_command_timeout(&self) -> u64 {
-    self.performance.load().default_command_timeout_ms
+  pub fn default_command_timeout(&self) -> Duration {
+    self.performance.load().default_command_timeout
+  }
+
+  pub fn connection_timeout(&self) -> Duration {
+    self.connection.connection_timeout
+  }
+
+  pub fn internal_command_timeout(&self) -> Duration {
+    self.connection.internal_command_timeout
   }
 
   pub async fn set_blocked_server(&self, server: &Server) {

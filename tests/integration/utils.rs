@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 #![allow(unused_variables)]
+#![allow(clippy::match_like_matches_macro)]
 
 use fred::{
   clients::RedisClient,
@@ -10,11 +11,11 @@ use fred::{
   types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
 };
 use redis_protocol::resp3::prelude::RespVersion;
-use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future};
+use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future, time::Duration};
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::Server;
+use fred::types::{Builder, ConnectionConfig, Server};
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
@@ -28,6 +29,24 @@ use tokio_rustls::rustls::{Certificate, ClientConfig, ConfigBuilder, PrivateKey,
 
 pub fn read_env_var(name: &str) -> Option<String> {
   env::var_os(name).and_then(|s| s.into_string().ok())
+}
+
+pub fn should_use_sentinel_config() -> bool {
+  read_env_var("FRED_SENTINEL_TESTS")
+    .map(|s| match s.as_ref() {
+      "1" | "t" | "true" | "yes" => true,
+      _ => false,
+    })
+    .unwrap_or(false)
+}
+
+pub fn should_flushall_between_tests() -> bool {
+  read_env_var("FRED_NO_FLUSHALL_DURING_TESTS")
+    .map(|s| match s.as_ref() {
+      "1" | "t" | "true" | "yes" => false,
+      _ => true,
+    })
+    .unwrap_or(true)
 }
 
 pub fn read_ci_tls_env() -> bool {
@@ -56,6 +75,17 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
+#[cfg(feature = "redis-stack")]
+pub fn read_redis_centralized_host() -> (String, u16) {
+  let host = read_env_var("FRED_REDIS_STACK_HOST").unwrap_or("redis-main".into());
+  let port = read_env_var("FRED_REDIS_STACK_PORT")
+    .and_then(|s| s.parse::<u16>().ok())
+    .unwrap_or(6379);
+
+  (host, port)
+}
+
+#[cfg(not(feature = "redis-stack"))]
 pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CENTRALIZED_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_CENTRALIZED_PORT")
@@ -89,8 +119,15 @@ pub fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
 }
 
+#[cfg(not(feature = "redis-stack"))]
 pub fn read_redis_username() -> String {
   read_env_var("REDIS_USERNAME").expect("Failed to read REDIS_USERNAME env")
+}
+
+// the CI settings for redis-stack don't set up custom ACL rules
+#[cfg(feature = "redis-stack")]
+pub fn read_redis_username() -> String {
+  read_env_var("REDIS_USERNAME").unwrap_or("default".into())
 }
 
 #[cfg(feature = "sentinel-auth")]
@@ -98,7 +135,6 @@ pub fn read_sentinel_password() -> String {
   read_env_var("REDIS_SENTINEL_PASSWORD").expect("Failed to read REDIS_SENTINEL_PASSWORD env")
 }
 
-#[cfg(feature = "sentinel-tests")]
 pub fn read_sentinel_server() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_SENTINEL_HOST").unwrap_or("127.0.0.1".into());
   let port = read_env_var("FRED_REDIS_SENTINEL_PORT")
@@ -174,7 +210,7 @@ fn create_rustls_config() -> TlsConnector {
   ClientConfig::builder()
     .with_safe_defaults()
     .with_root_certificates(root_store)
-    .with_single_cert(cert_chain, PrivateKey(creds.client_key_der))
+    .with_client_auth_cert(cert_chain, PrivateKey(creds.client_key_der))
     .expect("Failed to build rustls client config")
     .into()
 }
@@ -227,7 +263,7 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 20_000,
+    default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
 
@@ -266,7 +302,7 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 20_000,
+    default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
 
@@ -294,44 +330,53 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 20_000,
+    default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
 
   (config, perf)
 }
 
-#[cfg(feature = "sentinel-tests")]
-pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool)
+async fn flushall_between_tests(client: &RedisClient) -> Result<(), RedisError> {
+  if should_flushall_between_tests() {
+    client.flushall_cluster().await
+  } else {
+    Ok(())
+  }
+}
+
+pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool, resp3: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
+  let connection = ConnectionConfig::default();
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
+    version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     server: ServerConfig::Sentinel {
-      hosts:        vec![read_sentinel_server().into()],
-      service_name: "redis-sentinel-main".into(),
-      // TODO fix this so sentinel-tests can run without sentinel-auth
-      username:     None,
-      password:     Some(read_sentinel_password()),
+      hosts:                                      vec![read_sentinel_server().into()],
+      service_name:                               "redis-sentinel-main".into(),
+      #[cfg(feature = "sentinel-auth")]
+      username:                                   None,
+      #[cfg(feature = "sentinel-auth")]
+      password:                                   Some(read_sentinel_password()),
     },
     password: Some(read_redis_password()),
     ..Default::default()
   };
   let perf = PerformanceConfig {
     auto_pipeline: pipeline,
-    default_command_timeout_ms: 10_000,
     ..Default::default()
   };
-  let client = RedisClient::new(config.clone(), Some(perf), Some(policy));
+  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), Some(policy));
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _: () = client.flushall(false).await.expect("Failed to flushall");
+  flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -342,17 +387,19 @@ where
   Fut: Future<Output = Result<(), RedisError>>,
 {
   let (policy, cmd_attempts, fail_fast) = resilience_settings();
-  let (mut config, mut perf) = create_redis_config(true, pipeline, resp3);
-  perf.max_command_attempts = cmd_attempts;
+  let mut connection = ConnectionConfig::default();
+  let (mut config, perf) = create_redis_config(true, pipeline, resp3);
+  connection.max_command_attempts = cmd_attempts;
+  connection.max_redirections = 10;
   config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), policy);
+  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _: () = client.flushall_cluster().await.expect("Failed to flushall");
+  flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
@@ -362,25 +409,30 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
+  if should_use_sentinel_config() {
+    return run_sentinel(func, pipeline, resp3).await;
+  }
+
   let (policy, cmd_attempts, fail_fast) = resilience_settings();
-  let (mut config, mut perf) = create_redis_config(false, pipeline, resp3);
-  perf.max_command_attempts = cmd_attempts;
+  let mut connection = ConnectionConfig::default();
+  let (mut config, perf) = create_redis_config(false, pipeline, resp3);
+  connection.max_command_attempts = cmd_attempts;
   config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), policy);
+  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
   let _jh = client.connect();
-  let _ = client.wait_for_connect().await.expect("Failed to connect client");
+  client.wait_for_connect().await.expect("Failed to connect client");
 
-  let _: () = client.flushall(false).await.expect("Failed to flushall");
+  flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
 }
 
 macro_rules! centralized_test_panic(
   ($module:tt, $name:tt) => {
-    #[cfg(not(any(feature="sentinel-tests", feature = "enable-rustls", feature = "enable-native-tls")))]
+    #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
     mod $name {
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
@@ -430,34 +482,21 @@ macro_rules! centralized_test_panic(
         }
       }
     }
-
-    #[cfg(feature="sentinel-tests")]
-    mod $name {
-      #[tokio::test(flavor = "multi_thread")]
-      #[should_panic]
-      async fn sentinel_pipelined() {
-        let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_sentinel(crate::integration::$module::$name, true).await;
-      }
-
-      #[tokio::test(flavor = "multi_thread")]
-      #[should_panic]
-      async fn sentinel_no_pipeline() {
-        let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_sentinel(crate::integration::$module::$name, false).await;
-      }
-    }
   }
 );
 
 macro_rules! cluster_test_panic(
   ($module:tt, $name:tt) => {
-    #[cfg(not(feature="sentinel-tests"))]
     mod $name {
+      #[cfg(not(feature = "redis-stack"))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, false).await;
         }
@@ -465,15 +504,24 @@ macro_rules! cluster_test_panic(
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, false, false).await;
         }
       }
 
+      #[cfg(not(feature = "redis-stack"))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn pipelined() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, true).await;
         }
@@ -481,6 +529,10 @@ macro_rules! cluster_test_panic(
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
         async fn no_pipeline() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            panic!("");
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, false, true).await;
         }
@@ -491,7 +543,7 @@ macro_rules! cluster_test_panic(
 
 macro_rules! centralized_test(
   ($module:tt, $name:tt) => {
-    #[cfg(not(any(feature="sentinel-tests", feature = "enable-rustls", feature = "enable-native-tls")))]
+    #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
     mod $name {
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
@@ -537,51 +589,53 @@ macro_rules! centralized_test(
         }
       }
     }
-
-    #[cfg(feature="sentinel-tests")]
-    mod $name {
-      #[tokio::test(flavor = "multi_thread")]
-      async fn sentinel_pipelined() {
-        let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_sentinel(crate::integration::$module::$name, true).await;
-      }
-
-      #[tokio::test(flavor = "multi_thread")]
-      async fn sentinel_no_pipeline() {
-        let _ = pretty_env_logger::try_init();
-        crate::integration::utils::run_sentinel(crate::integration::$module::$name, false).await;
-      }
-    }
   }
 );
 
 macro_rules! cluster_test(
   ($module:tt, $name:tt) => {
-    #[cfg(not(feature="sentinel-tests"))]
     mod $name {
+      #[cfg(not(feature = "redis-stack"))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, false).await;
         }
 
         #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, false, false).await;
         }
       }
 
+      #[cfg(not(feature = "redis-stack"))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, true, true).await;
         }
 
         #[tokio::test(flavor = "multi_thread")]
         async fn no_pipeline() {
+          if crate::integration::utils::should_use_sentinel_config() {
+            return;
+          }
+
           let _ = pretty_env_logger::try_init();
           crate::integration::utils::run_cluster(crate::integration::$module::$name, false, true).await;
         }

@@ -1,12 +1,20 @@
 use super::utils;
 use async_trait::async_trait;
 use fred::{
-  clients::RedisClient,
+  clients::{RedisClient, RedisPool},
   error::{RedisError, RedisErrorKind},
   interfaces::*,
-  pool::RedisPool,
   prelude::{Blocking, RedisValue},
-  types::{BackpressureConfig, ClientUnblockFlag, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig},
+  types::{
+    BackpressureConfig,
+    ClientUnblockFlag,
+    Options,
+    PerformanceConfig,
+    RedisConfig,
+    RedisKey,
+    RedisMap,
+    ServerConfig,
+  },
 };
 use futures::future::try_join;
 use parking_lot::RwLock;
@@ -25,6 +33,8 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
+#[cfg(feature = "codec")]
+use fred::codec::*;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -35,6 +45,13 @@ use fred::types::TracingConfig;
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
+
+#[cfg(feature = "codec")]
+use futures::{SinkExt, StreamExt};
+#[cfg(feature = "codec")]
+use tokio::net::TcpStream;
+#[cfg(feature = "codec")]
+use tokio_util::codec::{Decoder, Encoder, Framed};
 
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
   vals
@@ -53,9 +70,9 @@ pub fn incr_atomic(size: &Arc<AtomicUsize>) -> usize {
 
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let nested_values: RedisMap = vec![("a", 1), ("b", 2)].try_into()?;
-  let _ = client.set("foo", "123", None, None, false).await?;
-  let _ = client.set("baz", "456", None, None, false).await?;
-  let _ = client.hset("bar", &nested_values).await?;
+  client.set("foo", "123", None, None, false).await?;
+  client.set("baz", "456", None, None, false).await?;
+  client.hset("bar", &nested_values).await?;
 
   let foo: usize = client.get("foo").await?;
   assert_eq!(foo, 123);
@@ -83,12 +100,12 @@ pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConf
 
 pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Interrupt;
-  let client = RedisClient::new(config, None, None);
-  let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  let client = RedisClient::new(config, None, None, None);
+  client.connect();
+  client.wait_for_connect().await?;
 
   let unblock_client = client.clone();
-  let _ = tokio::spawn(async move {
+  tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
     let _: () = unblock_client.ping().await.expect("Failed to ping");
   });
@@ -103,7 +120,7 @@ pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Res
   let connections_ids = client.connection_ids().await;
   let unblock_client = client.clone();
 
-  let _ = tokio::spawn(async move {
+  tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
 
     for (_, id) in connections_ids.into_iter() {
@@ -121,12 +138,12 @@ pub async fn should_manually_unblock(client: RedisClient, _: RedisConfig) -> Res
 
 pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Error;
-  let client = RedisClient::new(config, None, None);
-  let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  let client = RedisClient::new(config, None, None, None);
+  client.connect();
+  client.wait_for_connect().await?;
   let error_client = client.clone();
 
-  let _ = tokio::spawn(async move {
+  tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
 
     let result = error_client.ping::<()>().await;
@@ -187,9 +204,9 @@ pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) ->
   let count: i64 = 200;
 
   for idx in 0 .. count {
-    let _: () = client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
-  let _ = client.flushall_cluster().await?;
+  client.flushall_cluster().await?;
 
   for idx in 0 .. count {
     let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
@@ -213,7 +230,7 @@ pub async fn should_safely_change_protocols_repeatedly(
         return Ok::<_, RedisError>(());
       }
       let foo = String::from("foo");
-      let _ = other.incr(&foo).await?;
+      other.incr(&foo).await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
@@ -225,7 +242,7 @@ pub async fn should_safely_change_protocols_repeatedly(
     } else {
       RespVersion::RESP3
     };
-    let _ = client.hello(version, None).await?;
+    client.hello(version, None).await?;
     sleep(Duration::from_millis(500)).await;
   }
   let _ = mem::replace(&mut *done.write(), true);
@@ -240,16 +257,15 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
   config.blocking = Blocking::Block;
   let perf = PerformanceConfig {
     auto_pipeline: true,
-    // default_command_timeout_ms: 20_000,
     backpressure: BackpressureConfig {
       max_in_flight_commands: 100_000_000,
       ..Default::default()
     },
     ..Default::default()
   };
-  let pool = RedisPool::new(config, Some(perf), None, 28)?;
-  let _ = pool.connect();
-  let _ = pool.wait_for_connect().await?;
+  let pool = RedisPool::new(config, Some(perf), None, None, 28)?;
+  pool.connect();
+  pool.wait_for_connect().await?;
 
   let num_tasks = 11641;
   let mut tasks = Vec::with_capacity(num_tasks);
@@ -274,7 +290,7 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
         }
       }
 
-      println!("Task {} finished.", idx);
+      // println!("Task {} finished.", idx);
       Ok::<_, RedisError>(())
     }));
   }
@@ -336,8 +352,8 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_pipeline_try_all(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let pipeline = client.pipeline();
 
-  let _: () = pipeline.incr("foo").await?;
-  let _: () = pipeline.hgetall("foo").await?;
+  pipeline.incr("foo").await?;
+  pipeline.hgetall("foo").await?;
   let results = pipeline.try_all::<i64>().await;
 
   assert_eq!(results[0].clone().unwrap(), 1);
@@ -350,14 +366,14 @@ pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: Red
   let other = client.clone();
   let jh1 = tokio::spawn(async move {
     for _ in 0 .. 200 {
-      let _ = other.flushall_cluster().await?;
+      other.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
   });
   let jh2 = tokio::spawn(async move {
     for _ in 0 .. 200 {
-      let _ = client.flushall_cluster().await?;
+      client.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
@@ -371,7 +387,7 @@ pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: Red
 pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.tracing = TracingConfig::new(true);
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
-  let client = RedisClient::new(config, Some(perf), policy);
+  let client = RedisClient::new(config, Some(perf), None, policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -435,7 +451,7 @@ pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisCo
 #[cfg(feature = "subscriber-client")]
 pub async fn should_ping_with_subscriber_client(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
   let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
-  let client = SubscriberClient::new(config, Some(perf), policy);
+  let client = SubscriberClient::new(config, Some(perf), None, policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -458,13 +474,11 @@ pub async fn should_replica_set_and_get(client: RedisClient, _: RedisConfig) -> 
 }
 
 #[cfg(feature = "replicas")]
-pub async fn should_replica_set_and_get_not_lazy(
-  client: RedisClient,
-  mut config: RedisConfig,
-) -> Result<(), RedisError> {
-  let (perf, policy) = (client.perf_config(), client.client_reconnect_policy());
-  config.replica.lazy_connections = false;
-  let client = RedisClient::new(config, Some(perf), policy);
+pub async fn should_replica_set_and_get_not_lazy(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let policy = client.client_reconnect_policy();
+  let mut connection = client.connection_config().clone();
+  connection.replica.lazy_connections = false;
+  let client = RedisClient::new(config, None, Some(connection), policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -496,20 +510,19 @@ pub async fn should_pipeline_with_replicas(client: RedisClient, _: RedisConfig) 
 #[cfg(feature = "replicas")]
 pub async fn should_use_cluster_replica_without_redirection(
   client: RedisClient,
-  _: RedisConfig,
+  config: RedisConfig,
 ) -> Result<(), RedisError> {
-  let mut config = client.client_config();
-  config.replica = ReplicaConfig {
+  let mut connection = client.connection_config().clone();
+  connection.replica = ReplicaConfig {
     lazy_connections: true,
     primary_fallback: false,
     ignore_reconnection_errors: true,
     ..ReplicaConfig::default()
   };
-  let mut perf = client.perf_config();
-  perf.max_command_attempts = 1;
+  connection.max_redirections = 0;
   let policy = client.client_reconnect_policy();
 
-  let client = RedisClient::new(config, Some(perf), policy);
+  let client = RedisClient::new(config, None, Some(connection), policy);
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
@@ -522,11 +535,125 @@ pub async fn should_use_cluster_replica_without_redirection(
 pub async fn should_gracefully_quit(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let client = client.clone_new();
   let connection = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let _: i64 = client.incr("foo").await?;
-  let _ = client.quit().await?;
+  client.quit().await?;
   let _ = connection.await;
+
+  Ok(())
+}
+
+pub async fn should_support_options_with_pipeline(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let options = Options {
+    timeout: Some(Duration::from_millis(100)),
+    max_attempts: Some(42),
+    max_redirections: Some(43),
+    ..Default::default()
+  };
+
+  let pipeline = client.pipeline().with_options(&options);
+  pipeline.blpop("foo", 2.0).await?;
+  let results = pipeline.try_all::<RedisValue>().await;
+  assert_eq!(results[0].clone().unwrap_err().kind(), &RedisErrorKind::Timeout);
+
+  Ok(())
+}
+
+pub async fn should_reuse_pipeline(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let pipeline = client.pipeline();
+  pipeline.incr("foo").await?;
+  pipeline.incr("foo").await?;
+  assert_eq!(pipeline.last::<i64>().await?, 2);
+  assert_eq!(pipeline.last::<i64>().await?, 4);
+  Ok(())
+}
+
+pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let options = Options {
+    max_attempts: Some(1),
+    timeout: Some(Duration::from_secs(1)),
+    ..Default::default()
+  };
+  let trx = client.multi().with_options(&options);
+
+  let _: () = trx.get("foo{1}").await?;
+  let _: () = trx.set("foo{1}", "bar", None, None, false).await?;
+  let _: () = trx.get("foo{1}").await?;
+  let (first, second, third): (Option<RedisValue>, bool, String) = trx.exec(true).await?;
+
+  assert_eq!(first, None);
+  assert_eq!(second, true);
+  assert_eq!(third, "bar");
+  Ok(())
+}
+
+pub async fn should_manually_connect_twice(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let client = client.clone_new();
+  let _old_connection = client.connect();
+  client.wait_for_connect().await?;
+
+  let _blpop_jh = tokio::spawn({
+    let client = client.clone();
+    async move { client.blpop::<Option<i64>, _>("foo", 5.0).await }
+  });
+
+  sleep(Duration::from_millis(100)).await;
+  let new_connection = client.connect();
+  client.wait_for_connect().await?;
+
+  assert_eq!(client.incr::<i64, _>("bar").await?, 1);
+  client.quit().await?;
+  let _ = new_connection.await?;
+  Ok(())
+}
+
+#[cfg(feature = "codec")]
+pub async fn should_use_resp3_codec_example(_: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let addr = format!("{}", config.server.hosts().first().unwrap());
+  let socket = TcpStream::connect(addr).await?;
+  let mut framed = Framed::new(socket, Resp3::default());
+
+  let hello = Resp3Frame::Hello {
+    version: RespVersion::RESP3,
+    auth:    Some(Auth {
+      username: utils::read_redis_username().into(),
+      password: utils::read_redis_password().into(),
+    }),
+  };
+  let echo_foo = resp3_encode_command("ECHO foo");
+
+  let _ = framed.send(hello).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response.kind(), Resp3FrameKind::Map);
+
+  let _ = framed.send(echo_foo).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response.as_str().unwrap(), "foo");
+
+  Ok(())
+}
+
+#[cfg(feature = "codec")]
+pub async fn should_use_resp2_codec_example(_: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let addr = format!("{}", config.server.hosts().first().unwrap());
+  let socket = TcpStream::connect(addr).await?;
+  let mut framed = Framed::new(socket, Resp2::default());
+
+  let auth = resp2_encode_command(&format!(
+    "AUTH {} {}",
+    utils::read_redis_username(),
+    utils::read_redis_password()
+  ));
+  let echo_foo = resp2_encode_command("ECHO foo");
+
+  let _ = framed.send(auth).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response.as_str().unwrap(), "OK");
+
+  let _ = framed.send(echo_foo).await?;
+  let response = framed.next().await.unwrap().unwrap();
+  assert_eq!(response.as_str().unwrap(), "foo");
 
   Ok(())
 }

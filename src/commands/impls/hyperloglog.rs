@@ -11,17 +11,18 @@ pub async fn pfadd<C: ClientLike>(
   elements: MultipleValues,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
+    let elements = elements.into_multiple_values();
     let mut args = Vec::with_capacity(1 + elements.len());
     args.push(key.into());
 
-    for element in elements.inner().into_iter() {
+    for element in elements.into_iter() {
       args.push(element);
     }
     Ok((RedisCommandKind::Pfadd, args))
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn pfcount<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -45,5 +46,5 @@ pub async fn pfmerge<C: ClientLike>(
   })
   .await?;
 
-  protocol_utils::frame_to_single_result(frame)
+  protocol_utils::frame_to_results(frame)
 }

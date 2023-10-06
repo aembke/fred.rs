@@ -21,7 +21,6 @@ use parking_lot::Mutex;
 use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,
-  sync::Arc,
 };
 
 /// A wrapper type for the parts of an internal Redis command.
@@ -75,10 +74,10 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 /// #[tokio::test]
 /// async fn should_use_echo_mock() {
 ///   let config = RedisConfig {
-///     mocks: Arc::new(Echo),
+///     mocks: Some(Arc::new(Echo)),
 ///     ..Default::default()
 ///   };
-///   let client = RedisClient::new(config, None, None);
+///   let client = Builder::from_config(config).build().unwrap();
 ///   let _ = client.connect();
 ///   let _ = client.wait_for_connect().await.expect("Failed to connect");
 ///
@@ -121,10 +120,10 @@ impl Mocks for Echo {
 /// #[tokio::test]
 /// async fn should_use_echo_mock() {
 ///   let config = RedisConfig {
-///     mocks: Arc::new(SimpleMap::new()),
+///     mocks: Some(Arc::new(SimpleMap::new())),
 ///     ..Default::default()
 ///   };
-///   let client = RedisClient::new(config, None, None);
+///   let client = Builder::from_config(config).build().unwrap();
 ///   let _ = client.connect();
 ///   let _ = client.wait_for_connect().await.expect("Failed to connect");
 ///
@@ -226,10 +225,10 @@ impl Mocks for SimpleMap {
 /// async fn should_use_buffer_mock() {
 ///   let buffer = Arc::new(Buffer::new());
 ///   let config = RedisConfig {
-///     mocks: buffer.clone(),
+///     mocks: Some(buffer.clone()),
 ///     ..Default::default()
 ///   };
-///   let client = RedisClient::new(config, None, None);
+///   let client = Builder::from_config(config).build().unwrap();
 ///   let _ = client.connect();
 ///   let _ = client.wait_for_connect().await.expect("Failed to connect");
 ///
@@ -331,14 +330,15 @@ mod tests {
     prelude::Expiration,
     types::{RedisConfig, RedisValue, SetOptions},
   };
+  use std::sync::Arc;
   use tokio::task::JoinHandle;
 
   async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
     let config = RedisConfig {
-      mocks,
+      mocks: Some(mocks),
       ..Default::default()
     };
-    let client = RedisClient::new(config, None, None);
+    let client = RedisClient::new(config, None, None, None);
     let jh = client.connect();
     let _ = client.wait_for_connect().await.expect("Failed to connect");
 

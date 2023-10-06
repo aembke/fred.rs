@@ -1,3 +1,43 @@
+## 7.0.0
+
+* Added a new client [builder](src/types/builder.rs) and configuration interface.
+* Reworked or removed the majority of the `globals` interface.
+* Support multiple IP addresses in the `Resolve` interface.
+* Add `with_options` command configuration interface. 
+* Replaced the `no-client-setname` feature flag with `auto-client-setname`.
+* Add an interface to configure TCP socket options.
+* Removed the automatic `serde_json::Value` -> `RedisValue` type conversion logic. 
+  * This unintentionally introduced some ambiguity on certain interfaces.
+  * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
+* Reworked the majority of the `RedisPool` interface. 
+* Moved and refactored the `on_*` functions into a new `EventInterface`.
+* Fixed bugs with the `Replica` routing implementation.
+* Fixed bugs related to parsing single-element arrays.
+* Changed several `FromRedis` type conversion rules. See below or the `FromRedis` docs for more information.
+* Add a [RedisJSON](https://github.com/RedisJSON/RedisJSON/) interface.
+* Add a RESP2 and RESP3 codec interface.
+
+### Upgrading from 6.x
+
+Notable interface changes:
+
+* `ArcStr` has been replaced with `bytes_utils::Str`.
+* Timeout arguments or fields now all use `std::time::Duration`.
+* Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
+* The `RedisPool` interface now directly implements `ClientLike` rather than relying on `Deref` shenanigans.
+* The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`.
+* The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
+* Mocks are now optional even when the feature flag is enabled.
+
+Notable implementation Changes:
+
+* `Pipeline` and `Transaction` structs can now be reused. Calling `exec`, `all`, `last`, or `try_all` no longer drains the inner command buffer.
+* Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
+* In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. 
+  * Most of these were consolidated under the `default-nil-types` feature flag.
+  * It is recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs). 
+* The `connect` function can now be called more than once to force reset all client state.
+
 ## 6.3.2
 
 * Fix a bug with connection errors unexpectedly ending the connection task.
@@ -9,13 +49,6 @@
 * Update rustfmt.toml
 
 ## 6.3.0
-
-* Fix cluster replica discovery with Elasticache
-* Fix cluster replica `READONLY` usage
-* Fix compilation error with `full-tracing`
-* Support `Vec<(T1, T2, ...)>` with `FromRedis`
-
-## 6.2.2
 
 * Fix cluster replica discovery with Elasticache
 * Fix cluster replica `READONLY` usage

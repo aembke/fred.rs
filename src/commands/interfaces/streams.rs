@@ -242,18 +242,22 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// between RESP2 and RESP3.
   ///
   /// ```rust no_run
-  /// # use fred::types::XReadResponse;
-  /// // borrowed from the tests. XREAD and XREADGROUP are very similar.
-  /// let result: XReadResponse<String, String, String, usize> = client  
-  ///   .xreadgroup_map("group1", "consumer1", None, None, false, "foo", ">")
-  ///   .await?;
-  /// println!("Result: {:?}", result);
-  /// // Result: {"foo": [("1646240801081-0", {"count": 0}), ("1646240801082-0", {"count": 1}), ("1646240801082-1", {"count": 2})]}
+  /// # use fred::{prelude::*, types::XReadResponse};
+  /// async fn example(client: RedisClient) -> Result<(), RedisError> {
+  ///   // borrowed from the tests. XREAD and XREADGROUP are very similar.
+  ///   let result: XReadResponse<String, String, String, usize> = client  
+  ///     .xreadgroup_map("group1", "consumer1", None, None, false, "foo", ">")
+  ///     .await?;
+  ///   println!("Result: {:?}", result);    
+  ///   // Result: {"foo": [("1646240801081-0", {"count": 0}), ("1646240801082-0", {"count": 1}), ("1646240801082-1", {"count": 2})]}
   ///
-  /// assert_eq!(result.len(), 1);
-  /// for (idx, (id, record)) in result.get("foo").unwrap().into_iter().enumerate() {
-  ///   let value = record.get("count").expect("Failed to read count");
-  ///   assert_eq!(idx, *value);
+  ///   assert_eq!(result.len(), 1);
+  ///   for (idx, (id, record)) in result.get("foo").unwrap().into_iter().enumerate() {
+  ///     let value = record.get("count").expect("Failed to read count");
+  ///     assert_eq!(idx, *value);
+  ///   }
+  ///
+  ///   Ok(())
   /// }
   /// ```
   // The underlying issue here isn't so much a semantic difference between RESP2 and RESP3, but rather an assumption
@@ -313,9 +317,6 @@ pub trait StreamsInterface: ClientLike + Sized {
   //             2) "6"
   // ```
   //
-  // This function (and `xreadgroup_map`) provide an easier but optional way to handle the encoding differences with
-  // the streams interface.
-  //
   // The underlying functions that do the RESP2 vs RESP3 conversion are public for callers as well, so one could use a
   // `BTreeMap` instead of a `HashMap` like so:
   //
@@ -326,8 +327,6 @@ pub trait StreamsInterface: ClientLike + Sized {
   //   .flatten_array_values(2)
   //   .convert()?;
   // ```
-  //
-  // Thanks for attending my TED talk.
   async fn xread_map<Rk1, Rk2, Rk3, Rv, K, I>(
     &self,
     count: Option<u64>,

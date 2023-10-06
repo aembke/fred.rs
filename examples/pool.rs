@@ -1,21 +1,35 @@
-use fred::{pool::RedisPool, prelude::*};
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
+use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig::default();
-  let pool = RedisPool::new(config, None, None, 5)?;
+  let pool = Builder::default_centralized().build_pool(5)?;
   let _ = pool.connect();
-  let _ = pool.wait_for_connect().await?;
+  pool.wait_for_connect().await?;
+
+  // interact with specific clients via next(), last(), or clients()
+  let pipeline = pool.next().pipeline();
+  pipeline.incr("foo").await?;
+  pipeline.incr("foo").await?;
+  let _: i64 = pipeline.last().await?;
 
   for client in pool.clients() {
     println!("{} connected to {:?}", client.id(), client.active_connections().await?);
+
+    // set up event listeners on each client
+    client.on_error(|error| {
+      println!("Connection error: {:?}", error);
+      Ok(())
+    });
   }
 
-  // use the pool like any other RedisClient
-  let _ = pool.get("foo").await?;
-  let _ = pool.set("foo", "bar", None, None, false).await?;
-  let _ = pool.get("foo").await?;
+  // or use the pool like any other RedisClient
+  pool.get("foo").await?;
+  pool.set("foo", "bar", None, None, false).await?;
+  pool.get("foo").await?;
 
-  let _ = pool.quit_pool().await;
+  let _ = pool.quit().await;
   Ok(())
 }

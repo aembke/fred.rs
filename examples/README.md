@@ -10,14 +10,14 @@ Examples
 * [Pipeline](./pipeline.rs) - Use the manual pipeline interface.
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
-* [Prometheus](./prometheus.rs) - Use the metrics interface with prometheus.
 * [Pool](./pool.rs) - Use a redis connection pool. 
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
-* [Serde](./serde.rs) - Use the `serde-json` feature to convert between Redis types and JSON. 
+* [Serde JSON](./serde_json.rs) - Use the `serde-json` feature to convert between Redis types and JSON. 
+* [Redis JSON](./redis_json.rs) - Use the `redis-json` feature with `serde-json` types.
 * [Custom](./custom.rs) - Send custom commands or operate on RESP frames.
 * [DNS](./dns.rs) - Customize the DNS resolution logic. 
 * [Client Tracking](./client_tracking.rs) - Implement [client side caching](https://redis.io/docs/manual/client-side-caching/). 
-* [Misc](./misc.rs) - Miscellaneous features or examples. 
+* [Misc](./misc.rs) - Miscellaneous or advanced features. 
 
 Or see the [tests](../tests/integration) for more examples.

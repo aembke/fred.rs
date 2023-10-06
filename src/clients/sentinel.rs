@@ -1,7 +1,7 @@
 use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
-  types::{PerformanceConfig, ReconnectPolicy, SentinelConfig},
+  types::{ConnectionConfig, PerformanceConfig, ReconnectPolicy, SentinelConfig},
 };
 use std::{fmt, sync::Arc};
 
@@ -42,6 +42,7 @@ impl<'a> From<&'a Arc<RedisClientInner>> for SentinelClient {
   }
 }
 
+impl EventInterface for SentinelClient {}
 impl SentinelInterface for SentinelClient {}
 impl MetricsInterface for SentinelClient {}
 impl AclInterface for SentinelClient {}
@@ -52,13 +53,21 @@ impl HeartbeatInterface for SentinelClient {}
 
 impl SentinelClient {
   /// Create a new client instance without connecting to the sentinel node.
+  ///
+  /// See the [builder](crate::types::Builder) interface for more information.
   pub fn new(
     config: SentinelConfig,
     perf: Option<PerformanceConfig>,
+    connection: Option<ConnectionConfig>,
     policy: Option<ReconnectPolicy>,
   ) -> SentinelClient {
     SentinelClient {
-      inner: RedisClientInner::new(config.into(), perf.unwrap_or_default(), policy),
+      inner: RedisClientInner::new(
+        config.into(),
+        perf.unwrap_or_default(),
+        connection.unwrap_or_default(),
+        policy,
+      ),
     }
   }
 }
