@@ -35,18 +35,8 @@ pub mod centralized;
 pub mod clustered;
 
 mod macro_tests {
-  use fred::{b, cmd, s, types::ClusterHash};
+  use fred::{cmd, types::ClusterHash};
   use socket2::TcpKeepalive;
-
-  #[test]
-  fn should_use_static_str_macro() {
-    let _s = s!("foo");
-  }
-
-  #[test]
-  fn should_use_static_bytes_macro() {
-    let _b = b!(b"foo");
-  }
 
   #[test]
   fn should_use_cmd_macro() {

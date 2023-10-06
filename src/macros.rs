@@ -95,32 +95,6 @@ macro_rules! static_str(
   }
 );
 
-/// Public macro to create a `Str` from a static str slice without copying.
-///
-/// ```rust no_run
-/// // use "foo" without copying or parsing the underlying data. this uses the `Bytes::from_static` interface under the hood.
-/// let _ = client.get(s!("foo")).await?;
-/// ```
-#[macro_export]
-macro_rules! s(
-  ($val:expr) => {
-    fred::util::static_str($val)
-  }
-);
-
-/// Public macro to create a `Bytes` from a static byte slice without copying.
-///
-/// ```rust no_run
-/// // use "bar" without copying or parsing the underlying data. this uses the `Bytes::from_static` interface under the hood.
-/// let _ = client.set(s!("foo"), b!(b"bar")).await?;
-/// ```
-#[macro_export]
-macro_rules! b(
-  ($val:expr) => {
-    fred::util::static_bytes($val)
-  }
-);
-
 /// A helper macro to wrap a string value in quotes via the [json](serde_json::json) macro.
 ///
 /// See the [RedisJSON interface](crate::interfaces::RedisJsonInterface) for more information.
