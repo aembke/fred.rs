@@ -6,7 +6,6 @@ use crate::{
   types::*,
   utils,
 };
-use arcstr::ArcStr;
 use bytes_utils::Str;
 use rand::Rng;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
@@ -27,6 +26,7 @@ pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use std::{net::IpAddr, str::FromStr};
 
+/// Any kind of RESP frame.
 #[derive(Debug)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
@@ -34,6 +34,7 @@ pub enum ProtocolFrame {
 }
 
 impl ProtocolFrame {
+  /// Convert the frame tp RESP3.
   pub fn into_resp3(self) -> Resp3Frame {
     // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
     // we can just change everything to RESP3 above the protocol layer
@@ -41,6 +42,11 @@ impl ProtocolFrame {
       ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
       ProtocolFrame::Resp3(frame) => frame,
     }
+  }
+
+  /// Whether the frame is encoded as a RESP3 frame.
+  pub fn is_resp3(&self) -> bool {
+    matches!(*self, ProtocolFrame::Resp3(_))
   }
 }
 
@@ -60,19 +66,20 @@ impl From<Resp3Frame> for ProtocolFrame {
 #[derive(Debug, Clone)]
 pub struct Server {
   /// The hostname or IP address for the server.
-  pub host:            ArcStr,
+  pub host:            Str,
   /// The port for the server.
   pub port:            u16,
   /// The server name used during the TLS handshake.
+  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
-  pub tls_server_name: Option<ArcStr>,
+  pub tls_server_name: Option<Str>,
 }
 
 impl Server {
   /// Create a new `Server` from parts with a TLS server name.
   #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
-  pub fn new_with_tls<S: Into<ArcStr>>(host: S, port: u16, tls_server_name: Option<String>) -> Self {
+  pub fn new_with_tls<S: Into<Str>>(host: S, port: u16, tls_server_name: Option<String>) -> Self {
     Server {
       host: host.into(),
       port,
@@ -81,10 +88,11 @@ impl Server {
   }
 
   /// Create a new `Server` from parts.
-  pub fn new<S: Into<ArcStr>>(host: S, port: u16) -> Self {
+  pub fn new<S: Into<Str>>(host: S, port: u16) -> Self {
     Server {
       host: host.into(),
       port,
+      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
       tls_server_name: None,
     }
   }
@@ -100,18 +108,19 @@ impl Server {
       Err(_) => return,
     };
     if let Some(tls_server_name) = policy.map(&ip, default_host) {
-      self.tls_server_name = Some(ArcStr::from(tls_server_name));
+      self.tls_server_name = Some(Str::from(tls_server_name));
     }
   }
 
   /// Attempt to parse a `host:port` string.
   pub(crate) fn from_str(s: &str) -> Option<Server> {
-    let parts: Vec<&str> = s.trim().split(":").collect();
+    let parts: Vec<&str> = s.trim().split(':').collect();
     if parts.len() == 2 {
-      if let Some(port) = parts[1].parse::<u16>().ok() {
+      if let Ok(port) = parts[1].parse::<u16>() {
         Some(Server {
           host: parts[0].into(),
           port,
+          #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
           tls_server_name: None,
         })
       } else {
@@ -126,14 +135,15 @@ impl Server {
   pub(crate) fn from_parts(server: &str, default_host: &str) -> Option<Server> {
     server_to_parts(server).ok().map(|(host, port)| {
       let host = if host.is_empty() {
-        ArcStr::from(default_host)
+        Str::from(default_host)
       } else {
-        ArcStr::from(host)
+        Str::from(host)
       };
 
       Server {
         host,
         port,
+        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
         tls_server_name: None,
       }
     })
@@ -161,6 +171,7 @@ impl From<(String, u16)> for Server {
     Server {
       host: host.into(),
       port,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls_server_name: None,
     }
   }
@@ -171,6 +182,7 @@ impl From<(&str, u16)> for Server {
     Server {
       host: host.into(),
       port,
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
       tls_server_name: None,
     }
   }
@@ -251,6 +263,8 @@ pub struct Message {
   pub value:   RedisValue,
   /// The type of message subscription.
   pub kind:    MessageKind,
+  /// The server that sent the message.
+  pub server:  Server,
 }
 
 pub struct KeyScanInner {
@@ -332,7 +346,7 @@ impl ValueScanInner {
       out.insert(key, value);
     }
 
-    Ok(out.try_into()?)
+    out.try_into()
   }
 
   pub fn transform_zscan_result(mut data: Vec<RedisValue>) -> Result<Vec<(RedisValue, f64)>, RedisError> {
@@ -379,7 +393,7 @@ pub struct SlotRange {
   /// The primary server owner.
   pub primary:  Server,
   /// The internal ID assigned by the server.
-  pub id:       ArcStr,
+  pub id:       Str,
   /// Replica node owners.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -396,6 +410,17 @@ impl ClusterRouting {
   /// Create a new empty routing table.
   pub fn new() -> Self {
     ClusterRouting { data: Vec::new() }
+  }
+
+  /// Create a new routing table from the result of the `CLUSTER SLOTS` command.
+  ///
+  /// The `default_host` value refers to the server that provided the response.
+  pub fn from_cluster_slots<S: Into<Str>>(value: RedisValue, default_host: S) -> Result<Self, RedisError> {
+    let default_host = default_host.into();
+    let mut data = cluster::parse_cluster_slots(value, &default_host)?;
+    data.sort_by(|a, b| a.start.cmp(&b.start));
+
+    Ok(ClusterRouting { data })
   }
 
   /// Read a set of unique hash slots that each map to a different primary/main node in the cluster.
@@ -425,7 +450,7 @@ impl ClusterRouting {
     &mut self,
     inner: &Arc<RedisClientInner>,
     cluster_slots: RedisValue,
-    default_host: &str,
+    default_host: &Str,
   ) -> Result<(), RedisError> {
     self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;
     self.data.sort_by(|a, b| a.start.cmp(&b.start));
@@ -478,7 +503,7 @@ impl ClusterRouting {
 
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<&SlotRange> {
-    if self.data.len() > 0 {
+    if !self.data.is_empty() {
       let idx = rand::thread_rng().gen_range(0 .. self.data.len());
       Some(&self.data[idx])
     } else {
@@ -499,29 +524,30 @@ impl ClusterRouting {
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: Send + Sync + 'static {
   /// Resolve a hostname.
-  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError>;
+  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError>;
 }
 
 /// Default DNS resolver that uses `to_socket_addrs` under the hood.
 #[derive(Clone, Debug)]
 pub struct DefaultResolver {
-  id: ArcStr,
+  id: Str,
 }
 
 impl DefaultResolver {
   /// Create a new resolver using the system's default DNS resolution.
-  pub fn new(id: &ArcStr) -> Self {
+  pub fn new(id: &Str) -> Self {
     DefaultResolver { id: id.clone() }
   }
 }
 
 #[async_trait]
 impl Resolve for DefaultResolver {
-  async fn resolve(&self, host: String, port: u16) -> Result<SocketAddr, RedisError> {
+  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError> {
     let client_id = self.id.clone();
 
     tokio::task::spawn_blocking(move || {
-      let ips: Vec<SocketAddr> = format!("{}:{}", host, port).to_socket_addrs()?.into_iter().collect();
+      let addr = format!("{}:{}", host, port);
+      let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
       if ips.is_empty() {
         Err(RedisError::new(
@@ -529,18 +555,8 @@ impl Resolve for DefaultResolver {
           format!("Failed to resolve {}:{}", host, port),
         ))
       } else {
-        let possible_addrs = ips.len();
-        let addr = ips[0];
-
-        trace!(
-          "{}: Using {} among {} possible socket addresses for {}:{}",
-          client_id,
-          addr.ip(),
-          possible_addrs,
-          host,
-          port
-        );
-        Ok(addr)
+        trace!("{}: Found {} addresses for {}", client_id, ips.len(), addr);
+        Ok(ips)
       }
     })
     .await?

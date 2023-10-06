@@ -1,7 +1,7 @@
 use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
-  types::SlowlogEntry,
+  types::FromRedis,
 };
 
 /// Functions that implement the [slowlog](https://redis.io/commands#server) interface.
@@ -10,15 +10,21 @@ pub trait SlowlogInterface: ClientLike + Sized {
   /// This command is used to read the slow queries log.
   ///
   /// <https://redis.io/commands/slowlog#reading-the-slow-log>
-  async fn slowlog_get(&self, count: Option<i64>) -> RedisResult<Vec<SlowlogEntry>> {
-    commands::slowlog::slowlog_get(self, count).await
+  async fn slowlog_get<R>(&self, count: Option<i64>) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::slowlog::slowlog_get(self, count).await?.convert()
   }
 
   /// This command is used to read length of the slow queries log.
   ///
   /// <https://redis.io/commands/slowlog#obtaining-the-current-length-of-the-slow-log>
-  async fn slowlog_length(&self) -> RedisResult<u64> {
-    commands::slowlog::slowlog_length(self).await
+  async fn slowlog_length<R>(&self) -> RedisResult<R>
+  where
+    R: FromRedis,
+  {
+    commands::slowlog::slowlog_length(self).await?.convert()
   }
 
   /// This command is used to reset the slow queries log.

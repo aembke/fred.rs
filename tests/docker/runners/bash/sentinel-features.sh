@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="network-logs debug-ids sentinel-tests sentinel-auth replicas"
+FEATURES="network-logs debug-ids sentinel-auth replicas"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

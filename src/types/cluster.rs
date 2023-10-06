@@ -1,9 +1,49 @@
-use crate::utils;
+pub use crate::protocol::types::{ClusterRouting, SlotRange};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::RedisValue,
+  utils,
+};
 use bytes_utils::Str;
 
-pub use crate::protocol::types::{ClusterRouting, SlotRange};
+macro_rules! parse_or_zero(
+  ($data:ident, $t:ty) => {
+    $data.parse::<$t>().ok().unwrap_or(0)
+  }
+);
 
-/// The state of the cluster from the CLUSTER INFO command.
+fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
+  let parts: Vec<&str> = line.split(':').collect();
+  if parts.len() != 2 {
+    return Err(RedisError::new(RedisErrorKind::Protocol, "Expected key:value pair."));
+  }
+  let (field, val) = (parts[0], parts[1]);
+
+  match field {
+    "cluster_state" => match val {
+      "ok" => info.cluster_state = ClusterState::Ok,
+      "fail" => info.cluster_state = ClusterState::Fail,
+      _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster state.")),
+    },
+    "cluster_slots_assigned" => info.cluster_slots_assigned = parse_or_zero!(val, u16),
+    "cluster_slots_ok" => info.cluster_slots_ok = parse_or_zero!(val, u16),
+    "cluster_slots_pfail" => info.cluster_slots_pfail = parse_or_zero!(val, u16),
+    "cluster_slots_fail" => info.cluster_slots_fail = parse_or_zero!(val, u16),
+    "cluster_known_nodes" => info.cluster_known_nodes = parse_or_zero!(val, u16),
+    "cluster_size" => info.cluster_size = parse_or_zero!(val, u32),
+    "cluster_current_epoch" => info.cluster_current_epoch = parse_or_zero!(val, u64),
+    "cluster_my_epoch" => info.cluster_my_epoch = parse_or_zero!(val, u64),
+    "cluster_stats_messages_sent" => info.cluster_stats_messages_sent = parse_or_zero!(val, u64),
+    "cluster_stats_messages_received" => info.cluster_stats_messages_received = parse_or_zero!(val, u64),
+    _ => {
+      warn!("Invalid cluster info field: {}", line);
+    },
+  };
+
+  Ok(())
+}
+
+/// The state of the cluster from the `CLUSTER INFO` command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterState {
   Ok,
@@ -16,7 +56,7 @@ impl Default for ClusterState {
   }
 }
 
-/// A parsed response from the CLUSTER INFO command.
+/// A parsed response from the `CLUSTER INFO` command.
 ///
 /// <https://redis.io/commands/cluster-info>
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
@@ -32,6 +72,26 @@ pub struct ClusterInfo {
   pub cluster_my_epoch:                u64,
   pub cluster_stats_messages_sent:     u64,
   pub cluster_stats_messages_received: u64,
+}
+
+impl TryFrom<RedisValue> for ClusterInfo {
+  type Error = RedisError;
+
+  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+    if let Some(data) = value.as_bytes_str() {
+      let mut out = ClusterInfo::default();
+
+      for line in data.lines() {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+          parse_cluster_info_line(&mut out, trimmed)?;
+        }
+      }
+      Ok(out)
+    } else {
+      Err(RedisError::new(RedisErrorKind::Protocol, "Expected string response."))
+    }
+  }
 }
 
 /// Options for the CLUSTER FAILOVER command.

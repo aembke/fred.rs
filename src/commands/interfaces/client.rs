@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 #[cfg(feature = "client-tracking")]
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::RedisError,
   types::{MultipleStrings, Toggle},
 };
 
@@ -150,7 +150,8 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/client-tracking/>
   ///
-  /// Note: **This function requires a centralized server**. See
+  /// This function is designed to work against a specific server, either via a centralized server config or
+  /// [with_options](crate::interfaces::ClientLike::with_options). See
   /// [crate::interfaces::TrackingInterface::start_tracking] for a version that works with all server deployment
   /// modes.
   #[cfg(feature = "client-tracking")]
@@ -171,13 +172,6 @@ pub trait ClientInterface: ClientLike + Sized {
     T::Error: Into<RedisError> + Send,
     P: Into<MultipleStrings> + Send,
   {
-    if self.inner().config.server.is_clustered() {
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Invalid server type. Expected centralized server.",
-      ));
-    }
-
     try_into!(toggle);
     into!(prefixes);
     commands::tracking::client_tracking(self, toggle, redirect, prefixes, bcast, optin, optout, noloop)
@@ -215,22 +209,15 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/client-caching/>
   ///
-  /// Note: **This function requires a centralized server**. See
-  /// [TrackingInterface::caching](crate::interfaces::TrackingInterface::caching) for a version that works with all
-  /// server deployment modes.
+  /// This function is designed to work against a specific server. See
+  /// [with_options](crate::interfaces::ClientLike::with_options) for a variation that works with all deployment
+  /// types.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
   async fn client_caching<R>(&self, enabled: bool) -> RedisResult<R>
   where
     R: FromRedis,
   {
-    if self.inner().config.server.is_clustered() {
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Invalid server type. Expected centralized server.",
-      ));
-    }
-
     commands::tracking::client_caching(self, enabled).await?.convert()
   }
 }

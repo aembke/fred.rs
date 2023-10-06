@@ -1,5 +1,7 @@
 use crate::protocol::types::Server;
 
+#[cfg(all(feature = "replicas", feature = "check-unresponsive"))]
+use crate::protocol::connection::RedisWriter;
 #[cfg(feature = "check-unresponsive")]
 use crate::{
   globals::globals,
@@ -59,6 +61,8 @@ impl ConnectionState {
     let guard = self.interrupts.read();
 
     for server in servers.into_iter() {
+      inner.notifications.broadcast_unresponsive(server.clone());
+
       if let Some(tx) = guard.get(&server) {
         _debug!(inner, "Interrupting reader task for {}", server);
         let _ = tx.send(());
@@ -99,14 +103,28 @@ impl ConnectionState {
     };
   }
 
+  /// Add the replica connections to the internal connection map.
+  #[cfg(feature = "replicas")]
+  pub fn sync_replicas(&self, inner: &Arc<RedisClientInner>, replicas: &HashMap<Server, RedisWriter>) {
+    _debug!(
+      inner,
+      "Syncing replica connection state with unresponsive network task."
+    );
+    let mut guard = self.commands.write();
+    for (server, writer) in replicas.iter() {
+      guard.insert(server.clone(), writer.buffer.clone());
+    }
+  }
+
   pub fn unresponsive_connections(&self, inner: &Arc<RedisClientInner>) -> VecDeque<Server> {
     _debug!(inner, "Checking unresponsive connections...");
 
     let now = Instant::now();
-    let timeout_duration = inner.with_perf_config(|perf| {
-      _trace!(inner, "Using network timeout: {}", perf.network_timeout_ms);
-      Duration::from_millis(perf.network_timeout_ms)
-    });
+    _trace!(
+      inner,
+      "Using network timeout: {:?}",
+      inner.connection.unresponsive_timeout
+    );
 
     let mut unresponsive = VecDeque::new();
     for (server, commands) in self.commands.read().iter() {
@@ -132,7 +150,7 @@ impl ConnectionState {
         continue;
       }
       let command_duration = now.duration_since(last_command_sent);
-      if command_duration > timeout_duration {
+      if command_duration > inner.connection.unresponsive_timeout {
         _warn!(
           inner,
           "Server {} unresponsive after {} ms",

@@ -13,11 +13,14 @@ extern crate tracing_subscriber;
 extern crate log;
 extern crate pretty_env_logger;
 
+#[cfg(any(feature = "partial-tracing", feature = "full-tracing", feature = "stdout-tracing"))]
+use fred::types::TracingConfig;
+
 use clap::{App, ArgMatches};
 use fred::{
-  pool::RedisPool,
+  clients::RedisPool,
   prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, PerformanceConfig, TracingConfig},
+  types::{BackpressureConfig, BackpressurePolicy, Builder as RedisBuilder, PerformanceConfig, Server},
 };
 use indicatif::ProgressBar;
 use opentelemetry::{
@@ -34,6 +37,7 @@ use std::{
   default::Default,
   sync::{atomic::AtomicUsize, Arc},
   thread::{self, JoinHandle as ThreadJoinHandle},
+  time::Duration,
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
 use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
@@ -48,6 +52,7 @@ mod utils;
 #[derive(Debug)]
 struct Argv {
   pub cluster:  bool,
+  pub replicas: bool,
   pub tracing:  bool,
   pub count:    usize,
   pub tasks:    usize,
@@ -56,14 +61,20 @@ struct Argv {
   pub pipeline: bool,
   pub pool:     usize,
   pub quiet:    bool,
+  pub auth:     Option<String>,
 }
 
 fn parse_argv() -> Arc<Argv> {
   let yaml = load_yaml!("../cli.yml");
   let matches = App::from_yaml(yaml).get_matches();
   let tracing = matches.is_present("tracing");
-  let cluster = matches.is_present("cluster");
+  let mut cluster = matches.is_present("cluster");
+  let replicas = matches.is_present("replicas");
   let quiet = matches.is_present("quiet");
+
+  if replicas {
+    cluster = true;
+  }
 
   let count = matches
     .value_of("count")
@@ -93,6 +104,7 @@ fn parse_argv() -> Arc<Argv> {
     .value_of("pool")
     .map(|v| v.parse::<usize>().expect("Invalid pool"))
     .unwrap_or(1);
+  let auth = matches.value_of("auth").map(|v| v.to_owned());
   let pipeline = matches.subcommand_matches("pipeline").is_some();
 
   Arc::new(Argv {
@@ -105,6 +117,8 @@ fn parse_argv() -> Arc<Argv> {
     port,
     pipeline,
     pool,
+    replicas,
+    auth,
   })
 }
 
@@ -185,12 +199,16 @@ fn spawn_client_task(
     let mut expected = 0;
 
     while utils::incr_atomic(&counter) < argv.count {
-      expected += 1;
-      let actual: i64 = client.incr(&key).await?;
+      if argv.replicas {
+        let _: () = client.replicas().get(&key).await?;
+      } else {
+        expected += 1;
+        let actual: i64 = client.incr(&key).await?;
+        // assert_eq!(actual, expected);
+      }
       if let Some(ref bar) = bar {
         bar.inc(1);
       }
-      // assert_eq!(actual, expected);
     }
 
     Ok::<_, RedisError>(())
@@ -210,28 +228,26 @@ fn main() {
     let config = RedisConfig {
       server: if argv.cluster {
         ServerConfig::Clustered {
-          hosts: vec![(argv.host.clone(), argv.port)],
+          hosts: vec![Server::new(&argv.host, argv.port)],
         }
       } else {
         ServerConfig::new_centralized(&argv.host, argv.port)
       },
+      password: argv.auth.clone(),
       #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
       tracing: TracingConfig::new(argv.tracing),
       ..Default::default()
     };
-    let perf = PerformanceConfig {
-      auto_pipeline: argv.pipeline,
-      default_command_timeout_ms: 5000,
-      backpressure: BackpressureConfig {
-        policy: BackpressurePolicy::Drain,
-        max_in_flight_commands: 100_000_000,
-        ..Default::default()
-      },
-      ..Default::default()
-    };
-    let policy = ReconnectPolicy::new_constant(0, 500);
-
-    let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool)?;
+    let pool = RedisBuilder::from_config(config)
+      .with_performance_config(|config| {
+        config.auto_pipeline = argv.pipeline;
+        config.backpressure.max_in_flight_commands = 100_000_000;
+      })
+      .with_connection_config(|config| {
+        config.internal_command_timeout = Duration::from_secs(5);
+      })
+      .set_policy(ReconnectPolicy::new_constant(0, 500))
+      .build_pool(argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
     let _ = pool.connect();

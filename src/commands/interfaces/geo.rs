@@ -6,7 +6,6 @@ use crate::{
     Any,
     FromRedis,
     GeoPosition,
-    GeoRadiusInfo,
     GeoUnit,
     MultipleGeoValues,
     MultipleValues,
@@ -58,15 +57,16 @@ pub trait GeoInterface: ClientLike + Sized {
   /// Callers can use [as_geo_position](crate::types::RedisValue::as_geo_position) to lazily parse results as needed.
   ///
   /// <https://redis.io/commands/geopos>
-  async fn geopos<K, V>(&self, key: K, members: V) -> RedisResult<RedisValue>
+  async fn geopos<R, K, V>(&self, key: K, members: V) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<RedisError> + Send,
   {
     into!(key);
     try_into!(members);
-    commands::geo::geopos(self, key, members).await
+    commands::geo::geopos(self, key, members).await?.convert()
   }
 
   /// Return the distance between two members in the geospatial index represented by the sorted set.
@@ -90,7 +90,7 @@ pub trait GeoInterface: ClientLike + Sized {
   /// borders of the area specified with the center location and the maximum distance from the center (the radius).
   ///
   /// <https://redis.io/commands/georadius>
-  async fn georadius<K, P>(
+  async fn georadius<R, K, P>(
     &self,
     key: K,
     position: P,
@@ -103,8 +103,9 @@ pub trait GeoInterface: ClientLike + Sized {
     ord: Option<SortOrder>,
     store: Option<RedisKey>,
     storedist: Option<RedisKey>,
-  ) -> RedisResult<Vec<GeoRadiusInfo>>
+  ) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
     P: Into<GeoPosition> + Send,
   {
@@ -112,7 +113,8 @@ pub trait GeoInterface: ClientLike + Sized {
     commands::geo::georadius(
       self, key, position, radius, unit, withcoord, withdist, withhash, count, ord, store, storedist,
     )
-    .await
+    .await?
+    .convert()
   }
 
   /// This command is exactly like GEORADIUS with the sole difference that instead of taking, as the center of the
@@ -120,7 +122,7 @@ pub trait GeoInterface: ClientLike + Sized {
   /// geospatial index represented by the sorted set.
   ///
   /// <https://redis.io/commands/georadiusbymember>
-  async fn georadiusbymember<K, V>(
+  async fn georadiusbymember<R, K, V>(
     &self,
     key: K,
     member: V,
@@ -133,8 +135,9 @@ pub trait GeoInterface: ClientLike + Sized {
     ord: Option<SortOrder>,
     store: Option<RedisKey>,
     storedist: Option<RedisKey>,
-  ) -> RedisResult<Vec<GeoRadiusInfo>>
+  ) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
     V: TryInto<RedisValue> + Send,
     V::Error: Into<RedisError> + Send,
@@ -155,14 +158,15 @@ pub trait GeoInterface: ClientLike + Sized {
       store,
       storedist,
     )
-    .await
+    .await?
+    .convert()
   }
 
   /// Return the members of a sorted set populated with geospatial information using GEOADD, which are within the
   /// borders of the area specified by a given shape.
   ///
   /// <https://redis.io/commands/geosearch>
-  async fn geosearch<K>(
+  async fn geosearch<R, K>(
     &self,
     key: K,
     from_member: Option<RedisValue>,
@@ -174,8 +178,9 @@ pub trait GeoInterface: ClientLike + Sized {
     withcoord: bool,
     withdist: bool,
     withhash: bool,
-  ) -> RedisResult<Vec<GeoRadiusInfo>>
+  ) -> RedisResult<R>
   where
+    R: FromRedis,
     K: Into<RedisKey> + Send,
   {
     into!(key);
@@ -192,7 +197,8 @@ pub trait GeoInterface: ClientLike + Sized {
       withdist,
       withhash,
     )
-    .await
+    .await?
+    .convert()
   }
 
   /// This command is like GEOSEARCH, but stores the result in destination key. Returns the number of members added to

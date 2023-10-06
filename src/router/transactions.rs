@@ -2,19 +2,13 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
-  router::{utils, Router},
   protocol::{
-    command::{
-      ClusterErrorKind,
-      RouterReceiver,
-      RouterResponse,
-      RedisCommand,
-      RedisCommandKind,
-      ResponseSender,
-    },
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, ResponseSender, RouterReceiver, RouterResponse},
     responders::ResponseKind,
   },
+  router::{utils, Router, Written},
   types::{ClusterHash, Server},
+  utils as client_utils,
 };
 use std::sync::Arc;
 
@@ -49,17 +43,25 @@ async fn write_command(
 ) -> Result<TransactionResponse, RedisError> {
   _trace!(
     inner,
-    "Sending trx command {} to {}",
+    "Sending trx command {} ({}) to {}",
     command.kind.to_str_debug(),
+    command.debug_id(),
     server
   );
 
-  if let Err(e) = router.write_once(command, server).await {
+  let timeout_dur = command.timeout_dur.unwrap_or_else(|| inner.default_command_timeout());
+  let result = match router.write_direct(command, server).await {
+    Written::Error((error, _)) => Err(error),
+    Written::Disconnected((_, _, error)) => Err(error),
+    Written::NotFound(_) => Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
+    _ => Ok(()),
+  };
+  if let Err(e) = result {
     _debug!(inner, "Error writing trx command: {:?}", e);
     return Ok(TransactionResponse::Retry(e));
   }
 
-  match rx.await? {
+  match client_utils::apply_timeout(rx, timeout_dur).await? {
     RouterResponse::Continue => Ok(TransactionResponse::Continue),
     RouterResponse::Ask((slot, server, _)) => {
       Ok(TransactionResponse::Redirection((ClusterErrorKind::Ask, slot, server)))
@@ -113,7 +115,7 @@ async fn send_discard(
   write_command(inner, router, server, command, true, rx).await
 }
 
-fn update_hash_slot(commands: &mut Vec<RedisCommand>, slot: u16) {
+fn update_hash_slot(commands: &mut [RedisCommand], slot: u16) {
   for command in commands.iter_mut() {
     command.hasher = ClusterHash::Custom(slot);
   }
@@ -134,26 +136,41 @@ pub async fn run(
     let _ = tx.send(Ok(Resp3Frame::Null));
     return Ok(());
   }
+  // each of the commands should have the same options
+  let max_attempts = if commands[0].attempts_remaining == 0 {
+    inner.max_command_attempts()
+  } else {
+    commands[0].attempts_remaining
+  };
+  let max_redirections = if commands[0].redirections_remaining == 0 {
+    inner.connection.max_redirections
+  } else {
+    commands[0].redirections_remaining
+  };
 
   let mut attempted = 0;
+  let mut redirections = 0;
   'outer: loop {
     _debug!(inner, "Starting transaction {} (attempted: {})", id, attempted);
 
-    let server = match router.find_connection(&commands[0]) {
-      Some(server) => server.clone(),
-      None => {
-        let _ = if inner.config.server.is_clustered() {
-          // optimistically sync the cluster, then fall back to a full reconnect
-          if router.sync_cluster().await.is_err() {
+    let server = if let Some(server) = commands[0].cluster_node.as_ref() {
+      server.clone()
+    } else {
+      match router.find_connection(&commands[0]) {
+        Some(server) => server.clone(),
+        None => {
+          if inner.config.server.is_clustered() {
+            // optimistically sync the cluster, then fall back to a full reconnect
+            if router.sync_cluster().await.is_err() {
+              utils::reconnect_with_policy(inner, router).await?
+            }
+          } else {
             utils::reconnect_with_policy(inner, router).await?
-          }
-        } else {
-          utils::reconnect_with_policy(inner, router).await?
-        };
+          };
 
-        attempted += 1;
-        continue;
-      },
+          continue;
+        },
+      }
     };
     let mut idx = 0;
 
@@ -176,22 +193,29 @@ pub async fn run(
         Ok(TransactionResponse::Retry(error)) => {
           _debug!(inner, "Retrying trx {} after WATCH error: {:?}.", id, error);
 
-          if attempted >= inner.max_command_attempts() {
+          attempted += 1;
+          if attempted >= max_attempts {
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
-            let _ = utils::reconnect_with_policy(inner, router).await?;
+            utils::reconnect_with_policy(inner, router).await?;
           }
 
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
+          redirections += 1;
+          if redirections > max_redirections {
+            let _ = tx.send(Err(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Too many cluster redirections.",
+            )));
+            return Ok(());
+          }
+
           _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
           update_hash_slot(&mut commands, slot);
-          let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
-
-          attempted += 1;
+          utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
           continue 'outer;
         },
         Ok(TransactionResponse::Finished(frame)) => {
@@ -206,7 +230,10 @@ pub async fn run(
       };
     }
 
-    // start sending the trx commands
+    if attempted > 0 {
+      inner.counters.incr_redelivery_count();
+    }
+    // send each of the commands. the first one is always MULTI
     'inner: while idx < commands.len() {
       let command = commands[idx].duplicate(ResponseKind::Skip);
       let rx = command.create_router_channel();
@@ -222,24 +249,32 @@ pub async fn run(
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
 
-          if attempted >= inner.max_command_attempts() {
+          attempted += 1;
+          if attempted >= max_attempts {
             let _ = tx.send(Err(error));
             return Ok(());
           } else {
-            let _ = utils::reconnect_with_policy(inner, router).await?;
+            utils::reconnect_with_policy(inner, router).await?;
           }
 
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Redirection((kind, slot, server))) => {
+          redirections += 1;
+          if redirections > max_redirections {
+            let _ = tx.send(Err(RedisError::new(
+              RedisErrorKind::Cluster,
+              "Too many cluster redirections.",
+            )));
+            return Ok(());
+          }
+
           update_hash_slot(&mut commands, slot);
           if let Err(e) = send_discard(inner, router, &server, id).await {
             _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
           }
-          let _ = utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
+          utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
 
-          attempted += 1;
           continue 'outer;
         },
         Ok(TransactionResponse::Finished(frame)) => {
@@ -266,14 +301,14 @@ pub async fn run(
           _warn!(inner, "Error sending DISCARD in trx {}: {:?}", id, e);
         }
 
-        if attempted >= inner.max_command_attempts() {
+        attempted += 1;
+        if attempted >= max_attempts {
           let _ = tx.send(Err(error));
           return Ok(());
         } else {
-          let _ = utils::reconnect_with_policy(inner, router).await?;
+          utils::reconnect_with_policy(inner, router).await?;
         }
 
-        attempted += 1;
         continue 'outer;
       },
       Ok(TransactionResponse::Redirection((kind, slot, dest))) => {

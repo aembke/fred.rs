@@ -6,16 +6,14 @@ This document gives some background on how the library is structured and how to 
 # General
 
 * Use 2 spaces instead of tabs.
-* Run rustfmt before submitting any changes.
+* Run rustfmt and clippy before submitting any changes.
 * Clean up any compiler warnings.
 * Use the `async` syntax rather than `impl Future` where possible.
 
 ## Branches
 
-* Create external PRs against the `staging` branch.
+* Please create external PRs against the `staging` branch.
 * Use topic branches with [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
-* Branching strategy is `<topic>` -> (squash) `staging` -> `main` -> `release-<major version>`
-* Remove `chore` commits when squashing PRs.
 
 ## TODO List
 
@@ -54,7 +52,7 @@ impl RedisCommandKind {
   
   // ..
   
-  pub fn to_str_debug(&self) -> &'static str {
+  pub fn to_str_debug(&self) -> &str {
     match *self {
       // ..
       RedisCommandKind::Mget => "MGET",
@@ -64,7 +62,7 @@ impl RedisCommandKind {
   
   // ..
   
-  pub fn cmd_str(&self) -> &'static str {
+  pub fn cmd_str(&self) -> Str {
     match *self {
       // .. 
       RedisCommandKind::Mget => "MGET"
@@ -80,10 +78,11 @@ impl RedisCommandKind {
 
 ```rust
 pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+  // maybe do some kind of validation 
   utils::check_empty_keys(&keys)?;
 
   let frame = utils::request_response(client, move || {
-    // time spent here will show up in traces
+    // time spent here will show up in traces in the `prepare_command` span
     Ok((RedisCommandKind::Mget, keys.into_values()))
   })
   .await?;
@@ -92,7 +91,7 @@ pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<Redis
 }
 ```
 
-Or use one of the shorthand helper functions.
+Or use one of the shorthand helper functions or macros.
 
 ```rust
 pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
@@ -121,7 +120,7 @@ pub trait KeysInterface: ClientLike {
     K: Into<MultipleKeys> + Send,
   {
     into!(keys);
-    commands::keys::mget(self, keys).await
+    commands::keys::mget(self, keys).await?.convert()
   }
   // ...
 }

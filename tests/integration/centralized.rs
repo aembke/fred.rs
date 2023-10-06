@@ -1,5 +1,5 @@
 mod keys {
-
+  centralized_test!(keys, should_handle_missing_keys);
   centralized_test!(keys, should_set_and_get_a_value);
   centralized_test!(keys, should_set_and_del_a_value);
   centralized_test!(keys, should_set_with_get_argument);
@@ -50,6 +50,10 @@ mod other {
   centralized_test!(other, should_pipeline_try_all);
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
   centralized_test!(other, should_gracefully_quit);
+  centralized_test!(other, should_support_options_with_pipeline);
+  centralized_test!(other, should_reuse_pipeline);
+  centralized_test!(other, should_manually_connect_twice);
+  centralized_test!(other, should_support_options_with_trx);
 
   //#[cfg(feature = "dns")]
   // centralized_test!(other, should_use_trust_dns);
@@ -66,6 +70,11 @@ mod other {
   centralized_test!(other, should_replica_set_and_get_not_lazy);
   #[cfg(feature = "replicas")]
   centralized_test!(other, should_pipeline_with_replicas);
+
+  #[cfg(feature = "codec")]
+  centralized_test!(other, should_use_resp3_codec_example);
+  #[cfg(feature = "codec")]
+  centralized_test!(other, should_use_resp2_codec_example);
 }
 
 mod pool {
@@ -165,11 +174,16 @@ pub mod memory {
 
 pub mod lua {
 
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_load_script);
   centralized_test!(lua, should_eval_echo_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_eval_get_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_evalsha_echo_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_evalsha_with_reload_echo_script);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_evalsha_get_script);
 
   centralized_test!(lua, should_function_load_scripts);
@@ -182,7 +196,9 @@ pub mod lua {
   centralized_test!(lua, should_function_fcall_echo);
   centralized_test!(lua, should_function_fcall_ro_echo);
 
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_create_lua_script_helper_from_code);
+  #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_create_lua_script_helper_from_hash);
   centralized_test!(lua, should_create_function_from_code);
   centralized_test!(lua, should_create_function_from_name);
@@ -305,4 +321,22 @@ mod streams {
 mod tracking {
   centralized_test!(tracking, should_invalidate_foo_resp3);
   centralized_test!(tracking, should_invalidate_foo_resp2_centralized);
+}
+
+// The CI settings for redis-stack only support centralized configs for now.
+#[cfg(feature = "redis-json")]
+mod redis_json {
+  centralized_test!(redis_json, should_get_and_set_basic_obj);
+  centralized_test!(redis_json, should_get_and_set_stringified_obj);
+  centralized_test!(redis_json, should_array_append);
+  centralized_test!(redis_json, should_modify_arrays);
+  centralized_test!(redis_json, should_pop_and_trim_arrays);
+  centralized_test!(redis_json, should_get_set_del_obj);
+  centralized_test!(redis_json, should_merge_objects);
+  centralized_test!(redis_json, should_mset_and_mget);
+  centralized_test!(redis_json, should_incr_numbers);
+  centralized_test!(redis_json, should_inspect_objects);
+  centralized_test!(redis_json, should_modify_strings);
+  centralized_test!(redis_json, should_toggle_boolean);
+  centralized_test!(redis_json, should_get_value_type);
 }

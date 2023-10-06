@@ -1,7 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::{RedisKey, RedisValue, NIL, QUEUED},
-  utils,
+  types::{ClusterInfo, DatabaseMemoryStats, GeoPosition, MemoryStats, RedisKey, RedisValue, SlowlogEntry, QUEUED},
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -10,15 +9,28 @@ use std::{
   hash::{BuildHasher, Hash},
 };
 
+#[allow(unused_imports)]
+use std::any::type_name;
+
 #[cfg(feature = "serde-json")]
 use serde_json::{Map, Value};
 
 macro_rules! debug_type(
   ($($arg:tt)*) => {
-    cfg_if::cfg_if! {
-      if #[cfg(feature="network-logs")] {
-        log::trace!($($arg)*);
-      }
+    #[cfg(feature="network-logs")]
+    log::trace!($($arg)*);
+  }
+);
+
+macro_rules! check_single_bulk_reply(
+  ($v:expr) => {
+    if $v.is_single_element_vec() {
+      return Self::from_value($v.pop_or_take());
+    }
+  };
+  ($t:ty, $v:expr) => {
+    if $v.is_single_element_vec() {
+      return $t::from_value($v.pop_or_take());
     }
   }
 );
@@ -29,17 +41,23 @@ macro_rules! to_signed_number(
       RedisValue::Double(f) => Ok(f as $t),
       RedisValue::Integer(i) => Ok(i as $t),
       RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
-      RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       RedisValue::Array(mut a) => if a.len() == 1 {
         match a.pop().unwrap() {
           RedisValue::Integer(i) => Ok(i as $t),
           RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
+          #[cfg(feature = "default-nil-types")]
+          RedisValue::Null => Ok(0),
+          #[cfg(not(feature = "default-nil-types"))]
           RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
           _ => Err(RedisError::new_parse("Cannot convert to number."))
         }
       }else{
         Err(RedisError::new_parse("Cannot convert array to number."))
       }
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Ok(0),
+      #[cfg(not(feature = "default-nil-types"))]
+      RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       _ => Err(RedisError::new_parse("Cannot convert to number.")),
     }
   }
@@ -66,6 +84,9 @@ macro_rules! to_unsigned_number(
           }else{
             Ok(i as $t)
           },
+          #[cfg(feature = "default-nil-types")]
+          RedisValue::Null => Ok(0),
+          #[cfg(not(feature = "default-nil-types"))]
           RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
           RedisValue::String(s) => s.parse::<$t>().map_err(|e| e.into()),
           _ => Err(RedisError::new_parse("Cannot convert to number."))
@@ -73,6 +94,9 @@ macro_rules! to_unsigned_number(
       }else{
         Err(RedisError::new_parse("Cannot convert array to number."))
       },
+      #[cfg(feature = "default-nil-types")]
+      RedisValue::Null => Ok(0),
+      #[cfg(not(feature = "default-nil-types"))]
       RedisValue::Null => Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to number.")),
       _ => Err(RedisError::new_parse("Cannot convert to number.")),
     }
@@ -83,6 +107,7 @@ macro_rules! impl_signed_number (
   ($t:ty) => {
     impl FromRedis for $t {
       fn from_value(value: RedisValue) -> Result<$t, RedisError> {
+        check_single_bulk_reply!(value);
         to_signed_number!($t, value)
       }
     }
@@ -93,16 +118,66 @@ macro_rules! impl_unsigned_number (
   ($t:ty) => {
     impl FromRedis for $t {
       fn from_value(value: RedisValue) -> Result<$t, RedisError> {
+        check_single_bulk_reply!(value);
         to_unsigned_number!($t, value)
       }
     }
   }
 );
 
-/// A trait used to convert various forms of [RedisValue](crate::types::RedisValue) into different types.
+/// A trait used to [convert](RedisValue::convert) various forms of [RedisValue](RedisValue) into different types.
 ///
-/// See the [convert](crate::types::RedisValue::convert) documentation for important information regarding performance
-/// considerations and examples.
+/// ## Examples
+///
+/// ```rust
+/// # use fred::types::RedisValue;
+/// # use std::collections::HashMap;
+/// let foo: usize = RedisValue::String("123".into()).convert()?;
+/// let foo: i64 = RedisValue::String("123".into()).convert()?;
+/// let foo: String = RedisValue::String("123".into()).convert()?;
+/// let foo: Vec<u8> = RedisValue::Bytes(vec![102, 111, 111].into()).convert()?;
+/// let foo: Vec<u8> = RedisValue::String("foo".into()).convert()?;
+/// let foo: Vec<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?;
+/// let foo: HashMap<String, u16> =
+///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
+/// let foo: (String, i64) = RedisValue::Array(vec!["a".into(), 1.into()]).convert()?;
+/// let foo: Vec<(String, i64)> =
+///   RedisValue::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
+/// // ...
+/// ```
+///
+/// ## Bulk Values
+///
+/// This interface can also convert single-element vectors to scalar values in certain scenarios. This is often
+/// useful with commands that conditionally return bulk values, or where the number of elements in the response
+/// depends on the number of arguments (`MGET`, etc).
+///
+/// For example:
+///
+/// ```rust
+/// # use fred::types::RedisValue;
+/// let _: String = RedisValue::Array(vec![]).convert()?; // error
+/// let _: String = RedisValue::Array(vec!["a".into()]).convert()?; // "a"
+/// let _: String = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?; // error
+/// let _: Option<String> = RedisValue::Array(vec![]).convert()?; // None
+/// let _: Option<String> = RedisValue::Array(vec!["a".into()]).convert()?; // Some("a")
+/// let _: Option<String> = RedisValue::Array(vec!["a".into(), "b".into()]).convert()?; // error
+/// ```
+///
+/// ## The `default-nil-types` Feature Flag
+///
+/// By default a `nil` value cannot be converted directly into any of the scalar types (`u8`, `String`, `Bytes`,
+/// etc). In practice this often requires callers to use an `Option` or `Vec` container with commands that can return
+/// `nil`.
+///
+/// The `default-nil-types` feature flag can enable some further type conversion branches that treat `nil` values as
+/// default values for the relevant type. For `RedisValue::Null` these include:
+///
+/// * `impl FromRedis` for `String` or `Str` returns an empty string.
+/// * `impl FromRedis` for `Bytes` or `Vec<T>` returns an empty array.
+/// * `impl FromRedis` for any integer or float type returns `0`
+/// * `impl FromRedis` for `bool` returns `false`
+/// * `impl FromRedis` for map or set types return an empty map or set.
 pub trait FromRedis: Sized {
   fn from_value(value: RedisValue) -> Result<Self, RedisError>;
 
@@ -143,6 +218,7 @@ impl_signed_number!(isize);
 
 impl FromRedis for u8 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    check_single_bulk_reply!(value);
     to_unsigned_number!(u8, value)
   }
 
@@ -160,74 +236,64 @@ impl_unsigned_number!(usize);
 impl FromRedis for String {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(String): {:?}", value);
-    if value.is_null() {
-      Ok(NIL.to_owned())
-    } else {
-      value
-        .into_string()
-        .ok_or(RedisError::new_parse("Could not convert to string."))
-    }
+    check_single_bulk_reply!(value);
+
+    value
+      .into_string()
+      .ok_or(RedisError::new_parse("Could not convert to string."))
   }
 }
 
 impl FromRedis for Str {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(Str): {:?}", value);
-    if value.is_null() {
-      Ok(utils::static_str(NIL))
-    } else {
-      value
-        .into_bytes_str()
-        .ok_or(RedisError::new_parse("Could not convert to string."))
-    }
+    check_single_bulk_reply!(value);
+
+    value
+      .into_bytes_str()
+      .ok_or(RedisError::new_parse("Could not convert to string."))
   }
 }
 
 impl FromRedis for f64 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(f64): {:?}", value);
-    if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to double.",
-      ))
-    } else {
-      value
-        .as_f64()
-        .ok_or(RedisError::new_parse("Could not convert to double."))
-    }
+    check_single_bulk_reply!(value);
+
+    value
+      .as_f64()
+      .ok_or(RedisError::new_parse("Could not convert to double."))
   }
 }
 
 impl FromRedis for f32 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(f32): {:?}", value);
-    if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to float.",
-      ))
-    } else {
-      value
-        .as_f64()
-        .map(|f| f as f32)
-        .ok_or(RedisError::new_parse("Could not convert to float."))
-    }
+    check_single_bulk_reply!(value);
+
+    value
+      .as_f64()
+      .map(|f| f as f32)
+      .ok_or(RedisError::new_parse("Could not convert to float."))
   }
 }
 
 impl FromRedis for bool {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(bool): {:?}", value);
-    if value.is_null() {
-      Err(RedisError::new(
-        RedisErrorKind::NotFound,
-        "Cannot convert nil response to bool.",
-      ))
+    check_single_bulk_reply!(value);
+
+    if let Some(val) = value.as_bool() {
+      Ok(val)
     } else {
-      value
-        .as_bool()
-        .ok_or(RedisError::new_parse("Could not convert to bool."))
+      // it's not obvious how to convert the value to a bool in this block, so we go with a
+      // tried and true approach that i'm sure we'll never regret - JS semantics
+      Ok(match value {
+        RedisValue::String(s) => !s.is_empty(),
+        RedisValue::Bytes(b) => !b.is_empty(),
+        // everything else should be covered by `as_bool` above
+        _ => return Err(RedisError::new_parse("Could not convert to bool.")),
+      })
     }
   }
 }
@@ -237,8 +303,11 @@ where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Option<T>, RedisError> {
-    debug_type!("FromRedis(Option<T>): {:?}", value);
-    if value.is_null() {
+    debug_type!("FromRedis(Option<{}>): {:?}", type_name::<T>(), value);
+
+    if let Some(0) = value.array_len() {
+      Ok(None)
+    } else if value.is_null() {
       Ok(None)
     } else {
       Ok(Some(T::from_value(value)?))
@@ -249,6 +318,8 @@ where
 impl FromRedis for Bytes {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     debug_type!("FromRedis(Bytes): {:?}", value);
+    check_single_bulk_reply!(value);
+
     value
       .into_bytes()
       .ok_or(RedisError::new_parse("Cannot parse into bytes."))
@@ -260,14 +331,15 @@ where
   T: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Vec<T>, RedisError> {
-    debug_type!("FromRedis(Vec<T>): {:?}", value);
+    debug_type!("FromRedis(Vec<{}>): {:?}", type_name::<T>(), value);
+
     match value {
       RedisValue::Bytes(bytes) => {
         T::from_owned_bytes(bytes.to_vec()).ok_or(RedisError::new_parse("Cannot convert from bytes"))
       },
       RedisValue::String(string) => {
         // hacky way to check if T is bytes without consuming `string`
-        if T::from_owned_bytes(vec![]).is_some() {
+        if T::from_owned_bytes(Vec::new()).is_some() {
           T::from_owned_bytes(string.into_inner().to_vec())
             .ok_or(RedisError::new_parse("Could not convert string to bytes."))
         } else {
@@ -275,7 +347,7 @@ where
         }
       },
       RedisValue::Array(values) => {
-        if values.len() > 0 {
+        if !values.is_empty() {
           if let RedisValue::Array(_) = &values[0] {
             values.into_iter().map(|x| T::from_value(x)).collect()
           } else {
@@ -288,26 +360,40 @@ where
       RedisValue::Map(map) => {
         // not being able to use collect() here is unfortunate
         let out = Vec::with_capacity(map.len() * 2);
-        map.inner().into_iter().fold(Ok(out), |out, (key, value)| {
-          out.and_then(|mut out| {
-            if T::is_tuple() {
-              // try to convert to a 2-element tuple since that's a common use case from `HGETALL`, etc
-              out.push(T::from_value(RedisValue::Array(vec![key.into(), value]))?);
-            } else {
-              out.push(T::from_value(key.into())?);
-              out.push(T::from_value(value)?);
-            }
+        map.inner().into_iter().try_fold(out, |mut out, (key, value)| {
+          if T::is_tuple() {
+            // try to convert to a 2-element tuple since that's a common use case from `HGETALL`, etc
+            out.push(T::from_value(RedisValue::Array(vec![key.into(), value]))?);
+          } else {
+            out.push(T::from_value(key.into())?);
+            out.push(T::from_value(value)?);
+          }
 
-            Ok(out)
-          })
+          Ok(out)
         })
       },
-      RedisValue::Null => Ok(vec![]),
       RedisValue::Integer(i) => Ok(vec![T::from_value(RedisValue::Integer(i))?]),
       RedisValue::Double(f) => Ok(vec![T::from_value(RedisValue::Double(f))?]),
       RedisValue::Boolean(b) => Ok(vec![T::from_value(RedisValue::Boolean(b))?]),
       RedisValue::Queued => Ok(vec![T::from_value(RedisValue::from_static_str(QUEUED))?]),
+      RedisValue::Null => Ok(Vec::new()),
     }
+  }
+}
+
+impl<T, const N: usize> FromRedis for [T; N]
+where
+  T: FromRedis,
+{
+  fn from_value(value: RedisValue) -> Result<[T; N], RedisError> {
+    debug_type!("FromRedis([{}; {}]): {:?}", type_name::<T>(), N, value);
+    // use the `from_value` impl for Vec<T>
+    let value: Vec<T> = value.convert()?;
+    let len = value.len();
+
+    value
+      .try_into()
+      .map_err(|_| RedisError::new_parse(format!("Failed to convert to array. Expected {}, found {}.", N, len)))
   }
 }
 
@@ -318,12 +404,14 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(HashMap<K,V>): {:?}", value);
-    if value.is_null() {
-      return Err(RedisError::new(RedisErrorKind::NotFound, "Cannot convert nil to map."));
-    }
+    debug_type!(
+      "FromRedis(HashMap<{}, {}>): {:?}",
+      type_name::<K>(),
+      type_name::<V>(),
+      value
+    );
 
-    let as_map = if value.is_array() || value.is_map() {
+    let as_map = if value.is_array() || value.is_map() || value.is_null() {
       value
         .into_map()
         .map_err(|_| RedisError::new_parse("Cannot convert to map."))?
@@ -331,7 +419,6 @@ where
       return Err(RedisError::new_parse("Cannot convert to map."));
     };
 
-    debug_type!("FromRedis(HashMap<K,V>) Map: {:?}", as_map);
     as_map
       .inner()
       .into_iter()
@@ -346,8 +433,8 @@ where
   S: BuildHasher + Default,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(HashSet<V>): {:?}", value);
-    value.into_array().into_iter().map(|v| V::from_value(v)).collect()
+    debug_type!("FromRedis(HashSet<{}>): {:?}", type_name::<V>(), value);
+    value.into_set()?.into_iter().map(|v| V::from_value(v)).collect()
   }
 }
 
@@ -357,8 +444,13 @@ where
   V: FromRedis,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(BTreeMap<K,V>): {:?}", value);
-    let as_map = if value.is_array() || value.is_map() {
+    debug_type!(
+      "FromRedis(BTreeMap<{}, {}>): {:?}",
+      type_name::<K>(),
+      type_name::<V>(),
+      value
+    );
+    let as_map = if value.is_array() || value.is_map() || value.is_null() {
       value
         .into_map()
         .map_err(|_| RedisError::new_parse("Cannot convert to map."))?
@@ -379,8 +471,8 @@ where
   V: FromRedis + Ord,
 {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
-    debug_type!("FromRedis(BTreeSet<V>): {:?}", value);
-    value.into_array().into_iter().map(|v| V::from_value(v)).collect()
+    debug_type!("FromRedis(BTreeSet<{}>): {:?}", type_name::<V>(), value);
+    value.into_set()?.into_iter().map(|v| V::from_value(v)).collect()
   }
 }
 
@@ -401,7 +493,7 @@ macro_rules! impl_from_redis_tuple {
           $(let $name = (); n += 1;)*
           debug_type!("FromRedis({}-tuple): {:?}", n, values);
           if values.len() != n {
-            return Err(RedisError::new_parse("Invalid tuple dimension."));
+            return Err(RedisError::new_parse(format!("Invalid tuple dimension. Expected {}, found {}.", n, values.len())));
           }
 
           // since we have ownership over the values we have some freedom in how to implement this
@@ -422,7 +514,7 @@ macro_rules! impl_from_redis_tuple {
         $(let $name = (); n += 1;)*
         debug_type!("FromRedis({}-tuple): {:?}", n, values);
         if values.len() % n != 0 {
-          return Err(RedisError::new_parse("Invalid tuple dimension."))
+          return Err(RedisError::new_parse(format!("Invalid tuple dimension. Expected {}, found {}.", n, values.len())));
         }
 
         let mut out = Vec::with_capacity(values.len() / n);
@@ -468,13 +560,13 @@ impl FromRedis for Value {
       RedisValue::Null => Value::Null,
       RedisValue::Queued => QUEUED.into(),
       RedisValue::String(s) => {
-        if let Some(parsed) = utils::parse_nested_json(&s) {
-          parsed
-        } else {
-          s.to_string().into()
-        }
+        // check for nested json. this is particularly useful with JSON.GET
+        serde_json::from_str(&s).ok().unwrap_or_else(|| s.to_string().into())
       },
-      RedisValue::Bytes(b) => String::from_utf8(b.to_vec())?.into(),
+      RedisValue::Bytes(b) => {
+        let val = RedisValue::String(Str::from_inner(b)?);
+        Self::from_value(val)?
+      },
       RedisValue::Integer(i) => i.into(),
       RedisValue::Double(f) => f.into(),
       RedisValue::Boolean(b) => b.into(),
@@ -500,6 +592,36 @@ impl FromRedis for Value {
     };
 
     Ok(value)
+  }
+}
+
+impl FromRedis for GeoPosition {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    GeoPosition::try_from(value)
+  }
+}
+
+impl FromRedis for SlowlogEntry {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    SlowlogEntry::try_from(value)
+  }
+}
+
+impl FromRedis for ClusterInfo {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    ClusterInfo::try_from(value)
+  }
+}
+
+impl FromRedis for MemoryStats {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    MemoryStats::try_from(value)
+  }
+}
+
+impl FromRedis for DatabaseMemoryStats {
+  fn from_value(value: RedisValue) -> Result<Self, RedisError> {
+    DatabaseMemoryStats::try_from(value)
   }
 }
 
@@ -590,13 +712,11 @@ impl FromRedisKey for Bytes {
 
 #[cfg(test)]
 mod tests {
-  use crate::{error::RedisError, types::RedisValue};
+  use crate::types::RedisValue;
   use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-  #[test]
-  fn should_convert_null() {
-    let _foo: () = RedisValue::Null.convert().unwrap();
-  }
+  #[cfg(not(feature = "default-nil-types"))]
+  use crate::error::RedisError;
 
   #[test]
   fn should_convert_signed_numeric_types() {
@@ -659,7 +779,8 @@ mod tests {
   }
 
   #[test]
-  fn should_return_not_found_with_null_scalar_values() {
+  #[cfg(not(feature = "default-nil-types"))]
+  fn should_return_not_found_with_null_number_types() {
     let result: Result<u8, RedisError> = RedisValue::Null.convert();
     assert!(result.unwrap_err().is_not_found());
     let result: Result<u16, RedisError> = RedisValue::Null.convert();
@@ -687,9 +808,35 @@ mod tests {
   }
 
   #[test]
-  fn should_return_not_found_with_null_strings_and_bools() {
-    let result: Result<bool, RedisError> = RedisValue::Null.convert();
-    assert!(result.unwrap_err().is_not_found());
+  #[cfg(feature = "default-nil-types")]
+  fn should_return_zero_with_null_number_types() {
+    assert_eq!(0, RedisValue::Null.convert::<u8>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u16>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u32>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u64>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<u128>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<usize>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i8>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i16>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i32>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i64>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<i128>().unwrap());
+    assert_eq!(0, RedisValue::Null.convert::<isize>().unwrap());
+    assert_eq!(0.0, RedisValue::Null.convert::<f32>().unwrap());
+    assert_eq!(0.0, RedisValue::Null.convert::<f64>().unwrap());
+  }
+
+  #[test]
+  #[cfg(feature = "default-nil-types")]
+  fn should_convert_null_to_false() {
+    assert!(!RedisValue::Null.convert::<bool>().unwrap());
+  }
+
+  #[test]
+  #[should_panic]
+  #[cfg(not(feature = "default-nil-types"))]
+  fn should_not_convert_null_to_false() {
+    assert!(!RedisValue::Null.convert::<bool>().unwrap());
   }
 
   #[test]
@@ -699,27 +846,27 @@ mod tests {
   }
 
   #[test]
-  fn should_convert_bools() {
-    let _foo: bool = RedisValue::Integer(0).convert().unwrap();
-    assert_eq!(_foo, false);
-    let _foo: bool = RedisValue::Integer(1).convert().unwrap();
-    assert_eq!(_foo, true);
-    let _foo: bool = RedisValue::String("0".into()).convert().unwrap();
-    assert_eq!(_foo, false);
-    let _foo: bool = RedisValue::String("1".into()).convert().unwrap();
-    assert_eq!(_foo, true);
+  fn should_convert_numbers_to_bools() {
+    let foo: bool = RedisValue::Integer(0).convert().unwrap();
+    assert!(!foo);
+    let foo: bool = RedisValue::Integer(1).convert().unwrap();
+    assert!(foo);
+    let foo: bool = RedisValue::String("0".into()).convert().unwrap();
+    assert!(!foo);
+    let foo: bool = RedisValue::String("1".into()).convert().unwrap();
+    assert!(foo);
   }
 
   #[test]
   fn should_convert_bytes() {
-    let _foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into()).convert().unwrap();
-    assert_eq!(_foo, "foo".as_bytes().to_vec());
-    let _foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
-    assert_eq!(_foo, "foo".as_bytes().to_vec());
-    let _foo: Vec<u8> = RedisValue::Array(vec![102.into(), 111.into(), 111.into()])
+    let foo: Vec<u8> = RedisValue::Bytes("foo".as_bytes().to_vec().into()).convert().unwrap();
+    assert_eq!(foo, "foo".as_bytes().to_vec());
+    let foo: Vec<u8> = RedisValue::String("foo".into()).convert().unwrap();
+    assert_eq!(foo, "foo".as_bytes().to_vec());
+    let foo: Vec<u8> = RedisValue::Array(vec![102.into(), 111.into(), 111.into()])
       .convert()
       .unwrap();
-    assert_eq!(_foo, "foo".as_bytes().to_vec());
+    assert_eq!(foo, "foo".as_bytes().to_vec());
   }
 
   #[test]
@@ -784,5 +931,43 @@ mod tests {
       .convert()
       .unwrap();
     assert_eq!(foo, vec![("a".to_owned(), 1), ("b".to_owned(), 2)]);
+  }
+
+  #[test]
+  fn should_handle_single_element_vector_to_scalar() {
+    assert!(RedisValue::Array(vec![]).convert::<String>().is_err());
+    assert_eq!(
+      RedisValue::Array(vec!["foo".into()]).convert::<String>(),
+      Ok("foo".into())
+    );
+    assert!(RedisValue::Array(vec!["foo".into(), "bar".into()])
+      .convert::<String>()
+      .is_err());
+
+    assert_eq!(RedisValue::Array(vec![]).convert::<Option<String>>(), Ok(None));
+    assert_eq!(
+      RedisValue::Array(vec!["foo".into()]).convert::<Option<String>>(),
+      Ok(Some("foo".into()))
+    );
+    assert!(RedisValue::Array(vec!["foo".into(), "bar".into()])
+      .convert::<Option<String>>()
+      .is_err());
+  }
+
+  #[test]
+  fn should_convert_null_to_empty_array() {
+    assert_eq!(Vec::<String>::new(), RedisValue::Null.convert::<Vec<String>>().unwrap());
+    assert_eq!(Vec::<u8>::new(), RedisValue::Null.convert::<Vec<u8>>().unwrap());
+  }
+
+  #[test]
+  fn should_convert_to_fixed_arrays() {
+    let foo: [i64; 2] = RedisValue::Array(vec![1.into(), 2.into()]).convert().unwrap();
+    assert_eq!(foo, [1, 2]);
+
+    assert!(RedisValue::Array(vec![1.into(), 2.into()])
+      .convert::<[i64; 3]>()
+      .is_err());
+    assert!(RedisValue::Array(vec![]).convert::<[i64; 3]>().is_err());
   }
 }

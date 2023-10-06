@@ -5,11 +5,11 @@ use crate::{
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, RedisTransport},
+    connection::{self, ConnectionKind, RedisTransport},
     types::ProtocolFrame,
     utils as protocol_utils,
   },
-  types::{PerformanceConfig, RedisConfig, ServerConfig},
+  types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
 use std::sync::Arc;
@@ -22,7 +22,6 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "blocking-encoding")]
 use crate::globals::globals;
-use crate::protocol::connection::ConnectionKind;
 
 #[cfg(feature = "blocking-encoding")]
 async fn handle_monitor_frame(
@@ -82,7 +81,7 @@ async fn send_monitor_command(
   let frame = connection.request_response(command, inner.is_resp3()).await?;
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);
-  let response = protocol_utils::frame_to_single_result(frame)?;
+  let response = protocol_utils::frame_to_results(frame)?;
   let _ = protocol_utils::expect_ok(&response)?;
   Ok(connection)
 }
@@ -125,6 +124,7 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
     auto_pipeline: false,
     ..Default::default()
   };
+  let connection = ConnectionConfig::default();
   let server = match config.server {
     ServerConfig::Centralized { ref server } => server.clone(),
     _ => {
@@ -135,8 +135,8 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
     },
   };
 
-  let inner = RedisClientInner::new(config, perf, None);
-  let mut connection = connection::create(&inner, server.host.as_str().to_owned(), server.port, None, None).await?;
+  let inner = RedisClientInner::new(config, perf, connection, None);
+  let mut connection = connection::create(&inner, &server, None).await?;
   let _ = connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;
 

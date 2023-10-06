@@ -4,8 +4,8 @@ use crate::{
   protocol::{types::ProtocolFrame, utils as protocol_utils},
   utils,
 };
-use arcstr::ArcStr;
 use bytes::BytesMut;
+use bytes_utils::Str;
 use redis_protocol::{
   resp2::{decode::decode_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::Frame as Resp2Frame},
   resp3::{
@@ -60,7 +60,7 @@ fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) 
     res
   );
   log_resp2_frame(&codec.name, &item, true);
-  sample_stats(&codec, false, len as i64);
+  sample_stats(codec, false, len as i64);
 
   Ok(())
 }
@@ -79,7 +79,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
   if let Some((frame, amt, _)) = resp2_decode(src)? {
     trace!("{}: Parsed {} bytes from {}", codec.name, amt, codec.server);
     log_resp2_frame(&codec.name, &frame, false);
-    sample_stats(&codec, true, amt as i64);
+    sample_stats(codec, true, amt as i64);
 
     Ok(Some(protocol_utils::check_resp2_auth_error(frame)))
   } else {
@@ -101,7 +101,7 @@ fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) 
     res
   );
   log_resp3_frame(&codec.name, &item, true);
-  sample_stats(&codec, false, len as i64);
+  sample_stats(codec, false, len as i64);
 
   Ok(())
 }
@@ -118,7 +118,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
   }
 
   if let Some((frame, amt, _)) = resp3_decode(src)? {
-    sample_stats(&codec, true, amt as i64);
+    sample_stats(codec, true, amt as i64);
 
     if codec.streaming_state.is_some() && frame.is_streaming() {
       return Err(RedisError::new(
@@ -186,7 +186,7 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name:            ArcStr,
+  pub name:            Str,
   pub server:          Server,
   pub resp3:           Arc<AtomicBool>,
   pub streaming_state: Option<StreamedFrame>,
@@ -221,8 +221,8 @@ impl Encoder<ProtocolFrame> for RedisCodec {
   #[cfg(not(feature = "blocking-encoding"))]
   fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
     match item {
-      ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
-      ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
+      ProtocolFrame::Resp2(frame) => resp2_encode_frame(self, frame, dst),
+      ProtocolFrame::Resp3(frame) => resp3_encode_frame(self, frame, dst),
     }
   }
 

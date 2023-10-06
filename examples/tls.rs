@@ -1,3 +1,6 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+
 use fred::prelude::*;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
@@ -36,7 +39,7 @@ async fn main() -> Result<(), RedisError> {
     tls: Some(create_tls_config().into()),
     ..RedisConfig::default()
   };
-  let client = RedisClient::new(config, None, None);
+  let client = Builder::from_config(config).build()?;
 
   let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {
@@ -45,6 +48,6 @@ async fn main() -> Result<(), RedisError> {
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

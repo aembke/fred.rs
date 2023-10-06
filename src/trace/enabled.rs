@@ -3,7 +3,7 @@ use crate::{
   protocol::{command::RedisCommand, utils as protocol_utils},
 };
 use redis_protocol::resp3::types::Frame;
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Deref, sync::Arc};
 pub use tracing::span::Span;
 use tracing::{event, field::Empty, Id as TraceId, Level};
 
@@ -61,7 +61,7 @@ pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
     inner.tracing_span_level(),
     "redis_command",
     module = "fred",
-    client_id = inner.id.as_str(),
+    client_id = &inner.id.deref(),
     cmd = Empty,
     req_size = Empty,
     res_size = Empty
@@ -97,7 +97,7 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Optio
       parent: None,
       "parse_pubsub",
       module = "fred",
-      client_id = &inner.id.as_str(),
+      client_id = &inner.id.deref(),
       res_size = &protocol_utils::resp3_frame_size(frame),
       channel = Empty
     );
@@ -106,7 +106,6 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Optio
   } else {
     None
   }
-
 }
 
 #[cfg(not(feature = "full-tracing"))]

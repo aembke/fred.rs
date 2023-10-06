@@ -1,10 +1,14 @@
+#![allow(clippy::disallowed_names)]
+#![allow(clippy::let_underscore_future)]
+#![allow(clippy::let_unit_value)]
+
 use fred::{
   prelude::*,
   types::{Library, Script},
   util as fred_utils,
 };
 
-static SCRIPTS: &'static [&'static str] = &[
+static SCRIPTS: &[&str] = &[
   "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",
   "return {KEYS[2],KEYS[1],ARGV[1],ARGV[2]}",
   "return {KEYS[1],KEYS[2],ARGV[2],ARGV[1]}",
@@ -15,14 +19,14 @@ static SCRIPTS: &'static [&'static str] = &[
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   for script in SCRIPTS.iter() {
     let hash = fred_utils::sha1_hash(script);
     let mut script_exists: Vec<bool> = client.script_exists(&hash).await?;
 
     if !script_exists.pop().unwrap_or(false) {
-      let _ = client.script_load(*script).await?;
+      client.script_load(*script).await?;
     }
 
     let results = client.evalsha(&hash, vec!["foo", "bar"], vec![1, 2]).await?;
@@ -38,6 +42,7 @@ async fn main() -> Result<(), RedisError> {
 }
 
 // or use the `Script` utility types
+#[allow(dead_code)]
 async fn scripts() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
@@ -52,6 +57,7 @@ async fn scripts() -> Result<(), RedisError> {
 }
 
 // use the `Function` and `Library` utility types
+#[allow(dead_code)]
 async fn functions() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
