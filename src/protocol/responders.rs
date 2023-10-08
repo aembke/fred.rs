@@ -16,6 +16,7 @@ use std::{
   fmt,
   fmt::Formatter,
   iter::repeat,
+  mem,
   ops::DerefMut,
   sync::{atomic::AtomicUsize, Arc},
 };
@@ -287,36 +288,18 @@ fn add_buffered_frame(
   Ok(())
 }
 
-/// Merge multiple potentially nested frames into one flat array of frames.
+/// Check for errors while merging the provided frames into one Array frame.
 fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>, error_early: bool) -> Resp3Frame {
-  let inner_len = frames.iter().fold(0, |count, frame| {
-    count
-      + match frame {
-        Resp3Frame::Array { ref data, .. } => data.len(),
-        Resp3Frame::Push { ref data, .. } => data.len(),
-        _ => 1,
+  if error_early {
+    for frame in frames.iter() {
+      if frame.is_error() {
+        return frame.clone();
       }
-  });
-
-  let mut out = Vec::with_capacity(inner_len);
-  for frame in frames.drain(..) {
-    // unwrap and return errors early
-    if error_early && frame.is_error() {
-      return frame;
     }
-
-    match frame {
-      Resp3Frame::Array { data, .. } | Resp3Frame::Push { data, .. } => {
-        for inner_frame in data.into_iter() {
-          out.push(inner_frame);
-        }
-      },
-      _ => out.push(frame),
-    };
   }
 
   Resp3Frame::Array {
-    data:       out,
+    data:       mem::take(frames),
     attributes: None,
   }
 }
@@ -614,7 +597,7 @@ pub fn respond_buffer(
       command.debug_id()
     );
 
-    let frame = merge_multiple_frames(frames.lock().deref_mut(), error_early);
+    let frame = merge_multiple_frames(&mut frames.lock(), error_early);
     if frame.is_error() {
       let err = match frame.as_str() {
         Some(s) => protocol_utils::pretty_error(s),
