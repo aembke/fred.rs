@@ -620,10 +620,10 @@ impl RedisTransport {
   /// Read and cache the connection ID.
   pub async fn cache_connection_id(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     let command = (RedisCommandKind::ClientID, vec![]).into();
-    let result = self.request_response(command, inner.is_resp3()).await?;
+    let result = self.request_response(command, inner.is_resp3()).await;
     _debug!(inner, "Read client ID: {:?}", result);
     self.id = match result {
-      Resp3Frame::Number { data, .. } => Some(data),
+      Ok(Resp3Frame::Number { data, .. }) => Some(data),
       _ => None,
     };
 
