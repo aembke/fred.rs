@@ -8,6 +8,7 @@ use crate::{
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
+use indexmap::IndexMap;
 use redis_protocol::resp2::types::NULL;
 use std::{
   borrow::Cow,
@@ -361,13 +362,13 @@ impl_from_str_for_redis_key!(f64);
 /// A map of `(RedisKey, RedisValue)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RedisMap {
-  pub(crate) inner: HashMap<RedisKey, RedisValue>,
+  pub(crate) inner: IndexMap<RedisKey, RedisValue>,
 }
 
 impl RedisMap {
   /// Create a new empty map.
   pub fn new() -> Self {
-    RedisMap { inner: HashMap::new() }
+    RedisMap { inner: IndexMap::new() }
   }
 
   /// Replace the value an empty map, returning the original value.
@@ -382,14 +383,14 @@ impl RedisMap {
     self.inner.len()
   }
 
-  /// Take the inner `HashMap`.
-  pub fn inner(self) -> HashMap<RedisKey, RedisValue> {
+  /// Take the inner `IndexMap`.
+  pub fn inner(self) -> IndexMap<RedisKey, RedisValue> {
     self.inner
   }
 }
 
 impl Deref for RedisMap {
-  type Target = HashMap<RedisKey, RedisValue>;
+  type Target = IndexMap<RedisKey, RedisValue>;
 
   fn deref(&self) -> &Self::Target {
     &self.inner
@@ -405,6 +406,22 @@ impl DerefMut for RedisMap {
 impl<'a> From<&'a RedisMap> for RedisMap {
   fn from(vals: &'a RedisMap) -> Self {
     vals.clone()
+  }
+}
+
+impl<K, V> TryFrom<IndexMap<K, V>> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: IndexMap<K, V>) -> Result<Self, Self::Error> {
+    Ok(RedisMap {
+      inner: utils::into_redis_map(value.into_iter())?,
+    })
   }
 }
 
@@ -450,7 +467,7 @@ where
   type Error = RedisError;
 
   fn try_from((key, value): (K, V)) -> Result<Self, Self::Error> {
-    let mut inner = HashMap::with_capacity(1);
+    let mut inner = IndexMap::with_capacity(1);
     inner.insert(to!(key)?, to!(value)?);
     Ok(RedisMap { inner })
   }
@@ -466,7 +483,7 @@ where
   type Error = RedisError;
 
   fn try_from(values: Vec<(K, V)>) -> Result<Self, Self::Error> {
-    let mut inner = HashMap::with_capacity(values.len());
+    let mut inner = IndexMap::with_capacity(values.len());
     for (key, value) in values.into_iter() {
       inner.insert(to!(key)?, to!(value)?);
     }
@@ -484,7 +501,7 @@ where
   type Error = RedisError;
 
   fn try_from(values: VecDeque<(K, V)>) -> Result<Self, Self::Error> {
-    let mut inner = HashMap::with_capacity(values.len());
+    let mut inner = IndexMap::with_capacity(values.len());
     for (key, value) in values.into_iter() {
       inner.insert(to!(key)?, to!(value)?);
     }
@@ -1003,17 +1020,19 @@ impl RedisValue {
   pub fn into_map(self) -> Result<RedisMap, RedisError> {
     match self {
       RedisValue::Map(map) => Ok(map),
-      RedisValue::Array(mut values) => {
+      RedisValue::Array(values) => {
         if values.len() % 2 != 0 {
           return Err(RedisError::new(
             RedisErrorKind::Unknown,
             "Expected an even number of elements.",
           ));
         }
-        let mut inner = HashMap::with_capacity(values.len() / 2);
+        let mut inner = IndexMap::with_capacity(values.len() / 2);
+
+        let mut values = VecDeque::from(values);
         while values.len() >= 2 {
-          let value = values.pop().unwrap();
-          let key: RedisKey = values.pop().unwrap().try_into()?;
+          let key: RedisKey = values.pop_front().unwrap().try_into()?;
+          let value = values.pop_front().unwrap();
 
           inner.insert(key, value);
         }
