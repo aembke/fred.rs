@@ -45,10 +45,16 @@ pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<()
     .hscan("foo", "bar*", Some(10))
     .try_fold(0_i64, |mut count, mut result| async move {
       if let Some(results) = result.take_results() {
+        let mut idx = count;
         count += results.len() as i64;
 
-        // scanning wont return results in any particular order, so we just check the format of the key
-        for (key, _) in results.iter() {
+        // scanning returns the results in redis origin order.
+        for (key, value) in results.iter() {
+          // Make sure the key and the value of each item are the correct.
+          assert_eq!(key.as_str().unwrap(), format!("bar-{}", idx).as_str());
+          assert_eq!(value.as_str().unwrap(), idx.to_string().as_str());
+          idx += 1;
+
           let parts: Vec<&str> = key.as_str().unwrap().split('-').collect();
           assert!(parts[1].parse::<i64>().is_ok());
         }
