@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
   error::RedisError,
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   router::sentinel::{
     CKQUORUM,
     CONFIG,
@@ -19,7 +20,6 @@ use crate::{
     SET,
     SIMULATE_FAILURE,
   },
-  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::*,
   utils,
 };

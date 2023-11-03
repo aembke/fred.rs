@@ -15,9 +15,7 @@ pub struct Span {}
 
 #[cfg(not(feature = "full-tracing"))]
 impl Span {
-  pub fn enter(&self) {
-    
-  }
+  pub fn enter(&self) {}
 
   pub fn record<Q: ?Sized, V: ?Sized>(&self, _field: &Q, _value: &V) -> &Self {
     self

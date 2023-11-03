@@ -1,14 +1,3 @@
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  interfaces::{ClientLike, Resp3Frame},
-  protocol::{connection::OK, utils as protocol_utils},
-  types::{FromRedis, FromRedisKey, GeoPosition, XReadResponse, XReadValue, QUEUED},
-  utils,
-};
-use bytes::Bytes;
-use bytes_utils::Str;
-use float_cmp::approx_eq;
-use redis_protocol::resp2::types::NULL;
 use std::{
   borrow::Cow,
   collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -21,31 +10,42 @@ use std::{
   str,
 };
 
-use crate::types::{Function, GeoRadiusInfo, Server};
+use bytes::Bytes;
+use bytes_utils::Str;
+use float_cmp::approx_eq;
+use redis_protocol::resp2::types::NULL;
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
+
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces::{ClientLike, Resp3Frame},
+  protocol::{connection::OK, utils as protocol_utils},
+  types::{FromRedis, FromRedisKey, Function, GeoPosition, GeoRadiusInfo, Server, XReadResponse, XReadValue, QUEUED},
+  utils,
+};
 
 static_str!(TRUE_STR, "true");
 static_str!(FALSE_STR, "false");
 
 macro_rules! impl_string_or_number(
-  ($t:ty) => {
-    impl From<$t> for StringOrNumber {
-      fn from(val: $t) -> Self {
-        StringOrNumber::Number(val as i64)
-      }
+    ($t:ty) => {
+        impl From<$t> for StringOrNumber {
+            fn from(val: $t) -> Self {
+                StringOrNumber::Number(val as i64)
+            }
+        }
     }
-  }
 );
 
 macro_rules! impl_from_str_for_redis_key(
-  ($t:ty) => {
-    impl From<$t> for RedisKey {
-      fn from(val: $t) -> Self {
-        RedisKey { key: val.to_string().into() }
-      }
+    ($t:ty) => {
+        impl From<$t> for RedisKey {
+            fn from(val: $t) -> Self {
+                RedisKey { key: val.to_string().into() }
+            }
+        }
     }
-  }
 );
 
 /// An argument representing a string or number.
@@ -1433,6 +1433,12 @@ impl From<Str> for RedisValue {
 impl From<Bytes> for RedisValue {
   fn from(b: Bytes) -> Self {
     RedisValue::Bytes(b)
+  }
+}
+
+impl From<&Box<[u8]>> for RedisValue {
+  fn from(b: &Box<[u8]>) -> Self {
+    b.into()
   }
 }
 

@@ -666,7 +666,7 @@ impl RedisConfig {
     let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let server = ServerConfig::new_centralized(host, port);
     let database = utils::parse_url_db(&url)?;
-    let (username, password) = utils::parse_url_credentials(&url);
+    let (username, password) = utils::parse_url_credentials(&url)?;
 
     Ok(RedisConfig {
       server,
@@ -704,7 +704,7 @@ impl RedisConfig {
     let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
     cluster_nodes.push(Server::new(host, port));
     let server = ServerConfig::Clustered { hosts: cluster_nodes };
-    let (username, password) = utils::parse_url_credentials(&url);
+    let (username, password) = utils::parse_url_credentials(&url)?;
 
     Ok(RedisConfig {
       server,
@@ -754,7 +754,7 @@ impl RedisConfig {
     let mut other_nodes = utils::parse_url_other_nodes(&url)?;
     other_nodes.push(Server::new(host, port));
     let service_name = utils::parse_url_sentinel_service_name(&url)?;
-    let (username, password) = utils::parse_url_credentials(&url);
+    let (username, password) = utils::parse_url_credentials(&url)?;
     let database = utils::parse_url_db(&url)?;
     let server = ServerConfig::Sentinel {
       hosts: other_nodes,
