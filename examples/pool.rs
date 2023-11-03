@@ -17,12 +17,6 @@ async fn main() -> Result<(), RedisError> {
 
   for client in pool.clients() {
     println!("{} connected to {:?}", client.id(), client.active_connections().await?);
-
-    // set up event listeners on each client
-    client.on_error(|error| {
-      println!("Connection error: {:?}", error);
-      Ok(())
-    });
   }
 
   // or use the pool like any other RedisClient
