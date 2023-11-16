@@ -123,6 +123,7 @@ pub mod prelude {
       PerformanceConfig,
       ReconnectPolicy,
       RedisConfig,
+      RedisKey,
       RedisValue,
       RedisValueKind,
       ServerConfig,
