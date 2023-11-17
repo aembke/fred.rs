@@ -837,6 +837,11 @@ mod tests {
   }
 
   #[test]
+  fn should_not_panic_with_zero_jitter() {
+    assert_eq!(add_jitter(10, 0), 10);
+  }
+
+  #[test]
   fn should_flatten_xread_example() {
     // 127.0.0.1:6379> xread count 2 streams foo bar 1643479648480-0 1643479834990-0
     // 1) 1) "foo"
