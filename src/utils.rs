@@ -20,6 +20,7 @@ use futures::{
   Future,
   TryFutureExt,
 };
+use indexmap::IndexMap;
 use parking_lot::{Mutex, RwLock};
 use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
@@ -572,7 +573,7 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   }
 }
 
-pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
+pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<IndexMap<RedisKey, RedisValue>, RedisError>
 where
   I: Iterator<Item = (K, V)>,
   K: TryInto<RedisKey>,
@@ -582,7 +583,7 @@ where
 {
   let (lower, upper) = iter.size_hint();
   let capacity = if let Some(upper) = upper { upper } else { lower };
-  let mut out = HashMap::with_capacity(capacity);
+  let mut out = IndexMap::with_capacity(capacity);
 
   while let Some((key, value)) = iter.next() {
     out.insert(to!(key)?, to!(value)?);
@@ -613,7 +614,7 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
       RedisValue::Array(out)
     },
     RedisValue::Map(values) => {
-      let mut out = HashMap::with_capacity(values.len());
+      let mut out = IndexMap::with_capacity(values.len());
 
       for (key, value) in values.inner().into_iter() {
         let value = if value.is_array() {

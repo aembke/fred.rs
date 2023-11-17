@@ -7,12 +7,13 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
+use indexmap::IndexMap;
 use rand::Rng;
 pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
 use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
 use std::{
   cmp::Ordering,
-  collections::{BTreeMap, BTreeSet, HashMap},
+  collections::{BTreeMap, BTreeSet, VecDeque},
   convert::TryInto,
   fmt::{Display, Formatter},
   hash::{Hash, Hasher},
@@ -318,7 +319,7 @@ impl ValueScanInner {
     let _ = self.tx.send(Err(error));
   }
 
-  pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
+  pub fn transform_hscan_result(data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
     if data.is_empty() {
       return Ok(RedisMap::new());
     }
@@ -329,10 +330,11 @@ impl ValueScanInner {
       ));
     }
 
-    let mut out = HashMap::with_capacity(data.len() / 2);
+    let mut out = IndexMap::with_capacity(data.len() / 2);
+    let mut data = VecDeque::from(data);
+
     while data.len() >= 2 {
-      let value = data.pop().unwrap();
-      let key: RedisKey = match data.pop().unwrap() {
+      let key: RedisKey = match data.pop_front().unwrap() {
         RedisValue::String(s) => s.into(),
         RedisValue::Bytes(b) => b.into(),
         _ => {
@@ -342,6 +344,7 @@ impl ValueScanInner {
           ))
         },
       };
+      let value = data.pop_front().unwrap();
 
       out.insert(key, value);
     }

@@ -55,6 +55,7 @@ sha-1 = { version = "0.10", optional = true }
 rand = "0.8"
 semver = "1.0"
 socket2 = "0.5"
+indexmap = "2.0"
 async-trait = { version = "0.1" }
 rustls = { version = "0.21", optional = true }
 native-tls = { version = "0.2", optional = true }

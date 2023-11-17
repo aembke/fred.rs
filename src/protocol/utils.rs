@@ -11,11 +11,13 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
+use indexmap::IndexMap;
 use redis_protocol::{
   resp2::types::Frame as Resp2Frame,
   resp3::types::{Auth, Frame as Resp3Frame, FrameMap, PUBSUB_PUSH_PREFIX},
 };
-use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
+use std::{borrow::Cow, convert::TryInto, ops::Deref, str, sync::Arc};
+use std::collections::VecDeque;
 
 pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
   if inner.performance.load().as_ref().auto_pipeline {
@@ -363,7 +365,7 @@ pub fn frame_to_str(frame: &Resp3Frame) -> Option<Str> {
 }
 
 fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
-  let mut out = HashMap::with_capacity(data.len());
+  let mut out = IndexMap::with_capacity(data.len());
 
   // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types
   // as keys...
@@ -423,7 +425,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
         .collect::<Result<Vec<RedisValue>, _>>()?,
     ),
     Resp3Frame::Map { data, .. } => {
-      let mut out = HashMap::with_capacity(data.len());
+      let mut out = IndexMap::with_capacity(data.len());
       for (key, value) in data.into_iter() {
         let key: RedisKey = frame_to_results(key)?.try_into()?;
         let value = frame_to_results(value)?;
@@ -502,7 +504,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
 /// Convert a frame to a nested RedisMap.
 pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
   match frame {
-    Resp3Frame::Array { mut data, .. } => {
+    Resp3Frame::Array { data, .. } => {
       if data.is_empty() {
         return Ok(RedisMap::new());
       }
@@ -513,10 +515,12 @@ pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
         ));
       }
 
-      let mut inner = HashMap::with_capacity(data.len() / 2);
+      let mut inner = IndexMap::with_capacity(data.len() / 2);
+      let mut data = VecDeque::from(data);
+
       while data.len() >= 2 {
-        let value = frame_to_results(data.pop().unwrap())?;
-        let key = frame_to_results(data.pop().unwrap())?.try_into()?;
+        let key = frame_to_results(data.pop_front().unwrap())?.try_into()?;
+        let value = frame_to_results(data.pop_front().unwrap())?;
 
         inner.insert(key, value);
       }
