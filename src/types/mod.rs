@@ -8,6 +8,7 @@ mod builder;
 mod client;
 mod cluster;
 mod config;
+mod from_tuple;
 mod geo;
 mod lists;
 mod misc;
