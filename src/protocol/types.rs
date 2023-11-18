@@ -1,15 +1,3 @@
-use super::utils as protocol_utils;
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{cluster, utils::server_to_parts},
-  types::*,
-  utils,
-};
-use bytes_utils::Str;
-use rand::Rng;
-pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
 use std::{
   cmp::Ordering,
   collections::{BTreeMap, BTreeSet, HashMap},
@@ -19,7 +7,22 @@ use std::{
   net::{SocketAddr, ToSocketAddrs},
   sync::Arc,
 };
+
+use bytes_utils::Str;
+use rand::Rng;
+#[allow(unused_imports)]
+pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
+use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
 use tokio::sync::mpsc::UnboundedSender;
+
+use super::utils as protocol_utils;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{cluster, utils::server_to_parts},
+  types::*,
+  utils,
+};
 
 pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
