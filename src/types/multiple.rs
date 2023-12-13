@@ -7,7 +7,7 @@ use std::{collections::VecDeque, iter::FromIterator};
 /// `Into<MultipleKeys>`.** This is mostly useful for `EVAL` and `EVALSHA`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleKeys {
-  keys: Vec<RedisKey>,
+  pub(crate) keys: Vec<RedisKey>,
 }
 
 impl MultipleKeys {

@@ -9,13 +9,11 @@ fn vec_to_set(data: Vec<RedisValue>) -> HashSet<RedisValue> {
   out
 }
 
-/*
-#[cfg(feature = "index-map")]
-fn sets_eq(lhs: &IndexSet<RedisValue>, rhs: &HashSet<RedisValue>) -> bool {
-  let lhs: HashSet<RedisValue> = lhs.iter().map(|v| v.clone()).collect();
-  &lhs == rhs
-}
- */
+// #[cfg(feature = "index-map")]
+// fn sets_eq(lhs: &IndexSet<RedisValue>, rhs: &HashSet<RedisValue>) -> bool {
+// let lhs: HashSet<RedisValue> = lhs.iter().map(|v| v.clone()).collect();
+// &lhs == rhs
+// }
 
 fn sets_eq(lhs: &HashSet<RedisValue>, rhs: &HashSet<RedisValue>) -> bool {
   lhs == rhs

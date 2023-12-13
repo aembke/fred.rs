@@ -274,10 +274,7 @@ async fn try_send_all(
   };
 
   if let Resp3Frame::Array { data, .. } = frame {
-    data
-      .into_iter()
-      .map(protocol_utils::frame_to_results)
-      .collect()
+    data.into_iter().map(protocol_utils::frame_to_results).collect()
   } else {
     vec![protocol_utils::frame_to_results(frame)]
   }
