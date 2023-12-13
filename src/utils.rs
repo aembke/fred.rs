@@ -42,6 +42,7 @@ use tokio::{
   time::sleep,
 };
 use url::Url;
+use urlencoding::decode as percent_decode;
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::{TlsConfig, TlsConnector};
@@ -728,15 +729,21 @@ pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {
   Ok(Some(parts[0].parse()?))
 }
 
-pub fn parse_url_credentials(url: &Url) -> (Option<String>, Option<String>) {
+pub fn parse_url_credentials(url: &Url) -> Result<(Option<String>, Option<String>), RedisError> {
   let username = if url.username().is_empty() {
     None
   } else {
-    Some(url.username().to_owned())
+    let username = percent_decode(url.username())?;
+    Some(username.into_owned())
   };
-  let password = url.password().map(|s| s.to_owned());
+  let password = percent_decode(url.password().unwrap_or_default())?;
+  let password = if password.is_empty() {
+    None
+  } else {
+    Some(password.into_owned())
+  };
 
-  (username, password)
+  Ok((username, password))
 }
 
 pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, RedisError> {
@@ -876,5 +883,32 @@ mod tests {
     .collect();
 
     assert_eq!(flatten_nested_array_values(actual, 1), expected);
+  }
+
+  #[test]
+  fn should_parse_url_credentials_no_creds() {
+    let url = Url::parse("redis://localhost:6379").unwrap();
+    let (username, password) = parse_url_credentials(&url).unwrap();
+
+    assert_eq!(username, None);
+    assert_eq!(password, None);
+  }
+
+  #[test]
+  fn should_parse_url_credentials_with_creds() {
+    let url = Url::parse("redis://default:abc123@localhost:6379").unwrap();
+    let (username, password) = parse_url_credentials(&url).unwrap();
+
+    assert_eq!(username.unwrap(), "default");
+    assert_eq!(password.unwrap(), "abc123");
+  }
+
+  #[test]
+  fn should_parse_url_credentials_with_percent_encoded_creds() {
+    let url = Url::parse("redis://default:abc%2F123@localhost:6379").unwrap();
+    let (username, password) = parse_url_credentials(&url).unwrap();
+
+    assert_eq!(username.unwrap(), "default");
+    assert_eq!(password.unwrap(), "abc/123");
   }
 }

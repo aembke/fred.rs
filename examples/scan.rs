@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use fred::{prelude::*, types::Scanner};
-use futures::stream::{StreamExt, TryStreamExt};
+use futures::stream::TryStreamExt;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   for idx in 0 .. 50 {
