@@ -25,7 +25,7 @@ use tokio_native_tls::native_tls::{
   TlsConnector as NativeTlsConnector,
 };
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::rustls::{Certificate, ClientConfig, ConfigBuilder, PrivateKey, RootCertStore, WantsVerifier};
+use tokio_rustls::rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
 
 pub fn read_env_var(name: &str) -> Option<String> {
   env::var_os(name).and_then(|s| s.into_string().ok())
@@ -200,17 +200,19 @@ fn read_tls_creds() -> TlsCreds {
 
 #[cfg(feature = "enable-rustls")]
 fn create_rustls_config() -> TlsConnector {
+  use webpki::types::PrivatePkcs8KeyDer;
+
   let creds = read_tls_creds();
   let mut root_store = RootCertStore::empty();
   let _ = root_store
-    .add(&Certificate(creds.root_cert_der.clone()))
+    .add(creds.root_cert_der.clone().into())
     .expect("Failed adding to rustls root cert store");
-  let cert_chain = vec![Certificate(creds.client_cert_der), Certificate(creds.root_cert_der)];
+
+  let cert_chain = vec![creds.client_cert_der.into(), creds.root_cert_der.into()];
 
   ClientConfig::builder()
-    .with_safe_defaults()
     .with_root_certificates(root_store)
-    .with_client_auth_cert(cert_chain, PrivateKey(creds.client_key_der))
+    .with_client_auth_cert(cert_chain, PrivatePkcs8KeyDer::from(creds.client_key_der).into())
     .expect("Failed to build rustls client config")
     .into()
 }
