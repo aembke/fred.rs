@@ -55,7 +55,7 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsStream as NativeTlsStream;
 #[cfg(feature = "enable-rustls")]
-use tokio_rustls::{client::TlsStream as RustlsStream, rustls::ServerName};
+use tokio_rustls::client::TlsStream as RustlsStream;
 
 /// The contents of a simplestring OK response.
 pub const OK: &str = "OK";
@@ -536,6 +536,8 @@ impl RedisTransport {
   #[cfg(feature = "enable-rustls")]
   #[allow(unreachable_patterns)]
   pub async fn new_rustls(inner: &Arc<RedisClientInner>, server: &Server) -> Result<RedisTransport, RedisError> {
+    use webpki::types::ServerName;
+
     let connector = match inner.config.tls {
       Some(ref config) => match config.connector {
         TlsConnector::Rustls(ref connector) => connector.clone(),
@@ -563,7 +565,7 @@ impl RedisTransport {
     let server_name: ServerName = tls_server_name.deref().try_into()?;
 
     _debug!(inner, "rustls handshake with server name/host: {:?}", tls_server_name);
-    let socket = connector.clone().connect(server_name, socket).await?;
+    let socket = connector.clone().connect(server_name.to_owned(), socket).await?;
     let transport = ConnectionKind::Rustls(Framed::new(socket, codec));
 
     Ok(RedisTransport {

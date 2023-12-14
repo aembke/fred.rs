@@ -26,7 +26,6 @@ fn create_tls_config() -> TlsConnector {
 
   // or use `TlsConnector::default_rustls()`
   ClientConfig::builder()
-    .with_safe_defaults()
     .with_root_certificates(RootCertStore::empty())
     .with_no_client_auth()
     .into()
