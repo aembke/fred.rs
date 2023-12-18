@@ -6,6 +6,8 @@ use url::Url;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
+#[cfg(feature = "unix-sockets")]
+use std::path::PathBuf;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
@@ -791,6 +793,14 @@ pub enum ServerConfig {
     /// command.
     hosts: Vec<Server>,
   },
+  #[cfg(feature = "unix-sockets")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
+  Unix {
+    /// The path to the Unix socket.
+    ///
+    /// Any associated [Server](crate::types::Server) identifiers will use this value as the `host`.
+    path: PathBuf,
+  },
   Sentinel {
     /// An array of `Server` identifiers for each known sentinel instance.
     hosts:        Vec<Server>,
@@ -856,6 +866,16 @@ impl ServerConfig {
     }
   }
 
+  /// Create a new server config for a connected Unix socket.
+  #[cfg(feature = "unix-sockets")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
+  pub fn new_unix_socket<P>(path: P) -> ServerConfig
+  where
+    P: Into<PathBuf>,
+  {
+    ServerConfig::Unix { path: path.into() }
+  }
+
   /// Create a centralized config with default settings for a local deployment.
   pub fn default_centralized() -> ServerConfig {
     ServerConfig::Centralized {
@@ -874,27 +894,38 @@ impl ServerConfig {
     }
   }
 
-  /// Whether or not the config is for a cluster.
+  /// Whether the config uses a clustered deployment.
   pub fn is_clustered(&self) -> bool {
     matches!(*self, ServerConfig::Clustered { .. })
   }
 
-  /// Whether or not the config is for a centralized server behind a sentinel node(s).
+  /// Whether the config is for a centralized server behind a sentinel node(s).
   pub fn is_sentinel(&self) -> bool {
     matches!(*self, ServerConfig::Sentinel { .. })
   }
 
-  /// Whether or not the config is for a centralized server.
+  /// Whether the config is for a centralized server.
   pub fn is_centralized(&self) -> bool {
     matches!(*self, ServerConfig::Centralized { .. })
   }
 
-  /// Read the server hosts or sentinel hosts if using the sentinel interface.
-  pub fn hosts(&self) -> Vec<&Server> {
+  /// Whether the config uses a Unix socket.
+  pub fn is_unix_socket(&self) -> bool {
     match *self {
-      ServerConfig::Centralized { ref server } => vec![server],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().collect(),
+      #[cfg(feature = "unix-sockets")]
+      ServerConfig::Unix { .. } => true,
+      _ => false,
+    }
+  }
+
+  /// Read the server hosts or sentinel hosts if using the sentinel interface.
+  pub fn hosts(&self) -> Vec<Server> {
+    match *self {
+      ServerConfig::Centralized { ref server } => vec![server.clone()],
+      ServerConfig::Clustered { ref hosts } => hosts.iter().cloned().collect(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().cloned().collect(),
+      #[cfg(feature = "unix-sockets")]
+      ServerConfig::Unix { ref path } => vec![Server::new(utils::path_to_string(path), 0)],
     }
   }
 }

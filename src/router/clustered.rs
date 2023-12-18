@@ -513,7 +513,7 @@ pub async fn connect_any(
   } else {
     BTreeSet::new()
   };
-  all_servers.extend(inner.config.server.hosts().into_iter().cloned());
+  all_servers.extend(inner.config.server.hosts());
   _debug!(inner, "Attempting clustered connections to any of {:?}", all_servers);
 
   let num_servers = all_servers.len();

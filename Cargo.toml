@@ -140,6 +140,7 @@ auto-client-setname = []
 client-tracking = []
 default-nil-types = []
 codec = []
+unix-sockets = []
 # Redis Stack Features
 redis-stack = ["redis-json"]
 redis-json = ["serde-json"]

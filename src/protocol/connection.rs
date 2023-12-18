@@ -34,6 +34,8 @@ use std::{
 use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
 
+#[cfg(feature = "unix-sockets")]
+use crate::prelude::ServerConfig;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
@@ -42,9 +44,12 @@ use crate::{
   types::RedisValue,
 };
 use bytes_utils::Str;
+#[cfg(feature = "unix-sockets")]
+use std::path::Path;
 #[cfg(feature = "enable-rustls")]
 use std::{convert::TryInto, ops::Deref};
-
+#[cfg(feature = "unix-sockets")]
+use tokio::net::UnixStream;
 #[cfg(feature = "replicas")]
 use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]
@@ -109,6 +114,8 @@ async fn tcp_connect_any(
 
 pub enum ConnectionKind {
   Tcp(Framed<TcpStream, RedisCodec>),
+  #[cfg(feature = "unix-sockets")]
+  Unix(Framed<UnixStream, RedisCodec>),
   #[cfg(feature = "enable-rustls")]
   Rustls(Framed<RustlsStream<TcpStream>, RedisCodec>),
   #[cfg(feature = "enable-native-tls")]
@@ -122,6 +129,11 @@ impl ConnectionKind {
       ConnectionKind::Tcp(conn) => {
         let (sink, stream) = conn.split();
         (SplitSinkKind::Tcp(sink), SplitStreamKind::Tcp(stream))
+      },
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(conn) => {
+        let (sink, stream) = conn.split();
+        (SplitSinkKind::Unix(sink), SplitStreamKind::Unix(stream))
       },
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(conn) => {
@@ -143,6 +155,8 @@ impl Stream for ConnectionKind {
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-native-tls")]
@@ -153,6 +167,8 @@ impl Stream for ConnectionKind {
   fn size_hint(&self) -> (usize, Option<usize>) {
     match self {
       ConnectionKind::Tcp(ref conn) => conn.size_hint(),
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-native-tls")]
@@ -167,6 +183,8 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-native-tls")]
@@ -177,6 +195,8 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-native-tls")]
@@ -187,6 +207,8 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-native-tls")]
@@ -197,6 +219,8 @@ impl Sink<ProtocolFrame> for ConnectionKind {
   fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
+      #[cfg(feature = "unix-sockets")]
+      ConnectionKind::Unix(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
       ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-native-tls")]
@@ -207,6 +231,8 @@ impl Sink<ProtocolFrame> for ConnectionKind {
 
 pub enum SplitStreamKind {
   Tcp(SplitRedisStream<TcpStream>),
+  #[cfg(feature = "unix-sockets")]
+  Unix(SplitRedisStream<UnixStream>),
   #[cfg(feature = "enable-rustls")]
   Rustls(SplitRedisStream<RustlsStream<TcpStream>>),
   #[cfg(feature = "enable-native-tls")]
@@ -219,6 +245,8 @@ impl Stream for SplitStreamKind {
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     match self.get_mut() {
       SplitStreamKind::Tcp(ref mut conn) => Pin::new(conn).poll_next(cx),
+      #[cfg(feature = "unix-sockets")]
+      SplitStreamKind::Unix(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-rustls")]
       SplitStreamKind::Rustls(ref mut conn) => Pin::new(conn).poll_next(cx),
       #[cfg(feature = "enable-native-tls")]
@@ -229,6 +257,8 @@ impl Stream for SplitStreamKind {
   fn size_hint(&self) -> (usize, Option<usize>) {
     match self {
       SplitStreamKind::Tcp(ref conn) => conn.size_hint(),
+      #[cfg(feature = "unix-sockets")]
+      SplitStreamKind::Unix(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-rustls")]
       SplitStreamKind::Rustls(ref conn) => conn.size_hint(),
       #[cfg(feature = "enable-native-tls")]
@@ -239,6 +269,8 @@ impl Stream for SplitStreamKind {
 
 pub enum SplitSinkKind {
   Tcp(SplitRedisSink<TcpStream>),
+  #[cfg(feature = "unix-sockets")]
+  Unix(SplitRedisSink<UnixStream>),
   #[cfg(feature = "enable-rustls")]
   Rustls(SplitRedisSink<RustlsStream<TcpStream>>),
   #[cfg(feature = "enable-native-tls")]
@@ -251,6 +283,8 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
       SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).poll_ready(cx),
+      #[cfg(feature = "unix-sockets")]
+      SplitSinkKind::Unix(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-rustls")]
       SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_ready(cx),
       #[cfg(feature = "enable-native-tls")]
@@ -261,6 +295,8 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
   fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
     match self.get_mut() {
       SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
+      #[cfg(feature = "unix-sockets")]
+      SplitSinkKind::Unix(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-rustls")]
       SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "enable-native-tls")]
@@ -271,6 +307,8 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
   fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
       SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
+      #[cfg(feature = "unix-sockets")]
+      SplitSinkKind::Unix(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
       SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-native-tls")]
@@ -281,6 +319,8 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
   fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
       SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
+      #[cfg(feature = "unix-sockets")]
+      SplitSinkKind::Unix(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
       SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
       #[cfg(feature = "enable-native-tls")]
@@ -337,7 +377,7 @@ pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
   pub server:       Server,
   /// The parsed `SocketAddr` for the connection.
-  pub addr:         SocketAddr,
+  pub addr:         Option<SocketAddr>,
   /// The hostname used to initialize the connection.
   pub default_host: Str,
   /// The network connection.
@@ -366,9 +406,30 @@ impl RedisTransport {
 
     Ok(RedisTransport {
       server: server.clone(),
+      addr: Some(addr),
       default_host,
       counters,
-      addr,
+      id,
+      version,
+      transport,
+    })
+  }
+
+  #[cfg(feature = "unix-sockets")]
+  pub async fn new_unix(inner: &Arc<RedisClientInner>, path: &Path) -> Result<RedisTransport, RedisError> {
+    let server = Server::new(utils::path_to_string(path), 0);
+    let counters = Counters::new(&inner.counters.cmd_buffer_len);
+    let (id, version) = (None, None);
+    let default_host = server.host.clone();
+    let codec = RedisCodec::new(inner, &server);
+    let socket = UnixStream::connect(path).await?;
+    let transport = ConnectionKind::Unix(Framed::new(socket, codec));
+
+    Ok(RedisTransport {
+      addr: None,
+      server,
+      default_host,
+      counters,
       id,
       version,
       transport,
@@ -409,9 +470,9 @@ impl RedisTransport {
 
     Ok(RedisTransport {
       server: server.clone(),
+      addr: Some(addr),
       default_host,
       counters,
-      addr,
       id,
       version,
       transport,
@@ -458,9 +519,9 @@ impl RedisTransport {
 
     Ok(RedisTransport {
       server: server.clone(),
+      addr: Some(addr),
       counters,
       default_host,
-      addr,
       id,
       version,
       transport,
@@ -856,7 +917,7 @@ pub struct RedisWriter {
   pub sink:         SplitSinkKind,
   pub server:       Server,
   pub default_host: Str,
-  pub addr:         SocketAddr,
+  pub addr:         Option<SocketAddr>,
   pub buffer:       SharedBuffer,
   pub version:      Option<Version>,
   pub id:           Option<i64>,
@@ -999,7 +1060,11 @@ pub async fn create(
   } else if inner.config.uses_rustls() {
     utils::apply_timeout(RedisTransport::new_rustls(inner, server), timeout).await
   } else {
-    utils::apply_timeout(RedisTransport::new_tcp(inner, server), timeout).await
+    match inner.config.server {
+      #[cfg(feature = "unix-sockets")]
+      ServerConfig::Unix { ref path } => utils::apply_timeout(RedisTransport::new_unix(inner, path), timeout).await,
+      _ => utils::apply_timeout(RedisTransport::new_tcp(inner, server), timeout).await,
+    }
   }
 }
 

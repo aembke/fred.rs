@@ -43,7 +43,8 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 * RESP2 and RESP3 protocol modes.
 * Clustered, centralized, and sentinel Redis deployments.
-* TLS connections via `native-tls` and/or `rustls`.
+* TLS via `native-tls` or `rustls`.
+* Unix sockets.
 * Optional reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
@@ -90,3 +91,4 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 | redis-json              |         | Enable an interface for [RedisJSON](https://github.com/RedisJSON/RedisJSON).                                                                                                                                                                                                        |
 | codec                   |         | Enable a lower level framed codec interface for use with [tokio-util](https://docs.rs/tokio-util/latest/tokio_util/codec/index.html).                                                                                                                                               |
 | sha-1                   |         | Enable an interface for hashing Lua scripts.                                                                                                                                                                                                                                        |
+| unix-sockets            |         | Enable Unix socket support.                                                                                                                                                                                                                                                         |

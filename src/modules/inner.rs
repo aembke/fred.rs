@@ -271,6 +271,7 @@ impl ServerKind {
         primary:   None,
       },
       ServerConfig::Centralized { .. } => ServerKind::Centralized { version: None },
+      ServerConfig::Unix { .. } => ServerKind::Centralized { version: None },
     }
   }
 
@@ -332,6 +333,7 @@ impl ServerKind {
         "Missing cluster routing state.",
       ))
     }
+    g
   }
 
   pub fn update_sentinel_primary(&mut self, server: &Server) {

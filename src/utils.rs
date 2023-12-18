@@ -48,6 +48,8 @@ use urlencoding::decode as percent_decode;
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
+#[cfg(feature = "unix-sockets")]
+use std::path::Path;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -218,6 +220,11 @@ pub fn read_mutex<T: Clone>(locked: &Mutex<T>) -> T {
 
 pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
   mem::replace(&mut *locked.lock(), value)
+}
+
+#[cfg(feature = "unix-sockets")]
+pub fn path_to_string(path: &Path) -> String {
+  path.as_os_str().to_string_lossy().to_string()
 }
 
 ///
