@@ -70,12 +70,7 @@ pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
 
 #[cfg(feature = "full-tracing")]
 pub fn create_args_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
-  span_lvl!(
-    inner.full_tracing_span_level(),
-    parent: parent,
-    "prepare_args",
-    num_args = Empty
-  )
+  span_lvl!(inner.full_tracing_span_level(), parent: parent, "prepare_args", num_args = Empty)
 }
 
 #[cfg(not(feature = "full-tracing"))]

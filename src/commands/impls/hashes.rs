@@ -87,9 +87,6 @@ pub async fn hmget<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKey
 }
 
 pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
-  if values.is_empty() {
-    return Ok(RedisValue::Boolean(false));
-  }
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
@@ -106,9 +103,6 @@ pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -
 }
 
 pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
-  if values.is_empty() {
-    return Ok(RedisValue::Boolean(false));
-  }
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
