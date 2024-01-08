@@ -241,7 +241,7 @@ impl Connections {
   pub async fn initialize(
     &mut self,
     inner: &Arc<RedisClientInner>,
-    buffer: &mut CommandBuffer,
+    buffer: &mut VecDeque<RedisCommand>,
   ) -> Result<(), RedisError> {
     let result = if inner.config.server.is_clustered() {
       clustered::initialize_connections(inner, self, buffer).await
@@ -292,7 +292,7 @@ impl Connections {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
-          VecDeque::new()
+          Vec::new()
         }
       },
       Connections::Clustered { ref mut writers, .. } => {
@@ -305,14 +305,14 @@ impl Connections {
             out.extend(commands);
           }
         }
-        out
+        out.into_iter().collect()
       },
       Connections::Sentinel { ref mut writer } => {
         if let Some(writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
-          VecDeque::new()
+          Vec::new()
         }
       },
     }
@@ -326,7 +326,7 @@ impl Connections {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
-          VecDeque::new()
+          Vec::new()
         }
       },
       Connections::Clustered { ref mut writers, .. } => {
@@ -336,14 +336,14 @@ impl Connections {
           let commands = writer.graceful_close().await;
           out.extend(commands.into_iter());
         }
-        out
+        out.into_iter().collect()
       },
       Connections::Sentinel { ref mut writer } => {
         if let Some(writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.graceful_close().await
         } else {
-          VecDeque::new()
+          Vec::new()
         }
       },
     }
@@ -500,7 +500,7 @@ pub struct Router {
   /// The inner client state associated with the router.
   pub inner:       Arc<RedisClientInner>,
   /// Storage for commands that should be deferred or retried later.
-  pub buffer:      CommandBuffer,
+  pub buffer:      VecDeque<RedisCommand>,
   /// The replica routing interface.
   #[cfg(feature = "replicas")]
   pub replicas:    Replicas,
@@ -526,23 +526,6 @@ impl Router {
     }
   }
 
-  /// Sync the local connection state with the task that periodically scans for unresponsive connection timeouts.
-  #[cfg(feature = "check-unresponsive")]
-  pub fn sync_network_timeout_state(&self) {
-    self.inner.network_timeouts.state().sync(&self.inner, &self.connections);
-
-    #[cfg(feature = "replicas")]
-    self
-      .inner
-      .network_timeouts
-      .state()
-      .sync_replicas(&self.inner, &self.replicas.writers);
-  }
-
-  /// Sync the local connection state with the task that periodically scans for unresponsive connection timeouts.
-  #[cfg(not(feature = "check-unresponsive"))]
-  pub fn sync_network_timeout_state(&self) {}
-
   /// Read the server that should receive the provided command.
   pub fn find_connection(&self, command: &RedisCommand) -> Option<&Server> {
     match self.connections {
@@ -563,8 +546,8 @@ impl Router {
 
   /// Attempt to send the command to the server.
   pub async fn write(&mut self, command: RedisCommand, force_flush: bool) -> Written {
-    let send_all_cluster_nodes = self.inner.config.server.is_clustered()
-      && (command.kind.is_all_cluster_nodes() || command.kind.closes_connection());
+    let send_all_cluster_nodes =
+      self.inner.config.server.is_clustered() && (command.is_all_cluster_nodes() || command.kind.closes_connection());
 
     if command.write_attempts >= 1 {
       self.inner.counters.incr_redelivery_count();
@@ -665,18 +648,22 @@ impl Router {
       },
     };
     let blocks_connection = command.blocks_connection();
-
     command.write_attempts += 1;
-    writer.push_command(&self.inner, command);
-    if let Err(error) = writer.write_frame(frame, true).await {
-      let command = writer.pop_recent_command();
+
+    if !writer.is_working() {
+      let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
       debug!("{}: Error sending command: {:?}", self.inner.id, error);
-      Written::Disconnected((Some(writer.server.clone()), command, error))
+      return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
+    }
+
+    let no_incr = command.has_no_responses();
+    writer.push_command(&self.inner, command);
+    if let Err(err) = writer.write_frame(frame, true, no_incr).await {
+      Written::Disconnected((Some(writer.server.clone()), None, err))
     } else {
       if blocks_connection {
         self.inner.backchannel.write().await.set_blocked(&writer.server);
       }
-
       Written::Sent((writer.server.clone(), true))
     }
   }
@@ -687,7 +674,6 @@ impl Router {
     let commands = self.connections.disconnect_all(&self.inner).await;
     self.buffer_commands(commands);
     self.disconnect_replicas().await;
-    self.sync_network_timeout_state();
   }
 
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
@@ -703,7 +689,7 @@ impl Router {
   pub async fn disconnect_replicas(&mut self) {}
 
   /// Add the provided commands to the retry buffer.
-  pub fn buffer_commands(&mut self, commands: VecDeque<RedisCommand>) {
+  pub fn buffer_commands(&mut self, commands: impl IntoIterator<Item = RedisCommand>) {
     for command in commands.into_iter() {
       self.buffer_command(command);
     }
@@ -734,7 +720,6 @@ impl Router {
   pub async fn connect(&mut self) -> Result<(), RedisError> {
     self.disconnect_all().await;
     let result = self.connections.initialize(&self.inner, &mut self.buffer).await;
-    self.sync_network_timeout_state();
 
     if result.is_ok() {
       if let Err(e) = self.sync_replicas().await {
@@ -755,7 +740,6 @@ impl Router {
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
     let result = clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await;
-    self.sync_network_timeout_state();
 
     if result.is_ok() {
       if let Err(e) = self.sync_replicas().await {
@@ -810,7 +794,6 @@ impl Router {
       .server_state
       .write()
       .update_replicas(self.replicas.routing_table());
-    self.sync_network_timeout_state();
     Ok(())
   }
 
@@ -953,7 +936,6 @@ impl Router {
           .write()
           .await
           .update_connection_ids(&self.connections);
-        self.sync_network_timeout_state();
       }
 
       // can't use request_response since there may be pipelined commands ahead of this

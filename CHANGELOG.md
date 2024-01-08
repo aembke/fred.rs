@@ -1,6 +1,22 @@
+## 8.0.0
+
+AFIT will be added in 8.1.0 alongside the associated MSRV update. Any important bug fixes added after 8.1.0 will be backported to 8.0.x for at least the next 2 Rust releases to hopefully make this upgrade slightly less annoying.
+
+* Remove the `globals` interface.
+* Support unix domain sockets.
+* Improve unresponsive connection checks
+* Add benchmarking tool [TODO link]
+* Update to Rustls 0.22.1 
+
+### Upgrading from 7.x
+
+Notable changes:
+
+* Several configuration options were moved from `globals` to `ConnectionConfig` and `PerformanceConfig`. 
+
 ## 7.1.2
 
-* Fix intermittent cluster routing errors 
+* Fix intermittent cluster routing errors
 
 ## 7.1.1
 
@@ -18,6 +34,7 @@
 
 * Added a new client [builder](src/types/builder.rs) and configuration interface.
 * Reworked or removed the majority of the `globals` interface.
+* 
 * Support multiple IP addresses in the `Resolve` interface.
 * Add `with_options` command configuration interface. 
 * Replaced the `no-client-setname` feature flag with `auto-client-setname`.

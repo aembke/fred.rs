@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
-    connection::{self, CommandBuffer, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{self, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
     responders,
     responders::ResponseKind,
     types::{ClusterRouting, Server, SlotRange},
@@ -126,6 +126,8 @@ pub async fn write(
 /// Send a command to all cluster nodes.
 ///
 /// Note: if any of the commands fail to send the entire command is interrupted.
+// There's probably a much cleaner way to express this. Most of the complexity here comes from the need to
+// pre-allocate and assign response locations in the buffer ahead of time. This is done to avoid any race conditions.
 pub async fn send_all_cluster_command(
   inner: &Arc<RedisClientInner>,
   writers: &mut HashMap<Server, RedisWriter>,
@@ -147,6 +149,7 @@ pub async fn send_all_cluster_command(
       command.kind.to_str_debug(),
     );
     let mut guard = frames.lock();
+    // pre-allocate responses
     *guard = repeat(Resp3Frame::Null).take(num_nodes).collect();
   }
   let mut responder = match command.response.duplicate() {
@@ -244,10 +247,9 @@ pub fn spawn_reader_task(
 
   tokio::spawn(async move {
     let mut last_error = None;
-    let mut rx = utils::reader_subscribe(&inner, &server);
 
     loop {
-      let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
+      let frame = match utils::next_frame(&inner, &mut reader, &server, &buffer).await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
           last_error = None;
@@ -277,7 +279,7 @@ pub fn spawn_reader_task(
       }
     }
 
-    utils::reader_unsubscribe(&inner, &server);
+    // see the centralized variant of this function for more information.
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     if is_replica {
@@ -402,28 +404,17 @@ pub async fn process_response_frame(
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Parsing response frame from {}", server);
-  let mut command = {
-    let mut guard = buffer.lock();
-
-    let command = match guard.pop_front() {
-      Some(command) => command,
-      None => {
-        _debug!(
-          inner,
-          "Missing last command from {}. Dropping {:?}.",
-          server,
-          frame.kind()
-        );
-        return Ok(());
-      },
-    };
-
-    if utils::should_drop_extra_pubsub_frame(inner, &command, &frame) {
-      guard.push_front(command);
+  let mut command = match responders::pop_oldest_command(inner, buffer, &frame) {
+    Some(command) => command,
+    None => {
+      _debug!(
+        inner,
+        "Missing last command from {}. Dropping {:?}.",
+        server,
+        frame.kind()
+      );
       return Ok(());
-    } else {
-      command
-    }
+    },
   };
   _trace!(
     inner,
@@ -468,17 +459,6 @@ pub async fn process_response_frame(
       Ok(())
     },
     ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
-    ResponseKind::Multiple { received, expected, tx } => {
-      if let Some(command) = responders::respond_multiple(inner, server, command, received, expected, tx, frame)? {
-        // the `Multiple` policy works by processing a series of responses on the same connection. the response
-        // channel is not shared across commands (since there's only one), so we re-queue it while waiting on
-        // response frames.
-        buffer.lock().push_front(command);
-        counters.incr_in_flight();
-      }
-
-      Ok(())
-    },
     ResponseKind::Buffer {
       received,
       expected,
@@ -635,7 +615,7 @@ pub async fn cluster_slots_backchannel(
 }
 
 /// Check each connection and remove it from the writer map if it's not [working](RedisWriter::is_working).
-pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisWriter>) -> CommandBuffer {
+pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisWriter>) -> VecDeque<RedisCommand> {
   let mut new_writers = HashMap::with_capacity(writers.len());
   let mut buffer = VecDeque::new();
 
@@ -655,7 +635,7 @@ pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisWriter>)
 pub async fn sync(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,
-  buffer: &mut CommandBuffer,
+  buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Synchronizing cluster state.");
 
@@ -730,7 +710,7 @@ pub async fn sync(
 pub async fn initialize_connections(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,
-  buffer: &mut CommandBuffer,
+  buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   let commands = connections.disconnect_all(inner).await;
   _trace!(inner, "Adding {} commands to retry buffer.", commands.len());

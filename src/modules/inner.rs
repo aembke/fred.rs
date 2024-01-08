@@ -1,6 +1,5 @@
 use crate::{
   error::*,
-  globals::globals,
   interfaces,
   modules::backchannel::Backchannel,
   protocol::{
@@ -34,8 +33,6 @@ use tokio::{
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-#[cfg(feature = "check-unresponsive")]
-use crate::router::types::NetworkTimeout;
 use bytes_utils::Str;
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
@@ -69,42 +66,37 @@ pub struct Notifications {
   #[cfg(feature = "client-tracking")]
   pub invalidations:  ArcSwap<BroadcastSender<Invalidation>>,
   /// A broadcast channel for notifying callers when servers go unresponsive.
-  #[cfg(feature = "check-unresponsive")]
   pub unresponsive:   ArcSwap<BroadcastSender<Server>>,
 }
 
 impl Notifications {
-  pub fn new(id: &Str) -> Self {
-    let capacity = globals().default_broadcast_channel_capacity();
-
+  pub fn new(id: &Str, capacity: usize) -> Self {
     Notifications {
-      id:                                                  id.clone(),
-      close:                                               broadcast::channel(capacity).0,
-      errors:                                              ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      pubsub:                                              ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      keyspace:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      reconnect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      cluster_change:                                      ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      connect:                                             ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      id:                                                id.clone(),
+      close:                                             broadcast::channel(capacity).0,
+      errors:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      pubsub:                                            ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      keyspace:                                          ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      reconnect:                                         ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      cluster_change:                                    ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      connect:                                           ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
       #[cfg(feature = "client-tracking")]
-      invalidations:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      #[cfg(feature = "check-unresponsive")]
-      unresponsive:                                        ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      invalidations:                                     ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      unresponsive:                                      ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
     }
   }
 
   /// Replace the senders that have public receivers, closing the receivers in the process.
-  pub fn close_public_receivers(&self) {
-    utils::swap_new_broadcast_channel(&self.errors);
-    utils::swap_new_broadcast_channel(&self.pubsub);
-    utils::swap_new_broadcast_channel(&self.keyspace);
-    utils::swap_new_broadcast_channel(&self.reconnect);
-    utils::swap_new_broadcast_channel(&self.cluster_change);
-    utils::swap_new_broadcast_channel(&self.connect);
+  pub fn close_public_receivers(&self, capacity: usize) {
+    utils::swap_new_broadcast_channel(&self.errors, capacity);
+    utils::swap_new_broadcast_channel(&self.pubsub, capacity);
+    utils::swap_new_broadcast_channel(&self.keyspace, capacity);
+    utils::swap_new_broadcast_channel(&self.reconnect, capacity);
+    utils::swap_new_broadcast_channel(&self.cluster_change, capacity);
+    utils::swap_new_broadcast_channel(&self.connect, capacity);
     #[cfg(feature = "client-tracking")]
-    utils::swap_new_broadcast_channel(&self.invalidations);
-    #[cfg(feature = "check-unresponsive")]
-    utils::swap_new_broadcast_channel(&self.unresponsive);
+    utils::swap_new_broadcast_channel(&self.invalidations, capacity);
+    utils::swap_new_broadcast_channel(&self.unresponsive, capacity);
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
@@ -158,7 +150,6 @@ impl Notifications {
     }
   }
 
-  #[cfg(feature = "check-unresponsive")]
   pub fn broadcast_unresponsive(&self, server: Server) {
     if let Err(_) = self.unresponsive.load().send(server) {
       debug!("{}: No unresponsive listeners", self.id);
@@ -271,6 +262,7 @@ impl ServerKind {
         primary:   None,
       },
       ServerConfig::Centralized { .. } => ServerKind::Centralized { version: None },
+      #[cfg(feature = "unix-sockets")]
       ServerConfig::Unix { .. } => ServerKind::Centralized { version: None },
     }
   }
@@ -426,19 +418,6 @@ pub struct RedisClientInner {
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
   pub res_size_stats:        Arc<RwLock<MovingStats>>,
-  /// Shared network timeout state with the router.
-  #[cfg(feature = "check-unresponsive")]
-  pub network_timeouts:      NetworkTimeout,
-}
-
-#[cfg(feature = "check-unresponsive")]
-impl Drop for RedisClientInner {
-  fn drop(&mut self) {
-    if let Some(jh) = self.network_timeouts.take_handle() {
-      trace!("{}: Ending network timeout task.", self.id);
-      jh.abort();
-    }
-  }
 }
 
 impl RedisClientInner {
@@ -451,7 +430,7 @@ impl RedisClientInner {
     let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
-    let notifications = Arc::new(Notifications::new(&id));
+    let notifications = Arc::new(Notifications::new(&id, perf.broadcast_channel_capacity));
     let (config, policy) = (Arc::new(config), RwLock::new(policy));
     let performance = ArcSwap::new(Arc::new(perf));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
@@ -466,7 +445,7 @@ impl RedisClientInner {
     let connection = Arc::new(connection);
     let command_tx = ArcSwap::new(Arc::new(command_tx));
 
-    let inner = Arc::new(RedisClientInner {
+    Arc::new(RedisClientInner {
       _lock: Mutex::new(()),
       #[cfg(feature = "metrics")]
       latency_stats: RwLock::new(MovingStats::default()),
@@ -476,8 +455,6 @@ impl RedisClientInner {
       req_size_stats: Arc::new(RwLock::new(MovingStats::default())),
       #[cfg(feature = "metrics")]
       res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
-      #[cfg(feature = "check-unresponsive")]
-      network_timeouts: NetworkTimeout::new(),
 
       backchannel,
       command_rx,
@@ -493,18 +470,8 @@ impl RedisClientInner {
       resolver,
       connection,
       id,
-    });
-    inner.spawn_timeout_task();
-    inner
+    })
   }
-
-  #[cfg(feature = "check-unresponsive")]
-  pub fn spawn_timeout_task(self: &Arc<RedisClientInner>) {
-    self.network_timeouts.spawn_task(self);
-  }
-
-  #[cfg(not(feature = "check-unresponsive"))]
-  pub fn spawn_timeout_task(self: &Arc<RedisClientInner>) {}
 
   pub fn is_pipelined(&self) -> bool {
     self.performance.load().as_ref().auto_pipeline

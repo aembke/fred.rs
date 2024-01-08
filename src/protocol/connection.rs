@@ -11,18 +11,18 @@ use crate::{
   utils as client_utils,
   utils,
 };
+use bytes_utils::Str;
+use crossbeam_queue::SegQueue;
 use futures::{
   sink::SinkExt,
   stream::{SplitSink, SplitStream, StreamExt},
   Sink,
   Stream,
 };
-use parking_lot::Mutex;
 use redis_protocol::resp3::types::{Frame as Resp3Frame, RespVersion};
 use semver::Version;
 use socket2::SockRef;
 use std::{
-  collections::VecDeque,
   fmt,
   net::SocketAddr,
   pin::Pin,
@@ -43,7 +43,6 @@ use crate::{
   protocol::{connection, responders::ResponseKind},
   types::RedisValue,
 };
-use bytes_utils::Str;
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
 #[cfg(feature = "enable-rustls")]
@@ -62,8 +61,41 @@ pub const OK: &str = "OK";
 /// The timeout duration used when dropping the split sink and waiting on the split stream to close.
 pub const CONNECTION_CLOSE_TIMEOUT_MS: u64 = 5_000;
 
-pub type CommandBuffer = VecDeque<RedisCommand>;
-pub type SharedBuffer = Arc<Mutex<CommandBuffer>>;
+pub type CommandBuffer = Vec<RedisCommand>;
+
+/// A shared buffer across tasks.
+#[derive(Clone, Debug)]
+pub struct SharedBuffer {
+  inner: Arc<SegQueue<RedisCommand>>,
+}
+
+impl SharedBuffer {
+  pub fn new() -> Self {
+    SharedBuffer {
+      inner: Arc::new(SegQueue::new()),
+    }
+  }
+
+  pub fn push(&self, cmd: RedisCommand) {
+    self.inner.push(cmd);
+  }
+
+  pub fn pop(&self) -> Option<RedisCommand> {
+    self.inner.pop()
+  }
+
+  pub fn len(&self) -> usize {
+    self.inner.len()
+  }
+
+  pub fn drain(&self) -> Vec<RedisCommand> {
+    let mut out = Vec::with_capacity(self.inner.len());
+    while let Some(cmd) = self.inner.pop() {
+      out.push(cmd);
+    }
+    out
+  }
+}
 
 pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
@@ -537,9 +569,8 @@ impl RedisTransport {
   pub async fn request_response(&mut self, cmd: RedisCommand, is_resp3: bool) -> Result<Resp3Frame, RedisError> {
     let frame = cmd.to_frame(is_resp3)?;
     self.transport.send(frame).await?;
-    let response = self.transport.next().await;
 
-    match response {
+    match self.transport.next().await {
       Some(result) => result.map(|f| f.into_resp3()),
       None => Ok(Resp3Frame::Null),
     }
@@ -849,9 +880,8 @@ impl RedisTransport {
   }
 
   /// Split the transport into reader/writer halves.
-  pub fn split(self, inner: &Arc<RedisClientInner>) -> (RedisWriter, RedisReader) {
-    let len = protocol_utils::initial_buffer_size(inner);
-    let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(len)));
+  pub fn split(self) -> (RedisWriter, RedisReader) {
+    let buffer = SharedBuffer::new();
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
     let (sink, stream) = self.transport.split();
     let (id, version, counters) = (self.id, self.version, self.counters);
@@ -967,21 +997,32 @@ impl RedisWriter {
   }
 
   /// Send a command to the server without waiting on the response.
-  pub async fn write_frame(&mut self, frame: ProtocolFrame, should_flush: bool) -> Result<(), RedisError> {
-    if !self.is_working() {
-      return Err(RedisError::new(RedisErrorKind::IO, "Connection closed."));
-    }
-
+  pub async fn write_frame(
+    &mut self,
+    frame: ProtocolFrame,
+    should_flush: bool,
+    no_incr: bool,
+  ) -> Result<(), RedisError> {
     if should_flush {
       trace!("Writing and flushing {}", self.server);
-      self.sink.send(frame).await?;
+      if let Err(e) = self.sink.send(frame).await {
+        // the more useful error appears on the reader half but we'll log this just in case
+        debug!("{}: Error sending frame to socket: {:?}", self.server, e);
+        return Err(e);
+      }
       self.counters.reset_feed_count();
     } else {
       trace!("Writing without flushing {}", self.server);
-      self.sink.feed(frame).await?;
+      if let Err(e) = self.sink.feed(frame).await {
+        // the more useful error appears on the reader half but we'll log this just in case
+        debug!("{}: Error feeding frame to socket: {:?}", self.server, e);
+        return Err(e);
+      }
       self.counters.incr_feed_count();
     };
-    self.counters.incr_in_flight();
+    if !no_incr {
+      self.counters.incr_in_flight();
+    }
 
     Ok(())
   }
@@ -1000,12 +1041,7 @@ impl RedisWriter {
       return;
     }
 
-    self.buffer.lock().push_back(cmd);
-  }
-
-  /// Pop the most recent command off the back of the queue.
-  pub fn pop_recent_command(&self) -> Option<RedisCommand> {
-    self.buffer.lock().pop_back()
+    self.buffer.push(cmd);
   }
 
   /// Force close the connection.
@@ -1015,7 +1051,7 @@ impl RedisWriter {
     if abort_reader && self.reader.is_some() {
       self.reader.unwrap().stop(true);
     }
-    self.buffer.lock().drain(..).collect()
+    self.buffer.drain()
   }
 
   /// Gracefully close the connection and wait for the reader task to finish.
@@ -1035,7 +1071,7 @@ impl RedisWriter {
     )
     .await;
 
-    self.buffer.lock().drain(..).collect()
+    self.buffer.drain()
   }
 }
 
@@ -1086,7 +1122,7 @@ where
   ) -> JoinHandle<Result<(), RedisError>>,
 {
   let server = transport.server.clone();
-  let (mut writer, mut reader) = transport.split(inner);
+  let (mut writer, mut reader) = transport.split();
   let reader_stream = match reader.stream.take() {
     Some(stream) => stream,
     None => {
@@ -1130,13 +1166,13 @@ pub async fn request_response(
     command.debug_id(),
     writer.server
   );
-  let frame = command.to_frame(inner.is_resp3())?;
-  writer.push_command(inner, command);
-  if let Err(e) = writer.write_frame(frame, true).await {
-    _debug!(inner, "Error sending command: {:?}", e);
-    let _ = writer.pop_recent_command();
-    Err(e)
-  } else {
-    utils::apply_timeout(async { rx.await? }, timeout_dur).await
+  let frame = protocol_utils::encode_frame(inner, &command)?;
+
+  if !writer.is_working() {
+    return Err(RedisError::new(RedisErrorKind::IO, "Connection closed."));
   }
+
+  writer.push_command(inner, command);
+  writer.write_frame(frame, true, false).await?;
+  utils::apply_timeout(async { rx.await? }, timeout_dur).await
 }

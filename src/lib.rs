@@ -100,8 +100,6 @@ pub mod util {
   }
 }
 
-pub use crate::modules::globals;
-
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or
 /// return value types.
 pub mod prelude {

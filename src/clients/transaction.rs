@@ -141,7 +141,7 @@ impl Transaction {
   }
 
   pub(crate) fn disallow_all_cluster_commands(&self, command: &RedisCommand) -> Result<(), RedisError> {
-    if command.kind.is_all_cluster_nodes() {
+    if command.is_all_cluster_nodes() {
       Err(RedisError::new(
         RedisErrorKind::Cluster,
         "Cannot use concurrent cluster commands inside a transaction.",

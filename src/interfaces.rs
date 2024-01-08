@@ -393,8 +393,6 @@ pub trait EventInterface: ClientLike {
   }
 
   /// Spawn a task that runs the provided function whenever the client detects an unresponsive connection.
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
   fn on_unresponsive<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
     F: Fn(Server) -> RedisResult<()> + Send + 'static,
@@ -472,8 +470,6 @@ pub trait EventInterface: ClientLike {
   }
 
   /// Receive a message when the client initiates a reconnection after detecting an unresponsive connection.
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
   fn unresponsive_rx(&self) -> BroadcastReceiver<Server> {
     self.inner().notifications.unresponsive.load().subscribe()
   }

@@ -27,8 +27,6 @@ use std::{
 };
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
-#[cfg(feature = "blocking-encoding")]
-use crate::globals::globals;
 #[cfg(feature = "mocks")]
 use crate::modules::mocks::MockCommand;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -1329,7 +1327,7 @@ impl RedisCommandKind {
     }
   }
 
-  pub fn is_all_cluster_nodes(&self) -> bool {
+  pub fn force_all_cluster_nodes(&self) -> bool {
     matches!(
       *self,
       RedisCommandKind::_FlushAllCluster
@@ -1568,7 +1566,7 @@ impl RedisCommand {
       && self.can_pipeline
       && self.kind.can_pipeline()
       && !self.blocks_connection()
-      && !self.kind.is_all_cluster_nodes()
+      && !self.is_all_cluster_nodes()
       // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
       && self.transaction_id.is_none());
 
@@ -1579,6 +1577,16 @@ impl RedisCommand {
       should_pipeline
     );
     should_pipeline
+  }
+
+  /// Whether the command should be sent to all cluster nodes concurrently.
+  pub fn is_all_cluster_nodes(&self) -> bool {
+    self.kind.force_all_cluster_nodes()
+      || match self.kind {
+        // since we don't know the hash slot we send this to all nodes
+        RedisCommandKind::Sunsubscribe => self.arguments.is_empty(),
+        _ => false,
+      }
   }
 
   /// Whether errors writing the command should be returned to the caller.
@@ -1628,18 +1636,19 @@ impl RedisCommand {
         })
   }
 
-  /// Whether or not the command may not receive any response frames.
+  /// Whether or not the command may receive response frames.
   ///
-  /// Currently only `*UNSUBSCRIBE` commands without arguments fall into this category.
+  /// Currently the pubsub subscription commands (other than `SSUBSCRIBE`) all fall into this category since their
+  /// responses arrive out-of-band.
   pub fn has_no_responses(&self) -> bool {
-    match self.kind {
-      RedisCommandKind::Unsubscribe | RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => {
-        // the server may send an unknown number of "*unsubscribe" frames on the pubsub interface, but the response
-        // processing layer will throw these away
-        self.arguments.is_empty()
-      },
-      _ => false,
-    }
+    matches!(
+      self.kind,
+      RedisCommandKind::Subscribe
+        | RedisCommandKind::Unsubscribe
+        | RedisCommandKind::Psubscribe
+        | RedisCommandKind::Punsubscribe
+        | RedisCommandKind::Sunsubscribe
+    )
   }
 
   /// Take the arguments from this command.
@@ -1749,7 +1758,6 @@ impl RedisCommand {
   pub fn take_responder(&mut self) -> Option<ResponseSender> {
     match self.response {
       ResponseKind::Respond(ref mut tx) => tx.take(),
-      ResponseKind::Multiple { ref mut tx, .. } => tx.lock().take(),
       ResponseKind::Buffer { ref mut tx, .. } => tx.lock().take(),
       _ => None,
     }
@@ -1759,7 +1767,6 @@ impl RedisCommand {
   pub fn has_response_tx(&self) -> bool {
     match self.response {
       ResponseKind::Respond(ref r) => r.is_some(),
-      ResponseKind::Multiple { ref tx, .. } => tx.lock().is_some(),
       ResponseKind::Buffer { ref tx, .. } => tx.lock().is_some(),
       _ => false,
     }
@@ -1801,17 +1808,16 @@ impl RedisCommand {
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
-  #[cfg(not(feature = "blocking-encoding"))]
   pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
     protocol_utils::command_to_frame(self, is_resp3)
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(feature = "blocking-encoding")]
-  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(self.args());
 
-    if cmd_size >= globals().blocking_encode_threshold() {
+    if cmd_size >= blocking_threshold {
       trace!("Using blocking task to convert command to frame with size {}", cmd_size);
       tokio::task::block_in_place(|| protocol_utils::command_to_frame(self, is_resp3))
     } else {

@@ -35,7 +35,9 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
-  inner.notifications.close_public_receivers();
+  inner
+    .notifications
+    .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
   inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
 
   Ok(())
@@ -64,7 +66,9 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
   let _ = utils::apply_timeout(rx, timeout_dur).await??;
-  inner.notifications.close_public_receivers();
+  inner
+    .notifications
+    .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
   inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
 
   Ok(())

@@ -23,6 +23,7 @@ use std::{
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+use crate::protocol::connection::SharedBuffer;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
 #[cfg(feature = "metrics")]
@@ -39,22 +40,6 @@ pub enum ResponseKind {
   Skip,
   /// Respond to the caller of the last command with the response frame.
   Respond(Option<ResponseSender>),
-  /// Associates multiple responses with one command, throwing away all but the last response.
-  ///
-  /// Note: This must not be shared across multiple commands. Use `Buffer` instead.
-  ///
-  /// `PSUBSCRIBE` and `PUNSUBSCRIBE` return multiple top level response frames on the same connection to the
-  /// command. This requires unique response handling logic to re-queue the command at the front of the shared
-  /// command buffer until the expected number of frames are received.
-  // FIXME change this interface so it wont compile if this is shared across commands
-  Multiple {
-    /// The number of expected response frames.
-    expected: usize,
-    /// The number of response frames received.
-    received: Arc<AtomicUsize>,
-    /// A shared oneshot sender to the caller.
-    tx:       Arc<Mutex<Option<ResponseSender>>>,
-  },
   /// Buffer multiple response frames until the expected number of frames are received, then respond with an array to
   /// the caller.
   ///
@@ -85,7 +70,6 @@ impl fmt::Debug for ResponseKind {
     write!(f, "{}", match self {
       ResponseKind::Skip => "Skip",
       ResponseKind::Buffer { .. } => "Buffer",
-      ResponseKind::Multiple { .. } => "Multiple",
       ResponseKind::Respond(_) => "Respond",
       ResponseKind::KeyScan(_) => "KeyScan",
       ResponseKind::ValueScan(_) => "ValueScan",
@@ -116,11 +100,6 @@ impl ResponseKind {
         index:       *index,
         expected:    *expected,
         error_early: *error_early,
-      },
-      ResponseKind::Multiple { received, tx, expected } => ResponseKind::Multiple {
-        received: received.clone(),
-        tx:       tx.clone(),
-        expected: *expected,
       },
       ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
     })
@@ -164,20 +143,11 @@ impl ResponseKind {
     }
   }
 
-  pub fn new_multiple(expected: usize, tx: ResponseSender) -> Self {
-    ResponseKind::Multiple {
-      received: Arc::new(AtomicUsize::new(0)),
-      tx: Arc::new(Mutex::new(Some(tx))),
-      expected,
-    }
-  }
-
   /// Take the oneshot response sender.
   pub fn take_response_tx(&mut self) -> Option<ResponseSender> {
     match self {
       ResponseKind::Respond(tx) => tx.take(),
       ResponseKind::Buffer { tx, .. } => tx.lock().take(),
-      ResponseKind::Multiple { tx, .. } => tx.lock().take(),
       _ => None,
     }
   }
@@ -186,7 +156,6 @@ impl ResponseKind {
   pub fn clone_shared_response_tx(&self) -> Option<Arc<Mutex<Option<ResponseSender>>>> {
     match self {
       ResponseKind::Buffer { tx, .. } => Some(tx.clone()),
-      ResponseKind::Multiple { tx, .. } => Some(tx.clone()),
       _ => None,
     }
   }
@@ -202,7 +171,6 @@ impl ResponseKind {
   pub fn expected_response_frames(&self) -> usize {
     match self {
       ResponseKind::Skip | ResponseKind::Respond(_) => 1,
-      ResponseKind::Multiple { ref expected, .. } => *expected,
       ResponseKind::Buffer { ref expected, .. } => *expected,
       ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) => 1,
     }
@@ -484,64 +452,36 @@ pub fn respond_to_caller(
   Ok(())
 }
 
-/// Respond to the caller, assuming multiple response frames from the last command.
-///
-/// This interface may return the last command to be put back at the front of the shared buffer if more responses are
-/// expected.
-pub fn respond_multiple(
+/// Read the oldest command from the buffer that should be associated with the current frame.
+// Special cases to consider:
+//
+// 1. Normally pubsub commands are not included in the shared buffer since their responses arrive somewhat
+//    out-of-band. However, `SSUBSCRIBE` can return redirection errors and the client is expected to follow these as
+//    it would with any other cluster command. To handle this the client includes these commands in the buffer and we
+//    decide whether to associate a redirection error here.
+pub fn pop_oldest_command(
   inner: &Arc<RedisClientInner>,
-  server: &Server,
-  mut command: RedisCommand,
-  received: Arc<AtomicUsize>,
-  expected: usize,
-  tx: Arc<Mutex<Option<ResponseSender>>>,
-  frame: Resp3Frame,
-) -> Result<Option<RedisCommand>, RedisError> {
-  _trace!(
-    inner,
-    "Handling `multiple` response from {} for {}",
-    server,
-    command.kind.to_str_debug()
-  );
-  if frame.is_error() {
-    // respond early to callers if an error is received from any of the commands
-    command.respond_to_router(inner, RouterResponse::Continue);
-
-    let result = Err(protocol_utils::frame_to_error(&frame).unwrap_or(RedisError::new_canceled()));
-    respond_locked(inner, &tx, result);
-  } else {
-    let recv = client_utils::incr_atomic(&received);
-
-    if recv == expected {
-      command.respond_to_router(inner, RouterResponse::Continue);
-
-      if command.kind.is_hello() {
-        update_protocol_version(inner, &command, &frame);
+  buffer: &SharedBuffer,
+  frame: &Resp3Frame,
+) -> Option<RedisCommand> {
+  while let Some(command) = buffer.pop() {
+    if command.kind == RedisCommandKind::Ssubscribe {
+      if frame.is_moved_or_ask_error() {
+        // process the response like any other command that uses a request-response pattern
+        return Some(command);
+      } else {
+        // assume the shard subscription was successful and the response(s) will arrive out-of-band later. in this
+        // case the response frame we have now should be associated with the next frame, not this one.
+        _trace!(inner, "Dropping shard subscription command ({}).", command.debug_id());
+        command.finish(inner, Ok(Resp3Frame::Null));
+        continue;
       }
-
-      _trace!(
-        inner,
-        "Finishing `multiple` response from {} for {}",
-        server,
-        command.kind.to_str_debug()
-      );
-      respond_locked(inner, &tx, Ok(frame));
     } else {
-      // more responses are expected
-      _trace!(
-        inner,
-        "Waiting on {} more responses to `multiple` command",
-        expected - recv
-      );
-      // do not unblock the router here
-
-      // need to reconstruct the responder state
-      command.response = ResponseKind::Multiple { tx, received, expected };
-      return Ok(Some(command));
+      return Some(command);
     }
   }
 
-  Ok(None)
+  None
 }
 
 /// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in

@@ -17,15 +17,6 @@ use redis_protocol::{
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
 
-pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
-  if inner.performance.load().as_ref().auto_pipeline {
-    // TODO make this configurable
-    256
-  } else {
-    1
-  }
-}
-
 pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
   let parts: Vec<&str> = data.split(' ').collect();
   if parts.len() == 3 {
@@ -966,6 +957,16 @@ pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<Protoc
   } else {
     command_to_resp2_frame(command).map(|c| c.into())
   }
+}
+
+pub fn encode_frame(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
+  #[cfg(feature = "blocking-encoding")]
+  return command.to_frame_blocking(
+    inner.is_resp3(),
+    inner.with_perf_config(|c| c.blocking_encode_threshold),
+  );
+  #[cfg(not(feature = "blocking-encoding"))]
+  return command.to_frame(inner.is_resp3());
 }
 
 #[cfg(test)]

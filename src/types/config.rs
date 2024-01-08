@@ -22,6 +22,52 @@ pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
 
+/// Special errors that can trigger reconnection logic, which can also retry the failing command if possible.
+///
+/// `MOVED`, `ASK`, and `NOAUTH` errors are handled separately by the client.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "custom-reconnect-errors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
+pub enum ReconnectError {
+  /// The CLUSTERDOWN prefix.
+  ClusterDown,
+  /// The LOADING prefix.
+  Loading,
+  /// The MASTERDOWN prefix.
+  MasterDown,
+  /// The READONLY prefix, which can happen if a primary node is switched to a replica without any connection
+  /// interruption.
+  ReadOnly,
+  /// The MISCONF prefix.
+  Misconf,
+  /// The BUSY prefix.
+  Busy,
+  /// The NOREPLICAS prefix.
+  NoReplicas,
+  /// A case-sensitive prefix on an error message.
+  ///
+  /// See [the source](https://github.com/redis/redis/blob/fe37e4fc874a92dcf61b3b0de899ec6f674d2442/src/server.c#L1845) for examples.
+  Custom(&'static str),
+}
+
+#[cfg(feature = "custom-reconnect-errors")]
+impl ReconnectError {
+  pub(crate) fn to_str(&self) -> &'static str {
+    use ReconnectError::*;
+
+    match self {
+      ClusterDown => "CLUSTERDOWN",
+      Loading => "LOADING",
+      MasterDown => "MASTERDOWN",
+      ReadOnly => "READONLY",
+      Misconf => "MISCONF",
+      Busy => "BUSY",
+      NoReplicas => "NOREPLICAS",
+      Custom(prefix) => prefix,
+    }
+  }
+}
+
 /// The type of reconnection policy to use. This will apply to every connection used by the client.
 ///
 /// Use a `max_attempts` value of `0` to retry forever.
@@ -322,6 +368,40 @@ impl PartialEq for TcpConfig {
 
 impl Eq for TcpConfig {}
 
+/// Configuration options used to detect potentially unresponsive connections.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnresponsiveConfig {
+  /// If provided, the amount of time a frame can wait without a response before the associated connection is
+  /// considered unresponsive.
+  ///
+  /// If a connection is considered unresponsive it will be forcefully closed and the client will reconnect based on
+  /// the [ReconnectPolicy](crate::types::ReconnectPolicy). This heuristic can be useful in environments where
+  /// connections may close or change in subtle or unexpected ways.
+  ///
+  /// Unlike the [timeout](crate::types::Options) and [default_command_timeout](crate::types::PerformanceConfig)
+  /// interfaces, any in-flight commands waiting on a response when the connection is closed this way will be
+  /// retried based on the associated [ReconnectPolicy](crate::types::ReconnectPolicy) and
+  /// [Options](crate::types::Options).
+  ///
+  /// Default: `None`
+  pub max_timeout: Option<Duration>,
+  /// The frequency at which the client checks for unresponsive connections.
+  ///
+  /// This value should usually be less than half of `max_timeout`.
+  ///
+  /// Default: 2 sec
+  pub interval:    Duration,
+}
+
+impl Default for UnresponsiveConfig {
+  fn default() -> Self {
+    UnresponsiveConfig {
+      max_timeout: None,
+      interval:    Duration::from_secs(2),
+    }
+  }
+}
+
 /// Configuration options related to the creation or management of TCP connection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConnectionConfig {
@@ -350,13 +430,8 @@ pub struct ConnectionConfig {
   ///
   /// Default: `5`
   pub max_redirections:           u32,
-  /// The amount of time a command can wait without a response before the corresponding connection is considered
-  /// unresponsive. This will trigger a reconnection and in-flight commands will be retried.
-  ///
-  /// Default: 10 sec
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
-  pub unresponsive_timeout:       Duration,
+  /// Unresponsive connection configuration options.
+  pub unresponsive:               UnresponsiveConfig,
   /// Configuration options for replica nodes.
   ///
   /// Default: `None`
@@ -365,6 +440,10 @@ pub struct ConnectionConfig {
   pub replica:                    ReplicaConfig,
   /// TCP connection options.
   pub tcp:                        TcpConfig,
+  ///
+  #[cfg(feature = "custom-reconnect-errors")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
+  pub reconnect_errors:           Vec<ReconnectError>,
 }
 
 impl Default for ConnectionConfig {
@@ -376,10 +455,15 @@ impl Default for ConnectionConfig {
       max_command_attempts: 3,
       cluster_cache_update_delay: Duration::from_millis(0),
       tcp: TcpConfig::default(),
-      #[cfg(feature = "check-unresponsive")]
-      unresponsive_timeout: Duration::from_millis(10_000),
+      unresponsive: UnresponsiveConfig::default(),
       #[cfg(feature = "replicas")]
       replica: ReplicaConfig::default(),
+      #[cfg(feature = "custom-reconnect-errors")]
+      reconnect_errors: vec![
+        ReconnectError::ClusterDown,
+        ReconnectError::Loading,
+        ReconnectError::ReadOnly,
+      ],
     }
   }
 }
@@ -393,31 +477,46 @@ pub struct PerformanceConfig {
   /// whereas this flag can automatically pipeline commands across tasks.
   ///
   /// Default: `true`
-  pub auto_pipeline:           bool,
+  pub auto_pipeline:              bool,
   /// Configuration options for backpressure features in the client.
-  pub backpressure:            BackpressureConfig,
+  pub backpressure:               BackpressureConfig,
   /// An optional timeout to apply to all commands.
   ///
   /// If `0` this will disable any timeout being applied to commands. Callers can also set timeouts on individual
   /// commands via the [with_options](crate::interfaces::ClientLike::with_options) interface.
   ///
   /// Default: `0`
-  pub default_command_timeout: Duration,
+  pub default_command_timeout:    Duration,
   /// The maximum number of frames that will be fed to a socket before flushing.
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///
   /// Default: 200
-  pub max_feed_count:          u64,
+  pub max_feed_count:             u64,
+  /// The default capacity used when creating [broadcast channels](https://docs.rs/tokio/latest/tokio/sync/broadcast/fn.channel.html) in the [EventInterface](crate::interfaces::EventInterface).
+  ///
+  /// Default: 32
+  pub broadcast_channel_capacity: usize,
+  /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
+  ///
+  /// See [block_in_place](https://docs.rs/tokio/latest/tokio/task/fn.block_in_place.html) for more information.
+  ///
+  /// Default: 50_000_000
+  #[cfg(feature = "blocking-encoding")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "blocking-encoding")))]
+  pub blocking_encode_threshold:  usize,
 }
 
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      auto_pipeline:           true,
-      backpressure:            BackpressureConfig::default(),
+      auto_pipeline: true,
+      backpressure: BackpressureConfig::default(),
       default_command_timeout: Duration::from_millis(0),
-      max_feed_count:          200,
+      max_feed_count: 200,
+      broadcast_channel_capacity: 32,
+      #[cfg(feature = "blocking-encoding")]
+      blocking_encode_threshold: 50_000_000,
     }
   }
 }

@@ -1,6 +1,5 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   interfaces::ClientLike,
   modules::inner::{CommandSender, RedisClientInner},
   protocol::{
@@ -227,7 +226,6 @@ pub fn path_to_string(path: &Path) -> String {
   path.as_os_str().to_string_lossy().to_string()
 }
 
-///
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
@@ -682,8 +680,8 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   }
 }
 
-pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>) {
-  let new = broadcast_channel(globals().default_broadcast_channel_capacity()).0;
+pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>, capacity: usize) {
+  let new = broadcast_channel(capacity).0;
   old.swap(Arc::new(new));
 }
 

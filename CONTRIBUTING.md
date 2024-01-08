@@ -11,11 +11,6 @@ This document gives some background on how the library is structured and how to 
 * Use the `async` syntax rather than `impl Future` where possible.
 * Please use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
 
-## TODO List
-
-* Implement any missing commands.
-* Support unix domain sockets.
-
 # File Structure
 
 The code has the following structure:

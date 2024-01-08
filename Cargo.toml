@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "7.1.2"
+version = "8.0.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -27,7 +27,6 @@ features = [
   "monitor",
   "sentinel-client",
   "sentinel-auth",
-  "check-unresponsive",
   "replicas",
   "client-tracking",
   "default-nil-types",
@@ -56,6 +55,7 @@ rand = "0.8"
 semver = "1.0"
 socket2 = "0.5"
 urlencoding = "2.1"
+crossbeam-queue = "0.3"
 async-trait = { version = "0.1" }
 rustls = { version = "0.21", optional = true }
 native-tls = { version = "0.2", optional = true }
@@ -134,7 +134,6 @@ custom-reconnect-errors = []
 monitor = ["nom"]
 sentinel-client = []
 sentinel-auth = []
-check-unresponsive = []
 replicas = []
 auto-client-setname = []
 client-tracking = []

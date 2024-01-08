@@ -164,7 +164,6 @@ async fn write_with_backpressure(
             router.buffer_command(command);
           }
         }
-        router.sync_network_timeout_state();
 
         utils::defer_reconnect(inner);
         break;
@@ -312,7 +311,7 @@ async fn process_pipeline(
     command.can_pipeline = true;
     command.skip_backpressure = true;
 
-    let force_pipeline = !command.kind.is_all_cluster_nodes();
+    let force_pipeline = !command.is_all_cluster_nodes();
     if let Err(e) = write_with_backpressure_t(inner, router, command, force_pipeline).await {
       // if the command cannot be written it will be queued to run later.
       // if a connection is dropped due to an error the reader will send a command to reconnect and retry later.

@@ -6,11 +6,9 @@ use crate::{
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
   utils,
 };
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::{prelude::PUBSUB_PUSH_PREFIX, types::Frame as Resp3Frame};
 use std::{str, sync::Arc};
 
-#[cfg(feature = "custom-reconnect-errors")]
-use crate::globals::globals;
 #[cfg(feature = "client-tracking")]
 use crate::types::Invalidation;
 
@@ -174,6 +172,37 @@ fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
   }
 }
 
+fn is_subscribe_prefix(s: &str) -> bool {
+  s == "subscribe" || s == "psubscribe" || s == "ssubscribe"
+}
+
+fn is_unsubscribe_prefix(s: &str) -> bool {
+  s == "unsubscribe" || s == "punsubscribe" || s == "sunsubscribe"
+}
+
+/// Whether the response frame represents a response to any of the subscription interface commands.
+fn is_subscription_response(frame: &Resp3Frame) -> bool {
+  match frame {
+    Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
+      if data.len() >= 3 && data.len() <= 4 {
+        // check for ["pubsub", "punsubscribe"|"sunsubscribe", ..] or ["punsubscribe"|"sunsubscribe", ..]
+        (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
+          && data[1]
+            .as_str()
+            .map(|s| is_subscribe_prefix(s) || is_unsubscribe_prefix(s))
+            .unwrap_or(false))
+          || (data[0]
+            .as_str()
+            .map(|s| is_subscribe_prefix(s) || is_unsubscribe_prefix(s))
+            .unwrap_or(false))
+      } else {
+        false
+      }
+    },
+    _ => false,
+  }
+}
+
 #[cfg(not(feature = "client-tracking"))]
 fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
   false
@@ -183,6 +212,10 @@ fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
 ///
 /// If not then return it to the caller for further processing.
 pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) -> Option<Resp3Frame> {
+  if is_subscription_response(&frame) {
+    _debug!(inner, "Dropping unused subscription response.");
+    return None;
+  }
   if is_resp3_invalidation(&frame) {
     broadcast_resp3_invalidation(inner, server, frame);
     return None;
@@ -256,7 +289,7 @@ fn parse_redis_auth_error(_frame: &Resp3Frame) -> Option<RedisError> {
 #[cfg(feature = "custom-reconnect-errors")]
 fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if let Resp3Frame::SimpleError { ref data, .. } = frame {
-    for prefix in globals().reconnect_errors.read().iter() {
+    for prefix in inner.connection.reconnect_errors.iter() {
       if data.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", data);
         let error = protocol_utils::pretty_error(data);

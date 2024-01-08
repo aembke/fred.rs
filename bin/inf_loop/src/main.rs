@@ -9,19 +9,19 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::App;
-use fred::{pool::RedisPool, prelude::*, types::PerformanceConfig, globals};
+use fred::{pool::RedisPool, prelude::*, types::PerformanceConfig};
 use std::{default::Default, time::Duration};
 use tokio::time::sleep;
 
 #[derive(Debug)]
 struct Argv {
-  pub cluster: bool,
-  pub host:    String,
-  pub port:    u16,
-  pub pool:    usize,
+  pub cluster:  bool,
+  pub host:     String,
+  pub port:     u16,
+  pub pool:     usize,
   pub interval: u64,
-  pub wait: u64,
-  pub auth: String,
+  pub wait:     u64,
+  pub auth:     String,
 }
 
 fn parse_argv() -> Argv {
@@ -49,10 +49,7 @@ fn parse_argv() -> Argv {
     .value_of("wait")
     .map(|v| v.parse::<u64>().expect("Invalid wait"))
     .unwrap_or(0);
-  let auth = matches
-    .value_of("auth")
-    .map(|v| v.to_owned())
-    .unwrap_or("".into());
+  let auth = matches.value_of("auth").map(|v| v.to_owned()).unwrap_or("".into());
 
   Argv {
     cluster,
@@ -61,14 +58,13 @@ fn parse_argv() -> Argv {
     port,
     pool,
     interval,
-    wait
+    wait,
   }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init_timed();
-  globals::set_default_connection_timeout_ms(10_000);
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
@@ -80,7 +76,7 @@ async fn main() -> Result<(), RedisError> {
     },
     password: if argv.auth.is_empty() {
       None
-    }else{
+    } else {
       Some(argv.auth.clone())
     },
     ..Default::default()
