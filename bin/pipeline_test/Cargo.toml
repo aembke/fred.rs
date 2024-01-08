@@ -27,7 +27,7 @@ indicatif = "=0.17.1"
 [dependencies.fred]
 #path = "../.."
 path = "/fred"
-features = ["ignore-auth-error", "replicas"]
+features = ["replicas"]
 default-features = false
 
 [features]

@@ -41,7 +41,6 @@ pub extern crate tokio_util;
 pub extern crate tracing;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 extern crate tracing_futures;
-
 #[macro_use]
 mod macros;
 

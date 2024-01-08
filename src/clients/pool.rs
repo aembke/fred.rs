@@ -9,7 +9,10 @@ use crate::{
 use futures::future::{join_all, try_join_all};
 use std::{
   fmt,
-  sync::{atomic::AtomicUsize, Arc},
+  sync::{
+    atomic::{AtomicBool, AtomicUsize},
+    Arc,
+  },
   time::Duration,
 };
 use tokio::time::interval as tokio_interval;
@@ -19,6 +22,12 @@ use crate::protocol::types::Resolve;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+
+struct RedisPoolInner {
+  clients:          Vec<RedisClient>,
+  counter:          Arc<AtomicUsize>,
+  prefer_connected: Arc<AtomicBool>,
+}
 
 /// A cheaply cloneable round-robin client pool.
 ///
@@ -37,13 +46,14 @@ use crate::clients::Replicas;
 /// [clients](Self::clients), [next](Self::next), or [last](Self::last) to operate on individual clients if needed.
 #[derive(Clone)]
 pub struct RedisPool {
-  clients: Arc<Vec<RedisClient>>,
-  counter: Arc<AtomicUsize>,
+  inner: Arc<RedisPoolInner>,
 }
 
 impl fmt::Debug for RedisPool {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    f.debug_struct("RedisPool").field("size", &self.clients.len()).finish()
+    f.debug_struct("RedisPool")
+      .field("size", &self.inner.clients.len())
+      .finish()
   }
 }
 
@@ -54,8 +64,11 @@ impl RedisPool {
       Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
     } else {
       Ok(RedisPool {
-        clients: Arc::new(clients),
-        counter: Arc::new(AtomicUsize::new(0)),
+        inner: Arc::new(RedisPoolInner {
+          clients,
+          counter: Arc::new(AtomicUsize::new(0)),
+          prefer_connected: Arc::new(AtomicBool::new(true)),
+        }),
       })
     }
   }
@@ -84,54 +97,61 @@ impl RedisPool {
       }
 
       Ok(RedisPool {
-        clients: Arc::new(clients),
-        counter: Arc::new(AtomicUsize::new(0)),
+        inner: Arc::new(RedisPoolInner {
+          clients,
+          counter: Arc::new(AtomicUsize::new(0)),
+          prefer_connected: Arc::new(AtomicBool::new(true)),
+        }),
       })
     }
   }
 
+  /// Set whether the client will use [next_connected](Self::next_connected) or [next](Self::next) when routing
+  /// commands among the pooled clients.
+  pub fn prefer_connected(&self, val: bool) -> bool {
+    utils::set_bool_atomic(&self.inner.prefer_connected, val)
+  }
+
   /// Read the individual clients in the pool.
   pub fn clients(&self) -> &[RedisClient] {
-    &self.clients
+    &self.inner.clients
   }
 
   /// Connect each client to the server, returning the task driving each connection.
   ///
   /// Use the base [connect](Self::connect) function to return one handle that drives all connections via [join](https://docs.rs/futures/latest/futures/macro.join.html).
   pub fn connect_pool(&self) -> Vec<ConnectHandle> {
-    self.clients.iter().map(|c| c.connect()).collect()
+    self.inner.clients.iter().map(|c| c.connect()).collect()
   }
 
   /// Read the size of the pool.
   pub fn size(&self) -> usize {
-    self.clients.len()
+    self.inner.clients.len()
   }
 
-  /// Read the client that should run the next command.
-  #[cfg(feature = "pool-prefer-active")]
-  pub fn next(&self) -> &RedisClient {
-    let mut idx = utils::incr_atomic(&self.counter) % self.clients.len();
+  /// Read the next connected client that should run the next command.
+  pub fn next_connected(&self) -> &RedisClient {
+    let mut idx = utils::incr_atomic(&self.inner.counter) % self.inner.clients.len();
 
-    for _ in 0 .. self.clients.len() {
-      let client = &self.clients[idx];
+    for _ in 0 .. self.inner.clients.len() {
+      let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;
       }
-      idx = (idx + 1) % self.clients.len();
+      idx = (idx + 1) % self.inner.clients.len();
     }
 
-    &self.clients[idx]
+    &self.inner.clients[idx]
   }
 
   /// Read the client that should run the next command.
-  #[cfg(not(feature = "pool-prefer-active"))]
   pub fn next(&self) -> &RedisClient {
-    &self.clients[utils::incr_atomic(&self.counter) % self.clients.len()]
+    &self.inner.clients[utils::incr_atomic(&self.inner.counter) % self.inner.clients.len()]
   }
 
   /// Read the client that ran the last command.
   pub fn last(&self) -> &RedisClient {
-    &self.clients[utils::read_atomic(&self.counter) % self.clients.len()]
+    &self.inner.clients[utils::read_atomic(&self.inner.counter) % self.inner.clients.len()]
   }
 
   /// Create a client that interacts with the replica nodes associated with the [next](Self::next) client.
@@ -146,20 +166,24 @@ impl RedisPool {
 impl ClientLike for RedisPool {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {
-    &self.next().inner
+    if utils::read_bool_atomic(&self.inner.prefer_connected) {
+      &self.next_connected().inner
+    } else {
+      &self.next().inner
+    }
   }
 
   /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) on each client in place with new
   /// values.
   fn update_perf_config(&self, config: PerformanceConfig) {
-    for client in self.clients.iter() {
+    for client in self.inner.clients.iter() {
       client.update_perf_config(config.clone());
     }
   }
 
   /// Read the set of active connections across all clients in the pool.
   async fn active_connections(&self) -> Result<Vec<Server>, RedisError> {
-    let all_connections = try_join_all(self.clients.iter().map(|c| c.active_connections())).await?;
+    let all_connections = try_join_all(self.inner.clients.iter().map(|c| c.active_connections())).await?;
     let total_size = if all_connections.is_empty() {
       return Ok(Vec::new());
     } else {
@@ -177,7 +201,7 @@ impl ClientLike for RedisPool {
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
   async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
-    for client in self.clients.iter() {
+    for client in self.inner.clients.iter() {
       client.set_resolver(resolver.clone()).await;
     }
   }
@@ -189,7 +213,7 @@ impl ClientLike for RedisPool {
   /// See [connect_pool](crate::clients::RedisPool::connect_pool) for a variation of this function that separates the
   /// connection tasks.
   fn connect(&self) -> ConnectHandle {
-    let clients = self.clients.clone();
+    let clients = self.inner.clients.clone();
     tokio::spawn(async move {
       let tasks: Vec<_> = clients.iter().map(|c| c.connect()).collect();
       for result in join_all(tasks).await.into_iter() {
@@ -204,14 +228,14 @@ impl ClientLike for RedisPool {
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
   async fn force_reconnection(&self) -> RedisResult<()> {
-    let _ = try_join_all(self.clients.iter().map(|c| c.force_reconnection())).await?;
+    let _ = try_join_all(self.inner.clients.iter().map(|c| c.force_reconnection())).await?;
 
     Ok(())
   }
 
   /// Wait for all the clients to connect to the server.
   async fn wait_for_connect(&self) -> RedisResult<()> {
-    let _ = try_join_all(self.clients.iter().map(|c| c.wait_for_connect())).await?;
+    let _ = try_join_all(self.inner.clients.iter().map(|c| c.wait_for_connect())).await?;
 
     Ok(())
   }
@@ -224,7 +248,7 @@ impl ClientLike for RedisPool {
   /// This function will also close all error, pubsub message, and reconnection event streams on all clients in the
   /// pool.
   async fn quit(&self) -> RedisResult<()> {
-    let _ = join_all(self.clients.iter().map(|c| c.quit())).await;
+    let _ = join_all(self.inner.clients.iter().map(|c| c.quit())).await;
 
     Ok(())
   }
@@ -238,7 +262,7 @@ impl HeartbeatInterface for RedisPool {
     loop {
       interval.tick().await;
 
-      if let Err(error) = try_join_all(self.clients.iter().map(|c| c.ping::<()>())).await {
+      if let Err(error) = try_join_all(self.inner.clients.iter().map(|c| c.ping::<()>())).await {
         if break_on_error {
           return Err(error);
         }

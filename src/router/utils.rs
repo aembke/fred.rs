@@ -3,7 +3,7 @@ use crate::{
   interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, RedisCommand, RouterCommand, RouterResponse},
+    command::{RedisCommand, RouterCommand, RouterResponse},
     connection::{RedisWriter, SharedBuffer, SplitStreamKind},
     responders::ResponseKind,
     types::*,
@@ -21,6 +21,9 @@ use std::{
 };
 use tokio::{self, sync::oneshot::channel as oneshot_channel, time::sleep};
 
+#[cfg(feature = "transactions")]
+use crate::protocol::command::ClusterErrorKind;
+
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure(
   inner: &Arc<RedisClientInner>,
@@ -33,6 +36,7 @@ pub fn check_backpressure(
   let in_flight = client_utils::read_atomic(&counters.in_flight);
 
   inner.with_perf_config(|perf_config| {
+    // TODO clean this up and write better docs
     if in_flight as u64 > perf_config.backpressure.max_in_flight_commands {
       if perf_config.backpressure.disable_auto_backpressure {
         Err(RedisError::new_backpressure())
@@ -288,6 +292,7 @@ pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut R
 }
 
 /// Attempt to follow a cluster redirect, reconnecting as needed until the max reconnections attempts is reached.
+#[cfg(feature = "transactions")]
 pub async fn cluster_redirect_with_policy(
   inner: &Arc<RedisClientInner>,
   router: &mut Router,
@@ -525,6 +530,7 @@ pub async fn next_frame(
           let latency = Instant::now().saturating_duration_since(last_frame_sent.clone().unwrap());
           if latency > *max_resp_latency {
             _warn!(inner, "Unresponsive connection to {} after {:?}", server, latency);
+            inner.notifications.broadcast_unresponsive(server.clone());
             return Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
           }else{
             continue;

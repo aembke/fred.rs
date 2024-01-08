@@ -32,7 +32,8 @@ features = [
   "default-nil-types",
   "codec",
   "redis-json",
-  "sha-1"
+  "sha-1",
+  "transactions"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -114,8 +115,13 @@ required-features = ["sha-1"]
 name = "events"
 required-features = ["tokio-stream/sync"]
 
+[[example]]
+name = "transactions"
+required-features = ["transactions"]
+
 [features]
-default = []
+default = ["transactions"]
+transactions = []
 serde-json = ["serde_json"]
 subscriber-client = []
 metrics = []

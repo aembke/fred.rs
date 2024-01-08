@@ -67,6 +67,8 @@ impl GeoInterface for RedisClient {}
 impl HashesInterface for RedisClient {}
 impl HyperloglogInterface for RedisClient {}
 impl MetricsInterface for RedisClient {}
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 impl TransactionInterface for RedisClient {}
 impl KeysInterface for RedisClient {}
 impl LuaInterface for RedisClient {}

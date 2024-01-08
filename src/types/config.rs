@@ -432,6 +432,15 @@ pub struct ConnectionConfig {
   pub max_redirections:           u32,
   /// Unresponsive connection configuration options.
   pub unresponsive:               UnresponsiveConfig,
+  /// An unexpected `NOAUTH` error is treated the same as a general connection failure, causing the client to
+  /// reconnect based on the [ReconnectPolicy](crate::types::ReconnectPolicy). This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.
+  ///
+  /// Default: `false`
+  pub reconnect_on_auth_error:    bool,
+  /// Automatically send `CLIENT SETNAME` on each connection associated with a client instance.
+  ///
+  /// Default: `false`
+  pub auto_client_setname:        bool,
   /// Configuration options for replica nodes.
   ///
   /// Default: `None`
@@ -453,7 +462,9 @@ impl Default for ConnectionConfig {
       internal_command_timeout: Duration::from_millis(10_000),
       max_redirections: 5,
       max_command_attempts: 3,
+      auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
+      reconnect_on_auth_error: false,
       tcp: TcpConfig::default(),
       unresponsive: UnresponsiveConfig::default(),
       #[cfg(feature = "replicas")]
@@ -1230,7 +1241,8 @@ impl Options {
     self
   }
 
-  /// Create options from a command.
+  /// Create options from a command
+  #[cfg(feature = "transactions")]
   pub(crate) fn from_command(cmd: &RedisCommand) -> Self {
     Options {
       max_attempts:                                Some(cmd.attempts_remaining),

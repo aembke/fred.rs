@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="enable-native-tls vendored-openssl ignore-auth-error"
+FEATURES="enable-native-tls vendored-openssl transactions"
 # https://github.com/sfackler/rust-native-tls/issues/143
 echo "This may not work on Mac"
 

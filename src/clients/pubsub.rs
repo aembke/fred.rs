@@ -3,7 +3,7 @@ use crate::{
   error::RedisError,
   interfaces::*,
   modules::inner::RedisClientInner,
-  prelude::{FromRedis, RedisClient},
+  prelude::RedisClient,
   types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
 };
 use bytes_utils::Str;
@@ -27,33 +27,33 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 /// use fred::clients::SubscriberClient;
 /// use fred::prelude::*;
 ///
-/// let config = RedisConfig::default();
-/// let perf = PerformanceConfig::default();
-/// let policy = ReconnectPolicy::default();
-/// let subscriber = SubscriberClient::new(config, Some(perf), Some(policy));
-/// let _ = subscriber.connect();
-/// let _ = subscriber.wait_for_connect().await?;
+/// async fn example() -> Result<(), RedisError> {
+///   let subscriber = Builder::default_centralized().build_subscriber_client()?;
+///   let _ = subscriber.connect();
+///   subscriber.wait_for_connect().await?;
 ///
-/// // spawn a task that will re-subscribe to channels and patterns after reconnecting
-/// let _ = subscriber.manage_subscriptions();
+///   // spawn a task that will re-subscribe to channels and patterns after reconnecting
+///   let _ = subscriber.manage_subscriptions();
 ///
-/// let mut message_rx = subscriber.on_message();
-/// let jh = tokio::spawn(async move {
-///   while let Ok(message) = message_rx.recv().await {
-///     println!("Recv message {:?} on channel {}", message.value, message.channel);
-///   }
-/// });
+///   let mut message_rx = subscriber.on_message();
+///   let jh = tokio::spawn(async move {
+///     while let Ok(message) = message_rx.recv().await {
+///       println!("Recv message {:?} on channel {}", message.value, message.channel);
+///     }
+///   });
 ///
-/// let _ = subscriber.subscribe("foo").await?;
-/// let _ = subscriber.psubscribe("bar*").await?;
-/// println!("Tracking channels: {:?}", subscriber.tracked_channels()); // foo
-/// println!("Tracking patterns: {:?}", subscriber.tracked_patterns()); // bar*
+///   let _ = subscriber.subscribe("foo").await?;
+///   let _ = subscriber.psubscribe("bar*").await?;
+///   println!("Tracking channels: {:?}", subscriber.tracked_channels()); // foo
+///   println!("Tracking patterns: {:?}", subscriber.tracked_patterns()); // bar*
 ///
-/// // force a re-subscription
-/// let _ = subscriber.resubscribe_all().await?;
-/// // clear all the local state and unsubscribe
-/// let _ = subscriber.unsubscribe_all().await?;
-/// let _ = subscriber.quit().await?;
+///   // force a re-subscription
+///   subscriber.resubscribe_all().await?;
+///   // clear all the local state and unsubscribe
+///   subscriber.unsubscribe_all().await?;
+///   subscriber.quit().await?;
+///   Ok(())
+/// }
 /// ```
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "subscriber-client")))]
@@ -114,9 +114,8 @@ impl TrackingInterface for SubscriberClient {}
 
 #[async_trait]
 impl PubsubInterface for SubscriberClient {
-  async fn subscribe<R, S>(&self, channels: S) -> RedisResult<R>
+  async fn subscribe<S>(&self, channels: S) -> RedisResult<()>
   where
-    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(channels);
@@ -132,12 +131,11 @@ impl PubsubInterface for SubscriberClient {
       }
     }
 
-    result.and_then(|r| r.convert())
+    result
   }
 
-  async fn psubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
+  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<()>
   where
-    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
@@ -152,7 +150,7 @@ impl PubsubInterface for SubscriberClient {
         }
       }
     }
-    result.and_then(|r| r.convert())
+    result
   }
 
   async fn unsubscribe<S>(&self, channels: S) -> RedisResult<()>
@@ -175,7 +173,7 @@ impl PubsubInterface for SubscriberClient {
         }
       }
     }
-    result.and_then(|r| r.convert())
+    result
   }
 
   async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<()>
@@ -198,12 +196,11 @@ impl PubsubInterface for SubscriberClient {
         }
       }
     }
-    result.and_then(|r| r.convert())
+    result
   }
 
-  async fn ssubscribe<R, C>(&self, channels: C) -> RedisResult<R>
+  async fn ssubscribe<C>(&self, channels: C) -> RedisResult<()>
   where
-    R: FromRedis,
     C: Into<MultipleStrings> + Send,
   {
     into!(channels);
@@ -218,7 +215,7 @@ impl PubsubInterface for SubscriberClient {
         }
       }
     }
-    result.and_then(|r| r.convert())
+    result
   }
 
   async fn sunsubscribe<C>(&self, channels: C) -> RedisResult<()>
@@ -241,7 +238,7 @@ impl PubsubInterface for SubscriberClient {
         }
       }
     }
-    result.and_then(|r| r.convert())
+    result
   }
 }
 

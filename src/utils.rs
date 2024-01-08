@@ -19,14 +19,13 @@ use futures::{
   Future,
   TryFutureExt,
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{
   collections::HashMap,
   convert::TryInto,
   f64,
-  mem,
   sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -47,6 +46,10 @@ use urlencoding::decode as percent_decode;
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
+#[cfg(feature = "transactions")]
+use parking_lot::Mutex;
+#[cfg(feature = "transactions")]
+use std::mem;
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -161,6 +164,7 @@ where
   value.convert().ok().unwrap_or_default()
 }
 
+#[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
 }
@@ -213,10 +217,12 @@ pub fn read_locked<T: Clone>(locked: &RwLock<T>) -> T {
   locked.read().clone()
 }
 
+#[cfg(feature = "transactions")]
 pub fn read_mutex<T: Clone>(locked: &Mutex<T>) -> T {
   locked.lock().clone()
 }
 
+#[cfg(feature = "transactions")]
 pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
   mem::replace(&mut *locked.lock(), value)
 }

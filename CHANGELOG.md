@@ -1,10 +1,11 @@
 ## 8.0.0
 
-AFIT will be added in 8.1.0 alongside the associated MSRV update. Any important bug fixes added after 8.1.0 will be backported to 8.0.x for at least the next 2 Rust releases to hopefully make this upgrade slightly less annoying.
+AFIT will be added in 8.1.0 alongside the associated MSRV update. Any important bug fixes added after 8.1.0 will be backported to the 8.0.x branch for the next few Rust releases to hopefully make this upgrade ~~less annoying~~ easier.
 
 * Remove the `globals` interface.
 * Support unix domain sockets.
-* Improve unresponsive connection checks
+* Improve unresponsive connection checks.
+* Move several feature flags to configuration options.
 * Add benchmarking tool [TODO link]
 * Update to Rustls 0.22.1 
 
@@ -13,6 +14,19 @@ AFIT will be added in 8.1.0 alongside the associated MSRV update. Any important 
 Notable changes:
 
 * Several configuration options were moved from `globals` to `ConnectionConfig` and `PerformanceConfig`. 
+* Several feature flags were moved to various configuration interfaces, including:
+  * `ignore-auth-error`
+  * `pool-prefer-active`
+  * `reconnect-on-auth-error`
+  * `auto-client-setname`
+
+Maybe notable:
+
+The old implementation was mostly lock-free on all the "hot" code paths, but with one exception - the command queue/buffer used to implement pipelining must be shared between the reader and writer halves of a socket, but these are owned by different Tokio tasks.
+
+Versions <8.x used a [parking_lot](https://crates.io/crates/parking_lot) `Mutex<VecDeque<RedisCommand>>` as the underlying container and took care to minimize the guard scope to a single `push_back` or `pop_front`. This provided a lot of utility since the `VecDeque` interface is quite flexible, but still required a lock where it should be possible to avoid one. Version 8 changed to instead use [crossbeam-queue](https://crates.io/crates/crossbeam-queue) types as the underlying container, removing the last remaining lock on the "hot" code paths.
+
+TODO link to benchmarking
 
 ## 7.1.2
 

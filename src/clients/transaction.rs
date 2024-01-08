@@ -19,6 +19,8 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A cheaply cloneable transaction block.
 #[derive(Clone)]
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
   id:        u64,
   inner:     Arc<RedisClientInner>,

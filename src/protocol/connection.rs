@@ -449,6 +449,7 @@ impl RedisTransport {
 
   #[cfg(feature = "unix-sockets")]
   pub async fn new_unix(inner: &Arc<RedisClientInner>, path: &Path) -> Result<RedisTransport, RedisError> {
+    _debug!(inner, "Connecting via unix socket to {}", utils::path_to_string(path));
     let server = Server::new(utils::path_to_string(path), 0);
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
@@ -576,8 +577,7 @@ impl RedisTransport {
     }
   }
 
-  /// Set the client name with CLIENT SETNAME.
-  #[cfg(feature = "auto-client-setname")]
+  /// Set the client name with `CLIENT SETNAME`.
   pub async fn set_client_name(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     _debug!(inner, "Setting client name.");
     let name = &inner.id;
@@ -591,12 +591,6 @@ impl RedisTransport {
       error!("{} Failed to set client name with error {:?}", name, response);
       Err(RedisError::new(RedisErrorKind::Protocol, "Failed to set client name."))
     }
-  }
-
-  #[cfg(not(feature = "auto-client-setname"))]
-  pub async fn set_client_name(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    _debug!(inner, "Skip setting client name.");
-    Ok(())
   }
 
   /// Read and cache the server version.
@@ -804,7 +798,9 @@ impl RedisTransport {
       async {
         self.switch_protocols_and_authenticate(inner).await?;
         self.select_database(inner).await?;
-        self.set_client_name(inner).await?;
+        if inner.connection.auto_client_setname {
+          self.set_client_name(inner).await?;
+        }
         self.cache_connection_id(inner).await?;
         self.cache_server_version(inner).await?;
         self.check_cluster_state(inner).await?;
@@ -1089,7 +1085,7 @@ pub async fn create(
     inner,
     "Checking connection type. Native-tls: {}, Rustls: {}",
     inner.config.uses_native_tls(),
-    inner.config.uses_rustls()
+    inner.config.uses_rustls(),
   );
   if inner.config.uses_native_tls() {
     utils::apply_timeout(RedisTransport::new_native_tls(inner, server), timeout).await

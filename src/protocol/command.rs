@@ -1867,6 +1867,7 @@ pub enum RouterCommand {
   // foo{1}` will have already finished at this point. To account for this the client will never pipeline
   // transactions against a cluster, and may clone commands before sending them in order to replay them later with
   // a different cluster node mapping.
+  #[cfg(feature = "transactions")]
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
@@ -1918,6 +1919,7 @@ impl RouterCommand {
           cmd.inherit_options(inner);
         }
       },
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { ref mut commands, .. } => {
         for cmd in commands.iter_mut() {
           cmd.inherit_options(inner);
@@ -1932,6 +1934,7 @@ impl RouterCommand {
     match self {
       RouterCommand::Command(ref command) => command.timeout_dur,
       RouterCommand::Pipeline { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
       _ => None,
     }
@@ -1966,6 +1969,7 @@ impl fmt::Debug for RouterCommand {
       RouterCommand::SyncCluster { .. } => {
         formatter.field("kind", &"Sync Cluster");
       },
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { .. } => {
         formatter.field("kind", &"Transaction");
       },

@@ -111,6 +111,8 @@ async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Comma
     ConnectionKind::Rustls(framed) => forward_results(inner, tx, framed).await,
     #[cfg(feature = "enable-native-tls")]
     ConnectionKind::NativeTls(framed) => forward_results(inner, tx, framed).await,
+    #[cfg(feature = "unix-sockets")]
+    ConnectionKind::Unix(framed) => forward_results(inner, tx, framed).await,
   };
 
   _warn!(inner, "Stopping monitor stream.");

@@ -2,6 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
+    codec::RedisCodec,
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind},
     connection::OK,
     types::{ProtocolFrame, *},
@@ -16,6 +17,10 @@ use redis_protocol::{
   resp3::types::{Auth, Frame as Resp3Frame, FrameMap, PUBSUB_PUSH_PREFIX},
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
+
+static LEGACY_AUTH_ERROR_BODY: &str = "ERR Client sent AUTH, but no password is set";
+static ACL_AUTH_ERROR_PREFIX: &str =
+  "ERR AUTH <password> called without any password configured for the default user";
 
 pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
   let parts: Vec<&str> = data.split(' ').collect();
@@ -273,46 +278,42 @@ pub fn parse_as_resp2_pubsub(server: &Server, frame: Resp3Frame) -> Result<Messa
   }
 }
 
-#[cfg(not(feature = "ignore-auth-error"))]
-pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
-  frame
-}
-
-#[cfg(feature = "ignore-auth-error")]
-pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
+pub fn check_resp2_auth_error(codec: &RedisCodec, frame: Resp2Frame) -> Resp2Frame {
   let is_auth_error = match frame {
-    Resp2Frame::Error(ref data) => {
-      *data == "ERR Client sent AUTH, but no password is set"
-        || data.starts_with("ERR AUTH <password> called without any password configured for the default user")
-    },
+    Resp2Frame::Error(ref data) => *data == LEGACY_AUTH_ERROR_BODY || data.starts_with(ACL_AUTH_ERROR_PREFIX),
     _ => false,
   };
 
   if is_auth_error {
-    Resp2Frame::SimpleString(OK.into())
+    warn!(
+      "{}: [{}] Dropping unused auth warning: {}",
+      codec.name,
+      codec.server,
+      frame.as_str().unwrap_or("")
+    );
+    Resp2Frame::SimpleString(utils::static_bytes(OK.as_bytes()))
   } else {
     frame
   }
 }
 
-#[cfg(not(feature = "ignore-auth-error"))]
-pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
-  frame
-}
-
-#[cfg(feature = "ignore-auth-error")]
-pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
+pub fn check_resp3_auth_error(codec: &RedisCodec, frame: Resp3Frame) -> Resp3Frame {
   let is_auth_error = match frame {
     Resp3Frame::SimpleError { ref data, .. } => {
-      *data == "ERR Client sent AUTH, but no password is set"
-        || data.starts_with("ERR AUTH <password> called without any password configured for the default user")
+      *data == LEGACY_AUTH_ERROR_BODY || data.starts_with(ACL_AUTH_ERROR_PREFIX)
     },
     _ => false,
   };
 
   if is_auth_error {
+    warn!(
+      "{}: [{}] Dropping unused auth warning: {}",
+      codec.name,
+      codec.server,
+      frame.as_str().unwrap_or("")
+    );
     Resp3Frame::SimpleString {
-      data:       "OK".into(),
+      data:       utils::static_bytes(OK.as_bytes()),
       attributes: None,
     }
   } else {
@@ -789,29 +790,9 @@ pub fn arg_size(value: &RedisValue) -> usize {
   }
 }
 
-#[cfg(feature = "blocking-encoding")]
-pub fn resp2_frame_size(frame: &Resp2Frame) -> usize {
-  match frame {
-    Resp2Frame::Integer(ref i) => i64_size(*i),
-    Resp2Frame::Null => 3,
-    Resp2Frame::Error(ref s) => s.as_bytes().len(),
-    Resp2Frame::SimpleString(ref s) => s.len(),
-    Resp2Frame::BulkString(ref b) => b.len(),
-    Resp2Frame::Array(ref a) => a.iter().fold(0, |c, f| c + resp2_frame_size(f)),
-  }
-}
-
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
   frame.encode_len().unwrap_or(0)
-}
-
-#[cfg(feature = "blocking-encoding")]
-pub fn frame_size(frame: &ProtocolFrame) -> usize {
-  match frame {
-    ProtocolFrame::Resp3(f) => resp3_frame_size(f),
-    ProtocolFrame::Resp2(f) => resp2_frame_size(f),
-  }
 }
 
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]

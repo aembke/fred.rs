@@ -494,7 +494,6 @@ pub use crate::commands::interfaces::{
   slowlog::SlowlogInterface,
   sorted_sets::SortedSetsInterface,
   streams::StreamsInterface,
-  transactions::TransactionInterface,
 };
 
 #[cfg(feature = "redis-json")]
@@ -503,3 +502,5 @@ pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
 #[cfg(feature = "client-tracking")]
 pub use crate::commands::interfaces::tracking::TrackingInterface;
+#[cfg(feature = "transactions")]
+pub use crate::commands::interfaces::transactions::TransactionInterface;

@@ -18,6 +18,8 @@ pub mod slowlog;
 pub mod sorted_sets;
 pub mod streams;
 pub mod strings;
+
+#[cfg(feature = "transactions")]
 pub mod transactions;
 
 #[cfg(feature = "client-tracking")]

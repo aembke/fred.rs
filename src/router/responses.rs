@@ -264,7 +264,6 @@ pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command
   }
 }
 
-#[cfg(feature = "reconnect-on-auth-error")]
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_error() {
@@ -278,12 +277,6 @@ fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   } else {
     None
   }
-}
-
-#[cfg(not(feature = "reconnect-on-auth-error"))]
-/// Parse the response frame to see if it's an auth error.
-fn parse_redis_auth_error(_frame: &Resp3Frame) -> Option<RedisError> {
-  None
 }
 
 #[cfg(feature = "custom-reconnect-errors")]
@@ -336,8 +329,10 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
 
 /// Check for special errors configured by the caller to initiate a reconnection process.
 pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
-  if let Some(auth_error) = parse_redis_auth_error(frame) {
-    return Some(auth_error);
+  if inner.connection.reconnect_on_auth_error {
+    if let Some(auth_error) = parse_redis_auth_error(frame) {
+      return Some(auth_error);
+    }
   }
   if let Some(error) = is_clusterdown_error(frame) {
     return Some(pretty_error(error));

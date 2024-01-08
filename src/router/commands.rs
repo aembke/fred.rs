@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
   protocol::command::{RedisCommand, ResponseSender, RouterCommand, RouterReceiver, RouterResponse},
-  router::{transactions, utils, Backpressure, Router, Written},
+  router::{utils, Backpressure, Router, Written},
   types::{ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
@@ -12,6 +12,8 @@ use tokio::sync::oneshot::Sender as OneshotSender;
 
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
+#[cfg(feature = "transactions")]
+use crate::router::transactions;
 
 /// Wait for the response from the reader task, handling cluster redirections if needed.
 ///
@@ -499,6 +501,7 @@ async fn process_command(
     RouterCommand::Ask { server, slot, command } => process_ask(inner, router, server, slot, command).await,
     RouterCommand::Moved { server, slot, command } => process_moved(inner, router, server, slot, command).await,
     RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
+    #[cfg(feature = "transactions")]
     RouterCommand::Transaction {
       commands,
       watched,

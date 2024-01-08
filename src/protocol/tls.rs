@@ -11,16 +11,12 @@ use crate::error::RedisErrorKind;
 #[cfg(feature = "enable-native-tls")]
 use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "enable-native-tls")]
-pub use tokio_native_tls::native_tls;
-#[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
   TlsConnector as NativeTlsConnector,
   TlsConnectorBuilder as NativeTlsConnectorBuilder,
 };
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
-#[cfg(feature = "enable-rustls")]
-pub use tokio_rustls::rustls;
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::rustls::{Certificate, ClientConfig as RustlsClientConfig, RootCertStore};
 #[cfg(feature = "enable-rustls")]
@@ -100,7 +96,7 @@ impl Eq for TlsHostMapping {}
 /// # use fred::types::*;
 /// let config = TlsConfig {
 ///   // or use `TlsConnector::default_rustls()`
-///   connector: TlsConnector::default_native_tls(),
+///   connector: TlsConnector::default_native_tls().unwrap(),
 ///   hostnames: TlsHostMapping::None
 /// };
 ///

@@ -2,9 +2,8 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, RedisCommand, RouterReceiver},
+    command::{RedisCommand, RouterReceiver},
     connection::{self, CommandBuffer, Counters, RedisWriter},
-    responders::ResponseKind,
     types::{ClusterRouting, Server},
   },
   trace,
@@ -19,10 +18,13 @@ use std::{
   sync::Arc,
   time::Duration,
 };
-use tokio::sync::oneshot::channel as oneshot_channel;
 
+#[cfg(feature = "transactions")]
+use crate::{protocol::command::ClusterErrorKind, protocol::responders::ResponseKind};
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
+#[cfg(feature = "transactions")]
+use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub mod centralized;
 pub mod clustered;
@@ -31,9 +33,11 @@ pub mod reader;
 pub mod replicas;
 pub mod responses;
 pub mod sentinel;
-pub mod transactions;
 pub mod types;
 pub mod utils;
+
+#[cfg(feature = "transactions")]
+pub mod transactions;
 
 #[cfg(feature = "replicas")]
 use crate::router::replicas::Replicas;
@@ -527,6 +531,7 @@ impl Router {
   }
 
   /// Read the server that should receive the provided command.
+  #[cfg(feature = "transactions")]
   pub fn find_connection(&self, command: &RedisCommand) -> Option<&Server> {
     match self.connections {
       Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.server),
@@ -907,6 +912,7 @@ impl Router {
   ///
   /// * Synchronizes the cached cluster state in response to MOVED
   /// * Connects and sends ASKING to the provided server in response to ASKED
+  #[cfg(feature = "transactions")]
   pub async fn cluster_redirection(
     &mut self,
     kind: &ClusterErrorKind,
