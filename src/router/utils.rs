@@ -505,8 +505,22 @@ pub async fn next_frame(
   buffer: &SharedBuffer,
 ) -> Result<Option<ProtocolFrame>, RedisError> {
   if let Some(ref max_resp_latency) = inner.connection.unresponsive.max_timeout {
-    // TODO better documentation for this
-    // worst case is that we wait an extra `interval` ms
+    // These shenanigans were implemented in an attempt to strike a balance between a few recent changes.
+    //
+    // The entire request-response path can be lock-free if we use crossbeam-queue types under the shared buffer
+    // between socket halves, but these types do not support `peek` or `push_front`. Unfortunately this really limits
+    // or prevents most forms of conditional `pop_front` use cases. There are 3-4 places in the code where this
+    // matters, and this is one of them.
+    //
+    // The `UnresponsiveConfig` interface implements a heuristic where callers can express that a connection should be
+    // considered unresponsive if a command waits too long for a response. Before switching to crossbeam types we used
+    // a `Mutex<VecDeque>` container which made this scenario easier to implement, but with crossbeam types it's more
+    // complicated.
+    //
+    // The approach here implements a ~~hack~~ heuristic where we measure the time since first noticing a new
+    // frame in the shared buffer from the reader task perspective. This only works because we use `Stream::next`
+    // which is noted to be cancellation-safe in the tokio::select! docs. With this implementation the worst case
+    // error margin is an extra `interval`
 
     let mut last_frame_sent: Option<Instant> = None;
     loop {
@@ -529,6 +543,7 @@ pub async fn next_frame(
           // unwrap checked above
           let latency = Instant::now().saturating_duration_since(last_frame_sent.clone().unwrap());
           if latency > *max_resp_latency {
+            // TODO make sure we're not blocked here. or check this above and continue earlier?
             _warn!(inner, "Unresponsive connection to {} after {:?}", server, latency);
             inner.notifications.broadcast_unresponsive(server.clone());
             return Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))

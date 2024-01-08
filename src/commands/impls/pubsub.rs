@@ -90,10 +90,6 @@ pub async fn ssubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) ->
 }
 
 pub async fn sunsubscribe<C: ClientLike>(client: &C, channels: MultipleStrings) -> Result<(), RedisError> {
-  // TODO
-  // if clustered and channels is empty then send to all cluster nodes
-  // else send once based on first key
-
   let args = channels.inner().into_iter().map(|c| c.into()).collect();
   let mut command = RedisCommand::new(RedisCommandKind::Sunsubscribe, args);
   command.hasher = ClusterHash::FirstKey;
