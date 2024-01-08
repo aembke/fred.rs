@@ -10,6 +10,9 @@ do
   fi
 done
 
+# can't use --all-features here since that enables the TLS features and redis-json tests, which each require a
+# different server configuration. the `cluster-tls.sh` and `cluster-rustls.sh` scripts can be used to test
+# those features individually.
 FEATURES="network-logs custom-reconnect-errors serde-json blocking-encoding
           full-tracing monitor metrics sentinel-client subscriber-client dns debug-ids
           replicas client-tracking codec sha-1 transactions"

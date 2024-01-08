@@ -23,7 +23,6 @@ use std::{
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::connection::SharedBuffer;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
 #[cfg(feature = "metrics")]
@@ -450,38 +449,6 @@ pub fn respond_to_caller(
   let _ = tx.send(Ok(frame));
   command.respond_to_router(inner, RouterResponse::Continue);
   Ok(())
-}
-
-/// Read the oldest command from the buffer that should be associated with the current frame.
-// Special cases to consider:
-//
-// 1. Normally pubsub commands are not included in the shared buffer since their responses arrive somewhat
-//    out-of-band. However, `SSUBSCRIBE` can return redirection errors and the client is expected to follow these as
-//    it would with any other cluster command. To handle this the client includes these commands in the buffer and we
-//    decide whether to associate a redirection error here.
-pub fn pop_oldest_command(
-  inner: &Arc<RedisClientInner>,
-  buffer: &SharedBuffer,
-  frame: &Resp3Frame,
-) -> Option<RedisCommand> {
-  while let Some(command) = buffer.pop() {
-    if command.kind == RedisCommandKind::Ssubscribe {
-      if frame.is_moved_or_ask_error() {
-        // process the response like any other command that uses a request-response pattern
-        return Some(command);
-      } else {
-        // assume the shard subscription was successful and the response(s) will arrive out-of-band later. in this
-        // case the response frame we have now should be associated with the next frame, not this one.
-        _trace!(inner, "Dropping shard subscription command ({}).", command.debug_id());
-        command.finish(inner, Ok(Resp3Frame::Null));
-        continue;
-      }
-    } else {
-      return Some(command);
-    }
-  }
-
-  None
 }
 
 /// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in

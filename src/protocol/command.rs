@@ -1640,9 +1640,8 @@ impl RedisCommand {
   ///
   /// Currently the pubsub subscription commands (other than `SSUBSCRIBE`) all fall into this category since their
   /// responses arrive out-of-band.
-  ///
-  /// See [crate::protocol::responders::pop_oldest_command] for more information on why `SSUBSCRIBE` is not included
-  /// here.
+  // `SSUBSCRIBE` is not included here so that we can follow cluster redirections. this works as long as we never
+  // pipeline `SSUBSCRIBE`.
   pub fn has_no_responses(&self) -> bool {
     matches!(
       self.kind,

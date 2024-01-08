@@ -10,10 +10,11 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
-#[cfg(feature = "full-tracing")]
-use tracing_futures::Instrument;
+use crate::protocol::command::RedisCommandKind;
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
+#[cfg(feature = "full-tracing")]
+use tracing_futures::Instrument;
 
 /// Wait for the response from the reader task, handling cluster redirections if needed.
 ///
@@ -310,10 +311,19 @@ async fn process_pipeline(
   _debug!(inner, "Writing pipeline with {} commands", commands.len());
 
   for mut command in commands.into_iter() {
-    command.can_pipeline = true;
+    // trying to pipeline `SSUBSCRIBE` is problematic since successful responses arrive out-of-order via pubsub push
+    // frames, but error redirections are returned in-order and the client is expected to follow them. this makes it
+    // very difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
+    // never pipeline `ssubscribe`, even if the caller asks.
+    let force_pipeline = if command.kind == RedisCommandKind::Ssubscribe {
+      command.can_pipeline = false;
+      false
+    } else {
+      command.can_pipeline = true;
+      !command.is_all_cluster_nodes()
+    };
     command.skip_backpressure = true;
 
-    let force_pipeline = !command.is_all_cluster_nodes();
     if let Err(e) = write_with_backpressure_t(inner, router, command, force_pipeline).await {
       // if the command cannot be written it will be queued to run later.
       // if a connection is dropped due to an error the reader will send a command to reconnect and retry later.

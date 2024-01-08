@@ -8,14 +8,22 @@ use fred::{
   clients::RedisClient,
   error::RedisError,
   interfaces::*,
-  types::{PerformanceConfig, ReconnectPolicy, RedisConfig, ServerConfig},
+  types::{
+    Builder,
+    ConnectionConfig,
+    PerformanceConfig,
+    ReconnectPolicy,
+    RedisConfig,
+    Server,
+    ServerConfig,
+    UnresponsiveConfig,
+  },
 };
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future, time::Duration};
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::{Builder, ConnectionConfig, Server};
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
@@ -391,6 +399,10 @@ where
   let (mut config, perf) = create_redis_config(true, pipeline, resp3);
   connection.max_command_attempts = cmd_attempts;
   connection.max_redirections = 10;
+  connection.unresponsive = UnresponsiveConfig {
+    max_timeout: Some(Duration::from_secs(10)),
+    interval:    Duration::from_millis(400),
+  };
   config.fail_fast = fail_fast;
 
   let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
@@ -417,6 +429,10 @@ where
   let mut connection = ConnectionConfig::default();
   let (mut config, perf) = create_redis_config(false, pipeline, resp3);
   connection.max_command_attempts = cmd_attempts;
+  connection.unresponsive = UnresponsiveConfig {
+    max_timeout: Some(Duration::from_secs(10)),
+    interval:    Duration::from_millis(400),
+  };
   config.fail_fast = fail_fast;
 
   let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);

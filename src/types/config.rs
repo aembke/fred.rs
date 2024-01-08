@@ -387,7 +387,7 @@ pub struct UnresponsiveConfig {
   pub max_timeout: Option<Duration>,
   /// The frequency at which the client checks for unresponsive connections.
   ///
-  /// This value should usually be less than half of `max_timeout`.
+  /// This value should usually be less than half of `max_timeout` and always more than 1 ms.
   ///
   /// Default: 2 sec
   pub interval:    Duration,

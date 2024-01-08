@@ -45,6 +45,7 @@ use crate::{
 };
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 #[cfg(feature = "enable-rustls")]
 use std::{convert::TryInto, ops::Deref};
 #[cfg(feature = "unix-sockets")]
@@ -66,13 +67,15 @@ pub type CommandBuffer = Vec<RedisCommand>;
 /// A shared buffer across tasks.
 #[derive(Clone, Debug)]
 pub struct SharedBuffer {
-  inner: Arc<SegQueue<RedisCommand>>,
+  inner:   Arc<SegQueue<RedisCommand>>,
+  blocked: Arc<AtomicBool>,
 }
 
 impl SharedBuffer {
   pub fn new() -> Self {
     SharedBuffer {
-      inner: Arc::new(SegQueue::new()),
+      inner:   Arc::new(SegQueue::new()),
+      blocked: Arc::new(AtomicBool::new(false)),
     }
   }
 
@@ -88,7 +91,20 @@ impl SharedBuffer {
     self.inner.len()
   }
 
+  pub fn set_blocked(&self) {
+    utils::set_bool_atomic(&self.blocked, true);
+  }
+
+  pub fn set_unblocked(&self) {
+    utils::set_bool_atomic(&self.blocked, false);
+  }
+
+  pub fn is_blocked(&self) -> bool {
+    utils::read_bool_atomic(&self.blocked)
+  }
+
   pub fn drain(&self) -> Vec<RedisCommand> {
+    utils::set_bool_atomic(&self.blocked, false);
     let mut out = Vec::with_capacity(self.inner.len());
     while let Some(cmd) = self.inner.pop() {
       out.push(cmd);
@@ -1037,6 +1053,9 @@ impl RedisWriter {
       return;
     }
 
+    if cmd.blocks_connection() {
+      self.buffer.set_blocked();
+    }
     self.buffer.push(cmd);
   }
 

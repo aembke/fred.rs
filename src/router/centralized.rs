@@ -104,7 +104,7 @@ pub async fn process_response_frame(
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Parsing response frame from {}", server);
-  let mut command = match responders::pop_oldest_command(inner, buffer, &frame) {
+  let mut command = match buffer.pop() {
     Some(command) => command,
     None => {
       _debug!(
@@ -123,6 +123,9 @@ pub async fn process_response_frame(
     command.debug_id()
   );
   counters.decr_in_flight();
+  if command.blocks_connection() {
+    buffer.set_unblocked();
+  }
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
   if command.transaction_id.is_some() {

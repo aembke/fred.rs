@@ -520,35 +520,37 @@ pub async fn next_frame(
     // The approach here implements a ~~hack~~ heuristic where we measure the time since first noticing a new
     // frame in the shared buffer from the reader task perspective. This only works because we use `Stream::next`
     // which is noted to be cancellation-safe in the tokio::select! docs. With this implementation the worst case
-    // error margin is an extra `interval`
+    // error margin is an extra `interval`.
 
     let mut last_frame_sent: Option<Instant> = None;
-    loop {
+    'outer: loop {
       tokio::select! {
-        // poll the connection first since that should always be ready first under normal circumstances
+        // prefer polling the connection first
         biased;
-        // TODO make sure this doesn't drop frames
-        // should be able to test w/ blocking commands > the sleep interval
         frame = conn.try_next() => return frame,
 
         // repeatedly check the duration since we first noticed a pending frame
         _ = sleep(inner.connection.unresponsive.interval) => {
           _trace!(inner, "Checking unresponsive connection to {}", server);
-          if buffer.len() == 0 {
+
+          // continue early if the buffer is empty or we're waiting on a blocking command. this isn't ideal, but
+          // this strategy just doesn't work well with blocking commands.
+          let buffer_len = buffer.len();
+          if buffer_len == 0 || buffer.is_blocked() {
             last_frame_sent = None;
-            continue;
-          } else if last_frame_sent.is_none() {
+            continue 'outer;
+          } else if buffer_len > 0 && last_frame_sent.is_none() {
+            _trace!(inner, "Observed new request frame in unresponsive loop");
             last_frame_sent = Some(Instant::now());
           }
-          // unwrap checked above
-          let latency = Instant::now().saturating_duration_since(last_frame_sent.clone().unwrap());
-          if latency > *max_resp_latency {
-            // TODO make sure we're not blocked here. or check this above and continue earlier?
-            _warn!(inner, "Unresponsive connection to {} after {:?}", server, latency);
-            inner.notifications.broadcast_unresponsive(server.clone());
-            return Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
-          }else{
-            continue;
+
+          if let Some(ref last_frame_sent) = last_frame_sent {
+            let latency = Instant::now().saturating_duration_since(*last_frame_sent);
+            if latency > *max_resp_latency {
+              _warn!(inner, "Unresponsive connection to {} after {:?}", server, latency);
+              inner.notifications.broadcast_unresponsive(server.clone());
+              return Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
+            }
           }
         },
       }

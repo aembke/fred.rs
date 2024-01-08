@@ -172,8 +172,10 @@ fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
   }
 }
 
+// `SSUBSCRIBE` is intentionally not included so that we can handle MOVED errors. this works as long as we never
+// pipeline ssubscribe calls.
 fn is_subscribe_prefix(s: &str) -> bool {
-  s == "subscribe" || s == "psubscribe" || s == "ssubscribe"
+  s == "subscribe" || s == "psubscribe"
 }
 
 fn is_unsubscribe_prefix(s: &str) -> bool {
@@ -230,7 +232,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
     #[allow(clippy::let_unit_value)]
-    let _ = span.enter();
+    let _guard = span.enter();
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   } else {
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
@@ -258,6 +260,8 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   None
 }
 
+// TODO cleanup and rename
+// this is called by the reader task after a blocking command finishes in order to mark the connection as unblocked
 pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command: &RedisCommand) {
   if command.blocks_connection() {
     inner.backchannel.write().await.set_unblocked();
