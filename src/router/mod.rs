@@ -928,7 +928,7 @@ impl Router {
     if *kind == ClusterErrorKind::Moved {
       let should_sync = self
         .inner
-        .with_cluster_state(|state| Ok(state.get_server(slot).map(|owner| server == owner).unwrap_or(true)))
+        .with_cluster_state(|state| Ok(state.get_server(slot).map(|owner| server != owner).unwrap_or(true)))
         .unwrap_or(true);
 
       if should_sync {
