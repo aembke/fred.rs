@@ -1,3 +1,15 @@
+## 7.1.1
+
+* Fix cluster failover in transactions
+
+## 7.1.0
+
+* Fix panic when reconnect delay jitter is 0
+* Support percent encoding in URLs
+* Support tuples for `RedisValue` and `MultipleKeys`
+* Make `CLIENT ID` checks optional
+* Update dependencies
+
 ## 7.0.0
 
 * Added a new client [builder](src/types/builder.rs) and configuration interface.
