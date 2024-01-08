@@ -1,7 +1,10 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::let_underscore_future)]
 
-use fred::prelude::*;
+use fred::{
+  prelude::*,
+  types::{BackpressureConfig, BackpressurePolicy, UnresponsiveConfig},
+};
 use std::time::Duration;
 
 #[tokio::main]
@@ -10,6 +13,13 @@ async fn main() -> Result<(), RedisError> {
     .with_performance_config(|config| {
       config.max_feed_count = 1000;
       config.auto_pipeline = true;
+      config.broadcast_channel_capacity = 48;
+      // allow up to 5000 in-flight commands per connection
+      config.backpressure = BackpressureConfig {
+        disable_auto_backpressure: false,
+        max_in_flight_commands: 5000,
+        policy: BackpressurePolicy::Drain,
+      }
     })
     .with_connection_config(|config| {
       config.tcp = TcpConfig {
@@ -20,6 +30,13 @@ async fn main() -> Result<(), RedisError> {
       config.max_redirections = 5;
       config.internal_command_timeout = Duration::from_secs(2);
       config.connection_timeout = Duration::from_secs(10);
+      // check every 3 seconds for connections that have been waiting on a response for more than 10 seconds
+      config.unresponsive = UnresponsiveConfig {
+        max_timeout: Some(Duration::from_secs(10)),
+        interval: Duration::from_secs(3)
+      };
+      config.auto_client_setname = true;
+      config.reconnect_on_auth_error = true;
     })
     // use exponential backoff, starting at 100 ms and doubling on each failed attempt up to 30 sec
     .set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2))
@@ -63,9 +80,23 @@ async fn main() -> Result<(), RedisError> {
   pipeline.get("bar").await?;
   let (_, _): (Option<i64>, Option<i64>) = pipeline.all().await?;
 
+  // reuse pipelines
+  let pipeline = client.pipeline();
+  pipeline.incr("foo").await?;
+  pipeline.incr("foo").await?;
+  assert_eq!(pipeline.last::<i64>().await?, 2);
+  assert_eq!(pipeline.last::<i64>().await?, 4);
+  assert_eq!(pipeline.last::<i64>().await?, 6);
+
   // interact with specific cluster nodes
   if client.is_clustered() {
-    let connections = client.active_connections().await?;
+    // discover connections via the active connection map
+    let _connections = client.active_connections().await?;
+    // or use the cached cluster state from `CLUSTER SLOTS`
+    let connections = client
+      .cached_cluster_state()
+      .map(|state| state.unique_primary_nodes())
+      .unwrap_or_default();
 
     for server in connections.into_iter() {
       let info: String = client.with_cluster_node(&server).client_info().await?;

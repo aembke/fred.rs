@@ -42,10 +42,10 @@ async fn main() -> Result<(), RedisError> {
   client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
 
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

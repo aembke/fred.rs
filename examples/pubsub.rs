@@ -15,8 +15,8 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = publisher_client.connect();
   let _ = subscriber_client.connect();
-  let _ = publisher_client.wait_for_connect().await?;
-  let _ = subscriber_client.wait_for_connect().await?;
+  publisher_client.wait_for_connect().await?;
+  subscriber_client.wait_for_connect().await?;
 
   let subscribe_task = tokio::spawn(async move {
     let mut message_stream = subscriber_client.on_message();
@@ -44,7 +44,7 @@ async fn main() -> Result<(), RedisError> {
 async fn subscriber_example() -> Result<(), RedisError> {
   let subscriber = Builder::default_centralized().build_subscriber_client()?;
   let _ = subscriber.connect();
-  let _ = subscriber.wait_for_connect().await?;
+  subscriber.wait_for_connect().await?;
 
   let mut message_stream = subscriber.on_message();
   let _ = tokio::spawn(async move {

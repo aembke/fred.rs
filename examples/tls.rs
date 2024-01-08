@@ -43,7 +43,7 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {
-    println!("Client failed to connect with error: {:?}", error);
+    panic!("Client failed to connect with error: {:?}", error);
   }
 
   // ...

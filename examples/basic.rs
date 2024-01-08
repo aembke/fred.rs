@@ -1,7 +1,10 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::let_underscore_future)]
 
-use fred::{prelude::*, types::RespVersion};
+use fred::{
+  prelude::*,
+  types::{InfoKind::Default, RespVersion},
+};
 #[cfg(feature = "partial-tracing")]
 use fred::{tracing::Level, types::TracingConfig};
 
@@ -27,6 +30,7 @@ async fn main() -> Result<(), RedisError> {
       #[cfg(feature = "full-tracing")]
       full_tracing_level:                                  Level::DEBUG,
     },
+    ..Default::default()
   };
   // see the Builder interface for more information
   let _client = Builder::from_config(config).build()?;

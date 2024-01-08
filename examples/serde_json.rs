@@ -17,7 +17,7 @@ struct Person {
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let value = json!({
     "foo": "a",

@@ -8,7 +8,7 @@ use tokio::time::sleep;
 async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisError> {
   // use a new client since the provided client is subscribed to keyspace events
   let client = client.clone_new();
-  client.connect();
+  let _ = client.connect();
   client.wait_for_connect().await?;
 
   for idx in 0 .. amount {
