@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 
 #[cfg(feature = "client-tracking")]
 use crate::interfaces::TrackingInterface;
+use crate::util::group_by_hash_slot;
 
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 
@@ -321,9 +322,14 @@ impl SubscriberClient {
     let patterns: Vec<RedisKey> = self.tracked_patterns().into_iter().map(|s| s.into()).collect();
     let shard_channels: Vec<RedisKey> = self.tracked_shard_channels().into_iter().map(|s| s.into()).collect();
 
-    let _: () = self.subscribe(channels).await?;
-    let _: () = self.psubscribe(patterns).await?;
-    let _: () = self.ssubscribe(shard_channels).await?;
+    self.subscribe(channels).await?;
+    self.psubscribe(patterns).await?;
+
+    let shard_channel_groups = group_by_hash_slot(shard_channels)?;
+    for (_, keys) in shard_channel_groups.into_iter() {
+      // the client never pipelines this so no point in using join! or a pipeline here
+      self.ssubscribe(keys).await?;
+    }
 
     Ok(())
   }
@@ -345,8 +351,14 @@ impl SubscriberClient {
 
     let _ = self.unsubscribe(channels).await?;
     let _ = self.punsubscribe(patterns).await?;
-    let _ = self.sunsubscribe(shard_channels).await?;
 
+    let shard_channel_groups = group_by_hash_slot(shard_channels)?;
+    let shard_subscriptions: Vec<_> = shard_channel_groups
+      .into_iter()
+      .map(|(_, keys)| async { self.sunsubscribe(keys).await })
+      .collect();
+
+    futures::future::try_join_all(shard_subscriptions).await?;
     Ok(())
   }
 

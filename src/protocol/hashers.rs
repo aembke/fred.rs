@@ -1,7 +1,7 @@
 use crate::types::RedisValue;
 use redis_protocol::redis_keyslot;
 
-fn hash_value(value: &RedisValue) -> Option<u16> {
+pub fn hash_value(value: &RedisValue) -> Option<u16> {
   Some(match value {
     RedisValue::String(s) => redis_keyslot(s.as_bytes()),
     RedisValue::Bytes(b) => redis_keyslot(b),

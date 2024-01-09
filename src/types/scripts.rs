@@ -21,12 +21,16 @@ use std::{
 ///
 /// ```rust no_run
 /// # use fred::types::Script;
-/// let script = Script::from_lua("return ARGV[1]");
-/// assert_eq!(script.sha1(), "098e0f0d1448c0a81dafe820f66d460eb09263da");
+/// # use fred::prelude::*;
+/// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+///   let script = Script::from_lua("return ARGV[1]");
+///   assert_eq!(script.sha1(), "098e0f0d1448c0a81dafe820f66d460eb09263da");
 ///
-/// let _ = script.load(client).await?;
-/// let result: String = script.evalsha(client, "key", "arg").await?;
-/// assert_eq!(result, "arg");
+///   let _ = script.load(client).await?;
+///   let result: String = script.evalsha(client, "key", "arg").await?;
+///   assert_eq!(result, "arg");
+///   Ok(())
+/// }
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Script {

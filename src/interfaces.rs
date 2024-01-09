@@ -368,10 +368,32 @@ where
   })
 }
 
-/// An interface that exposes various connection events.
+/// An interface that exposes various client and connection events.
 ///
-/// Calling [quit](crate::interfaces::ClientLike::quit) will exit or close all event streams.
+/// Calling [quit](crate::interfaces::ClientLike::quit) will close all event streams.
 pub trait EventInterface: ClientLike {
+  /// Spawn a task that runs the provided function on each publish-subscribe message.
+  ///
+  /// See [message_rx](Self::message_rx) for more information.
+  fn on_message<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(Message) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.message_rx();
+    spawn_event_listener(rx, func)
+  }
+
+  /// Spawn a task that runs the provided function on each keyspace event.
+  ///
+  /// <https://redis.io/topics/notifications>
+  fn on_keyspace_event<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(KeyspaceEvent) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.keyspace_event_rx();
+    spawn_event_listener(rx, func)
+  }
+
   /// Spawn a task that runs the provided function on each reconnection event.
   ///
   /// Errors returned by `func` will exit the task.
@@ -414,7 +436,7 @@ pub trait EventInterface: ClientLike {
     spawn_event_listener(rx, func)
   }
 
-  /// Spawn one task that listens for all event types.
+  /// Spawn one task that listens for all connection management event types.
   ///
   /// Errors in any of the provided functions will exit the task.
   fn on_any<Fe, Fr, Fc>(&self, error_fn: Fe, reconnect_fn: Fr, cluster_change_fn: Fc) -> JoinHandle<RedisResult<()>>
@@ -456,6 +478,27 @@ pub trait EventInterface: ClientLike {
 
       result
     })
+  }
+
+  /// Listen for messages on the publish-subscribe interface.
+  ///
+  /// **Keyspace events are not sent on this interface.**
+  ///
+  /// If the connection to the Redis server closes for any reason this function does not need to be called again.
+  /// Messages will start appearing on the original stream after
+  /// [subscribe](crate::interfaces::PubsubInterface::subscribe) is called again.
+  fn message_rx(&self) -> BroadcastReceiver<Message> {
+    self.inner().notifications.pubsub.load().subscribe()
+  }
+
+  /// Listen for keyspace and keyevent notifications on the publish-subscribe interface.
+  ///
+  /// Callers still need to configure the server and subscribe to the relevant channels, but this interface will
+  /// parse and format the messages automatically.
+  ///
+  /// <https://redis.io/topics/notifications>
+  fn keyspace_event_rx(&self) -> BroadcastReceiver<KeyspaceEvent> {
+    self.inner().notifications.keyspace.load().subscribe()
   }
 
   /// Listen for reconnection notifications.
@@ -517,3 +560,4 @@ pub use crate::commands::interfaces::sentinel::SentinelInterface;
 pub use crate::commands::interfaces::tracking::TrackingInterface;
 #[cfg(feature = "transactions")]
 pub use crate::commands::interfaces::transactions::TransactionInterface;
+use crate::types::{KeyspaceEvent, Message};

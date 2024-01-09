@@ -77,7 +77,9 @@ pub mod codec {
 /// Utility functions used by the client that may also be useful to callers.
 pub mod util {
   pub use crate::utils::{f64_to_redis_string, redis_string_to_f64, static_bytes, static_str};
+  use crate::{error::RedisError, types::RedisKey};
   pub use redis_protocol::redis_keyslot;
+  use std::collections::{BTreeMap, VecDeque};
 
   /// A convenience constant for `None` values used as generic arguments.
   ///
@@ -96,6 +98,42 @@ pub mod util {
     let mut hasher = sha1::Sha1::new();
     hasher.update(input.as_bytes());
     format!("{:x}", hasher.finalize())
+  }
+
+  /// Group the provided arguments by their cluster hash slot.
+  ///
+  /// This can be useful with commands that require all keys map to the same hash slot, such as `SSUBSCRIBE`,
+  /// `MGET`, etc.
+  ///
+  /// ```rust
+  /// # use fred::prelude::*;
+  /// async fn example(client: impl KeysInterface) -> Result<(), RedisError> {
+  ///   let keys = vec!["foo", "bar", "baz", "a{1}", "b{1}", "c{1}"];
+  ///   let groups = fred::util::group_by_hash_slot(keys)?;
+  ///
+  ///   for (slot, keys) in groups.into_iter() {
+  ///     // `MGET` requires that all arguments map to the same hash slot
+  ///     println!("{:?}", client.mget::<Vec<String>, _>(keys).await?);
+  ///   }
+  ///   Ok(())
+  /// }
+  /// ```
+  pub fn group_by_hash_slot<T>(
+    args: impl IntoIterator<Item = T>,
+  ) -> Result<BTreeMap<u16, VecDeque<RedisKey>>, RedisError>
+  where
+    T: TryInto<RedisKey>,
+    T::Error: Into<RedisError>,
+  {
+    let mut out = BTreeMap::new();
+
+    for arg in args.into_iter() {
+      let arg: RedisKey = to!(arg)?;
+      let slot = redis_keyslot(arg.as_bytes());
+
+      out.entry(slot).or_insert(VecDeque::new()).push_back(arg);
+    }
+    Ok(out)
   }
 }
 

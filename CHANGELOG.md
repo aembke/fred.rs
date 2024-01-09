@@ -6,21 +6,22 @@ AFIT will be added in 8.1.0 alongside the associated MSRV update. Any important 
 * Support unix domain sockets.
 * Improve unresponsive connection checks.
 * Move several feature flags to configuration options.
-* Add benchmarking tool [TODO link]
-* Update to Rustls 0.22.1 
+* Add benchmarking tool
+* Update to Rustls 0.22
 
 ### Upgrading from 7.x
 
 Notable changes:
 
 * Several configuration options were moved from `globals` to `ConnectionConfig` and `PerformanceConfig`. 
-* Several feature flags were moved to various configuration interfaces, including:
+* Several feature flags were moved to configuration fields, including:
   * `ignore-auth-error`
   * `pool-prefer-active`
   * `reconnect-on-auth-error`
   * `auto-client-setname`
+* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. 
 
-Maybe notable:
+Maybe notable changes:
 
 The old implementation was mostly lock-free on all the "hot" code paths, but with one exception - the command queue/buffer used to implement pipelining must be shared between the reader and writer halves of a socket, but these are owned by different Tokio tasks.
 
