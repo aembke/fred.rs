@@ -57,7 +57,20 @@ where
 
 /// Send a `RouterCommand` to the router.
 pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
-  inner.counters.incr_cmd_buffer_len();
+  let new_len = inner.counters.incr_cmd_buffer_len();
+  let should_apply_backpressure = inner.connection.max_command_buffer_len > 0
+    && new_len > inner.connection.max_command_buffer_len
+    && !command.should_skip_backpressure();
+
+  if should_apply_backpressure {
+    inner.counters.decr_cmd_buffer_len();
+    command.finish_with_error(RedisError::new(
+      RedisErrorKind::Backpressure,
+      "Max command queue length exceeded.",
+    ));
+    return Ok(());
+  }
+
   if let Err(e) = inner.command_tx.load().send(command) {
     // usually happens if the caller tries to send a command before calling `connect` or after calling `quit`
     inner.counters.decr_cmd_buffer_len();

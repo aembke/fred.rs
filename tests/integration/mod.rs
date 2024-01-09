@@ -12,6 +12,7 @@ mod keys;
 mod lists;
 mod lua;
 mod memory;
+#[cfg(feature = "transactions")]
 mod multi;
 mod other;
 mod pool;

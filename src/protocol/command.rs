@@ -1910,6 +1910,44 @@ pub enum RouterCommand {
 }
 
 impl RouterCommand {
+  /// Whether the client should skip backpressure on the command buffer when sending this command.
+  pub fn should_skip_backpressure(&self) -> bool {
+    match *self {
+      RouterCommand::Moved { .. }
+      | RouterCommand::Ask { .. }
+      | RouterCommand::SyncCluster { .. }
+      | RouterCommand::Connections { .. } => true,
+      _ => false,
+    }
+  }
+
+  /// Finish the command early with the provided error.
+  pub fn finish_with_error(self, error: RedisError) {
+    match self {
+      RouterCommand::Command(mut command) => {
+        command.respond_to_caller(Err(error));
+      },
+      RouterCommand::Pipeline { commands } => {
+        for mut command in commands.into_iter() {
+          command.respond_to_caller(Err(error.clone()));
+        }
+      },
+      RouterCommand::Transaction { tx, .. } => {
+        if let Err(_) = tx.send(Err(error)) {
+          warn!("Error responding early to transaction.");
+        }
+      },
+      RouterCommand::Reconnect { tx, .. } => {
+        if let Some(tx) = tx {
+          if let Err(_) = tx.send(Err(error)) {
+            warn!("Error responding early to reconnect command.");
+          }
+        }
+      },
+      _ => {},
+    }
+  }
+
   /// Inherit settings from the configuration structs on `inner`.
   pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
     match self {

@@ -10,9 +10,9 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
-use crate::protocol::command::RedisCommandKind;
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
+use crate::{protocol::command::RedisCommandKind, types::Blocking};
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -220,9 +220,9 @@ async fn write_with_backpressure(
         if !flushed {
           let _ = router.check_and_flush().await;
         }
-        let should_interrupt = is_blocking
-          && inner.counters.read_cmd_buffer_len() > 0
-          && client_utils::has_blocking_interrupt_policy(inner);
+
+        let should_interrupt =
+          is_blocking && inner.counters.read_cmd_buffer_len() > 0 && inner.config.blocking == Blocking::Interrupt;
         if should_interrupt {
           // if there's other commands in the queue then interrupt the command that was just sent
           _debug!(inner, "Interrupt after write.");

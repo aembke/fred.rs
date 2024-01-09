@@ -29,6 +29,7 @@ mod keys {
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
+#[cfg(feature = "transactions")]
 mod multi {
 
   centralized_test!(multi, should_run_get_set_trx);

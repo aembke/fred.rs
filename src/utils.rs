@@ -318,19 +318,20 @@ where
   }
 }
 
-pub fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
-  inner.config.blocking == Blocking::Error
-}
-
 pub fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
   inner.config.blocking == Blocking::Interrupt
 }
 
 /// Whether the router should check and interrupt the blocked command.
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
-  !command.kind.closes_connection()
-    && ((inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
-      && inner.backchannel.read().await.is_blocked())
+  if command.kind.closes_connection() {
+    return false;
+  }
+  if matches!(inner.config.blocking, Blocking::Error | Blocking::Interrupt) {
+    inner.backchannel.read().await.is_blocked()
+  } else {
+    false
+  }
 }
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
@@ -377,12 +378,12 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
       command.kind.to_str_debug()
     );
 
-    if has_blocking_error_policy(inner) {
+    if inner.config.blocking == Blocking::Error {
       return Err(RedisError::new(
         RedisErrorKind::InvalidCommand,
         "Error sending command while connection is blocked.",
       ));
-    } else if has_blocking_interrupt_policy(inner) {
+    } else if inner.config.blocking == Blocking::Interrupt {
       if let Err(e) = interrupt_blocked_connection(inner, ClientUnblockFlag::Error).await {
         _error!(inner, "Failed to interrupt blocked connection: {:?}", e);
       }

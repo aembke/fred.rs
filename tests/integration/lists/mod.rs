@@ -24,8 +24,7 @@ pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<
   publisher.wait_for_connect().await?;
 
   let jh = tokio::spawn(async move {
-    // for idx in 0 .. COUNT {
-    for idx in 0 .. 3 {
+    for idx in 0 .. COUNT {
       let mut result: Vec<RedisValue> = client.blpop("foo", 30.0).await?;
       assert_eq!(result.pop().unwrap().as_i64().unwrap(), idx);
     }
@@ -33,8 +32,7 @@ pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<
     Ok::<_, RedisError>(())
   });
 
-  // for idx in 0 .. COUNT {
-  for idx in 0 .. 3 {
+  for idx in 0 .. COUNT {
     // the assertion below checks the length of the list, so we have to make sure not to push faster than elements are
     // removed
     sleep(Duration::from_millis(1000)).await;

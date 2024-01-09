@@ -441,6 +441,14 @@ pub struct ConnectionConfig {
   ///
   /// Default: `false`
   pub auto_client_setname:        bool,
+  /// Limit the size of the internal in-memory command queue.
+  ///
+  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error.
+  ///
+  /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
+  ///
+  /// Default: `0` (unlimited)
+  pub max_command_buffer_len:     usize,
   /// Configuration options for replica nodes.
   ///
   /// Default: `None`
@@ -462,6 +470,7 @@ impl Default for ConnectionConfig {
       internal_command_timeout: Duration::from_millis(10_000),
       max_redirections: 5,
       max_command_attempts: 3,
+      max_command_buffer_len: 0,
       auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
       reconnect_on_auth_error: false,
