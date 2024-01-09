@@ -1,3 +1,6 @@
+// shh
+#![allow(warnings)]
+
 #[macro_use]
 extern crate clap;
 extern crate fred;
@@ -16,11 +19,11 @@ extern crate pretty_env_logger;
 #[cfg(any(feature = "partial-tracing", feature = "full-tracing", feature = "stdout-tracing"))]
 use fred::types::TracingConfig;
 
-use clap::{App, ArgMatches};
+use clap::App;
 use fred::{
   clients::RedisPool,
   prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, Builder as RedisBuilder, PerformanceConfig, Server},
+  types::{Builder as RedisBuilder, Server},
 };
 use indicatif::ProgressBar;
 use opentelemetry::{
@@ -34,13 +37,18 @@ use opentelemetry::{
 use opentelemetry_jaeger::JaegerTraceRuntime;
 use rand::{self, distributions::Alphanumeric, Rng};
 use std::{
+  alloc::System,
   default::Default,
+  env,
   sync::{atomic::AtomicUsize, Arc},
-  thread::{self, JoinHandle as ThreadJoinHandle},
-  time::Duration,
+  thread::{self},
+  time::{Duration, SystemTime},
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
 use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
+
+#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 
 static DEFAULT_COMMAND_COUNT: usize = 10_000;
 static DEFAULT_CONCURRENCY: usize = 10;
@@ -49,6 +57,17 @@ static DEFAULT_PORT: u16 = 6379;
 
 mod utils;
 
+#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+compile_error!("Cannot use both TLS feature flags.");
+
+fn read_auth_env() -> (Option<String>, Option<String>) {
+  let username = env::var_os("REDIS_USERNAME").and_then(|s| s.into_string().ok());
+  let password = env::var_os("REDIS_PASSWORD").and_then(|s| s.into_string().ok());
+
+  (username, password)
+}
+
+// TODO update clap
 #[derive(Debug)]
 struct Argv {
   pub cluster:  bool,
@@ -165,7 +184,7 @@ pub fn setup_tracing(enable: bool) {
 
   global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
   let jaeger_install = opentelemetry_jaeger::new_agent_pipeline()
-    .with_service_name("pipeline-test")
+    .with_service_name("fred-benchmark")
     .with_trace_config(
       trace::config()
         .with_sampler(sampler)
@@ -204,7 +223,13 @@ fn spawn_client_task(
       } else {
         expected += 1;
         let actual: i64 = client.incr(&key).await?;
-        // assert_eq!(actual, expected);
+        #[cfg(feature = "assert-expected")]
+        {
+          if actual != expected {
+            println!("Unexpected result: {} == {}", actual, expected);
+            std::process::exit(1);
+          }
+        }
       }
       if let Some(ref bar) = bar {
         bar.inc(1);
@@ -213,6 +238,22 @@ fn spawn_client_task(
 
     Ok::<_, RedisError>(())
   })
+}
+
+#[cfg(feature = "enable-rustls")]
+fn default_tls_config() -> TlsConfig {
+  TlsConfig {
+    connector: TlsConnector::default_rustls().unwrap(),
+    hostnames: TlsHostMapping::None,
+  }
+}
+
+#[cfg(feature = "enable-native-tls")]
+fn default_tls_config() -> TlsConfig {
+  TlsConfig {
+    connector: TlsConnector::default_native_tls().unwrap(),
+    hostnames: TlsHostMapping::None,
+  }
 }
 
 fn main() {
@@ -225,6 +266,7 @@ fn main() {
     setup_tracing(argv.tracing);
 
     let counter = Arc::new(AtomicUsize::new(0));
+    let (username, password) = read_auth_env();
     let config = RedisConfig {
       server: if argv.cluster {
         ServerConfig::Clustered {
@@ -233,7 +275,10 @@ fn main() {
       } else {
         ServerConfig::new_centralized(&argv.host, argv.port)
       },
-      password: argv.auth.clone(),
+      username,
+      password: argv.auth.clone().or(password),
+      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      tls: default_tls_config(),
       #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
       tracing: TracingConfig::new(argv.tracing),
       ..Default::default()
@@ -250,10 +295,10 @@ fn main() {
       .build_pool(argv.pool)?;
 
     info!("Connecting to {}:{}...", argv.host, argv.port);
-    let _ = pool.connect();
-    let _ = pool.wait_for_connect().await?;
+    pool.connect();
+    pool.wait_for_connect().await?;
     info!("Connected to {}:{}.", argv.host, argv.port);
-    let _ = pool.flushall_cluster().await?;
+    pool.flushall_cluster().await?;
 
     info!("Starting commands...");
     let mut tasks = Vec::with_capacity(argv.tasks);
@@ -263,7 +308,7 @@ fn main() {
       Some(ProgressBar::new(argv.count as u64))
     };
 
-    let started = Instant::now();
+    let started = SystemTime::now();
     for _ in 0 .. argv.tasks {
       tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
     }
@@ -272,20 +317,22 @@ fn main() {
       std::process::exit(1);
     }
 
-    let duration = Instant::now().duration_since(started);
+    let duration = SystemTime::now()
+      .duration_since(started)
+      .expect("Failed to calculate test duration.");
     let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
     if let Some(bar) = bar {
       bar.finish();
     }
 
     if argv.quiet {
-      println!("{}", (argv.count as f64 / duration_sec) as u32);
+      println!("{}", (argv.count as f64 / duration_sec) as u64);
     } else {
       println!(
         "Performed {} operations in: {:?}. Throughput: {} req/sec",
         argv.count,
         duration,
-        (argv.count as f64 / duration_sec) as u32
+        (argv.count as f64 / duration_sec) as u64
       );
     }
     let _ = pool.flushall_cluster().await?;

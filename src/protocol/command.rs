@@ -1932,6 +1932,7 @@ impl RouterCommand {
           command.respond_to_caller(Err(error.clone()));
         }
       },
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { tx, .. } => {
         if let Err(_) = tx.send(Err(error)) {
           warn!("Error responding early to transaction.");

@@ -318,10 +318,6 @@ where
   }
 }
 
-pub fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
-  inner.config.blocking == Blocking::Interrupt
-}
-
 /// Whether the router should check and interrupt the blocked command.
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
   if command.kind.closes_connection() {

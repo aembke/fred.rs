@@ -531,7 +531,7 @@ impl Router {
   }
 
   /// Read the server that should receive the provided command.
-  #[cfg(feature = "transactions")]
+  #[cfg(any(feature = "transactions", feature = "replicas"))]
   pub fn find_connection(&self, command: &RedisCommand) -> Option<&Server> {
     match self.connections {
       Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.server),

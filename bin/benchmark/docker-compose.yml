@@ -1,11 +1,11 @@
 version: '2'
 
 services:
-  pipeline-test:
+  fred-benchmark:
     depends_on:
       - redis-main
       - redis-cluster-6
-    container_name: "pipeline-test"
+    container_name: "fred-benchmark"
     build:
       context: ../../../
       dockerfile: tests/docker/runners/images/base.dockerfile
@@ -17,6 +17,6 @@ services:
       RUST_LOG: "${RUST_LOG}"
       REDIS_VERSION: "${REDIS_VERSION}"
     volumes:
-      - "../../../bin/pipeline_test:/project"
+      - "../../../bin/benchmark:/project"
       - "../../..:/fred"
       - "~/.cargo/registry:/usr/local/cargo/registry"
