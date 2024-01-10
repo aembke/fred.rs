@@ -18,16 +18,9 @@ async fn main() -> Result<(), RedisError> {
   publisher_client.wait_for_connect().await?;
   subscriber_client.wait_for_connect().await?;
 
-  let subscribe_task = tokio::spawn(async move {
-    let mut message_stream = subscriber_client.on_message();
-
-    while let Ok(message) = message_stream.recv().await {
-      println!(
-        "Recv {} on channel {}",
-        message.value.convert::<i64>()?,
-        message.channel
-      );
-    }
+  // or use `message_rx()` to use the underlying `BroadcastReceiver` directly without spawning a new task
+  let message_task = subscriber_client.on_message(|message| {
+    println!("{}: {}", message.channel, message.value.convert::<i64>()?);
     Ok::<_, RedisError>(())
   });
 
@@ -36,7 +29,9 @@ async fn main() -> Result<(), RedisError> {
     sleep(Duration::from_secs(1)).await;
   }
 
-  let _ = subscribe_task.abort();
+  publisher_client.quit().await?;
+  subscriber_client.quit().await?;
+  let _ = message_task.await;
   Ok(())
 }
 
@@ -46,8 +41,9 @@ async fn subscriber_example() -> Result<(), RedisError> {
   let _ = subscriber.connect();
   subscriber.wait_for_connect().await?;
 
-  let mut message_stream = subscriber.on_message();
-  let _ = tokio::spawn(async move {
+  // or use the `on_message` shorthand
+  let mut message_stream = subscriber.message_rx();
+  let subscriber_task = tokio::spawn(async move {
     while let Ok(message) = message_stream.recv().await {
       println!("Recv {:?} on channel {}", message.value, message.channel);
     }
@@ -56,23 +52,26 @@ async fn subscriber_example() -> Result<(), RedisError> {
   });
 
   // spawn a task to sync subscriptions whenever the client reconnects
-  let _ = subscriber.manage_subscriptions();
+  let resubscribe_task = subscriber.manage_subscriptions();
 
-  let _ = subscriber.subscribe("foo").await?;
-  let _ = subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
-  let _ = subscriber.ssubscribe("abc{123}").await?;
+  subscriber.subscribe("foo").await?;
+  subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
+  subscriber.ssubscribe("abc{123}").await?;
   // upon reconnecting the client will automatically re-subscribe to the above channels and patterns
   println!("Subscriber channels: {:?}", subscriber.tracked_channels()); // "foo"
   println!("Subscriber patterns: {:?}", subscriber.tracked_patterns()); // "bar*", "baz*"
   println!("Subscriber shard channels: {:?}", subscriber.tracked_shard_channels()); // "abc{123}"
 
-  let _ = subscriber.unsubscribe("foo").await?;
+  subscriber.unsubscribe("foo").await?;
   // now it will only re-subscribe to "bar*", "baz*", and "abc{123}" after reconnecting
 
   // force a re-subscription call to all channels or patterns
-  let _ = subscriber.resubscribe_all().await?;
+  subscriber.resubscribe_all().await?;
   // unsubscribe from all channels and patterns
-  let _ = subscriber.unsubscribe_all().await?;
-  let _ = subscriber.quit().await;
+  subscriber.unsubscribe_all().await?;
+
+  subscriber.quit().await?;
+  let _ = subscriber_task.await;
+  let _ = resubscribe_task.await;
   Ok(())
 }
