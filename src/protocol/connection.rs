@@ -814,7 +814,11 @@ impl RedisTransport {
 
     utils::apply_timeout(
       async {
-        self.switch_protocols_and_authenticate(inner).await?;
+        if inner.config.password.is_some() {
+          self.switch_protocols_and_authenticate(inner).await?;
+        } else {
+          self.ping(inner).await?;
+        }
         self.select_database(inner).await?;
         if inner.connection.auto_client_setname {
           self.set_client_name(inner).await?;

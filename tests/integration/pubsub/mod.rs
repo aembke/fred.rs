@@ -17,7 +17,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
   subscriber_client.subscribe(CHANNEL1).await?;
 
   let subscriber_jh = tokio::spawn(async move {
-    let mut message_stream = subscriber_client.on_message();
+    let mut message_stream = subscriber_client.message_rx();
 
     let mut count = 0;
     while count < NUM_MESSAGES {
@@ -54,7 +54,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   subscriber_client.psubscribe(channels.clone()).await?;
 
   let subscriber_jh = tokio::spawn(async move {
-    let mut message_stream = subscriber_client.on_message();
+    let mut message_stream = subscriber_client.message_rx();
 
     let mut count = 0;
     while count < NUM_MESSAGES {
@@ -88,7 +88,7 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   let connection = subscriber.connect();
   subscriber.wait_for_connect().await?;
   subscriber.subscribe(vec![CHANNEL1, CHANNEL2, CHANNEL3]).await?;
-  let mut message_stream = subscriber.on_message();
+  let mut message_stream = subscriber.message_rx();
 
   tokio::spawn(async move {
     while let Ok(message) = message_stream.recv().await {
