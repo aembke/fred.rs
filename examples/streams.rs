@@ -57,7 +57,7 @@ async fn main() {
     client.wait_for_connect().await?;
 
     // add values in groups of 2. this should create the following stream contents:
-    // [{"bar":"a","baz":"b"}, {"bar":"c","baz":"d"}, {"bar":"e","baz":"f"}, ...]
+    // [{"field1":"a","field2":"b"}, {"field1":"c","field2":"d"}, {"field1":"e","field2":"f"}, ...]
     for values in VALUES.chunks(2) {
       let id: Str = client
         .xadd("foo", false, None, "*", vec![
