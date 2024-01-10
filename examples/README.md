@@ -7,6 +7,7 @@ Examples
 * [Blocking](./blocking.rs) - Use multiple clients with the blocking list interface.
 * [Transactions](./transactions.rs) - Use the MULTI/EXEC interface on a client.
 * [Pipeline](./pipeline.rs) - Use the manual pipeline interface.
+* [Streams](./streams.rs) - Use `XADD` and `XREAD` to communicate between tasks. 
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
 * [Pool](./pool.rs) - Use a redis connection pool. 

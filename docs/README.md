@@ -13,6 +13,7 @@ Beyond the main README, if I were evaluating this library here's the quick list 
 * It does not support `no-std` builds.
 * Compile times could be better.
 * There's pretty good test coverage.
+* It will create 1 connection to each primary node in a cluster. Replica connections can also be created lazily.
 * It can use almost no additional memory. The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
 * The primary request-response happy path is entirely lock free, nor is the caller required to use one. It uses atomics and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. It's pretty fast.
 * It has good support for Elasticache.
