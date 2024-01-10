@@ -58,6 +58,7 @@ mod other {
   cluster_test!(other, should_support_options_with_pipeline);
   cluster_test!(other, should_reuse_pipeline);
   cluster_test!(other, should_manually_connect_twice);
+  #[cfg(feature = "transactions")]
   cluster_test!(other, should_support_options_with_trx);
 
   //#[cfg(feature = "dns")]

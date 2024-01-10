@@ -569,6 +569,7 @@ pub async fn should_reuse_pipeline(client: RedisClient, _: RedisConfig) -> Resul
   Ok(())
 }
 
+#[cfg(feature = "transactions")]
 pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let options = Options {
     max_attempts: Some(1),
