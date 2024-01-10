@@ -1,25 +1,25 @@
 Documentation
 =============
 
-Until version 8 most of the documentation for this library has been in the form of rustdocs or example modules. This unfortunately also means most of the client implementation lacks any kind of design doc. The documents in this folder provide a less formal but much more detailed overview of how the library is built. The intended audience is potential contributors, maintainers, or anybody looking to do a deeper technical evaluation. 
+Until version 8 most of the documentation for this library has been in the form of rustdocs or example modules. This unfortunately also means most of the client implementation lacks any kind of design doc. The documents in this folder provide a less formal but more detailed overview of how the library is built. The intended audience is potential contributors, maintainers, or anybody looking to do a deeper technical evaluation. 
 
 The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, but is targeted specifically at users that want to add new commands with as little friction as possible. These documents provide much more context.
 
 ## TLDR:
 
-Beyond the main README, here's a quick list of things to consider. 
+Beyond the main README, here's a quick list of things that potential users way want to consider. 
 
-* It only supports Tokio stacks.
+* It requires Tokio.
 * It does not support `no-std` builds.
 * Compile times could be better.
 * There's pretty good test coverage.
 * It can use almost no additional memory. The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
-* The primary request-response happy path is entirely lock free, nor is the caller required to use one. It uses atomics and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. It's pretty fast.
-* It has good support for Elasticache.
-* Starting in version 8 it has good support for certain cluster failure modes often seen in Kubernetes + Docker environments.
+* The primary request-response happy path is lock free, nor is the caller required to use one. The client uses Tokio message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. This creates a pleasant developer experience and is pretty fast. 
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
 * There's a fallback interface for sending any commands to the server. 
 * There's an optional lower level connection management interface.
+* It does not panic. If you find one I will patch it quickly.
+* It never logs input values. The `network-logs` feature can enable this if needed.
 * There are a ton of configuration options. Arguably too many. However, in my opinion it can be worthwhile to tune most of these settings.
 
 See the [benchmark](../bin/benchmark) folder for more info on performance testing.
@@ -28,14 +28,14 @@ See the [benchmark](../bin/benchmark) folder for more info on performance testin
 
 Fred was originally written to address a gap in the Redis + Rust ecosystem in 2016. At the time there was no module offering tokio-core 0.1 + futures 0.1 compatability, so fred grew into that space. As of writing there have been 8 major releases, largely just trying to keep in sync with big changes in the Rust language or ecosystem. This library predates even `impl Trait`, and the language has come a long ways since then. 
 
-Many of the design decisions described in these documents come from this one original use case. Broadly summarized:
+Many of the design decisions described in these documents come from this use case. Loosely summarized:
 
-* The app functions as a web or RPC server with an HTTP, gRPC, or AMQP interface on Tokio. 
-* The application is highly concurrent, can run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
-* I'm using a clustered Redis deployment on ElastiCache in production, a clustered deployment in Kubernetes in lower environments, and a centralized deployment when developing locally. This effectively means I don't want my application code coupled to the Redis deployment model. However, there are some cases where this is unavoidable, so I'd like the option do my own connection or server management if necessary.
-* I may switch Redis vendors or deployment models at any time. This can have a huge impact on network performance and reliability, and effectively means the client must handle all forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
-* In production big clustered deployments may scale horizontally at any time. This should never cause downtime or end user errors, but it's ok if it causes minor delays. I'd rather not have to handle all this in the app code.
-* I usually want the client to retry things (within reason) before reporting an error. I'd like configuration options to disable or tune all aspects of this retry process.
+* My application functions as a web or RPC server with an HTTP, gRPC, or AMQP interface on a mostly Tokio-based stack. 
+* My application is highly concurrent, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
+* I'm using a clustered Redis deployment on ElastiCache in production, a clustered deployment in Kubernetes in lower environments, and a centralized deployment when developing locally. This effectively means I don't want most of my application code coupled to the Redis deployment model. However, there are some cases where this is unavoidable, so I'd like the option do my own connection or server management if necessary.
+* I may switch Redis vendors or deployment models at any time. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
+* In production big clustered deployments may scale horizontally at any time. This should not cause downtime or end user errors, but it's ok if it causes minor delays. Ideally the client would handle this gracefully.
+* I usually want the client to retry things (within reason) before reporting an error. Configuration options to selectively disable or tune this would be nice. 
 * I need full control over the TLS configuration process. 
 
 If this list overlaps with your use case then `fred` may be a good option. Many of these aren't hard requirements, but the higher level common interfaces were designed with this list in mind.
@@ -46,15 +46,15 @@ For the most part the library uses message passing and dependency injection patt
 
 If you're not familiar with message passing in Rust I would strongly recommend reading [the Tokio docs](https://docs.rs/tokio/latest/tokio/sync/index.html#message-passing) first. 
 
-Here's a top-down way to visualize the communication patterns between Tokio tasks within `fred`. This diagram assumes we're targeting the use case described above. Sorry for this.
+Here's a top-down way to visualize the communication patterns between Tokio tasks within `fred` in the context of an Axum app. This diagram assumes we're targeting the use case described above. Sorry for this.
 
 * Blue boxes are Tokio tasks.
-* Green arrows share one [MPSC channel](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.unbounded_channel.html) per unique client.
+* Green arrows use a shared [MPSC channel](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.unbounded_channel.html).
 * Brown arrows use [oneshot channels](https://docs.rs/tokio/latest/tokio/sync/oneshot/index.html). Callers include their [oneshot sender](https://docs.rs/tokio/latest/tokio/sync/oneshot/struct.Sender.html) half in any messages they send via the green arrows.
 
 ![Bad Design Doc](./design.png)
 
-The shared state in this diagram is an `Arc<UnboundedSender>` that's shared between the Axum request tasks. Each of these tasks can write to the channel without acquiring a lock, minimizing contention that could slow down the application layer. At a high level all the public client types are thin wrappers around an `Arc<UnboundedSender>`. A `RedisPool` is a `Vec<Arc<UnboundedSender>>` with an additional atomic increment-mod-length trick in the mix. Cloning anything `ClientLike` usually just clones one of these `Arc`s.
+The shared state in this diagram is an `Arc<UnboundedSender>` that's shared between the Axum request tasks. Each of these tasks can write to the channel without acquiring a lock, minimizing contention that could slow down the application layer. At a high level all the public client types are thin wrappers around an `Arc<UnboundedSender>`. A `RedisPool` is really a `Arc<Vec<Arc<UnboundedSender>>>` with an additional atomic increment-mod-length trick in the mix. Cloning anything `ClientLike` usually just clones one of these `Arc`s.
 
 Generally speaking the router task simply sits in loop. 
 
@@ -69,21 +69,22 @@ async fn example(connections: &mut HashMap<Server, Connection>, rx: UnboundedRec
 }
 ```
 
-Commands are processed in series, and the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore most synchronization issues, and as a result it's much easier to reason about how features like reconnection should work.
+Commands are processed in series, and the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore most synchronization issues, and as a result it's much easier to reason about how features like reconnection should work. It's also much easier to implement socket flushing optimizations with this model. 
 
 However, this model has some drawbacks:
 * Once a command is in the `UnboundedSender` channel it's difficult to inspect or remove. There's no practical way to get any kind of random access into this.
 * It can be difficult to create a "fast lane" for "special" commands with this model. For example, forcing a reconnection should take precedence over a blocking command. This is more difficult to implement with this model.
-* Callers should at least be aware of this channel so that they're aware of how server failure modes can lead to increased memory usage. This makes it perhaps surprisingly important to properly tune reconnection or backpressure settings if memory is in short supply.
+* Callers should at least be aware of this channel so that they're aware of how server failure modes can lead to increased memory usage. This makes it perhaps surprisingly important to properly tune reconnection or backpressure settings, especially if memory is in short supply.
+* Some things that would ideally be synchronous must instead be asynchronous. For example, I've often wanted a synchronous interface to inspect active connections.
 
-As of 8.x there's a new `max_command_buffer_len` field that can be used as a circuit breaker to trigger backpressure if this buffer grows too large. However, as mentioned above I usually end up indirectly limiting this via some other mechanism (such as AMQP prefetch counts, rate limits, etc) instead.
+As of 8.x there's a new `max_command_buffer_len` field that can be used as a circuit breaker to trigger backpressure if this buffer grows too large. However, as mentioned above I usually prefer indirectly limiting this via some other mechanism (such as AMQP prefetch counts, rate limits, etc) instead.
 
 Similarly, the reader tasks also use a `recv` loop:
 
 ```rust
 async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(), RedisError> {
   while let Some(frame) = stream.try_next().await? {
-    // lots of complexity being skipped here
+    // the underlying shared buffer/queue is a crossbeam-queue `SegQueue`
     let command = state.get_oldest_command();
     // responding to oneshot channels only uses atomics and is not async, so this loop is quick
     command.respond_to_caller(frame);
