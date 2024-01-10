@@ -1912,13 +1912,13 @@ pub enum RouterCommand {
 impl RouterCommand {
   /// Whether the client should skip backpressure on the command buffer when sending this command.
   pub fn should_skip_backpressure(&self) -> bool {
-    match *self {
+    matches!(
+      *self,
       RouterCommand::Moved { .. }
-      | RouterCommand::Ask { .. }
-      | RouterCommand::SyncCluster { .. }
-      | RouterCommand::Connections { .. } => true,
-      _ => false,
-    }
+        | RouterCommand::Ask { .. }
+        | RouterCommand::SyncCluster { .. }
+        | RouterCommand::Connections { .. }
+    )
   }
 
   /// Finish the command early with the provided error.
@@ -1938,11 +1938,9 @@ impl RouterCommand {
           warn!("Error responding early to transaction.");
         }
       },
-      RouterCommand::Reconnect { tx, .. } => {
-        if let Some(tx) = tx {
-          if let Err(_) = tx.send(Err(error)) {
-            warn!("Error responding early to reconnect command.");
-          }
+      RouterCommand::Reconnect { tx: Some(tx), .. } => {
+        if let Err(_) = tx.send(Err(error)) {
+          warn!("Error responding early to reconnect command.");
         }
       },
       _ => {},

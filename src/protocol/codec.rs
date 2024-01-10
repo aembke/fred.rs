@@ -81,7 +81,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
     log_resp2_frame(&codec.name, &frame, false);
     sample_stats(codec, true, amt as i64);
 
-    Ok(Some(protocol_utils::check_resp2_auth_error(&codec, frame)))
+    Ok(Some(protocol_utils::check_resp2_auth_error(codec, frame)))
   } else {
     Ok(None)
   }
@@ -152,7 +152,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
         // we're not in the middle of a stream and we found a complete frame
         let frame = frame.into_complete_frame()?;
         log_resp3_frame(&codec.name, &frame, false);
-        Some(protocol_utils::check_resp3_auth_error(&codec, frame))
+        Some(protocol_utils::check_resp3_auth_error(codec, frame))
       }
     };
 

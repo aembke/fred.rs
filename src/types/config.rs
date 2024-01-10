@@ -1041,8 +1041,8 @@ impl ServerConfig {
   pub fn hosts(&self) -> Vec<Server> {
     match *self {
       ServerConfig::Centralized { ref server } => vec![server.clone()],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().cloned().collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().cloned().collect(),
+      ServerConfig::Clustered { ref hosts } => hosts.to_vec(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.to_vec(),
       #[cfg(feature = "unix-sockets")]
       ServerConfig::Unix { ref path } => vec![Server::new(utils::path_to_string(path), 0)],
     }

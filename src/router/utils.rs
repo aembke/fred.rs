@@ -81,7 +81,7 @@ pub fn prepare_command(
   counters: &Counters,
   command: &mut RedisCommand,
 ) -> Result<(ProtocolFrame, bool), RedisError> {
-  let frame = protocol_utils::encode_frame(inner, &command)?;
+  let frame = protocol_utils::encode_frame(inner, command)?;
 
   // flush the socket under any of the following conditions:
   // * we don't know of any queued commands following this command
