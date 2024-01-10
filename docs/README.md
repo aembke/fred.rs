@@ -1,19 +1,18 @@
 Documentation
 =============
 
-Until version 8 most of the documentation for this library has been in the form of rustdocs or example modules. This unfortunately also means most of inner implementation lacks any kind of design doc or high level overview. The documents in this folder provide a less formal but much more detailed overview of how the library is built. The intended audience is potential contributors, maintainers, or anybody looking to do a deeper technical evaluation. 
+Until version 8 most of the documentation for this library has been in the form of rustdocs or example modules. This unfortunately also means most of the client implementation lacks any kind of design doc. The documents in this folder provide a less formal but much more detailed overview of how the library is built. The intended audience is potential contributors, maintainers, or anybody looking to do a deeper technical evaluation. 
 
-The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, but is targeted specifically at users that want to add new commands with as little friction as possible. I would recommend reading that first, but note that it only briefly describes the code organization. These documents provide much more context.
+The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, but is targeted specifically at users that want to add new commands with as little friction as possible. These documents provide much more context.
 
 ## TLDR:
 
-Beyond the main README, if I were evaluating this library here's the quick list of things I'd want to know.
+Beyond the main README, here's a quick list of things to consider. 
 
 * It only supports Tokio stacks.
 * It does not support `no-std` builds.
 * Compile times could be better.
 * There's pretty good test coverage.
-* It will create 1 connection to each primary node in a cluster. Replica connections can also be created lazily.
 * It can use almost no additional memory. The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
 * The primary request-response happy path is entirely lock free, nor is the caller required to use one. It uses atomics and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. It's pretty fast.
 * It has good support for Elasticache.
@@ -79,7 +78,7 @@ However, this model has some drawbacks:
 
 As of 8.x there's a new `max_command_buffer_len` field that can be used as a circuit breaker to trigger backpressure if this buffer grows too large. However, as mentioned above I usually end up indirectly limiting this via some other mechanism (such as AMQP prefetch counts, rate limits, etc) instead.
 
-Similarly, the reader tasks also sit in a `recv` loop:
+Similarly, the reader tasks also use a `recv` loop:
 
 ```rust
 async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(), RedisError> {
@@ -94,9 +93,7 @@ async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(),
 }
 ```
 
-Unfortunately in practice it's rarely this simple. The [performance doc](./performance.md) covers this in more detail, but it's often pretty complicated keeping the hot code paths lock-free even if we liberally make use of MPSC features. There are several places I'd like to clean up or improve, and most of them involve trying to avoid synchronization logic. We end up relying a lot on vanilla atomics, [arcswap](https://crates.io/crates/arc-swap), [bytes](https://crates.io/crates/bytes), and [crossbeam](https://crates.io/crates/crossbeam-queue) as alternatives.
-
-Additionally, clustered Redis connection management is just complicated. There are many very different failure modes, and it takes a lot of code to handle them all.
+Unfortunately as we can see from [the code](../src/router/clustered.rs), in practice it's rarely this simple. The [performance doc](./performance.md) covers this in more detail, but it's often pretty complicated keeping the hot code paths lock-free even if we liberally make use of MPSC features. There are several places I'd like to clean up or improve, and most of them involve trying to avoid synchronization logic. We end up relying a lot on vanilla atomics, [arcswap](https://crates.io/crates/arc-swap), [bytes](https://crates.io/crates/bytes), and [crossbeam](https://crates.io/crates/crossbeam-queue) as alternatives. Also, clustered Redis connection management is just complicated in general. 
 
 ## Code Layout 
 
