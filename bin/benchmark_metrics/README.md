@@ -44,7 +44,8 @@ See the [benchmark](../benchmark/README.md#docker) section for more information.
 The [metrics](./metrics) folder has the results of running this on my desktop with the following parameters:
 
 * 32 CPUs, 64 GB, Ubuntu 
-* Clustered deployment via local docker (3 primary nodes with one replica each)
+* Clustered deployment running via local docker (3 primary nodes with one replica each)
+* Centralized deployment running via local docker (no replicas)
 * No tracing features enabled
 * No TLS
 * 1_000_000 INCR commands with `assert-expected` enabled
@@ -55,6 +56,9 @@ To regenerate the `metrics` folder (assuming Docker on Linux):
 
 ```
 # don't forget the `source /path/to/fred/tests/environ` step
+
+# warning: it can be difficult to debug issues through multiple layers of docker. i'd recommend testing the underlying 
+# commands individually before running this since this script takes hours and does not show output while running.
 
 ./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-20 --pool-step 2 -c 100-15000 --concurrency-step 100 pipeline > ./metrics/clustered/pipeline.csv \
   && ./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-20 --pool-step 2 -c 100-15000 --concurrency-step 100 no-pipeline > ./metrics/clustered/no-pipeline.csv \

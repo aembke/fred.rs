@@ -97,7 +97,9 @@ fn run_command(argv: &Argv, bar: &ProgressBar, concurrency: u32, pool: u32) -> M
     "run".into(),
     "--release".into(),
     "--manifest-path".into(),
+    // if not using docker
     //"../benchmark/Cargo.toml".into(),
+    // if using docker
     "/benchmark/Cargo.toml".into(),
     "--".into(),
     "-q".into(),
