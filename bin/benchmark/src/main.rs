@@ -75,6 +75,7 @@ struct Argv {
   pub tracing:  bool,
   pub count:    usize,
   pub tasks:    usize,
+  pub unix:     Option<String>,
   pub host:     String,
   pub port:     u16,
   pub pipeline: bool,
@@ -119,6 +120,7 @@ fn parse_argv() -> Arc<Argv> {
     .value_of("port")
     .map(|v| v.parse::<u16>().expect("Invalid port"))
     .unwrap_or(DEFAULT_PORT);
+  let unix = matches.value_of("unix").map(|v| v.to_owned());
   let pool = matches
     .value_of("pool")
     .map(|v| v.parse::<usize>().expect("Invalid pool"))
@@ -129,6 +131,7 @@ fn parse_argv() -> Arc<Argv> {
   Arc::new(Argv {
     cluster,
     quiet,
+    unix,
     tracing,
     count,
     tasks,
@@ -268,7 +271,11 @@ fn main() {
     let counter = Arc::new(AtomicUsize::new(0));
     let (username, password) = read_auth_env();
     let config = RedisConfig {
-      server: if argv.cluster {
+      server: if argv.unix.is_some() {
+        ServerConfig::Unix {
+          path: argv.unix.clone().unwrap().into(),
+        }
+      } else if argv.cluster {
         ServerConfig::Clustered {
           hosts: vec![Server::new(&argv.host, argv.port)],
         }

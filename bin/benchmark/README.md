@@ -75,6 +75,7 @@ OPTIONS:
     -h, --host <STRING>           The hostname of the redis server. [default: 127.0.0.1]
     -P, --pool <NUMBER>           The number of clients in the redis connection pool. [default: 1]
     -p, --port <NUMBER>           The port for the redis server. [default: 6379]
+    -u, --unix-sock <PATH>        The path to a unix socket.
 
 SUBCOMMANDS:
     help           Prints this message or the help of the given subcommand(s)

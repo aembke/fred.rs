@@ -1,10 +1,16 @@
 version: '2'
 
 services:
+  unix-socket-tmp:
+    image: busybox
+    command: "chmod -R 777 ${REDIS_UNIX_SOCK_CONTAINER_DIR}"
+    volumes:
+      - '${REDIS_UNIX_SOCK_HOST_DIR}:${REDIS_UNIX_SOCK_CONTAINER_DIR}'
   fred-benchmark:
     depends_on:
       - redis-main
       - redis-cluster-6
+      - redis-main-unix-socket
     container_name: "fred-benchmark"
     build:
       context: ../../../
@@ -21,3 +27,5 @@ services:
       - "../../../bin/benchmark:/project"
       - "../../..:/fred"
       - "~/.cargo/registry:/usr/local/cargo/registry"
+    volumes_from:
+      - unix-socket-tmp

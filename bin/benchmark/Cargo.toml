@@ -27,7 +27,7 @@ indicatif = "=0.17.1"
 [dependencies.fred]
 #path = "../.."
 path = "/fred"
-features = ["replicas"]
+features = ["replicas", "unix-sockets"]
 default-features = false
 
 [features]

@@ -40,6 +40,12 @@ args:
       help: The number of Tokio tasks used to run commands.
       takes_value: true
       default_value: "100"
+  - unix:
+      short: u
+      long: unix-sock
+      value_name: "PATH"
+      help: The path to a unix socket.
+      takes_value: true
   - host:
       short: h
       long: host
