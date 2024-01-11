@@ -28,7 +28,7 @@ This module also includes an optional `assert-expected` feature flag that adds a
 
 ## Tracing 
 
-**Note** This part frequently breaks since I rarely use tracing while benchmarking.
+**This part frequently breaks since I rarely use tracing while benchmarking.**
 
 This also shows how to configure the client with tracing enabled against a local Jaeger instance. A [docker compose](../../tests/docker/compose/jaeger.yml) file is included that will run a local Jaeger instance.
 

@@ -11,15 +11,13 @@ Beyond the main README, here's a quick list of things that potential users way w
 
 * It requires Tokio.
 * It does not support `no-std` builds.
-* Compile times could be better.
+* Compile times aren't great. 
 * There's pretty good test coverage.
 * It can use almost no additional memory. The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
 * The primary request-response happy path is lock free, nor is the caller required to use one. The client uses Tokio message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. This creates a pleasant developer experience and is pretty fast. 
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
 * There's a fallback interface for sending any commands to the server. 
 * There's an optional lower level connection management interface.
-* It does not panic. If you find one I will patch it quickly.
-* It never logs input values. The `network-logs` feature can enable this if needed.
 * There are a ton of configuration options. Arguably too many. However, in my opinion it can be worthwhile to tune most of these settings.
 
 See the [benchmark](../bin/benchmark) folder for more info on performance testing.
