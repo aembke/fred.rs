@@ -10,6 +10,13 @@ const CHANNEL3: &str = "baz";
 const FAKE_MESSAGE: &str = "wibble";
 const NUM_MESSAGES: i64 = 20;
 
+async fn wait_a_sec() {
+  // pubsub command responses arrive out of band therefore it's hard to synchronize calls across clients. in CI the
+  // machines are pretty small and subscribe-then-check commands sometimes give strange results due to these timing
+  // issues.
+  tokio::time::sleep(Duration::from_millis(20)).await;
+}
+
 pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let subscriber_client = client.clone_new();
   subscriber_client.connect();
@@ -128,6 +135,7 @@ pub async fn should_get_pubsub_channels(client: RedisClient, _: RedisConfig) -> 
 
   subscriber.subscribe("foo").await?;
   subscriber.subscribe("bar").await?;
+  wait_a_sec().await;
   let mut channels: Vec<String> = client.pubsub_channels("*").await?;
   channels.sort();
 
@@ -148,6 +156,7 @@ pub async fn should_get_pubsub_numpat(client: RedisClient, _: RedisConfig) -> Re
   assert_eq!(client.pubsub_numpat::<i64>().await?, 0);
   subscriber.psubscribe("foo*").await?;
   subscriber.psubscribe("bar*").await?;
+  wait_a_sec().await;
   assert_eq!(client.pubsub_numpat::<i64>().await?, 2);
 
   Ok(())
@@ -166,6 +175,7 @@ pub async fn should_get_pubsub_nunmsub(client: RedisClient, _: RedisConfig) -> R
 
   subscriber.subscribe("foo").await?;
   subscriber.subscribe("bar").await?;
+  wait_a_sec().await;
   let channels: HashMap<String, i64> = client.pubsub_numsub(vec!["foo", "bar"]).await?;
 
   let mut expected: HashMap<String, i64> = HashMap::new();
@@ -186,6 +196,7 @@ pub async fn should_get_pubsub_shard_channels(client: RedisClient, _: RedisConfi
 
   subscriber.ssubscribe("{1}foo").await?;
   subscriber.ssubscribe("{1}bar").await?;
+  wait_a_sec().await;
 
   let mut channels: Vec<String> = client.pubsub_shardchannels("{1}*").await?;
   channels.sort();
@@ -207,6 +218,7 @@ pub async fn should_get_pubsub_shard_numsub(client: RedisClient, _: RedisConfig)
 
   subscriber.ssubscribe("foo{1}").await?;
   subscriber.ssubscribe("bar{1}").await?;
+  wait_a_sec().await;
   let channels: HashMap<String, i64> = client.pubsub_shardnumsub(vec!["foo{1}", "bar{1}"]).await?;
 
   let mut expected: HashMap<String, i64> = HashMap::new();
