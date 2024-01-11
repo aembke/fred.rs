@@ -1,9 +1,9 @@
 Documentation
 =============
 
-Until version 8 most of the documentation for this library has been in the form of rustdocs or example modules. This unfortunately also means most of the client implementation lacks any kind of design doc. The documents in this folder provide a less formal but more detailed overview of how the library is built. The intended audience is potential contributors, maintainers, or anybody looking to do a deeper technical evaluation. 
+The documents in this folder provide a more detailed overview of how the library is built. The intended audience is potential contributors, maintainers, or anybody looking to do a deeper technical evaluation. 
 
-The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, but is targeted specifically at users that want to add new commands with as little friction as possible. These documents provide much more context.
+The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, but is written specifically for users that want to add new commands with as little friction as possible. These documents provide much more context.
 
 ## TLDR:
 
@@ -11,8 +11,6 @@ Beyond the main README, here's a quick list of things that potential users way w
 
 * It requires Tokio.
 * It does not support `no-std` builds.
-* Compile times aren't great. 
-* There's pretty good test coverage.
 * It can use almost no additional memory. The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
 * The primary request-response happy path is lock free, nor is the caller required to use one. The client uses Tokio message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. This creates a pleasant developer experience and is pretty fast. 
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
@@ -28,8 +26,8 @@ Fred was originally written to address a gap in the Redis + Rust ecosystem in 20
 
 Many of the design decisions described in these documents come from this use case. Loosely summarized:
 
-* My application functions as a web or RPC server with an HTTP, gRPC, or AMQP interface on a mostly Tokio-based stack. 
-* My application is highly concurrent, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
+* I'm building a web or RPC server with an HTTP, gRPC, or AMQP interface on a mostly Tokio-based stack. 
+* The application makes frequent use of concurrency features, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
 * I'm using a clustered Redis deployment on ElastiCache in production, a clustered deployment in Kubernetes in lower environments, and a centralized deployment when developing locally. This effectively means I don't want most of my application code coupled to the Redis deployment model. However, there are some cases where this is unavoidable, so I'd like the option do my own connection or server management if necessary.
 * I may switch Redis vendors or deployment models at any time. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
 * In production big clustered deployments may scale horizontally at any time. This should not cause downtime or end user errors, but it's ok if it causes minor delays. Ideally the client would handle this gracefully.
@@ -54,11 +52,10 @@ Here's a top-down way to visualize the communication patterns between Tokio task
 
 The shared state in this diagram is an `Arc<UnboundedSender>` that's shared between the Axum request tasks. Each of these tasks can write to the channel without acquiring a lock, minimizing contention that could slow down the application layer. At a high level all the public client types are thin wrappers around an `Arc<UnboundedSender>`. A `RedisPool` is really a `Arc<Vec<Arc<UnboundedSender>>>` with an additional atomic increment-mod-length trick in the mix. Cloning anything `ClientLike` usually just clones one of these `Arc`s.
 
-Generally speaking the router task simply sits in loop. 
+Generally speaking the router task sits in a `recv` loop. 
 
 ```rust
 async fn example(connections: &mut HashMap<Server, Connection>, rx: UnboundedReceiver<Command>) -> Result<(), RedisError> {
-  // no need for locks when everything important stays in one tokio task in one loop
   while let Some(command) = rx.recv().await {
     send_to_server(connections, command).await?;
   }
@@ -67,7 +64,7 @@ async fn example(connections: &mut HashMap<Server, Connection>, rx: UnboundedRec
 }
 ```
 
-Commands are processed in series, and the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore most synchronization issues, and as a result it's much easier to reason about how features like reconnection should work. It's also much easier to implement socket flushing optimizations with this model. 
+Commands are processed in series, but the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore many synchronization issues, and as a result it's much easier to reason about how features like reconnection should work. It's also much easier to implement socket flushing optimizations with this model. 
 
 However, this model has some drawbacks:
 * Once a command is in the `UnboundedSender` channel it's difficult to inspect or remove. There's no practical way to get any kind of random access into this.
@@ -75,7 +72,7 @@ However, this model has some drawbacks:
 * Callers should at least be aware of this channel so that they're aware of how server failure modes can lead to increased memory usage. This makes it perhaps surprisingly important to properly tune reconnection or backpressure settings, especially if memory is in short supply.
 * Some things that would ideally be synchronous must instead be asynchronous. For example, I've often wanted a synchronous interface to inspect active connections.
 
-As of 8.x there's a new `max_command_buffer_len` field that can be used as a circuit breaker to trigger backpressure if this buffer grows too large. However, as mentioned above I usually prefer indirectly limiting this via some other mechanism (such as AMQP prefetch counts, rate limits, etc) instead.
+As of 8.x there's a new `max_command_buffer_len` field that can be used as a circuit breaker to trigger backpressure if this buffer grows too large.
 
 Similarly, the reader tasks also use a `recv` loop:
 
@@ -92,7 +89,7 @@ async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(),
 }
 ```
 
-Unfortunately as we can see from [the code](../src/router/clustered.rs), in practice it's rarely this simple. The [performance doc](./performance.md) covers this in more detail, but it's often pretty complicated keeping the hot code paths lock-free even if we liberally make use of MPSC features. There are several places I'd like to clean up or improve, and most of them involve trying to avoid synchronization logic. We end up relying a lot on vanilla atomics, [arcswap](https://crates.io/crates/arc-swap), [bytes](https://crates.io/crates/bytes), and [crossbeam](https://crates.io/crates/crossbeam-queue) as alternatives. Also, clustered Redis connection management is just complicated in general. 
+In order for the reader task to respond to the caller in the Axum task we need a mechanism for the caller's oneshot sender half to move between the router task and the reader task that receives the response. An [Arc<SegQueue>](https://docs.rs/crossbeam-queue/latest/crossbeam_queue/struct.SegQueue.html) is shared between the router and each reader task to support this. 
 
 ## Code Layout 
 
@@ -104,11 +101,3 @@ Unfortunately as we can see from [the code](../src/router/clustered.rs), in prac
 * The [trace](../src/trace) folder contains the tracing implementation. Span IDs are manually tracked on each command as they move across tasks.
 * The [types](../src/types) folder contains the type definitions used by the public interface. The Redis interface is relatively loosely typed but Rust can support more strongly typed interfaces. The types in this module aim to support an optional but more strongly typed interface for callers.
 * The [modules](../src/modules) folder contains smaller helper interfaces such as a lazy [Backchannel](../src/modules/backchannel.rs) connection interface and the [response type conversion logic](../src/modules/response.rs).
-
-
-
-
-
-
-
-
