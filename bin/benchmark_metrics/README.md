@@ -48,18 +48,18 @@ The [metrics](./metrics) folder has the results of running this on my desktop wi
 * No tracing features enabled
 * No TLS
 * 1_000_000 INCR commands with `assert-expected` enabled
-* Between 50 and 10_000 Tokio tasks, with increments of 50
-* 1 - 15 clients in the connection pool, with increments of 2
+* Between 100 and 15_000 Tokio tasks, with increments of 100
+* 1 - 20 clients in the connection pool, with increments of 2
 
-To run regenerate the `metrics` folder (assuming Docker on Linux):
+To regenerate the `metrics` folder (assuming Docker on Linux):
 
 ```
 # don't forget the `source /path/to/fred/tests/environ` step
 
-./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-15 --pool-step 2 -c 50-10000 --concurrency-step 50 pipeline > ./metrics/clustered/pipeline.csv \
-  && ./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-15 --pool-step 2 -c 50-10000 --concurrency-step 50 no-pipeline > ./metrics/clustered/no-pipeline.csv \
-  && ./run.sh -h redis-main -p 6379 -n 1000000 -P 1-15 --pool-step 2 -c 50-10000 --concurrency-step 50 pipeline > ./metrics/centralized/pipeline.csv \
-  && ./run.sh -h redis-main -p 6379 -n 1000000 -P 1-15 --pool-step 2 -c 50-10000 --concurrency-step 50 no-pipeline > ./metrics/centralized/no-pipeline.csv
+./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-20 --pool-step 2 -c 100-15000 --concurrency-step 100 pipeline > ./metrics/clustered/pipeline.csv \
+  && ./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-20 --pool-step 2 -c 100-15000 --concurrency-step 100 no-pipeline > ./metrics/clustered/no-pipeline.csv \
+  && ./run.sh -h redis-main -p 6379 -n 1000000 -P 1-20 --pool-step 2 -c 100-15000 --concurrency-step 100 pipeline > ./metrics/centralized/pipeline.csv \
+  && ./run.sh -h redis-main -p 6379 -n 1000000 -P 1-20 --pool-step 2 -c 100-15000 --concurrency-step 100 no-pipeline > ./metrics/centralized/no-pipeline.csv
 ```
 
 
