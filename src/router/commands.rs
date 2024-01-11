@@ -620,6 +620,7 @@ mod mocking {
   /// Process any kind of router command.
   pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), RedisError> {
     match command {
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { commands, tx, .. } => {
         let mocked = commands.into_iter().skip(1).map(|c| c.to_mocked()).collect();
 
