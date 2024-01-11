@@ -103,6 +103,14 @@ commands:
           name: Run tests with default-nil-types features
           command: source tests/environ && tests/runners/default-nil-types.sh
       - save-cargo-deps-cache
+  test_unix_socket:
+    steps:
+      - checkout
+      - restore-cargo-deps-cache
+      - run:
+          name: Run tests with unix socket features
+          command: source tests/environ && tests/runners/unix-socket.sh
+      - save-cargo-deps-cache
 
 jobs:
   test-default-nil-types-7_2:
@@ -111,7 +119,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
     steps:
       - test_default_nil_types_features
   test-default-7_2:
@@ -120,16 +128,25 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
     steps:
       - test_default_features
+  test-unix-socket-7_2:
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
+    environment:
+      REDIS_VERSION: 7.2.4
+    steps:
+      - test_unix_socket
   test-redis-stack-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
     steps:
       - test_redis_stack
   test-no-features-7_2:
@@ -138,7 +155,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
     steps:
       - test_no_features
   test-all-features-7_2:
@@ -147,7 +164,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
     steps:
       - test_all_features
   test-cluster-tls-features-7_2:
@@ -156,7 +173,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
       FRED_CI_TLS: true
     steps:
       - test_tls_cluster
@@ -166,7 +183,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
@@ -176,7 +193,7 @@ jobs:
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.1
+      REDIS_VERSION: 7.2.4
     steps:
       - test_sentinel
   test-misc:
@@ -210,6 +227,7 @@ workflows:
       - test-default-nil-types-7_2
       - test-redis-stack-7_2
       - test-sentinel-7_2
+      - test-unix-socket-7_2
       - test-misc
       - test-cluster-tls-features-7_2
       - test-cluster-rustls-features-7_2

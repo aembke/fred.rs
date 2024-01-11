@@ -249,7 +249,7 @@ impl Connections {
   ) -> Result<(), RedisError> {
     let result = if inner.config.server.is_clustered() {
       clustered::initialize_connections(inner, self, buffer).await
-    } else if inner.config.server.is_centralized() {
+    } else if inner.config.server.is_centralized() || inner.config.server.is_unix_socket() {
       centralized::initialize_connection(inner, self, buffer).await
     } else if inner.config.server.is_sentinel() {
       sentinel::initialize_connection(inner, self, buffer).await

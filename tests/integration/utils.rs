@@ -143,6 +143,13 @@ pub fn read_sentinel_password() -> String {
   read_env_var("REDIS_SENTINEL_PASSWORD").expect("Failed to read REDIS_SENTINEL_PASSWORD env")
 }
 
+#[cfg(feature = "unix-sockets")]
+pub fn read_unix_socket_path() -> String {
+  let dir = read_env_var("REDIS_UNIX_SOCK_CONTAINER_DIR").expect("Failed to read REDIS_UNIX_SOCK_CONTAINER_DIR");
+  let sock = read_env_var("REDIS_UNIX_SOCK").expect("Failed to read REDIS_UNIX_SOCK");
+  format!("{}/{}", dir, sock)
+}
+
 pub fn read_sentinel_server() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_SENTINEL_HOST").unwrap_or("127.0.0.1".into());
   let port = read_env_var("FRED_REDIS_SENTINEL_PORT")
@@ -248,6 +255,14 @@ fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
   (Some(ReconnectPolicy::new_constant(300, RECONNECT_DELAY)), 3, true)
 }
 
+#[cfg(feature = "unix-sockets")]
+fn create_server_config(cluster: bool) -> ServerConfig {
+  ServerConfig::Unix {
+    path: read_unix_socket_path().into(),
+  }
+}
+
+#[cfg(not(feature = "unix-sockets"))]
 fn create_server_config(cluster: bool) -> ServerConfig {
   if cluster {
     let (host, port) = read_redis_cluster_host();
@@ -506,7 +521,7 @@ macro_rules! centralized_test_panic(
 macro_rules! cluster_test_panic(
   ($module:tt, $name:tt) => {
     mod $name {
-      #[cfg(not(feature = "redis-stack"))]
+      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
@@ -531,7 +546,7 @@ macro_rules! cluster_test_panic(
         }
       }
 
-      #[cfg(not(feature = "redis-stack"))]
+      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
@@ -613,7 +628,7 @@ macro_rules! centralized_test(
 macro_rules! cluster_test(
   ($module:tt, $name:tt) => {
     mod $name {
-      #[cfg(not(feature = "redis-stack"))]
+      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
@@ -636,7 +651,7 @@ macro_rules! cluster_test(
         }
       }
 
-      #[cfg(not(feature = "redis-stack"))]
+      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {

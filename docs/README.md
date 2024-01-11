@@ -11,8 +11,8 @@ Beyond the main README, here's a quick list of things that potential users way w
 
 * It requires Tokio.
 * It does not support `no-std` builds.
-* It can use almost no additional memory. The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
-* The primary request-response happy path is lock free, nor is the caller required to use one. The client uses Tokio message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. This creates a pleasant developer experience and is pretty fast. 
+* The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
+* The primary request-response happy path is lock free, nor is the caller required to use one. The client uses Tokio message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. This creates a nice developer experience and is pretty fast. 
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
 * There's a fallback interface for sending any commands to the server. 
 * There's an optional lower level connection management interface.
@@ -21,7 +21,7 @@ Beyond the main README, here's a quick list of things that potential users way w
 See the [benchmark](../bin/benchmark) folder for more info on performance testing.
 
 ## Background
-
+ 
 Fred was originally written to address a gap in the Redis + Rust ecosystem in 2016. At the time there was no module offering tokio-core 0.1 + futures 0.1 compatability, so fred grew into that space. As of writing there have been 8 major releases, largely just trying to keep in sync with big changes in the Rust language or ecosystem. This library predates even `impl Trait`, and the language has come a long ways since then. 
 
 Many of the design decisions described in these documents come from this use case. Loosely summarized:
@@ -89,7 +89,7 @@ async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(),
 }
 ```
 
-In order for the reader task to respond to the caller in the Axum task we need a mechanism for the caller's oneshot sender half to move between the router task and the reader task that receives the response. An [Arc<SegQueue>](https://docs.rs/crossbeam-queue/latest/crossbeam_queue/struct.SegQueue.html) is shared between the router and each reader task to support this. 
+In order for the reader task to respond to the caller in the Axum task we need a mechanism for the caller's oneshot sender half to move between the router task and the reader task that receives the response. An [`Arc<SegQueue>`](https://docs.rs/crossbeam-queue/latest/crossbeam_queue/struct.SegQueue.html) is shared between the router and each reader task to support this. 
 
 ## Code Layout 
 

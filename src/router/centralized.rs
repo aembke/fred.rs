@@ -190,6 +190,8 @@ pub async fn initialize_connection(
     Connections::Centralized { writer, .. } => {
       let server = match inner.config.server {
         ServerConfig::Centralized { ref server } => server.clone(),
+        #[cfg(feature = "unix-sockets")]
+        ServerConfig::Unix { ref path } => path.as_path().into(),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
       let mut transport = connection::create(inner, &server, None).await?;
