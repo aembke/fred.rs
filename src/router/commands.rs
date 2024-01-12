@@ -166,21 +166,22 @@ async fn write_with_backpressure(
         }
         router.sync_network_timeout_state();
 
+        utils::defer_reconnect(inner);
         break;
       },
       Written::NotFound(mut command) => {
         if let Err(e) = command.decr_check_redirections() {
           command.finish(inner, Err(e));
+          utils::defer_reconnect(inner);
           break;
         }
 
         _debug!(inner, "Perform cluster sync after missing hash slot lookup.");
         if let Err(error) = router.sync_cluster().await {
-          // try to sync the cluster once, and failing that buffer the command. a failed cluster sync will clear local
-          // cluster state and old connections, which then forces a reconnect from the reader tasks when the streams
-          // close.
+          // try to sync the cluster once, and failing that buffer the command.
           _warn!(inner, "Failed to sync cluster after NotFound: {:?}", error);
           router.buffer_command(command);
+          utils::defer_reconnect(inner);
           break;
         } else {
           _command = Some(command);
@@ -248,6 +249,7 @@ async fn write_with_backpressure(
         }
         inner.notifications.broadcast_error(error.clone());
 
+        utils::defer_reconnect(inner);
         return Err(error);
       },
       #[cfg(feature = "replicas")]
@@ -419,6 +421,14 @@ async fn process_reconnect(
 
       return Ok(());
     }
+  }
+
+  if !force && router.has_healthy_centralized_connection() {
+    _debug!(inner, "Skip reconnecting to centralized host");
+    if let Some(tx) = tx {
+      let _ = tx.send(Ok(Resp3Frame::Null));
+    }
+    return Ok(());
   }
 
   _debug!(inner, "Starting reconnection loop...");

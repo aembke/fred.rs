@@ -1,9 +1,10 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   modules::inner::RedisClientInner,
   prelude::Resp3Frame,
   protocol::{
-    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterResponse},
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
     connection::{RedisWriter, SharedBuffer, SplitStreamKind},
     responders::ResponseKind,
     types::*,
@@ -24,8 +25,6 @@ use tokio::{
   sync::{mpsc::UnboundedReceiver, oneshot::channel as oneshot_channel},
 };
 
-#[cfg(feature = "replicas")]
-use crate::{interfaces, protocol::command::RouterCommand};
 #[cfg(feature = "check-unresponsive")]
 use futures::future::Either;
 #[cfg(feature = "check-unresponsive")]
@@ -527,6 +526,27 @@ pub fn defer_replica_sync(inner: &Arc<RedisClientInner>) {
   let cmd = RouterCommand::SyncReplicas { tx };
   if let Err(_) = interfaces::send_to_router(inner, cmd) {
     _warn!(inner, "Failed to start deferred replica sync.")
+  }
+}
+
+pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
+  if inner.config.server.is_clustered() {
+    let (tx, _) = oneshot_channel();
+    let cmd = RouterCommand::SyncCluster { tx };
+    if let Err(_) = interfaces::send_to_router(inner, cmd) {
+      _warn!(inner, "Failed to send deferred cluster sync.")
+    }
+  } else {
+    let cmd = RouterCommand::Reconnect {
+      server:                               None,
+      tx:                                   None,
+      force:                                false,
+      #[cfg(feature = "replicas")]
+      replica:                              false,
+    };
+    if let Err(_) = interfaces::send_to_router(inner, cmd) {
+      _warn!(inner, "Failed to send deferred cluster sync.")
+    }
   }
 }
 

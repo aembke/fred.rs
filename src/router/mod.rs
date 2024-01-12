@@ -552,6 +552,15 @@ impl Router {
     }
   }
 
+  pub fn has_healthy_centralized_connection(&self) -> bool {
+    match self.connections {
+      Connections::Centralized { ref writer } | Connections::Sentinel { ref writer } => {
+        writer.as_ref().map(|w| w.is_working()).unwrap_or(false)
+      },
+      Connections::Clustered { .. } => false,
+    }
+  }
+
   /// Attempt to send the command to the server.
   pub async fn write(&mut self, command: RedisCommand, force_flush: bool) -> Written {
     let send_all_cluster_nodes = self.inner.config.server.is_clustered()
@@ -857,8 +866,8 @@ impl Router {
             "{}: Disconnect while retrying after write error: {:?}",
             &self.inner.id, error
           );
-          // triggers a reconnect if needed
           self.connections.disconnect(&self.inner, server.as_ref()).await;
+          utils::defer_reconnect(&self.inner);
           continue;
         },
         Written::NotFound(command) => {
@@ -868,8 +877,8 @@ impl Router {
             "{}: Disconnect and re-sync cluster state after routing error while retrying commands.",
             self.inner.id
           );
-          // triggers a reconnect if needed
           self.disconnect_all().await;
+          utils::defer_reconnect(&self.inner);
           break;
         },
         Written::Error((error, command)) => {
@@ -878,6 +887,7 @@ impl Router {
             command.finish(&self.inner, Err(error));
           }
           self.disconnect_all().await;
+          utils::defer_reconnect(&self.inner);
           break;
         },
         _ => {},

@@ -1,3 +1,7 @@
+## 7.1.2
+
+* Fix intermittent cluster routing errors 
+
 ## 7.1.1
 
 * Fix cluster failover in transactions
