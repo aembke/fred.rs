@@ -24,7 +24,7 @@ Notable changes:
   * `pool-prefer-active`
   * `reconnect-on-auth-error`
   * `auto-client-setname`
-* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. 
+* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. They now use the same naming conventions as the other event streams. 
 
 ## 7.1.2
 
