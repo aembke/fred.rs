@@ -207,8 +207,8 @@ impl<C: ClientLike> Pipeline<C> {
   ///   let _: () = pipeline.get("foo").await?;
   ///   let _: () = pipeline.hgetall("bar").await?; // this will error since `bar` is an integer
   ///
-  ///   let results = pipeline.try_all::<RedisValue>().await; // note the lack of `?`
-  ///   assert!(results[0].unwrap().convert::<i64>(), 1);
+  ///   let results = pipeline.try_all::<RedisValue>().await;
+  ///   assert_eq!(results[0].unwrap().convert::<i64>(), 1);
   ///   assert!(results[1].is_err());
   ///
   ///   Ok(())
