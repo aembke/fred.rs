@@ -7,7 +7,7 @@ The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, 
 
 ## TLDR:
 
-Beyond the main README, here's a quick list of things that potential users way want to consider. 
+Beyond the main README, here's a quick list of things that potential users may want to consider. 
 
 * It requires Tokio.
 * It does not support `no-std` builds.
@@ -16,15 +16,15 @@ Beyond the main README, here's a quick list of things that potential users way w
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
 * There's a fallback interface for sending any commands to the server. 
 * There's an optional lower level connection management interface.
-* There are a ton of configuration options. Arguably too many. However, in my opinion it can be worthwhile to tune most of these settings.
+* There are a ton of configuration options. Arguably too many. However, I think it's worthwhile to tune most of these settings.
 
 See the [benchmark](../bin/benchmark) folder for more info on performance testing.
 
 ## Background
  
-Fred was originally written to address a gap in the Redis + Rust ecosystem in 2016. At the time there was no module offering tokio-core 0.1 + futures 0.1 compatability, so fred grew into that space. As of writing there have been 8 major releases, largely just trying to keep in sync with big changes in the Rust language or ecosystem. This library predates even `impl Trait`, and the language has come a long ways since then. 
+Fred was originally written in 2017 to support tokio-core 0.1 + futures 0.1 use cases. As of writing there have been 8 major releases, largely just trying to keep in sync with big changes in the Rust language or ecosystem. This library predates even `impl Trait`, and the language has come a long ways since then. 
 
-Many of the design decisions described in these documents come from this use case. Loosely summarized:
+Many of the design decisions described in these documents come from this initial use case. Loosely summarized:
 
 * I'm building a web or RPC server with an HTTP, gRPC, or AMQP interface on a mostly Tokio-based stack. 
 * The application makes frequent use of concurrency features, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
@@ -66,7 +66,7 @@ async fn example(connections: &mut HashMap<Server, Connection>, rx: UnboundedRec
 
 Commands are processed in series, but the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore many synchronization issues, and as a result it's much easier to reason about how features like reconnection should work. It's also much easier to implement socket flushing optimizations with this model. 
 
-However, this model has some drawbacks:
+However, this has some drawbacks:
 * Once a command is in the `UnboundedSender` channel it's difficult to inspect or remove. There's no practical way to get any kind of random access into this.
 * It can be difficult to create a "fast lane" for "special" commands with this model. For example, forcing a reconnection should take precedence over a blocking command. This is more difficult to implement with this model.
 * Callers should at least be aware of this channel so that they're aware of how server failure modes can lead to increased memory usage. This makes it perhaps surprisingly important to properly tune reconnection or backpressure settings, especially if memory is in short supply.
