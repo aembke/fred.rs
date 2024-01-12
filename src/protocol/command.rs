@@ -1930,9 +1930,9 @@ impl RouterCommand {
   pub fn should_check_fail_fast(&self) -> bool {
     match self {
       RouterCommand::Command(command) => command.fail_fast,
-      RouterCommand::Pipeline { commands, .. } | RouterCommand::Transaction { commands, .. } => {
-        commands.first().map(|c| c.fail_fast).unwrap_or(false)
-      },
+      RouterCommand::Pipeline { commands, .. } => commands.first().map(|c| c.fail_fast).unwrap_or(false),
+      #[cfg(feature = "transactions")]
+      RouterCommand::Transaction { commands, .. } => commands.first().map(|c| c.fail_fast).unwrap_or(false),
       _ => false,
     }
   }

@@ -57,6 +57,7 @@ where
 
 /// Send a `RouterCommand` to the router.
 pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
+  #[allow(clippy::collapsible_if)]
   if command.should_check_fail_fast() {
     if utils::read_locked(&inner.state) != ClientState::Connected {
       _debug!(inner, "Responding early after fail fast check.");
