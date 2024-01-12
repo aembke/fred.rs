@@ -187,11 +187,11 @@ Potentially breaking changes in 6.x:
 
 ## 5.0.0-beta.1
 
-* Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs) so it can decode frames without moving or copying the underlying bytes
+* Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs), so it can decode frames without moving or copying the underlying bytes
 * Change most command implementations to avoid unnecessary allocations when using static str slices 
 * Rewrite the public interface to use different traits for different parts of the redis interface
 * Relax some restrictions on certain commands being used in a transaction
-* Implement the Streams interface (XADD, XREAD, etc)
+* Implement the Streams interface (XADD, XREAD, etc.)
 * RESP3 support
 * Move most perf configuration options from `globals` to client-specific config structs
 * Add backpressure configuration options to the client config struct

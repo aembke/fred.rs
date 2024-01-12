@@ -773,9 +773,8 @@ pub fn arg_size(value: &RedisValue) -> usize {
   match value {
     // use the RESP2 size
     RedisValue::Boolean(_) => 5,
-    // FIXME make this more accurate by casting to an i64 and using `digits_in_number`
-    // the tricky part is doing so without allocating and without any loss in precision, but
-    // this is only used for logging and tracing
+    // TODO try digits_in_number(f.trunc()) + 1 + digits_in_number(f.fract())
+    // but don't forget the negative sign byte
     RedisValue::Double(_) => 10,
     RedisValue::Null => 3,
     RedisValue::Integer(ref i) => i64_size(*i),
