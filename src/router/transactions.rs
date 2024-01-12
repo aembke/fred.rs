@@ -57,6 +57,7 @@ async fn write_command(
     _ => Ok(()),
   };
   if let Err(e) = result {
+    // TODO check fail fast and exit early w/o retry here?
     _debug!(inner, "Error writing trx command: {:?}", e);
     return Ok(TransactionResponse::Retry(e));
   }

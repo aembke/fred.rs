@@ -182,6 +182,7 @@ async fn write_with_backpressure(
         if let Err(error) = router.sync_cluster().await {
           // try to sync the cluster once, and failing that buffer the command.
           _warn!(inner, "Failed to sync cluster after NotFound: {:?}", error);
+          utils::defer_reconnect(inner);
           router.buffer_command(command);
           utils::defer_reconnect(inner);
           break;

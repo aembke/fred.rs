@@ -410,37 +410,37 @@ pub struct ConnectionConfig {
   /// This also includes the TLS handshake if using any of the TLS features.
   ///
   /// Default: 10 sec
-  pub connection_timeout:         Duration,
+  pub connection_timeout:           Duration,
   /// The timeout to apply when sending internal commands such as `AUTH`, `SELECT`, `CLUSTER SLOTS`, `READONLY`, etc.
   ///
   /// Default: 10 sec
-  pub internal_command_timeout:   Duration,
+  pub internal_command_timeout:     Duration,
   /// The amount of time to wait after a `MOVED` error is received before the client will update the cached cluster
   /// state.
   ///
   /// Default: `0`
-  pub cluster_cache_update_delay: Duration,
+  pub cluster_cache_update_delay:   Duration,
   /// The maximum number of times the client will attempt to send a command.
   ///
   /// This value be incremented whenever the connection closes while the command is in-flight.
   ///
   /// Default: `3`
-  pub max_command_attempts:       u32,
+  pub max_command_attempts:         u32,
   /// The maximum number of times the client will attempt to follow a `MOVED` or `ASK` redirection per command.
   ///
   /// Default: `5`
-  pub max_redirections:           u32,
+  pub max_redirections:             u32,
   /// Unresponsive connection configuration options.
-  pub unresponsive:               UnresponsiveConfig,
+  pub unresponsive:                 UnresponsiveConfig,
   /// An unexpected `NOAUTH` error is treated the same as a general connection failure, causing the client to
   /// reconnect based on the [ReconnectPolicy](crate::types::ReconnectPolicy). This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.
   ///
   /// Default: `false`
-  pub reconnect_on_auth_error:    bool,
+  pub reconnect_on_auth_error:      bool,
   /// Automatically send `CLIENT SETNAME` on each connection associated with a client instance.
   ///
   /// Default: `false`
-  pub auto_client_setname:        bool,
+  pub auto_client_setname:          bool,
   /// Limit the size of the internal in-memory command queue.
   ///
   /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error.
@@ -448,19 +448,23 @@ pub struct ConnectionConfig {
   /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
   ///
   /// Default: `0` (unlimited)
-  pub max_command_buffer_len:     usize,
+  pub max_command_buffer_len:       usize,
+  /// Disable the `CLUSTER INFO` health check when initializing cluster connections.
+  ///
+  /// Default: `false`
+  pub disable_cluster_health_check: bool,
   /// Configuration options for replica nodes.
   ///
   /// Default: `None`
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replica:                    ReplicaConfig,
+  pub replica:                      ReplicaConfig,
   /// TCP connection options.
-  pub tcp:                        TcpConfig,
+  pub tcp:                          TcpConfig,
   ///
   #[cfg(feature = "custom-reconnect-errors")]
   #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
-  pub reconnect_errors:           Vec<ReconnectError>,
+  pub reconnect_errors:             Vec<ReconnectError>,
 }
 
 impl Default for ConnectionConfig {
@@ -474,6 +478,7 @@ impl Default for ConnectionConfig {
       auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
       reconnect_on_auth_error: false,
+      disable_cluster_health_check: false,
       tcp: TcpConfig::default(),
       unresponsive: UnresponsiveConfig::default(),
       #[cfg(feature = "replicas")]
@@ -558,6 +563,8 @@ pub struct RedisConfig {
   pub fail_fast: bool,
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking
   /// command.
+  ///
+  /// Setting this to anything other than `Blocking::Block` incurs a small performance penalty.
   ///
   /// Default: `Blocking::Block`
   pub blocking:  Blocking,
@@ -1219,6 +1226,13 @@ pub struct Options {
   pub cluster_node:     Option<Server>,
   /// Whether to skip backpressure checks for a command.
   pub no_backpressure:  bool,
+  /// Whether the command should fail quickly if the connection is not healthy or available for writes. This always
+  /// takes precedence over `max_attempts` if `true`.
+  ///
+  /// Setting this to `true` incurs a small performance penalty. (Checking a `RwLock`).
+  ///
+  /// Default: `false`
+  pub fail_fast:        bool,
   /// Whether to send `CLIENT CACHING yes|no` before the command.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
@@ -1241,6 +1255,7 @@ impl Options {
       self.cluster_node = Some(val.clone());
     }
     self.no_backpressure |= other.no_backpressure;
+    self.fail_fast |= other.fail_fast;
 
     #[cfg(feature = "client-tracking")]
     if let Some(val) = other.caching {
@@ -1259,6 +1274,7 @@ impl Options {
       timeout:                                     cmd.timeout_dur,
       no_backpressure:                             cmd.skip_backpressure,
       cluster_node:                                cmd.cluster_node.clone(),
+      fail_fast:                                   cmd.fail_fast,
       #[cfg(feature = "client-tracking")]
       caching:                                     cmd.caching.clone(),
     }
@@ -1269,6 +1285,7 @@ impl Options {
     command.skip_backpressure = self.no_backpressure;
     command.timeout_dur = self.timeout;
     command.cluster_node = self.cluster_node.clone();
+    command.fail_fast = self.fail_fast;
 
     #[cfg(feature = "client-tracking")]
     {

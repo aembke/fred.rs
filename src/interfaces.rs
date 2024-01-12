@@ -57,6 +57,17 @@ where
 
 /// Send a `RouterCommand` to the router.
 pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
+  if command.should_check_fail_fast() {
+    if utils::read_locked(&inner.state) != ClientState::Connected {
+      _debug!(inner, "Responding early after fail fast check.");
+      command.finish_with_error(RedisError::new(
+        RedisErrorKind::Canceled,
+        "Connection closed unexpectedly.",
+      ));
+      return Ok(());
+    }
+  }
+
   let new_len = inner.counters.incr_cmd_buffer_len();
   let should_apply_backpressure = inner.connection.max_command_buffer_len > 0
     && new_len > inner.connection.max_command_buffer_len

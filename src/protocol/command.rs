@@ -1420,6 +1420,8 @@ pub struct RedisCommand {
   pub can_pipeline:           bool,
   /// Whether or not to skip backpressure checks.
   pub skip_backpressure:      bool,
+  /// Whether to fail fast without retries if the connection ever closes unexpectedly.
+  pub fail_fast:              bool,
   /// The internal ID of a transaction.
   pub transaction_id:         Option<u64>,
   /// The timeout duration provided by the `with_options` interface.
@@ -1456,7 +1458,8 @@ impl fmt::Debug for RedisCommand {
       .field("can_pipeline", &self.can_pipeline)
       .field("write_attempts", &self.write_attempts)
       .field("timeout_dur", &self.timeout_dur)
-      .field("no_backpressure", &self.skip_backpressure);
+      .field("no_backpressure", &self.skip_backpressure)
+      .field("fail_fast", &self.fail_fast);
 
     #[cfg(feature = "network-logs")]
     formatter.field("arguments", &self.args());
@@ -1496,6 +1499,7 @@ impl Default for RedisCommand {
       cluster_node:                                None,
       network_start:                               None,
       write_attempts:                              0,
+      fail_fast:                                   false,
       #[cfg(feature = "metrics")]
       created:                                     Instant::now(),
       #[cfg(feature = "partial-tracing")]
@@ -1591,7 +1595,7 @@ impl RedisCommand {
 
   /// Whether errors writing the command should be returned to the caller.
   pub fn should_finish_with_error(&self, inner: &Arc<RedisClientInner>) -> bool {
-    self.attempts_remaining == 0 || inner.policy.read().is_none()
+    self.fail_fast || self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
   /// Increment and check the number of write attempts.
@@ -1711,6 +1715,7 @@ impl RedisCommand {
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
       cluster_node: self.cluster_node.clone(),
+      fail_fast: self.fail_fast,
       response,
       use_replica: self.use_replica,
       write_attempts: self.write_attempts,
@@ -1919,6 +1924,17 @@ impl RouterCommand {
         | RouterCommand::SyncCluster { .. }
         | RouterCommand::Connections { .. }
     )
+  }
+
+  /// Whether the command should check the health of the backing connections before being used.
+  pub fn should_check_fail_fast(&self) -> bool {
+    match self {
+      RouterCommand::Command(command) => command.fail_fast,
+      RouterCommand::Pipeline { commands, .. } | RouterCommand::Transaction { commands, .. } => {
+        commands.first().map(|c| c.fail_fast).unwrap_or(false)
+      },
+      _ => false,
+    }
   }
 
   /// Finish the command early with the provided error.

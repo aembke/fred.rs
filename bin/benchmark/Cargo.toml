@@ -28,6 +28,8 @@ indicatif = "=0.17.1"
 #path = "../.."
 path = "/fred"
 features = ["replicas", "unix-sockets"]
+#features = ["replicas"]
+#version = "7.1.1"
 default-features = false
 
 [features]

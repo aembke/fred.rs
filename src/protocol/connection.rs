@@ -825,7 +825,9 @@ impl RedisTransport {
         }
         self.cache_connection_id(inner).await?;
         self.cache_server_version(inner).await?;
-        self.check_cluster_state(inner).await?;
+        if !inner.connection.disable_cluster_health_check {
+          self.check_cluster_state(inner).await?;
+        }
 
         Ok::<_, RedisError>(())
       },
