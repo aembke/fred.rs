@@ -34,7 +34,8 @@ features = [
   "codec",
   "redis-json",
   "sha-1",
-  "transactions"
+  "transactions",
+  "time-series"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -144,8 +145,9 @@ default-nil-types = []
 codec = []
 unix-sockets = []
 # Redis Stack Features
-redis-stack = ["redis-json"]
+redis-stack = ["redis-json", "time-series"]
 redis-json = ["serde-json"]
+time-series = []
 # Debugging Features
 debug-ids = []
 network-logs = []

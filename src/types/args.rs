@@ -440,6 +440,12 @@ where
   }
 }
 
+impl From<()> for RedisMap {
+  fn from(_: ()) -> Self {
+    RedisMap::new()
+  }
+}
+
 impl<K, V> TryFrom<(K, V)> for RedisMap
 where
   K: TryInto<RedisKey>,

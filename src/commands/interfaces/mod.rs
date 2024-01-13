@@ -30,3 +30,6 @@ pub mod sentinel;
 
 #[cfg(feature = "redis-json")]
 pub mod redis_json;
+
+#[cfg(feature = "time-series")]
+pub mod timeseries;

@@ -1,5 +1,5 @@
 use crate::{
-  clients::{Pipeline, RedisClient},
+  clients::{Pipeline, RedisClient, WithOptions},
   error::RedisError,
   interfaces::{self, *},
   modules::inner::RedisClientInner,
@@ -66,6 +66,9 @@ impl StreamsInterface for Replicas {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for Replicas {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for Replicas {}
 
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.

@@ -104,6 +104,14 @@ async fn main() -> Result<(), RedisError> {
     }
   }
 
+  // the `RedisValue` type also works as quick way to discover the type signature of a complicated response:
+  println!(
+    "{:?}",
+    client
+      .xreadgroup::<RedisValue, _, _, _, _>("foo", "bar", None, None, false, "baz", ">")
+      .await?
+  );
+
   client.quit().await?;
   let _ = events_task.await;
   Ok(())

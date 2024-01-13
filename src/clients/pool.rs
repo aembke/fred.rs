@@ -22,6 +22,7 @@ use crate::protocol::types::Resolve;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+use crate::clients::WithOptions;
 
 struct RedisPoolInner {
   clients:          Vec<RedisClient>,
@@ -291,3 +292,6 @@ impl FunctionInterface for RedisPool {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for RedisPool {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for RedisPool {}

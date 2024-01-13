@@ -1,4 +1,5 @@
 use crate::{
+  clients::WithOptions,
   commands,
   error::RedisError,
   interfaces::*,
@@ -108,6 +109,9 @@ impl FunctionInterface for SubscriberClient {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for SubscriberClient {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for SubscriberClient {}
 
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]

@@ -1,4 +1,5 @@
 use crate::{
+  clients::WithOptions,
   error::RedisError,
   interfaces,
   interfaces::{
@@ -38,6 +39,7 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 
 #[cfg(feature = "redis-json")]
 use crate::interfaces::RedisJsonInterface;
+use crate::interfaces::TimeSeriesInterface;
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();
@@ -167,6 +169,9 @@ impl<C: FunctionInterface> FunctionInterface for Pipeline<C> {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl<C: RedisJsonInterface> RedisJsonInterface for Pipeline<C> {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl<C: TimeSeriesInterface> TimeSeriesInterface for Pipeline<C> {}
 
 impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.

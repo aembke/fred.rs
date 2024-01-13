@@ -1,4 +1,5 @@
 use crate::{
+  clients::WithOptions,
   error::{RedisError, RedisErrorKind},
   interfaces,
   interfaces::*,
@@ -98,6 +99,9 @@ impl FunctionInterface for Transaction {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for Transaction {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.

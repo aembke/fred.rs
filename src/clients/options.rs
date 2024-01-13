@@ -116,3 +116,6 @@ impl<C: FunctionInterface> FunctionInterface for WithOptions<C> {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl<C: RedisJsonInterface> RedisJsonInterface for WithOptions<C> {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl<C: TimeSeriesInterface> TimeSeriesInterface for WithOptions<C> {}

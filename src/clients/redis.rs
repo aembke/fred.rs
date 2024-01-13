@@ -85,7 +85,9 @@ impl FunctionInterface for RedisClient {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for RedisClient {}
-
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for RedisClient {}
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 impl TrackingInterface for RedisClient {}

@@ -13,6 +13,8 @@ use crate::{
     CustomCommand,
     FromRedis,
     InfoKind,
+    KeyspaceEvent,
+    Message,
     Options,
     PerformanceConfig,
     ReconnectPolicy,
@@ -568,8 +570,9 @@ pub use crate::commands::interfaces::{
 pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+#[cfg(feature = "time-series")]
+pub use crate::commands::interfaces::timeseries::TimeSeriesInterface;
 #[cfg(feature = "client-tracking")]
 pub use crate::commands::interfaces::tracking::TrackingInterface;
 #[cfg(feature = "transactions")]
 pub use crate::commands::interfaces::transactions::TransactionInterface;
-use crate::types::{KeyspaceEvent, Message};
