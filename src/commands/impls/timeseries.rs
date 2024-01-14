@@ -2,6 +2,7 @@ use crate::{
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   prelude::{FromRedis, RedisKey},
+  protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::{
     Aggregator,
     DuplicatePolicy,
@@ -14,6 +15,7 @@ use crate::{
     RedisValue,
     Timestamp,
   },
+  utils,
 };
 use bytes_utils::Str;
 
@@ -39,6 +41,17 @@ static LABELS: &str = "LABELS";
 static UNCOMPRESSED: &str = "UNCOMPRESSED";
 static TIMESTAMP: &str = "TIMESTAMP";
 
+fn add_labels(args: &mut Vec<RedisValue>, labels: RedisMap) {
+  if !labels.is_empty() {
+    args.push(static_val!(LABELS));
+
+    for (label, value) in labels.inner().into_iter() {
+      args.push(label.into());
+      args.push(value);
+    }
+  }
+}
+
 pub async fn ts_add<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -50,7 +63,35 @@ pub async fn ts_add<C: ClientLike>(
   on_duplicate: Option<DuplicatePolicy>,
   labels: RedisMap,
 ) -> RedisResult<RedisValue> {
-  unimplemented!()
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(12 + labels.len() * 2);
+    args.push(key.into());
+    args.push(timestamp.to_value());
+    args.push(value.into());
+
+    if let Some(retention) = retention {
+      args.push(static_val!(RETENTION));
+      args.push(retention.try_into()?);
+    }
+    if let Some(encoding) = encoding {
+      args.push(static_val!(ENCODING));
+      args.push(encoding.to_str().into());
+    }
+    if let Some(chunk_size) = chunk_size {
+      args.push(static_val!(CHUNK_SIZE));
+      args.push(chunk_size.into());
+    }
+    if let Some(duplicate) = on_duplicate {
+      args.push(static_val!(ON_DUPLICATE));
+      args.push(duplicate.to_str().into());
+    }
+
+    add_labels(&mut args, labels);
+    Ok((RedisCommandKind::TsAdd, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn ts_alter<C: ClientLike>(
@@ -61,7 +102,29 @@ pub async fn ts_alter<C: ClientLike>(
   duplicate_policy: Option<DuplicatePolicy>,
   labels: RedisMap,
 ) -> RedisResult<RedisValue> {
-  unimplemented!()
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(8 + labels.len() * 2);
+    args.push(key.into());
+
+    if let Some(retention) = retention {
+      args.push(static_val!(RETENTION));
+      args.push(retention.try_into()?);
+    }
+    if let Some(chunk_size) = chunk_size {
+      args.push(static_val!(CHUNK_SIZE));
+      args.push(chunk_size.into());
+    }
+    if let Some(duplicate) = duplicate_policy {
+      args.push(static_val!(DUPLICATE_POLICY));
+      args.push(duplicate.to_str().into());
+    }
+
+    add_labels(&mut args, labels);
+    Ok((RedisCommandKind::TsAlter, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn ts_create<C: ClientLike>(
@@ -73,7 +136,33 @@ pub async fn ts_create<C: ClientLike>(
   duplicate_policy: Option<DuplicatePolicy>,
   labels: RedisMap,
 ) -> RedisResult<RedisValue> {
-  unimplemented!()
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(10 + labels.len() * 2);
+    args.push(key.into());
+
+    if let Some(retention) = retention {
+      args.push(static_val!(RETENTION));
+      args.push(retention.try_into()?);
+    }
+    if let Some(encoding) = encoding {
+      args.push(static_val!(ENCODING));
+      args.push(encoding.to_str().into());
+    }
+    if let Some(chunk_size) = chunk_size {
+      args.push(static_val!(CHUNK_SIZE));
+      args.push(chunk_size.into());
+    }
+    if let Some(duplicate) = duplicate_policy {
+      args.push(static_val!(DUPLICATE_POLICY));
+      args.push(duplicate.to_str().into());
+    }
+
+    add_labels(&mut args, labels);
+    Ok((RedisCommandKind::TsCreate, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn ts_createrule<C: ClientLike>(
@@ -83,7 +172,24 @@ pub async fn ts_createrule<C: ClientLike>(
   aggregation: (Aggregator, u64),
   align_timestamp: Option<u64>,
 ) -> RedisResult<RedisValue> {
-  unimplemented!()
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(6);
+    args.extend([
+      src.into(),
+      dest.into(),
+      static_val!(AGGREGATION),
+      aggregation.0.to_str().into(),
+      aggregation.1.try_into()?,
+    ]);
+
+    if let Some(align) = align_timestamp {
+      args.push(align.try_into()?)
+    }
+    Ok((RedisCommandKind::TsCreateRule, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
 }
 
 pub async fn ts_decrby<C: ClientLike>(

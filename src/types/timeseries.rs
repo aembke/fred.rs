@@ -47,7 +47,9 @@ impl DuplicatePolicy {
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Timestamp {
+  /// Unix time (milliseconds since epoch).
   Custom(i64),
+  /// The server's current time, equivalent to "*".
   Now,
 }
 
