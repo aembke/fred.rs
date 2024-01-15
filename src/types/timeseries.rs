@@ -4,8 +4,9 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
+use std::collections::HashMap;
 
-/// TODO docs
+/// Encoding arguments for certain timeseries commands.
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Encoding {
@@ -22,7 +23,7 @@ impl Encoding {
   }
 }
 
-/// TODO docs
+/// The duplicate policy used with certain timeseries commands.
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DuplicatePolicy {
@@ -47,7 +48,7 @@ impl DuplicatePolicy {
   }
 }
 
-/// TODO
+/// A timestamp used in most timeseries commands.
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Timestamp {
@@ -109,7 +110,7 @@ impl TryFrom<String> for Timestamp {
   }
 }
 
-/// TODO
+/// An aggregation policy to use with certain timeseries commands.
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Aggregator {
@@ -341,3 +342,106 @@ impl BucketTimestamp {
     })
   }
 }
+
+/// Shorthand for the result of commands such as `MGET`, `MRANGE`, etc.
+///
+/// * **K** - The key type, usually a `RedisKey`, `Str`, or `String`.
+/// * **Lk** - The label key type, usually a `Str` or `String`.
+/// * **Lv** - The label value type, often some kind of string type.
+///
+/// The fastest/cheapest option is usually `TimeseriesValues<RedisKey, Str, Str>`.
+///
+/// ```rust
+/// # use fred::prelude::*;
+/// # use tokio::time::sleep;
+/// # use std::time::Duration;
+/// # use bytes_utils::Str;
+/// # use fred::types::{RespVersion, GetLabels, Resp2TimeSeriesValues};
+/// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+///   assert_eq!(client.protocol_version(), RespVersion::RESP2);
+///
+///   client
+///     .ts_add("foo", "*", 1.1, None, None, None, None, ("a", "b"))
+///     .await?;
+///   sleep(Duration::from_millis(5)).await;
+///   client
+///     .ts_add("foo", "*", 2.2, None, None, None, None, ("a", "b"))
+///     .await?;
+///   sleep(Duration::from_millis(5)).await;
+///   client
+///     .ts_add("bar", "*", 3.3, None, None, None, None, ("a", "b"))
+///     .await?;
+///   sleep(Duration::from_millis(5)).await;
+///   client
+///     .ts_add("bar", "*", 4.4, None, None, None, None, ("a", "b"))
+///     .await?;
+///
+///   let ranges: Resp2TimeSeriesValues<RedisKey, Str, Str> = client
+///     .ts_mrange(
+///       "-",
+///       "+",
+///       true,
+///       [],
+///       None,
+///       Some(GetLabels::WithLabels),
+///       None,
+///       None,
+///       ["a=b"],
+///       None,
+///     )
+///     .await?;
+///
+///   for (key, labels, values) in ranges.into_iter() {
+///     println!("{} [{:?}] {:?}", key.as_str_lossy(), labels, values);
+///   }
+///   // bar [[("a", "b")]] [(1705355605510, 3.3), (1705355605517, 4.4)]
+///   // foo [[("a", "b")]] [(1705355605498, 1.1), (1705355605504, 2.2)]
+///   Ok(())
+/// }
+/// ```
+///
+/// See [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for the RESP3 equivalent.
+pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;
+
+/// The RESP3 equivalent of [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues).
+///
+/// The timeseries interface uses slightly different type signatures in RESP3 mode.
+///
+/// ```rust
+/// # use fred::prelude::*;
+/// # use tokio::time::sleep;
+/// # use std::time::Duration;
+/// # use bytes_utils::Str;
+/// # use fred::types::{RespVersion, GetLabels, Resp3TimeSeriesValues};
+/// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+///   assert_eq!(client.protocol_version(), RespVersion::RESP3);
+///
+///   client
+///     .ts_add("foo", "*", 1.1, None, None, None, None, ("a", "b"))
+///     .await?;
+///   sleep(Duration::from_millis(5)).await;
+///   client
+///     .ts_add("foo", "*", 2.2, None, None, None, None, ("a", "b"))
+///     .await?;
+///   sleep(Duration::from_millis(5)).await;
+///   client
+///     .ts_add("bar", "*", 3.3, None, None, None, None, ("a", "b"))
+///     .await?;
+///   sleep(Duration::from_millis(5)).await;
+///   client
+///     .ts_add("bar", "*", 4.4, None, None, None, None, ("a", "b"))
+///     .await?;
+///
+///   let ranges: Resp3TimeSeriesValues<RedisKey, Str, Str> = client
+///     .ts_mget(false, Some(GetLabels::WithLabels), ["a=b"])
+///     .await?;
+///
+///   for (key, (labels, values)) in ranges.into_iter() {
+///     println!("{} [{:?}] {:?}", key.as_str_lossy(), labels, values);
+///   }
+///   // bar [[("a", "b")]] [(1705355605517, 4.4)]
+///   // foo [[("a", "b")]] [(1705355605504, 2.2)]
+///   Ok(())
+/// }
+/// ```
+pub type Resp3TimeSeriesValues<K, Lk, Lv> = HashMap<K, (Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;

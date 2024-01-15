@@ -4,13 +4,18 @@ use fred::{
   error::RedisError,
   interfaces::*,
   prelude::RedisResult,
-  types::{RedisConfig, RedisKey},
+  types::{GetLabels, RedisConfig, RedisKey, RedisValue, Resp2TimeSeriesValues, Resp3TimeSeriesValues},
 };
+use redis_protocol::resp3::prelude::RespVersion;
+use std::{collections::HashMap, time::Duration};
+use tokio::time::sleep;
 
 pub async fn should_ts_add_get_and_range(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let first_timestamp: i64 = client.ts_add("foo", "*", 41.0, None, None, None, None, ()).await?;
   assert!(first_timestamp > 0);
+  sleep(Duration::from_millis(5)).await;
   let second_timestamp: i64 = client.ts_add("foo", "*", 42.0, None, None, None, None, ()).await?;
+  sleep(Duration::from_millis(5)).await;
   assert!(second_timestamp > 0);
   assert!(second_timestamp > first_timestamp);
   let (timestamp, latest): (i64, f64) = client.ts_get("foo", true).await?;
@@ -26,21 +31,33 @@ pub async fn should_ts_add_to_multiple_and_mrange(client: RedisClient, _: RedisC
   let foo_first_timestamp: i64 = client
     .ts_add("foo", "*", 1.1, None, None, None, None, ("a", "b"))
     .await?;
+  sleep(Duration::from_millis(5)).await;
   let foo_second_timestamp: i64 = client
     .ts_add("foo", "*", 2.2, None, None, None, None, ("a", "b"))
     .await?;
+  sleep(Duration::from_millis(5)).await;
   let bar_first_timestamp: i64 = client
     .ts_add("bar", "*", 3.3, None, None, None, None, ("a", "b"))
     .await?;
+  sleep(Duration::from_millis(5)).await;
   let bar_second_timestamp: i64 = client
     .ts_add("bar", "*", 4.4, None, None, None, None, ("a", "b"))
     .await?;
 
-  let ranges: Vec<(RedisKey, Vec<(Str, Str)>, Vec<(i64, f64)>)> = client
+  let mut ranges: Resp2TimeSeriesValues<RedisKey, Str, Str> = client
     .ts_mrange("-", "+", true, [], None, None, None, None, ["a=b"], None)
     .await?;
+  ranges.sort_by(|(lhs_key, _, _), (rhs_key, _, _)| lhs_key.cmp(rhs_key));
 
-  // TODO see what ranges looks like
+  assert_eq!(ranges[0].2[0].0, bar_first_timestamp);
+  assert_eq!(ranges[0].2[0].1, 3.3);
+  assert_eq!(ranges[0].2[1].0, bar_second_timestamp);
+  assert_eq!(ranges[0].2[1].1, 4.4);
+
+  assert_eq!(ranges[1].2[0].0, foo_first_timestamp);
+  assert_eq!(ranges[1].2[0].1, 1.1);
+  assert_eq!(ranges[1].2[1].0, foo_second_timestamp);
+  assert_eq!(ranges[1].2[1].1, 2.2);
   Ok(())
 }
 
@@ -55,7 +72,51 @@ pub async fn should_create_and_query_multiple(client: RedisClient, _: RedisConfi
 }
 
 pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
+
+  let values = vec![
+    ("foo{1}", 1, 1.1),
+    ("foo{1}", 2, 2.2),
+    ("foo{1}", 3, 3.3),
+    ("bar{1}", 1, 1.2),
+    ("bar{1}", 2, 2.3),
+  ];
+
+  let args: Vec<_> = values.clone().into_iter().map(|(k, t, v)| (k, t.into(), v)).collect();
+  let timestamps: Vec<i64> = client.ts_madd(args).await?;
+  assert_eq!(timestamps, vec![1, 2, 3, 1, 2]);
+
+  if client.protocol_version() == RespVersion::RESP2 {
+    let mut values: Resp2TimeSeriesValues<String, String, String> =
+      client.ts_mget(false, Some(GetLabels::WithLabels), ["a=b"]).await?;
+    values.sort_by(|(lhs_key, _, _), (rhs_key, _, _)| lhs_key.cmp(rhs_key));
+
+    let expected = vec![
+      ("bar{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![(
+        2, 2.3,
+      )]),
+      ("foo{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![(
+        3, 3.3,
+      )]),
+    ];
+    assert_eq!(values, expected);
+  } else {
+    let values: Resp3TimeSeriesValues<String, String, String> =
+      client.ts_mget(false, Some(GetLabels::WithLabels), ["a=b"]).await?;
+
+    let mut expected = HashMap::new();
+    expected.insert(
+      "foo{1}".to_string(),
+      (vec![("a".to_string(), "b".to_string())], vec![(3, 3.3)]),
+    );
+    expected.insert(
+      "bar{1}".to_string(),
+      (vec![("a".to_string(), "b".to_string())], vec![(2, 2.3)]),
+    );
+    assert_eq!(values, expected);
+  }
+  Ok(())
 }
 
 pub async fn should_incr_and_decr(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {

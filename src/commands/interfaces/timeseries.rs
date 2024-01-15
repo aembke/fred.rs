@@ -23,7 +23,7 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Append a sample to a time series.
   ///
   /// <https://redis.io/commands/ts.add/>
-  async fn ts_add<R, K, T, V, L>(
+  async fn ts_add<R, K, T, L>(
     &self,
     key: K,
     timestamp: T,
@@ -253,7 +253,7 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Append new samples to one or more time series.
   ///
   /// <https://redis.io/commands/ts.madd/>
-  async fn ts_madd<R, K, T, I>(&self, samples: I) -> RedisResult<R>
+  async fn ts_madd<R, K, I>(&self, samples: I) -> RedisResult<R>
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
@@ -288,18 +288,18 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Query a range across multiple time series by filters in the forward direction.
   ///
   /// <https://redis.io/commands/ts.mrange/>
-  async fn ts_mrange<R, F, T, I, L, S, G, J>(
+  async fn ts_mrange<R, F, T, I, S, J>(
     &self,
     from: F,
     to: T,
     latest: bool,
     filter_by_ts: I,
     filter_by_value: Option<(i64, i64)>,
-    labels: Option<L>,
+    labels: Option<GetLabels>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
     filters: J,
-    group_by: Option<G>,
+    group_by: Option<GroupBy>,
   ) -> RedisResult<R>
   where
     R: FromRedis,
@@ -307,9 +307,7 @@ pub trait TimeSeriesInterface: ClientLike {
     F::Error: Into<RedisError> + Send,
     T: TryInto<GetTimestamp> + Send,
     T::Error: Into<RedisError> + Send,
-    L: Into<GetLabels> + Send,
     S: Into<Str> + Send,
-    G: Into<GroupBy> + Send,
     I: IntoIterator<Item = i64> + Send,
     J: IntoIterator<Item = S> + Send,
   {
@@ -339,18 +337,18 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Query a range across multiple time series by filters in the reverse direction.
   ///
   /// <https://redis.io/commands/ts.mrevrange/>
-  async fn ts_mrevrange<R, F, T, I, L, S, G, J>(
+  async fn ts_mrevrange<R, F, T, I, S, J>(
     &self,
     from: F,
     to: T,
     latest: bool,
     filter_by_ts: I,
     filter_by_value: Option<(i64, i64)>,
-    labels: Option<L>,
+    labels: Option<GetLabels>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
     filters: J,
-    group_by: Option<G>,
+    group_by: Option<GroupBy>,
   ) -> RedisResult<R>
   where
     R: FromRedis,
@@ -358,9 +356,7 @@ pub trait TimeSeriesInterface: ClientLike {
     F::Error: Into<RedisError> + Send,
     T: TryInto<GetTimestamp> + Send,
     T::Error: Into<RedisError> + Send,
-    L: Into<GetLabels> + Send,
     S: Into<Str> + Send,
-    G: Into<GroupBy> + Send,
     I: IntoIterator<Item = i64> + Send,
     J: IntoIterator<Item = S> + Send,
   {
