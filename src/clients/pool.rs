@@ -17,12 +17,10 @@ use std::{
 };
 use tokio::time::interval as tokio_interval;
 
-#[cfg(feature = "dns")]
-use crate::protocol::types::Resolve;
-
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-use crate::clients::WithOptions;
+#[cfg(feature = "dns")]
+use crate::protocol::types::Resolve;
 
 struct RedisPoolInner {
   clients:          Vec<RedisClient>,

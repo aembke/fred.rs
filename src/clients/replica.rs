@@ -1,5 +1,5 @@
 use crate::{
-  clients::{Pipeline, RedisClient, WithOptions},
+  clients::{Pipeline, RedisClient},
   error::RedisError,
   interfaces::{self, *},
   modules::inner::RedisClientInner,

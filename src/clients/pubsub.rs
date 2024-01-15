@@ -1,11 +1,11 @@
 use crate::{
-  clients::WithOptions,
   commands,
   error::RedisError,
   interfaces::*,
   modules::inner::RedisClientInner,
   prelude::RedisClient,
   types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
+  util::group_by_hash_slot,
 };
 use bytes_utils::Str;
 use parking_lot::RwLock;
@@ -14,7 +14,6 @@ use tokio::task::JoinHandle;
 
 #[cfg(feature = "client-tracking")]
 use crate::interfaces::TrackingInterface;
-use crate::util::group_by_hash_slot;
 
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 

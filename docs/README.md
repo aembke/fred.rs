@@ -11,7 +11,7 @@ Beyond the main README, here's a quick list of things that potential users may w
 
 * It requires Tokio.
 * It does not support `no-std` builds.
-* The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you're willing to use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` as the primary input and output type with commands callers can entirely avoid additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
+* The parsing layer uses a zero-copy parser based on [bytes](https://crates.io/crates/bytes) types. If you use these types then the library imposes almost no additional storage overhead. For example, by using `Bytes` or `Str` as the primary input and output type with commands callers can avoid any additional allocations of these values. The response `Bytes` will be an owned view into the [Tokio socket buffer](https://docs.rs/tokio-util/latest/tokio_util/codec/trait.Decoder.html#tymethod.decode). 
 * The primary request-response happy path is lock free, nor is the caller required to use one. The client uses Tokio message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as alternatives. This creates a nice developer experience and is pretty fast. 
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
 * There's a fallback interface for sending any commands to the server. 
@@ -27,10 +27,10 @@ Fred was originally written in 2017 to support tokio-core 0.1 + futures 0.1 use 
 Many of the design decisions described in these documents come from this initial use case. Loosely summarized:
 
 * I'm building a web or RPC server with an HTTP, gRPC, or AMQP interface on a mostly Tokio-based stack. 
-* The application makes frequent use of concurrency features, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
+* The application makes frequent use of Tokio's concurrency features, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
 * I'm using a clustered Redis deployment on ElastiCache in production, a clustered deployment in Kubernetes in lower environments, and a centralized deployment when developing locally. This effectively means I don't want most of my application code coupled to the Redis deployment model. However, there are some cases where this is unavoidable, so I'd like the option do my own connection or server management if necessary.
-* I may switch Redis vendors or deployment models at any time. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
-* In production big clustered deployments may scale horizontally at any time. This should not cause downtime or end user errors, but it's ok if it causes minor delays. Ideally the client would handle this gracefully.
+* I may switch Redis vendors or deployment models. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
+* Big clustered deployments often scale horizontally. This should not cause downtime or end user errors, but it's ok if it causes minor delays. Ideally the client would handle this gracefully.
 * I usually want the client to retry things (within reason) before reporting an error. Configuration options to selectively disable or tune this would be nice. 
 * I need full control over the TLS configuration process. 
 

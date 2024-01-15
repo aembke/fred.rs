@@ -1,5 +1,4 @@
 use crate::{
-  clients::WithOptions,
   error::{RedisError, RedisErrorKind},
   interfaces,
   interfaces::*,

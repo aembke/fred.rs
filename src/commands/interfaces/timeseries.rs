@@ -1,4 +1,5 @@
 use crate::{
+  commands,
   interfaces::ClientLike,
   prelude::{RedisError, RedisKey, RedisResult},
   types::{
@@ -41,7 +42,21 @@ pub trait TimeSeriesInterface: ClientLike {
     L: TryInto<RedisMap> + Send,
     L::Error: Into<RedisError>,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(timestamp, labels);
+    commands::timeseries::ts_add(
+      self,
+      key,
+      timestamp,
+      value,
+      retention,
+      encoding,
+      chunk_size,
+      on_duplicate,
+      labels,
+    )
+    .await?
+    .convert()
   }
 
   /// Update the retention, chunk size, duplicate policy, and labels of an existing time series.
@@ -61,7 +76,11 @@ pub trait TimeSeriesInterface: ClientLike {
     L: TryInto<RedisMap> + Send,
     L::Error: Into<RedisError>,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(labels);
+    commands::timeseries::ts_alter(self, key, retention, chunk_size, duplicate_policy, labels)
+      .await?
+      .convert()
   }
 
   /// Create a new time series.
@@ -82,7 +101,11 @@ pub trait TimeSeriesInterface: ClientLike {
     L: TryInto<RedisMap> + Send,
     L::Error: Into<RedisError>,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(labels);
+    commands::timeseries::ts_create(self, key, retention, encoding, chunk_size, duplicate_policy, labels)
+      .await?
+      .convert()
   }
 
   /// Create a compaction rule.
@@ -100,18 +123,21 @@ pub trait TimeSeriesInterface: ClientLike {
     S: Into<RedisKey> + Send,
     D: Into<RedisKey> + Send,
   {
-    unimplemented!()
+    into!(src, dest);
+    commands::timeseries::ts_createrule(self, src, dest, aggregation, align_timestamp)
+      .await?
+      .convert()
   }
 
   /// Decrease the value of the sample with the maximum existing timestamp, or create a new sample with a value equal
   /// to the value of the sample with the maximum existing timestamp with a given decrement.
   ///
   /// <https://redis.io/commands/ts.decrby/>
-  async fn ts_decrby<R, K, T, L>(
+  async fn ts_decrby<R, K, L>(
     &self,
     key: K,
     subtrahend: f64,
-    timestamp: Option<T>,
+    timestamp: Option<Timestamp>,
     retention: Option<u64>,
     uncompressed: bool,
     chunk_size: Option<u64>,
@@ -120,23 +146,35 @@ pub trait TimeSeriesInterface: ClientLike {
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
-    T: TryInto<Timestamp> + Send,
-    T::Error: Into<RedisError> + Send,
     L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError>,
+    L::Error: Into<RedisError> + Send,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(labels);
+    commands::timeseries::ts_decrby(
+      self,
+      key,
+      subtrahend,
+      timestamp,
+      retention,
+      uncompressed,
+      chunk_size,
+      labels,
+    )
+    .await?
+    .convert()
   }
 
   /// Delete all samples between two timestamps for a given time series.
   ///
   /// <https://redis.io/commands/ts.del/>
-  async fn ts_del<R, K>(&self, key: K, from: u64, to: u64) -> RedisResult<R>
+  async fn ts_del<R, K>(&self, key: K, from: i64, to: i64) -> RedisResult<R>
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
   {
-    unimplemented!()
+    into!(key);
+    commands::timeseries::ts_del(self, key, from, to).await?.convert()
   }
 
   /// Delete a compaction rule.
@@ -148,7 +186,8 @@ pub trait TimeSeriesInterface: ClientLike {
     S: Into<RedisKey> + Send,
     D: Into<RedisKey> + Send,
   {
-    unimplemented!()
+    into!(src, dest);
+    commands::timeseries::ts_deleterule(self, src, dest).await?.convert()
   }
 
   /// Get the sample with the highest timestamp from a given time series.
@@ -159,18 +198,19 @@ pub trait TimeSeriesInterface: ClientLike {
     R: FromRedis,
     K: Into<RedisKey> + Send,
   {
-    unimplemented!()
+    into!(key);
+    commands::timeseries::ts_get(self, key, latest).await?.convert()
   }
 
   /// Increase the value of the sample with the maximum existing timestamp, or create a new sample with a value equal
   /// to the value of the sample with the maximum existing timestamp with a given increment.
   ///
   /// <https://redis.io/commands/ts.incrby/>
-  async fn ts_incrby<R, K, T, L>(
+  async fn ts_incrby<R, K, L>(
     &self,
     key: K,
     addend: f64,
-    timestamp: Option<T>,
+    timestamp: Option<Timestamp>,
     retention: Option<u64>,
     uncompressed: bool,
     chunk_size: Option<u64>,
@@ -179,12 +219,23 @@ pub trait TimeSeriesInterface: ClientLike {
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
-    T: TryInto<Timestamp> + Send,
-    T::Error: Into<RedisError> + Send,
     L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError>,
+    L::Error: Into<RedisError> + Send,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(labels);
+    commands::timeseries::ts_incrby(
+      self,
+      key,
+      addend,
+      timestamp,
+      retention,
+      uncompressed,
+      chunk_size,
+      labels,
+    )
+    .await?
+    .convert()
   }
 
   /// Return information and statistics for a time series.
@@ -195,44 +246,55 @@ pub trait TimeSeriesInterface: ClientLike {
     R: FromRedis,
     K: Into<RedisKey> + Send,
   {
-    unimplemented!()
+    into!(key);
+    commands::timeseries::ts_info(self, key, debug).await?.convert()
   }
 
   /// Append new samples to one or more time series.
   ///
   /// <https://redis.io/commands/ts.madd/>
-  async fn ts_madd<R, K, T>(&self, samples: Vec<(K, T, f64)>) -> RedisResult<R>
+  async fn ts_madd<R, K, T, I>(&self, samples: I) -> RedisResult<R>
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
-    T: TryInto<Timestamp> + Send,
-    T::Error: Into<RedisError> + Send,
+    I: IntoIterator<Item = (K, Timestamp, f64)> + Send,
   {
-    unimplemented!()
+    let samples: Vec<_> = samples
+      .into_iter()
+      .map(|(key, ts, val)| (key.into(), ts, val))
+      .collect();
+
+    commands::timeseries::ts_madd(self, samples).await?.convert()
   }
 
   /// Get the sample with the highest timestamp from each time series matching a specific filter.
   ///
   /// <https://redis.io/commands/ts.mget/>
-  async fn ts_mget<R, L, S>(&self, latest: bool, labels: Option<L>, filters: Vec<S>) -> RedisResult<R>
+  async fn ts_mget<R, L, S, I>(&self, latest: bool, labels: Option<L>, filters: I) -> RedisResult<R>
   where
     R: FromRedis,
     L: Into<GetLabels> + Send,
     S: Into<Str> + Send,
+    I: IntoIterator<Item = S> + Send,
   {
-    unimplemented!()
+    let labels = labels.map(|l| l.into());
+    let filters = filters.into_iter().map(|s| s.into()).collect();
+
+    commands::timeseries::ts_mget(self, latest, labels, filters)
+      .await?
+      .convert()
   }
 
   /// Query a range across multiple time series by filters in the forward direction.
   ///
   /// <https://redis.io/commands/ts.mrange/>
-  async fn ts_mrange<R, F, T, L, S, G>(
+  async fn ts_mrange<R, F, T, I, L, S, G>(
     &self,
     from: F,
     to: T,
     latest: bool,
-    filter_by_ts: Vec<u64>,
-    filter_by_value: Option<(u64, u64)>,
+    filter_by_ts: I,
+    filter_by_value: Option<(i64, i64)>,
     labels: Option<L>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
@@ -248,20 +310,41 @@ pub trait TimeSeriesInterface: ClientLike {
     L: Into<GetLabels> + Send,
     S: Into<Str> + Send,
     G: Into<GroupBy> + Send,
+    I: IntoIterator<Item = i64> + Send,
   {
-    unimplemented!()
+    try_into!(from, to);
+    let labels = labels.map(|l| l.into());
+    let filters = filters.into_iter().map(|s| s.into()).collect();
+    let group_by = group_by.map(|g| g.into());
+    let filter_by_ts = filter_by_ts.into_iter().collect();
+
+    commands::timeseries::ts_mrange(
+      self,
+      from,
+      to,
+      latest,
+      filter_by_ts,
+      filter_by_value,
+      labels,
+      count,
+      aggregation,
+      filters,
+      group_by,
+    )
+    .await?
+    .convert()
   }
 
   /// Query a range across multiple time series by filters in the reverse direction.
   ///
   /// <https://redis.io/commands/ts.mrevrange/>
-  async fn ts_mrevrange<R, F, T, L, S, G>(
+  async fn ts_mrevrange<R, F, T, I, L, S, G>(
     &self,
     from: F,
     to: T,
     latest: bool,
-    filter_by_ts: Vec<u64>,
-    filter_by_value: Option<(u64, u64)>,
+    filter_by_ts: I,
+    filter_by_value: Option<(i64, i64)>,
     labels: Option<L>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
@@ -277,28 +360,55 @@ pub trait TimeSeriesInterface: ClientLike {
     L: Into<GetLabels> + Send,
     S: Into<Str> + Send,
     G: Into<GroupBy> + Send,
+    I: IntoIterator<Item = i64> + Send,
   {
-    unimplemented!()
+    try_into!(from, to);
+    let labels = labels.map(|l| l.into());
+    let filters = filters.into_iter().map(|s| s.into()).collect();
+    let group_by = group_by.map(|g| g.into());
+    let filter_by_ts = filter_by_ts.into_iter().collect();
+
+    commands::timeseries::ts_mrevrange(
+      self,
+      from,
+      to,
+      latest,
+      filter_by_ts,
+      filter_by_value,
+      labels,
+      count,
+      aggregation,
+      filters,
+      group_by,
+    )
+    .await?
+    .convert()
   }
 
   /// Get all time series keys matching a filter list.
   ///
   /// <https://redis.io/commands/ts.queryindex/>
-  async fn ts_queryindex<R, S>(&self, filters: Vec<S>) -> RedisResult<R> {
-    unimplemented!()
+  async fn ts_queryindex<R, S, I>(&self, filters: I) -> RedisResult<R>
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+    I: IntoIterator<Item = S> + Send,
+  {
+    let filters = filters.into_iter().map(|s| s.into()).collect();
+    commands::timeseries::ts_queryindex(self, filters).await?.convert()
   }
 
   /// Query a range in forward direction.
   ///
   /// <https://redis.io/commands/ts.range/>
-  async fn ts_range<R, K, F, T>(
+  async fn ts_range<R, K, F, T, I>(
     &self,
     key: K,
     from: F,
     to: T,
     latest: bool,
-    filter_by_ts: Vec<u64>,
-    filter_by_value: Option<(u64, u64)>,
+    filter_by_ts: I,
+    filter_by_value: Option<(i64, i64)>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
   ) -> RedisResult<R>
@@ -309,21 +419,38 @@ pub trait TimeSeriesInterface: ClientLike {
     F::Error: Into<RedisError> + Send,
     T: TryInto<GetTimestamp> + Send,
     T::Error: Into<RedisError> + Send,
+    I: IntoIterator<Item = i64> + Send,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(from, to);
+    let filter_by_ts = filter_by_ts.into_iter().collect();
+
+    commands::timeseries::ts_range(
+      self,
+      key,
+      from,
+      to,
+      latest,
+      filter_by_ts,
+      filter_by_value,
+      count,
+      aggregation,
+    )
+    .await?
+    .convert()
   }
 
   /// Query a range in reverse direction.
   ///
   /// <https://redis.io/commands/ts.revrange/>
-  async fn ts_revrange<R, K, F, T>(
+  async fn ts_revrange<R, K, F, T, I>(
     &self,
     key: K,
     from: F,
     to: T,
     latest: bool,
-    filter_by_ts: Vec<u64>,
-    filter_by_value: Option<(u64, u64)>,
+    filter_by_ts: I,
+    filter_by_value: Option<(i64, i64)>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
   ) -> RedisResult<R>
@@ -334,7 +461,24 @@ pub trait TimeSeriesInterface: ClientLike {
     F::Error: Into<RedisError> + Send,
     T: TryInto<GetTimestamp> + Send,
     T::Error: Into<RedisError> + Send,
+    I: IntoIterator<Item = i64> + Send,
   {
-    unimplemented!()
+    into!(key);
+    try_into!(from, to);
+    let filter_by_ts = filter_by_ts.into_iter().collect();
+
+    commands::timeseries::ts_revrange(
+      self,
+      key,
+      from,
+      to,
+      latest,
+      filter_by_ts,
+      filter_by_value,
+      count,
+      aggregation,
+    )
+    .await?
+    .convert()
   }
 }

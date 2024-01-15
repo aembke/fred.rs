@@ -18,8 +18,6 @@ use tokio_native_tls::native_tls::{
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
 #[cfg(feature = "enable-rustls")]
-pub use tokio_rustls::rustls;
-#[cfg(feature = "enable-rustls")]
 use tokio_rustls::rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;

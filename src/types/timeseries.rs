@@ -1,4 +1,8 @@
-use crate::{error::RedisError, types::RedisValue, utils};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  types::RedisValue,
+  utils,
+};
 use bytes_utils::Str;
 
 /// TODO docs
@@ -92,7 +96,15 @@ impl TryFrom<&str> for Timestamp {
 impl TryFrom<Str> for Timestamp {
   type Error = RedisError;
 
-  fn try_from(value: &str) -> Result<Self, Self::Error> {
+  fn try_from(value: Str) -> Result<Self, Self::Error> {
+    Self::from_str(&value)
+  }
+}
+
+impl TryFrom<String> for Timestamp {
+  type Error = RedisError;
+
+  fn try_from(value: String) -> Result<Self, Self::Error> {
     Self::from_str(&value)
   }
 }
@@ -109,10 +121,10 @@ pub enum Aggregator {
   Count,
   First,
   Last,
-  Std_P,
-  Std_S,
-  Var_P,
-  Var_S,
+  StdP,
+  StdS,
+  VarP,
+  VarS,
   TWA,
 }
 
@@ -127,10 +139,10 @@ impl Aggregator {
       Aggregator::Count => "count",
       Aggregator::First => "first",
       Aggregator::Last => "last",
-      Aggregator::Std_P => "std.p",
-      Aggregator::Std_S => "std.s",
-      Aggregator::Var_P => "var.p",
-      Aggregator::Var_S => "var.s",
+      Aggregator::StdP => "std.p",
+      Aggregator::StdS => "std.s",
+      Aggregator::VarP => "var.p",
+      Aggregator::VarS => "var.s",
       Aggregator::TWA => "twa",
     })
   }
@@ -142,6 +154,15 @@ impl Aggregator {
 pub enum GetLabels {
   WithLabels,
   SelectedLabels(Vec<Str>),
+}
+
+impl GetLabels {
+  pub(crate) fn args_len(&self) -> usize {
+    match *self {
+      GetLabels::WithLabels => 1,
+      GetLabels::SelectedLabels(ref s) => 1 + s.len(),
+    }
+  }
 }
 
 impl<S> FromIterator<S> for GetLabels
@@ -179,7 +200,17 @@ pub enum GetTimestamp {
   Earliest,
   /// Equivalent to `+`
   Latest,
-  Custom(u64),
+  Custom(i64),
+}
+
+impl GetTimestamp {
+  pub(crate) fn to_value(&self) -> RedisValue {
+    match *self {
+      GetTimestamp::Earliest => static_val!("-"),
+      GetTimestamp::Latest => static_val!("+"),
+      GetTimestamp::Custom(i) => i.into(),
+    }
+  }
 }
 
 impl TryFrom<&str> for GetTimestamp {
@@ -189,13 +220,13 @@ impl TryFrom<&str> for GetTimestamp {
     Ok(match value.as_ref() {
       "-" => GetTimestamp::Earliest,
       "+" => GetTimestamp::Latest,
-      _ => GetTimestamp::Custom(value.parse::<u64>()?),
+      _ => GetTimestamp::Custom(value.parse::<i64>()?),
     })
   }
 }
 
-impl From<u64> for GetTimestamp {
-  fn from(value: u64) -> Self {
+impl From<i64> for GetTimestamp {
+  fn from(value: i64) -> Self {
     GetTimestamp::Custom(value)
   }
 }
@@ -205,11 +236,11 @@ impl From<u64> for GetTimestamp {
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RangeAggregation {
-  align:            Option<GetTimestamp>,
-  aggregation:      Aggregator,
-  bucket_duration:  u64,
-  bucket_timestamp: Option<BucketTimestamp>,
-  empty:            bool,
+  pub align:            Option<GetTimestamp>,
+  pub aggregation:      Aggregator,
+  pub bucket_duration:  u64,
+  pub bucket_timestamp: Option<BucketTimestamp>,
+  pub empty:            bool,
 }
 
 impl From<(Aggregator, u64)> for RangeAggregation {
@@ -234,10 +265,10 @@ pub enum Reducer {
   Max,
   Range,
   Count,
-  Std_P,
-  Std_S,
-  Var_P,
-  Var_S,
+  StdP,
+  StdS,
+  VarP,
+  VarS,
 }
 
 impl Reducer {
@@ -249,10 +280,10 @@ impl Reducer {
       Reducer::Max => "max",
       Reducer::Range => "range",
       Reducer::Count => "count",
-      Reducer::Std_P => "std.p",
-      Reducer::Std_S => "std.s",
-      Reducer::Var_P => "var.p",
-      Reducer::Var_S => "var.s",
+      Reducer::StdP => "std.p",
+      Reducer::StdS => "std.s",
+      Reducer::VarP => "var.p",
+      Reducer::VarS => "var.s",
     })
   }
 }
@@ -261,8 +292,8 @@ impl Reducer {
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GroupBy {
-  groupby: Str,
-  reduce:  Reducer,
+  pub groupby: Str,
+  pub reduce:  Reducer,
 }
 
 impl<S: Into<Str>> From<(S, Reducer)> for GroupBy {
@@ -281,4 +312,32 @@ pub enum BucketTimestamp {
   Start,
   End,
   Mid,
+}
+
+impl TryFrom<&str> for BucketTimestamp {
+  type Error = RedisError;
+
+  fn try_from(value: &str) -> Result<Self, Self::Error> {
+    Ok(match value.as_ref() {
+      "-" | "start" => BucketTimestamp::Start,
+      "+" | "end" => BucketTimestamp::End,
+      "~" | "mid" => BucketTimestamp::Mid,
+      _ => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Invalid bucket timestamp.",
+        ))
+      },
+    })
+  }
+}
+
+impl BucketTimestamp {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      BucketTimestamp::Start => "-",
+      BucketTimestamp::End => "+",
+      BucketTimestamp::Mid => "~",
+    })
+  }
 }

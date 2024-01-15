@@ -1,5 +1,4 @@
 use crate::{
-  clients::WithOptions,
   error::RedisError,
   interfaces,
   interfaces::{
@@ -39,6 +38,7 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 
 #[cfg(feature = "redis-json")]
 use crate::interfaces::RedisJsonInterface;
+#[cfg(feature = "time-series")]
 use crate::interfaces::TimeSeriesInterface;
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
