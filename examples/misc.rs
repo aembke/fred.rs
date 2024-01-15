@@ -14,7 +14,7 @@ async fn main() -> Result<(), RedisError> {
       config.max_feed_count = 100;
       config.auto_pipeline = true;
       config.broadcast_channel_capacity = 48;
-      // allow up to 5000 in-flight commands per connection
+      // allow up to 25000 in-flight commands per connection
       config.backpressure = BackpressureConfig {
         disable_auto_backpressure: false,
         max_in_flight_commands: 25_000,

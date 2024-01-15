@@ -336,3 +336,15 @@ mod cluster {
 mod tracking {
   cluster_test!(tracking, should_invalidate_foo_resp3);
 }
+
+#[cfg(feature = "time-series")]
+mod timeseries {
+  cluster_test!(timeseries, should_ts_add_get_and_range);
+  cluster_test!(timeseries, should_ts_add_to_multiple_and_mrange);
+  cluster_test!(timeseries, should_create_alter_and_del_timeseries);
+  cluster_test!(timeseries, should_create_and_query_multiple);
+  cluster_test!(timeseries, should_madd_and_mget);
+  cluster_test!(timeseries, should_incr_and_decr);
+  cluster_test!(timeseries, should_create_and_delete_rules);
+  cluster_test!(timeseries, should_mrange_and_mrevrange);
+}

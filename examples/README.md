@@ -21,5 +21,6 @@ Examples
 * [Events](./events.rs) - Respond to connection events with the `EventsInterface`.
 * [Keyspace Notifications](./keyspace.rs) - Use the [keyspace notifications](https://redis.io/docs/manual/keyspace-notifications/) interface.
 * [Misc](./misc.rs) - Miscellaneous or advanced features. 
+* [Axum](./axum.rs) - Use a client pool with [Axum](https://crates.io/crates/axum).
 
 Or see the [tests](../tests/integration) for more examples.

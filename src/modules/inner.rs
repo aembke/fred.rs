@@ -375,7 +375,7 @@ fn create_resolver(id: &Str) -> Arc<dyn Resolve> {
 }
 
 pub struct RedisClientInner {
-  /// An internal lock used to sync certain operations that should not run concurrently across tasks.
+  /// An internal lock used to sync certain select operations that should not run concurrently across tasks.
   pub _lock:         Mutex<()>,
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id:            Str,

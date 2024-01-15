@@ -79,6 +79,7 @@ pretty_env_logger = "0.5"
 bollard = "0.15"
 serde = "1.0"
 tokio-stream = { version = "0.1", features = ["sync"] }
+axum = { version = "0.7", features = ["macros"] }
 
 [lib]
 doc = true

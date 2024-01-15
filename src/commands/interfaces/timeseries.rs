@@ -288,7 +288,7 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Query a range across multiple time series by filters in the forward direction.
   ///
   /// <https://redis.io/commands/ts.mrange/>
-  async fn ts_mrange<R, F, T, I, L, S, G>(
+  async fn ts_mrange<R, F, T, I, L, S, G, J>(
     &self,
     from: F,
     to: T,
@@ -298,7 +298,7 @@ pub trait TimeSeriesInterface: ClientLike {
     labels: Option<L>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
-    filters: Vec<S>,
+    filters: J,
     group_by: Option<G>,
   ) -> RedisResult<R>
   where
@@ -311,6 +311,7 @@ pub trait TimeSeriesInterface: ClientLike {
     S: Into<Str> + Send,
     G: Into<GroupBy> + Send,
     I: IntoIterator<Item = i64> + Send,
+    J: IntoIterator<Item = S> + Send,
   {
     try_into!(from, to);
     let labels = labels.map(|l| l.into());
@@ -338,7 +339,7 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Query a range across multiple time series by filters in the reverse direction.
   ///
   /// <https://redis.io/commands/ts.mrevrange/>
-  async fn ts_mrevrange<R, F, T, I, L, S, G>(
+  async fn ts_mrevrange<R, F, T, I, L, S, G, J>(
     &self,
     from: F,
     to: T,
@@ -348,7 +349,7 @@ pub trait TimeSeriesInterface: ClientLike {
     labels: Option<L>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
-    filters: Vec<S>,
+    filters: J,
     group_by: Option<G>,
   ) -> RedisResult<R>
   where
@@ -361,6 +362,7 @@ pub trait TimeSeriesInterface: ClientLike {
     S: Into<Str> + Send,
     G: Into<GroupBy> + Send,
     I: IntoIterator<Item = i64> + Send,
+    J: IntoIterator<Item = S> + Send,
   {
     try_into!(from, to);
     let labels = labels.map(|l| l.into());

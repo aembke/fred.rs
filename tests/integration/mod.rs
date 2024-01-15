@@ -27,6 +27,9 @@ mod streams;
 #[cfg(feature = "redis-json")]
 mod redis_json;
 
+#[cfg(feature = "time-series")]
+mod timeseries;
+
 #[cfg(feature = "client-tracking")]
 mod tracking;
 
