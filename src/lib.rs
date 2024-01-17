@@ -162,6 +162,7 @@ pub mod prelude {
       RedisKey,
       RedisValue,
       RedisValueKind,
+      Server,
       ServerConfig,
       SetOptions,
       TcpConfig,

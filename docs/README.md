@@ -26,10 +26,10 @@ Fred was originally written in 2017 to support tokio-core 0.1 + futures 0.1 use 
 
 Many of the design decisions described in these documents come from this initial use case. Loosely summarized:
 
-* I'm building a web or RPC server with an HTTP, gRPC, or AMQP interface on a mostly Tokio-based stack. 
+* I'm building a web or RPC server on a mostly Tokio-based stack. 
 * The application makes frequent use of Tokio's concurrency features, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
 * I'm using a clustered Redis deployment on ElastiCache in production, a clustered deployment in Kubernetes in lower environments, and a centralized deployment when developing locally. This effectively means I don't want most of my application code coupled to the Redis deployment model. However, there are some cases where this is unavoidable, so I'd like the option do my own connection or server management if necessary.
-* I may switch Redis vendors or deployment models. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
+* I sometimes have to switch Redis vendors or deployment models. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or connection management shenanigans. The reconnection logic must work reliably.
 * Big clustered deployments often scale horizontally. This should not cause downtime or end user errors, but it's ok if it causes minor delays. Ideally the client would handle this gracefully.
 * I usually want the client to retry things (within reason) before reporting an error. Configuration options to selectively disable or tune this would be nice. 
 * I need full control over the TLS configuration process. 
@@ -50,7 +50,9 @@ Here's a top-down way to visualize the communication patterns between Tokio task
 
 ![Bad Design Doc](./design.png)
 
-The shared state in this diagram is an `Arc<UnboundedSender>` that's shared between the Axum request tasks. Each of these tasks can write to the channel without acquiring a lock, minimizing contention that could slow down the application layer. At a high level all the public client types are thin wrappers around an `Arc<UnboundedSender>`. A `RedisPool` is really a `Arc<Vec<Arc<UnboundedSender>>>` with an additional atomic increment-mod-length trick in the mix. Cloning anything `ClientLike` usually just clones one of these `Arc`s.
+The shared state in this diagram is an `Arc<UnboundedSender>` that's shared between the Axum request tasks. Each of these tasks can write to the channel without acquiring a lock, minimizing contention that could slow down the application layer. 
+
+At a high level all the public client types are thin wrappers around an `Arc<UnboundedSender>`. A `RedisPool` is really a `Arc<Vec<Arc<UnboundedSender>>>` with an additional atomic increment-mod-length trick in the mix. Cloning anything `ClientLike` usually just clones one of these `Arc`s.
 
 Generally speaking the router task sits in a `recv` loop. 
 
@@ -64,7 +66,7 @@ async fn example(connections: &mut HashMap<Server, Connection>, rx: UnboundedRec
 }
 ```
 
-Commands are processed in series, but the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore many synchronization issues, and as a result it's much easier to reason about how features like reconnection should work. It's also much easier to implement socket flushing optimizations with this model. 
+Commands are processed in series, but the `auto_pipeline` flag controls whether the `send_to_server` function waits on the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore many synchronization issues, and as a result it's much easier to reason about how features like reconnection should work. It's also easy to implement socket flushing optimizations with this model. 
 
 However, this has some drawbacks:
 * Once a command is in the `UnboundedSender` channel it's difficult to inspect or remove. There's no practical way to get any kind of random access into this.

@@ -11,7 +11,7 @@ use log::{debug, info};
 use std::{env, str};
 use tokio::net::TcpListener;
 
-// no need for a lock or an extra `Arc`. all the clients are thin wrappers around an `Arc<...>`
+// don't need a lock or an extra `Arc`
 #[derive(Clone)]
 struct AppState {
   pub pool: RedisPool,
@@ -40,11 +40,10 @@ async fn main() {
   pool.wait_for_connect().await.expect("Failed to connect to redis");
   info!("Connected to Redis");
 
-  let state = AppState { pool };
   let app = Router::new()
     .route("/:key", get(get_kv).post(set_kv).delete(del_kv))
     .route("/:key/incr", post(incr_kv))
-    .with_state(state);
+    .with_state(AppState { pool });
 
   let listener = TcpListener::bind("127.0.0.1:3000")
     .await

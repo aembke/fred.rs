@@ -401,6 +401,7 @@ impl BucketTimestamp {
 /// ```
 ///
 /// See [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for the RESP3 equivalent.
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;
 
 /// The RESP3 equivalent of [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues).
@@ -444,4 +445,5 @@ pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64
 ///   Ok(())
 /// }
 /// ```
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 pub type Resp3TimeSeriesValues<K, Lk, Lv> = HashMap<K, (Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;
