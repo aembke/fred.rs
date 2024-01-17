@@ -118,3 +118,55 @@ Performed 10000000 operations in: 3.356416674s. Throughput: 2979737 req/sec
 Maybe Relevant Specs:
 * AMD Ryzen 9 7950X (16 physical, 32 logical)
 * 64 GB DDR5 @ 6000 MHz
+
+## `redis-rs` Comparison
+
+The `USE_REDIS_RS` environment variable can be toggled to switch the benchmark logic to use `redis-rs` instead of `fred`. There's also an `info` level log line that can confirm this at runtime. 
+
+The `redis-rs` variant uses the same general strategy, but with [bb8-redis](https://crates.io/crates/bb8-redis) (specifically `Pool<RedisMultiplexedConnectionManager>`) instead of `fred::clients::RedisPool`. All the other more structural components in the benchmark logic are the same.
+
+### Why
+
+In general I've avoided directly comparing `fred` and `redis-rs` because in my opinion they're just built for different use cases, the end. If you've ever compared the implementations you likely know where I'm going with this and why I'm leading with some commentary on the different design choices. Just note that this is a complicated topic that involves some terms that are often overloaded. I'm going to do an incomplete job explaining this here since it touches on some deeper message passing topics that others can explain much better than I can.
+
+Ultimately the more opinionated design decisions in `fred` allow for some optimizations that `redis-rs` just can't match due to the mutability constraint in the `ConnectionLike` interface. However, this `&mut` constraint is effectively unavoidable for all practical purposes if the interface needs to be generic over the transport layer. This is one of the key things that differentiates the two libraries - whether they try to be generic over the transport layer. `fred` does not try to do this but `redis-rs` does. Again, there's no right or wrong answer here, these are just two different design goals.
+
+There are some big trade offs between these two approaches though, and one of them relates to pipelining optimizations. 
+
+Both libraries implement some form of "automatic pipelining" **across** tasks - enabled via `auto_pipeline` in `fred` and the "Multiplexed" `Connection` variants in `redis-rs`. In both libraries this interface effectively controls whether the client should wait on a response from the server before writing the next command. Obviously in most scenarios it's faster if we don't have to wait on the server between each command. 
+
+However, Rust's mutability rules dictate that only one task can ever have a mutable reference in scope at a time, which effectively negates any benefit of this "auto pipeline" or multiplexing interface if you need to hold onto a mutable reference across your request's `await` point. Again, this is just a natural and often unavoidable consequence of trying to be generic over something like `AsyncRead + AsyncWrite`. Unfortunately even adding in an async lock wouldn't help here - you're still holding onto a `&mut ConnectionLike` across an `await` point. Even using a `Pipeline` everywhere wouldn't address this since that only affects how commands are pipelined **within** a task (as opposed to across tasks).
+
+In a nutshell:
+
+* `fred` chose to implement more sophisticated pipelining logic at the cost of a less flexible interface by having to effectively hide the connection/transport layer.
+* `redis-rs` chose to expose a more flexible and generic transport layer at the cost of these more complicated multiplexing/pipelining features.
+
+However, it's worth noting that one could release a wrapper library for `redis-rs` that effectively does what `fred` does with Tokio's message passing interface. That library would probably perform the same as `fred` if it implemented the same pipelining optimizations. In this sense you can think of `fred` as one layer of abstraction higher than `redis-rs` where we effectively wrap the transport layer in an actor-model-esque message passing layer. 
+
+If everything I've said here is correct then we should see `fred` perform roughly the same as `redis-rs` when `auto_pipeline: false`, but it should outperform `redis-rs` when `auto_pipeline: true`. 
+
+### Examples
+
+These examples use the following parameters:
+
+* Centralized deployment via local docker
+* No tracing features enabled
+* No TLS
+* 10_000_000 INCR commands with `assert-expected` enabled
+* 10_000 Tokio tasks
+* 15 clients in the connection pool
+
+```
+# fred without `auto_pipeline` 
+$ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 no-pipeline
+Performed 10000000 operations in: 62.79547495s. Throughput: 159248 req/sec
+
+# redis-rs via bb8-redis
+$ USE_REDIS_RS=1 ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000
+Performed 10000000 operations in: 62.583055519s. Throughput: 159787 req/sec
+
+# fred with `auto_pipeline`
+$ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 pipeline
+Performed 10000000 operations in: 5.882182708s. Throughput: 1700102 req/sec
+```

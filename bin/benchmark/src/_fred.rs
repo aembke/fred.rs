@@ -107,6 +107,8 @@ fn spawn_client_task(
 }
 
 pub async fn run(argv: Arc<Argv>, counter: Arc<AtomicUsize>, bar: Option<ProgressBar>) -> Duration {
+  info!("Running with fred");
+
   let pool = init(&argv).await.expect("Failed to init");
   let mut tasks = Vec::with_capacity(argv.tasks);
 

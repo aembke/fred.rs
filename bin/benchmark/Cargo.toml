@@ -26,8 +26,8 @@ indicatif = "=0.17.1"
 bb8-redis = { version = "0.14", optional = true }
 
 [dependencies.fred]
-path = "../.."
-#path = "/fred"
+#path = "../.."
+path = "/fred"
 features = ["replicas", "unix-sockets"]
 default-features = false
 

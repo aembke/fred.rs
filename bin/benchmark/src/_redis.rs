@@ -58,9 +58,10 @@ fn spawn_client_task(
           std::process::exit(1);
         }
       }
-    }
-    if let Some(ref bar) = bar {
-      bar.inc(1);
+
+      if let Some(ref bar) = bar {
+        bar.inc(1);
+      }
     }
   })
 }
@@ -68,13 +69,14 @@ fn spawn_client_task(
 // TODO support clustered deployments
 async fn init(argv: &Arc<Argv>) -> Pool<RedisMultiplexedConnectionManager> {
   let (username, password) = utils::read_auth_env();
-  let password = argv.auth.clone().or(password);
   let url = if let Some(password) = password {
     let username = username.map(|s| format!("{s}:")).unwrap_or("".into());
     format!("redis://{}{}@{}:{}", username, password, argv.host, argv.port)
   } else {
     format!("redis://{}:{}", argv.host, argv.port)
   };
+  debug!("Redis conn: {}", url);
+
   let manager = RedisMultiplexedConnectionManager::new(url).expect("Failed to create redis connection manager");
   let pool = bb8::Pool::builder()
     .max_size(argv.pool as u32)
@@ -94,6 +96,8 @@ async fn init(argv: &Arc<Argv>) -> Pool<RedisMultiplexedConnectionManager> {
 }
 
 pub async fn run(argv: Arc<Argv>, counter: Arc<AtomicUsize>, bar: Option<ProgressBar>) -> Duration {
+  info!("Running with redis-rs");
+
   if argv.cluster || argv.replicas {
     panic!("Cluster or replica features are not supported yet with redis-rs benchmarks.");
   }

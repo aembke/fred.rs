@@ -1,6 +1,8 @@
 #!/bin/bash
 
-FEATURES="assert-expected"
+[[ -z "${USE_REDIS_RS}" ]] && FEATURES="assert-expected" || FEATURES="assert-expected redis-rs"
+
+echo $FEATURES
 
 docker-compose -f ../../tests/docker/compose/cluster.yml \
   -f ../../tests/docker/compose/centralized.yml \

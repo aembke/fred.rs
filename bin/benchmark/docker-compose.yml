@@ -23,6 +23,7 @@ services:
       RUST_LOG: "${RUST_LOG}"
       REDIS_VERSION: "${REDIS_VERSION}"
       REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_USERNAME: "${REDIS_USERNAME}"
     volumes:
       - "../../../bin/benchmark:/project"
       - "../../..:/fred"
