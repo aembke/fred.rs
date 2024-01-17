@@ -20,11 +20,6 @@ extern crate pretty_env_logger;
 use fred::types::TracingConfig;
 
 use clap::App;
-use fred::{
-  clients::RedisPool,
-  prelude::*,
-  types::{Builder as RedisBuilder, Server},
-};
 use indicatif::ProgressBar;
 use opentelemetry::{
   global,
@@ -35,9 +30,7 @@ use opentelemetry::{
   },
 };
 use opentelemetry_jaeger::JaegerTraceRuntime;
-use rand::{self, distributions::Alphanumeric, Rng};
 use std::{
-  alloc::System,
   default::Default,
   env,
   sync::{atomic::AtomicUsize, Arc},
@@ -46,9 +39,6 @@ use std::{
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
 use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
-
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 
 static DEFAULT_COMMAND_COUNT: usize = 10_000;
 static DEFAULT_CONCURRENCY: usize = 10;
@@ -60,12 +50,14 @@ mod utils;
 #[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
 compile_error!("Cannot use both TLS feature flags.");
 
-fn read_auth_env() -> (Option<String>, Option<String>) {
-  let username = env::var_os("REDIS_USERNAME").and_then(|s| s.into_string().ok());
-  let password = env::var_os("REDIS_PASSWORD").and_then(|s| s.into_string().ok());
-
-  (username, password)
-}
+#[cfg(not(feature = "redis-rs"))]
+mod _fred;
+#[cfg(feature = "redis-rs")]
+mod _redis;
+#[cfg(not(feature = "redis-rs"))]
+use _fred::run as run_benchmark;
+#[cfg(feature = "redis-rs")]
+use _redis::run as run_benchmark;
 
 // TODO update clap
 #[derive(Debug)]
@@ -144,14 +136,6 @@ fn parse_argv() -> Arc<Argv> {
   })
 }
 
-pub fn random_string(len: usize) -> String {
-  rand::thread_rng()
-    .sample_iter(&Alphanumeric)
-    .take(len)
-    .map(char::from)
-    .collect()
-}
-
 #[cfg(all(
   not(feature = "partial-tracing"),
   not(feature = "stdout-tracing"),
@@ -208,125 +192,22 @@ pub fn setup_tracing(enable: bool) {
   info!("Initialized opentelemetry-jaeger pipeline.");
 }
 
-fn spawn_client_task(
-  bar: &Option<ProgressBar>,
-  client: &RedisClient,
-  counter: &Arc<AtomicUsize>,
-  argv: &Arc<Argv>,
-) -> JoinHandle<Result<(), RedisError>> {
-  let (bar, client, counter, argv) = (bar.clone(), client.clone(), counter.clone(), argv.clone());
-
-  tokio::spawn(async move {
-    let key = random_string(15);
-    let mut expected = 0;
-
-    while utils::incr_atomic(&counter) < argv.count {
-      if argv.replicas {
-        let _: () = client.replicas().get(&key).await?;
-      } else {
-        expected += 1;
-        let actual: i64 = client.incr(&key).await?;
-        #[cfg(feature = "assert-expected")]
-        {
-          if actual != expected {
-            println!("Unexpected result: {} == {}", actual, expected);
-            std::process::exit(1);
-          }
-        }
-      }
-      if let Some(ref bar) = bar {
-        bar.inc(1);
-      }
-    }
-
-    Ok::<_, RedisError>(())
-  })
-}
-
-#[cfg(feature = "enable-rustls")]
-fn default_tls_config() -> TlsConfig {
-  TlsConfig {
-    connector: TlsConnector::default_rustls().unwrap(),
-    hostnames: TlsHostMapping::None,
-  }
-}
-
-#[cfg(feature = "enable-native-tls")]
-fn default_tls_config() -> TlsConfig {
-  TlsConfig {
-    connector: TlsConnector::default_native_tls().unwrap(),
-    hostnames: TlsHostMapping::None,
-  }
-}
-
 fn main() {
   pretty_env_logger::init();
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
   let sch = Builder::new_multi_thread().enable_all().build().unwrap();
-  let output = sch.block_on(async move {
+  sch.block_on(async move {
     setup_tracing(argv.tracing);
-
     let counter = Arc::new(AtomicUsize::new(0));
-    let (username, password) = read_auth_env();
-    let config = RedisConfig {
-      server: if argv.unix.is_some() {
-        ServerConfig::Unix {
-          path: argv.unix.clone().unwrap().into(),
-        }
-      } else if argv.cluster {
-        ServerConfig::Clustered {
-          hosts: vec![Server::new(&argv.host, argv.port)],
-        }
-      } else {
-        ServerConfig::new_centralized(&argv.host, argv.port)
-      },
-      username,
-      password: argv.auth.clone().or(password),
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-      tls: default_tls_config(),
-      #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
-      tracing: TracingConfig::new(argv.tracing),
-      ..Default::default()
-    };
-    let pool = RedisBuilder::from_config(config)
-      .with_performance_config(|config| {
-        config.auto_pipeline = argv.pipeline;
-        config.backpressure.max_in_flight_commands = 100_000_000;
-      })
-      .with_connection_config(|config| {
-        config.internal_command_timeout = Duration::from_secs(5);
-      })
-      .set_policy(ReconnectPolicy::new_constant(0, 500))
-      .build_pool(argv.pool)?;
-
-    info!("Connecting to {}:{}...", argv.host, argv.port);
-    pool.connect();
-    pool.wait_for_connect().await?;
-    info!("Connected to {}:{}.", argv.host, argv.port);
-    pool.flushall_cluster().await?;
-
-    info!("Starting commands...");
-    let mut tasks = Vec::with_capacity(argv.tasks);
     let bar = if argv.quiet {
       None
     } else {
       Some(ProgressBar::new(argv.count as u64))
     };
 
-    let started = SystemTime::now();
-    for _ in 0 .. argv.tasks {
-      tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
-    }
-    if let Err(e) = futures::future::try_join_all(tasks).await {
-      println!("Finished with error: {:?}", e);
-      std::process::exit(1);
-    }
-
-    let duration = SystemTime::now()
-      .duration_since(started)
-      .expect("Failed to calculate test duration.");
+    let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
     let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
     if let Some(bar) = bar {
       bar.finish();
@@ -342,12 +223,6 @@ fn main() {
         (argv.count as f64 / duration_sec) as u64
       );
     }
-    let _ = pool.flushall_cluster().await?;
     global::shutdown_tracer_provider();
-
-    Ok::<_, RedisError>(())
   });
-  if let Err(e) = output {
-    eprintln!("Finished with error: {:?}", e);
-  }
 }
