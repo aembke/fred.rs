@@ -346,11 +346,10 @@ mod redis_json {
 #[cfg(feature = "time-series")]
 mod timeseries {
   centralized_test!(timeseries, should_ts_add_get_and_range);
-  centralized_test!(timeseries, should_ts_add_to_multiple_and_mrange);
   centralized_test!(timeseries, should_create_alter_and_del_timeseries);
-  centralized_test!(timeseries, should_create_and_query_multiple);
   centralized_test!(timeseries, should_madd_and_mget);
   centralized_test!(timeseries, should_incr_and_decr);
   centralized_test!(timeseries, should_create_and_delete_rules);
-  centralized_test!(timeseries, should_mrange_and_mrevrange);
+  centralized_test!(timeseries, should_madd_and_mrange);
+  centralized_test!(timeseries, should_madd_and_mrevrange);
 }

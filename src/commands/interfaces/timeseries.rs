@@ -269,6 +269,9 @@ pub trait TimeSeriesInterface: ClientLike {
 
   /// Get the sample with the highest timestamp from each time series matching a specific filter.
   ///
+  /// See [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues) and
+  /// [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for more information.
+  ///
   /// <https://redis.io/commands/ts.mget/>
   async fn ts_mget<R, L, S, I>(&self, latest: bool, labels: Option<L>, filters: I) -> RedisResult<R>
   where
@@ -286,6 +289,9 @@ pub trait TimeSeriesInterface: ClientLike {
   }
 
   /// Query a range across multiple time series by filters in the forward direction.
+  ///
+  /// See [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues) and
+  /// [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for more information.
   ///
   /// <https://redis.io/commands/ts.mrange/>
   async fn ts_mrange<R, F, T, I, S, J>(
@@ -335,6 +341,9 @@ pub trait TimeSeriesInterface: ClientLike {
   }
 
   /// Query a range across multiple time series by filters in the reverse direction.
+  ///
+  /// See [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues) and
+  /// [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for more information.
   ///
   /// <https://redis.io/commands/ts.mrevrange/>
   async fn ts_mrevrange<R, F, T, I, S, J>(

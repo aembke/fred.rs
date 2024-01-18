@@ -1,3 +1,14 @@
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  interfaces::{ClientLike, Resp3Frame},
+  protocol::{connection::OK, utils as protocol_utils},
+  types::{FromRedis, FromRedisKey, Function, GeoPosition, GeoRadiusInfo, Server, XReadResponse, XReadValue, QUEUED},
+  utils,
+};
+use bytes::Bytes;
+use bytes_utils::Str;
+use float_cmp::approx_eq;
+use redis_protocol::resp2::types::NULL;
 use std::{
   borrow::Cow,
   collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -10,20 +21,8 @@ use std::{
   str,
 };
 
-use bytes::Bytes;
-use bytes_utils::Str;
-use float_cmp::approx_eq;
-use redis_protocol::resp2::types::NULL;
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
-
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  interfaces::{ClientLike, Resp3Frame},
-  protocol::{connection::OK, utils as protocol_utils},
-  types::{FromRedis, FromRedisKey, Function, GeoPosition, GeoRadiusInfo, Server, XReadResponse, XReadValue, QUEUED},
-  utils,
-};
 
 static_str!(TRUE_STR, "true");
 static_str!(FALSE_STR, "false");
@@ -476,6 +475,44 @@ where
     for (key, value) in values.into_iter() {
       inner.insert(to!(key)?, to!(value)?);
     }
+    Ok(RedisMap { inner })
+  }
+}
+
+impl<K, V, const N: usize> TryFrom<[(K, V); N]> for RedisMap
+where
+  K: TryInto<RedisKey>,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: [(K, V); N]) -> Result<Self, Self::Error> {
+    let mut inner = HashMap::with_capacity(value.len());
+    for (key, value) in value.into_iter() {
+      inner.insert(to!(key)?, to!(value)?);
+    }
+
+    Ok(RedisMap { inner })
+  }
+}
+impl<'a, K, V, const N: usize> TryFrom<&'a [(K, V); N]> for RedisMap
+where
+  K: TryInto<RedisKey> + Clone,
+  K::Error: Into<RedisError>,
+  V: TryInto<RedisValue> + Clone,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(value: &'a [(K, V); N]) -> Result<Self, Self::Error> {
+    let mut inner = HashMap::with_capacity(value.len());
+    for (key, value) in value.iter() {
+      let (key, value) = (key.clone(), value.clone());
+      inner.insert(to!(key)?, to!(value)?);
+    }
+
     Ok(RedisMap { inner })
   }
 }

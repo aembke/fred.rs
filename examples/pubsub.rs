@@ -3,8 +3,7 @@
 
 #[allow(unused_imports)]
 use fred::clients::SubscriberClient;
-use fred::{prelude::*, types::PerformanceConfig};
-use futures::stream::StreamExt;
+use fred::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
 

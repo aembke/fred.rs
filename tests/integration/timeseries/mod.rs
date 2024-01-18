@@ -4,7 +4,16 @@ use fred::{
   error::RedisError,
   interfaces::*,
   prelude::RedisResult,
-  types::{GetLabels, RedisConfig, RedisKey, RedisValue, Resp2TimeSeriesValues, Resp3TimeSeriesValues},
+  types::{
+    Aggregator,
+    GetLabels,
+    RedisConfig,
+    RedisKey,
+    RedisValue,
+    Resp2TimeSeriesValues,
+    Resp3TimeSeriesValues,
+    Timestamp,
+  },
 };
 use redis_protocol::resp3::prelude::RespVersion;
 use std::{collections::HashMap, time::Duration};
@@ -27,48 +36,11 @@ pub async fn should_ts_add_get_and_range(client: RedisClient, _: RedisConfig) ->
   Ok(())
 }
 
-pub async fn should_ts_add_to_multiple_and_mrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let foo_first_timestamp: i64 = client
-    .ts_add("foo", "*", 1.1, None, None, None, None, ("a", "b"))
-    .await?;
-  sleep(Duration::from_millis(5)).await;
-  let foo_second_timestamp: i64 = client
-    .ts_add("foo", "*", 2.2, None, None, None, None, ("a", "b"))
-    .await?;
-  sleep(Duration::from_millis(5)).await;
-  let bar_first_timestamp: i64 = client
-    .ts_add("bar", "*", 3.3, None, None, None, None, ("a", "b"))
-    .await?;
-  sleep(Duration::from_millis(5)).await;
-  let bar_second_timestamp: i64 = client
-    .ts_add("bar", "*", 4.4, None, None, None, None, ("a", "b"))
-    .await?;
-
-  let mut ranges: Resp2TimeSeriesValues<RedisKey, Str, Str> = client
-    .ts_mrange("-", "+", true, [], None, None, None, None, ["a=b"], None)
-    .await?;
-  ranges.sort_by(|(lhs_key, _, _), (rhs_key, _, _)| lhs_key.cmp(rhs_key));
-
-  assert_eq!(ranges[0].2[0].0, bar_first_timestamp);
-  assert_eq!(ranges[0].2[0].1, 3.3);
-  assert_eq!(ranges[0].2[1].0, bar_second_timestamp);
-  assert_eq!(ranges[0].2[1].1, 4.4);
-
-  assert_eq!(ranges[1].2[0].0, foo_first_timestamp);
-  assert_eq!(ranges[1].2[0].1, 1.1);
-  assert_eq!(ranges[1].2[1].0, foo_second_timestamp);
-  assert_eq!(ranges[1].2[1].1, 2.2);
-  Ok(())
-}
-
 pub async fn should_create_alter_and_del_timeseries(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  // create, info, alter, and del
-  unimplemented!()
-}
+  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  client.ts_alter("foo{1}", None, None, None, ("b", "c")).await?;
 
-pub async fn should_create_and_query_multiple(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  // queryindex multiple
-  unimplemented!()
+  Ok(())
 }
 
 pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
@@ -86,6 +58,10 @@ pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result
   let args: Vec<_> = values.clone().into_iter().map(|(k, t, v)| (k, t.into(), v)).collect();
   let timestamps: Vec<i64> = client.ts_madd(args).await?;
   assert_eq!(timestamps, vec![1, 2, 3, 1, 2]);
+
+  let mut keys: Vec<String> = client.ts_queryindex(["a=b"]).await?;
+  keys.sort();
+  assert_eq!(keys, vec!["bar{1}", "foo{1}"]);
 
   if client.protocol_version() == RespVersion::RESP2 {
     let mut values: Resp2TimeSeriesValues<String, String, String> =
@@ -120,13 +96,284 @@ pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_incr_and_decr(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  // taken from the docs
+  let timestamp: i64 = client
+    .ts_incrby(
+      "foo",
+      232.0,
+      Some(Timestamp::Custom(1657811829000)),
+      None,
+      false,
+      None,
+      (),
+    )
+    .await?;
+  assert_eq!(timestamp, 1657811829000);
+  let timestamp: i64 = client
+    .ts_incrby(
+      "foo",
+      157.0,
+      Some(Timestamp::Custom(1657811829000)),
+      None,
+      false,
+      None,
+      (),
+    )
+    .await?;
+  assert_eq!(timestamp, 1657811829000);
+  let timestamp: i64 = client
+    .ts_decrby(
+      "foo",
+      157.0,
+      Some(Timestamp::Custom(1657811829000)),
+      None,
+      false,
+      None,
+      (),
+    )
+    .await?;
+  assert_eq!(timestamp, 1657811829000);
+
+  Ok(())
 }
 
 pub async fn should_create_and_delete_rules(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+  client
+    .ts_create("temp:TLV", None, None, None, None, [
+      ("type", "temp"),
+      ("location", "TLV"),
+    ])
+    .await?;
+  client
+    .ts_create("dailyAvgTemp:TLV", None, None, None, None, [
+      ("type", "temp"),
+      ("location", "TLV"),
+    ])
+    .await?;
+  client
+    .ts_createrule("temp:TLV", "dailyAvgTemp:TLV", (Aggregator::TWA, 86400000), None)
+    .await?;
+  client.ts_deleterule("temp:TLV", "dailyAvgTemp:TLV").await?;
+
+  Ok(())
 }
 
-pub async fn should_mrange_and_mrevrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  unimplemented!()
+pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
+
+  let values = vec![
+    ("foo{1}", 1, 1.1),
+    ("foo{1}", 2, 2.2),
+    ("foo{1}", 3, 3.3),
+    ("bar{1}", 1, 1.2),
+    ("bar{1}", 2, 2.3),
+  ];
+  let args: Vec<_> = values.clone().into_iter().map(|(k, t, v)| (k, t.into(), v)).collect();
+  let timestamps: Vec<i64> = client.ts_madd(args).await?;
+  assert_eq!(timestamps, vec![1, 2, 3, 1, 2]);
+
+  if client.protocol_version() == RespVersion::RESP2 {
+    let mut samples: Resp2TimeSeriesValues<String, String, String> = client
+      .ts_mrange(
+        "-",
+        "+",
+        false,
+        None,
+        None,
+        Some(GetLabels::WithLabels),
+        None,
+        None,
+        ["a=b"],
+        None,
+      )
+      .await?;
+    samples.sort_by(|(l, _, _), (r, _, _)| l.cmp(r));
+
+    let expected = vec![
+      ("bar{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (1, 1.2),
+        (2, 2.3),
+      ]),
+      ("foo{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (1, 1.1),
+        (2, 2.2),
+        (3, 3.3),
+      ]),
+    ];
+    assert_eq!(samples, expected)
+  } else {
+    // RESP3 has an additional (undocumented?) aggregators section
+    // Array([
+    // 	String("bar{1}"),
+    // 	Array([
+    // 		Array([
+    // 			String("a"),
+    // 			String("b")
+    // 		]),
+    // 		Array([
+    // 			String("aggregators"),
+    // 			Array([])
+    // 		]),
+    // 		Array([
+    // 			Array([
+    // 				Integer(1),
+    // 				Double(1.2)
+    // 			]),
+    // 			Array([
+    // 				Integer(2),
+    // 				Double(2.3)
+    // 			])
+    // 		])
+    // 	]),
+    // 	String("foo{1}"),
+    // 	Array([
+    // 		Array([
+    // 			String("a"),
+    // 			String("b")
+    // 		]),
+    // 		Array([
+    // 			String("aggregators"),
+    // 			Array([])
+    // 		]),
+    // 		Array([
+    // 			Array([
+    // 				Integer(1),
+    // 				Double(1.1)
+    // 			]),
+    // 			Array([
+    // 				Integer(2),
+    // 				Double(2.2)
+    // 			]),
+    // 			Array([
+    // 				Integer(3),
+    // 				Double(3.3)
+    // 			])
+    // 		])
+    // 	])
+    // ])
+    //
+    // TODO add another TimeSeriesValues type alias for this?
+
+    let samples: HashMap<String, (Vec<(String, String)>, Vec<RedisValue>, Vec<(i64, f64)>)> = client
+      .ts_mrange(
+        "-",
+        "+",
+        false,
+        None,
+        None,
+        Some(GetLabels::WithLabels),
+        None,
+        None,
+        ["a=b"],
+        None,
+      )
+      .await?;
+
+    let mut expected = HashMap::new();
+    expected.insert(
+      "foo{1}".to_string(),
+      (
+        vec![("a".to_string(), "b".to_string())],
+        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec![(1, 1.1), (2, 2.2), (3, 3.3)],
+      ),
+    );
+    expected.insert(
+      "bar{1}".to_string(),
+      (
+        vec![("a".to_string(), "b".to_string())],
+        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec![(1, 1.2), (2, 2.3)],
+      ),
+    );
+    assert_eq!(samples, expected)
+  }
+
+  Ok(())
+}
+
+pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
+
+  let values = vec![
+    ("foo{1}", 1, 1.1),
+    ("foo{1}", 2, 2.2),
+    ("foo{1}", 3, 3.3),
+    ("bar{1}", 1, 1.2),
+    ("bar{1}", 2, 2.3),
+  ];
+  let args: Vec<_> = values.clone().into_iter().map(|(k, t, v)| (k, t.into(), v)).collect();
+  let timestamps: Vec<i64> = client.ts_madd(args).await?;
+  assert_eq!(timestamps, vec![1, 2, 3, 1, 2]);
+
+  if client.protocol_version() == RespVersion::RESP2 {
+    let mut samples: Resp2TimeSeriesValues<String, String, String> = client
+      .ts_mrevrange(
+        "-",
+        "+",
+        false,
+        None,
+        None,
+        Some(GetLabels::WithLabels),
+        None,
+        None,
+        ["a=b"],
+        None,
+      )
+      .await?;
+    samples.sort_by(|(l, _, _), (r, _, _)| l.cmp(r));
+
+    let expected = vec![
+      ("bar{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (2, 2.3),
+        (1, 1.2),
+      ]),
+      ("foo{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (3, 3.3),
+        (2, 2.2),
+        (1, 1.1),
+      ]),
+    ];
+    assert_eq!(samples, expected)
+  } else {
+    // see the mrange test above for more info on this section
+
+    let samples: HashMap<String, (Vec<(String, String)>, Vec<RedisValue>, Vec<(i64, f64)>)> = client
+      .ts_mrevrange(
+        "-",
+        "+",
+        false,
+        None,
+        None,
+        Some(GetLabels::WithLabels),
+        None,
+        None,
+        ["a=b"],
+        None,
+      )
+      .await?;
+
+    let mut expected = HashMap::new();
+    expected.insert(
+      "foo{1}".to_string(),
+      (
+        vec![("a".to_string(), "b".to_string())],
+        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec![(3, 3.3), (2, 2.2), (1, 1.1)],
+      ),
+    );
+    expected.insert(
+      "bar{1}".to_string(),
+      (
+        vec![("a".to_string(), "b".to_string())],
+        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec![(2, 2.3), (1, 1.2)],
+      ),
+    );
+    assert_eq!(samples, expected)
+  }
+
+  Ok(())
 }
