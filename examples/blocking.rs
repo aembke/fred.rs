@@ -11,11 +11,8 @@ async fn main() -> Result<(), RedisError> {
 
   let publisher_client = RedisClient::default();
   let subscriber_client = RedisClient::default();
-
-  let _ = publisher_client.connect();
-  let _ = subscriber_client.connect();
-  publisher_client.wait_for_connect().await?;
-  subscriber_client.wait_for_connect().await?;
+  publisher_client.init().await?;
+  subscriber_client.init().await?;
 
   let subscriber_jh = tokio::spawn(async move {
     loop {

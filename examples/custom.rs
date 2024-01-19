@@ -11,8 +11,7 @@ use std::convert::TryInto;
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
   client.lpush("foo", vec![1, 2, 3]).await?;
 
   // some types require TryInto

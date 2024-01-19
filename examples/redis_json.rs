@@ -8,8 +8,7 @@ use serde_json::{json, Value};
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   // operate on objects
   let value = json!({

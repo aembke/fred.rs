@@ -46,6 +46,7 @@ use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
 
+use fred::types::Builder;
 #[cfg(feature = "codec")]
 use futures::{SinkExt, StreamExt};
 #[cfg(feature = "codec")]
@@ -656,5 +657,109 @@ pub async fn should_use_resp2_codec_example(_: RedisClient, config: RedisConfig)
   let response = framed.next().await.unwrap().unwrap();
   assert_eq!(response.as_str().unwrap(), "foo");
 
+  Ok(())
+}
+
+pub async fn pool_should_connect_correctly_via_init_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  let pool = Builder::from_config(config).build_pool(5)?;
+  let task = pool.init().await?;
+
+  pool.ping().await?;
+  pool.quit().await?;
+  task.await??;
+  Ok(())
+}
+
+pub async fn pool_should_fail_with_bad_host_via_init_interface(
+  _: RedisClient,
+  mut config: RedisConfig,
+) -> Result<(), RedisError> {
+  config.fail_fast = true;
+  config.server = ServerConfig::new_centralized("incorrecthost", 1234);
+  let pool = Builder::from_config(config).build_pool(5)?;
+  assert!(pool.init().await.is_err());
+  Ok(())
+}
+
+pub async fn pool_should_connect_correctly_via_wait_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  let pool = Builder::from_config(config).build_pool(5)?;
+  let task = pool.connect();
+  pool.wait_for_connect().await?;
+
+  pool.ping().await?;
+  pool.quit().await?;
+  task.await??;
+  Ok(())
+}
+
+pub async fn pool_should_fail_with_bad_host_via_wait_interface(
+  _: RedisClient,
+  mut config: RedisConfig,
+) -> Result<(), RedisError> {
+  config.fail_fast = true;
+  config.server = ServerConfig::new_centralized("incorrecthost", 1234);
+  let pool = Builder::from_config(config).build_pool(5)?;
+  let task = pool.connect();
+  assert!(pool.wait_for_connect().await.is_err());
+
+  let _ = task.await;
+  Ok(())
+}
+
+pub async fn should_connect_correctly_via_init_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  let client = Builder::from_config(config).build()?;
+  let task = client.init().await?;
+
+  client.ping().await?;
+  client.quit().await?;
+  task.await??;
+  Ok(())
+}
+
+pub async fn should_fail_with_bad_host_via_init_interface(
+  _: RedisClient,
+  mut config: RedisConfig,
+) -> Result<(), RedisError> {
+  config.fail_fast = true;
+  config.server = ServerConfig::new_centralized("incorrecthost", 1234);
+  let client = Builder::from_config(config).build()?;
+  assert!(client.init().await.is_err());
+  Ok(())
+}
+
+pub async fn should_connect_correctly_via_wait_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  let client = Builder::from_config(config).build()?;
+  let task = client.connect();
+  client.wait_for_connect().await?;
+
+  client.ping().await?;
+  client.quit().await?;
+  task.await??;
+  Ok(())
+}
+
+pub async fn should_fail_with_bad_host_via_wait_interface(
+  _: RedisClient,
+  mut config: RedisConfig,
+) -> Result<(), RedisError> {
+  config.fail_fast = true;
+  config.server = ServerConfig::new_centralized("incorrecthost", 1234);
+  let client = Builder::from_config(config).build()?;
+  let task = client.connect();
+  assert!(client.wait_for_connect().await.is_err());
+
+  let _ = task.await;
   Ok(())
 }
