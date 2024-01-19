@@ -186,5 +186,7 @@ pub mod strings;
 pub mod redis_json;
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;
+#[cfg(feature = "time-series")]
+pub mod timeseries;
 #[cfg(feature = "client-tracking")]
 pub mod tracking;

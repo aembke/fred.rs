@@ -18,6 +18,8 @@ pub mod slowlog;
 pub mod sorted_sets;
 pub mod streams;
 pub mod strings;
+
+#[cfg(feature = "transactions")]
 pub mod transactions;
 
 #[cfg(feature = "client-tracking")]
@@ -28,3 +30,6 @@ pub mod sentinel;
 
 #[cfg(feature = "redis-json")]
 pub mod redis_json;
+
+#[cfg(feature = "time-series")]
+pub mod timeseries;

@@ -1,6 +1,5 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  globals::globals,
   interfaces::ClientLike,
   modules::inner::{CommandSender, RedisClientInner},
   protocol::{
@@ -20,14 +19,13 @@ use futures::{
   Future,
   TryFutureExt,
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::{
   collections::HashMap,
   convert::TryInto,
   f64,
-  mem,
   sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
@@ -48,6 +46,12 @@ use urlencoding::decode as percent_decode;
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
+#[cfg(feature = "transactions")]
+use parking_lot::Mutex;
+#[cfg(feature = "transactions")]
+use std::mem;
+#[cfg(feature = "unix-sockets")]
+use std::path::Path;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -160,6 +164,7 @@ where
   value.convert().ok().unwrap_or_default()
 }
 
+#[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
 }
@@ -212,15 +217,21 @@ pub fn read_locked<T: Clone>(locked: &RwLock<T>) -> T {
   locked.read().clone()
 }
 
+#[cfg(feature = "transactions")]
 pub fn read_mutex<T: Clone>(locked: &Mutex<T>) -> T {
   locked.lock().clone()
 }
 
+#[cfg(feature = "transactions")]
 pub fn set_mutex<T>(locked: &Mutex<T>, value: T) -> T {
   mem::replace(&mut *locked.lock(), value)
 }
 
-///
+#[cfg(feature = "unix-sockets")]
+pub fn path_to_string(path: &Path) -> String {
+  path.as_os_str().to_string_lossy().to_string()
+}
+
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
@@ -307,19 +318,16 @@ where
   }
 }
 
-pub fn has_blocking_error_policy(inner: &Arc<RedisClientInner>) -> bool {
-  inner.config.blocking == Blocking::Error
-}
-
-pub fn has_blocking_interrupt_policy(inner: &Arc<RedisClientInner>) -> bool {
-  inner.config.blocking == Blocking::Interrupt
-}
-
 /// Whether the router should check and interrupt the blocked command.
 async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
-  !command.kind.closes_connection()
-    && ((inner.config.blocking == Blocking::Error || inner.config.blocking == Blocking::Interrupt)
-      && inner.backchannel.read().await.is_blocked())
+  if command.kind.closes_connection() {
+    return false;
+  }
+  if matches!(inner.config.blocking, Blocking::Error | Blocking::Interrupt) {
+    inner.backchannel.read().await.is_blocked()
+  } else {
+    false
+  }
 }
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
@@ -366,12 +374,12 @@ async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCom
       command.kind.to_str_debug()
     );
 
-    if has_blocking_error_policy(inner) {
+    if inner.config.blocking == Blocking::Error {
       return Err(RedisError::new(
         RedisErrorKind::InvalidCommand,
         "Error sending command while connection is blocked.",
       ));
-    } else if has_blocking_interrupt_policy(inner) {
+    } else if inner.config.blocking == Blocking::Interrupt {
       if let Err(e) = interrupt_blocked_connection(inner, ClientUnblockFlag::Error).await {
         _error!(inner, "Failed to interrupt blocked connection: {:?}", e);
       }
@@ -675,8 +683,8 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   }
 }
 
-pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>) {
-  let new = broadcast_channel(globals().default_broadcast_channel_capacity()).0;
+pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>, capacity: usize) {
+  let new = broadcast_channel(capacity).0;
   old.swap(Arc::new(new));
 }
 

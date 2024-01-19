@@ -6,6 +6,8 @@ use url::Url;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
+#[cfg(feature = "unix-sockets")]
+use std::path::PathBuf;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
@@ -19,6 +21,52 @@ pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
+
+/// Special errors that can trigger reconnection logic, which can also retry the failing command if possible.
+///
+/// `MOVED`, `ASK`, and `NOAUTH` errors are handled separately by the client.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "custom-reconnect-errors")]
+#[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
+pub enum ReconnectError {
+  /// The CLUSTERDOWN prefix.
+  ClusterDown,
+  /// The LOADING prefix.
+  Loading,
+  /// The MASTERDOWN prefix.
+  MasterDown,
+  /// The READONLY prefix, which can happen if a primary node is switched to a replica without any connection
+  /// interruption.
+  ReadOnly,
+  /// The MISCONF prefix.
+  Misconf,
+  /// The BUSY prefix.
+  Busy,
+  /// The NOREPLICAS prefix.
+  NoReplicas,
+  /// A case-sensitive prefix on an error message.
+  ///
+  /// See [the source](https://github.com/redis/redis/blob/fe37e4fc874a92dcf61b3b0de899ec6f674d2442/src/server.c#L1845) for examples.
+  Custom(&'static str),
+}
+
+#[cfg(feature = "custom-reconnect-errors")]
+impl ReconnectError {
+  pub(crate) fn to_str(&self) -> &'static str {
+    use ReconnectError::*;
+
+    match self {
+      ClusterDown => "CLUSTERDOWN",
+      Loading => "LOADING",
+      MasterDown => "MASTERDOWN",
+      ReadOnly => "READONLY",
+      Misconf => "MISCONF",
+      Busy => "BUSY",
+      NoReplicas => "NOREPLICAS",
+      Custom(prefix) => prefix,
+    }
+  }
+}
 
 /// The type of reconnection policy to use. This will apply to every connection used by the client.
 ///
@@ -281,7 +329,7 @@ pub struct BackpressureConfig {
   pub disable_auto_backpressure: bool,
   /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
   ///
-  /// Default: 5000
+  /// Default: 10_000
   pub max_in_flight_commands:    u64,
   /// The backpressure policy to apply when the max number of in-flight commands is reached.
   ///
@@ -293,7 +341,7 @@ impl Default for BackpressureConfig {
   fn default() -> Self {
     BackpressureConfig {
       disable_auto_backpressure: false,
-      max_in_flight_commands:    5000,
+      max_in_flight_commands:    10_000,
       policy:                    BackpressurePolicy::default(),
     }
   }
@@ -320,6 +368,40 @@ impl PartialEq for TcpConfig {
 
 impl Eq for TcpConfig {}
 
+/// Configuration options used to detect potentially unresponsive connections.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnresponsiveConfig {
+  /// If provided, the amount of time a frame can wait without a response before the associated connection is
+  /// considered unresponsive.
+  ///
+  /// If a connection is considered unresponsive it will be forcefully closed and the client will reconnect based on
+  /// the [ReconnectPolicy](crate::types::ReconnectPolicy). This heuristic can be useful in environments where
+  /// connections may close or change in subtle or unexpected ways.
+  ///
+  /// Unlike the [timeout](crate::types::Options) and [default_command_timeout](crate::types::PerformanceConfig)
+  /// interfaces, any in-flight commands waiting on a response when the connection is closed this way will be
+  /// retried based on the associated [ReconnectPolicy](crate::types::ReconnectPolicy) and
+  /// [Options](crate::types::Options).
+  ///
+  /// Default: `None`
+  pub max_timeout: Option<Duration>,
+  /// The frequency at which the client checks for unresponsive connections.
+  ///
+  /// This value should usually be less than half of `max_timeout` and always more than 1 ms.
+  ///
+  /// Default: 2 sec
+  pub interval:    Duration,
+}
+
+impl Default for UnresponsiveConfig {
+  fn default() -> Self {
+    UnresponsiveConfig {
+      max_timeout: None,
+      interval:    Duration::from_secs(2),
+    }
+  }
+}
+
 /// Configuration options related to the creation or management of TCP connection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConnectionConfig {
@@ -328,41 +410,61 @@ pub struct ConnectionConfig {
   /// This also includes the TLS handshake if using any of the TLS features.
   ///
   /// Default: 10 sec
-  pub connection_timeout:         Duration,
+  pub connection_timeout:           Duration,
   /// The timeout to apply when sending internal commands such as `AUTH`, `SELECT`, `CLUSTER SLOTS`, `READONLY`, etc.
   ///
   /// Default: 10 sec
-  pub internal_command_timeout:   Duration,
+  pub internal_command_timeout:     Duration,
   /// The amount of time to wait after a `MOVED` error is received before the client will update the cached cluster
   /// state.
   ///
   /// Default: `0`
-  pub cluster_cache_update_delay: Duration,
+  pub cluster_cache_update_delay:   Duration,
   /// The maximum number of times the client will attempt to send a command.
   ///
   /// This value be incremented whenever the connection closes while the command is in-flight.
   ///
   /// Default: `3`
-  pub max_command_attempts:       u32,
+  pub max_command_attempts:         u32,
   /// The maximum number of times the client will attempt to follow a `MOVED` or `ASK` redirection per command.
   ///
   /// Default: `5`
-  pub max_redirections:           u32,
-  /// The amount of time a command can wait without a response before the corresponding connection is considered
-  /// unresponsive. This will trigger a reconnection and in-flight commands will be retried.
+  pub max_redirections:             u32,
+  /// Unresponsive connection configuration options.
+  pub unresponsive:                 UnresponsiveConfig,
+  /// An unexpected `NOAUTH` error is treated the same as a general connection failure, causing the client to
+  /// reconnect based on the [ReconnectPolicy](crate::types::ReconnectPolicy). This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.
   ///
-  /// Default: 10 sec
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
-  pub unresponsive_timeout:       Duration,
+  /// Default: `false`
+  pub reconnect_on_auth_error:      bool,
+  /// Automatically send `CLIENT SETNAME` on each connection associated with a client instance.
+  ///
+  /// Default: `false`
+  pub auto_client_setname:          bool,
+  /// Limit the size of the internal in-memory command queue.
+  ///
+  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error.
+  ///
+  /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
+  ///
+  /// Default: `0` (unlimited)
+  pub max_command_buffer_len:       usize,
+  /// Disable the `CLUSTER INFO` health check when initializing cluster connections.
+  ///
+  /// Default: `false`
+  pub disable_cluster_health_check: bool,
   /// Configuration options for replica nodes.
   ///
   /// Default: `None`
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replica:                    ReplicaConfig,
+  pub replica:                      ReplicaConfig,
   /// TCP connection options.
-  pub tcp:                        TcpConfig,
+  pub tcp:                          TcpConfig,
+  ///
+  #[cfg(feature = "custom-reconnect-errors")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
+  pub reconnect_errors:             Vec<ReconnectError>,
 }
 
 impl Default for ConnectionConfig {
@@ -372,12 +474,21 @@ impl Default for ConnectionConfig {
       internal_command_timeout: Duration::from_millis(10_000),
       max_redirections: 5,
       max_command_attempts: 3,
+      max_command_buffer_len: 0,
+      auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
+      reconnect_on_auth_error: false,
+      disable_cluster_health_check: false,
       tcp: TcpConfig::default(),
-      #[cfg(feature = "check-unresponsive")]
-      unresponsive_timeout: Duration::from_millis(10_000),
+      unresponsive: UnresponsiveConfig::default(),
       #[cfg(feature = "replicas")]
       replica: ReplicaConfig::default(),
+      #[cfg(feature = "custom-reconnect-errors")]
+      reconnect_errors: vec![
+        ReconnectError::ClusterDown,
+        ReconnectError::Loading,
+        ReconnectError::ReadOnly,
+      ],
     }
   }
 }
@@ -391,31 +502,46 @@ pub struct PerformanceConfig {
   /// whereas this flag can automatically pipeline commands across tasks.
   ///
   /// Default: `true`
-  pub auto_pipeline:           bool,
+  pub auto_pipeline:              bool,
   /// Configuration options for backpressure features in the client.
-  pub backpressure:            BackpressureConfig,
+  pub backpressure:               BackpressureConfig,
   /// An optional timeout to apply to all commands.
   ///
   /// If `0` this will disable any timeout being applied to commands. Callers can also set timeouts on individual
   /// commands via the [with_options](crate::interfaces::ClientLike::with_options) interface.
   ///
   /// Default: `0`
-  pub default_command_timeout: Duration,
+  pub default_command_timeout:    Duration,
   /// The maximum number of frames that will be fed to a socket before flushing.
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///
   /// Default: 200
-  pub max_feed_count:          u64,
+  pub max_feed_count:             u64,
+  /// The default capacity used when creating [broadcast channels](https://docs.rs/tokio/latest/tokio/sync/broadcast/fn.channel.html) in the [EventInterface](crate::interfaces::EventInterface).
+  ///
+  /// Default: 32
+  pub broadcast_channel_capacity: usize,
+  /// The minimum size, in bytes, of frames that should be encoded or decoded with a blocking task.
+  ///
+  /// See [block_in_place](https://docs.rs/tokio/latest/tokio/task/fn.block_in_place.html) for more information.
+  ///
+  /// Default: 50_000_000
+  #[cfg(feature = "blocking-encoding")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "blocking-encoding")))]
+  pub blocking_encode_threshold:  usize,
 }
 
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      auto_pipeline:           true,
-      backpressure:            BackpressureConfig::default(),
+      auto_pipeline: true,
+      backpressure: BackpressureConfig::default(),
       default_command_timeout: Duration::from_millis(0),
-      max_feed_count:          200,
+      max_feed_count: 200,
+      broadcast_channel_capacity: 32,
+      #[cfg(feature = "blocking-encoding")]
+      blocking_encode_threshold: 50_000_000,
     }
   }
 }
@@ -437,6 +563,8 @@ pub struct RedisConfig {
   pub fail_fast: bool,
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking
   /// command.
+  ///
+  /// Setting this to anything other than `Blocking::Block` incurs a small performance penalty.
   ///
   /// Default: `Blocking::Block`
   pub blocking:  Blocking,
@@ -791,6 +919,14 @@ pub enum ServerConfig {
     /// command.
     hosts: Vec<Server>,
   },
+  #[cfg(feature = "unix-sockets")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
+  Unix {
+    /// The path to the Unix socket.
+    ///
+    /// Any associated [Server](crate::types::Server) identifiers will use this value as the `host`.
+    path: PathBuf,
+  },
   Sentinel {
     /// An array of `Server` identifiers for each known sentinel instance.
     hosts:        Vec<Server>,
@@ -856,6 +992,16 @@ impl ServerConfig {
     }
   }
 
+  /// Create a new server config for a connected Unix socket.
+  #[cfg(feature = "unix-sockets")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
+  pub fn new_unix_socket<P>(path: P) -> ServerConfig
+  where
+    P: Into<PathBuf>,
+  {
+    ServerConfig::Unix { path: path.into() }
+  }
+
   /// Create a centralized config with default settings for a local deployment.
   pub fn default_centralized() -> ServerConfig {
     ServerConfig::Centralized {
@@ -874,27 +1020,38 @@ impl ServerConfig {
     }
   }
 
-  /// Whether or not the config is for a cluster.
+  /// Whether the config uses a clustered deployment.
   pub fn is_clustered(&self) -> bool {
     matches!(*self, ServerConfig::Clustered { .. })
   }
 
-  /// Whether or not the config is for a centralized server behind a sentinel node(s).
+  /// Whether the config is for a centralized server behind a sentinel node(s).
   pub fn is_sentinel(&self) -> bool {
     matches!(*self, ServerConfig::Sentinel { .. })
   }
 
-  /// Whether or not the config is for a centralized server.
+  /// Whether the config is for a centralized server.
   pub fn is_centralized(&self) -> bool {
     matches!(*self, ServerConfig::Centralized { .. })
   }
 
-  /// Read the server hosts or sentinel hosts if using the sentinel interface.
-  pub fn hosts(&self) -> Vec<&Server> {
+  /// Whether the config uses a Unix socket.
+  pub fn is_unix_socket(&self) -> bool {
     match *self {
-      ServerConfig::Centralized { ref server } => vec![server],
-      ServerConfig::Clustered { ref hosts } => hosts.iter().collect(),
-      ServerConfig::Sentinel { ref hosts, .. } => hosts.iter().collect(),
+      #[cfg(feature = "unix-sockets")]
+      ServerConfig::Unix { .. } => true,
+      _ => false,
+    }
+  }
+
+  /// Read the server hosts or sentinel hosts if using the sentinel interface.
+  pub fn hosts(&self) -> Vec<Server> {
+    match *self {
+      ServerConfig::Centralized { ref server } => vec![server.clone()],
+      ServerConfig::Clustered { ref hosts } => hosts.to_vec(),
+      ServerConfig::Sentinel { ref hosts, .. } => hosts.to_vec(),
+      #[cfg(feature = "unix-sockets")]
+      ServerConfig::Unix { ref path } => vec![Server::new(utils::path_to_string(path), 0)],
     }
   }
 }
@@ -1069,6 +1226,13 @@ pub struct Options {
   pub cluster_node:     Option<Server>,
   /// Whether to skip backpressure checks for a command.
   pub no_backpressure:  bool,
+  /// Whether the command should fail quickly if the connection is not healthy or available for writes. This always
+  /// takes precedence over `max_attempts` if `true`.
+  ///
+  /// Setting this to `true` incurs a small performance penalty. (Checking a `RwLock`).
+  ///
+  /// Default: `false`
+  pub fail_fast:        bool,
   /// Whether to send `CLIENT CACHING yes|no` before the command.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
@@ -1091,6 +1255,7 @@ impl Options {
       self.cluster_node = Some(val.clone());
     }
     self.no_backpressure |= other.no_backpressure;
+    self.fail_fast |= other.fail_fast;
 
     #[cfg(feature = "client-tracking")]
     if let Some(val) = other.caching {
@@ -1100,7 +1265,8 @@ impl Options {
     self
   }
 
-  /// Create options from a command.
+  /// Create options from a command
+  #[cfg(feature = "transactions")]
   pub(crate) fn from_command(cmd: &RedisCommand) -> Self {
     Options {
       max_attempts:                                Some(cmd.attempts_remaining),
@@ -1108,6 +1274,7 @@ impl Options {
       timeout:                                     cmd.timeout_dur,
       no_backpressure:                             cmd.skip_backpressure,
       cluster_node:                                cmd.cluster_node.clone(),
+      fail_fast:                                   cmd.fail_fast,
       #[cfg(feature = "client-tracking")]
       caching:                                     cmd.caching.clone(),
     }
@@ -1118,6 +1285,7 @@ impl Options {
     command.skip_backpressure = self.no_backpressure;
     command.timeout_dur = self.timeout;
     command.cluster_node = self.cluster_node.clone();
+    command.fail_fast = self.fail_fast;
 
     #[cfg(feature = "client-tracking")]
     {

@@ -9,19 +9,28 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::App;
-use fred::{pool::RedisPool, prelude::*, types::PerformanceConfig, globals};
+use fred::{prelude::*, types::UnresponsiveConfig};
+use rand::{self, distributions::Alphanumeric, Rng};
 use std::{default::Default, time::Duration};
 use tokio::time::sleep;
 
+fn random_string(len: usize) -> String {
+  rand::thread_rng()
+    .sample_iter(&Alphanumeric)
+    .take(len)
+    .map(char::from)
+    .collect()
+}
+
 #[derive(Debug)]
 struct Argv {
-  pub cluster: bool,
-  pub host:    String,
-  pub port:    u16,
-  pub pool:    usize,
+  pub cluster:  bool,
+  pub host:     String,
+  pub port:     u16,
+  pub pool:     usize,
   pub interval: u64,
-  pub wait: u64,
-  pub auth: String,
+  pub wait:     u64,
+  pub auth:     String,
 }
 
 fn parse_argv() -> Argv {
@@ -49,10 +58,7 @@ fn parse_argv() -> Argv {
     .value_of("wait")
     .map(|v| v.parse::<u64>().expect("Invalid wait"))
     .unwrap_or(0);
-  let auth = matches
-    .value_of("auth")
-    .map(|v| v.to_owned())
-    .unwrap_or("".into());
+  let auth = matches.value_of("auth").map(|v| v.to_owned()).unwrap_or("".into());
 
   Argv {
     cluster,
@@ -61,14 +67,13 @@ fn parse_argv() -> Argv {
     port,
     pool,
     interval,
-    wait
+    wait,
   }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init_timed();
-  globals::set_default_connection_timeout_ms(10_000);
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
@@ -80,32 +85,42 @@ async fn main() -> Result<(), RedisError> {
     },
     password: if argv.auth.is_empty() {
       None
-    }else{
+    } else {
       Some(argv.auth.clone())
     },
     ..Default::default()
   };
-  let perf = PerformanceConfig {
-    auto_pipeline: true,
-    max_command_attempts: 1,
-    network_timeout_ms: 5_000,
-    default_command_timeout_ms: 300_000,
-    ..Default::default()
-  };
-  let policy = ReconnectPolicy::new_linear(0, 5000, 100);
-  let pool = RedisPool::new(config, Some(perf), Some(policy), argv.pool).expect("Failed to create pool.");
+  let pool = Builder::from_config(config)
+    .with_connection_config(|config| {
+      config.max_command_attempts = 1;
+      config.unresponsive = UnresponsiveConfig {
+        interval:    Duration::from_secs(3),
+        max_timeout: Some(Duration::from_secs(10)),
+      };
+    })
+    .with_performance_config(|config| {
+      config.auto_pipeline = true;
+      config.default_command_timeout = Duration::from_secs(60 * 5);
+    })
+    .set_policy(ReconnectPolicy::new_linear(0, 5000, 100))
+    .build_pool(argv.pool)
+    .expect("Failed to create pool");
 
   info!("Connecting to {}:{}...", argv.host, argv.port);
-  let _ = pool.connect();
-  let _ = pool.wait_for_connect().await?;
+  pool.connect();
+  pool.wait_for_connect().await?;
   info!("Connected to {}:{}.", argv.host, argv.port);
-  let _ = pool.flushall_cluster().await?;
+  pool.flushall_cluster().await?;
 
   if argv.wait > 0 {
     info!("Waiting for {} ms", argv.wait);
     sleep(Duration::from_millis(argv.wait)).await;
   }
 
+  tokio::spawn(async move {
+    tokio::signal::ctrl_c().await;
+    std::process::exit(0);
+  });
   loop {
     let _: i64 = pool.incr("foo").await.expect("Failed to INCR");
     sleep(Duration::from_millis(argv.interval)).await;

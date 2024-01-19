@@ -2,12 +2,13 @@ Examples
 ========
 
 * [Basic](./basic.rs) - Basic client usage.
+* [Axum](./axum.rs) - Use a client pool with [Axum](https://crates.io/crates/axum).
 * [TLS](./tls.rs) - Setting up a client that uses TLS.
-* [Globals](./globals.rs) - Read and modify global variables to tune the performance of the clients.
 * [Publish-Subscribe](./pubsub.rs) - Use multiple clients together with the pubsub interface in a way that survives network interruptions.
 * [Blocking](./blocking.rs) - Use multiple clients with the blocking list interface.
 * [Transactions](./transactions.rs) - Use the MULTI/EXEC interface on a client.
 * [Pipeline](./pipeline.rs) - Use the manual pipeline interface.
+* [Streams](./streams.rs) - Use `XADD` and `XREAD` to communicate between tasks. 
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
 * [Pool](./pool.rs) - Use a redis connection pool. 

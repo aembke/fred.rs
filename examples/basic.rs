@@ -27,6 +27,7 @@ async fn main() -> Result<(), RedisError> {
       #[cfg(feature = "full-tracing")]
       full_tracing_level:                                  Level::DEBUG,
     },
+    ..Default::default()
   };
   // see the Builder interface for more information
   let _client = Builder::from_config(config).build()?;

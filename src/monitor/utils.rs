@@ -21,9 +21,6 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::codec::Framed;
 
 #[cfg(feature = "blocking-encoding")]
-use crate::globals::globals;
-
-#[cfg(feature = "blocking-encoding")]
 async fn handle_monitor_frame(
   inner: &Arc<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
@@ -37,7 +34,7 @@ async fn handle_monitor_frame(
   };
   let frame_size = protocol_utils::resp3_frame_size(&frame);
 
-  if frame_size >= globals().blocking_encode_threshold() {
+  if frame_size >= inner.with_perf_config(|c| c.blocking_encode_threshold) {
     // since this isn't called from the Encoder/Decoder trait we can use spawn_blocking here
     _trace!(
       inner,
@@ -114,6 +111,8 @@ async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Comma
     ConnectionKind::Rustls(framed) => forward_results(inner, tx, framed).await,
     #[cfg(feature = "enable-native-tls")]
     ConnectionKind::NativeTls(framed) => forward_results(inner, tx, framed).await,
+    #[cfg(feature = "unix-sockets")]
+    ConnectionKind::Unix(framed) => forward_results(inner, tx, framed).await,
   };
 
   _warn!(inner, "Stopping monitor stream.");

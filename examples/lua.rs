@@ -46,7 +46,7 @@ async fn main() -> Result<(), RedisError> {
 async fn scripts() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let script = Script::from_lua(SCRIPTS[0]);
   let _ = script.load(&client).await?;
@@ -61,7 +61,7 @@ async fn scripts() -> Result<(), RedisError> {
 async fn functions() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let echo_lua = include_str!("../tests/scripts/lua/echo.lua");
   let lib = Library::from_code(&client, echo_lua).await?;

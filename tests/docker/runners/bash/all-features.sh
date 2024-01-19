@@ -10,9 +10,12 @@ do
   fi
 done
 
-FEATURES="network-logs pool-prefer-active custom-reconnect-errors ignore-auth-error serde-json blocking-encoding
-          full-tracing reconnect-on-auth-error monitor metrics sentinel-client subscriber-client dns debug-ids
-          check-unresponsive replicas client-tracking codec sha-1 auto-client-setname"
+# can't use --all-features here since that enables the TLS features and redis-json tests, which each require a
+# different server configuration. the `cluster-tls.sh` and `cluster-rustls.sh` scripts can be used to test
+# those features individually.
+FEATURES="network-logs custom-reconnect-errors serde-json blocking-encoding
+          full-tracing monitor metrics sentinel-client subscriber-client dns debug-ids
+          replicas client-tracking codec sha-1 transactions"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

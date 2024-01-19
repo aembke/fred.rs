@@ -27,8 +27,6 @@ use std::{
 };
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
-#[cfg(feature = "blocking-encoding")]
-use crate::globals::globals;
 #[cfg(feature = "mocks")]
 use crate::modules::mocks::MockCommand;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
@@ -438,6 +436,24 @@ pub enum RedisCommandKind {
   JsonStrLen,
   JsonToggle,
   JsonType,
+  // Time Series
+  TsAdd,
+  TsAlter,
+  TsCreate,
+  TsCreateRule,
+  TsDecrBy,
+  TsDel,
+  TsDeleteRule,
+  TsGet,
+  TsIncrBy,
+  TsInfo,
+  TsMAdd,
+  TsMGet,
+  TsMRange,
+  TsMRevRange,
+  TsQueryIndex,
+  TsRange,
+  TsRevRange,
   // Commands with custom state or commands that don't map directly to the server's command interface.
   _Hello(RespVersion),
   _AuthAllCluster,
@@ -861,6 +877,23 @@ impl RedisCommandKind {
       RedisCommandKind::JsonStrLen => "JSON.STRLEN",
       RedisCommandKind::JsonToggle => "JSON.TOGGLE",
       RedisCommandKind::JsonType => "JSON.TYPE",
+      RedisCommandKind::TsAdd => "TS.ADD",
+      RedisCommandKind::TsAlter => "TS.ALTER",
+      RedisCommandKind::TsCreate => "TS.CREATE",
+      RedisCommandKind::TsCreateRule => "TS.CREATERULE",
+      RedisCommandKind::TsDecrBy => "TS.DECRBY",
+      RedisCommandKind::TsDel => "TS.DEL",
+      RedisCommandKind::TsDeleteRule => "TS.DELETERULE",
+      RedisCommandKind::TsGet => "TS.GET",
+      RedisCommandKind::TsIncrBy => "TS.INCRBY",
+      RedisCommandKind::TsInfo => "TS.INFO",
+      RedisCommandKind::TsMAdd => "TS.MADD",
+      RedisCommandKind::TsMGet => "TS.MGET",
+      RedisCommandKind::TsMRange => "TS.MRANGE",
+      RedisCommandKind::TsMRevRange => "TS.MREVRANGE",
+      RedisCommandKind::TsQueryIndex => "TS.QUERYINDEX",
+      RedisCommandKind::TsRange => "TS.RANGE",
+      RedisCommandKind::TsRevRange => "TS.REVRANGE",
       RedisCommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
@@ -1189,6 +1222,23 @@ impl RedisCommandKind {
       RedisCommandKind::JsonStrLen => "JSON.STRLEN",
       RedisCommandKind::JsonToggle => "JSON.TOGGLE",
       RedisCommandKind::JsonType => "JSON.TYPE",
+      RedisCommandKind::TsAdd => "TS.ADD",
+      RedisCommandKind::TsAlter => "TS.ALTER",
+      RedisCommandKind::TsCreate => "TS.CREATE",
+      RedisCommandKind::TsCreateRule => "TS.CREATERULE",
+      RedisCommandKind::TsDecrBy => "TS.DECRBY",
+      RedisCommandKind::TsDel => "TS.DEL",
+      RedisCommandKind::TsDeleteRule => "TS.DELETERULE",
+      RedisCommandKind::TsGet => "TS.GET",
+      RedisCommandKind::TsIncrBy => "TS.INCRBY",
+      RedisCommandKind::TsInfo => "TS.INFO",
+      RedisCommandKind::TsMAdd => "TS.MADD",
+      RedisCommandKind::TsMGet => "TS.MGET",
+      RedisCommandKind::TsMRange => "TS.MRANGE",
+      RedisCommandKind::TsMRevRange => "TS.MREVRANGE",
+      RedisCommandKind::TsQueryIndex => "TS.QUERYINDEX",
+      RedisCommandKind::TsRange => "TS.RANGE",
+      RedisCommandKind::TsRevRange => "TS.REVRANGE",
       RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
     };
 
@@ -1329,7 +1379,7 @@ impl RedisCommandKind {
     }
   }
 
-  pub fn is_all_cluster_nodes(&self) -> bool {
+  pub fn force_all_cluster_nodes(&self) -> bool {
     matches!(
       *self,
       RedisCommandKind::_FlushAllCluster
@@ -1422,6 +1472,8 @@ pub struct RedisCommand {
   pub can_pipeline:           bool,
   /// Whether or not to skip backpressure checks.
   pub skip_backpressure:      bool,
+  /// Whether to fail fast without retries if the connection ever closes unexpectedly.
+  pub fail_fast:              bool,
   /// The internal ID of a transaction.
   pub transaction_id:         Option<u64>,
   /// The timeout duration provided by the `with_options` interface.
@@ -1458,7 +1510,8 @@ impl fmt::Debug for RedisCommand {
       .field("can_pipeline", &self.can_pipeline)
       .field("write_attempts", &self.write_attempts)
       .field("timeout_dur", &self.timeout_dur)
-      .field("no_backpressure", &self.skip_backpressure);
+      .field("no_backpressure", &self.skip_backpressure)
+      .field("fail_fast", &self.fail_fast);
 
     #[cfg(feature = "network-logs")]
     formatter.field("arguments", &self.args());
@@ -1498,6 +1551,7 @@ impl Default for RedisCommand {
       cluster_node:                                None,
       network_start:                               None,
       write_attempts:                              0,
+      fail_fast:                                   false,
       #[cfg(feature = "metrics")]
       created:                                     Instant::now(),
       #[cfg(feature = "partial-tracing")]
@@ -1568,7 +1622,7 @@ impl RedisCommand {
       && self.can_pipeline
       && self.kind.can_pipeline()
       && !self.blocks_connection()
-      && !self.kind.is_all_cluster_nodes()
+      && !self.is_all_cluster_nodes()
       // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
       && self.transaction_id.is_none());
 
@@ -1581,9 +1635,19 @@ impl RedisCommand {
     should_pipeline
   }
 
+  /// Whether the command should be sent to all cluster nodes concurrently.
+  pub fn is_all_cluster_nodes(&self) -> bool {
+    self.kind.force_all_cluster_nodes()
+      || match self.kind {
+        // since we don't know the hash slot we send this to all nodes
+        RedisCommandKind::Sunsubscribe => self.arguments.is_empty(),
+        _ => false,
+      }
+  }
+
   /// Whether errors writing the command should be returned to the caller.
   pub fn should_finish_with_error(&self, inner: &Arc<RedisClientInner>) -> bool {
-    self.attempts_remaining == 0 || inner.policy.read().is_none()
+    self.fail_fast || self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
   /// Increment and check the number of write attempts.
@@ -1628,18 +1692,21 @@ impl RedisCommand {
         })
   }
 
-  /// Whether or not the command may not receive any response frames.
+  /// Whether or not the command may receive response frames.
   ///
-  /// Currently only `*UNSUBSCRIBE` commands without arguments fall into this category.
+  /// Currently the pubsub subscription commands (other than `SSUBSCRIBE`) all fall into this category since their
+  /// responses arrive out-of-band.
+  // `SSUBSCRIBE` is not included here so that we can follow cluster redirections. this works as long as we never
+  // pipeline `SSUBSCRIBE`.
   pub fn has_no_responses(&self) -> bool {
-    match self.kind {
-      RedisCommandKind::Unsubscribe | RedisCommandKind::Punsubscribe | RedisCommandKind::Sunsubscribe => {
-        // the server may send an unknown number of "*unsubscribe" frames on the pubsub interface, but the response
-        // processing layer will throw these away
-        self.arguments.is_empty()
-      },
-      _ => false,
-    }
+    matches!(
+      self.kind,
+      RedisCommandKind::Subscribe
+        | RedisCommandKind::Unsubscribe
+        | RedisCommandKind::Psubscribe
+        | RedisCommandKind::Punsubscribe
+        | RedisCommandKind::Sunsubscribe
+    )
   }
 
   /// Take the arguments from this command.
@@ -1700,6 +1767,7 @@ impl RedisCommand {
       skip_backpressure: self.skip_backpressure,
       router_tx: self.router_tx.clone(),
       cluster_node: self.cluster_node.clone(),
+      fail_fast: self.fail_fast,
       response,
       use_replica: self.use_replica,
       write_attempts: self.write_attempts,
@@ -1749,7 +1817,6 @@ impl RedisCommand {
   pub fn take_responder(&mut self) -> Option<ResponseSender> {
     match self.response {
       ResponseKind::Respond(ref mut tx) => tx.take(),
-      ResponseKind::Multiple { ref mut tx, .. } => tx.lock().take(),
       ResponseKind::Buffer { ref mut tx, .. } => tx.lock().take(),
       _ => None,
     }
@@ -1759,7 +1826,6 @@ impl RedisCommand {
   pub fn has_response_tx(&self) -> bool {
     match self.response {
       ResponseKind::Respond(ref r) => r.is_some(),
-      ResponseKind::Multiple { ref tx, .. } => tx.lock().is_some(),
       ResponseKind::Buffer { ref tx, .. } => tx.lock().is_some(),
       _ => false,
     }
@@ -1801,17 +1867,16 @@ impl RedisCommand {
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
-  #[cfg(not(feature = "blocking-encoding"))]
   pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
     protocol_utils::command_to_frame(self, is_resp3)
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(feature = "blocking-encoding")]
-  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(self.args());
 
-    if cmd_size >= globals().blocking_encode_threshold() {
+    if cmd_size >= blocking_threshold {
       trace!("Using blocking task to convert command to frame with size {}", cmd_size);
       tokio::task::block_in_place(|| protocol_utils::command_to_frame(self, is_resp3))
     } else {
@@ -1861,6 +1926,7 @@ pub enum RouterCommand {
   // foo{1}` will have already finished at this point. To account for this the client will never pipeline
   // transactions against a cluster, and may clone commands before sending them in order to replay them later with
   // a different cluster node mapping.
+  #[cfg(feature = "transactions")]
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
@@ -1901,6 +1967,54 @@ pub enum RouterCommand {
 }
 
 impl RouterCommand {
+  /// Whether the client should skip backpressure on the command buffer when sending this command.
+  pub fn should_skip_backpressure(&self) -> bool {
+    matches!(
+      *self,
+      RouterCommand::Moved { .. }
+        | RouterCommand::Ask { .. }
+        | RouterCommand::SyncCluster { .. }
+        | RouterCommand::Connections { .. }
+    )
+  }
+
+  /// Whether the command should check the health of the backing connections before being used.
+  pub fn should_check_fail_fast(&self) -> bool {
+    match self {
+      RouterCommand::Command(command) => command.fail_fast,
+      RouterCommand::Pipeline { commands, .. } => commands.first().map(|c| c.fail_fast).unwrap_or(false),
+      #[cfg(feature = "transactions")]
+      RouterCommand::Transaction { commands, .. } => commands.first().map(|c| c.fail_fast).unwrap_or(false),
+      _ => false,
+    }
+  }
+
+  /// Finish the command early with the provided error.
+  pub fn finish_with_error(self, error: RedisError) {
+    match self {
+      RouterCommand::Command(mut command) => {
+        command.respond_to_caller(Err(error));
+      },
+      RouterCommand::Pipeline { commands } => {
+        for mut command in commands.into_iter() {
+          command.respond_to_caller(Err(error.clone()));
+        }
+      },
+      #[cfg(feature = "transactions")]
+      RouterCommand::Transaction { tx, .. } => {
+        if let Err(_) = tx.send(Err(error)) {
+          warn!("Error responding early to transaction.");
+        }
+      },
+      RouterCommand::Reconnect { tx: Some(tx), .. } => {
+        if let Err(_) = tx.send(Err(error)) {
+          warn!("Error responding early to reconnect command.");
+        }
+      },
+      _ => {},
+    }
+  }
+
   /// Inherit settings from the configuration structs on `inner`.
   pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
     match self {
@@ -1912,6 +2026,7 @@ impl RouterCommand {
           cmd.inherit_options(inner);
         }
       },
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { ref mut commands, .. } => {
         for cmd in commands.iter_mut() {
           cmd.inherit_options(inner);
@@ -1926,6 +2041,7 @@ impl RouterCommand {
     match self {
       RouterCommand::Command(ref command) => command.timeout_dur,
       RouterCommand::Pipeline { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { ref commands, .. } => commands.first().and_then(|c| c.timeout_dur),
       _ => None,
     }
@@ -1960,6 +2076,7 @@ impl fmt::Debug for RouterCommand {
       RouterCommand::SyncCluster { .. } => {
         formatter.field("kind", &"Sync Cluster");
       },
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { .. } => {
         formatter.field("kind", &"Transaction");
       },

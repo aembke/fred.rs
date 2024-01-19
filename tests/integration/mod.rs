@@ -12,6 +12,7 @@ mod keys;
 mod lists;
 mod lua;
 mod memory;
+#[cfg(feature = "transactions")]
 mod multi;
 mod other;
 mod pool;
@@ -25,6 +26,9 @@ mod streams;
 
 #[cfg(feature = "redis-json")]
 mod redis_json;
+
+#[cfg(feature = "time-series")]
+mod timeseries;
 
 #[cfg(feature = "client-tracking")]
 mod tracking;

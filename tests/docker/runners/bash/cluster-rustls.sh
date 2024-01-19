@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="enable-rustls ignore-auth-error"
+FEATURES="enable-rustls transactions"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   FRED_CI_TLS=true cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

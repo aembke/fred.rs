@@ -8,7 +8,7 @@ use tokio::time::sleep;
 async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisError> {
   // use a new client since the provided client is subscribed to keyspace events
   let client = client.clone_new();
-  client.connect();
+  let _ = client.connect();
   client.wait_for_connect().await?;
 
   for idx in 0 .. amount {
@@ -61,7 +61,7 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
   subscriber.connect();
   subscriber.wait_for_connect().await?;
 
-  let mut keyspace_rx = subscriber.on_keyspace_event();
+  let mut keyspace_rx = subscriber.keyspace_event_rx();
   // set up a task that listens for keyspace events
   let keyspace_task = tokio::spawn(async move {
     while let Ok(event) = keyspace_rx.recv().await {
@@ -110,7 +110,7 @@ async fn clustered_keyspace_events() -> Result<(), RedisError> {
   subscriber.connect();
   subscriber.wait_for_connect().await?;
 
-  let mut keyspace_rx = subscriber.on_keyspace_event();
+  let mut keyspace_rx = subscriber.keyspace_event_rx();
   // set up a task that listens for keyspace events
   let keyspace_task = tokio::spawn(async move {
     while let Ok(event) = keyspace_rx.recv().await {

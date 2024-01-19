@@ -286,8 +286,8 @@ impl From<tokio_rustls::rustls::Error> for RedisError {
 #[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-impl From<tokio_rustls::rustls::client::InvalidDnsNameError> for RedisError {
-  fn from(e: tokio_rustls::rustls::client::InvalidDnsNameError) -> Self {
+impl From<rustls::pki_types::InvalidDnsNameError> for RedisError {
+  fn from(e: rustls::pki_types::InvalidDnsNameError) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
   }
 }

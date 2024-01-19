@@ -26,8 +26,8 @@ pub trait MetricsInterface: ClientLike + Sized {
   /// Read latency metrics across all commands.
   ///
   /// This metric reflects the total latency experienced by callers, including time spent waiting in memory to be
-  /// written and network latency. Features such as automatic reconnect, `reconnect-on-auth-error`, and frame
-  /// serialization time can all affect these values.
+  /// written and network latency. Features such as automatic reconnect and frame serialization time can all affect
+  /// these values.
   #[cfg(feature = "metrics")]
   #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
   fn read_latency_metrics(&self) -> Stats {

@@ -14,10 +14,10 @@ pub struct TrustDnsResolver(TokioAsyncResolver);
 
 impl TrustDnsResolver {
   fn new() -> Self {
-    TrustDnsResolver(
-      TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
-        .expect("Failed to create DNS resolver"),
-    )
+    TrustDnsResolver(TokioAsyncResolver::tokio(
+      ResolverConfig::default(),
+      ResolverOpts::default(),
+    ))
   }
 }
 
@@ -27,7 +27,7 @@ impl Resolve for TrustDnsResolver {
     Ok(
       self
         .0
-        .lookup_ip(&host)
+        .lookup_ip(&*host)
         .await?
         .into_iter()
         .map(|ip| SocketAddr::new(ip, port))
@@ -42,10 +42,10 @@ async fn main() -> Result<(), RedisError> {
   client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
 
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // ...
 
-  let _ = client.quit().await?;
+  client.quit().await?;
   Ok(())
 }

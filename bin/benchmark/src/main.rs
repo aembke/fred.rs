@@ -1,3 +1,6 @@
+// shh
+#![allow(warnings)]
+
 #[macro_use]
 extern crate clap;
 extern crate fred;
@@ -16,12 +19,7 @@ extern crate pretty_env_logger;
 #[cfg(any(feature = "partial-tracing", feature = "full-tracing", feature = "stdout-tracing"))]
 use fred::types::TracingConfig;
 
-use clap::{App, ArgMatches};
-use fred::{
-  clients::RedisPool,
-  prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, Builder as RedisBuilder, PerformanceConfig, Server},
-};
+use clap::App;
 use indicatif::ProgressBar;
 use opentelemetry::{
   global,
@@ -32,12 +30,12 @@ use opentelemetry::{
   },
 };
 use opentelemetry_jaeger::JaegerTraceRuntime;
-use rand::{self, distributions::Alphanumeric, Rng};
 use std::{
   default::Default,
+  env,
   sync::{atomic::AtomicUsize, Arc},
-  thread::{self, JoinHandle as ThreadJoinHandle},
-  time::Duration,
+  thread::{self},
+  time::{Duration, SystemTime},
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
 use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
@@ -49,6 +47,19 @@ static DEFAULT_PORT: u16 = 6379;
 
 mod utils;
 
+#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+compile_error!("Cannot use both TLS feature flags.");
+
+#[cfg(not(feature = "redis-rs"))]
+mod _fred;
+#[cfg(feature = "redis-rs")]
+mod _redis;
+#[cfg(not(feature = "redis-rs"))]
+use _fred::run as run_benchmark;
+#[cfg(feature = "redis-rs")]
+use _redis::run as run_benchmark;
+
+// TODO update clap
 #[derive(Debug)]
 struct Argv {
   pub cluster:  bool,
@@ -56,6 +67,7 @@ struct Argv {
   pub tracing:  bool,
   pub count:    usize,
   pub tasks:    usize,
+  pub unix:     Option<String>,
   pub host:     String,
   pub port:     u16,
   pub pipeline: bool,
@@ -100,6 +112,7 @@ fn parse_argv() -> Arc<Argv> {
     .value_of("port")
     .map(|v| v.parse::<u16>().expect("Invalid port"))
     .unwrap_or(DEFAULT_PORT);
+  let unix = matches.value_of("unix").map(|v| v.to_owned());
   let pool = matches
     .value_of("pool")
     .map(|v| v.parse::<usize>().expect("Invalid pool"))
@@ -110,6 +123,7 @@ fn parse_argv() -> Arc<Argv> {
   Arc::new(Argv {
     cluster,
     quiet,
+    unix,
     tracing,
     count,
     tasks,
@@ -120,14 +134,6 @@ fn parse_argv() -> Arc<Argv> {
     replicas,
     auth,
   })
-}
-
-pub fn random_string(len: usize) -> String {
-  rand::thread_rng()
-    .sample_iter(&Alphanumeric)
-    .take(len)
-    .map(char::from)
-    .collect()
 }
 
 #[cfg(all(
@@ -165,7 +171,7 @@ pub fn setup_tracing(enable: bool) {
 
   global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
   let jaeger_install = opentelemetry_jaeger::new_agent_pipeline()
-    .with_service_name("pipeline-test")
+    .with_service_name("fred-benchmark")
     .with_trace_config(
       trace::config()
         .with_sampler(sampler)
@@ -186,114 +192,37 @@ pub fn setup_tracing(enable: bool) {
   info!("Initialized opentelemetry-jaeger pipeline.");
 }
 
-fn spawn_client_task(
-  bar: &Option<ProgressBar>,
-  client: &RedisClient,
-  counter: &Arc<AtomicUsize>,
-  argv: &Arc<Argv>,
-) -> JoinHandle<Result<(), RedisError>> {
-  let (bar, client, counter, argv) = (bar.clone(), client.clone(), counter.clone(), argv.clone());
-
-  tokio::spawn(async move {
-    let key = random_string(15);
-    let mut expected = 0;
-
-    while utils::incr_atomic(&counter) < argv.count {
-      if argv.replicas {
-        let _: () = client.replicas().get(&key).await?;
-      } else {
-        expected += 1;
-        let actual: i64 = client.incr(&key).await?;
-        // assert_eq!(actual, expected);
-      }
-      if let Some(ref bar) = bar {
-        bar.inc(1);
-      }
-    }
-
-    Ok::<_, RedisError>(())
-  })
-}
-
 fn main() {
   pretty_env_logger::init();
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
 
   let sch = Builder::new_multi_thread().enable_all().build().unwrap();
-  let output = sch.block_on(async move {
+  sch.block_on(async move {
     setup_tracing(argv.tracing);
-
     let counter = Arc::new(AtomicUsize::new(0));
-    let config = RedisConfig {
-      server: if argv.cluster {
-        ServerConfig::Clustered {
-          hosts: vec![Server::new(&argv.host, argv.port)],
-        }
-      } else {
-        ServerConfig::new_centralized(&argv.host, argv.port)
-      },
-      password: argv.auth.clone(),
-      #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
-      tracing: TracingConfig::new(argv.tracing),
-      ..Default::default()
-    };
-    let pool = RedisBuilder::from_config(config)
-      .with_performance_config(|config| {
-        config.auto_pipeline = argv.pipeline;
-        config.backpressure.max_in_flight_commands = 100_000_000;
-      })
-      .with_connection_config(|config| {
-        config.internal_command_timeout = Duration::from_secs(5);
-      })
-      .set_policy(ReconnectPolicy::new_constant(0, 500))
-      .build_pool(argv.pool)?;
-
-    info!("Connecting to {}:{}...", argv.host, argv.port);
-    let _ = pool.connect();
-    let _ = pool.wait_for_connect().await?;
-    info!("Connected to {}:{}.", argv.host, argv.port);
-    let _ = pool.flushall_cluster().await?;
-
-    info!("Starting commands...");
-    let mut tasks = Vec::with_capacity(argv.tasks);
     let bar = if argv.quiet {
       None
     } else {
       Some(ProgressBar::new(argv.count as u64))
     };
 
-    let started = Instant::now();
-    for _ in 0 .. argv.tasks {
-      tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
-    }
-    if let Err(e) = futures::future::try_join_all(tasks).await {
-      println!("Finished with error: {:?}", e);
-      std::process::exit(1);
-    }
-
-    let duration = Instant::now().duration_since(started);
+    let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
     let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
     if let Some(bar) = bar {
       bar.finish();
     }
 
     if argv.quiet {
-      println!("{}", (argv.count as f64 / duration_sec) as u32);
+      println!("{}", (argv.count as f64 / duration_sec) as u64);
     } else {
       println!(
         "Performed {} operations in: {:?}. Throughput: {} req/sec",
         argv.count,
         duration,
-        (argv.count as f64 / duration_sec) as u32
+        (argv.count as f64 / duration_sec) as u64
       );
     }
-    let _ = pool.flushall_cluster().await?;
     global::shutdown_tracer_provider();
-
-    Ok::<_, RedisError>(())
   });
-  if let Err(e) = output {
-    eprintln!("Finished with error: {:?}", e);
-  }
 }

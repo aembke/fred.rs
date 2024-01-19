@@ -35,7 +35,7 @@ pub async fn should_blpop_values(client: RedisClient, _: RedisConfig) -> Result<
   for idx in 0 .. COUNT {
     // the assertion below checks the length of the list, so we have to make sure not to push faster than elements are
     // removed
-    sleep(Duration::from_millis(50)).await;
+    sleep(Duration::from_millis(100)).await;
     let result: i64 = publisher.rpush("foo", idx).await?;
     assert_eq!(result, 1);
   }

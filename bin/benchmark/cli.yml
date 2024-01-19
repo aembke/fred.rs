@@ -1,7 +1,7 @@
-name: pipeline_test
+name: fred_benchmark
 version: "1.0"
 author: Alec Embke
-about: Run a test script to compare latency for pipelined and non-pipelined use cases.
+about: A benchmarking module based on the `redis-benchmark` tool included with Redis.
 args:
   - tracing:
       short: t
@@ -19,22 +19,33 @@ args:
   - quiet:
       short: q
       long: quiet
-      help: Print a single output describing the throughput as req/sec.
+      help: Only print the final req/sec measurement.
+      takes_value: false
+  - tls:
+      short: t
+      long: tls
+      help: "Enable TLS via whichever build flag is provided."
       takes_value: false
   - count:
-      short: c
-      long: count
+      short: n
+      long: commands
       value_name: "NUMBER"
       help: The number of commands to run.
       takes_value: true
-      default_value: "10000"
+      default_value: "100000"
   - concurrency:
-      short: C
+      short: c
       long: concurrency
       value_name: "NUMBER"
-      help: The number of concurrent tasks used to run commands.
+      help: The number of Tokio tasks used to run commands.
       takes_value: true
-      default_value: "10"
+      default_value: "100"
+  - unix:
+      short: u
+      long: unix-sock
+      value_name: "PATH"
+      help: The path to a unix socket.
+      takes_value: true
   - host:
       short: h
       long: host
@@ -60,10 +71,10 @@ args:
       short: a
       long: auth
       value_name: "STRING"
-      help: The password/key to use.
+      help: The password/key to use. `REDIS_USERNAME` and `REDIS_PASSWORD` can also be used.
       takes_value: true
 subcommands:
   - pipeline:
       about: Run the test with pipelining.
   - no-pipeline:
-      about: Run the test without pipelining.
+      about: Run the test without pipelining [Default].

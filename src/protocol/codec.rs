@@ -1,7 +1,10 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{types::ProtocolFrame, utils as protocol_utils},
+  protocol::{
+    types::{ProtocolFrame, Server},
+    utils as protocol_utils,
+  },
   utils,
 };
 use bytes::BytesMut;
@@ -17,8 +20,6 @@ use redis_protocol::{
 use std::sync::{atomic::AtomicBool, Arc};
 use tokio_util::codec::{Decoder, Encoder};
 
-#[cfg(feature = "blocking-encoding")]
-use crate::globals::globals;
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
@@ -32,7 +33,6 @@ fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 pub use crate::protocol::debug::log_resp2_frame;
 #[cfg(feature = "network-logs")]
 pub use crate::protocol::debug::log_resp3_frame;
-use crate::protocol::types::Server;
 
 #[cfg(feature = "metrics")]
 fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
@@ -81,7 +81,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
     log_resp2_frame(&codec.name, &frame, false);
     sample_stats(codec, true, amt as i64);
 
-    Ok(Some(protocol_utils::check_resp2_auth_error(frame)))
+    Ok(Some(protocol_utils::check_resp2_auth_error(codec, frame)))
   } else {
     Ok(None)
   }
@@ -152,7 +152,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
         // we're not in the middle of a stream and we found a complete frame
         let frame = frame.into_complete_frame()?;
         log_resp3_frame(&codec.name, &frame, false);
-        Some(protocol_utils::check_resp3_auth_error(frame))
+        Some(protocol_utils::check_resp3_auth_error(codec, frame))
       }
     };
 
@@ -218,30 +218,10 @@ impl RedisCodec {
 impl Encoder<ProtocolFrame> for RedisCodec {
   type Error = RedisError;
 
-  #[cfg(not(feature = "blocking-encoding"))]
   fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
     match item {
       ProtocolFrame::Resp2(frame) => resp2_encode_frame(self, frame, dst),
       ProtocolFrame::Resp3(frame) => resp3_encode_frame(self, frame, dst),
-    }
-  }
-
-  #[cfg(feature = "blocking-encoding")]
-  fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
-    let frame_size = protocol_utils::frame_size(&item);
-
-    if frame_size >= globals().blocking_encode_threshold() {
-      trace!("{}: Encoding in blocking task with size {}", self.name, frame_size);
-
-      tokio::task::block_in_place(|| match item {
-        ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
-        ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
-      })
-    } else {
-      match item {
-        ProtocolFrame::Resp2(frame) => resp2_encode_frame(&self, frame, dst),
-        ProtocolFrame::Resp3(frame) => resp3_encode_frame(&self, frame, dst),
-      }
     }
   }
 }
@@ -250,33 +230,11 @@ impl Decoder for RedisCodec {
   type Error = RedisError;
   type Item = ProtocolFrame;
 
-  #[cfg(not(feature = "blocking-encoding"))]
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
     if self.is_resp3() {
       resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
     } else {
       resp2_decode_with_fallback(self, src)
-    }
-  }
-
-  #[cfg(feature = "blocking-encoding")]
-  fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-    if src.len() >= globals().blocking_encode_threshold() {
-      trace!("{}: Decoding in blocking task with size {}", self.name, src.len());
-
-      tokio::task::block_in_place(|| {
-        if self.is_resp3() {
-          resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
-        } else {
-          resp2_decode_with_fallback(self, src)
-        }
-      })
-    } else {
-      if self.is_resp3() {
-        resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
-      } else {
-        resp2_decode_with_fallback(self, src)
-      }
     }
   }
 }

@@ -17,7 +17,7 @@ struct Person {
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let value = json!({
     "foo": "a",
@@ -27,7 +27,7 @@ async fn main() -> Result<(), RedisError> {
 
   // converting back to a json `Value` will also try to parse nested json strings. if a value looks like json, but
   // cannot be parsed as json, then it will be returned as a string.
-  assert_eq!(value, client.get("wibble").await?);
+  assert_eq!(value, client.get::<Value, _>("wibble").await?);
 
   // or store types as json strings via Serialize and Deserialize
   let person = Person {

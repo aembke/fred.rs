@@ -2,7 +2,7 @@
 . ./tests/scripts/utils.sh
 
 if [ -z "$REDIS_VERSION" ]; then
-  export REDIS_VERSION=7.2.1
+  export REDIS_VERSION=7.2.4
 fi
 
 if [ -z "$CARGO_HTTP_DEBUG" ]; then
@@ -25,7 +25,10 @@ export ROOT=$PWD \
   FRED_TEST_TLS_CREDS=$PWD/tests/tmp/creds \
   REDIS_USERNAME=foo \
   REDIS_PASSWORD=bar \
-  REDIS_SENTINEL_PASSWORD=baz
+  REDIS_SENTINEL_PASSWORD=baz \
+  REDIS_UNIX_SOCK=redis-main.sock \
+  REDIS_UNIX_SOCK_HOST_DIR=$PWD/tests/tmp/fred-redis-main \
+  REDIS_UNIX_SOCK_CONTAINER_DIR=/opt/bitnami/redis/mounted-etc
 
 REDIS_CLI_PATH="$PWD/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-cli"
 
@@ -61,12 +64,19 @@ truncate -s 0 $PWD/tests/users.acl
 echo "user $REDIS_USERNAME on allkeys allcommands allchannels >$REDIS_PASSWORD" | tee -a $PWD/tests/users.acl > /dev/null
 echo "user default on allkeys allcommands allchannels >$REDIS_PASSWORD" | tee -a $PWD/tests/users.acl > /dev/null
 
+# generate redis.conf overrides based on the env variables above
 truncate -s 0 $PWD/tests/docker/overrides/default.conf
 echo "enable-debug-command yes" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 echo "masterauth $REDIS_PASSWORD" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 echo "masteruser default" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 echo "aclfile /opt/bitnami/redis/mounted-etc/users.acl" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
 echo "requirepass $REDIS_PASSWORD" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
+echo "loglevel verbose" | tee -a $PWD/tests/docker/overrides/default.conf > /dev/null
+
+# generate the unix socket config based on the variables above
+cp $PWD/tests/docker/overrides/default.conf $PWD/tests/docker/overrides/unix-socket.conf
+echo "unixsocket $REDIS_UNIX_SOCK_CONTAINER_DIR/$REDIS_UNIX_SOCK" | tee -a $PWD/tests/docker/overrides/unix-socket.conf > /dev/null
+echo "unixsocketperm 770" | tee -a $PWD/tests/docker/overrides/unix-socket.conf > /dev/null
 
 if [ -z "${CIRCLECI_TESTS}" ]; then
   check_cluster_credentials

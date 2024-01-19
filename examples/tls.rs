@@ -26,7 +26,6 @@ fn create_tls_config() -> TlsConnector {
 
   // or use `TlsConnector::default_rustls()`
   ClientConfig::builder()
-    .with_safe_defaults()
     .with_root_certificates(RootCertStore::empty())
     .with_no_client_auth()
     .into()
@@ -43,7 +42,7 @@ async fn main() -> Result<(), RedisError> {
 
   let _ = client.connect();
   if let Err(error) = client.wait_for_connect().await {
-    println!("Client failed to connect with error: {:?}", error);
+    panic!("Client failed to connect with error: {:?}", error);
   }
 
   // ...

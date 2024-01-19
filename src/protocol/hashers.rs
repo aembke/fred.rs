@@ -1,7 +1,7 @@
 use crate::types::RedisValue;
 use redis_protocol::redis_keyslot;
 
-fn hash_value(value: &RedisValue) -> Option<u16> {
+pub fn hash_value(value: &RedisValue) -> Option<u16> {
   Some(match value {
     RedisValue::String(s) => redis_keyslot(s.as_bytes()),
     RedisValue::Bytes(b) => redis_keyslot(b),
@@ -77,7 +77,7 @@ impl ClusterHash {
   /// Hash the provided arguments.
   pub fn hash(&self, args: &[RedisValue]) -> Option<u16> {
     match self {
-      ClusterHash::FirstValue => args.get(0).and_then(hash_value),
+      ClusterHash::FirstValue => args.first().and_then(hash_value),
       ClusterHash::FirstKey => args.iter().find_map(hash_key),
       ClusterHash::Random => None,
       ClusterHash::Offset(idx) => args.get(*idx).and_then(hash_value),
@@ -88,7 +88,7 @@ impl ClusterHash {
   /// Find the key to hash with the provided arguments.
   pub fn find_key<'a>(&self, args: &'a [RedisValue]) -> Option<&'a [u8]> {
     match self {
-      ClusterHash::FirstValue => args.get(0).and_then(read_redis_key),
+      ClusterHash::FirstValue => args.first().and_then(read_redis_key),
       ClusterHash::FirstKey => args.iter().find_map(read_redis_key),
       ClusterHash::Offset(idx) => args.get(*idx).and_then(read_redis_key),
       ClusterHash::Random | ClusterHash::Custom(_) => None,

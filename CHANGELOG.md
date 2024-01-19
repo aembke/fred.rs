@@ -1,6 +1,32 @@
+## 8.0.0
+
+* Remove the `globals` interface.
+* Support unix domain sockets.
+* Improve unresponsive connection checks.
+* Move several feature flags to configuration options.
+* Add a benchmarking tool.
+* Update to Rustls 0.22.
+* Add several new connection configuration options.
+* Add a `fail_fast` flag to commands.
+* Switch to [crossbeam types](https://crates.io/crates/crossbeam-queue) internally.
+
+### Upgrading from 7.x
+
+Using `..Default::default()` with the various configuration structs can avoid most of the breaking changes here.
+
+Notable changes:
+
+* Several configuration options were moved from `globals` to `ConnectionConfig` and `PerformanceConfig`. 
+* Several feature flags were moved to configuration fields, including:
+  * `ignore-auth-error`
+  * `pool-prefer-active`
+  * `reconnect-on-auth-error`
+  * `auto-client-setname`
+* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. They now use the same naming conventions as the other event streams.
+
 ## 7.1.2
 
-* Fix intermittent cluster routing errors 
+* Fix intermittent cluster routing errors
 
 ## 7.1.1
 
@@ -18,6 +44,7 @@
 
 * Added a new client [builder](src/types/builder.rs) and configuration interface.
 * Reworked or removed the majority of the `globals` interface.
+* 
 * Support multiple IP addresses in the `Resolve` interface.
 * Add `with_options` command configuration interface. 
 * Replaced the `no-client-setname` feature flag with `auto-client-setname`.
@@ -158,11 +185,11 @@ Potentially breaking changes in 6.x:
 
 ## 5.0.0-beta.1
 
-* Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs) so it can decode frames without moving or copying the underlying bytes
+* Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs), so it can decode frames without moving or copying the underlying bytes
 * Change most command implementations to avoid unnecessary allocations when using static str slices 
 * Rewrite the public interface to use different traits for different parts of the redis interface
 * Relax some restrictions on certain commands being used in a transaction
-* Implement the Streams interface (XADD, XREAD, etc)
+* Implement the Streams interface (XADD, XREAD, etc.)
 * RESP3 support
 * Move most perf configuration options from `globals` to client-specific config structs
 * Add backpressure configuration options to the client config struct

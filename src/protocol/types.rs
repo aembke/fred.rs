@@ -153,6 +153,19 @@ impl Server {
   }
 }
 
+#[cfg(feature = "unix-sockets")]
+#[doc(hidden)]
+impl From<&std::path::Path> for Server {
+  fn from(value: &std::path::Path) -> Self {
+    Server {
+      host: utils::path_to_string(value).into(),
+      port: 0,
+      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+      tls_server_name: None,
+    }
+  }
+}
+
 impl TryFrom<String> for Server {
   type Error = RedisError;
 

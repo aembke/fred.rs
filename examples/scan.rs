@@ -21,7 +21,7 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
-  client.connect();
+  let _ = client.connect();
   client.wait_for_connect().await?;
   create_fake_data(&client).await?;
 
@@ -59,7 +59,7 @@ async fn main() -> Result<(), RedisError> {
 ///
 /// The best option depends on several factors, but `scan_cluster` is often the easiest approach for most use
 /// cases.
-async fn pool_scan_cluster_memory_example(pool: RedisPool) -> Result<(), RedisError> {
+async fn pool_scan_cluster_memory_example(pool: &RedisPool) -> Result<(), RedisError> {
   // the majority of the client traffic in this scenario comes from the MEMORY USAGE call on each key, so we'll use a
   // pool to round-robin these commands among multiple clients. a clustered client with `auto_pipeline: true` can scan
   // all nodes in the cluster concurrently, so we use a single client rather than a pool to issue the SCAN calls.
