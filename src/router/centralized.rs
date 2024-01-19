@@ -5,7 +5,7 @@ use crate::{
   protocol::{
     command::{RedisCommand, RouterResponse},
     connection,
-    connection::{CommandBuffer, Counters, RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{Counters, RedisWriter, SharedBuffer, SplitStreamKind},
     responders::{self, ResponseKind},
     types::Server,
     utils as protocol_utils,
@@ -13,7 +13,7 @@ use crate::{
   router::{responses, utils, Connections, Written},
   types::ServerConfig,
 };
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 use tokio::task::JoinHandle;
 
 pub async fn write(
@@ -49,10 +49,9 @@ pub fn spawn_reader_task(
 
   tokio::spawn(async move {
     let mut last_error = None;
-    let mut rx = utils::reader_subscribe(&inner, &server);
 
     loop {
-      let frame = match utils::next_frame(&inner, &mut reader, &server, &mut rx).await {
+      let frame = match utils::next_frame(&inner, &mut reader, &server, &buffer).await {
         Ok(Some(frame)) => frame.into_resp3(),
         Ok(None) => {
           last_error = None;
@@ -77,7 +76,10 @@ pub fn spawn_reader_task(
       }
     }
 
-    utils::reader_unsubscribe(&inner, &server);
+    // at this point the order of the shared buffer no longer matters since we can't know which commands actually made
+    // it to the server, just that the connection closed. the shared buffer will be drained when the writer notices
+    // that this task finished, but here we need to first filter out any commands that have exceeded their max write
+    // attempts.
     utils::check_blocked_router(&inner, &buffer, &last_error);
     utils::check_final_write_attempt(&inner, &buffer, &last_error);
     if is_replica {
@@ -102,28 +104,17 @@ pub async fn process_response_frame(
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Parsing response frame from {}", server);
-  let mut command = {
-    let mut guard = buffer.lock();
-
-    let command = match guard.pop_front() {
-      Some(command) => command,
-      None => {
-        _debug!(
-          inner,
-          "Missing last command from {}. Dropping {:?}.",
-          server,
-          frame.kind()
-        );
-        return Ok(());
-      },
-    };
-
-    if utils::should_drop_extra_pubsub_frame(inner, &command, &frame) {
-      guard.push_front(command);
+  let mut command = match buffer.pop() {
+    Some(command) => command,
+    None => {
+      _debug!(
+        inner,
+        "Missing last command from {}. Dropping {:?}.",
+        server,
+        frame.kind()
+      );
       return Ok(());
-    } else {
-      command
-    }
+    },
   };
   _trace!(
     inner,
@@ -132,6 +123,9 @@ pub async fn process_response_frame(
     command.debug_id()
   );
   counters.decr_in_flight();
+  if command.blocks_connection() {
+    buffer.set_unblocked();
+  }
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
   if command.transaction_id.is_some() {
@@ -149,6 +143,7 @@ pub async fn process_response_frame(
     }
   }
 
+  // TODO clean this up
   _trace!(inner, "Handling centralized response kind: {:?}", command.response);
   match command.take_response() {
     ResponseKind::Skip | ResponseKind::Respond(None) => {
@@ -156,16 +151,6 @@ pub async fn process_response_frame(
       Ok(())
     },
     ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
-    ResponseKind::Multiple { received, expected, tx } => {
-      if let Some(command) = responders::respond_multiple(inner, server, command, received, expected, tx, frame)? {
-        // the `Multiple` policy works by processing a series of responses on the same connection, so we put it back
-        // at the front of the queue. the inner logic reconstructs the responder state if necessary.
-        buffer.lock().push_front(command);
-        counters.incr_in_flight();
-      }
-
-      Ok(())
-    },
     ResponseKind::Buffer {
       received,
       expected,
@@ -195,7 +180,7 @@ pub async fn process_response_frame(
 pub async fn initialize_connection(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,
-  buffer: &mut CommandBuffer,
+  buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Initializing centralized connection.");
   let commands = connections.disconnect_all(inner).await;
@@ -205,6 +190,8 @@ pub async fn initialize_connection(
     Connections::Centralized { writer, .. } => {
       let server = match inner.config.server {
         ServerConfig::Centralized { ref server } => server.clone(),
+        #[cfg(feature = "unix-sockets")]
+        ServerConfig::Unix { ref path } => path.as_path().into(),
         _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
       };
       let mut transport = connection::create(inner, &server, None).await?;

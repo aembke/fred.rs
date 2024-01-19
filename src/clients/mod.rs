@@ -2,13 +2,11 @@ mod options;
 mod pipeline;
 mod pool;
 mod redis;
-mod transaction;
 
 pub use options::WithOptions;
 pub use pipeline::Pipeline;
 pub use pool::RedisPool;
 pub use redis::RedisClient;
-pub use transaction::Transaction;
 
 #[cfg(feature = "sentinel-client")]
 mod sentinel;
@@ -27,3 +25,9 @@ mod replica;
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use replica::Replicas;
+
+#[cfg(feature = "transactions")]
+mod transaction;
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
+pub use transaction::Transaction;

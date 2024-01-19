@@ -29,6 +29,7 @@ mod keys {
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
+#[cfg(feature = "transactions")]
 mod multi {
 
   centralized_test!(multi, should_run_get_set_trx);
@@ -53,6 +54,7 @@ mod other {
   centralized_test!(other, should_support_options_with_pipeline);
   centralized_test!(other, should_reuse_pipeline);
   centralized_test!(other, should_manually_connect_twice);
+  #[cfg(feature = "transactions")]
   centralized_test!(other, should_support_options_with_trx);
 
   //#[cfg(feature = "dns")]
@@ -339,4 +341,15 @@ mod redis_json {
   centralized_test!(redis_json, should_modify_strings);
   centralized_test!(redis_json, should_toggle_boolean);
   centralized_test!(redis_json, should_get_value_type);
+}
+
+#[cfg(feature = "time-series")]
+mod timeseries {
+  centralized_test!(timeseries, should_ts_add_get_and_range);
+  centralized_test!(timeseries, should_create_alter_and_del_timeseries);
+  centralized_test!(timeseries, should_madd_and_mget);
+  centralized_test!(timeseries, should_incr_and_decr);
+  centralized_test!(timeseries, should_create_and_delete_rules);
+  centralized_test!(timeseries, should_madd_and_mrange);
+  centralized_test!(timeseries, should_madd_and_mrevrange);
 }

@@ -19,6 +19,8 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A cheaply cloneable transaction block.
 #[derive(Clone)]
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
   id:        u64,
   inner:     Arc<RedisClientInner>,
@@ -96,6 +98,9 @@ impl FunctionInterface for Transaction {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for Transaction {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
@@ -141,7 +146,7 @@ impl Transaction {
   }
 
   pub(crate) fn disallow_all_cluster_commands(&self, command: &RedisCommand) -> Result<(), RedisError> {
-    if command.kind.is_all_cluster_nodes() {
+    if command.is_all_cluster_nodes() {
       Err(RedisError::new(
         RedisErrorKind::Cluster,
         "Cannot use concurrent cluster commands inside a transaction.",

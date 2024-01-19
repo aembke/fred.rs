@@ -1,9 +1,9 @@
 [package]
-name = "pipeline_test"
+name = "fred_benchmark"
 version = "0.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2018"
-description = "A script to test pipelining commands with tracing."
+description = "A benchmarking script based on the `redis-benchmark` tool included with Redis."
 
 [profile.release]
 debug = true
@@ -18,20 +18,25 @@ tracing-core = "0.1.30"
 tracing-subscriber = "0.3.16"
 tracing = "0.1.37"
 log = "0.4"
-pretty_env_logger = "0.4"
+pretty_env_logger = "0.5"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 rand = "0.8"
 indicatif = "=0.17.1"
+bb8-redis = { version = "0.14", optional = true }
 
 [dependencies.fred]
 #path = "../.."
 path = "/fred"
-features = ["ignore-auth-error", "replicas"]
+features = ["replicas", "unix-sockets"]
 default-features = false
 
 [features]
 default = []
+assert-expected = []
+redis-rs = ["bb8-redis"]
+enable-rustls = ["fred/enable-rustls"]
+enable-native-tls = ["fred/enable-native-tls"]
 debug-ids = ["fred/debug-ids"]
 stdout-tracing = ["fred/partial-tracing"]
 partial-tracing = ["fred/partial-tracing"]

@@ -17,6 +17,8 @@ mod scan;
 mod scripts;
 mod sorted_sets;
 mod streams;
+#[cfg(feature = "time-series")]
+mod timeseries;
 
 pub use args::*;
 pub use builder::*;
@@ -32,6 +34,10 @@ pub use scripts::*;
 pub use semver::Version;
 pub use sorted_sets::*;
 pub use streams::*;
+
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+pub use timeseries::*;
 
 #[cfg(feature = "metrics")]
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]

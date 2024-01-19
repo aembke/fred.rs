@@ -13,6 +13,8 @@ use crate::{
     CustomCommand,
     FromRedis,
     InfoKind,
+    KeyspaceEvent,
+    Message,
     Options,
     PerformanceConfig,
     ReconnectPolicy,
@@ -57,7 +59,32 @@ where
 
 /// Send a `RouterCommand` to the router.
 pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
-  inner.counters.incr_cmd_buffer_len();
+  #[allow(clippy::collapsible_if)]
+  if command.should_check_fail_fast() {
+    if utils::read_locked(&inner.state) != ClientState::Connected {
+      _debug!(inner, "Responding early after fail fast check.");
+      command.finish_with_error(RedisError::new(
+        RedisErrorKind::Canceled,
+        "Connection closed unexpectedly.",
+      ));
+      return Ok(());
+    }
+  }
+
+  let new_len = inner.counters.incr_cmd_buffer_len();
+  let should_apply_backpressure = inner.connection.max_command_buffer_len > 0
+    && new_len > inner.connection.max_command_buffer_len
+    && !command.should_skip_backpressure();
+
+  if should_apply_backpressure {
+    inner.counters.decr_cmd_buffer_len();
+    command.finish_with_error(RedisError::new(
+      RedisErrorKind::Backpressure,
+      "Max command queue length exceeded.",
+    ));
+    return Ok(());
+  }
+
   if let Err(e) = inner.command_tx.load().send(command) {
     // usually happens if the caller tries to send a command before calling `connect` or after calling `quit`
     inner.counters.decr_cmd_buffer_len();
@@ -355,10 +382,32 @@ where
   })
 }
 
-/// An interface that exposes various connection events.
+/// An interface that exposes various client and connection events.
 ///
-/// Calling [quit](crate::interfaces::ClientLike::quit) will exit or close all event streams.
+/// Calling [quit](crate::interfaces::ClientLike::quit) will close all event streams.
 pub trait EventInterface: ClientLike {
+  /// Spawn a task that runs the provided function on each publish-subscribe message.
+  ///
+  /// See [message_rx](Self::message_rx) for more information.
+  fn on_message<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(Message) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.message_rx();
+    spawn_event_listener(rx, func)
+  }
+
+  /// Spawn a task that runs the provided function on each keyspace event.
+  ///
+  /// <https://redis.io/topics/notifications>
+  fn on_keyspace_event<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  where
+    F: Fn(KeyspaceEvent) -> RedisResult<()> + Send + 'static,
+  {
+    let rx = self.keyspace_event_rx();
+    spawn_event_listener(rx, func)
+  }
+
   /// Spawn a task that runs the provided function on each reconnection event.
   ///
   /// Errors returned by `func` will exit the task.
@@ -393,8 +442,6 @@ pub trait EventInterface: ClientLike {
   }
 
   /// Spawn a task that runs the provided function whenever the client detects an unresponsive connection.
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
   fn on_unresponsive<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
     F: Fn(Server) -> RedisResult<()> + Send + 'static,
@@ -403,7 +450,7 @@ pub trait EventInterface: ClientLike {
     spawn_event_listener(rx, func)
   }
 
-  /// Spawn one task that listens for all event types.
+  /// Spawn one task that listens for all connection management event types.
   ///
   /// Errors in any of the provided functions will exit the task.
   fn on_any<Fe, Fr, Fc>(&self, error_fn: Fe, reconnect_fn: Fr, cluster_change_fn: Fc) -> JoinHandle<RedisResult<()>>
@@ -447,6 +494,27 @@ pub trait EventInterface: ClientLike {
     })
   }
 
+  /// Listen for messages on the publish-subscribe interface.
+  ///
+  /// **Keyspace events are not sent on this interface.**
+  ///
+  /// If the connection to the Redis server closes for any reason this function does not need to be called again.
+  /// Messages will start appearing on the original stream after
+  /// [subscribe](crate::interfaces::PubsubInterface::subscribe) is called again.
+  fn message_rx(&self) -> BroadcastReceiver<Message> {
+    self.inner().notifications.pubsub.load().subscribe()
+  }
+
+  /// Listen for keyspace and keyevent notifications on the publish-subscribe interface.
+  ///
+  /// Callers still need to configure the server and subscribe to the relevant channels, but this interface will
+  /// parse and format the messages automatically.
+  ///
+  /// <https://redis.io/topics/notifications>
+  fn keyspace_event_rx(&self) -> BroadcastReceiver<KeyspaceEvent> {
+    self.inner().notifications.keyspace.load().subscribe()
+  }
+
   /// Listen for reconnection notifications.
   ///
   /// This function can be used to receive notifications whenever the client reconnects in order to
@@ -472,8 +540,6 @@ pub trait EventInterface: ClientLike {
   }
 
   /// Receive a message when the client initiates a reconnection after detecting an unresponsive connection.
-  #[cfg(feature = "check-unresponsive")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "check-unresponsive")))]
   fn unresponsive_rx(&self) -> BroadcastReceiver<Server> {
     self.inner().notifications.unresponsive.load().subscribe()
   }
@@ -498,12 +564,15 @@ pub use crate::commands::interfaces::{
   slowlog::SlowlogInterface,
   sorted_sets::SortedSetsInterface,
   streams::StreamsInterface,
-  transactions::TransactionInterface,
 };
 
 #[cfg(feature = "redis-json")]
 pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
+#[cfg(feature = "time-series")]
+pub use crate::commands::interfaces::timeseries::TimeSeriesInterface;
 #[cfg(feature = "client-tracking")]
 pub use crate::commands::interfaces::tracking::TrackingInterface;
+#[cfg(feature = "transactions")]
+pub use crate::commands::interfaces::transactions::TransactionInterface;

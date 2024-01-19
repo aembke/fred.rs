@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
   protocol::command::{RedisCommand, ResponseSender, RouterCommand, RouterReceiver, RouterResponse},
-  router::{transactions, utils, Backpressure, Router, Written},
+  router::{utils, Backpressure, Router, Written},
   types::{ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
@@ -10,6 +10,9 @@ use redis_protocol::resp3::types::Frame as Resp3Frame;
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
+#[cfg(feature = "transactions")]
+use crate::router::transactions;
+use crate::{protocol::command::RedisCommandKind, types::Blocking};
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -164,7 +167,6 @@ async fn write_with_backpressure(
             router.buffer_command(command);
           }
         }
-        router.sync_network_timeout_state();
 
         utils::defer_reconnect(inner);
         break;
@@ -180,6 +182,7 @@ async fn write_with_backpressure(
         if let Err(error) = router.sync_cluster().await {
           // try to sync the cluster once, and failing that buffer the command.
           _warn!(inner, "Failed to sync cluster after NotFound: {:?}", error);
+          utils::defer_reconnect(inner);
           router.buffer_command(command);
           utils::defer_reconnect(inner);
           break;
@@ -218,9 +221,9 @@ async fn write_with_backpressure(
         if !flushed {
           let _ = router.check_and_flush().await;
         }
-        let should_interrupt = is_blocking
-          && inner.counters.read_cmd_buffer_len() > 0
-          && client_utils::has_blocking_interrupt_policy(inner);
+
+        let should_interrupt =
+          is_blocking && inner.counters.read_cmd_buffer_len() > 0 && inner.config.blocking == Blocking::Interrupt;
         if should_interrupt {
           // if there's other commands in the queue then interrupt the command that was just sent
           _debug!(inner, "Interrupt after write.");
@@ -309,10 +312,19 @@ async fn process_pipeline(
   _debug!(inner, "Writing pipeline with {} commands", commands.len());
 
   for mut command in commands.into_iter() {
-    command.can_pipeline = true;
+    // trying to pipeline `SSUBSCRIBE` is problematic since successful responses arrive out-of-order via pubsub push
+    // frames, but error redirections are returned in-order and the client is expected to follow them. this makes it
+    // very difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
+    // never pipeline `ssubscribe`, even if the caller asks.
+    let force_pipeline = if command.kind == RedisCommandKind::Ssubscribe {
+      command.can_pipeline = false;
+      false
+    } else {
+      command.can_pipeline = true;
+      !command.is_all_cluster_nodes()
+    };
     command.skip_backpressure = true;
 
-    let force_pipeline = !command.kind.is_all_cluster_nodes();
     if let Err(e) = write_with_backpressure_t(inner, router, command, force_pipeline).await {
       // if the command cannot be written it will be queued to run later.
       // if a connection is dropped due to an error the reader will send a command to reconnect and retry later.
@@ -500,6 +512,7 @@ async fn process_command(
     RouterCommand::Ask { server, slot, command } => process_ask(inner, router, server, slot, command).await,
     RouterCommand::Moved { server, slot, command } => process_moved(inner, router, server, slot, command).await,
     RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
+    #[cfg(feature = "transactions")]
     RouterCommand::Transaction {
       commands,
       watched,
@@ -608,6 +621,7 @@ mod mocking {
   /// Process any kind of router command.
   pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), RedisError> {
     match command {
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { commands, tx, .. } => {
         let mocked = commands.into_iter().skip(1).map(|c| c.to_mocked()).collect();
 

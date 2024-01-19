@@ -38,6 +38,8 @@ use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiv
 
 #[cfg(feature = "redis-json")]
 use crate::interfaces::RedisJsonInterface;
+#[cfg(feature = "time-series")]
+use crate::interfaces::TimeSeriesInterface;
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();
@@ -167,6 +169,9 @@ impl<C: FunctionInterface> FunctionInterface for Pipeline<C> {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl<C: RedisJsonInterface> RedisJsonInterface for Pipeline<C> {}
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl<C: TimeSeriesInterface> TimeSeriesInterface for Pipeline<C> {}
 
 impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.
@@ -207,8 +212,8 @@ impl<C: ClientLike> Pipeline<C> {
   ///   let _: () = pipeline.get("foo").await?;
   ///   let _: () = pipeline.hgetall("bar").await?; // this will error since `bar` is an integer
   ///
-  ///   let results = pipeline.try_all::<RedisValue>().await; // note the lack of `?`
-  ///   assert!(results[0].unwrap().convert::<i64>(), 1);
+  ///   let results = pipeline.try_all::<RedisValue>().await;
+  ///   assert_eq!(results[0].unwrap().convert::<i64>(), 1);
   ///   assert!(results[1].is_err());
   ///
   ///   Ok(())

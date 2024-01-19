@@ -67,6 +67,8 @@ impl GeoInterface for RedisClient {}
 impl HashesInterface for RedisClient {}
 impl HyperloglogInterface for RedisClient {}
 impl MetricsInterface for RedisClient {}
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 impl TransactionInterface for RedisClient {}
 impl KeysInterface for RedisClient {}
 impl LuaInterface for RedisClient {}
@@ -83,7 +85,9 @@ impl FunctionInterface for RedisClient {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for RedisClient {}
-
+#[cfg(feature = "time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+impl TimeSeriesInterface for RedisClient {}
 #[cfg(feature = "client-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 impl TrackingInterface for RedisClient {}

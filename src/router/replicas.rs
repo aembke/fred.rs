@@ -481,28 +481,26 @@ impl Replicas {
       replica
     );
     command.write_attempts += 1;
-    writer.push_command(inner, command);
-    if let Err(e) = writer.write_frame(frame, should_flush).await {
-      let command = match writer.pop_recent_command() {
-        Some(cmd) => cmd,
-        None => {
-          _error!(inner, "Failed to take recent command off queue after write failure.");
-          return Written::Ignore;
-        },
-      };
+
+    if !writer.is_working() {
+      let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
 
       _debug!(
         inner,
         "Error sending replica command {}: {:?}",
         command.kind.to_str_debug(),
-        e
+        error
       );
-      Written::Disconnected((Some(writer.server.clone()), Some(command), e))
+      return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
+    }
+
+    writer.push_command(inner, command);
+    if let Err(err) = writer.write_frame(frame, should_flush, false).await {
+      Written::Disconnected((Some(writer.server.clone()), None, err))
     } else {
       if blocks_connection {
         inner.backchannel.write().await.set_blocked(&writer.server);
       }
-
       Written::Sent((writer.server.clone(), should_flush))
     }
   }

@@ -14,7 +14,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
     })
     .build()?;
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // spawn a task that processes invalidation messages.
   let _ = client.on_invalidation(|invalidation| {
@@ -23,7 +23,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
   });
 
   // enable client tracking on all connections. it's usually a good idea to do this in an `on_reconnect` block.
-  let _ = client.start_tracking(None, false, false, false, false).await?;
+  client.start_tracking(None, false, false, false, false).await?;
   let _: () = client.get("foo").await?;
 
   // send `CLIENT CACHING yes|no` before subsequent commands. the preceding `CLIENT CACHING yes|no` command will be
@@ -44,7 +44,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
     .await?;
 
   println!("foo: {}, bar: {}", foo, bar);
-  let _ = client.stop_tracking().await?;
+  client.stop_tracking().await?;
   Ok(())
 }
 
@@ -55,8 +55,8 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   // RESP2 requires two connections
   let _ = subscriber.connect();
   let _ = client.connect();
-  let _ = subscriber.wait_for_connect().await?;
-  let _ = client.wait_for_connect().await?;
+  subscriber.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   // the invalidation subscriber interface is the same as above even in RESP2 mode **as long as the `client-tracking`
   // feature is enabled**. if the feature is disabled then the message will appear on the `on_message` receiver.

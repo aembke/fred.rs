@@ -2,47 +2,23 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, KeyspaceEvent, Message, MultipleStrings, RedisValue},
+  types::{FromRedis, MultipleStrings, RedisValue},
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
-use tokio::sync::broadcast::Receiver as BroadcastReceiver;
 
 /// Functions that implement the [pubsub](https://redis.io/commands#pubsub) interface.
 #[async_trait]
 pub trait PubsubInterface: ClientLike + Sized {
-  /// Listen for messages on the publish-subscribe interface.
-  ///
-  /// **Keyspace events are not sent on this interface.**
-  ///
-  /// If the connection to the Redis server closes for any reason this function does not need to be called again.
-  /// Messages will start appearing on the original stream after [subscribe](Self::subscribe) is called again.
-  fn on_message(&self) -> BroadcastReceiver<Message> {
-    self.inner().notifications.pubsub.load().subscribe()
-  }
-
-  /// Listen for keyspace and keyevent notifications on the publish-subscribe interface.
-  ///
-  /// Callers still need to configure the server and subscribe to the relevant channels, but this interface will
-  /// parse and format the messages automatically.
-  ///
-  /// If the connection to the Redis server closes for any reason this function does not need to be called again.
-  ///
-  /// <https://redis.io/topics/notifications>
-  fn on_keyspace_event(&self) -> BroadcastReceiver<KeyspaceEvent> {
-    self.inner().notifications.keyspace.load().subscribe()
-  }
-
   /// Subscribe to a channel on the publish-subscribe interface.
   ///
   /// <https://redis.io/commands/subscribe>
-  async fn subscribe<R, S>(&self, channels: S) -> RedisResult<R>
+  async fn subscribe<S>(&self, channels: S) -> RedisResult<()>
   where
-    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(channels);
-    commands::pubsub::subscribe(self, channels).await?.convert()
+    commands::pubsub::subscribe(self, channels).await
   }
 
   /// Unsubscribe from a channel on the PubSub interface.
@@ -53,19 +29,18 @@ pub trait PubsubInterface: ClientLike + Sized {
     S: Into<MultipleStrings> + Send,
   {
     into!(channels);
-    commands::pubsub::unsubscribe(self, channels).await?.convert()
+    commands::pubsub::unsubscribe(self, channels).await
   }
 
   /// Subscribes the client to the given patterns.
   ///
   /// <https://redis.io/commands/psubscribe>
-  async fn psubscribe<R, S>(&self, patterns: S) -> RedisResult<R>
+  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<()>
   where
-    R: FromRedis,
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
-    commands::pubsub::psubscribe(self, patterns).await?.convert()
+    commands::pubsub::psubscribe(self, patterns).await
   }
 
   /// Unsubscribes the client from the given patterns, or from all of them if none is given.
@@ -78,7 +53,7 @@ pub trait PubsubInterface: ClientLike + Sized {
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
-    commands::pubsub::punsubscribe(self, patterns).await?.convert()
+    commands::pubsub::punsubscribe(self, patterns).await
   }
 
   /// Publish a message on the PubSub interface, returning the number of clients that received the message.
@@ -99,13 +74,12 @@ pub trait PubsubInterface: ClientLike + Sized {
   /// Subscribes the client to the specified shard channels.
   ///
   /// <https://redis.io/commands/ssubscribe/>
-  async fn ssubscribe<R, C>(&self, channels: C) -> RedisResult<R>
+  async fn ssubscribe<C>(&self, channels: C) -> RedisResult<()>
   where
-    R: FromRedis,
     C: Into<MultipleStrings> + Send,
   {
     into!(channels);
-    commands::pubsub::ssubscribe(self, channels).await?.convert()
+    commands::pubsub::ssubscribe(self, channels).await
   }
 
   /// Unsubscribes the client from the given shard channels, or from all of them if none is given.
@@ -118,7 +92,7 @@ pub trait PubsubInterface: ClientLike + Sized {
     C: Into<MultipleStrings> + Send,
   {
     into!(channels);
-    commands::pubsub::sunsubscribe(self, channels).await?.convert()
+    commands::pubsub::sunsubscribe(self, channels).await
   }
 
   /// Posts a message to the given shard channel.

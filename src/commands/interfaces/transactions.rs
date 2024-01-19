@@ -4,6 +4,8 @@ use crate::{clients::Transaction, interfaces::ClientLike};
 ///
 /// See the [Transaction](crate::clients::Transaction) client for more information;
 #[async_trait]
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub trait TransactionInterface: ClientLike + Sized {
   /// Enter a MULTI block, executing subsequent commands as a transaction.
   ///

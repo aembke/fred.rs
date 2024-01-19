@@ -2,6 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
+    codec::RedisCodec,
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind},
     connection::OK,
     types::{ProtocolFrame, *},
@@ -17,14 +18,9 @@ use redis_protocol::{
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
 
-pub fn initial_buffer_size(inner: &Arc<RedisClientInner>) -> usize {
-  if inner.performance.load().as_ref().auto_pipeline {
-    // TODO make this configurable
-    256
-  } else {
-    1
-  }
-}
+static LEGACY_AUTH_ERROR_BODY: &str = "ERR Client sent AUTH, but no password is set";
+static ACL_AUTH_ERROR_PREFIX: &str =
+  "ERR AUTH <password> called without any password configured for the default user";
 
 pub fn parse_cluster_error(data: &str) -> Result<(ClusterErrorKind, u16, String), RedisError> {
   let parts: Vec<&str> = data.split(' ').collect();
@@ -282,46 +278,42 @@ pub fn parse_as_resp2_pubsub(server: &Server, frame: Resp3Frame) -> Result<Messa
   }
 }
 
-#[cfg(not(feature = "ignore-auth-error"))]
-pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
-  frame
-}
-
-#[cfg(feature = "ignore-auth-error")]
-pub fn check_resp2_auth_error(frame: Resp2Frame) -> Resp2Frame {
+pub fn check_resp2_auth_error(codec: &RedisCodec, frame: Resp2Frame) -> Resp2Frame {
   let is_auth_error = match frame {
-    Resp2Frame::Error(ref data) => {
-      *data == "ERR Client sent AUTH, but no password is set"
-        || data.starts_with("ERR AUTH <password> called without any password configured for the default user")
-    },
+    Resp2Frame::Error(ref data) => *data == LEGACY_AUTH_ERROR_BODY || data.starts_with(ACL_AUTH_ERROR_PREFIX),
     _ => false,
   };
 
   if is_auth_error {
-    Resp2Frame::SimpleString(OK.into())
+    warn!(
+      "{}: [{}] Dropping unused auth warning: {}",
+      codec.name,
+      codec.server,
+      frame.as_str().unwrap_or("")
+    );
+    Resp2Frame::SimpleString(utils::static_bytes(OK.as_bytes()))
   } else {
     frame
   }
 }
 
-#[cfg(not(feature = "ignore-auth-error"))]
-pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
-  frame
-}
-
-#[cfg(feature = "ignore-auth-error")]
-pub fn check_resp3_auth_error(frame: Resp3Frame) -> Resp3Frame {
+pub fn check_resp3_auth_error(codec: &RedisCodec, frame: Resp3Frame) -> Resp3Frame {
   let is_auth_error = match frame {
     Resp3Frame::SimpleError { ref data, .. } => {
-      *data == "ERR Client sent AUTH, but no password is set"
-        || data.starts_with("ERR AUTH <password> called without any password configured for the default user")
+      *data == LEGACY_AUTH_ERROR_BODY || data.starts_with(ACL_AUTH_ERROR_PREFIX)
     },
     _ => false,
   };
 
   if is_auth_error {
+    warn!(
+      "{}: [{}] Dropping unused auth warning: {}",
+      codec.name,
+      codec.server,
+      frame.as_str().unwrap_or("")
+    );
     Resp3Frame::SimpleString {
-      data:       "OK".into(),
+      data:       utils::static_bytes(OK.as_bytes()),
       attributes: None,
     }
   } else {
@@ -781,9 +773,8 @@ pub fn arg_size(value: &RedisValue) -> usize {
   match value {
     // use the RESP2 size
     RedisValue::Boolean(_) => 5,
-    // FIXME make this more accurate by casting to an i64 and using `digits_in_number`
-    // the tricky part is doing so without allocating and without any loss in precision, but
-    // this is only used for logging and tracing
+    // TODO try digits_in_number(f.trunc()) + 1 + digits_in_number(f.fract())
+    // but don't forget the negative sign byte
     RedisValue::Double(_) => 10,
     RedisValue::Null => 3,
     RedisValue::Integer(ref i) => i64_size(*i),
@@ -798,29 +789,9 @@ pub fn arg_size(value: &RedisValue) -> usize {
   }
 }
 
-#[cfg(feature = "blocking-encoding")]
-pub fn resp2_frame_size(frame: &Resp2Frame) -> usize {
-  match frame {
-    Resp2Frame::Integer(ref i) => i64_size(*i),
-    Resp2Frame::Null => 3,
-    Resp2Frame::Error(ref s) => s.as_bytes().len(),
-    Resp2Frame::SimpleString(ref s) => s.len(),
-    Resp2Frame::BulkString(ref b) => b.len(),
-    Resp2Frame::Array(ref a) => a.iter().fold(0, |c, f| c + resp2_frame_size(f)),
-  }
-}
-
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
   frame.encode_len().unwrap_or(0)
-}
-
-#[cfg(feature = "blocking-encoding")]
-pub fn frame_size(frame: &ProtocolFrame) -> usize {
-  match frame {
-    ProtocolFrame::Resp3(f) => resp3_frame_size(f),
-    ProtocolFrame::Resp2(f) => resp2_frame_size(f),
-  }
 }
 
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
@@ -966,6 +937,16 @@ pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<Protoc
   } else {
     command_to_resp2_frame(command).map(|c| c.into())
   }
+}
+
+pub fn encode_frame(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
+  #[cfg(feature = "blocking-encoding")]
+  return command.to_frame_blocking(
+    inner.is_resp3(),
+    inner.with_perf_config(|c| c.blocking_encode_threshold),
+  );
+  #[cfg(not(feature = "blocking-encoding"))]
+  return command.to_frame(inner.is_resp3());
 }
 
 #[cfg(test)]

@@ -6,11 +6,9 @@ use crate::{
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
   utils,
 };
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::{prelude::PUBSUB_PUSH_PREFIX, types::Frame as Resp3Frame};
 use std::{str, sync::Arc};
 
-#[cfg(feature = "custom-reconnect-errors")]
-use crate::globals::globals;
 #[cfg(feature = "client-tracking")]
 use crate::types::Invalidation;
 
@@ -174,6 +172,39 @@ fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
   }
 }
 
+// `SSUBSCRIBE` is intentionally not included so that we can handle MOVED errors. this works as long as we never
+// pipeline ssubscribe calls.
+fn is_subscribe_prefix(s: &str) -> bool {
+  s == "subscribe" || s == "psubscribe"
+}
+
+fn is_unsubscribe_prefix(s: &str) -> bool {
+  s == "unsubscribe" || s == "punsubscribe" || s == "sunsubscribe"
+}
+
+/// Whether the response frame represents a response to any of the subscription interface commands.
+fn is_subscription_response(frame: &Resp3Frame) -> bool {
+  match frame {
+    Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
+      if data.len() >= 3 && data.len() <= 4 {
+        // check for ["pubsub", "punsubscribe"|"sunsubscribe", ..] or ["punsubscribe"|"sunsubscribe", ..]
+        (data[0].as_str().map(|s| s == PUBSUB_PUSH_PREFIX).unwrap_or(false)
+          && data[1]
+            .as_str()
+            .map(|s| is_subscribe_prefix(s) || is_unsubscribe_prefix(s))
+            .unwrap_or(false))
+          || (data[0]
+            .as_str()
+            .map(|s| is_subscribe_prefix(s) || is_unsubscribe_prefix(s))
+            .unwrap_or(false))
+      } else {
+        false
+      }
+    },
+    _ => false,
+  }
+}
+
 #[cfg(not(feature = "client-tracking"))]
 fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
   false
@@ -183,6 +214,10 @@ fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
 ///
 /// If not then return it to the caller for further processing.
 pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) -> Option<Resp3Frame> {
+  if is_subscription_response(&frame) {
+    _debug!(inner, "Dropping unused subscription response.");
+    return None;
+  }
   if is_resp3_invalidation(&frame) {
     broadcast_resp3_invalidation(inner, server, frame);
     return None;
@@ -197,7 +232,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   _trace!(inner, "Processing pubsub message from {}.", server);
   let parsed_frame = if let Some(ref span) = span {
     #[allow(clippy::let_unit_value)]
-    let _ = span.enter();
+    let _guard = span.enter();
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
   } else {
     parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
@@ -225,13 +260,14 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   None
 }
 
+// TODO cleanup and rename
+// this is called by the reader task after a blocking command finishes in order to mark the connection as unblocked
 pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command: &RedisCommand) {
   if command.blocks_connection() {
     inner.backchannel.write().await.set_unblocked();
   }
 }
 
-#[cfg(feature = "reconnect-on-auth-error")]
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if frame.is_error() {
@@ -247,16 +283,10 @@ fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   }
 }
 
-#[cfg(not(feature = "reconnect-on-auth-error"))]
-/// Parse the response frame to see if it's an auth error.
-fn parse_redis_auth_error(_frame: &Resp3Frame) -> Option<RedisError> {
-  None
-}
-
 #[cfg(feature = "custom-reconnect-errors")]
 fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if let Resp3Frame::SimpleError { ref data, .. } = frame {
-    for prefix in globals().reconnect_errors.read().iter() {
+    for prefix in inner.connection.reconnect_errors.iter() {
       if data.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", data);
         let error = protocol_utils::pretty_error(data);
@@ -303,8 +333,10 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
 
 /// Check for special errors configured by the caller to initiate a reconnection process.
 pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
-  if let Some(auth_error) = parse_redis_auth_error(frame) {
-    return Some(auth_error);
+  if inner.connection.reconnect_on_auth_error {
+    if let Some(auth_error) = parse_redis_auth_error(frame) {
+      return Some(auth_error);
+    }
   }
   if let Some(error) = is_clusterdown_error(frame) {
     return Some(pretty_error(error));

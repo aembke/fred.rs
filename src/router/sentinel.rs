@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, CommandBuffer, RedisTransport, RedisWriter},
+    connection::{self, RedisTransport, RedisWriter},
     utils as protocol_utils,
   },
   router::{centralized, Connections},
@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use std::{
-  collections::{HashMap, HashSet},
+  collections::{HashMap, HashSet, VecDeque},
   sync::Arc,
 };
 
@@ -311,7 +311,7 @@ async fn update_cached_client_state(
 pub async fn initialize_connection(
   inner: &Arc<RedisClientInner>,
   connections: &mut Connections,
-  buffer: &mut CommandBuffer,
+  buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Initializing sentinel connection.");
   let commands = connections.disconnect_all(inner).await;

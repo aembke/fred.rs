@@ -201,10 +201,9 @@ impl Backchannel {
       }
     } else if inner.config.server.is_clustered() {
       if command.kind.use_random_cluster_node() {
-        self.any_server().ok_or(RedisError::new(
-          RedisErrorKind::Unknown,
-          "Failed to find backchannel server.",
-        ))
+        self
+          .any_server()
+          .ok_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Failed to find backchannel server."))
       } else {
         inner.with_cluster_state(|state| {
           let slot = match command.cluster_hash() {
@@ -216,17 +215,16 @@ impl Backchannel {
               ))
             },
           };
-          state.get_server(slot).cloned().ok_or(RedisError::new(
-            RedisErrorKind::Cluster,
-            "Failed to find cluster owner.",
-          ))
+          state
+            .get_server(slot)
+            .cloned()
+            .ok_or_else(|| RedisError::new(RedisErrorKind::Cluster, "Failed to find cluster owner."))
         })
       }
     } else {
-      self.any_server().ok_or(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Failed to find backchannel server.",
-      ))
+      self
+        .any_server()
+        .ok_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Failed to find backchannel server."))
     }
   }
 }

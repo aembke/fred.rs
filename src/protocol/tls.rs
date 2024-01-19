@@ -11,8 +11,6 @@ use crate::error::RedisErrorKind;
 #[cfg(feature = "enable-native-tls")]
 use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "enable-native-tls")]
-pub use tokio_native_tls::native_tls;
-#[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
   TlsConnector as NativeTlsConnector,
   TlsConnectorBuilder as NativeTlsConnectorBuilder,
@@ -20,9 +18,7 @@ use tokio_native_tls::native_tls::{
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
 #[cfg(feature = "enable-rustls")]
-pub use tokio_rustls::rustls;
-#[cfg(feature = "enable-rustls")]
-use tokio_rustls::rustls::{Certificate, ClientConfig as RustlsClientConfig, RootCertStore};
+use tokio_rustls::rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
 #[cfg(feature = "enable-rustls")]
 use tokio_rustls::TlsConnector as RustlsConnector;
 
@@ -100,7 +96,7 @@ impl Eq for TlsHostMapping {}
 /// # use fred::types::*;
 /// let config = TlsConfig {
 ///   // or use `TlsConnector::default_rustls()`
-///   connector: TlsConnector::default_native_tls(),
+///   connector: TlsConnector::default_native_tls().unwrap(),
 ///   hostnames: TlsHostMapping::None
 /// };
 ///
@@ -175,12 +171,11 @@ impl TlsConnector {
     let system_certs = rustls_native_certs::load_native_certs()?;
     let mut cert_store = RootCertStore::empty();
     for system_cert in system_certs.into_iter() {
-      let _ = cert_store.add(&Certificate(system_cert.0))?;
+      let _ = cert_store.add(system_cert)?;
     }
 
     Ok(
       RustlsClientConfig::builder()
-        .with_safe_defaults()
         .with_root_certificates(cert_store)
         .with_no_client_auth()
         .into(),
