@@ -30,13 +30,12 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 ///
 /// async fn example() -> Result<(), RedisError> {
 ///   let subscriber = Builder::default_centralized().build_subscriber_client()?;
-///   let _ = subscriber.connect();
-///   subscriber.wait_for_connect().await?;
+///   subscriber.init().await?;
 ///
 ///   // spawn a task that will re-subscribe to channels and patterns after reconnecting
 ///   let _ = subscriber.manage_subscriptions();
 ///
-///   let mut message_rx = subscriber.on_message();
+///   let mut message_rx = subscriber.message_rx();
 ///   let jh = tokio::spawn(async move {
 ///     while let Ok(message) = message_rx.recv().await {
 ///       println!("Recv message {:?} on channel {}", message.value, message.channel);

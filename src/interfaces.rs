@@ -29,10 +29,7 @@ use crate::{
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc};
-use tokio::{
-  sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel},
-  task::JoinHandle,
-};
+use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -228,27 +225,17 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Connect to the Redis server.
   ///
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the
-  /// connection closes, and if a reconnection policy with unlimited attempts is provided then the `JoinHandle` will
+  /// connection closes, of if a reconnection policy with unlimited attempts is provided then it will
   /// run until `QUIT` is called.
   ///
   /// **Calling this function more than once will drop all state associated with the previous connection(s).** Any
   /// pending commands on the old connection(s) will either finish or timeout, but they will not be retried on the
   /// new connection(s).
+  ///
+  /// See [init](Self::init) for an alternative shorthand.
   fn connect(&self) -> ConnectHandle {
     let inner = self.inner().clone();
-    {
-      let _guard = inner._lock.lock();
-
-      if !inner.has_command_rx() {
-        _trace!(inner, "Resetting command channel before connecting.");
-        // another connection task is running. this will let the command channel drain, then it'll drop everything on
-        // the old connection/router interface.
-        let (tx, rx) = unbounded_channel();
-        let old_command_tx = inner.swap_command_tx(tx);
-        inner.store_command_rx(rx, true);
-        utils::close_router_channel(&inner, old_command_tx);
-      }
-    }
+    utils::reset_router_task(&inner);
 
     tokio::spawn(async move {
       utils::clear_backchannel_state(&inner).await;
@@ -284,6 +271,42 @@ pub trait ClientLike: Clone + Send + Sized {
       Ok(())
     } else {
       self.inner().notifications.connect.load().subscribe().recv().await?
+    }
+  }
+
+  /// Initialize a new routing and connection task and wait for it to connect successfully.
+  ///
+  /// The returned [ConnectHandle](crate::types::ConnectHandle) refers to the task that drives the routing and
+  /// connection layer. It will not finish until the max reconnection count is reached.
+  ///
+  /// Callers can also use [connect](Self::connect) and [wait_for_connect](Self::wait_for_connect) separately if
+  /// needed.
+  ///
+  /// ```rust
+  /// use fred::prelude::*;
+  ///
+  /// #[tokio::main]
+  /// async fn main() -> Result<(), RedisError> {
+  ///   let client = RedisClient::default();
+  ///   let connection_task = client.init().await?;
+  ///
+  ///   // ...
+  ///
+  ///   client.quit().await?;
+  ///   connection_task.await?
+  /// }
+  /// ```
+  async fn init(&self) -> RedisResult<ConnectHandle> {
+    let mut rx = { self.inner().notifications.connect.load().subscribe() };
+    let task = self.connect();
+    let error = rx.recv().await.map_err(RedisError::from).and_then(|r| r).err();
+
+    if let Some(error) = error {
+      // the initial connection failed, so we should gracefully close the routing task
+      utils::reset_router_task(self.inner());
+      Err(error)
+    } else {
+      Ok(task)
     }
   }
 

@@ -70,7 +70,7 @@ Commands are processed in series, but the `auto_pipeline` flag controls whether 
 
 However, this has some drawbacks:
 * Once a command is in the `UnboundedSender` channel it's difficult to inspect or remove. There's no practical way to get any kind of random access into this.
-* It can be difficult to create a "fast lane" for "special" commands with this model. For example, forcing a reconnection should take precedence over a blocking command. This is more difficult to implement with this model.
+* It can be difficult to preempt commands with this model. For example, forcing a reconnection should take precedence over a blocking command. This is more difficult to implement with this model.
 * Callers should at least be aware of this channel so that they're aware of how server failure modes can lead to increased memory usage. This makes it perhaps surprisingly important to properly tune reconnection or backpressure settings, especially if memory is in short supply.
 * Some things that would ideally be synchronous must instead be asynchronous. For example, I've often wanted a synchronous interface to inspect active connections.
 

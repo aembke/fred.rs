@@ -6,8 +6,7 @@ use fred::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let pool = Builder::default_centralized().build_pool(5)?;
-  let _ = pool.connect();
-  pool.wait_for_connect().await?;
+  pool.init().await?;
 
   // all client types, including `RedisPool`, implement the same command interface traits so callers can often use
   // them interchangeably. in this example each command below will be sent round-robin to the underlying 5 clients.

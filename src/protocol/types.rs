@@ -531,6 +531,21 @@ impl ClusterRouting {
   pub fn random_node(&self) -> Option<&Server> {
     self.random_slot().map(|slot| &slot.primary)
   }
+
+  /// Print the contents of the routing table as a human-readable map.
+  pub fn pretty(&self) -> BTreeMap<Server, (Vec<(u16, u16)>, BTreeSet<Server>)> {
+    let mut out = BTreeMap::new();
+    for slot_range in self.data.iter() {
+      let entry = out
+        .entry(slot_range.primary.clone())
+        .or_insert((Vec::new(), BTreeSet::new()));
+      entry.0.push((slot_range.start, slot_range.end));
+      #[cfg(feature = "replicas")]
+      entry.1.extend(slot_range.replicas.iter().cloned());
+    }
+
+    out
+  }
 }
 
 /// A trait that can be used to override DNS resolution logic.

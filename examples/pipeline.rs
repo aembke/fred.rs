@@ -8,8 +8,7 @@ async fn main() -> Result<(), RedisError> {
   // the `auto_pipeline` config option determines whether the client will pipeline commands across tasks.
   // this example shows how to pipeline commands within one task.
   let client = RedisClient::default();
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   let pipeline = client.pipeline();
   // commands are queued in memory

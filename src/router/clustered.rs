@@ -645,6 +645,7 @@ pub async fn sync(
   if let Connections::Clustered { cache, writers } = connections {
     // send `CLUSTER SLOTS` to any of the cluster nodes via a backchannel
     let state = cluster_slots_backchannel(inner, Some(&*cache)).await?;
+    _debug!(inner, "Cluster routing state: {:?}", state.pretty());
     // update the cached routing table
     inner
       .server_state

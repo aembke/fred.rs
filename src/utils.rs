@@ -52,6 +52,7 @@ use parking_lot::Mutex;
 use std::mem;
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
+use tokio::sync::mpsc::unbounded_channel;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -315,6 +316,21 @@ where
     }
   } else {
     ft.await.map_err(|e| e.into())
+  }
+}
+
+/// Disconnect any state shared with the last router task spawned by the client.
+pub fn reset_router_task(inner: &Arc<RedisClientInner>) {
+  let _guard = inner._lock.lock();
+
+  if !inner.has_command_rx() {
+    _trace!(inner, "Resetting command channel before connecting.");
+    // another connection task is running. this will let the command channel drain, then it'll drop everything on
+    // the old connection/router interface.
+    let (tx, rx) = unbounded_channel();
+    let old_command_tx = inner.swap_command_tx(tx);
+    inner.store_command_rx(rx, true);
+    close_router_channel(inner, old_command_tx);
   }
 }
 
@@ -820,8 +836,7 @@ pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
 }
 
 /// Send QUIT to the servers and clean up the old router task's state.
-pub fn close_router_channel(inner: &Arc<RedisClientInner>, command_tx: Arc<CommandSender>) {
-  set_client_state(&inner.state, ClientState::Disconnecting);
+fn close_router_channel(inner: &Arc<RedisClientInner>, command_tx: Arc<CommandSender>) {
   inner.notifications.broadcast_close();
   inner.reset_server_state();
 

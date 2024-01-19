@@ -27,8 +27,7 @@ async fn main() -> Result<(), RedisError> {
   };
 
   let client = Builder::from_config(config).build()?;
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   // ...
 

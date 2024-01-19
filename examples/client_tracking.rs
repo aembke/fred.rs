@@ -13,8 +13,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
       config.version = RespVersion::RESP3;
     })
     .build()?;
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   // spawn a task that processes invalidation messages.
   let _ = client.on_invalidation(|invalidation| {
@@ -50,13 +49,11 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
 
 async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   let subscriber = RedisClient::default();
-  let client = RedisClient::default();
+  let client = subscriber.clone_new();
 
   // RESP2 requires two connections
-  let _ = subscriber.connect();
-  let _ = client.connect();
-  subscriber.wait_for_connect().await?;
-  client.wait_for_connect().await?;
+  subscriber.init().await?;
+  client.init().await?;
 
   // the invalidation subscriber interface is the same as above even in RESP2 mode **as long as the `client-tracking`
   // feature is enabled**. if the feature is disabled then the message will appear on the `on_message` receiver.
