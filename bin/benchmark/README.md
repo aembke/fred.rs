@@ -116,8 +116,8 @@ Performed 10000000 operations in: 3.356416674s. Throughput: 2979737 req/sec
 ```
 
 Maybe Relevant Specs:
-* AMD Ryzen 9 7950X (16 physical, 32 logical)
-* 64 GB DDR5 @ 6000 MHz
+* 32 CPUs
+* 64 GB memory
 
 ## `redis-rs` Comparison
 
@@ -126,36 +126,6 @@ The `USE_REDIS_RS` environment variable can be toggled to [switch the benchmark 
 The `redis-rs` variant uses the same general strategy, but with [bb8-redis](https://crates.io/crates/bb8-redis) (specifically `Pool<RedisMultiplexedConnectionManager>`) instead of `fred::clients::RedisPool`. All the other more structural components in the benchmark logic are the same. 
 
 Please reach out if you think this tooling or strategy is not representative of a real-world Tokio-based use case. 
-
-### Background
-
-First, I'd recommend reading this: https://redis.io/docs/manual/pipelining. It's important to understand what RTT is, why pipelining minimizes its impact in general, and why it's often the only thing that really matters for the overall throughput of an IO-bound application with dependencies like Redis.
-
-In the past I've avoided directly comparing `fred` and `redis-rs` because in my opinion they're just built for different use cases. However, recently Rust has become more popular in the web development space, specifically with Axum, Actix, or other Tokio-based web frameworks, and I've received some requests for a more detailed comparison of the two in this context.
-
-These use cases often share an important characteristic:
-
-End-user requests run concurrently, often in parallel in separate Tokio tasks, but need to share a small pool of Redis connections via some kind of dependency injection interface. These request tasks rarely have any kind of synchronization requirements (there's usually no reason one user's request should have to wait for another to finish), so ideally we could efficiently interleave their Redis commands on the wire in a way that can take advantage of this. 
-
-For example,
-
-1. Task A writes command 1 to server.
-2. Task B writes command 2 to server.
-3. Task A reads command response 1 from server.
-4. Task B reads command response 2 from server.
-
-reduces the impact of RTT much more effectively than
-
-1. Task A writes command 1 to server.
-2. Task A reads command response 1 from server.
-3. Task B writes command 2 to server.
-4. Task B reads command response 2 from server.
-
-and the effect becomes even more pronounced as concurrency (the number of tasks) increases, at least until other bottlenecks kick in. You'll often see me describe this as "pipelining across tasks", whereas the `redis::Pipeline` and `fred::clients::Pipeline` interfaces control pipelining __within__ a task.
-
-This benchmarking tool is built specifically to represent this class of high concurrency use cases and to measure the impact of this particular pipelining optimization (`auto_pipeline: true` in `fred`), so it seemed interesting to adapt it to compare the two libraries. If this pipelining strategy is really that effective then we should see `fred` perform roughly the same as `redis-rs` when `auto_pipeline: false`, but it should outperform when `auto_pipeline: true`.
-
-If your use case is not structured this way or your stack does not use Tokio concurrency features then these results are likely less relevant. 
 
 ### Examples
 
