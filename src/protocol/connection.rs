@@ -752,7 +752,7 @@ impl RedisTransport {
     let quit_ft = self.request_response(command, inner.is_resp3());
 
     if let Err(e) = client_utils::apply_timeout(quit_ft, inner.internal_command_timeout()).await {
-      _warn!(inner, "Error calling QUIT on backchannel: {:?}", e);
+      _debug!(inner, "Error calling QUIT on backchannel: {:?}", e);
     }
     let _ = self.transport.close().await;
 

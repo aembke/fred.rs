@@ -153,32 +153,9 @@ reduces the impact of RTT much more effectively than
 
 and the effect becomes even more pronounced as concurrency (the number of tasks) increases, at least until other bottlenecks kick in. You'll often see me describe this as "pipelining across tasks", whereas the `redis::Pipeline` and `fred::clients::Pipeline` interfaces control pipelining __within__ a task.
 
-This benchmarking tool is built specifically to represent this class of high concurrency use cases and to measure the impact of this particular pipelining optimization (`auto_pipeline: true` in `fred`), so it seemed interesting to adapt it to compare the two libraries. If this pipelining strategy is really that effective then we should see significant differences in the throughput measurements between the two libraries.
+This benchmarking tool is built specifically to represent this class of high concurrency use cases and to measure the impact of this particular pipelining optimization (`auto_pipeline: true` in `fred`), so it seemed interesting to adapt it to compare the two libraries. If this pipelining strategy is really that effective then we should see `fred` perform roughly the same as `redis-rs` when `auto_pipeline: false`, but it should outperform when `auto_pipeline: true`.
 
 If your use case is not structured this way or your stack does not use Tokio concurrency features then these results are likely less relevant. 
-
-### Explanation
-
-The results are interesting, so I'm going to lead with an explanation first. This touches on some deeper message passing topics that others can explain much better than I can, but hopefully folks can see where I'm going here.
-
-Ultimately there's one main difference between the two libraries in this context:
-
-Tokio + some opinionated design compromises allow `fred` to implement the optimization described above, but `redis-rs` effectively can't due to the mutability constraint in the `ConnectionLike` interface. However, it's important to note that this `&mut` constraint is basically unavoidable for all practical purposes if the interface needs to be thin or generic over the transport layer since both `AsyncRead` and `AsyncWrite` require `&mut self`. 
-
-In my opinion this is the key thing that differentiates the two libraries, and it's why I generally haven't found it useful to compare them. `fred` does not try to support a generic transport layer nor does it expose any IO interfaces directly to the caller. Callers can still inspect or modify these things indirectly, but there can never be an interface for a caller to implement their own transport layer or to directly access a `TcpStream` without sacrificing this pipelining optimization. The whole trick hinges on the fact that we know, without using a lock, that nothing else can interact with the socket and break RESP's command ordering invariant.
-
-On the other hand `redis-rs` supports a thinner and more generic transport interface and has a very different set of constraints as a result. These are just different design goals and tradeoffs.
-
-This tension between pipelining across tasks and a thin transport layer also stems from some friction with Rust's ownership rules. The `query_async` function returns a future that cant resolve until the server responds (or it's not really useful) but requires holding onto a `&mut self` reference. Combined with Rust's mutability constraints this effectively prevents pipelining commands across tasks since nothing else can interact with the connection until the server responds.
-
-However, one could build a wrapper library around `redis-rs` that effectively does what `fred` does with Tokio's message passing interface, but on top of `redis-rs`' transport layer. That library would be in a good position in the stack to implement the same ~~trick~~ optimization, and would probably perform roughly the same as `fred` if it did so. In this more abstract sense you can think of `fred` as one layer of indirection above `redis-rs` where we effectively wrap the transport layer in an actor-model-esque message passing layer to remove the `&mut` and optimize the pipelining implementation. 
-
-TLDR:
-
-* `fred` chose to implement certain pipelining optimizations at the cost of a less flexible transport interface. Also, all of this requires Tokio-specific features.
-* `redis-rs` chose to expose a thinner and more generic transport layer at the cost of this pipelining feature.
-
-If everything I've said here is correct then we should see `fred` perform roughly the same as `redis-rs` when `auto_pipeline: false`, but it should outperform `redis-rs` when `auto_pipeline: true`. 
 
 ### Examples
 
