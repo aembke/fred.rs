@@ -3,7 +3,7 @@ Fred Benchmark
 
 Redis includes a [benchmarking tool](https://redis.io/docs/management/optimization/benchmarks/) that can be used to measure the throughput of a client/connection pool. This module attempts to reproduce the same process with Tokio and Fred. 
 
-The strategy used here is pretty straightforward - we use an atomic global counter and spawn `-c` Tokio tasks that fight over `-P` clients in order to send `-n` total `INCR` commands to the server as quickly as possible.
+The general strategy involves using an atomic global counter and spawning `-c` Tokio tasks that fight over `-P` clients in order to send `-n` total `INCR` commands to the server as quickly as possible.
 
 Each of the `-c` Tokio tasks use a different random key so commands are uniformly distributed across a cluster or replica set.
 
@@ -13,7 +13,7 @@ This strategy also has the benefit of being somewhat representative of an Axum o
 
 `fred` supports several additional features or performance tuning options that can affect these results. For example:
 
-* Tracing. Simply enabling the FF cut throughput by ~20% in my tests. YMMV.
+* Tracing. Simply enabling the FF cut throughput by ~20% in my tests.
 * Pipelining. The `auto_pipeline` feature can dramatically improve throughput in scenarios like this where a client or pool is shared among many Tokio tasks.
 * Clustering
 * Backpressure settings
@@ -24,7 +24,7 @@ This strategy also has the benefit of being somewhat representative of an Axum o
 
 Callers should take care to consider each of these when deciding on argv values.
 
-This module also includes an optional `assert-expected` feature flag that adds an `assert!` call after each `INCR` command to ensure the response is actually correct. I've found this to be useful when trying to catch race conditions.
+This module also includes an optional `assert-expected` feature flag that adds an `assert!` call after each `INCR` command to ensure the response is actually correct. 
 
 ## Tracing 
 
@@ -46,7 +46,7 @@ By default, this module does not compile any tracing features, but there are 3 f
 
 ## Docker
 
-I usually run this via Docker on Linux and the `run.sh` script. The `Cargo.toml` provided here has a comment/toggle around the lines that need to change if callers want to use a remote server. 
+Linux+Docker is the best supported option via the `./run.sh` script. The `Cargo.toml` provided here has a comment/toggle around the lines that need to change if callers want to use a remote server. 
 
 Callers may have to also change `run.sh` to enable additional features in docker.
 
@@ -135,7 +135,7 @@ In the past I've avoided directly comparing `fred` and `redis-rs` because in my 
 
 These use cases often share an important characteristic:
 
-End-user requests run concurrently, often in parallel in separate Tokio tasks, but need to share a small pool of Redis connections via some kind of dependency injection interface. These "request tasks" rarely have any kind of synchronization requirements (there's usually no reason one user's request should have to wait for another to finish), so ideally we could efficiently interleave their Redis commands on the wire in a way that can take advantage of this. 
+End-user requests run concurrently, often in parallel in separate Tokio tasks, but need to share a small pool of Redis connections via some kind of dependency injection interface. These request tasks rarely have any kind of synchronization requirements (there's usually no reason one user's request should have to wait for another to finish), so ideally we could efficiently interleave their Redis commands on the wire in a way that can take advantage of this. 
 
 For example,
 
@@ -159,19 +159,17 @@ If your use case is not structured this way or your stack does not use Tokio con
 
 ### Explanation
 
-The results are interesting, so I'm going to lead with some commentary explaining them first. This touches on some deeper message passing topics that others can explain much better than I can, but hopefully folks can see where I'm going here.
+The results are interesting, so I'm going to lead with an explanation first. This touches on some deeper message passing topics that others can explain much better than I can, but hopefully folks can see where I'm going here.
 
-Ultimately there's one big difference between the two libraries in this context:
+Ultimately there's one main difference between the two libraries in this context:
 
 Tokio + some opinionated design compromises allow `fred` to implement the optimization described above, but `redis-rs` effectively can't due to the mutability constraint in the `ConnectionLike` interface. However, it's important to note that this `&mut` constraint is basically unavoidable for all practical purposes if the interface needs to be thin or generic over the transport layer since both `AsyncRead` and `AsyncWrite` require `&mut self`. 
 
-In my opinion this is the key thing that differentiates the two libraries, and it's why I generally haven't found it useful to compare them. `fred` does not try to support a generic transport layer nor does it expose IO interfaces directly to the caller. Callers can still inspect or modify these things indirectly, but there can never be an interface for a caller to implement their own transport layer or to directly access a `TcpStream` without sacrificing this pipelining optimization. The whole trick hinges on the fact that we know, without using a lock, that nothing else can interact with the socket and break RESP's command ordering invariant.
+In my opinion this is the key thing that differentiates the two libraries, and it's why I generally haven't found it useful to compare them. `fred` does not try to support a generic transport layer nor does it expose any IO interfaces directly to the caller. Callers can still inspect or modify these things indirectly, but there can never be an interface for a caller to implement their own transport layer or to directly access a `TcpStream` without sacrificing this pipelining optimization. The whole trick hinges on the fact that we know, without using a lock, that nothing else can interact with the socket and break RESP's command ordering invariant.
 
 On the other hand `redis-rs` supports a thinner and more generic transport interface and has a very different set of constraints as a result. These are just different design goals and tradeoffs.
 
-This tension between pipelining across tasks and a thin transport layer really stems from some friction with Rust's ownership rules. The `query_async` function returns a future that cant resolve until the server responds (or it's not really useful) but requires holding onto a `&mut self` reference. Combined with Rust's mutability constraints this effectively prevents pipelining commands across tasks since nothing else can interact with the connection until the server responds.
-
-Unfortunately this also means adding an async lock wouldn't help since we're still holding a `&mut ConnectionLike` across the `await` point. Even using a `Pipeline` everywhere wouldn't impact this since that only affects how commands are pipelined **within** a task (as opposed to across tasks). Ultimately there's just a conflict between exposing a thin and generic transport layer based on `AsyncRead + AsyncWrite` and implementing this particular pipelining optimization inside the client. 
+This tension between pipelining across tasks and a thin transport layer also stems from some friction with Rust's ownership rules. The `query_async` function returns a future that cant resolve until the server responds (or it's not really useful) but requires holding onto a `&mut self` reference. Combined with Rust's mutability constraints this effectively prevents pipelining commands across tasks since nothing else can interact with the connection until the server responds.
 
 However, one could build a wrapper library around `redis-rs` that effectively does what `fred` does with Tokio's message passing interface, but on top of `redis-rs`' transport layer. That library would be in a good position in the stack to implement the same ~~trick~~ optimization, and would probably perform roughly the same as `fred` if it did so. In this more abstract sense you can think of `fred` as one layer of indirection above `redis-rs` where we effectively wrap the transport layer in an actor-model-esque message passing layer to remove the `&mut` and optimize the pipelining implementation. 
 

@@ -11,7 +11,7 @@ use log::{debug, info};
 use std::{env, str};
 use tokio::net::TcpListener;
 
-// don't need a lock or an extra `Arc`
+// don't need a lock or an extra `Arc`. cloning a client or pool just clones an inner `Arc`.
 #[derive(Clone)]
 struct AppState {
   pub pool: RedisPool,

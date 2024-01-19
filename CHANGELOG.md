@@ -1,15 +1,13 @@
 ## 8.0.0
 
-AFIT will be added in 8.1.0 alongside the associated MSRV update. Any important bug fixes added after 8.1.0 will be backported to the 8.0.x branch for the next few Rust releases to hopefully make this upgrade ~~less annoying~~ easier.
-
 * Remove the `globals` interface.
 * Support unix domain sockets.
 * Improve unresponsive connection checks.
 * Move several feature flags to configuration options.
-* Add benchmarking tool
-* Update to Rustls 0.22
-* Add several new connection configuration options
-* Add a `fail_fast` flag to commands
+* Add a benchmarking tool.
+* Update to Rustls 0.22.
+* Add several new connection configuration options.
+* Add a `fail_fast` flag to commands.
 * Switch to [crossbeam types](https://crates.io/crates/crossbeam-queue) internally.
 
 ### Upgrading from 7.x
@@ -24,7 +22,7 @@ Notable changes:
   * `pool-prefer-active`
   * `reconnect-on-auth-error`
   * `auto-client-setname`
-* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. They now use the same naming conventions as the other event streams. 
+* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. They now use the same naming conventions as the other event streams.
 
 ## 7.1.2
 
