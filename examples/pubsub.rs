@@ -11,11 +11,8 @@ use tokio::time::sleep;
 async fn main() -> Result<(), RedisError> {
   let publisher_client = RedisClient::default();
   let subscriber_client = publisher_client.clone_new();
-
-  let _ = publisher_client.connect();
-  let _ = subscriber_client.connect();
-  publisher_client.wait_for_connect().await?;
-  subscriber_client.wait_for_connect().await?;
+  publisher_client.init().await?;
+  subscriber_client.init().await?;
 
   // or use `message_rx()` to use the underlying `BroadcastReceiver` directly without spawning a new task
   let message_task = subscriber_client.on_message(|message| {
@@ -37,8 +34,7 @@ async fn main() -> Result<(), RedisError> {
 #[cfg(feature = "subscriber-client")]
 async fn subscriber_example() -> Result<(), RedisError> {
   let subscriber = Builder::default_centralized().build_subscriber_client()?;
-  let _ = subscriber.connect();
-  subscriber.wait_for_connect().await?;
+  subscriber.init().await?;
 
   // or use the `on_message` shorthand
   let mut message_stream = subscriber.message_rx();

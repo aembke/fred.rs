@@ -6,8 +6,7 @@ use fred::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   let trx = client.multi();
   let result: RedisValue = trx.get("foo").await?;

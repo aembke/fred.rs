@@ -146,8 +146,9 @@ default-nil-types = []
 codec = []
 unix-sockets = []
 # Redis Stack Features
-redis-stack = ["redis-json", "time-series"]
+redis-stack = ["redis-json", "time-series", "redisearch"]
 redis-json = ["serde-json"]
+redisearch = []
 time-series = []
 # Debugging Features
 debug-ids = []

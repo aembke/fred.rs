@@ -21,8 +21,7 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
   create_fake_data(&client).await?;
 
   // scan all keys in the keyspace, returning 10 keys per page

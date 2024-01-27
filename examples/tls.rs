@@ -39,11 +39,7 @@ async fn main() -> Result<(), RedisError> {
     ..RedisConfig::default()
   };
   let client = Builder::from_config(config).build()?;
-
-  let _ = client.connect();
-  if let Err(error) = client.wait_for_connect().await {
-    panic!("Client failed to connect with error: {:?}", error);
-  }
+  client.init().await?;
 
   // ...
 

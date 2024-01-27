@@ -36,8 +36,7 @@ async fn main() {
     .build_pool(pool_size)
     .expect("Failed to create redis pool");
 
-  let _ = pool.connect();
-  pool.wait_for_connect().await.expect("Failed to connect to redis");
+  pool.init().await.expect("Failed to connect to redis");
   info!("Connected to Redis");
 
   let app = Router::new()

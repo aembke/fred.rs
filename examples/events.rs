@@ -49,8 +49,7 @@ async fn main() -> Result<(), RedisError> {
     }
   });
 
-  client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   // ...
 

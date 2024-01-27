@@ -814,7 +814,7 @@ impl RedisTransport {
 
     utils::apply_timeout(
       async {
-        if inner.config.password.is_some() {
+        if inner.config.password.is_some() || inner.config.version == RespVersion::RESP3 {
           self.switch_protocols_and_authenticate(inner).await?;
         } else {
           self.ping(inner).await?;

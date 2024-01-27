@@ -41,8 +41,7 @@ async fn main() -> Result<(), RedisError> {
     // use exponential backoff, starting at 100 ms and doubling on each failed attempt up to 30 sec
     .set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2))
     .build()?;
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   // run all event listener functions in one task
   let events_task = client.on_any(

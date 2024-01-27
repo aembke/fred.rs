@@ -33,9 +33,8 @@ async fn main() -> Result<(), RedisError> {
   let _client = Builder::from_config(config).build()?;
   // or use default values
   let client = Builder::default_centralized().build()?;
-  let connection_task = client.connect();
-  client.wait_for_connect().await?;
-
+  // callers can manage the tokio task driving the connections
+  let connection_task = client.init().await?;
   // convert response types to most common rust types
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);

@@ -1,7 +1,13 @@
+## 8.0.1
+
+* Add a cleaner `init` interface.
+* Fix RESP3 connection init when used without a password
+
 ## 8.0.0
 
 * Remove the `globals` interface.
 * Support unix domain sockets.
+* Add a Redis TimeSeries interface.
 * Improve unresponsive connection checks.
 * Move several feature flags to configuration options.
 * Add a benchmarking tool.

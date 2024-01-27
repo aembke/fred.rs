@@ -18,8 +18,7 @@ static SCRIPTS: &[&str] = &[
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   for script in SCRIPTS.iter() {
     let hash = fred_utils::sha1_hash(script);
@@ -45,8 +44,7 @@ async fn main() -> Result<(), RedisError> {
 #[allow(dead_code)]
 async fn scripts() -> Result<(), RedisError> {
   let client = RedisClient::default();
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   let script = Script::from_lua(SCRIPTS[0]);
   let _ = script.load(&client).await?;
@@ -60,8 +58,7 @@ async fn scripts() -> Result<(), RedisError> {
 #[allow(dead_code)]
 async fn functions() -> Result<(), RedisError> {
   let client = RedisClient::default();
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   let echo_lua = include_str!("../tests/scripts/lua/echo.lua");
   let lib = Library::from_code(&client, echo_lua).await?;
