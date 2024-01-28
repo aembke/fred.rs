@@ -330,7 +330,7 @@ pub fn reset_router_task(inner: &Arc<RedisClientInner>) {
     let (tx, rx) = unbounded_channel();
     let old_command_tx = inner.swap_command_tx(tx);
     inner.store_command_rx(rx, true);
-    close_router_channel(&inner, old_command_tx);
+    close_router_channel(inner, old_command_tx);
   }
 }
 
