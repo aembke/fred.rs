@@ -13,6 +13,7 @@ async fn main() -> Result<(), RedisError> {
     .with_performance_config(|config| {
       config.max_feed_count = 100;
       config.auto_pipeline = true;
+      // change the buffer size behind the event interface functions (`on_message`, etc.)
       config.broadcast_channel_capacity = 48;
       // allow up to 25000 in-flight commands per connection
       config.backpressure = BackpressureConfig {
@@ -44,7 +45,7 @@ async fn main() -> Result<(), RedisError> {
   client.init().await?;
 
   // run all event listener functions in one task
-  let events_task = client.on_any(
+  let _events_task = client.on_any(
     |error| {
       println!("Connection error: {:?}", error);
       Ok(())
@@ -87,7 +88,7 @@ async fn main() -> Result<(), RedisError> {
   assert_eq!(pipeline.last::<i64>().await?, 4);
   assert_eq!(pipeline.last::<i64>().await?, 6);
 
-  // interact with specific cluster nodes
+  // interact with specific cluster nodes without creating new connections
   if client.is_clustered() {
     // discover connections via the active connection map
     let _connections = client.active_connections().await?;
@@ -112,6 +113,5 @@ async fn main() -> Result<(), RedisError> {
   );
 
   client.quit().await?;
-  let _ = events_task.await;
   Ok(())
 }

@@ -8,31 +8,9 @@ use fred::{tracing::Level, types::TracingConfig};
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   // create a config from a URL
-  let _ = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
-  // full configuration with testing values
-  let config = RedisConfig {
-    fail_fast: true,
-    server: ServerConfig::new_centralized("redis-main", 6379),
-    blocking: Blocking::Block,
-    username: Some("foo".into()),
-    password: Some("bar".into()),
-    version: RespVersion::RESP2,
-    database: None,
-    #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-    tls: None,
-    #[cfg(feature = "partial-tracing")]
-    tracing: TracingConfig {
-      enabled:                                             false,
-      default_tracing_level:                               Level::INFO,
-      #[cfg(feature = "full-tracing")]
-      full_tracing_level:                                  Level::DEBUG,
-    },
-    ..Default::default()
-  };
-  // see the Builder interface for more information
-  let _client = Builder::from_config(config).build()?;
-  // or use default values
-  let client = Builder::default_centralized().build()?;
+  let config = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
+  // see the `Builder` interface for more information
+  let client = Builder::from_config(config).build()?;
   // callers can manage the tokio task driving the connections
   let connection_task = client.init().await?;
   // convert response types to most common rust types

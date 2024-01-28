@@ -66,8 +66,8 @@ async fn main() -> Result<(), RedisError> {
 async fn setup_pool() -> Result<(), RedisError> {
   let pool = Builder::default_centralized().build_pool(5)?;
 
-  // `select_all` does most of the work here but requires that the channel receivers implement `Stream`. unfortunately
-  // `tokio::sync::broadcast::Receiver` does not do this, so we use `tokio_stream::wrappers::BroadcastStream`.
+  // `select_all` does most of the work here but requires that the channel receivers implement `Stream`. the
+  // `tokio_stream::wrappers::BroadcastStream` wrapper can be used to do this.
   let error_rxs: Vec<_> = pool
     .clients()
     .iter()
@@ -94,8 +94,7 @@ async fn setup_pool() -> Result<(), RedisError> {
     }
   });
 
-  pool.connect();
-  pool.wait_for_connect().await?;
+  pool.init().await?;
 
   // ...
 
