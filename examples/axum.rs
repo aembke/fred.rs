@@ -89,7 +89,7 @@ async fn del_kv(Path(key): Path<String>, State(state): State<AppState>) -> impl 
   debug!("del {}", key);
 
   let (code, val) = match state.pool.del::<i64, _>(key).await {
-    Ok(val) if val == 0 => (404, "Not Found.".into()),
+    Ok(0) => (404, "Not Found.".into()),
     Ok(val) => (200, val.to_string().into()),
     Err(err) => map_error(err),
   };

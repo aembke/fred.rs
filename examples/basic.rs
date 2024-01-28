@@ -1,9 +1,7 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::let_underscore_future)]
 
-use fred::{prelude::*, types::RespVersion};
-#[cfg(feature = "partial-tracing")]
-use fred::{tracing::Level, types::TracingConfig};
+use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {

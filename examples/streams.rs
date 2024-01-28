@@ -1,3 +1,5 @@
+#![allow(clippy::mutable_key_type)]
+
 use bytes_utils::Str;
 use fred::{prelude::*, types::XReadResponse};
 use std::time::Duration;

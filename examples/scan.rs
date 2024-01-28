@@ -6,14 +6,12 @@ use fred::{prelude::*, types::Scanner};
 use futures::stream::TryStreamExt;
 
 async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  for idx in 0 .. 50 {
-    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
-  }
-  Ok(())
+  let values: Vec<(String, i64)> = (0 .. 50).map(|i| (format!("foo-{}", i), i)).collect();
+  client.mset(values).await
 }
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
-  let keys: Vec<_> = (0 .. 50).into_iter().map(|i| format!("foo-{}", i)).collect();
+  let keys: Vec<_> = (0 .. 50).map(|i| format!("foo-{}", i)).collect();
   client.del(keys).await?;
   Ok(())
 }
@@ -71,7 +69,7 @@ async fn pool_scan_cluster_memory_example(pool: &RedisPool) -> Result<(), RedisE
       // pipeline the `MEMORY USAGE` calls
       let pipeline = pool.next().pipeline();
       for key in page.iter() {
-        let _: () = pipeline.memory_usage(key, Some(0)).await?;
+        pipeline.memory_usage(key, Some(0)).await?;
       }
       let sizes: Vec<Option<u64>> = pipeline.all().await?;
       assert_eq!(page.len(), sizes.len());
