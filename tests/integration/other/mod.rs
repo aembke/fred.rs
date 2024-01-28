@@ -658,3 +658,31 @@ pub async fn should_use_resp2_codec_example(_: RedisClient, config: RedisConfig)
 
   Ok(())
 }
+
+pub async fn should_connect_correctly_via_init_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
+pub async fn should_fail_with_bad_host_via_init_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
+pub async fn should_connect_correctly_via_wait_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
+pub async fn should_fail_with_bad_host_via_wait_interface(
+  _: RedisClient,
+  config: RedisConfig,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}

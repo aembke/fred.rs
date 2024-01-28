@@ -39,6 +39,10 @@ mod multi {
 }
 
 mod other {
+  cluster_test!(other, should_connect_correctly_via_init_interface);
+  cluster_test!(other, should_fail_with_bad_host_via_init_interface);
+  cluster_test!(other, should_connect_correctly_via_wait_interface);
+  cluster_test!(other, should_fail_with_bad_host_via_wait_interface);
 
   #[cfg(feature = "metrics")]
   cluster_test!(other, should_track_size_stats);

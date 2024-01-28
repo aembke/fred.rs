@@ -1,7 +1,7 @@
 ## 8.0.1
 
-* Add a cleaner `init` interface.
-* Fix RESP3 connection init when used without a password
+* Add a shorthand `init` interface.
+* Fix RESP3 connection init when used without a password.
 
 ## 8.0.0
 
@@ -10,7 +10,7 @@
 * Add a Redis TimeSeries interface.
 * Improve unresponsive connection checks.
 * Move several feature flags to configuration options.
-* Add a benchmarking tool.
+* Add a [benchmarking](bin/benchmark) tool.
 * Update to Rustls 0.22.
 * Add several new connection configuration options.
 * Add a `fail_fast` flag to commands.

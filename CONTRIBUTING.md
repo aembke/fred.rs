@@ -1,7 +1,7 @@
 Contributing
 ===========
 
-This document gives some background on how the library is structured and how to contribute.
+This document gives some background on how the library is structured and how to contribute. It focuses primarily on how to add new commands. See the [design doc](docs/README.md) for more background on how the library is designed. 
 
 # General
 
