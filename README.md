@@ -88,5 +88,4 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 | sha-1                   |         | Enable an interface for hashing Lua scripts.                                                                                                             |
 | unix-sockets            |         | Enable Unix socket support.                                                                                                                              |
 | time-series             |         | Enable an interface for [Redis Timeseries](https://redis.io/docs/data-types/timeseries/).                                                                |
-| redisearch              |         | Enable an interface for [RediSearch](https://github.com/RediSearch/RediSearch).                                                                                                                  |
 

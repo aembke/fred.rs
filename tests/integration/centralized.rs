@@ -41,6 +41,10 @@ mod other {
   centralized_test!(other, should_fail_with_bad_host_via_init_interface);
   centralized_test!(other, should_connect_correctly_via_wait_interface);
   centralized_test!(other, should_fail_with_bad_host_via_wait_interface);
+  centralized_test!(other, pool_should_connect_correctly_via_init_interface);
+  centralized_test!(other, pool_should_fail_with_bad_host_via_init_interface);
+  centralized_test!(other, pool_should_connect_correctly_via_wait_interface);
+  centralized_test!(other, pool_should_fail_with_bad_host_via_wait_interface);
 
   #[cfg(feature = "metrics")]
   centralized_test!(other, should_track_size_stats);

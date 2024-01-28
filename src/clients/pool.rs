@@ -6,10 +6,7 @@ use crate::{
   types::{ConnectHandle, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig, Server},
   utils,
 };
-use futures::{
-  future::{join_all, try_join_all},
-  StreamExt,
-};
+use futures::future::{join_all, try_join_all};
 use std::{
   fmt,
   sync::{
@@ -267,18 +264,10 @@ impl ClientLike for RedisPool {
   /// }
   /// ```
   async fn init(&self) -> RedisResult<ConnectHandle> {
-    let rxs: Vec<_> = self
-      .inner
-      .clients
-      .iter()
-      .map(|c| c.inner.notifications.connect.load().subscribe().recv())
-      .collect();
+    let rxs: Vec<_> = self.inner.clients.iter().map(|c| c.wait_for_connect()).collect();
 
     let connect_task = self.connect();
-    let init_err = futures::future::join_all(rxs)
-      .await
-      .into_iter()
-      .find_map(|r| r.map_err(RedisError::from).and_then(|r| r).err());
+    let init_err = futures::future::join_all(rxs).await.into_iter().find_map(|r| r.err());
 
     if let Some(err) = init_err {
       for client in self.inner.clients.iter() {

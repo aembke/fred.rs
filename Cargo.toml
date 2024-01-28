@@ -1,7 +1,6 @@
-workspace = { members = ["bin/benchmark_metrics"] }
 [package]
 name = "fred"
-version = "8.0.0"
+version = "8.0.1"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -146,9 +145,8 @@ default-nil-types = []
 codec = []
 unix-sockets = []
 # Redis Stack Features
-redis-stack = ["redis-json", "time-series", "redisearch"]
+redis-stack = ["redis-json", "time-series"]
 redis-json = ["serde-json"]
-redisearch = []
 time-series = []
 # Debugging Features
 debug-ids = []

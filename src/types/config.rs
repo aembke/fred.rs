@@ -1195,8 +1195,7 @@ impl From<SentinelConfig> for RedisConfig {
 ///   };
 ///
 ///   let client = RedisClient::default();
-///   let _ = client.connect();
-///   let _ = client.wait_for_connect().await?;
+///   client.init().await?;
 ///   let _: () = client.with_options(&options).get("foo").await?;
 ///
 ///   Ok(())

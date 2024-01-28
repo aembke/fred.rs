@@ -8,7 +8,6 @@ use crate::{
     utils as protocol_utils,
   },
   types::*,
-  utils,
 };
 use arc_swap::ArcSwap;
 use bytes::Bytes;

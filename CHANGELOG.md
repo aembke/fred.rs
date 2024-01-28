@@ -1,6 +1,7 @@
 ## 8.0.1
 
 * Add a shorthand `init` interface.
+* Fix cluster replica failover with unresponsive connections.
 * Fix RESP3 connection init when used without a password.
 
 ## 8.0.0

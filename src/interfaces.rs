@@ -29,10 +29,7 @@ use crate::{
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc};
-use tokio::{
-  sync::{broadcast::Receiver as BroadcastReceiver, mpsc::unbounded_channel},
-  task::JoinHandle,
-};
+use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -302,15 +299,15 @@ pub trait ClientLike: Clone + Send + Sized {
   async fn init(&self) -> RedisResult<ConnectHandle> {
     let mut rx = { self.inner().notifications.connect.load().subscribe() };
     let task = self.connect();
+    let error = rx.recv().await.map_err(RedisError::from).and_then(|r| r).err();
 
-    let result = rx.recv().await;
-    if result.map(|r| r.is_err()).unwrap_or(result.is_err()) {
-      // the initial connection failed so we should gracefully close the routing task
+    if let Some(error) = error {
+      // the initial connection failed, so we should gracefully close the routing task
       utils::reset_router_task(self.inner());
+      Err(error)
+    } else {
+      Ok(task)
     }
-
-    result??;
-    Ok(task)
   }
 
   /// Close the connection to the Redis server. The returned future resolves when the command has been written to the
