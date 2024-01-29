@@ -174,23 +174,17 @@ impl Connections {
           HashMap::new()
         }
       },
-      Connections::Clustered { ref mut writers, .. } => {
+      Connections::Clustered { ref writers, .. } => {
         let mut out = HashMap::with_capacity(writers.len());
 
-        for (primary, writer) in writers.iter_mut() {
+        for primary in writers.keys() {
           let replicas = inner
             .with_cluster_state(|state| Ok(state.replicas(primary)))
             .ok()
             .unwrap_or(Vec::new());
 
-          if replicas.is_empty() {
-            for replica in writer.discover_replicas(inner).await? {
-              out.insert(replica, primary.clone());
-            }
-          } else {
-            for replica in replicas.into_iter() {
-              out.insert(replica, primary.clone());
-            }
+          for replica in replicas.into_iter() {
+            out.insert(replica, primary.clone());
           }
         }
         out
@@ -198,7 +192,7 @@ impl Connections {
     })
   }
 
-  /// Whether or not the connection map has a connection to the provided server`.
+  /// Whether the connection map has a connection to the provided server`.
   pub fn has_server_connection(&mut self, server: &Server) -> bool {
     match self {
       Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
@@ -727,17 +721,26 @@ impl Router {
     let result = self.connections.initialize(&self.inner, &mut self.buffer).await;
 
     if result.is_ok() {
-      if let Err(e) = self.sync_replicas().await {
-        warn!("{}: Error syncing replicas: {:?}", self.inner.id, e);
-        if !self.inner.ignore_replica_reconnect_errors() {
-          return Err(e);
-        }
-      }
+      #[cfg(feature = "replicas")]
+      self.refresh_replica_routing().await?;
 
       Ok(())
     } else {
       result
     }
+  }
+
+  /// Gracefully reset the replica routing table.
+  #[cfg(feature = "replicas")]
+  pub async fn refresh_replica_routing(&mut self) -> Result<(), RedisError> {
+    self.replicas.clear_routing();
+    if let Err(e) = self.sync_replicas().await {
+      if !self.inner.ignore_replica_reconnect_errors() {
+        return Err(e);
+      }
+    }
+
+    Ok(())
   }
 
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
@@ -747,12 +750,8 @@ impl Router {
     let result = clustered::sync(&self.inner, &mut self.connections, &mut self.buffer).await;
 
     if result.is_ok() {
-      if let Err(e) = self.sync_replicas().await {
-        if !self.inner.ignore_replica_reconnect_errors() {
-          return Err(e);
-        }
-      }
-
+      #[cfg(feature = "replicas")]
+      self.refresh_replica_routing().await?;
       self.retry_buffer().await;
     }
 
@@ -799,12 +798,6 @@ impl Router {
       .server_state
       .write()
       .update_replicas(self.replicas.routing_table());
-    Ok(())
-  }
-
-  /// Rebuild the cached replica routing table based on the primary node connections.
-  #[cfg(not(feature = "replicas"))]
-  pub async fn sync_replicas(&mut self) -> Result<(), RedisError> {
     Ok(())
   }
 

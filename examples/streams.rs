@@ -1,3 +1,5 @@
+#![allow(clippy::mutable_key_type)]
+
 use bytes_utils::Str;
 use fred::{prelude::*, types::XReadResponse};
 use std::time::Duration;
@@ -16,8 +18,7 @@ async fn main() {
         config.password = Some("bar".into());
       })
       .build()?;
-    client.connect();
-    client.wait_for_connect().await?;
+    client.init().await?;
 
     // initialize the stream first
     client.del("foo").await?;
@@ -53,8 +54,7 @@ async fn main() {
         config.password = Some("bar".into());
       })
       .build()?;
-    client.connect();
-    client.wait_for_connect().await?;
+    client.init().await?;
 
     // add values in groups of 2. this should create the following stream contents:
     // [{"field1":"a","field2":"b"}, {"field1":"c","field2":"d"}, {"field1":"e","field2":"f"}, ...]
@@ -74,9 +74,7 @@ async fn main() {
     Ok::<_, RedisError>(())
   });
 
-  futures::future::try_join_all([writer_task, reader_task])
-    .await
-    .expect("Error:");
+  futures::future::try_join_all([writer_task, reader_task]).await.unwrap();
 }
 
 // example output:

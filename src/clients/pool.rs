@@ -211,6 +211,8 @@ impl ClientLike for RedisPool {
   ///
   /// See [connect_pool](crate::clients::RedisPool::connect_pool) for a variation of this function that separates the
   /// connection tasks.
+  ///
+  /// See [init](Self::init) for an alternative shorthand.
   fn connect(&self) -> ConnectHandle {
     let clients = self.inner.clients.clone();
     tokio::spawn(async move {
@@ -237,6 +239,45 @@ impl ClientLike for RedisPool {
     let _ = try_join_all(self.inner.clients.iter().map(|c| c.wait_for_connect())).await?;
 
     Ok(())
+  }
+
+  /// Initialize a new routing and connection task for each client and wait for them to connect successfully.
+  ///
+  /// The returned [ConnectHandle](crate::types::ConnectHandle) refers to the task that drives the routing and
+  /// connection layer for each client via [join](https://docs.rs/futures/latest/futures/macro.join.html). It will not finish until the max reconnection count is reached.
+  ///
+  /// Callers can also use [connect](Self::connect) and [wait_for_connect](Self::wait_for_connect) separately if
+  /// needed.
+  ///
+  /// ```rust
+  /// use fred::prelude::*;
+  ///
+  /// #[tokio::main]
+  /// async fn main() -> Result<(), RedisError> {
+  ///   let pool = Builder::default_centralized().build_pool(5)?;
+  ///   let connection_task = pool.init().await?;
+  ///
+  ///   // ...
+  ///
+  ///   pool.quit().await?;
+  ///   connection_task.await?
+  /// }
+  /// ```
+  async fn init(&self) -> RedisResult<ConnectHandle> {
+    let rxs: Vec<_> = self.inner.clients.iter().map(|c| c.wait_for_connect()).collect();
+
+    let connect_task = self.connect();
+    let init_err = futures::future::join_all(rxs).await.into_iter().find_map(|r| r.err());
+
+    if let Some(err) = init_err {
+      for client in self.inner.clients.iter() {
+        utils::reset_router_task(client.inner());
+      }
+
+      Err(err)
+    } else {
+      Ok(connect_task)
+    }
   }
 
   /// Close the connection to the Redis server for each client. The returned future resolves when the command has been

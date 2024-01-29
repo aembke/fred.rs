@@ -9,22 +9,19 @@ extern crate log;
 extern crate pretty_env_logger;
 
 use clap::App;
-use fred::{prelude::*, types::UnresponsiveConfig};
+use fred::{
+  bytes::Bytes,
+  prelude::*,
+  types::{ReplicaConfig, UnresponsiveConfig},
+};
 use rand::{self, distributions::Alphanumeric, Rng};
 use std::{default::Default, time::Duration};
 use tokio::time::sleep;
 
-fn random_string(len: usize) -> String {
-  rand::thread_rng()
-    .sample_iter(&Alphanumeric)
-    .take(len)
-    .map(char::from)
-    .collect()
-}
-
 #[derive(Debug)]
 struct Argv {
   pub cluster:  bool,
+  pub replicas: bool,
   pub host:     String,
   pub port:     u16,
   pub pool:     usize,
@@ -37,6 +34,7 @@ fn parse_argv() -> Argv {
   let yaml = load_yaml!("../cli.yml");
   let matches = App::from_yaml(yaml).get_matches();
   let cluster = matches.is_present("cluster");
+  let replicas = matches.is_present("replicas");
 
   let host = matches
     .value_of("host")
@@ -68,6 +66,7 @@ fn parse_argv() -> Argv {
     pool,
     interval,
     wait,
+    replicas,
   }
 }
 
@@ -92,11 +91,22 @@ async fn main() -> Result<(), RedisError> {
   };
   let pool = Builder::from_config(config)
     .with_connection_config(|config| {
-      config.max_command_attempts = 1;
+      config.max_command_attempts = 3;
       config.unresponsive = UnresponsiveConfig {
-        interval:    Duration::from_secs(3),
-        max_timeout: Some(Duration::from_secs(10)),
+        interval:    Duration::from_secs(1),
+        max_timeout: Some(Duration::from_secs(5)),
       };
+      config.connection_timeout = Duration::from_secs(3);
+      config.internal_command_timeout = Duration::from_secs(2);
+      config.cluster_cache_update_delay = Duration::from_secs(20);
+      if argv.replicas {
+        config.replica = ReplicaConfig {
+          lazy_connections: true,
+          primary_fallback: true,
+          connection_error_count: 1,
+          ..Default::default()
+        };
+      }
     })
     .with_performance_config(|config| {
       config.auto_pipeline = true;
@@ -107,8 +117,7 @@ async fn main() -> Result<(), RedisError> {
     .expect("Failed to create pool");
 
   info!("Connecting to {}:{}...", argv.host, argv.port);
-  pool.connect();
-  pool.wait_for_connect().await?;
+  pool.init().await?;
   info!("Connected to {}:{}.", argv.host, argv.port);
   pool.flushall_cluster().await?;
 
@@ -122,7 +131,11 @@ async fn main() -> Result<(), RedisError> {
     std::process::exit(0);
   });
   loop {
-    let _: i64 = pool.incr("foo").await.expect("Failed to INCR");
+    if argv.replicas {
+      let _: Option<Bytes> = pool.replicas().get("foo").await.expect("Failed to GET");
+    } else {
+      let _: i64 = pool.incr("foo").await.expect("Failed to INCR");
+    }
     sleep(Duration::from_millis(argv.interval)).await;
   }
 }

@@ -40,9 +40,7 @@ impl Resolve for TrustDnsResolver {
 async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
   client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
-
-  let _ = client.connect();
-  client.wait_for_connect().await?;
+  client.init().await?;
 
   // ...
 

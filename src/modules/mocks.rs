@@ -71,6 +71,7 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 /// An implementation of a mocking layer that returns the provided arguments to the caller.
 ///
 /// ```rust no_run
+/// # use fred::prelude::*;
 /// #[tokio::test]
 /// async fn should_use_echo_mock() {
 ///   let config = RedisConfig {
@@ -78,8 +79,7 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 ///     ..Default::default()
 ///   };
 ///   let client = Builder::from_config(config).build().unwrap();
-///   let _ = client.connect();
-///   let _ = client.wait_for_connect().await.expect("Failed to connect");
+///   client.init().await.expect("Failed to connect");
 ///
 ///   let actual: Vec<RedisValue> = client
 ///     .set(
@@ -124,8 +124,7 @@ impl Mocks for Echo {
 ///     ..Default::default()
 ///   };
 ///   let client = Builder::from_config(config).build().unwrap();
-///   let _ = client.connect();
-///   let _ = client.wait_for_connect().await.expect("Failed to connect");
+///   client.init().await.expect("Failed to connect");
 ///
 ///   let actual: String = client
 ///       .set("foo", "bar", None, None, false)
@@ -229,8 +228,7 @@ impl Mocks for SimpleMap {
 ///     ..Default::default()
 ///   };
 ///   let client = Builder::from_config(config).build().unwrap();
-///   let _ = client.connect();
-///   let _ = client.wait_for_connect().await.expect("Failed to connect");
+///   client.init().await.expect("Failed to connect");
 ///
 ///   let actual: String = client
 ///     .set("foo", "bar", None, None, false)

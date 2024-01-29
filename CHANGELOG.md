@@ -1,10 +1,17 @@
+## 8.0.1
+
+* Add a shorthand `init` interface.
+* Fix cluster replica failover with unresponsive connections.
+* Fix RESP3 connection init when used without a password.
+
 ## 8.0.0
 
 * Remove the `globals` interface.
 * Support unix domain sockets.
+* Add a Redis TimeSeries interface.
 * Improve unresponsive connection checks.
 * Move several feature flags to configuration options.
-* Add a benchmarking tool.
+* Add a [benchmarking](bin/benchmark) tool.
 * Update to Rustls 0.22.
 * Add several new connection configuration options.
 * Add a `fail_fast` flag to commands.

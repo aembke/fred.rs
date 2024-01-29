@@ -16,8 +16,7 @@ use std::{fmt, ops::Deref, sync::Arc};
 /// # use std::time::Duration;
 /// async fn example() -> Result<(), RedisError> {
 ///   let client = RedisClient::default();
-///   let _ = client.connect();
-///   let _ = client.wait_for_connect().await?;
+///   client.init().await?;
 ///
 ///   let options = Options {
 ///     max_redirections: Some(3),

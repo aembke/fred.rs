@@ -11,7 +11,7 @@ debug = true
 [dependencies]
 clap = { version = "2.33", features = ["yaml"] }
 log = "0.4"
-pretty_env_logger = "0.4"
+pretty_env_logger = "0.5"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 rand = "0.8"
@@ -22,5 +22,4 @@ path = "/fred"
 default-features = false
 
 [features]
-default = ["fred/network-logs", "fred/debug-ids"]
-replicas = ["fred/replicas"]
+default = ["fred/network-logs", "fred/debug-ids", "fred/replicas"]

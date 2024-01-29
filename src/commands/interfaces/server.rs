@@ -41,8 +41,6 @@ pub trait AuthInterface: ClientLike {
 #[async_trait]
 pub trait HeartbeatInterface: ClientLike {
   /// Return a future that will ping the server on an interval.
-  ///
-  /// When running against a cluster this will ping a random node on each interval.
   #[allow(unreachable_code)]
   async fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> RedisResult<()> {
     let _self = self.clone();
