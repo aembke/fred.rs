@@ -246,7 +246,8 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
     inner.notifications.broadcast_error(e.clone());
     Err(e)
   } else {
-    if let Err(e) = router.sync_replicas().await {
+    #[cfg(feature = "replicas")]
+    if let Err(e) = router.refresh_replica_routing().await {
       _warn!(inner, "Error syncing replicas: {:?}", e);
       if !inner.ignore_replica_reconnect_errors() {
         client_utils::set_client_state(&inner.state, ClientState::Disconnected);

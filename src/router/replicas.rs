@@ -282,6 +282,11 @@ impl Replicas {
     self.sync_connections(inner).await
   }
 
+  /// Clear the cached routing table without dropping connections.
+  pub fn clear_routing(&mut self) {
+    self.routing.clear();
+  }
+
   /// Connect to the replica and add it to the cached routing table.
   pub async fn add_connection(
     &mut self,
@@ -389,6 +394,7 @@ impl Replicas {
       } else {
         let commands = writer.graceful_close().await;
         self.buffer.extend(commands);
+        self.routing.remove_replica(&server);
       }
     }
 
@@ -433,6 +439,15 @@ impl Replicas {
         };
       },
     };
+    _trace!(
+      inner,
+      "Found replica {} (primary: {}) for {} ({})",
+      replica,
+      primary,
+      command.kind.to_str_debug(),
+      command.debug_id()
+    );
+
     let writer = match self.writers.get_mut(&replica) {
       Some(writer) => writer,
       None => {
