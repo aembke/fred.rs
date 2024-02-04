@@ -618,6 +618,7 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
 mod mocking {
   use super::*;
   use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
+  use std::time::Duration;
 
   /// Process any kind of router command.
   pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), RedisError> {
@@ -686,6 +687,7 @@ mod mocking {
 
   pub async fn start(inner: &Arc<RedisClientInner>, mocks: &Arc<dyn Mocks>) -> Result<(), RedisError> {
     _debug!(inner, "Starting mocking layer");
+    tokio::task::yield_now().await;
     let mut rx = match inner.take_command_rx() {
       Some(rx) => rx,
       None => {
