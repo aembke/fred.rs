@@ -184,7 +184,7 @@ async fn write_with_backpressure(
           _warn!(inner, "Failed to sync cluster after NotFound: {:?}", error);
           utils::defer_reconnect(inner);
           router.buffer_command(command);
-          utils::defer_reconnect(inner);
+          utils::delay_cluster_sync(inner).await?;
           break;
         } else {
           _command = Some(command);
@@ -373,6 +373,7 @@ async fn process_moved(
   command.use_replica = false;
   command.hasher = ClusterHash::Custom(slot);
 
+  utils::delay_cluster_sync(inner).await?;
   _debug!(inner, "Syncing cluster after MOVED {} {}", slot, server);
   if let Err(e) = utils::sync_cluster_with_policy(inner, router).await {
     command.respond_to_caller(Err(e.clone()));

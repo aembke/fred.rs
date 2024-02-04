@@ -413,12 +413,12 @@ async fn sync_cluster_replicas(inner: &Arc<RedisClientInner>, router: &mut Route
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 #[cfg(feature = "replicas")]
 pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
-  let mut delay = utils::next_reconnection_delay(inner)?;
+  let mut delay = Duration::from_millis(0);
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      let _ = inner.wait_with_interrupt(delay).await?;
+      inner.wait_with_interrupt(delay).await?;
     }
 
     if let Err(e) = sync_cluster_replicas(inner, router).await {
@@ -443,11 +443,22 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
   Ok(())
 }
 
+/// Wait for `inner.connection.cluster_cache_update_delay`.
+pub async fn delay_cluster_sync(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  if inner.config.server.is_clustered() && !inner.connection.cluster_cache_update_delay.is_zero() {
+    inner
+      .wait_with_interrupt(inner.connection.cluster_cache_update_delay)
+      .await
+  } else {
+    Ok(())
+  }
+}
+
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 ///
 /// Errors from this function should end the connection task.
 pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
-  let mut delay = inner.connection.cluster_cache_update_delay;
+  let mut delay = Duration::from_millis(0);
 
   loop {
     if !delay.is_zero() {
@@ -475,15 +486,6 @@ pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mu
   }
 
   Ok(())
-}
-
-#[cfg(feature = "replicas")]
-pub fn defer_replica_sync(inner: &Arc<RedisClientInner>) {
-  let (tx, _) = oneshot_channel();
-  let cmd = RouterCommand::SyncReplicas { tx };
-  if let Err(_) = interfaces::send_to_router(inner, cmd) {
-    _warn!(inner, "Failed to start deferred replica sync.")
-  }
 }
 
 pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
