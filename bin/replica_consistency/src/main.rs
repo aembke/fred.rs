@@ -149,6 +149,7 @@ async fn test(argv: &Arc<Argv>, pool: &RedisPool) -> Result<(), RedisError> {
       if should_wait {
         let client = pool.next();
         client.set("foo", 12345u64, None, None, false).await?;
+        // TODO need a `hash_slot` field on `Options` for `WAIT` to be useful in this context.
         client.wait(1, 10).await?;
         client.replicas().get::<Option<u64>, _>("foo").await
       } else {
