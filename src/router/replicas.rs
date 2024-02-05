@@ -457,12 +457,16 @@ impl Replicas {
           _debug!(inner, "Lazily adding {} replica connection", replica);
           if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {
             // we tried connecting once but failed.
+            self.routing.remove_replica(&replica);
+            // since we didn't get to actually send the command
+            command.attempts_remaining += 1;
             return Written::Disconnected((Some(replica.clone()), Some(command), e));
           }
 
           match self.writers.get_mut(&replica) {
             Some(writer) => writer,
             None => {
+              self.routing.remove_replica(&replica);
               // the connection should be here if self.add_connection succeeded
               return Written::Disconnected((
                 Some(replica.clone()),
@@ -506,11 +510,13 @@ impl Replicas {
         command.kind.to_str_debug(),
         error
       );
+      self.routing.remove_replica(&writer.server);
       return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
     }
 
     writer.push_command(inner, command);
     if let Err(err) = writer.write_frame(frame, should_flush, false).await {
+      self.routing.remove_replica(&writer.server);
       Written::Disconnected((Some(writer.server.clone()), None, err))
     } else {
       if blocks_connection {

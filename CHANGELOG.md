@@ -1,3 +1,8 @@
+## 8.0.2
+
+* Fix cluster replica failover at high concurrency.
+* Fix potential race condition initializing the mocking layer.
+
 ## 8.0.1
 
 * Add a shorthand `init` interface.

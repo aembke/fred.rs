@@ -163,6 +163,7 @@ pub async fn run(
           if inner.config.server.is_clustered() {
             // optimistically sync the cluster, then fall back to a full reconnect
             if router.sync_cluster().await.is_err() {
+              utils::delay_cluster_sync(inner).await?;
               utils::reconnect_with_policy(inner, router).await?
             }
           } else {
@@ -216,6 +217,7 @@ pub async fn run(
 
           _debug!(inner, "Recv {} redirection to {} for WATCH in trx {}", kind, server, id);
           update_hash_slot(&mut commands, slot);
+          utils::delay_cluster_sync(inner).await?;
           utils::cluster_redirect_with_policy(inner, router, kind, slot, &server).await?;
           continue 'outer;
         },
