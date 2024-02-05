@@ -20,36 +20,19 @@ Beyond the main README, here's a quick list of things that potential users may w
 
 See the [benchmark](../bin/benchmark) folder for more info on performance testing.
 
-## Background
- 
-Fred was originally written in 2017 to support tokio-core 0.1 + futures 0.1 use cases. As of writing there have been 8 major releases, largely just trying to keep in sync with big changes in the Rust language or ecosystem. This library even predates `impl Trait`, and the language has come a long ways since then. 
-
-Many of the design decisions described in these documents come from this initial use case. 
-
-* I'm building a web or RPC server on a mostly Tokio-based stack. 
-* The application makes frequent use of Tokio's concurrency features, may run on large VMs, and uses Redis a lot. Ideally the client would support highly concurrent use cases in an efficient way.
-* The application may run on hundreds or thousands of server instances and Redis is the main or only IO-bound dependency. Making efficient use of network resources and minimizing the impact of RTT can have a meaningful impact on my scale metrics and hosting costs. 
-* I'm using a clustered Redis deployment on ElastiCache in production, a clustered deployment in Kubernetes in lower environments, and a centralized deployment when developing locally. This effectively means I don't want most of my application code coupled to the Redis deployment model. However, there are some cases where this is preferable or unavoidable, so I'd like the option do my own connection or server management if necessary.
-* I sometimes have to switch Redis vendors or deployment models. This can have a huge impact on network performance and reliability, and effectively means the client must handle many forms of reverse proxy or load balancing shenanigans. The reconnection logic must work reliably.
-* Big clustered deployments often scale horizontally. This should not cause downtime or end user errors, but it's ok if it causes minor delays. Ideally the client would handle this gracefully.
-* I usually want the client to retry things (within reason) before reporting an error. Configuration options to selectively disable or tune this would be nice. 
-* I need full control over the TLS configuration process. 
-
-If this list overlaps with your use case then `fred` may be a good option. Many of these aren't hard requirements, but the higher level common interfaces were designed with this list in mind.
-
-### Important Context 
+### Background
 
 The most important design decision made by this library requires understanding how and why pipelining works. I strongly recommend that folks read https://redis.io/docs/manual/pipelining.
 
-It's important to understand what RTT is, why pipelining minimizes its impact in general, and why it's often the only thing that really matters when measuring the throughput of an IO-bound application with dependencies like Redis. The entire design of this library is based on the pipelining optimization described in this section. My hope is that folks building other network libraries that use pipelined protocols might find the ideas described here useful.
+It's important to understand what RTT is, why pipelining minimizes its impact in general, and why it's often the only thing that really matters when measuring the throughput of an IO-bound application with dependencies like Redis. The entire design of this library is based on the pipelining optimization described in this section.
 
-As described above my application has the following characteristics:
-* Its primary throughput bottleneck is RTT to Redis.
-* It uses relatively large clustered deployments, often with some managed service like Elasticache.
-* It makes frequent use of Tokio concurrency features on a multi-thread runtime. Requests/jobs run in separate Tokio tasks. 
-* It's using dependency injection patterns to share a small pool of connections/clients among each of the Tokio tasks.
+`fred` was originally written with the following use case in mind:
+* The app layer's primary throughput bottleneck is RTT to Redis.
+* The app uses different Redis server deployment types, including managed services like Elasticache.
+* The app makes frequent use of Tokio concurrency features on a multi-thread runtime. Requests/jobs run in separate Tokio tasks. 
+* The app uses dependency injection patterns to share a small pool of connections/clients among each of the Tokio tasks.
 
-And most importantly - making efficient use of network resources is important for my use case to scale from both a cost and performance perspective. Ideally the library could interleave frames on the wire such that concurrent request/job tasks didn't have to wait for other tasks to receive a response from the server. 
+And most importantly - making efficient use of network resources is important for the system to scale from both a cost and performance perspective. Ideally the library could interleave frames on the wire such that concurrent request/job tasks didn't have to wait for other tasks to receive a response from the server. 
 
 For example,
 
@@ -160,14 +143,3 @@ async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(),
 ```
 
 In order for the reader task to respond to the caller in the Axum task we need a mechanism for the caller's oneshot sender half to move between the router task and the reader task that receives the response. An [`Arc<SegQueue>`](https://docs.rs/crossbeam-queue/latest/crossbeam_queue/struct.SegQueue.html) is shared between the router and each reader task to support this. 
-
-## Code Layout 
-
-* The [commands](../src/commands) folder contains the public interface and private implementation for each of the Redis commands, organized by category. This is roughly the same categorization used by the [public docs](https://redis.io/commands/). Each of these public command category interfaces are exposed as a trait with default implementations for each command.
-* The [clients](../src/clients) folder contains public client structs that implement and/or override the traits from [the command category traits folder](../src/commands/impls). The [interfaces](../src/interfaces.rs) file contains the shared traits required by most of the command category traits, such as `ClientLike`.
-* The [monitor](../src/monitor) folder contains the implementation of the `MONITOR` command and the parser for the response stream.
-* The [protocol](../src/protocol) folder contains the implementation of the base `Connection` struct and the logic for splitting a connection to interact with reader and writer halves in separate tasks. The [TLS interface](../src/protocol/tls.rs) is also implemented here.
-* The [router](../src/router) folder contains the logic that implements the sentinel and cluster interfaces. Clients interact with this struct via a message passing interface. The interface exposed by the `Router` attempts to hide all the complexity associated with sentinel or clustered deployments.
-* The [trace](../src/trace) folder contains the tracing implementation. Span IDs are manually tracked on each command as they move across tasks.
-* The [types](../src/types) folder contains the type definitions used by the public interface. The Redis interface is relatively loosely typed but Rust can support more strongly typed interfaces. The types in this module aim to support an optional but more strongly typed interface for callers.
-* The [modules](../src/modules) folder contains smaller helper interfaces such as a lazy [Backchannel](../src/modules/backchannel.rs) connection interface and the [response type conversion logic](../src/modules/response.rs).
