@@ -1532,15 +1532,143 @@ impl From<RedisCommandKind> for RedisCommand {
   }
 }
 
-impl Default for RedisCommand {
-  fn default() -> Self {
+impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
+  fn from((kind, arguments): (RedisCommandKind, Vec<RedisValue>)) -> Self {
     RedisCommand {
-      kind:                                        RedisCommandKind::Ping,
+      kind,
+      arguments,
+      timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
+      response: ResponseKind::Respond(None),
+      hasher: ClusterHash::default(),
+      router_tx: Arc::new(Mutex::new(None)),
+      attempts_remaining: 0,
+      redirections_remaining: 0,
+      can_pipeline: true,
+      skip_backpressure: false,
+      transaction_id: None,
+      use_replica: false,
+      cluster_node: None,
+      network_start: None,
+      write_attempts: 0,
+      fail_fast: false,
+      #[cfg(feature = "metrics")]
+      created: Instant::now(),
+      #[cfg(feature = "partial-tracing")]
+      traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
+    }
+  }
+}
+
+impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand {
+  fn from((kind, arguments, tx): (RedisCommandKind, Vec<RedisValue>, ResponseSender)) -> Self {
+    RedisCommand {
+      kind,
+      arguments,
+      response: ResponseKind::Respond(Some(tx)),
+      timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
+      hasher: ClusterHash::default(),
+      router_tx: Arc::new(Mutex::new(None)),
+      attempts_remaining: 0,
+      redirections_remaining: 0,
+      can_pipeline: true,
+      skip_backpressure: false,
+      transaction_id: None,
+      use_replica: false,
+      cluster_node: None,
+      network_start: None,
+      write_attempts: 0,
+      fail_fast: false,
+      #[cfg(feature = "metrics")]
+      created: Instant::now(),
+      #[cfg(feature = "partial-tracing")]
+      traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
+    }
+  }
+}
+
+impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
+  fn from((kind, arguments, response): (RedisCommandKind, Vec<RedisValue>, ResponseKind)) -> Self {
+    RedisCommand {
+      kind,
+      arguments,
+      response,
+      timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
+      hasher: ClusterHash::default(),
+      router_tx: Arc::new(Mutex::new(None)),
+      attempts_remaining: 0,
+      redirections_remaining: 0,
+      can_pipeline: true,
+      skip_backpressure: false,
+      transaction_id: None,
+      use_replica: false,
+      cluster_node: None,
+      network_start: None,
+      write_attempts: 0,
+      fail_fast: false,
+      #[cfg(feature = "metrics")]
+      created: Instant::now(),
+      #[cfg(feature = "partial-tracing")]
+      traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
+    }
+  }
+}
+
+impl RedisCommand {
+  /// Create a new command without a response handling policy.
+  pub fn new(kind: RedisCommandKind, arguments: Vec<RedisValue>) -> Self {
+    RedisCommand {
+      kind,
+      arguments,
+      timed_out: Arc::new(AtomicBool::new(false)),
+      timeout_dur: None,
+      response: ResponseKind::Respond(None),
+      hasher: ClusterHash::default(),
+      router_tx: Arc::new(Mutex::new(None)),
+      attempts_remaining: 0,
+      redirections_remaining: 0,
+      can_pipeline: true,
+      skip_backpressure: false,
+      transaction_id: None,
+      use_replica: false,
+      cluster_node: None,
+      network_start: None,
+      write_attempts: 0,
+      fail_fast: false,
+      #[cfg(feature = "metrics")]
+      created: Instant::now(),
+      #[cfg(feature = "partial-tracing")]
+      traces: CommandTraces::default(),
+      #[cfg(feature = "debug-ids")]
+      counter: command_counter(),
+      #[cfg(feature = "client-tracking")]
+      caching: None,
+    }
+  }
+
+  /// Create a new empty `ASKING` command.
+  pub fn new_asking(hash_slot: u16) -> Self {
+    RedisCommand {
+      kind:                                        RedisCommandKind::Asking,
+      hasher:                                      ClusterHash::Custom(hash_slot),
       arguments:                                   Vec::new(),
       timed_out:                                   Arc::new(AtomicBool::new(false)),
       timeout_dur:                                 None,
       response:                                    ResponseKind::Respond(None),
-      hasher:                                      ClusterHash::default(),
       router_tx:                                   Arc::new(Mutex::new(None)),
       attempts_remaining:                          0,
       redirections_remaining:                      0,
@@ -1562,60 +1690,8 @@ impl Default for RedisCommand {
       caching:                                     None,
     }
   }
-}
 
-impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
-  fn from((kind, arguments): (RedisCommandKind, Vec<RedisValue>)) -> Self {
-    RedisCommand {
-      kind,
-      arguments,
-      ..RedisCommand::default()
-    }
-  }
-}
-
-impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand {
-  fn from((kind, arguments, tx): (RedisCommandKind, Vec<RedisValue>, ResponseSender)) -> Self {
-    RedisCommand {
-      kind,
-      arguments,
-      response: ResponseKind::Respond(Some(tx)),
-      ..RedisCommand::default()
-    }
-  }
-}
-
-impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
-  fn from((kind, arguments, response): (RedisCommandKind, Vec<RedisValue>, ResponseKind)) -> Self {
-    RedisCommand {
-      kind,
-      arguments,
-      response,
-      ..RedisCommand::default()
-    }
-  }
-}
-
-impl RedisCommand {
-  /// Create a new command without a response handling policy.
-  pub fn new(kind: RedisCommandKind, args: Vec<RedisValue>) -> Self {
-    RedisCommand {
-      kind,
-      arguments: args,
-      ..RedisCommand::default()
-    }
-  }
-
-  /// Create a new empty `ASKING` command.
-  pub fn new_asking(hash_slot: u16) -> Self {
-    RedisCommand {
-      kind: RedisCommandKind::Asking,
-      hasher: ClusterHash::Custom(hash_slot),
-      ..RedisCommand::default()
-    }
-  }
-
-  /// Whether or not to pipeline the command.
+  /// Whether to pipeline the command.
   pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>, force: bool) -> bool {
     let should_pipeline = force
       || (inner.is_pipelined()
@@ -1692,9 +1768,9 @@ impl RedisCommand {
         })
   }
 
-  /// Whether or not the command may receive response frames.
+  /// Whether the command may receive response frames.
   ///
-  /// Currently the pubsub subscription commands (other than `SSUBSCRIBE`) all fall into this category since their
+  /// Currently, the pubsub subscription commands (other than `SSUBSCRIBE`) all fall into this category since their
   /// responses arrive out-of-band.
   // `SSUBSCRIBE` is not included here so that we can follow cluster redirections. this works as long as we never
   // pipeline `SSUBSCRIBE`.

@@ -602,7 +602,6 @@ impl Router {
           command.debug_id(),
         );
 
-        utils::defer_replica_sync(&self.inner);
         command.use_replica = false;
         self.write(command, force_flush).await
       },
@@ -808,7 +807,7 @@ impl Router {
     #[cfg(feature = "replicas")]
     commands.extend(self.replicas.take_retry_buffer());
 
-    for mut command in commands.drain(..) {
+    while let Some(mut command) = commands.pop_front() {
       if client_utils::read_bool_atomic(&command.timed_out) {
         debug!(
           "{}: Ignore retrying timed out command: {}",
@@ -849,7 +848,7 @@ impl Router {
           );
           self.connections.disconnect(&self.inner, server.as_ref()).await;
           utils::defer_reconnect(&self.inner);
-          continue;
+          break;
         },
         Written::NotFound(command) => {
           failed_commands.push_back(command);
@@ -893,7 +892,7 @@ impl Router {
     self.connections.check_and_flush(&self.inner).await
   }
 
-  /// Returns whether or not the provided `server` owns the provided `slot`.
+  /// Returns whether the provided `server` owns the provided `slot`.
   pub fn cluster_node_owns_slot(&self, slot: u16, server: &Server) -> bool {
     match self.connections {
       Connections::Clustered { ref cache, .. } => cache.get_server(slot).map(|node| node == server).unwrap_or(false),
@@ -904,7 +903,7 @@ impl Router {
   /// Modify connection state according to the cluster redirection error.
   ///
   /// * Synchronizes the cached cluster state in response to MOVED
-  /// * Connects and sends ASKING to the provided server in response to ASKED
+  /// * Connects and sends `ASKING` to the provided server in response to ASKED
   #[cfg(feature = "transactions")]
   pub async fn cluster_redirection(
     &mut self,
