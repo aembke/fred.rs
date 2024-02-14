@@ -1,3 +1,7 @@
+## 8.0.3
+
+* Box large futures to reduce stack usage.
+
 ## 8.0.2
 
 * Fix cluster replica failover at high concurrency.

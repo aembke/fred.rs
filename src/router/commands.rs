@@ -608,7 +608,7 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     inner.store_command_rx(rx, false);
     Err(error)
   } else {
-    let result = process_commands(inner, &mut router, &mut rx).await;
+    let result = Box::pin(process_commands(inner, &mut router, &mut rx)).await;
     inner.store_command_rx(rx, false);
     result
   }
