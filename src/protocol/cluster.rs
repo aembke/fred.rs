@@ -91,7 +91,7 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Res
 }
 
 /// Read the node block with format `<hostname>|null, <port>, <id>, [metadata]`
-fn parse_node_block(data: &Vec<RedisValue>, default_host: &Str) -> Option<(Str, u16, Str, Str)> {
+fn parse_node_block(data: &[RedisValue], default_host: &Str) -> Option<(Str, u16, Str, Str)> {
   if data.len() < 3 {
     return None;
   }

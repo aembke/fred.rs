@@ -655,7 +655,7 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
   }
 }
 
-pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
+pub fn is_maybe_array_map(arr: &[RedisValue]) -> bool {
   if !arr.is_empty() && arr.len() % 2 == 0 {
     arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
   } else {

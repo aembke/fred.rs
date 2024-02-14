@@ -66,7 +66,7 @@ pub fn server_to_parts(server: &str) -> Result<(&str, u16), RedisError> {
   Ok((parts[0], parts[1].parse::<u16>()?))
 }
 
-pub fn binary_search(slots: &Vec<SlotRange>, slot: u16) -> Option<usize> {
+pub fn binary_search(slots: &[SlotRange], slot: u16) -> Option<usize> {
   if slot > REDIS_CLUSTER_SLOTS {
     return None;
   }
@@ -689,7 +689,7 @@ pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, Redis
   }
 }
 
-pub fn assert_array_len<T>(data: &Vec<T>, len: usize) -> Result<(), RedisError> {
+pub fn assert_array_len<T>(data: &[T], len: usize) -> Result<(), RedisError> {
   if data.len() == len {
     Ok(())
   } else {
