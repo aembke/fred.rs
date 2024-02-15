@@ -92,7 +92,7 @@ impl Replicas {
   pub async fn sync(&self) -> Result<(), RedisError> {
     let (tx, rx) = oneshot_channel();
     let cmd = RouterCommand::SyncReplicas { tx };
-    let _ = interfaces::send_to_router(&self.inner, cmd)?;
+    interfaces::send_to_router(&self.inner, cmd)?;
     rx.await?
   }
 }

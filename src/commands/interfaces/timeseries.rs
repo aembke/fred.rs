@@ -318,9 +318,7 @@ pub trait TimeSeriesInterface: ClientLike {
     J: IntoIterator<Item = S> + Send,
   {
     try_into!(from, to);
-    let labels = labels.map(|l| l.into());
     let filters = filters.into_iter().map(|s| s.into()).collect();
-    let group_by = group_by.map(|g| g.into());
     let filter_by_ts = filter_by_ts.into_iter().collect();
 
     commands::timeseries::ts_mrange(
@@ -370,9 +368,7 @@ pub trait TimeSeriesInterface: ClientLike {
     J: IntoIterator<Item = S> + Send,
   {
     try_into!(from, to);
-    let labels = labels.map(|l| l.into());
     let filters = filters.into_iter().map(|s| s.into()).collect();
-    let group_by = group_by.map(|g| g.into());
     let filter_by_ts = filter_by_ts.into_iter().collect();
 
     commands::timeseries::ts_mrevrange(

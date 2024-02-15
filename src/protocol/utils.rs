@@ -602,7 +602,7 @@ pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, R
 pub fn mocked_value_to_frame(value: RedisValue) -> Resp3Frame {
   match value {
     RedisValue::Array(values) => Resp3Frame::Array {
-      data:       values.into_iter().map(|v| mocked_value_to_frame(v)).collect(),
+      data:       values.into_iter().map(mocked_value_to_frame).collect(),
       attributes: None,
     },
     RedisValue::Map(values) => Resp3Frame::Map {
@@ -762,7 +762,7 @@ pub fn value_to_zset_result(value: RedisValue) -> Result<Vec<(RedisValue, f64)>,
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 fn i64_size(i: i64) -> usize {
   if i < 0 {
-    1 + redis_protocol::digits_in_number((i * -1) as usize)
+    1 + redis_protocol::digits_in_number(-i as usize)
   } else {
     redis_protocol::digits_in_number(i as usize)
   }
@@ -795,7 +795,7 @@ pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
 }
 
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
-pub fn args_size(args: &Vec<RedisValue>) -> usize {
+pub fn args_size(args: &[RedisValue]) -> usize {
   args.iter().fold(0, |c, arg| c + arg_size(arg))
 }
 

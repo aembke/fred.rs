@@ -214,7 +214,7 @@ jobs:
       - checkout
       - run:
           name: Clippy
-          command: cargo clippy -- -Dwarnings
+          command: cargo clippy --all-features --lib -p fred -- -Dwarnings
 
 
 workflows:

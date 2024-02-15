@@ -258,9 +258,9 @@ impl Sink<ProtocolFrame> for ConnectionKind {
       #[cfg(feature = "unix-sockets")]
       ConnectionKind::Unix(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
     }
   }
 
@@ -270,9 +270,9 @@ impl Sink<ProtocolFrame> for ConnectionKind {
       #[cfg(feature = "unix-sockets")]
       ConnectionKind::Unix(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
-      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      ConnectionKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
       #[cfg(feature = "enable-native-tls")]
-      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      ConnectionKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
     }
   }
 }
@@ -358,9 +358,9 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
       #[cfg(feature = "unix-sockets")]
       SplitSinkKind::Unix(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
-      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
       #[cfg(feature = "enable-native-tls")]
-      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e.into()),
+      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_flush(cx).map_err(|e| e),
     }
   }
 
@@ -370,9 +370,9 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
       #[cfg(feature = "unix-sockets")]
       SplitSinkKind::Unix(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
       #[cfg(feature = "enable-rustls")]
-      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      SplitSinkKind::Rustls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
       #[cfg(feature = "enable-native-tls")]
-      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e.into()),
+      SplitSinkKind::NativeTls(ref mut conn) => Pin::new(conn).poll_close(cx).map_err(|e| e),
     }
   }
 }
@@ -500,18 +500,17 @@ impl RedisTransport {
     let (id, version) = (None, None);
     let tls_server_name = server
       .tls_server_name
-      .as_ref()
-      .map(|s| s.clone())
+      .as_ref().cloned()
       .unwrap_or(server.host.clone());
 
     let default_host = server.host.clone();
-    let codec = RedisCodec::new(inner, &server);
+    let codec = RedisCodec::new(inner, server);
     let addrs = inner
       .get_resolver()
       .await
       .resolve(server.host.clone(), server.port)
       .await?;
-    let (socket, addr) = tcp_connect_any(inner, &server, &addrs).await?;
+    let (socket, addr) = tcp_connect_any(inner, server, &addrs).await?;
 
     _debug!(inner, "native-tls handshake with server name/host: {}", tls_server_name);
     let socket = connector.clone().connect(&tls_server_name, socket).await?;
@@ -550,8 +549,7 @@ impl RedisTransport {
     let (id, version) = (None, None);
     let tls_server_name = server
       .tls_server_name
-      .as_ref()
-      .map(|s| s.clone())
+      .as_ref().cloned()
       .unwrap_or(server.host.clone());
 
     let default_host = server.host.clone();
@@ -561,7 +559,7 @@ impl RedisTransport {
       .await
       .resolve(server.host.clone(), server.port)
       .await?;
-    let (socket, addr) = tcp_connect_any(inner, &server, &addrs).await?;
+    let (socket, addr) = tcp_connect_any(inner, server, &addrs).await?;
     let server_name: ServerName = tls_server_name.deref().try_into()?;
 
     _debug!(inner, "rustls handshake with server name/host: {:?}", tls_server_name);
@@ -1179,7 +1177,7 @@ pub async fn request_response(
   let (tx, rx) = oneshot_channel();
   command.response = ResponseKind::Respond(Some(tx));
   let timeout_dur = timeout
-    .or(command.timeout_dur.clone())
+    .or(command.timeout_dur)
     .unwrap_or_else(|| inner.default_command_timeout());
 
   _trace!(

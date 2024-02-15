@@ -12,14 +12,14 @@ use crate::{
 use redis_protocol::redis_keyslot;
 use tokio::sync::oneshot::channel as oneshot_channel;
 
-pub static PREFIX: &'static str = "PREFIX";
-pub static REDIRECT: &'static str = "REDIRECT";
-pub static BCAST: &'static str = "BCAST";
-pub static OPTIN: &'static str = "OPTIN";
-pub static OPTOUT: &'static str = "OPTOUT";
-pub static NOLOOP: &'static str = "NOLOOP";
-pub static YES: &'static str = "YES";
-pub static NO: &'static str = "NO";
+pub static PREFIX: &str = "PREFIX";
+pub static REDIRECT: &str = "REDIRECT";
+pub static BCAST: &str = "BCAST";
+pub static OPTIN: &str = "OPTIN";
+pub static OPTOUT: &str = "OPTOUT";
+pub static NOLOOP: &str = "NOLOOP";
+pub static YES: &str = "YES";
+pub static NO: &str = "NO";
 
 fn tracking_args(
   toggle: Toggle,
@@ -88,7 +88,7 @@ pub async fn start_tracking<C: ClientLike>(
       let (tx, rx) = oneshot_channel();
       let response = ResponseKind::new_buffer(tx);
       let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
-      let _ = client.send_command(command)?;
+      client.send_command(command)?;
 
       let frame = utils::apply_timeout(rx, client.inner().internal_command_timeout()).await??;
       let _ = protocol_utils::frame_to_results(frame)?;
@@ -116,7 +116,7 @@ pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> 
     let (tx, rx) = oneshot_channel();
     let response = ResponseKind::new_buffer(tx);
     let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
-    let _ = client.send_command(command)?;
+    client.send_command(command)?;
 
     let frame = utils::apply_timeout(rx, client.inner().internal_command_timeout()).await??;
     let _ = protocol_utils::frame_to_results(frame)?;

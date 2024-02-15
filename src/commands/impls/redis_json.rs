@@ -8,9 +8,9 @@ use crate::{
 use bytes_utils::Str;
 use serde_json::Value;
 
-const INDENT: &'static str = "INDENT";
-const NEWLINE: &'static str = "NEWLINE";
-const SPACE: &'static str = "SPACE";
+const INDENT: &str = "INDENT";
+const NEWLINE: &str = "NEWLINE";
+const SPACE: &str = "SPACE";
 
 fn key_path_args(key: RedisKey, path: Option<Str>, extra: usize) -> Vec<RedisValue> {
   let mut out = Vec::with_capacity(2 + extra);
@@ -52,7 +52,7 @@ fn json_to_redis(value: Value) -> Result<RedisValue, RedisError> {
   ))
 }
 
-fn values_to_bulk(values: &Vec<Value>) -> Result<Vec<RedisValue>, RedisError> {
+fn values_to_bulk(values: &[Value]) -> Result<Vec<RedisValue>, RedisError> {
   values.iter().map(value_to_bulk_str).collect()
 }
 

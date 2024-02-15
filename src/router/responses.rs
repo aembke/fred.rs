@@ -15,7 +15,7 @@ use crate::types::Invalidation;
 const KEYSPACE_PREFIX: &str = "__keyspace@";
 const KEYEVENT_PREFIX: &str = "__keyevent@";
 #[cfg(feature = "client-tracking")]
-const INVALIDATION_CHANNEL: &'static str = "__redis__:invalidate";
+const INVALIDATION_CHANNEL: &str = "__redis__:invalidate";
 
 fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
   if channel.starts_with(KEYEVENT_PREFIX) {
@@ -246,7 +246,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
     },
   };
   if let Some(ref span) = span {
-    span.record("channel", &&*message.channel);
+    span.record("channel", &*message.channel);
   }
 
   if is_pubsub_invalidation(&message) {

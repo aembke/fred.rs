@@ -23,7 +23,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
 
   // enable client tracking on all connections. it's usually a good idea to do this in an `on_reconnect` block.
   client.start_tracking(None, false, false, false, false).await?;
-  let _: () = client.get("foo").await?;
+  client.get("foo").await?;
 
   // send `CLIENT CACHING yes|no` before subsequent commands. the preceding `CLIENT CACHING yes|no` command will be
   // sent when the command is retried as well.
@@ -65,7 +65,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   });
   // in RESP2 mode we must manually subscribe to the invalidation channel. the `start_tracking` function does this
   // automatically with the RESP3 interface.
-  let _: () = subscriber.subscribe("__redis__:invalidate").await?;
+  subscriber.subscribe("__redis__:invalidate").await?;
 
   // enable client tracking, sending invalidation messages to the subscriber client
   let (_, connection_id) = subscriber
@@ -74,7 +74,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
     .into_iter()
     .next()
     .expect("Failed to read subscriber connection ID");
-  let _ = client
+  client
     .client_tracking("on", Some(connection_id), None, false, false, false, false)
     .await?;
 
@@ -83,8 +83,8 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 
   let pipeline = client.pipeline();
   // it's recommended to pipeline `CLIENT CACHING yes|no` if the client is used across multiple tasks
-  let _: () = pipeline.client_caching(true).await?;
-  let _: () = pipeline.incr("foo").await?;
+  pipeline.client_caching(true).await?;
+  pipeline.incr("foo").await?;
   println!("Foo: {}", pipeline.last::<i64>().await?);
 
   Ok(())

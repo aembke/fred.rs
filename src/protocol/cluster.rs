@@ -199,7 +199,7 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &Str) -> Result<Vec<
 }
 
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>, default_host: &Str) {
+fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut [SlotRange], default_host: &Str) {
   for slot_range in ranges.iter_mut() {
     slot_range.primary.set_tls_server_name(policy, default_host);
 
@@ -212,7 +212,7 @@ fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut Vec<SlotRange>
 
 /// Modify the `CLUSTER SLOTS` command according to the hostname mapping policy in the `TlsHostMapping`.
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut Vec<SlotRange>, default_host: &Str) {
+pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut [SlotRange], default_host: &Str) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {

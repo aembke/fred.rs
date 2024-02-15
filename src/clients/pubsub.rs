@@ -338,21 +338,21 @@ impl SubscriberClient {
 
   /// Unsubscribe from all tracked channels and patterns, and remove them from the client cache.
   pub async fn unsubscribe_all(&self) -> Result<(), RedisError> {
-    let channels: Vec<RedisKey> = mem::replace(&mut *self.channels.write(), BTreeSet::new())
+    let channels: Vec<RedisKey> = mem::take(&mut *self.channels.write())
       .into_iter()
       .map(|s| s.into())
       .collect();
-    let patterns: Vec<RedisKey> = mem::replace(&mut *self.patterns.write(), BTreeSet::new())
+    let patterns: Vec<RedisKey> = mem::take(&mut *self.patterns.write())
       .into_iter()
       .map(|s| s.into())
       .collect();
-    let shard_channels: Vec<RedisKey> = mem::replace(&mut *self.shard_channels.write(), BTreeSet::new())
+    let shard_channels: Vec<RedisKey> = mem::take(&mut *self.shard_channels.write())
       .into_iter()
       .map(|s| s.into())
       .collect();
 
-    let _ = self.unsubscribe(channels).await?;
-    let _ = self.punsubscribe(patterns).await?;
+    self.unsubscribe(channels).await?;
+    self.punsubscribe(patterns).await?;
 
     let shard_channel_groups = group_by_hash_slot(shard_channels)?;
     let shard_subscriptions: Vec<_> = shard_channel_groups
