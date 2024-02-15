@@ -21,7 +21,7 @@ pub use redis_protocol::{
 pub fn resp3_encode_command(cmd: &str) -> Resp3Frame {
   Resp3Frame::Array {
     data:       cmd
-      .split(" ")
+      .split(' ')
       .map(|s| Resp3Frame::BlobString {
         data:       s.as_bytes().to_vec().into(),
         attributes: None,
@@ -35,7 +35,7 @@ pub fn resp3_encode_command(cmd: &str) -> Resp3Frame {
 pub fn resp2_encode_command(cmd: &str) -> Resp2Frame {
   Resp2Frame::Array(
     cmd
-      .split(" ")
+      .split(' ')
       .map(|s| Resp2Frame::BulkString(s.as_bytes().to_vec().into()))
       .collect(),
   )

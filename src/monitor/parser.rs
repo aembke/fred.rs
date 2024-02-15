@@ -10,9 +10,9 @@ use nom::{
 use redis_protocol::{resp3::types::Frame as Resp3Frame, types::RedisParseError};
 use std::{str, sync::Arc};
 
-const EMPTY_SPACE: &'static str = " ";
-const RIGHT_BRACKET: &'static str = "]";
-const QUOTE: &'static str = "\"";
+const EMPTY_SPACE: &str = " ";
+const RIGHT_BRACKET: &str = "]";
+const QUOTE: &str = "\"";
 
 fn to_f64(s: &str) -> Result<f64, RedisParseError<&[u8]>> {
   s.parse::<f64>()

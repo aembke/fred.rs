@@ -240,7 +240,7 @@ pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration
 /// Attempt to reconnect and replay queued commands.
 pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   client_utils::set_client_state(&inner.state, ClientState::Connecting);
-  if let Err(e) = router.connect().await {
+  if let Err(e) = Box::pin(router.connect()).await {
     _debug!(inner, "Failed reconnecting with error: {:?}", e);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
     inner.notifications.broadcast_error(e.clone());

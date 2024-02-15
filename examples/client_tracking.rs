@@ -1,5 +1,4 @@
 #![allow(clippy::disallowed_names)]
-#![allow(clippy::let_underscore_future)]
 
 use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 
@@ -16,14 +15,14 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
   client.init().await?;
 
   // spawn a task that processes invalidation messages.
-  let _ = client.on_invalidation(|invalidation| {
+  let _invalidate_task = client.on_invalidation(|invalidation| {
     println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
     Ok(())
   });
 
   // enable client tracking on all connections. it's usually a good idea to do this in an `on_reconnect` block.
   client.start_tracking(None, false, false, false, false).await?;
-  let _: () = client.get("foo").await?;
+  client.get("foo").await?;
 
   // send `CLIENT CACHING yes|no` before subsequent commands. the preceding `CLIENT CACHING yes|no` command will be
   // sent when the command is retried as well.
@@ -58,14 +57,14 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   // the invalidation subscriber interface is the same as above even in RESP2 mode **as long as the `client-tracking`
   // feature is enabled**. if the feature is disabled then the message will appear on the `on_message` receiver.
   let mut invalidations = subscriber.invalidation_rx();
-  tokio::spawn(async move {
+  let _invalidate_task = tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
       println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
     }
   });
   // in RESP2 mode we must manually subscribe to the invalidation channel. the `start_tracking` function does this
   // automatically with the RESP3 interface.
-  let _: () = subscriber.subscribe("__redis__:invalidate").await?;
+  subscriber.subscribe("__redis__:invalidate").await?;
 
   // enable client tracking, sending invalidation messages to the subscriber client
   let (_, connection_id) = subscriber
@@ -74,7 +73,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
     .into_iter()
     .next()
     .expect("Failed to read subscriber connection ID");
-  let _ = client
+  client
     .client_tracking("on", Some(connection_id), None, false, false, false, false)
     .await?;
 
@@ -83,8 +82,8 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 
   let pipeline = client.pipeline();
   // it's recommended to pipeline `CLIENT CACHING yes|no` if the client is used across multiple tasks
-  let _: () = pipeline.client_caching(true).await?;
-  let _: () = pipeline.incr("foo").await?;
+  pipeline.client_caching(true).await?;
+  pipeline.incr("foo").await?;
   println!("Foo: {}", pipeline.last::<i64>().await?);
 
   Ok(())
@@ -94,7 +93,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 // see https://redis.io/docs/manual/client-side-caching/
 async fn main() -> Result<(), RedisError> {
   resp3_tracking_interface_example().await?;
-  // resp2_basic_interface_example().await?;
+  resp2_basic_interface_example().await?;
 
   Ok(())
 }

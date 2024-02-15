@@ -1855,7 +1855,7 @@ impl RedisCommand {
       #[cfg(feature = "debug-ids")]
       counter: command_counter(),
       #[cfg(feature = "client-tracking")]
-      caching: self.caching.clone(),
+      caching: self.caching,
     }
   }
 

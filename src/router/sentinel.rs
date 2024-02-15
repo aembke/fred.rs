@@ -324,11 +324,11 @@ pub async fn initialize_connection(
       let server = transport.server.clone();
 
       utils::apply_timeout(
-        async {
+        Box::pin(async {
           check_primary_node_role(inner, &mut transport).await?;
           update_cached_client_state(inner, writer, sentinel, transport).await?;
           Ok::<_, RedisError>(())
-        },
+        }),
         inner.internal_command_timeout(),
       )
       .await?;

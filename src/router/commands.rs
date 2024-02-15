@@ -98,181 +98,184 @@ async fn write_with_backpressure(
   command: RedisCommand,
   force_pipeline: bool,
 ) -> Result<(), RedisError> {
-  _trace!(inner, "Writing command: {:?}", command);
+  Box::pin(async {
+    _trace!(inner, "Writing command: {:?}", command);
 
-  let mut _command: Option<RedisCommand> = Some(command);
-  let mut _backpressure: Option<Backpressure> = None;
-  loop {
-    let mut command = match _command.take() {
-      Some(command) => command,
-      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
-    };
-    if let Err(e) = command.decr_check_attempted() {
-      command.finish(inner, Err(e));
-      break;
-    }
+    let mut _command: Option<RedisCommand> = Some(command);
+    let mut _backpressure: Option<Backpressure> = None;
+    loop {
+      let mut command = match _command.take() {
+        Some(command) => command,
+        None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
+      };
+      if let Err(e) = command.decr_check_attempted() {
+        command.finish(inner, Err(e));
+        break;
+      }
 
-    // apply backpressure first if needed. as a part of that check we may decide to block on the next command.
-    let router_rx = match _backpressure {
-      Some(backpressure) => match backpressure.wait(inner, &mut command).await {
-        Ok(Some(rx)) => Some(rx),
-        Ok(None) => {
+      // apply backpressure first if needed. as a part of that check we may decide to block on the next command.
+      let router_rx = match _backpressure {
+        Some(backpressure) => match backpressure.wait(inner, &mut command).await {
+          Ok(Some(rx)) => Some(rx),
+          Ok(None) => {
+            if command.should_auto_pipeline(inner, force_pipeline) {
+              None
+            } else {
+              Some(command.create_router_channel())
+            }
+          },
+          Err(e) => {
+            command.respond_to_caller(Err(e));
+            return Ok(());
+          },
+        },
+        None => {
           if command.should_auto_pipeline(inner, force_pipeline) {
             None
           } else {
             Some(command.create_router_channel())
           }
         },
-        Err(e) => {
-          command.respond_to_caller(Err(e));
-          return Ok(());
+      };
+      let closes_connection = command.kind.closes_connection();
+      let is_blocking = command.blocks_connection();
+      let use_replica = command.use_replica;
+
+      let result = if use_replica {
+        router.write_replica(command, false).await
+      } else {
+        router.write(command, false).await
+      };
+
+      match result {
+        Written::Backpressure((mut command, backpressure)) => {
+          _debug!(inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
+          // backpressure doesn't count as a write attempt
+          command.attempts_remaining += 1;
+          _command = Some(command);
+          _backpressure = Some(backpressure);
+
+          continue;
         },
-      },
-      None => {
-        if command.should_auto_pipeline(inner, force_pipeline) {
-          None
-        } else {
-          Some(command.create_router_channel())
-        }
-      },
-    };
-    let closes_connection = command.kind.closes_connection();
-    let is_blocking = command.blocks_connection();
-    let use_replica = command.use_replica;
+        Written::Disconnected((server, command, error)) => {
+          _debug!(inner, "Handle disconnect for {:?} due to {:?}", server, error);
+          let commands = router.connections.disconnect(inner, server.as_ref()).await;
+          router.buffer_commands(commands);
+          if let Some(command) = command {
+            if command.should_finish_with_error(inner) {
+              command.finish(inner, Err(error));
+            } else {
+              router.buffer_command(command);
+            }
+          }
 
-    let result = if use_replica {
-      router.write_replica(command, false).await
-    } else {
-      router.write(command, false).await
-    };
+          utils::defer_reconnect(inner);
+          break;
+        },
+        Written::NotFound(mut command) => {
+          if let Err(e) = command.decr_check_redirections() {
+            command.finish(inner, Err(e));
+            utils::defer_reconnect(inner);
+            break;
+          }
 
-    match result {
-      Written::Backpressure((mut command, backpressure)) => {
-        _debug!(inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
-        // backpressure doesn't count as a write attempt
-        command.attempts_remaining += 1;
-        _command = Some(command);
-        _backpressure = Some(backpressure);
-
-        continue;
-      },
-      Written::Disconnected((server, command, error)) => {
-        _debug!(inner, "Handle disconnect for {:?} due to {:?}", server, error);
-        let commands = router.connections.disconnect(inner, server.as_ref()).await;
-        router.buffer_commands(commands);
-        if let Some(command) = command {
-          if command.should_finish_with_error(inner) {
-            command.finish(inner, Err(error));
-          } else {
+          _debug!(inner, "Perform cluster sync after missing hash slot lookup.");
+          if let Err(error) = router.sync_cluster().await {
+            // try to sync the cluster once, and failing that buffer the command.
+            _warn!(inner, "Failed to sync cluster after NotFound: {:?}", error);
+            utils::defer_reconnect(inner);
             router.buffer_command(command);
+            utils::delay_cluster_sync(inner).await?;
+            break;
+          } else {
+            _command = Some(command);
+            _backpressure = None;
+            continue;
           }
-        }
-
-        utils::defer_reconnect(inner);
-        break;
-      },
-      Written::NotFound(mut command) => {
-        if let Err(e) = command.decr_check_redirections() {
-          command.finish(inner, Err(e));
-          utils::defer_reconnect(inner);
+        },
+        Written::Ignore => {
+          _trace!(inner, "Ignore `Written` response.");
           break;
-        }
-
-        _debug!(inner, "Perform cluster sync after missing hash slot lookup.");
-        if let Err(error) = router.sync_cluster().await {
-          // try to sync the cluster once, and failing that buffer the command.
-          _warn!(inner, "Failed to sync cluster after NotFound: {:?}", error);
-          utils::defer_reconnect(inner);
-          router.buffer_command(command);
-          utils::delay_cluster_sync(inner).await?;
-          break;
-        } else {
-          _command = Some(command);
-          _backpressure = None;
-          continue;
-        }
-      },
-      Written::Ignore => {
-        _trace!(inner, "Ignore `Written` response.");
-        break;
-      },
-      Written::SentAll => {
-        _trace!(inner, "Sent command to all servers.");
-        let _ = router.check_and_flush().await;
-        if let Some(command) = handle_router_response(inner, router, router_rx).await? {
-          // commands that are sent to all nodes are not retried after a connection closing
-          _warn!(inner, "Responding with canceled error after all nodes command failure.");
-          command.finish(inner, Err(RedisError::new_canceled()));
-          break;
-        } else {
-          if closes_connection {
-            _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
-            return Err(RedisError::new_canceled());
-          }
-
-          break;
-        }
-      },
-      Written::Sent((server, flushed)) => {
-        _trace!(inner, "Sent command to {}. Flushed: {}", server, flushed);
-        if is_blocking {
-          inner.backchannel.write().await.set_blocked(&server);
-        }
-        if !flushed {
+        },
+        Written::SentAll => {
+          _trace!(inner, "Sent command to all servers.");
           let _ = router.check_and_flush().await;
-        }
+          if let Some(command) = handle_router_response(inner, router, router_rx).await? {
+            // commands that are sent to all nodes are not retried after a connection closing
+            _warn!(inner, "Responding with canceled error after all nodes command failure.");
+            command.finish(inner, Err(RedisError::new_canceled()));
+            break;
+          } else {
+            if closes_connection {
+              _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
+              return Err(RedisError::new_canceled());
+            }
 
-        let should_interrupt =
-          is_blocking && inner.counters.read_cmd_buffer_len() > 0 && inner.config.blocking == Blocking::Interrupt;
-        if should_interrupt {
-          // if there's other commands in the queue then interrupt the command that was just sent
-          _debug!(inner, "Interrupt after write.");
-          if let Err(e) = client_utils::interrupt_blocked_connection(inner, ClientUnblockFlag::Error).await {
-            _warn!(inner, "Failed to unblock connection: {:?}", e);
+            break;
           }
-        }
-
-        if let Some(command) = handle_router_response(inner, router, router_rx).await? {
-          _command = Some(command);
-          _backpressure = None;
-          continue;
-        } else {
-          if closes_connection {
-            _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
-            return Err(RedisError::new_canceled());
+        },
+        Written::Sent((server, flushed)) => {
+          _trace!(inner, "Sent command to {}. Flushed: {}", server, flushed);
+          if is_blocking {
+            inner.backchannel.write().await.set_blocked(&server);
+          }
+          if !flushed {
+            let _ = router.check_and_flush().await;
           }
 
+          let should_interrupt =
+            is_blocking && inner.counters.read_cmd_buffer_len() > 0 && inner.config.blocking == Blocking::Interrupt;
+          if should_interrupt {
+            // if there's other commands in the queue then interrupt the command that was just sent
+            _debug!(inner, "Interrupt after write.");
+            if let Err(e) = client_utils::interrupt_blocked_connection(inner, ClientUnblockFlag::Error).await {
+              _warn!(inner, "Failed to unblock connection: {:?}", e);
+            }
+          }
+
+          if let Some(command) = handle_router_response(inner, router, router_rx).await? {
+            _command = Some(command);
+            _backpressure = None;
+            continue;
+          } else {
+            if closes_connection {
+              _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
+              return Err(RedisError::new_canceled());
+            }
+
+            break;
+          }
+        },
+        Written::Error((error, command)) => {
+          _debug!(inner, "Fatal error writing command: {:?}", error);
+          if let Some(command) = command {
+            command.finish(inner, Err(error.clone()));
+          }
+          inner.notifications.broadcast_error(error.clone());
+
+          utils::defer_reconnect(inner);
+          return Err(error);
+        },
+        #[cfg(feature = "replicas")]
+        Written::Fallback(command) => {
+          _error!(
+            inner,
+            "Unexpected replica response to {} ({})",
+            command.kind.to_str_debug(),
+            command.debug_id()
+          );
+          command.finish(
+            inner,
+            Err(RedisError::new(RedisErrorKind::Replica, "Unexpected replica response.")),
+          );
           break;
-        }
-      },
-      Written::Error((error, command)) => {
-        _debug!(inner, "Fatal error writing command: {:?}", error);
-        if let Some(command) = command {
-          command.finish(inner, Err(error.clone()));
-        }
-        inner.notifications.broadcast_error(error.clone());
-
-        utils::defer_reconnect(inner);
-        return Err(error);
-      },
-      #[cfg(feature = "replicas")]
-      Written::Fallback(command) => {
-        _error!(
-          inner,
-          "Unexpected replica response to {} ({})",
-          command.kind.to_str_debug(),
-          command.debug_id()
-        );
-        command.finish(
-          inner,
-          Err(RedisError::new(RedisErrorKind::Replica, "Unexpected replica response.")),
-        );
-        break;
-      },
+        },
+      }
     }
-  }
 
-  Ok(())
+    Ok(())
+  })
+  .await
 }
 
 #[cfg(feature = "full-tracing")]
@@ -591,7 +594,7 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let mut router = Router::new(inner);
   _debug!(inner, "Initializing router with policy: {:?}", inner.reconnect_policy());
   let result = if inner.config.fail_fast {
-    if let Err(e) = router.connect().await {
+    if let Err(e) = Box::pin(router.connect()).await {
       inner.notifications.broadcast_connect(Err(e.clone()));
       inner.notifications.broadcast_error(e.clone());
       Err(e)
@@ -608,7 +611,7 @@ pub async fn start(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     inner.store_command_rx(rx, false);
     Err(error)
   } else {
-    let result = process_commands(inner, &mut router, &mut rx).await;
+    let result = Box::pin(process_commands(inner, &mut router, &mut rx)).await;
     inner.store_command_rx(rx, false);
     result
   }
@@ -640,11 +643,9 @@ mod mocking {
       RouterCommand::Pipeline { commands } => {
         for mut command in commands.into_iter() {
           let mocked = command.to_mocked();
-          let result = mocks
-            .process_command(mocked)
-            .map(|result| protocol_utils::mocked_value_to_frame(result));
+          let result = mocks.process_command(mocked).map(protocol_utils::mocked_value_to_frame);
 
-          let _ = command.respond_to_caller(result);
+          command.respond_to_caller(result);
         }
 
         Ok(())
@@ -652,8 +653,8 @@ mod mocking {
       RouterCommand::Command(mut command) => {
         let result = mocks
           .process_command(command.to_mocked())
-          .map(|result| protocol_utils::mocked_value_to_frame(result));
-        let _ = command.respond_to_caller(result);
+          .map(protocol_utils::mocked_value_to_frame);
+        command.respond_to_caller(result);
 
         Ok(())
       },

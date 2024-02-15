@@ -12,8 +12,8 @@ use trust_dns_resolver::{
 
 pub struct TrustDnsResolver(TokioAsyncResolver);
 
-impl TrustDnsResolver {
-  fn new() -> Self {
+impl Default for TrustDnsResolver {
+  fn default() -> Self {
     TrustDnsResolver(TokioAsyncResolver::tokio(
       ResolverConfig::default(),
       ResolverOpts::default(),
@@ -39,7 +39,7 @@ impl Resolve for TrustDnsResolver {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
-  client.set_resolver(Arc::new(TrustDnsResolver::new())).await;
+  client.set_resolver(Arc::new(TrustDnsResolver::default())).await;
   client.init().await?;
 
   // ...

@@ -285,7 +285,7 @@ impl Buffer {
 
   /// Read a copy of the internal command buffer without modifying the contents.
   pub fn inner(&self) -> Vec<MockCommand> {
-    self.commands.lock().iter().map(|c| c.clone()).collect()
+    self.commands.lock().iter().cloned().collect()
   }
 
   /// Push a new command onto the back of the internal buffer.
@@ -338,7 +338,7 @@ mod tests {
     };
     let client = RedisClient::new(config, None, None, None);
     let jh = client.connect();
-    let _ = client.wait_for_connect().await.expect("Failed to connect");
+    client.wait_for_connect().await.expect("Failed to connect");
 
     (client, jh)
   }

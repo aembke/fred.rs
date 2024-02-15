@@ -73,7 +73,7 @@ impl Timestamp {
   }
 
   pub(crate) fn from_str(value: &str) -> Result<Self, RedisError> {
-    match value.as_ref() {
+    match value {
       "*" => Ok(Timestamp::Now),
       _ => Ok(Timestamp::Custom(value.parse::<i64>()?)),
     }
@@ -218,7 +218,7 @@ impl TryFrom<&str> for GetTimestamp {
   type Error = RedisError;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
-    Ok(match value.as_ref() {
+    Ok(match value {
       "-" => GetTimestamp::Earliest,
       "+" => GetTimestamp::Latest,
       _ => GetTimestamp::Custom(value.parse::<i64>()?),
@@ -319,7 +319,7 @@ impl TryFrom<&str> for BucketTimestamp {
   type Error = RedisError;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
-    Ok(match value.as_ref() {
+    Ok(match value {
       "-" | "start" => BucketTimestamp::Start,
       "+" | "end" => BucketTimestamp::End,
       "~" | "mid" => BucketTimestamp::Mid,

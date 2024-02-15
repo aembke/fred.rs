@@ -62,7 +62,7 @@ impl TlsHostMapping {
     match self {
       TlsHostMapping::None => None,
       TlsHostMapping::DefaultHost => Some(default_host.to_owned()),
-      TlsHostMapping::Custom(ref inner) => inner.map(value, &default_host),
+      TlsHostMapping::Custom(ref inner) => inner.map(value, default_host),
     }
   }
 }
@@ -70,18 +70,9 @@ impl TlsHostMapping {
 impl PartialEq for TlsHostMapping {
   fn eq(&self, other: &Self) -> bool {
     match self {
-      TlsHostMapping::None => match other {
-        TlsHostMapping::None => true,
-        _ => false,
-      },
-      TlsHostMapping::DefaultHost => match other {
-        TlsHostMapping::DefaultHost => true,
-        _ => false,
-      },
-      TlsHostMapping::Custom(_) => match other {
-        TlsHostMapping::Custom(_) => true,
-        _ => false,
-      },
+      TlsHostMapping::None => matches!(other, TlsHostMapping::None),
+      TlsHostMapping::DefaultHost => matches!(other, TlsHostMapping::DefaultHost),
+      TlsHostMapping::Custom(_) => matches!(other, TlsHostMapping::Custom(_)),
     }
   }
 }
@@ -171,7 +162,7 @@ impl TlsConnector {
     let system_certs = rustls_native_certs::load_native_certs()?;
     let mut cert_store = RootCertStore::empty();
     for system_cert in system_certs.into_iter() {
-      let _ = cert_store.add(system_cert)?;
+      cert_store.add(system_cert)?;
     }
 
     Ok(
@@ -191,7 +182,7 @@ impl TryFrom<NativeTlsConnectorBuilder> for TlsConnector {
   fn try_from(builder: NativeTlsConnectorBuilder) -> Result<Self, Self::Error> {
     let connector = builder
       .build()
-      .map(|t| TokioNativeTlsConnector::from(t))
+      .map(TokioNativeTlsConnector::from)
       .map_err(|e| RedisError::new(RedisErrorKind::Tls, format!("{:?}", e)))?;
     Ok(TlsConnector::Native(connector))
   }
