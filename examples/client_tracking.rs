@@ -1,5 +1,4 @@
 #![allow(clippy::disallowed_names)]
-#![allow(clippy::let_underscore_future)]
 
 use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 
@@ -16,7 +15,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
   client.init().await?;
 
   // spawn a task that processes invalidation messages.
-  let _ = client.on_invalidation(|invalidation| {
+  let _invalidate_task = client.on_invalidation(|invalidation| {
     println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
     Ok(())
   });
@@ -58,7 +57,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   // the invalidation subscriber interface is the same as above even in RESP2 mode **as long as the `client-tracking`
   // feature is enabled**. if the feature is disabled then the message will appear on the `on_message` receiver.
   let mut invalidations = subscriber.invalidation_rx();
-  tokio::spawn(async move {
+  let _invalidate_task = tokio::spawn(async move {
     while let Ok(invalidation) = invalidations.recv().await {
       println!("{}: Invalidate {:?}", invalidation.server, invalidation.keys);
     }
@@ -94,7 +93,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 // see https://redis.io/docs/manual/client-side-caching/
 async fn main() -> Result<(), RedisError> {
   resp3_tracking_interface_example().await?;
-  // resp2_basic_interface_example().await?;
+  resp2_basic_interface_example().await?;
 
   Ok(())
 }

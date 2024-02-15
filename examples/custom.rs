@@ -14,15 +14,8 @@ async fn main() -> Result<(), RedisError> {
   client.init().await?;
   client.lpush("foo", vec![1, 2, 3]).await?;
 
-  // some types require TryInto
-  let args: Vec<RedisValue> = vec!["foo".into(), 0.into(), 3_u64.try_into()?];
-  // returns a frame (https://docs.rs/redis-protocol/latest/redis_protocol/resp3/types/enum.Frame.html)
-  let frame = client.custom_raw(cmd!("LRANGE"), args.clone()).await?;
-  // or convert back to client types
-  let value: RedisValue = frame.try_into()?;
-  // and/or use the type conversion shorthand
-  let value: Vec<String> = value.convert()?;
-  println!("LRANGE Values: {:?}", value);
+  let result: Vec<String> = client.custom(cmd!("LRANGE"), vec!["foo", "0", "3"]).await?;
+  println!("LRANGE Values: {:?}", result);
 
   // or customize routing and blocking parameters
   let _ = cmd!("LRANGE", blocking: false);
@@ -31,9 +24,9 @@ async fn main() -> Result<(), RedisError> {
   // which is shorthand for
   let command = CustomCommand::new("LRANGE", ClusterHash::FirstKey, false);
 
-  // convert to `FromRedis` types
-  let _: Vec<i64> = client
-    .custom_raw(command, args)
+  // or use `custom_raw` to operate on RESP3 frames
+  let _result: Vec<i64> = client
+    .custom_raw(command, vec!["foo", "0", "3"])
     .await
     .and_then(|frame| frame.try_into())
     .and_then(|value: RedisValue| value.convert())?;
