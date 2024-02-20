@@ -10,7 +10,7 @@ async fn main() -> Result<(), RedisError> {
   // see the `Builder` interface for more information
   let client = Builder::from_config(config).build()?;
   // callers can manage the tokio task driving the connections
-  let connection_task = client.init().await?;
+  let _connection_task = client.init().await?;
   // convert response types to most common rust types
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);
@@ -23,7 +23,5 @@ async fn main() -> Result<(), RedisError> {
   println!("Foo: {:?}", client.get::<Option<String>, _>("foo").await?);
 
   client.quit().await?;
-  // calling quit ends the connection and event listener tasks
-  let _ = connection_task.await;
   Ok(())
 }

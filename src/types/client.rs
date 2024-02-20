@@ -164,7 +164,7 @@ impl TryFrom<&String> for Toggle {
   type Error = RedisError;
 
   fn try_from(value: &String) -> Result<Self, Self::Error> {
-    Toggle::from_str(&value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+    Toggle::from_str(value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
   }
 }
 

@@ -48,12 +48,12 @@ impl fmt::Debug for CommandTraces {
 pub fn set_network_span(inner: &Arc<RedisClientInner>, command: &mut RedisCommand, flush: bool) {
   trace!("Setting network span from command {}", command.debug_id());
   let span = fspan!(command, inner.tracing_span_level(), "wait_for_response", flush);
-  let _ = span.in_scope(|| {});
+  span.in_scope(|| {});
   command.traces.network = Some(span);
 }
 
 pub fn record_response_size(span: &Span, frame: &Frame) {
-  span.record("res_size", &protocol_utils::resp3_frame_size(frame));
+  span.record("res_size", protocol_utils::resp3_frame_size(frame));
 }
 
 pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {

@@ -15,7 +15,6 @@ use crate::{
 #[cfg(feature = "replicas")]
 use std::{
   collections::{HashMap, VecDeque},
-  convert::identity,
   fmt,
   fmt::Formatter,
   sync::Arc,
@@ -160,11 +159,7 @@ impl ReplicaSet {
 
   /// Add a replica node to the routing table.
   pub fn add(&mut self, primary: Server, replica: Server) {
-    self
-      .servers
-      .entry(primary)
-      .or_insert(ReplicaRouter::default())
-      .add(replica);
+    self.servers.entry(primary).or_default().add(replica);
   }
 
   /// Remove a replica node mapping from the routing table.
@@ -210,7 +205,7 @@ impl ReplicaSet {
       .get(primary)
       .map(|router| router.iter())
       .into_iter()
-      .flat_map(identity)
+      .flatten()
   }
 
   /// Return a map of replica nodes to primary nodes.
@@ -270,7 +265,7 @@ impl Replicas {
     }
 
     for (replica, primary) in self.routing.to_map() {
-      let _ = self.add_connection(inner, primary, replica, false).await?;
+      self.add_connection(inner, primary, replica, false).await?;
     }
 
     Ok(())
@@ -304,10 +299,10 @@ impl Replicas {
 
     if !inner.connection.replica.lazy_connections || force {
       let mut transport = connection::create(inner, &replica, None).await?;
-      let _ = transport.setup(inner, None).await?;
+      transport.setup(inner, None).await?;
 
       let (_, writer) = if inner.config.server.is_clustered() {
-        let _ = transport.readonly(inner, None).await?;
+        transport.readonly(inner, None).await?;
         connection::split_and_initialize(inner, transport, true, clustered::spawn_reader_task)?
       } else {
         connection::split_and_initialize(inner, transport, true, centralized::spawn_reader_task)?
@@ -358,7 +353,7 @@ impl Replicas {
   /// Check and flush all the sockets managed by the replica routing state.
   pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
     for (_, writer) in self.writers.iter_mut() {
-      let _ = writer.flush().await?;
+      writer.flush().await?;
     }
 
     Ok(())

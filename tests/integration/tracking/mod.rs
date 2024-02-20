@@ -11,6 +11,7 @@ use std::{
 };
 use tokio::time::sleep;
 
+#[allow(dead_code)]
 pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   if client.protocol_version() == RespVersion::RESP2 {
     return Ok(());
@@ -31,13 +32,13 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
     }
   });
 
-  let _ = client.start_tracking(None, false, false, false, false).await?;
-  let _: () = client.get("foo{1}").await?;
-  let _: () = client.incr("foo{1}").await?;
+  client.start_tracking(None, false, false, false, false).await?;
+  client.get("foo{1}").await?;
+  client.incr("foo{1}").await?;
 
-  let _: () = client.mget(vec!["bar{1}", "baz{1}"]).await?;
-  let _: () = client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
-  let _ = client.flushall(false).await?;
+  client.mget(vec!["bar{1}", "baz{1}"]).await?;
+  client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
+  client.flushall(false).await?;
 
   sleep(Duration::from_secs(1)).await;
   if invalidated.load(Ordering::Acquire) {
@@ -47,6 +48,7 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
   }
 }
 
+#[allow(dead_code)]
 pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   if client.protocol_version() == RespVersion::RESP3 || client.is_clustered() {
     return Ok(());
@@ -55,8 +57,8 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
   let key: RedisKey = "foo{1}".into();
   check_null!(client, "foo{1}");
   let subscriber = client.clone_new();
-  let _ = subscriber.connect();
-  let _ = subscriber.wait_for_connect().await?;
+  subscriber.connect();
+  subscriber.wait_for_connect().await?;
 
   let invalidated = Arc::new(AtomicBool::new(false));
   let _invalidated = invalidated.clone();
@@ -69,7 +71,7 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
       }
     }
   });
-  let _ = subscriber.subscribe("__redis__:invalidate").await?;
+  subscriber.subscribe("__redis__:invalidate").await?;
 
   let (_, subscriber_id) = subscriber
     .connection_ids()
@@ -78,7 +80,7 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
     .next()
     .expect("Failed to read subscriber connection ID");
 
-  let _ = client
+  client
     .client_tracking("on", Some(subscriber_id), None, false, false, false, false)
     .await?;
 
@@ -86,14 +88,14 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
   // in resp2 this might take some changes to the pubsub parser if it doesn't work with an array as the message type
 
   // check pubsub messages with one key
-  let _: () = client.get("foo{1}").await?;
-  let _: () = client.incr("foo{1}").await?;
+  client.get("foo{1}").await?;
+  client.incr("foo{1}").await?;
 
   // check pubsub messages with an array of keys
-  let _: () = client.mget(vec!["bar{1}", "baz{1}"]).await?;
-  let _: () = client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
+  client.mget(vec!["bar{1}", "baz{1}"]).await?;
+  client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
   // check pubsub messages with a null key
-  let _ = client.flushall(false).await?;
+  client.flushall(false).await?;
 
   sleep(Duration::from_secs(1)).await;
   if invalidated.load(Ordering::Acquire) {

@@ -5,23 +5,6 @@ use fred::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
 
-async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisError> {
-  // use a new client since the provided client is subscribed to keyspace events
-  let client = client.clone_new();
-  client.init().await?;
-
-  for idx in 0 .. amount {
-    let key: RedisKey = format!("foo-{}", idx).into();
-
-    client.set(&key, 1, None, None, false).await?;
-    client.incr(&key).await?;
-    client.del(&key).await?;
-  }
-
-  client.quit().await?;
-  Ok(())
-}
-
 /// Examples showing how to set up keyspace notifications with clustered or centralized/sentinel deployments.
 ///
 /// The most complicated part of this process involves safely handling reconnections. Keyspace events rely on the
@@ -37,6 +20,23 @@ async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisEr
 async fn main() -> Result<(), RedisError> {
   clustered_keyspace_events().await?;
   centralized_keyspace_events().await?;
+  Ok(())
+}
+
+async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisError> {
+  // use a new client since the provided client is subscribed to keyspace events
+  let client = client.clone_new();
+  client.init().await?;
+
+  for idx in 0 .. amount {
+    let key: RedisKey = format!("foo-{}", idx).into();
+
+    client.set(&key, 1, None, None, false).await?;
+    client.incr(&key).await?;
+    client.del(&key).await?;
+  }
+
+  client.quit().await?;
   Ok(())
 }
 

@@ -47,7 +47,7 @@ async fn scripts() -> Result<(), RedisError> {
   client.init().await?;
 
   let script = Script::from_lua(SCRIPTS[0]);
-  let _ = script.load(&client).await?;
+  script.load(&client).await?;
   let result = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
   println!("First script result: {:?}", result);
 

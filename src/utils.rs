@@ -62,9 +62,9 @@ const REDIS_SENTINEL_SCHEME_SUFFIX: &str = "-sentinel";
 const SENTINEL_NAME_QUERY: &str = "sentinelServiceName";
 const CLUSTER_NODE_QUERY: &str = "node";
 #[cfg(feature = "sentinel-auth")]
-const SENTINEL_USERNAME_QUERY: &'static str = "sentinelUsername";
+const SENTINEL_USERNAME_QUERY: &str = "sentinelUsername";
 #[cfg(feature = "sentinel-auth")]
-const SENTINEL_PASSWORD_QUERY: &'static str = "sentinelPassword";
+const SENTINEL_PASSWORD_QUERY: &str = "sentinelPassword";
 
 /// Create a `Str` from a static str slice without copying.
 pub fn static_str(s: &'static str) -> Str {
@@ -464,12 +464,12 @@ where
     let mut command: RedisCommand = func()?.into();
     command.response = ResponseKind::Respond(Some(tx));
 
-    let req_size = protocol_utils::args_size(&command.args());
-    args_span.record("num_args", &command.args().len());
+    let req_size = protocol_utils::args_size(command.args());
+    args_span.record("num_args", command.args().len());
     (command, rx, req_size)
   };
-  cmd_span.record("cmd", &command.kind.to_str_debug());
-  cmd_span.record("req_size", &req_size);
+  cmd_span.record("cmd", command.kind.to_str_debug());
+  cmd_span.record("req_size", req_size);
 
   let queued_span = trace::create_queued_span(cmd_span.id(), inner);
   let timed_out = command.timed_out.clone();
@@ -484,8 +484,8 @@ where
   command.traces.queued = Some(queued_span);
 
   let timeout_dur = prepare_command(client, &mut command);
-  let _ = check_blocking_policy(inner, &command).await?;
-  let _ = client.send_command(command)?;
+  check_blocking_policy(inner, &command).await?;
+  client.send_command(command)?;
 
   apply_timeout(rx, timeout_dur)
     .and_then(|r| async { r })
@@ -655,7 +655,7 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
   }
 }
 
-pub fn is_maybe_array_map(arr: &Vec<RedisValue>) -> bool {
+pub fn is_maybe_array_map(arr: &[RedisValue]) -> bool {
   if !arr.is_empty() && arr.len() % 2 == 0 {
     arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
   } else {

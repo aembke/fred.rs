@@ -181,7 +181,7 @@ impl Connections {
           let replicas = inner
             .with_cluster_state(|state| Ok(state.replicas(primary)))
             .ok()
-            .unwrap_or(Vec::new());
+            .unwrap_or_default();
 
           for replica in replicas.into_iter() {
             out.insert(replica, primary.clone());
@@ -242,11 +242,11 @@ impl Connections {
     buffer: &mut VecDeque<RedisCommand>,
   ) -> Result<(), RedisError> {
     let result = if inner.config.server.is_clustered() {
-      clustered::initialize_connections(inner, self, buffer).await
+      Box::pin(clustered::initialize_connections(inner, self, buffer)).await
     } else if inner.config.server.is_centralized() || inner.config.server.is_unix_socket() {
-      centralized::initialize_connection(inner, self, buffer).await
+      Box::pin(centralized::initialize_connection(inner, self, buffer)).await
     } else if inner.config.server.is_sentinel() {
-      sentinel::initialize_connection(inner, self, buffer).await
+      Box::pin(sentinel::initialize_connection(inner, self, buffer)).await
     } else {
       return Err(RedisError::new(RedisErrorKind::Config, "Invalid client configuration."));
     };
@@ -771,8 +771,8 @@ impl Router {
 
     for server in remove.into_iter() {
       debug!("{}: Dropping replica connection to {}", self.inner.id, server);
-      self.replicas.drop_writer(&server).await;
-      self.replicas.remove_replica(&server);
+      self.replicas.drop_writer(server).await;
+      self.replicas.remove_replica(server);
     }
 
     for (mut replica, primary) in new_replica_map.into_iter() {
@@ -785,7 +785,7 @@ impl Router {
       if should_use {
         replicas::map_replica_tls_names(&self.inner, &primary, &mut replica);
 
-        let _ = self
+        self
           .replicas
           .add_connection(&self.inner, primary, replica, false)
           .await?;

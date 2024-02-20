@@ -579,13 +579,13 @@ pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig
   };
   let trx = client.multi().with_options(&options);
 
-  let _: () = trx.get("foo{1}").await?;
-  let _: () = trx.set("foo{1}", "bar", None, None, false).await?;
-  let _: () = trx.get("foo{1}").await?;
+  trx.get("foo{1}").await?;
+  trx.set("foo{1}", "bar", None, None, false).await?;
+  trx.get("foo{1}").await?;
   let (first, second, third): (Option<RedisValue>, bool, String) = trx.exec(true).await?;
 
   assert_eq!(first, None);
-  assert_eq!(second, true);
+  assert!(second);
   assert_eq!(third, "bar");
   Ok(())
 }

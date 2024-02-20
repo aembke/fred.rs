@@ -149,7 +149,7 @@ pub trait SentinelInterface: ClientLike + Sized {
   {
     into!(name);
     try_into!(args);
-    commands::sentinel::set(self, name, args.into()).await?.convert()
+    commands::sentinel::set(self, name, args).await?.convert()
   }
 
   /// This command simulates different Sentinel crash scenarios.

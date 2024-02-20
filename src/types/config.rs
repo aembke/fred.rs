@@ -653,51 +653,45 @@ impl Default for RedisConfig {
 }
 
 impl RedisConfig {
-  /// Whether or not the client uses TLS.
+  /// Whether the client uses TLS.
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   pub fn uses_tls(&self) -> bool {
     self.tls.is_some()
   }
 
-  /// Whether or not the client uses TLS.
+  /// Whether the client uses TLS.
   #[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
   pub fn uses_tls(&self) -> bool {
     false
   }
 
-  /// Whether or not the client uses a `native-tls` connector.
+  /// Whether the client uses a `native-tls` connector.
   #[cfg(feature = "enable-native-tls")]
-  #[allow(unreachable_patterns)]
   pub fn uses_native_tls(&self) -> bool {
-    match self.tls {
-      Some(ref config) => match config.connector {
-        TlsConnector::Native(_) => true,
-        _ => false,
-      },
-      None => false,
-    }
+    self
+      .tls
+      .as_ref()
+      .map(|config| matches!(config.connector, TlsConnector::Native(_)))
+      .unwrap_or(false)
   }
 
-  /// Whether or not the client uses a `native-tls` connector.
+  /// Whether the client uses a `native-tls` connector.
   #[cfg(not(feature = "enable-native-tls"))]
   pub fn uses_native_tls(&self) -> bool {
     false
   }
 
-  /// Whether or not the client uses a `rustls` connector.
+  /// Whether the client uses a `rustls` connector.
   #[cfg(feature = "enable-rustls")]
-  #[allow(unreachable_patterns)]
   pub fn uses_rustls(&self) -> bool {
-    match self.tls {
-      Some(ref config) => match config.connector {
-        TlsConnector::Rustls(_) => true,
-        _ => false,
-      },
-      None => false,
-    }
+    self
+      .tls
+      .as_ref()
+      .map(|config| matches!(config.connector, TlsConnector::Rustls(_)))
+      .unwrap_or(false)
   }
 
-  /// Whether or not the client uses a `rustls` connector.
+  /// Whether the client uses a `rustls` connector.
   #[cfg(not(feature = "enable-rustls"))]
   pub fn uses_rustls(&self) -> bool {
     false
@@ -1275,7 +1269,7 @@ impl Options {
       cluster_node:                                cmd.cluster_node.clone(),
       fail_fast:                                   cmd.fail_fast,
       #[cfg(feature = "client-tracking")]
-      caching:                                     cmd.caching.clone(),
+      caching:                                     cmd.caching,
     }
   }
 
@@ -1288,7 +1282,7 @@ impl Options {
 
     #[cfg(feature = "client-tracking")]
     {
-      command.caching = self.caching.clone();
+      command.caching = self.caching;
     }
 
     if let Some(attempts) = self.max_attempts {
