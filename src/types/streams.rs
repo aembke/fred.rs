@@ -116,6 +116,24 @@ where
   }
 }
 
+impl<K, V> TryFrom<HashMap<K, V>> for MultipleOrderedPairs
+where
+  K: Into<RedisKey>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(values: HashMap<K, V>) -> Result<Self, Self::Error> {
+    Ok(MultipleOrderedPairs {
+      values: values
+        .into_iter()
+        .map(|(key, value)| Ok((key.into(), to!(value)?)))
+        .collect::<Result<Vec<(RedisKey, RedisValue)>, RedisError>>()?,
+    })
+  }
+}
+
 /// One or more IDs for elements in a stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleIDs {
@@ -344,10 +362,10 @@ impl From<Str> for XID {
 /// to represent no arguments.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct XPendingArgs {
-  pub idle:     Option<u64>,
-  pub start:    Option<XID>,
-  pub end:      Option<XID>,
-  pub count:    Option<u64>,
+  pub idle: Option<u64>,
+  pub start: Option<XID>,
+  pub end: Option<XID>,
+  pub count: Option<u64>,
   pub consumer: Option<Str>,
 }
 
@@ -398,10 +416,10 @@ impl XPendingArgs {
 impl From<()> for XPendingArgs {
   fn from(_: ()) -> Self {
     XPendingArgs {
-      idle:     None,
-      start:    None,
-      end:      None,
-      count:    None,
+      idle: None,
+      start: None,
+      end: None,
+      count: None,
       consumer: None,
     }
   }
@@ -414,10 +432,10 @@ where
 {
   fn from((start, end, count): (S, E, u64)) -> Self {
     XPendingArgs {
-      idle:     None,
-      start:    Some(start.into()),
-      end:      Some(end.into()),
-      count:    Some(count),
+      idle: None,
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
       consumer: None,
     }
   }
@@ -431,10 +449,10 @@ where
 {
   fn from((start, end, count, consumer): (S, E, u64, C)) -> Self {
     XPendingArgs {
-      idle:     None,
-      start:    Some(start.into()),
-      end:      Some(end.into()),
-      count:    Some(count),
+      idle: None,
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
       consumer: Some(consumer.into()),
     }
   }
@@ -447,10 +465,10 @@ where
 {
   fn from((idle, start, end, count): (u64, S, E, u64)) -> Self {
     XPendingArgs {
-      idle:     Some(idle),
-      start:    Some(start.into()),
-      end:      Some(end.into()),
-      count:    Some(count),
+      idle: Some(idle),
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
       consumer: None,
     }
   }
@@ -464,10 +482,10 @@ where
 {
   fn from((idle, start, end, count, consumer): (u64, S, E, u64, C)) -> Self {
     XPendingArgs {
-      idle:     Some(idle),
-      start:    Some(start.into()),
-      end:      Some(end.into()),
-      count:    Some(count),
+      idle: Some(idle),
+      start: Some(start.into()),
+      end: Some(end.into()),
+      count: Some(count),
       consumer: Some(consumer.into()),
     }
   }
