@@ -1,3 +1,7 @@
+## 8.0.4
+
+* Fix tracing span annotations.
+
 ## 8.0.3
 
 * Box large futures to reduce stack usage.
