@@ -442,6 +442,8 @@ where
 
 /// Send a command to the server, with tracing.
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
+#[allow(clippy::needless_borrows_for_generic_args)]
+// despite what clippy says, this^ actually matters for tracing `record` calls (at least it seems where `V: Copy`)
 pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
 where
   C: ClientLike,
@@ -458,18 +460,19 @@ where
 
   let (mut command, rx, req_size) = {
     let args_span = trace::create_args_span(cmd_span.id(), inner);
-    let _enter = args_span.enter();
+    #[allow(clippy::let_unit_value)]
+    let _guard = args_span.enter();
     let (tx, rx) = oneshot_channel();
 
     let mut command: RedisCommand = func()?.into();
     command.response = ResponseKind::Respond(Some(tx));
 
     let req_size = protocol_utils::args_size(command.args());
-    args_span.record("num_args", command.args().len());
+    args_span.record("num_args", &command.args().len());
     (command, rx, req_size)
   };
-  cmd_span.record("cmd", command.kind.to_str_debug());
-  cmd_span.record("req_size", req_size);
+  cmd_span.record("cmd", &command.kind.to_str_debug());
+  cmd_span.record("req_size", &req_size);
 
   let queued_span = trace::create_queued_span(cmd_span.id(), inner);
   let timed_out = command.timed_out.clone();

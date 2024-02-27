@@ -53,7 +53,8 @@ pub fn set_network_span(inner: &Arc<RedisClientInner>, command: &mut RedisComman
 }
 
 pub fn record_response_size(span: &Span, frame: &Frame) {
-  span.record("res_size", protocol_utils::resp3_frame_size(frame));
+  #[allow(clippy::needless_borrows_for_generic_args)]
+  span.record("res_size", &protocol_utils::resp3_frame_size(frame));
 }
 
 pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
