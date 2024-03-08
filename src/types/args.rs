@@ -24,8 +24,8 @@ use std::{
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
-static_str!(TRUE_STR, "true");
-static_str!(FALSE_STR, "false");
+static TRUE_STR: Str = utils::static_str("true");
+static FALSE_STR: Str = utils::static_str("false");
 
 macro_rules! impl_string_or_number(
     ($t:ty) => {

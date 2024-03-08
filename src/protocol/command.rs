@@ -33,16 +33,14 @@ use crate::modules::mocks::MockCommand;
 use crate::trace::CommandTraces;
 
 #[cfg(feature = "debug-ids")]
-use lazy_static::lazy_static;
-#[cfg(feature = "debug-ids")]
 use std::sync::atomic::AtomicUsize;
 #[cfg(feature = "debug-ids")]
-lazy_static! {
-  static ref COMMAND_COUNTER: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
-}
+static COMMAND_COUNTER: AtomicUsize = AtomicUsize::new(0);
 #[cfg(feature = "debug-ids")]
 pub fn command_counter() -> usize {
-  utils::incr_atomic(&COMMAND_COUNTER)
+  COMMAND_COUNTER
+    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    .saturating_add(1)
 }
 
 /// A command interface for communication between connection reader tasks and the router.

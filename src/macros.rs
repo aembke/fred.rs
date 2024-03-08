@@ -85,16 +85,6 @@ macro_rules! try_or_continue (
   }
 );
 
-macro_rules! static_str(
-  ($name:ident, $val:expr) => {
-    lazy_static::lazy_static! {
-      pub(crate) static ref $name: Str = {
-        crate::utils::static_str($val)
-      };
-    }
-  }
-);
-
 /// A helper macro to wrap a string value in quotes via the [json](serde_json::json) macro.
 ///
 /// See the [RedisJSON interface](crate::interfaces::RedisJsonInterface) for more information.
