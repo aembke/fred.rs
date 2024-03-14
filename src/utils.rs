@@ -67,7 +67,7 @@ const SENTINEL_USERNAME_QUERY: &str = "sentinelUsername";
 const SENTINEL_PASSWORD_QUERY: &str = "sentinelPassword";
 
 /// Create a `Str` from a static str slice without copying.
-pub fn static_str(s: &'static str) -> Str {
+pub const fn static_str(s: &'static str) -> Str {
   // it's already parsed as a string
   unsafe { Str::from_inner_unchecked(Bytes::from_static(s.as_bytes())) }
 }

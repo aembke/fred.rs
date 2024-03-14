@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "8.0.4"
+version = "8.0.5"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -46,7 +46,6 @@ bytes = "1.5"
 bytes-utils = "0.1"
 futures = { version = "0.3", features = ["std"] }
 parking_lot = "0.12"
-lazy_static = "1.4"
 redis-protocol = { version = "4.1", features = ["decode-mut"] }
 log = "0.4"
 float-cmp = "0.9"
@@ -91,6 +90,10 @@ required-features = ["monitor"]
 
 [[example]]
 name = "pubsub"
+required-features = ["subscriber-client"]
+
+[[example]]
+name = "axum"
 required-features = ["subscriber-client"]
 
 [[example]]
