@@ -1,3 +1,9 @@
+## 8.0.5
+
+* Add conversion from `HashMap` to `MultipleOrderedPairs`.
+* Remove `lazy_static`
+* Update examples
+
 ## 8.0.4
 
 * Fix tracing span annotations.
