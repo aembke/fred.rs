@@ -20,7 +20,7 @@ fn create_tls_config() -> TlsConnector {
     .into()
 }
 
-#[cfg(feature = "enable-rustls")]
+#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
 fn create_tls_config() -> TlsConnector {
   use fred::rustls::{ClientConfig, RootCertStore};
 

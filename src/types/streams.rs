@@ -116,6 +116,24 @@ where
   }
 }
 
+impl<K, V> TryFrom<HashMap<K, V>> for MultipleOrderedPairs
+where
+  K: Into<RedisKey>,
+  V: TryInto<RedisValue>,
+  V::Error: Into<RedisError>,
+{
+  type Error = RedisError;
+
+  fn try_from(values: HashMap<K, V>) -> Result<Self, Self::Error> {
+    Ok(MultipleOrderedPairs {
+      values: values
+        .into_iter()
+        .map(|(key, value)| Ok((key.into(), to!(value)?)))
+        .collect::<Result<Vec<(RedisKey, RedisValue)>, RedisError>>()?,
+    })
+  }
+}
+
 /// One or more IDs for elements in a stream.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleIDs {
