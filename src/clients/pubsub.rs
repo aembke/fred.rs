@@ -115,7 +115,6 @@ impl TimeSeriesInterface for SubscriberClient {}
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 impl TrackingInterface for SubscriberClient {}
 
-#[async_trait]
 impl PubsubInterface for SubscriberClient {
   async fn subscribe<S>(&self, channels: S) -> RedisResult<()>
   where

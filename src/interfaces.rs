@@ -115,7 +115,7 @@ pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterComma
 
 /// Any Redis client that implements any part of the Redis interface.
 #[async_trait]
-pub trait ClientLike: Clone + Send + Sized {
+pub trait ClientLike: Clone + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
