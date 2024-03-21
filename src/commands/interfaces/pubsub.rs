@@ -69,7 +69,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Publish a message on the PubSub interface, returning the number of clients that received the message.
   ///
   /// <https://redis.io/commands/publish>
-  fn publish<R, S, V>(&self, channel: S, message: V) -> impl Future<Output = RedisResult<()>> + Send
+  fn publish<R, S, V>(&self, channel: S, message: V) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     S: Into<Str> + Send,
