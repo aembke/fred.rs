@@ -4,10 +4,10 @@ use crate::{
   prelude::RedisResult,
   types::{Invalidation, MultipleStrings},
 };
+use futures::Future;
 use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// A high level interface that supports [client side caching](https://redis.io/docs/manual/client-side-caching/) via the [client tracking](https://redis.io/commands/client-tracking/) interface.
-#[async_trait]
 #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
 pub trait TrackingInterface: ClientLike + Sized {
   /// Send the [CLIENT TRACKING](https://redis.io/commands/client-tracking/) command to all connected servers, subscribing to [invalidation messages](Self::on_invalidation) on the same connection.
@@ -17,24 +17,26 @@ pub trait TrackingInterface: ClientLike + Sized {
   ///
   /// See the basic [client tracking](crate::interfaces::ClientInterface::client_tracking) function for more
   /// information on the underlying commands.
-  async fn start_tracking<P>(
+  fn start_tracking<P>(
     &self,
     prefixes: P,
     bcast: bool,
     optin: bool,
     optout: bool,
     noloop: bool,
-  ) -> RedisResult<()>
+  ) -> impl Future<Output = RedisResult<()>> + Send
   where
     P: Into<MultipleStrings> + Send,
   {
-    into!(prefixes);
-    commands::tracking::start_tracking(self, prefixes, bcast, optin, optout, noloop).await
+    async move {
+      into!(prefixes);
+      commands::tracking::start_tracking(self, prefixes, bcast, optin, optout, noloop).await
+    }
   }
 
   /// Disable client tracking on all connections.
-  async fn stop_tracking(&self) -> RedisResult<()> {
-    commands::tracking::stop_tracking(self).await
+  fn stop_tracking(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::tracking::stop_tracking(self).await }
   }
 
   /// Spawn a task that processes invalidation messages from the server.

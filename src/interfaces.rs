@@ -26,6 +26,7 @@ use crate::{
   },
   utils,
 };
+use futures::Future;
 pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc};
@@ -114,8 +115,7 @@ pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterComma
 }
 
 /// Any Redis client that implements any part of the Redis interface.
-#[async_trait]
-pub trait ClientLike: Clone + Send + Sized {
+pub trait ClientLike: Clone + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
 
@@ -206,8 +206,8 @@ pub trait ClientLike: Clone + Send + Sized {
   }
 
   /// Read the set of active connections managed by the client.
-  async fn active_connections(&self) -> Result<Vec<Server>, RedisError> {
-    commands::client::active_connections(self).await
+  fn active_connections(&self) -> impl Future<Output = Result<Vec<Server>, RedisError>> + Send {
+    async move { commands::client::active_connections(self).await }
   }
 
   /// Read the server version, if known.
@@ -218,8 +218,8 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Override the DNS resolution logic for the client.
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-  async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
-    self.inner().set_resolver(resolver).await;
+  fn set_resolver(&self, resolver: Arc<dyn Resolve>) -> impl Future + Send {
+    async move { self.inner().set_resolver(resolver).await }
   }
 
   /// Connect to the Redis server.
@@ -257,20 +257,22 @@ pub trait ClientLike: Clone + Send + Sized {
   /// Force a reconnection to the server(s).
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
-  async fn force_reconnection(&self) -> RedisResult<()> {
-    commands::server::force_reconnection(self.inner()).await
+  fn force_reconnection(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::force_reconnection(self.inner()).await }
   }
 
   /// Wait for the result of the next connection attempt.
   ///
   /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the next
   /// connection attempt vs all subsequent attempts.
-  async fn wait_for_connect(&self) -> RedisResult<()> {
-    if utils::read_locked(&self.inner().state) == ClientState::Connected {
-      debug!("{}: Client is already connected.", self.inner().id);
-      Ok(())
-    } else {
-      self.inner().notifications.connect.load().subscribe().recv().await?
+  fn wait_for_connect(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      if utils::read_locked(&self.inner().state) == ClientState::Connected {
+        debug!("{}: Client is already connected.", self.inner().id);
+        Ok(())
+      } else {
+        self.inner().notifications.connect.load().subscribe().recv().await?
+      }
     }
   }
 
@@ -296,17 +298,19 @@ pub trait ClientLike: Clone + Send + Sized {
   ///   connection_task.await?
   /// }
   /// ```
-  async fn init(&self) -> RedisResult<ConnectHandle> {
-    let mut rx = { self.inner().notifications.connect.load().subscribe() };
-    let task = self.connect();
-    let error = rx.recv().await.map_err(RedisError::from).and_then(|r| r).err();
+  fn init(&self) -> impl Future<Output = RedisResult<ConnectHandle>> + Send {
+    async move {
+      let mut rx = { self.inner().notifications.connect.load().subscribe() };
+      let task = self.connect();
+      let error = rx.recv().await.map_err(RedisError::from).and_then(|r| r).err();
 
-    if let Some(error) = error {
-      // the initial connection failed, so we should gracefully close the routing task
-      utils::reset_router_task(self.inner());
-      Err(error)
-    } else {
-      Ok(task)
+      if let Some(error) = error {
+        // the initial connection failed, so we should gracefully close the routing task
+        utils::reset_router_task(self.inner());
+        Err(error)
+      } else {
+        Ok(task)
+      }
     }
   }
 
@@ -315,35 +319,35 @@ pub trait ClientLike: Clone + Send + Sized {
   /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams.
-  async fn quit(&self) -> RedisResult<()> {
-    commands::server::quit(self).await
+  fn quit(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::quit(self).await }
   }
 
   /// Shut down the server and quit the client.
   ///
   /// <https://redis.io/commands/shutdown>
-  async fn shutdown(&self, flags: Option<ShutdownFlags>) -> RedisResult<()> {
-    commands::server::shutdown(self, flags).await
+  fn shutdown(&self, flags: Option<ShutdownFlags>) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::shutdown(self, flags).await }
   }
 
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  async fn ping<R>(&self) -> RedisResult<R>
+  fn ping<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::ping(self).await?.convert()
+    async move { commands::server::ping(self).await?.convert() }
   }
 
   /// Read info about the server.
   ///
   /// <https://redis.io/commands/info>
-  async fn info<R>(&self, section: Option<InfoKind>) -> RedisResult<R>
+  fn info<R>(&self, section: Option<InfoKind>) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::info(self, section).await?.convert()
+    async move { commands::server::info(self, section).await?.convert() }
   }
 
   /// Run a custom command that is not yet supported via another interface on this client. This is most useful when
@@ -354,27 +358,31 @@ pub trait ClientLike: Clone + Send + Sized {
   ///
   /// This interface should be used with caution as it may break the automatic pipeline features in the client if
   /// command flags are not properly configured.
-  async fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> RedisResult<R>
+  fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     T: TryInto<RedisValue> + Send,
     T::Error: Into<RedisError> + Send,
   {
-    let args = utils::try_into_vec(args)?;
-    commands::server::custom(self, cmd, args).await?.convert()
+    async move {
+      let args = utils::try_into_vec(args)?;
+      commands::server::custom(self, cmd, args).await?.convert()
+    }
   }
 
   /// Run a custom command similar to [custom](Self::custom), but return the response frame directly without any
   /// parsing.
   ///
   /// Note: RESP2 frames from the server are automatically converted to the RESP3 format when parsed by the client.
-  async fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> RedisResult<Resp3Frame>
+  fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> impl Future<Output = RedisResult<Resp3Frame>> + Send
   where
     T: TryInto<RedisValue> + Send,
     T::Error: Into<RedisError> + Send,
   {
-    let args = utils::try_into_vec(args)?;
-    commands::server::custom_raw(self, cmd, args).await
+    async move {
+      let args = utils::try_into_vec(args)?;
+      commands::server::custom_raw(self, cmd, args).await
+    }
   }
 
   /// Customize various configuration options on commands.

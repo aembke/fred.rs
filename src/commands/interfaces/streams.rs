@@ -19,6 +19,7 @@ use crate::{
   },
 };
 use bytes_utils::Str;
+use futures::Future;
 use std::{convert::TryInto, hash::Hash};
 
 /// Functions that implement the [streams](https://redis.io/commands#stream) interface.
@@ -28,46 +29,51 @@ use std::{convert::TryInto, hash::Hash};
 /// [xreadgroup_map](Self::xreadgroup_map), [xrange_values](Self::xrange_values), etc exist to make this easier for
 /// callers. These functions apply an additional layer of parsing logic that can make declaring response types easier,
 /// as well as automatically handling any differences between RESP2 and RESP3 return value types.
-#[async_trait]
 pub trait StreamsInterface: ClientLike + Sized {
   /// This command returns the list of consumers that belong to the `groupname` consumer group of the stream stored at
   /// `key`.
   ///
   /// <https://redis.io/commands/xinfo-consumers>
-  async fn xinfo_consumers<R, K, S>(&self, key: K, groupname: S) -> RedisResult<R>
+  fn xinfo_consumers<R, K, S>(&self, key: K, groupname: S) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     S: Into<Str> + Send,
   {
-    into!(key, groupname);
-    commands::streams::xinfo_consumers(self, key, groupname)
-      .await?
-      .convert()
+    async move {
+      into!(key, groupname);
+      commands::streams::xinfo_consumers(self, key, groupname)
+        .await?
+        .convert()
+    }
   }
 
   /// This command returns the list of all consumers groups of the stream stored at `key`.
   ///
   /// <https://redis.io/commands/xinfo-groups>
-  async fn xinfo_groups<R, K>(&self, key: K) -> RedisResult<R>
+  fn xinfo_groups<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
   {
-    into!(key);
-    commands::streams::xinfo_groups(self, key).await?.convert()
+    async move {
+      into!(key);
+      commands::streams::xinfo_groups(self, key).await?.convert()
+    }
   }
 
   /// This command returns information about the stream stored at `key`.
   ///
   /// <https://redis.io/commands/xinfo-stream>
-  async fn xinfo_stream<R, K>(&self, key: K, full: bool, count: Option<u64>) -> RedisResult<R>
+  fn xinfo_stream<R, K>(&self, key: K, full: bool, count: Option<u64>) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
   {
-    into!(key);
-    commands::streams::xinfo_stream(self, key, full, count).await?.convert()
+    async move {
+      into!(key);
+      commands::streams::xinfo_stream(self, key, full, count).await?.convert()
+    }
   }
 
   /// Appends the specified stream entry to the stream at the specified key. If the key does not exist, as a side
@@ -75,7 +81,14 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// disabled with the NOMKSTREAM option.
   ///
   /// <https://redis.io/commands/xadd>
-  async fn xadd<R, K, C, I, F>(&self, key: K, nomkstream: bool, cap: C, id: I, fields: F) -> RedisResult<R>
+  fn xadd<R, K, C, I, F>(
+    &self,
+    key: K,
+    nomkstream: bool,
+    cap: C,
+    id: I,
+    fields: F,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
@@ -85,52 +98,58 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: TryInto<XCap> + Send,
     C::Error: Into<RedisError> + Send,
   {
-    into!(key, id);
-    try_into!(fields, cap);
-    commands::streams::xadd(self, key, nomkstream, cap, id, fields)
-      .await?
-      .convert()
+    async move {
+      into!(key, id);
+      try_into!(fields, cap);
+      commands::streams::xadd(self, key, nomkstream, cap, id, fields)
+        .await?
+        .convert()
+    }
   }
 
   /// Trims the stream by evicting older entries (entries with lower IDs) if needed.
   ///
   /// <https://redis.io/commands/xtrim>
-  async fn xtrim<R, K, C>(&self, key: K, cap: C) -> RedisResult<R>
+  fn xtrim<R, K, C>(&self, key: K, cap: C) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     C: TryInto<XCap> + Send,
     C::Error: Into<RedisError> + Send,
   {
-    into!(key);
-    try_into!(cap);
-    commands::streams::xtrim(self, key, cap).await?.convert()
+    async move {
+      into!(key);
+      try_into!(cap);
+      commands::streams::xtrim(self, key, cap).await?.convert()
+    }
   }
 
   /// Removes the specified entries from a stream, and returns the number of entries deleted.
   ///
   /// <https://redis.io/commands/xdel>
-  async fn xdel<R, K, S>(&self, key: K, ids: S) -> RedisResult<R>
+  fn xdel<R, K, S>(&self, key: K, ids: S) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     S: Into<MultipleStrings> + Send,
   {
-    into!(key, ids);
-    commands::streams::xdel(self, key, ids).await?.convert()
+    async move {
+      into!(key, ids);
+      commands::streams::xdel(self, key, ids).await?.convert()
+    }
   }
 
   /// Return the stream entries matching the provided range of IDs, automatically converting to a less verbose type
   /// definition.
   ///
   /// <https://redis.io/commands/xrange>
-  async fn xrange_values<Ri, Rk, Rv, K, S, E>(
+  fn xrange_values<Ri, Rk, Rv, K, S, E>(
     &self,
     key: K,
     start: S,
     end: E,
     count: Option<u64>,
-  ) -> RedisResult<Vec<XReadValue<Ri, Rk, Rv>>>
+  ) -> impl Future<Output = RedisResult<Vec<XReadValue<Ri, Rk, Rv>>>> + Send
   where
     Ri: FromRedis,
     Rk: FromRedisKey + Hash + Eq,
@@ -141,11 +160,13 @@ pub trait StreamsInterface: ClientLike + Sized {
     E: TryInto<RedisValue> + Send,
     E::Error: Into<RedisError> + Send,
   {
-    into!(key);
-    try_into!(start, end);
-    commands::streams::xrange(self, key, start, end, count)
-      .await?
-      .into_xread_value()
+    async move {
+      into!(key);
+      try_into!(start, end);
+      commands::streams::xrange(self, key, start, end, count)
+        .await?
+        .into_xread_value()
+    }
   }
 
   /// The command returns the stream entries matching a given range of IDs. The range is specified by a minimum
@@ -155,7 +176,13 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/xrange>
   ///
   /// **See [xrange_values](Self::xrange_values) for a variation of this function that may be more useful.**
-  async fn xrange<R, K, S, E>(&self, key: K, start: S, end: E, count: Option<u64>) -> RedisResult<R>
+  fn xrange<R, K, S, E>(
+    &self,
+    key: K,
+    start: S,
+    end: E,
+    count: Option<u64>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
@@ -164,22 +191,24 @@ pub trait StreamsInterface: ClientLike + Sized {
     E: TryInto<RedisValue> + Send,
     E::Error: Into<RedisError> + Send,
   {
-    into!(key);
-    try_into!(start, end);
-    commands::streams::xrange(self, key, start, end, count).await?.convert()
+    async move {
+      into!(key);
+      try_into!(start, end);
+      commands::streams::xrange(self, key, start, end, count).await?.convert()
+    }
   }
 
   /// Similar to `XRANGE`, but with the results returned in reverse order. The results will be automatically converted
   /// to a less verbose type definition.
   ///
   /// <https://redis.io/commands/xrevrange>
-  async fn xrevrange_values<Ri, Rk, Rv, K, E, S>(
+  fn xrevrange_values<Ri, Rk, Rv, K, E, S>(
     &self,
     key: K,
     end: E,
     start: S,
     count: Option<u64>,
-  ) -> RedisResult<Vec<XReadValue<Ri, Rk, Rv>>>
+  ) -> impl Future<Output = RedisResult<Vec<XReadValue<Ri, Rk, Rv>>>> + Send
   where
     Ri: FromRedis,
     Rk: FromRedisKey + Hash + Eq,
@@ -190,11 +219,13 @@ pub trait StreamsInterface: ClientLike + Sized {
     E: TryInto<RedisValue> + Send,
     E::Error: Into<RedisError> + Send,
   {
-    into!(key);
-    try_into!(start, end);
-    commands::streams::xrevrange(self, key, end, start, count)
-      .await?
-      .into_xread_value()
+    async move {
+      into!(key);
+      try_into!(start, end);
+      commands::streams::xrevrange(self, key, end, start, count)
+        .await?
+        .into_xread_value()
+    }
   }
 
   /// Similar to `XRANGE`, but with the results returned in reverse order.
@@ -202,7 +233,13 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/xrevrange>
   ///
   /// **See the [xrevrange_values](Self::xrevrange_values) for a variation of this function that may be more useful.**
-  async fn xrevrange<R, K, S, E>(&self, key: K, end: E, start: S, count: Option<u64>) -> RedisResult<R>
+  fn xrevrange<R, K, S, E>(
+    &self,
+    key: K,
+    end: E,
+    start: S,
+    count: Option<u64>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
@@ -211,23 +248,27 @@ pub trait StreamsInterface: ClientLike + Sized {
     E: TryInto<RedisValue> + Send,
     E::Error: Into<RedisError> + Send,
   {
-    into!(key);
-    try_into!(start, end);
-    commands::streams::xrevrange(self, key, end, start, count)
-      .await?
-      .convert()
+    async move {
+      into!(key);
+      try_into!(start, end);
+      commands::streams::xrevrange(self, key, end, start, count)
+        .await?
+        .convert()
+    }
   }
 
   /// Returns the number of entries inside a stream.
   ///
   /// <https://redis.io/commands/xlen>
-  async fn xlen<R, K>(&self, key: K) -> RedisResult<R>
+  fn xlen<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
   {
-    into!(key);
-    commands::streams::xlen(self, key).await?.convert()
+    async move {
+      into!(key);
+      commands::streams::xlen(self, key).await?.convert()
+    }
   }
 
   /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID
@@ -327,13 +368,13 @@ pub trait StreamsInterface: ClientLike + Sized {
   //   .flatten_array_values(2)
   //   .convert()?;
   // ```
-  async fn xread_map<Rk1, Rk2, Rk3, Rv, K, I>(
+  fn xread_map<Rk1, Rk2, Rk3, Rv, K, I>(
     &self,
     count: Option<u64>,
     block: Option<u64>,
     keys: K,
     ids: I,
-  ) -> RedisResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>
+  ) -> impl Future<Output = RedisResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>> + Send
   where
     Rk1: FromRedisKey + Hash + Eq,
     Rk2: FromRedis,
@@ -342,10 +383,12 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<MultipleKeys> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(keys, ids);
-    commands::streams::xread(self, count, block, keys, ids)
-      .await?
-      .into_xread_response()
+    async move {
+      into!(keys, ids);
+      commands::streams::xread(self, count, block, keys, ids)
+        .await?
+        .into_xread_response()
+    }
   }
 
   /// Read data from one or multiple streams, only returning entries with an ID greater than the last received ID
@@ -355,91 +398,125 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// **See [xread_map](Self::xread_map) for more information on a variation of this function that might be more
   /// useful.**
-  async fn xread<R, K, I>(&self, count: Option<u64>, block: Option<u64>, keys: K, ids: I) -> RedisResult<R>
+  fn xread<R, K, I>(
+    &self,
+    count: Option<u64>,
+    block: Option<u64>,
+    keys: K,
+    ids: I,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<MultipleKeys> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(keys, ids);
-    commands::streams::xread(self, count, block, keys, ids).await?.convert()
+    async move {
+      into!(keys, ids);
+      commands::streams::xread(self, count, block, keys, ids).await?.convert()
+    }
   }
 
   /// This command creates a new consumer group uniquely identified by `groupname` for the stream stored at `key`.
   ///
   /// <https://redis.io/commands/xgroup-create>
-  async fn xgroup_create<R, K, S, I>(&self, key: K, groupname: S, id: I, mkstream: bool) -> RedisResult<R>
+  fn xgroup_create<R, K, S, I>(
+    &self,
+    key: K,
+    groupname: S,
+    id: I,
+    mkstream: bool,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     S: Into<Str> + Send,
     I: Into<XID> + Send,
   {
-    into!(key, groupname, id);
-    commands::streams::xgroup_create(self, key, groupname, id, mkstream)
-      .await?
-      .convert()
+    async move {
+      into!(key, groupname, id);
+      commands::streams::xgroup_create(self, key, groupname, id, mkstream)
+        .await?
+        .convert()
+    }
   }
 
   /// Create a consumer named `consumername` in the consumer group `groupname` of the stream that's stored at `key`.
   ///
   /// <https://redis.io/commands/xgroup-createconsumer>
-  async fn xgroup_createconsumer<R, K, G, C>(&self, key: K, groupname: G, consumername: C) -> RedisResult<R>
+  fn xgroup_createconsumer<R, K, G, C>(
+    &self,
+    key: K,
+    groupname: G,
+    consumername: C,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     G: Into<Str> + Send,
     C: Into<Str> + Send,
   {
-    into!(key, groupname, consumername);
-    commands::streams::xgroup_createconsumer(self, key, groupname, consumername)
-      .await?
-      .convert()
+    async move {
+      into!(key, groupname, consumername);
+      commands::streams::xgroup_createconsumer(self, key, groupname, consumername)
+        .await?
+        .convert()
+    }
   }
 
   /// Delete a consumer named `consumername` in the consumer group `groupname` of the stream that's stored at `key`.
   ///
   /// <https://redis.io/commands/xgroup-delconsumer>
-  async fn xgroup_delconsumer<R, K, G, C>(&self, key: K, groupname: G, consumername: C) -> RedisResult<R>
+  fn xgroup_delconsumer<R, K, G, C>(
+    &self,
+    key: K,
+    groupname: G,
+    consumername: C,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     G: Into<Str> + Send,
     C: Into<Str> + Send,
   {
-    into!(key, groupname, consumername);
-    commands::streams::xgroup_delconsumer(self, key, groupname, consumername)
-      .await?
-      .convert()
+    async move {
+      into!(key, groupname, consumername);
+      commands::streams::xgroup_delconsumer(self, key, groupname, consumername)
+        .await?
+        .convert()
+    }
   }
 
   /// Completely destroy a consumer group.
   ///
   /// <https://redis.io/commands/xgroup-destroy>
-  async fn xgroup_destroy<R, K, S>(&self, key: K, groupname: S) -> RedisResult<R>
+  fn xgroup_destroy<R, K, S>(&self, key: K, groupname: S) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     S: Into<Str> + Send,
   {
-    into!(key, groupname);
-    commands::streams::xgroup_destroy(self, key, groupname).await?.convert()
+    async move {
+      into!(key, groupname);
+      commands::streams::xgroup_destroy(self, key, groupname).await?.convert()
+    }
   }
 
   /// Set the last delivered ID for a consumer group.
   ///
   /// <https://redis.io/commands/xgroup-setid>
-  async fn xgroup_setid<R, K, S, I>(&self, key: K, groupname: S, id: I) -> RedisResult<R>
+  fn xgroup_setid<R, K, S, I>(&self, key: K, groupname: S, id: I) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     S: Into<Str> + Send,
     I: Into<XID> + Send,
   {
-    into!(key, groupname, id);
-    commands::streams::xgroup_setid(self, key, groupname, id)
-      .await?
-      .convert()
+    async move {
+      into!(key, groupname, id);
+      commands::streams::xgroup_setid(self, key, groupname, id)
+        .await?
+        .convert()
+    }
   }
 
   /// A special version of the `XREAD` command with support for consumer groups.
@@ -458,7 +535,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// See the [xread_map](Self::xread_map) documentation for more information.
   // See the `xread_map` source docs for more information.
-  async fn xreadgroup_map<Rk1, Rk2, Rk3, Rv, G, C, K, I>(
+  fn xreadgroup_map<Rk1, Rk2, Rk3, Rv, G, C, K, I>(
     &self,
     group: G,
     consumer: C,
@@ -467,7 +544,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     noack: bool,
     keys: K,
     ids: I,
-  ) -> RedisResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>
+  ) -> impl Future<Output = RedisResult<XReadResponse<Rk1, Rk2, Rk3, Rv>>> + Send
   where
     Rk1: FromRedisKey + Hash + Eq,
     Rk2: FromRedis,
@@ -478,10 +555,12 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<MultipleKeys> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(group, consumer, keys, ids);
-    commands::streams::xreadgroup(self, group, consumer, count, block, noack, keys, ids)
-      .await?
-      .into_xread_response()
+    async move {
+      into!(group, consumer, keys, ids);
+      commands::streams::xreadgroup(self, group, consumer, count, block, noack, keys, ids)
+        .await?
+        .into_xread_response()
+    }
   }
 
   /// A special version of the `XREAD` command with support for consumer groups.
@@ -493,7 +572,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/xreadgroup>
   ///
   /// **See [xreadgroup_map](Self::xreadgroup_map) for a variation of this function that might be more useful.**
-  async fn xreadgroup<R, G, C, K, I>(
+  fn xreadgroup<R, G, C, K, I>(
     &self,
     group: G,
     consumer: C,
@@ -502,7 +581,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     noack: bool,
     keys: K,
     ids: I,
-  ) -> RedisResult<R>
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     G: Into<Str> + Send,
@@ -510,28 +589,32 @@ pub trait StreamsInterface: ClientLike + Sized {
     K: Into<MultipleKeys> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(group, consumer, keys, ids);
-    commands::streams::xreadgroup(self, group, consumer, count, block, noack, keys, ids)
-      .await?
-      .convert()
+    async move {
+      into!(group, consumer, keys, ids);
+      commands::streams::xreadgroup(self, group, consumer, count, block, noack, keys, ids)
+        .await?
+        .convert()
+    }
   }
 
   /// Remove one or more messages from the Pending Entries List (PEL) of a stream consumer group.
   ///
   /// <https://redis.io/commands/xack>
-  async fn xack<R, K, G, I>(&self, key: K, group: G, ids: I) -> RedisResult<R>
+  fn xack<R, K, G, I>(&self, key: K, group: G, ids: I) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     G: Into<Str> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(key, group, ids);
-    commands::streams::xack(self, key, group, ids).await?.convert()
+    async move {
+      into!(key, group, ids);
+      commands::streams::xack(self, key, group, ids).await?.convert()
+    }
   }
 
   /// A variation of [xclaim](Self::xclaim) with a less verbose return type.
-  async fn xclaim_values<Ri, Rk, Rv, K, G, C, I>(
+  fn xclaim_values<Ri, Rk, Rv, K, G, C, I>(
     &self,
     key: K,
     group: G,
@@ -543,7 +626,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     retry_count: Option<u64>,
     force: bool,
     justid: bool,
-  ) -> RedisResult<Vec<XReadValue<Ri, Rk, Rv>>>
+  ) -> impl Future<Output = RedisResult<Vec<XReadValue<Ri, Rk, Rv>>>> + Send
   where
     Ri: FromRedis,
     Rk: FromRedisKey + Hash + Eq,
@@ -553,22 +636,24 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<Str> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(key, group, consumer, ids);
-    commands::streams::xclaim(
-      self,
-      key,
-      group,
-      consumer,
-      min_idle_time,
-      ids,
-      idle,
-      time,
-      retry_count,
-      force,
-      justid,
-    )
-    .await?
-    .into_xread_value()
+    async move {
+      into!(key, group, consumer, ids);
+      commands::streams::xclaim(
+        self,
+        key,
+        group,
+        consumer,
+        min_idle_time,
+        ids,
+        idle,
+        time,
+        retry_count,
+        force,
+        justid,
+      )
+      .await?
+      .into_xread_value()
+    }
   }
 
   /// In the context of a stream consumer group, this command changes the ownership of a pending message,
@@ -577,7 +662,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   /// <https://redis.io/commands/xclaim>
   ///
   /// **See [xclaim_values](Self::xclaim_values) for a variation of this function that might be more useful.**
-  async fn xclaim<R, K, G, C, I>(
+  fn xclaim<R, K, G, C, I>(
     &self,
     key: K,
     group: G,
@@ -589,7 +674,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     retry_count: Option<u64>,
     force: bool,
     justid: bool,
-  ) -> RedisResult<R>
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
@@ -597,22 +682,24 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<Str> + Send,
     I: Into<MultipleIDs> + Send,
   {
-    into!(key, group, consumer, ids);
-    commands::streams::xclaim(
-      self,
-      key,
-      group,
-      consumer,
-      min_idle_time,
-      ids,
-      idle,
-      time,
-      retry_count,
-      force,
-      justid,
-    )
-    .await?
-    .convert()
+    async move {
+      into!(key, group, consumer, ids);
+      commands::streams::xclaim(
+        self,
+        key,
+        group,
+        consumer,
+        min_idle_time,
+        ids,
+        idle,
+        time,
+        retry_count,
+        force,
+        justid,
+      )
+      .await?
+      .convert()
+    }
   }
 
   /// This command transfers ownership of pending stream entries that match the specified criteria. It also converts
@@ -620,7 +707,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// <https://redis.io/commands/xautoclaim>
   // FIXME: this type declaration wont work for Redis v7. Probably need a new FF for this...
-  async fn xautoclaim_values<Ri, Rk, Rv, K, G, C, I>(
+  fn xautoclaim_values<Ri, Rk, Rv, K, G, C, I>(
     &self,
     key: K,
     group: G,
@@ -629,7 +716,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     start: I,
     count: Option<u64>,
     justid: bool,
-  ) -> RedisResult<(String, Vec<XReadValue<Ri, Rk, Rv>>)>
+  ) -> impl Future<Output = RedisResult<(String, Vec<XReadValue<Ri, Rk, Rv>>)>> + Send
   where
     Ri: FromRedis,
     Rk: FromRedisKey + Hash + Eq,
@@ -639,10 +726,12 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<Str> + Send,
     I: Into<XID> + Send,
   {
-    into!(key, group, consumer, start);
-    commands::streams::xautoclaim(self, key, group, consumer, min_idle_time, start, count, justid)
-      .await?
-      .into_xautoclaim_values()
+    async move {
+      into!(key, group, consumer, start);
+      commands::streams::xautoclaim(self, key, group, consumer, min_idle_time, start, count, justid)
+        .await?
+        .into_xautoclaim_values()
+    }
   }
 
   /// This command transfers ownership of pending stream entries that match the specified criteria.
@@ -651,7 +740,7 @@ pub trait StreamsInterface: ClientLike + Sized {
   ///
   /// **Note: See [xautoclaim_values](Self::xautoclaim_values) for a variation of this function that may be more
   /// useful.**
-  async fn xautoclaim<R, K, G, C, I>(
+  fn xautoclaim<R, K, G, C, I>(
     &self,
     key: K,
     group: G,
@@ -660,7 +749,7 @@ pub trait StreamsInterface: ClientLike + Sized {
     start: I,
     count: Option<u64>,
     justid: bool,
-  ) -> RedisResult<R>
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
@@ -668,23 +757,27 @@ pub trait StreamsInterface: ClientLike + Sized {
     C: Into<Str> + Send,
     I: Into<XID> + Send,
   {
-    into!(key, group, consumer, start);
-    commands::streams::xautoclaim(self, key, group, consumer, min_idle_time, start, count, justid)
-      .await?
-      .convert()
+    async move {
+      into!(key, group, consumer, start);
+      commands::streams::xautoclaim(self, key, group, consumer, min_idle_time, start, count, justid)
+        .await?
+        .convert()
+    }
   }
 
   /// Inspect the list of pending messages in a consumer group.
   ///
   /// <https://redis.io/commands/xpending>
-  async fn xpending<R, K, G, A>(&self, key: K, group: G, args: A) -> RedisResult<R>
+  fn xpending<R, K, G, A>(&self, key: K, group: G, args: A) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<RedisKey> + Send,
     G: Into<Str> + Send,
     A: Into<XPendingArgs> + Send,
   {
-    into!(key, group, args);
-    commands::streams::xpending(self, key, group, args).await?.convert()
+    async move {
+      into!(key, group, args);
+      commands::streams::xpending(self, key, group, args).await?.convert()
+    }
   }
 }
