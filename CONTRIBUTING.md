@@ -97,7 +97,6 @@ pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<Redis
 
 // ...
 
-#[async_trait]
 pub trait KeysInterface: ClientLike {
  
   // ...
@@ -105,13 +104,15 @@ pub trait KeysInterface: ClientLike {
   /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the special value nil is returned.
   ///
   /// <https://redis.io/commands/mget>
-  async fn mget<R, K>(&self, keys: K) -> RedisResult<R> 
+  fn mget<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     K: Into<MultipleKeys> + Send,
   {
-    into!(keys);
-    commands::keys::mget(self, keys).await?.convert()
+    async move {
+      into!(keys);
+      commands::keys::mget(self, keys).await?.convert()
+    }
   }
   // ...
 }
