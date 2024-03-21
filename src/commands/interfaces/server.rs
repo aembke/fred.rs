@@ -5,11 +5,11 @@ use crate::{
   types::{FromRedis, RespVersion, Server},
 };
 use bytes_utils::Str;
+use futures::Future;
 use std::time::Duration;
 use tokio::time::interval as tokio_interval;
 
 /// Functions for authenticating clients.
-#[async_trait]
 pub trait AuthInterface: ClientLike {
   /// Request for authentication in a password-protected Redis server. Returns ok if successful.
   ///
@@ -19,12 +19,14 @@ pub trait AuthInterface: ClientLike {
   /// If running against clustered servers this function will authenticate all connections.
   ///
   /// <https://redis.io/commands/auth>
-  async fn auth<S>(&self, username: Option<String>, password: S) -> RedisResult<()>
+  fn auth<S>(&self, username: Option<String>, password: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<Str> + Send,
   {
-    into!(password);
-    commands::server::auth(self, username, password).await
+    async move {
+      into!(password);
+      commands::server::auth(self, username, password).await
+    }
   }
 
   /// Switch to a different protocol, optionally authenticating in the process.
@@ -32,112 +34,120 @@ pub trait AuthInterface: ClientLike {
   /// If running against clustered servers this function will issue the HELLO command to each server concurrently.
   ///
   /// <https://redis.io/commands/hello>
-  async fn hello(&self, version: RespVersion, auth: Option<(String, String)>) -> RedisResult<()> {
-    commands::server::hello(self, version, auth).await
+  fn hello(
+    &self,
+    version: RespVersion,
+    auth: Option<(String, String)>,
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::hello(self, version, auth).await }
   }
 }
 
 /// Functions that provide a connection heartbeat interface.
-#[async_trait]
 pub trait HeartbeatInterface: ClientLike {
   /// Return a future that will ping the server on an interval.
   #[allow(unreachable_code)]
-  async fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> RedisResult<()> {
-    let _self = self.clone();
-    let mut interval = tokio_interval(interval);
+  fn enable_heartbeat(
+    &self,
+    interval: Duration,
+    break_on_error: bool,
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      let _self = self.clone();
+      let mut interval = tokio_interval(interval);
 
-    loop {
-      interval.tick().await;
+      loop {
+        interval.tick().await;
 
-      if break_on_error {
-        let _: () = _self.ping().await?;
-      } else if let Err(e) = _self.ping::<()>().await {
-        warn!("{}: Heartbeat ping failed with error: {:?}", _self.inner().id, e);
+        if break_on_error {
+          let _: () = _self.ping().await?;
+        } else if let Err(e) = _self.ping::<()>().await {
+          warn!("{}: Heartbeat ping failed with error: {:?}", _self.inner().id, e);
+        }
       }
-    }
 
-    Ok(())
+      Ok(())
+    }
   }
 }
 
 /// Functions that implement the [server](https://redis.io/commands#server) interface.
-#[async_trait]
 pub trait ServerInterface: ClientLike {
   /// Instruct Redis to start an Append Only File rewrite process.
   ///
   /// <https://redis.io/commands/bgrewriteaof>
-  async fn bgrewriteaof<R>(&self) -> RedisResult<R>
+  fn bgrewriteaof<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::bgrewriteaof(self).await?.convert()
+    async move { commands::server::bgrewriteaof(self).await?.convert() }
   }
 
   /// Save the DB in background.
   ///
   /// <https://redis.io/commands/bgsave>
-  async fn bgsave<R>(&self) -> RedisResult<R>
+  fn bgsave<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::bgsave(self).await?.convert()
+    async move { commands::server::bgsave(self).await?.convert() }
   }
 
   /// Return the number of keys in the selected database.
   ///
   /// <https://redis.io/commands/dbsize>
-  async fn dbsize<R>(&self) -> RedisResult<R>
+  fn dbsize<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::dbsize(self).await?.convert()
+    async move { commands::server::dbsize(self).await?.convert() }
   }
 
   /// Delete the keys in all databases.
   ///
   /// <https://redis.io/commands/flushall>
-  async fn flushall<R>(&self, r#async: bool) -> RedisResult<R>
+  fn flushall<R>(&self, r#async: bool) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::flushall(self, r#async).await?.convert()
+    async move { commands::server::flushall(self, r#async).await?.convert() }
   }
 
   /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis
   /// interface.
-  async fn flushall_cluster(&self) -> RedisResult<()> {
-    commands::server::flushall_cluster(self).await
+  fn flushall_cluster(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::flushall_cluster(self).await }
   }
 
   /// Select the database this client should use.
   ///
   /// <https://redis.io/commands/select>
-  async fn select(&self, db: u8) -> RedisResult<()> {
-    commands::server::select(self, db).await?.convert()
+  fn select(&self, db: u8) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::select(self, db).await?.convert() }
   }
 
   /// This command will start a coordinated failover between the currently-connected-to master and one of its
   /// replicas.
   ///
   /// <https://redis.io/commands/failover>
-  async fn failover(
+  fn failover(
     &self,
     to: Option<(String, u16)>,
     force: bool,
     abort: bool,
     timeout: Option<u32>,
-  ) -> RedisResult<()> {
-    commands::server::failover(self, to, force, abort, timeout).await
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::failover(self, to, force, abort, timeout).await }
   }
 
   /// Return the UNIX TIME of the last DB save executed with success.
   ///
   /// <https://redis.io/commands/lastsave>
-  async fn lastsave<R>(&self) -> RedisResult<R>
+  fn lastsave<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::server::lastsave(self).await?.convert()
+    async move { commands::server::lastsave(self).await?.convert() }
   }
 
   /// This command blocks the current client until all the previous write commands are successfully transferred and
@@ -145,11 +155,11 @@ pub trait ServerInterface: ClientLike {
   /// reached, the command returns even if the specified number of replicas were not yet reached.
   ///
   /// <https://redis.io/commands/wait/>
-  async fn wait<R>(&self, numreplicas: i64, timeout: i64) -> Result<R, RedisError>
+  fn wait<R>(&self, numreplicas: i64, timeout: i64) -> impl Future<Output = Result<R, RedisError>> + Send
   where
     R: FromRedis,
   {
-    commands::server::wait(self, numreplicas, timeout).await?.convert()
+    async move { commands::server::wait(self, numreplicas, timeout).await?.convert() }
   }
 
   /// Read the primary Redis server identifier returned from the sentinel nodes.

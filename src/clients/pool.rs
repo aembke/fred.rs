@@ -293,7 +293,6 @@ impl ClientLike for RedisPool {
   }
 }
 
-#[async_trait]
 impl HeartbeatInterface for RedisPool {
   async fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> RedisResult<()> {
     let mut interval = tokio_interval(interval);
