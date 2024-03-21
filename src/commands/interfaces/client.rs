@@ -13,6 +13,7 @@ use crate::{
   },
 };
 use bytes_utils::Str;
+use futures::Future;
 use std::collections::HashMap;
 
 #[cfg(feature = "client-tracking")]
@@ -22,7 +23,6 @@ use crate::{
 };
 
 /// Functions that implement the [client](https://redis.io/commands#connection) interface.
-#[async_trait]
 pub trait ClientInterface: ClientLike + Sized {
   /// Return the ID of the current connection.
   ///
@@ -30,11 +30,11 @@ pub trait ClientInterface: ClientLike + Sized {
   /// [connection_ids](Self::connection_ids) for  more information.
   ///
   /// <https://redis.io/commands/client-id>
-  async fn client_id<R>(&self) -> RedisResult<R>
+  fn client_id<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::client::client_id(self).await?.convert()
+    async move { commands::client::client_id(self).await?.convert() }
   }
 
   /// Read the connection IDs for the active connections to each server.
@@ -42,50 +42,54 @@ pub trait ClientInterface: ClientLike + Sized {
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
   ///
   /// Note: despite being async this function will return cached information from the client if possible.
-  async fn connection_ids(&self) -> HashMap<Server, i64> {
-    self.inner().backchannel.read().await.connection_ids.clone()
+  fn connection_ids(&self) -> impl Future<Output = HashMap<Server, i64>> + Send {
+    async move { self.inner().backchannel.read().await.connection_ids.clone() }
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable
   /// format.
   ///
   /// <https://redis.io/commands/client-info>
-  async fn client_info<R>(&self) -> RedisResult<R>
+  fn client_info<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::client::client_info(self).await?.convert()
+    async move { commands::client::client_info(self).await?.convert() }
   }
 
   /// Close a given connection or set of connections.
   ///
   /// <https://redis.io/commands/client-kill>
-  async fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> RedisResult<R>
+  fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::client::client_kill(self, filters).await?.convert()
+    async move { commands::client::client_kill(self, filters).await?.convert() }
   }
 
   /// The CLIENT LIST command returns information and statistics about the client connections server in a mostly human
   /// readable format.
   ///
   /// <https://redis.io/commands/client-list>
-  async fn client_list<R, I>(&self, r#type: Option<ClientKillType>, ids: Option<Vec<String>>) -> RedisResult<R>
+  fn client_list<R, I>(
+    &self,
+    r#type: Option<ClientKillType>,
+    ids: Option<Vec<String>>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::client::client_list(self, r#type, ids).await?.convert()
+    async move { commands::client::client_list(self, r#type, ids).await?.convert() }
   }
 
   /// The CLIENT GETNAME returns the name of the current connection as set by CLIENT SETNAME.
   ///
   /// <https://redis.io/commands/client-getname>
-  async fn client_getname<R>(&self) -> RedisResult<R>
+  fn client_getname<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::client::client_getname(self).await?.convert()
+    async move { commands::client::client_getname(self).await?.convert() }
   }
 
   /// Assign a name to the current connection.
@@ -94,35 +98,41 @@ pub trait ClientInterface: ClientLike + Sized {
   /// connections. Use `self.id() to read the automatically generated name.**
   ///
   /// <https://redis.io/commands/client-setname>
-  async fn client_setname<S>(&self, name: S) -> RedisResult<()>
+  fn client_setname<S>(&self, name: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<Str> + Send,
   {
-    into!(name);
-    commands::client::client_setname(self, name).await
+    async move {
+      into!(name);
+      commands::client::client_setname(self, name).await
+    }
   }
 
   /// CLIENT PAUSE is a connections control command able to suspend all the Redis clients for the specified amount of
   /// time (in milliseconds).
   ///
   /// <https://redis.io/commands/client-pause>
-  async fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> RedisResult<()> {
-    commands::client::client_pause(self, timeout, mode).await
+  fn client_pause(
+    &self,
+    timeout: i64,
+    mode: Option<ClientPauseKind>,
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::client::client_pause(self, timeout, mode).await }
   }
 
   /// CLIENT UNPAUSE is used to resume command processing for all clients that were paused by CLIENT PAUSE.
   ///
   /// <https://redis.io/commands/client-unpause>
-  async fn client_unpause(&self) -> RedisResult<()> {
-    commands::client::client_unpause(self).await
+  fn client_unpause(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::client::client_unpause(self).await }
   }
 
   /// The CLIENT REPLY command controls whether the server will reply the client's commands. The following modes are
   /// available:
   ///
   /// <https://redis.io/commands/client-reply>
-  async fn client_reply(&self, flag: ClientReplyFlag) -> RedisResult<()> {
-    commands::client::client_reply(self, flag).await
+  fn client_reply(&self, flag: ClientReplyFlag) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::client::client_reply(self, flag).await }
   }
 
   /// This command can unblock, from a different connection, a client blocked in a blocking operation, such as for
@@ -131,18 +141,24 @@ pub trait ClientInterface: ClientLike + Sized {
   /// Note: this command is sent on a backchannel connection and will work even when the main connection is blocked.
   ///
   /// <https://redis.io/commands/client-unblock>
-  async fn client_unblock<R, S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> RedisResult<R>
+  fn client_unblock<R, S>(
+    &self,
+    id: S,
+    flag: Option<ClientUnblockFlag>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     S: Into<RedisValue> + Send,
   {
-    into!(id);
-    commands::client::client_unblock(self, id, flag).await?.convert()
+    async move {
+      into!(id);
+      commands::client::client_unblock(self, id, flag).await?.convert()
+    }
   }
 
   /// A convenience function to unblock any blocked connection on this client.
-  async fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> RedisResult<()> {
-    commands::client::unblock_self(self, flag).await
+  fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::client::unblock_self(self, flag).await }
   }
 
   /// This command enables the tracking feature of the Redis server that is used for server assisted client side
@@ -156,7 +172,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// modes.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_tracking<R, T, P>(
+  fn client_tracking<R, T, P>(
     &self,
     toggle: T,
     redirect: Option<i64>,
@@ -165,18 +181,20 @@ pub trait ClientInterface: ClientLike + Sized {
     optin: bool,
     optout: bool,
     noloop: bool,
-  ) -> RedisResult<R>
+  ) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
     T: TryInto<Toggle> + Send,
     T::Error: Into<RedisError> + Send,
     P: Into<MultipleStrings> + Send,
   {
-    try_into!(toggle);
-    into!(prefixes);
-    commands::tracking::client_tracking(self, toggle, redirect, prefixes, bcast, optin, optout, noloop)
-      .await?
-      .convert()
+    async move {
+      try_into!(toggle);
+      into!(prefixes);
+      commands::tracking::client_tracking(self, toggle, redirect, prefixes, bcast, optin, optout, noloop)
+        .await?
+        .convert()
+    }
   }
 
   /// The command returns information about the current client connection's use of the server assisted client side
@@ -185,11 +203,11 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-trackinginfo/>
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_trackinginfo<R>(&self) -> RedisResult<R>
+  fn client_trackinginfo<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::tracking::client_trackinginfo(self).await?.convert()
+    async move { commands::tracking::client_trackinginfo(self).await?.convert() }
   }
 
   /// This command returns the client ID we are redirecting our tracking notifications to.
@@ -197,11 +215,11 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-getredir/>
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_getredir<R>(&self) -> RedisResult<R>
+  fn client_getredir<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::tracking::client_getredir(self).await?.convert()
+    async move { commands::tracking::client_getredir(self).await?.convert() }
   }
 
   /// This command controls the tracking of the keys in the next command executed by the connection, when tracking is
@@ -214,10 +232,10 @@ pub trait ClientInterface: ClientLike + Sized {
   /// types.
   #[cfg(feature = "client-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  async fn client_caching<R>(&self, enabled: bool) -> RedisResult<R>
+  fn client_caching<R>(&self, enabled: bool) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    commands::tracking::client_caching(self, enabled).await?.convert()
+    async move { commands::tracking::client_caching(self, enabled).await?.convert() }
   }
 }
