@@ -1,4 +1,5 @@
 #![allow(clippy::unnecessary_fallible_conversions)]
+#![allow(unused_imports)]
 #![allow(clippy::redundant_pattern_matching)]
 #![allow(clippy::mutable_key_type)]
 #![allow(clippy::derivable_impls)]
