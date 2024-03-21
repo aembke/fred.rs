@@ -161,7 +161,6 @@ impl RedisPool {
   }
 }
 
-#[async_trait]
 impl ClientLike for RedisPool {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {
