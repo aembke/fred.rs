@@ -198,6 +198,7 @@ impl ClientLike for RedisPool {
   /// Override the DNS resolution logic for all clients in the pool.
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  #[allow(refining_impl_trait)]
   async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
     for client in self.inner.clients.iter() {
       client.set_resolver(resolver.clone()).await;
