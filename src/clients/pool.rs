@@ -35,7 +35,6 @@ struct RedisPoolInner {
 /// The following interfaces are not implemented on `RedisPool`:
 /// * [MetricsInterface](crate::interfaces::MetricsInterface)
 /// * [PubsubInterface](crate::interfaces::PubsubInterface)
-/// * [TransactionInterface](crate::interfaces::TransactionInterface)
 /// * [EventInterface](crate::interfaces::EventInterface)
 /// * [ClientInterface](crate::interfaces::ClientInterface)
 ///
@@ -328,6 +327,7 @@ impl SetsInterface for RedisPool {}
 impl SortedSetsInterface for RedisPool {}
 impl StreamsInterface for RedisPool {}
 impl FunctionInterface for RedisPool {}
+impl TransactionInterface for RedisPool {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for RedisPool {}
