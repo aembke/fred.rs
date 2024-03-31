@@ -19,6 +19,8 @@ use tokio::time::interval as tokio_interval;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+#[cfg(feature = "transactions")]
+use crate::interfaces::TransactionInterface;
 #[cfg(feature = "dns")]
 use crate::protocol::types::Resolve;
 
