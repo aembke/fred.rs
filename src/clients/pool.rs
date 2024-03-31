@@ -329,6 +329,8 @@ impl SetsInterface for RedisPool {}
 impl SortedSetsInterface for RedisPool {}
 impl StreamsInterface for RedisPool {}
 impl FunctionInterface for RedisPool {}
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 impl TransactionInterface for RedisPool {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
