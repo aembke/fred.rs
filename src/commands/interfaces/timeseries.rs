@@ -17,6 +17,7 @@ use crate::{
 };
 use bytes_utils::Str;
 
+/// A [Redis Timeseries](https://github.com/RedisTimeSeries/RedisTimeSeries/) interface.
 #[async_trait]
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 pub trait TimeSeriesInterface: ClientLike {
