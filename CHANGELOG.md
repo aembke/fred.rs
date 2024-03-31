@@ -1,3 +1,7 @@
+## 8.0.6
+
+* Add `TransactionInterface` to `RedisPool`
+
 ## 8.0.5
 
 * Add conversion from `HashMap` to `MultipleOrderedPairs`.
@@ -42,13 +46,14 @@ Using `..Default::default()` with the various configuration structs can avoid mo
 
 Notable changes:
 
-* Several configuration options were moved from `globals` to `ConnectionConfig` and `PerformanceConfig`. 
+* Several configuration options were moved from `globals` to `ConnectionConfig` and `PerformanceConfig`.
 * Several feature flags were moved to configuration fields, including:
-  * `ignore-auth-error`
-  * `pool-prefer-active`
-  * `reconnect-on-auth-error`
-  * `auto-client-setname`
-* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. They now use the same naming conventions as the other event streams.
+    * `ignore-auth-error`
+    * `pool-prefer-active`
+    * `reconnect-on-auth-error`
+    * `auto-client-setname`
+* The `on_message` and `on_keyspace_event` functions were renamed and moved to the `EventInterface`. They now use the
+  same naming conventions as the other event streams.
 
 ## 7.1.2
 
@@ -70,15 +75,15 @@ Notable changes:
 
 * Added a new client [builder](src/types/builder.rs) and configuration interface.
 * Reworked or removed the majority of the `globals` interface.
-* 
+*
 * Support multiple IP addresses in the `Resolve` interface.
-* Add `with_options` command configuration interface. 
+* Add `with_options` command configuration interface.
 * Replaced the `no-client-setname` feature flag with `auto-client-setname`.
 * Add an interface to configure TCP socket options.
-* Removed the automatic `serde_json::Value` -> `RedisValue` type conversion logic. 
-  * This unintentionally introduced some ambiguity on certain interfaces.
-  * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
-* Reworked the majority of the `RedisPool` interface. 
+* Removed the automatic `serde_json::Value` -> `RedisValue` type conversion logic.
+    * This unintentionally introduced some ambiguity on certain interfaces.
+    * The `RedisValue` -> `serde_json::Value` type conversion logic was not changed.
+* Reworked the majority of the `RedisPool` interface.
 * Moved and refactored the `on_*` functions into a new `EventInterface`.
 * Fixed bugs with the `Replica` routing implementation.
 * Fixed bugs related to parsing single-element arrays.
@@ -92,7 +97,8 @@ Notable interface changes:
 
 * `ArcStr` has been replaced with `bytes_utils::Str`.
 * Timeout arguments or fields now all use `std::time::Duration`.
-* Many of the old global or performance config values can now be set on individual commands via the `with_options` interface.
+* Many of the old global or performance config values can now be set on individual commands via the `with_options`
+  interface.
 * The `RedisPool` interface now directly implements `ClientLike` rather than relying on `Deref` shenanigans.
 * The `on_*` event functions were moved and renamed. Reconnection events now include the associated `Server`.
 * The `tls_server_name` field on `Server` is now properly gated by the TLS feature flags.
@@ -100,11 +106,13 @@ Notable interface changes:
 
 Notable implementation Changes:
 
-* `Pipeline` and `Transaction` structs can now be reused. Calling `exec`, `all`, `last`, or `try_all` no longer drains the inner command buffer.
+* `Pipeline` and `Transaction` structs can now be reused. Calling `exec`, `all`, `last`, or `try_all` no longer drains
+  the inner command buffer.
 * Many of the default timeout values have been lowered significantly, often from 60 sec to 10 sec.
-* In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies. 
-  * Most of these were consolidated under the `default-nil-types` feature flag.
-  * It is recommended that callers review the updated `FromRedis` docs or see the unit tests in [responses](src/modules/response.rs). 
+* In earlier versions the `FromRedis` trait implemented a few inconsistent or ambiguous type conversions policies.
+    * Most of these were consolidated under the `default-nil-types` feature flag.
+    * It is recommended that callers review the updated `FromRedis` docs or see the unit tests
+      in [responses](src/modules/response.rs).
 * The `connect` function can now be called more than once to force reset all client state.
 
 ## 6.3.2
@@ -131,7 +139,7 @@ Notable implementation Changes:
 ## 6.2.0
 
 * Add `Pipeline::try_all`
-* Add missing pubsub commands 
+* Add missing pubsub commands
 * Improve docs, examples
 
 ## 6.1.0
@@ -148,17 +156,17 @@ Notable implementation Changes:
 * Add a manual `Pipeline` interface for pipelining commands within a task.
 * Add a `Replica` client for interacting with replica nodes.
 * Rework the `Transaction` interface to buffer commands in memory before EXEC/DISCARD.
-* Rework the cluster discovery and failover implementation. 
+* Rework the cluster discovery and failover implementation.
 * Rework the MOVED/ASK implementation to more quickly and reliably follow cluster redirects.
 * Rework the sentinel interface to more reliably handle failover scenarios.
 * Fix several bugs related to detecting closed connections.
 * Support the `functions` interface.
-* Add `Script`, `Library`, and `Function` structs. 
-* Add `Message` and `MessageKind` pubsub structs. 
+* Add `Script`, `Library`, and `Function` structs.
+* Add `Message` and `MessageKind` pubsub structs.
 * Add a DNS configuration interface.
 * Rework the `native-tls` interface to support fully customizable TLS configurations.
 * Add `rustls` support.
-  * Note: both TLS feature flags can be used at the same time.
+    * Note: both TLS feature flags can be used at the same time.
 * Add a mocking layer interface.
 
 ### Updating from 5.x
@@ -167,16 +175,17 @@ Potentially breaking changes in 6.x:
 
 * Switched from `(String, u16)` tuples to the `Server` struct for all server identifiers.
 * New TLS feature flags: `enable-rustls` and `enable-native-tls`.
-  * `vendored-tls` is now `vendored-openssl`
+    * `vendored-tls` is now `vendored-openssl`
 * New TLS configuration process: see the [example](examples/tls.rs).
-* New [transaction](examples/transactions.rs) interface. 
-  * `Transaction` commands are now buffered in memory before calling `exec()` or `discard()`.
+* New [transaction](examples/transactions.rs) interface.
+    * `Transaction` commands are now buffered in memory before calling `exec()` or `discard()`.
 * New backpressure configuration options, most notably the `Drain` policy. This is now the default.
 * Changed the type and fields on `BackpressurePolicy::Sleep`.
 * New [custom command interface](examples/custom.rs) for managing cluster hash slots.
 * Removed or renamed some fields on `RedisConfig`.
 * Changed the pubsub receiver interface to use `Message` instead of `(String, RedisValue)` tuples.
-* Changed the `on_*` family of functions to return a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
+* Changed the `on_*` family of functions to return
+  a [BroadcastReceiver](https://docs.rs/tokio/latest/tokio/sync/broadcast/struct.Receiver.html).
 * The `FromRedis` trait converts `RedisValue::Null` to `"nil"` with `String` and `Str`.
 
 ## 5.2.0
@@ -211,8 +220,9 @@ Potentially breaking changes in 6.x:
 
 ## 5.0.0-beta.1
 
-* Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs), so it can decode frames without moving or copying the underlying bytes
-* Change most command implementations to avoid unnecessary allocations when using static str slices 
+* Rewrite the [protocol parser](https://github.com/aembke/redis-protocol.rs), so it can decode frames without moving or
+  copying the underlying bytes
+* Change most command implementations to avoid unnecessary allocations when using static str slices
 * Rewrite the public interface to use different traits for different parts of the redis interface
 * Relax some restrictions on certain commands being used in a transaction
 * Implement the Streams interface (XADD, XREAD, etc.)
@@ -289,11 +299,11 @@ See below.
 
 ## 3.0.0-beta.2
 
-* Extend and refactor RedisConfig options 
-* Change RedisKey to work with bytes, not str 
-* Support unblocking clients with a control connection 
-* First draft of chaos monkey tests 
-* Custom reconnect errors feature 
+* Extend and refactor RedisConfig options
+* Change RedisKey to work with bytes, not str
+* Support unblocking clients with a control connection
+* First draft of chaos monkey tests
+* Custom reconnect errors feature
 
 ## 3.0.0-beta.1
 
@@ -301,7 +311,7 @@ See below.
 * Add Lua support
 * Add transaction support
 * Add hyperloglog, geo, acl, memory, slowlog, and cluster command support
-* Add tests 
+* Add tests
 * Add [pipeline_test](bin/pipeline_test) application
 
 ## < 3.0.0
