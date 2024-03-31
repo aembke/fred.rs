@@ -162,7 +162,6 @@ impl RedisPool {
   }
 }
 
-#[async_trait]
 impl ClientLike for RedisPool {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {
@@ -200,6 +199,7 @@ impl ClientLike for RedisPool {
   /// Override the DNS resolution logic for all clients in the pool.
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  #[allow(refining_impl_trait)]
   async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
     for client in self.inner.clients.iter() {
       client.set_resolver(resolver.clone()).await;
@@ -295,7 +295,6 @@ impl ClientLike for RedisPool {
   }
 }
 
-#[async_trait]
 impl HeartbeatInterface for RedisPool {
   async fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> RedisResult<()> {
     let mut interval = tokio_interval(interval);
