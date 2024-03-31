@@ -18,6 +18,7 @@ use crate::{
 use bytes_utils::Str;
 use futures::Future;
 
+/// A [Redis Timeseries](https://github.com/RedisTimeSeries/RedisTimeSeries/) interface.
 #[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
 pub trait TimeSeriesInterface: ClientLike {
   /// Append a sample to a time series.

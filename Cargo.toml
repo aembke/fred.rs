@@ -1,6 +1,6 @@
 [package]
 name = "fred"
-version = "8.0.5"
+version = "8.0.6"
 authors = ["Alec Embke <aembke@gmail.com>"]
 edition = "2021"
 description = "An async Redis client built on Tokio."
@@ -13,28 +13,28 @@ license = "MIT"
 
 [package.metadata.docs.rs]
 features = [
-  "serde-json",
-  "subscriber-client",
-  "mocks",
-  "metrics",
-  "dns",
-  "enable-rustls",
-  "enable-native-tls",
-  "full-tracing",
-  "partial-tracing",
-  "blocking-encoding",
-  "custom-reconnect-errors",
-  "monitor",
-  "sentinel-client",
-  "sentinel-auth",
-  "replicas",
-  "client-tracking",
-  "default-nil-types",
-  "codec",
-  "redis-json",
-  "sha-1",
-  "transactions",
-  "time-series"
+    "serde-json",
+    "subscriber-client",
+    "mocks",
+    "metrics",
+    "dns",
+    "enable-rustls",
+    "enable-native-tls",
+    "full-tracing",
+    "partial-tracing",
+    "blocking-encoding",
+    "custom-reconnect-errors",
+    "monitor",
+    "sentinel-client",
+    "sentinel-auth",
+    "replicas",
+    "client-tracking",
+    "default-nil-types",
+    "codec",
+    "redis-json",
+    "sha-1",
+    "transactions",
+    "time-series"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -71,7 +71,7 @@ rustls-native-certs = { version = "0.7.0", optional = true }
 trust-dns-resolver = { version = "0.23", optional = true }
 
 [dev-dependencies]
-base64 = "0.21"
+base64 = "0.22.0"
 subprocess = "0.2"
 pretty_env_logger = "0.5"
 bollard = "0.15"

@@ -19,6 +19,8 @@ use tokio::time::interval as tokio_interval;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
+#[cfg(feature = "transactions")]
+use crate::interfaces::TransactionInterface;
 #[cfg(feature = "dns")]
 use crate::protocol::types::Resolve;
 
@@ -35,7 +37,6 @@ struct RedisPoolInner {
 /// The following interfaces are not implemented on `RedisPool`:
 /// * [MetricsInterface](crate::interfaces::MetricsInterface)
 /// * [PubsubInterface](crate::interfaces::PubsubInterface)
-/// * [TransactionInterface](crate::interfaces::TransactionInterface)
 /// * [EventInterface](crate::interfaces::EventInterface)
 /// * [ClientInterface](crate::interfaces::ClientInterface)
 ///
@@ -327,6 +328,9 @@ impl SetsInterface for RedisPool {}
 impl SortedSetsInterface for RedisPool {}
 impl StreamsInterface for RedisPool {}
 impl FunctionInterface for RedisPool {}
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
+impl TransactionInterface for RedisPool {}
 #[cfg(feature = "redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
 impl RedisJsonInterface for RedisPool {}
