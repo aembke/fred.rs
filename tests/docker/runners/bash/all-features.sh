@@ -15,7 +15,7 @@ done
 # those features individually.
 FEATURES="network-logs custom-reconnect-errors serde-json blocking-encoding
           full-tracing monitor metrics sentinel-client subscriber-client dns debug-ids
-          replicas client-tracking codec sha-1 transactions"
+          replicas sha-1 transactions i-all"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

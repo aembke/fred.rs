@@ -790,11 +790,6 @@ pub fn arg_size(value: &RedisValue) -> usize {
 }
 
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
-pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
-  frame.encode_len().unwrap_or(0)
-}
-
-#[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 pub fn args_size(args: &[RedisValue]) -> usize {
   args.iter().fold(0, |c, arg| c + arg_size(arg))
 }

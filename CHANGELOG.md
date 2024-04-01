@@ -1,6 +1,6 @@
 ## 9.0.0
 
-This version should significantly reduce compilation times for most use cases. 
+This version should significantly reduce compilation times for most use cases.
 
 * **RPITIT / AFIT**
 * Set MSRV to 1.75
@@ -11,9 +11,12 @@ This version should significantly reduce compilation times for most use cases.
 
 ### Upgrading from 8.x
 
-Double-check the new feature flags. The `codec` feature was also moved to [redis-protocol](https://github.com/aembke/redis-protocol.rs).
+Upgrading should be easy for most callers that can work with the new MSRV requirement.
 
-Upgrading should be seamless or simple for most callers that can work with the new MSRV requirement. Aside from the `rustls` 0.22 -> 0.23 changes most of these changes are hopefully transparent.
+* Double-check the new feature flags. The `codec` feature was also moved
+  to [redis-protocol](https://github.com/aembke/redis-protocol.rs).
+* Rustls - Check the new [aws-lc-rs](https://aws.github.io/aws-lc-rs/requirements/index.html) requirements or switch
+  back to `rustls/ring`.
 
 ## 8.0.6
 

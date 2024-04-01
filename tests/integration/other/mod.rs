@@ -6,14 +6,7 @@ use fred::{
   interfaces::*,
   prelude::{Blocking, RedisValue},
   types::{
-    BackpressureConfig,
-    ClientUnblockFlag,
-    Options,
-    PerformanceConfig,
-    RedisConfig,
-    RedisKey,
-    RedisMap,
-    ServerConfig,
+    BackpressureConfig, ClientUnblockFlag, Options, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig,
   },
 };
 use futures::future::try_join;
@@ -204,12 +197,12 @@ pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) 
 pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let count: i64 = 200;
 
-  for idx in 0 .. count {
+  for idx in 0..count {
     client.set(format!("foo-{}", idx), idx, None, None, false).await?;
   }
   client.flushall_cluster().await?;
 
-  for idx in 0 .. count {
+  for idx in 0..count {
     let value: Option<i64> = client.get(format!("foo-{}", idx)).await?;
     assert!(value.is_none());
   }
@@ -237,13 +230,13 @@ pub async fn should_safely_change_protocols_repeatedly(
   });
 
   // switch protocols every half second
-  for idx in 0 .. 15 {
+  for idx in 0..15 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
       RespVersion::RESP3
     };
-    client.hello(version, None).await?;
+    client.hello(version, None, None).await?;
     sleep(Duration::from_millis(500)).await;
   }
   let _ = mem::replace(&mut *done.write(), true);
@@ -272,7 +265,7 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
   let mut tasks = Vec::with_capacity(num_tasks);
   let counter = Arc::new(AtomicUsize::new(0));
 
-  for idx in 0 .. num_tasks {
+  for idx in 0..num_tasks {
     let client = pool.next().clone();
     let counter = counter.clone();
 
@@ -366,14 +359,14 @@ pub async fn should_pipeline_try_all(client: RedisClient, _: RedisConfig) -> Res
 pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let other = client.clone();
   let jh1 = tokio::spawn(async move {
-    for _ in 0 .. 200 {
+    for _ in 0..200 {
       other.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
   });
   let jh2 = tokio::spawn(async move {
-    for _ in 0 .. 200 {
+    for _ in 0..200 {
       client.flushall_cluster().await?;
     }
 
@@ -618,7 +611,7 @@ pub async fn should_use_resp3_codec_example(_: RedisClient, config: RedisConfig)
 
   let hello = Resp3Frame::Hello {
     version: RespVersion::RESP3,
-    auth:    Some(Auth {
+    auth: Some(Auth {
       username: utils::read_redis_username().into(),
       password: utils::read_redis_password().into(),
     }),

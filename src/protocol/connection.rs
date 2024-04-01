@@ -530,7 +530,7 @@ impl RedisTransport {
   #[cfg(feature = "enable-rustls")]
   #[allow(unreachable_patterns)]
   pub async fn new_rustls(inner: &Arc<RedisClientInner>, server: &Server) -> Result<RedisTransport, RedisError> {
-    use webpki::types::ServerName;
+    use rustls::pki_types::ServerName;
 
     let connector = match inner.config.tls {
       Some(ref config) => match config.connector {

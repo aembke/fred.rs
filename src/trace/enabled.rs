@@ -1,8 +1,5 @@
-use crate::{
-  modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, utils as protocol_utils},
-};
-use redis_protocol::resp3::types::Frame;
+use crate::{modules::inner::RedisClientInner, protocol::command::RedisCommand};
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::{fmt, ops::Deref, sync::Arc};
 pub use tracing::span::Span;
 use tracing::{event, field::Empty, Id as TraceId, Level};
@@ -12,12 +9,12 @@ use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
 pub struct CommandTraces {
-  pub cmd:     Option<Span>,
+  pub cmd: Option<Span>,
   pub network: Option<Span>,
   #[cfg(feature = "full-tracing")]
-  pub queued:  Option<Span>,
+  pub queued: Option<Span>,
   #[cfg(not(feature = "full-tracing"))]
-  pub queued:  Option<FakeSpan>,
+  pub queued: Option<FakeSpan>,
 }
 
 /// Enter the network span when the command is dropped after receiving a response.
@@ -32,8 +29,8 @@ impl Drop for CommandTraces {
 impl Default for CommandTraces {
   fn default() -> Self {
     CommandTraces {
-      cmd:     None,
-      queued:  None,
+      cmd: None,
+      queued: None,
       network: None,
     }
   }
@@ -52,9 +49,9 @@ pub fn set_network_span(inner: &Arc<RedisClientInner>, command: &mut RedisComman
   command.traces.network = Some(span);
 }
 
-pub fn record_response_size(span: &Span, frame: &Frame) {
+pub fn record_response_size(span: &Span, frame: &Resp3Frame) {
   #[allow(clippy::needless_borrows_for_generic_args)]
-  span.record("res_size", &protocol_utils::resp3_frame_size(frame));
+  span.record("res_size", &frame.encode_len());
 }
 
 pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
@@ -91,7 +88,7 @@ pub fn create_queued_span(_parent: Option<TraceId>, _inner: &Arc<RedisClientInne
 }
 
 #[cfg(feature = "full-tracing")]
-pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Option<Span> {
+pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<Span> {
   if inner.should_trace() {
     let span = span_lvl!(
       inner.full_tracing_span_level(),
@@ -99,7 +96,7 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Optio
       "parse_pubsub",
       module = "fred",
       client_id = &inner.id.deref(),
-      res_size = &protocol_utils::resp3_frame_size(frame),
+      res_size = &frame.encode_len(),
       channel = Empty
     );
 

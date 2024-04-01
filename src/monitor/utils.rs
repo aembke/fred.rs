@@ -12,6 +12,7 @@ use crate::{
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
+use redis_protocol::resp3::types::Resp3Frame;
 use std::sync::Arc;
 use tokio::{
   io::{AsyncRead, AsyncWrite},
@@ -32,7 +33,7 @@ async fn handle_monitor_frame(
       return None;
     },
   };
-  let frame_size = protocol_utils::resp3_frame_size(&frame);
+  let frame_size = frame.encode_len();
 
   if frame_size >= inner.with_perf_config(|c| c.blocking_encode_threshold) {
     // since this isn't called from the Encoder/Decoder trait we can use spawn_blocking here
