@@ -1,6 +1,6 @@
 use crate::error::RedisError;
 pub use crate::modules::response::{FromRedis, FromRedisKey};
-pub use redis_protocol::resp3::types::{Frame, RespVersion};
+pub use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, RespVersion};
 use tokio::task::JoinHandle;
 
 mod args;

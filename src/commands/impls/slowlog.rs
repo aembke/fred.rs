@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-  prelude::*,
   protocol::{command::RedisCommandKind, utils as protocol_utils},
   utils,
 };

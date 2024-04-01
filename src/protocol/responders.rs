@@ -12,6 +12,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use parking_lot::Mutex;
+use redis_protocol::resp3::types::Resp3Frame as _Resp3Frame;
 use std::{
   fmt,
   fmt::Formatter,
@@ -25,6 +26,7 @@ use std::{
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
 use parking_lot::RwLock;
+use redis_protocol::resp3::types::FrameKind;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
@@ -46,15 +48,15 @@ pub enum ResponseKind {
   /// cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames:      Arc<Mutex<Vec<Resp3Frame>>>,
+    frames: Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
-    expected:    usize,
+    expected: usize,
     /// The number of response frames received.
-    received:    Arc<AtomicUsize>,
+    received: Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx:          Arc<Mutex<Option<ResponseSender>>>,
+    tx: Arc<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
-    index:       usize,
+    index: usize,
     /// Whether errors should be returned early to the caller.
     error_early: bool,
   },
@@ -66,13 +68,17 @@ pub enum ResponseKind {
 
 impl fmt::Debug for ResponseKind {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", match self {
-      ResponseKind::Skip => "Skip",
-      ResponseKind::Buffer { .. } => "Buffer",
-      ResponseKind::Respond(_) => "Respond",
-      ResponseKind::KeyScan(_) => "KeyScan",
-      ResponseKind::ValueScan(_) => "ValueScan",
-    })
+    write!(
+      f,
+      "{}",
+      match self {
+        ResponseKind::Skip => "Skip",
+        ResponseKind::Buffer { .. } => "Buffer",
+        ResponseKind::Respond(_) => "Respond",
+        ResponseKind::KeyScan(_) => "KeyScan",
+        ResponseKind::ValueScan(_) => "ValueScan",
+      }
+    )
   }
 }
 
@@ -93,11 +99,11 @@ impl ResponseKind {
         expected,
         error_early,
       } => ResponseKind::Buffer {
-        frames:      frames.clone(),
-        tx:          tx.clone(),
-        received:    received.clone(),
-        index:       *index,
-        expected:    *expected,
+        frames: frames.clone(),
+        tx: tx.clone(),
+        received: received.clone(),
+        index: *index,
+        expected: *expected,
         error_early: *error_early,
       },
       ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
@@ -121,11 +127,11 @@ impl ResponseKind {
 
   pub fn new_buffer(tx: ResponseSender) -> Self {
     ResponseKind::Buffer {
-      frames:      Arc::new(Mutex::new(vec![])),
-      tx:          Arc::new(Mutex::new(Some(tx))),
-      received:    Arc::new(AtomicUsize::new(0)),
-      index:       0,
-      expected:    0,
+      frames: Arc::new(Mutex::new(vec![])),
+      tx: Arc::new(Mutex::new(Some(tx))),
+      received: Arc::new(AtomicUsize::new(0)),
+      index: 0,
+      expected: 0,
       error_early: true,
     }
   }
@@ -197,7 +203,7 @@ fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut RedisCommand) {}
 
 /// Update the client's protocol version codec version after receiving a non-error response to HELLO.
 fn update_protocol_version(inner: &Arc<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {
-  if !frame.is_error() {
+  if !matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
     let version = match command.kind {
       RedisCommandKind::_Hello(ref version) => version,
       RedisCommandKind::_HelloAllCluster(ref version) => version,
@@ -259,14 +265,14 @@ fn add_buffered_frame(
 fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>, error_early: bool) -> Resp3Frame {
   if error_early {
     for frame in frames.iter() {
-      if frame.is_error() {
+      if matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
         return frame.clone();
       }
     }
   }
 
   Resp3Frame::Array {
-    data:       mem::take(frames),
+    data: mem::take(frames),
     attributes: None,
   }
 }
@@ -467,10 +473,10 @@ pub fn respond_buffer(
 ) -> Result<(), RedisError> {
   _trace!(
     inner,
-    "Handling `buffer` response from {} for {}. Is error: {}, Index: {}, ID: {}",
+    "Handling `buffer` response from {} for {}. kind {:?}, Index: {}, ID: {}",
     server,
     command.kind.to_str_debug(),
-    frame.is_error(),
+    frame.kind(),
     index,
     command.debug_id()
   );
@@ -505,7 +511,7 @@ pub fn respond_buffer(
     );
 
     let frame = merge_multiple_frames(&mut frames.lock(), error_early);
-    if frame.is_error() {
+    if matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
       let err = match frame.as_str() {
         Some(s) => protocol_utils::pretty_error(s),
         None => RedisError::new(

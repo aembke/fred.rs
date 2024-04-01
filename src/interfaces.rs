@@ -6,31 +6,18 @@ use crate::{
   protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
   types::{
-    ClientState,
-    ClusterStateChange,
-    ConnectHandle,
-    ConnectionConfig,
-    CustomCommand,
-    FromRedis,
-    InfoKind,
-    KeyspaceEvent,
-    Message,
-    Options,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    RedisValue,
-    RespVersion,
-    Server,
-    ShutdownFlags,
+    ClientState, ClusterStateChange, ConnectHandle, ConnectionConfig, CustomCommand, FromRedis, InfoKind,
+    KeyspaceEvent, Message, Options, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisValue, RespVersion,
+    Server, ShutdownFlags,
   },
   utils,
 };
 use futures::Future;
-pub use redis_protocol::resp3::types::Frame as Resp3Frame;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc};
 use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
+
+pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -388,7 +375,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Customize various configuration options on commands.
   fn with_options(&self, options: &Options) -> WithOptions<Self> {
     WithOptions {
-      client:  self.clone(),
+      client: self.clone(),
       options: options.clone(),
     }
   }

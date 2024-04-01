@@ -22,15 +22,16 @@ See the [benchmark](../bin/benchmark) folder for more info on performance testin
 
 ### Background
 
-The most important design decision made by this library requires understanding how and why pipelining works. I strongly recommend that folks read https://redis.io/docs/manual/pipelining.
+I strongly recommend reading https://redis.io/docs/manual/pipelining.
 
-It's important to understand what RTT is, why pipelining minimizes its impact in general, and why it's often the only thing that really matters when measuring the throughput of an IO-bound application with dependencies like Redis. The entire design of this library is based on the pipelining optimization described in this section.
+It's important to understand what RTT is, why pipelining minimizes its impact in general, and why it's often the only thing that really matters when measuring the throughput of an IO-bound application with dependencies like Redis. Most of the design choices here are based on the pipelining optimization described in this section.
 
 `fred` was originally written with the following use case in mind:
 * The app layer's primary throughput bottleneck is RTT to Redis.
 * The app uses different Redis server deployment types, including managed services like Elasticache.
 * The app makes frequent use of Tokio concurrency features on a multi-thread runtime. Requests/jobs run in separate Tokio tasks. 
-* The app uses dependency injection patterns to share a small pool of connections/clients among each of the Tokio tasks.
+* The app uses dependency injection patterns to share a small pool of connections/clients among each of the Tokio tasks. The public interface should be `Send + Sync` and cheaply cloneable.
+* The app can store large values in Redis. Efficient encoding and zero-copy decoding are important.
 
 And most importantly - making efficient use of network resources is important for the system to scale from both a cost and performance perspective. Ideally the library could interleave frames on the wire such that concurrent request/job tasks didn't have to wait for other tasks to receive a response from the server. 
 
@@ -56,21 +57,7 @@ A diagram may explain this better:
 
 With this model we're not reducing network latency or RTT, but by rarely or never waiting for the server to respond we can pack many more requests on the wire and dramatically increase throughput in high concurrency scenarios. 
 
-However, there are some interesting tradeoffs and subtle implications of the optimization described above, at least in Rust. As an example consider the following interface as the function at the core of any library request-response call like this:
-
-```rust
-pub async fn call(client: &MyClient, request: Request) -> Result<Response, Error> {
-  // ...
-}
-```
-
-One of the most important design decisions involves whether to use `&mut MyClient` or `&MyClient`. In a roundabout way this ends up determining whether it's possible, or at least practical, to implement the pipelining optimization described above. However, this does not mean that `&MyClient` is always the best choice.
-
-If we want to expose a thin or generic transport layer such as `MyClient<T: MyConnectionTrait>` then `T` will almost certainly end up being based on `AsyncRead + AsyncWrite` or `Stream + Sink`, both of which use `&mut self` on their relevant send/poll interfaces. This means my `call` function will probably* have to use `&mut MyClient`. If callers want to use my client in a context with `Send` restrictions (across Tokio tasks for example) then somebody will have to use an async lock somewhere. Maybe the client hides this, or perhaps an external pool library hides this, but there's an async lock somewhere that holds a lock guard across an `await` point until the server responds. This ultimately conflicts with implementing the optimization above since no other task can interact with that `&mut MyClient` instance while the lock guard is being held.
-
-However, there are many use cases where a thin and generic transport layer is more important than the particular pipelining optimization described above. In my case I only needed TCP, TCP+TLS, and maybe unix sockets, so the generic aspect of the interface was less important to me. In the end I decided to focus on an interface and design that worked well with the pipelining optimization above, which incidentally lead to `&MyClient` instead of `&mut MyClient`. The drawback of this decision is that callers cannot access or implement their own transport layers. 
-
-However, under the hood all of these networking types use `&mut self` at some point, so we still have to reconcile the mutability constraint somehow, and we know that it can't involve holding an async lock guard across an `await` point that waits for the server to respond. At its core the primary challenge with this strategy is that it requires not only separating write and read operations on the socket, but also requires operating on each half of the socket concurrently according to RESP's frame ordering rules.
+However, there are some interesting tradeoffs with the optimization described above, at least in Rust. At its core the primary challenge with this strategy is that it requires not only separating write and read operations on the socket, but it also requires operating on each half of the socket concurrently according to RESP's frame ordering rules.
 
 ### Message Passing & Queues
 
@@ -85,7 +72,7 @@ This kind of approach also tends to work well in high concurrency scenarios sinc
 
 If we think of the client as a series of routing adapters between a set of queues like this then it becomes much easier to reason about how the pipelining above should be implemented. All we really need to do is implement some policy checks in step 2 that determine whether we should wait for step 4 to finish before processing the next command in step 2. In most cases we want to write commands as quickly as possible, but in some cases maybe the client should wait (like `AUTH`, `HELLO`, blocking commands, etc). It may not be immediately obvious, but Tokio offers several easy ways to coordinate tasks like this.
 
-This is why the library uses a significantly more complicated message passing implementation. The `auto_pipeline` flag controls this optimization and the benchmarking results show a dramatic improvement when enabled.
+This is why the library uses a more complicated message passing implementation. The `auto_pipeline` flag controls this optimization and the benchmarking results show a dramatic improvement when enabled.
 
 ## Technical Overview
 

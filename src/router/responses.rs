@@ -6,7 +6,11 @@ use crate::{
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
   utils,
 };
-use redis_protocol::resp3::{prelude::PUBSUB_PUSH_PREFIX, types::Frame as Resp3Frame};
+use redis_protocol::resp3::types::FrameKind;
+use redis_protocol::{
+  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
+  types::PUBSUB_PUSH_PREFIX,
+};
 use std::{str, sync::Arc};
 
 #[cfg(feature = "client-tracking")]
@@ -74,7 +78,7 @@ fn check_message_prefix(s: &str) -> bool {
 
 /// Check for the various pubsub formats for both RESP2 and RESP3.
 fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
-  if frame.is_pubsub_message() {
+  if frame.is_normal_pubsub_message() {
     return (true, false);
   }
 
@@ -144,7 +148,7 @@ fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, 
     // [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
     if let Resp3Frame::Array { data, .. } = data[1].take() {
       inner.notifications.broadcast_invalidation(Invalidation {
-        keys:   data
+        keys: data
           .into_iter()
           .filter_map(|f| f.as_bytes().map(|b| b.into()))
           .collect(),
@@ -223,6 +227,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
     return None;
   }
 
+  // FIXME change this
   let (is_resp3_pubsub, is_resp2_pubsub) = check_pubsub_formats(&frame);
   if !is_resp3_pubsub && !is_resp2_pubsub {
     return Some(frame);
@@ -270,7 +275,7 @@ pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command
 
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
-  if frame.is_error() {
+  if matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
     match protocol_utils::frame_to_results(frame.clone()) {
       Ok(_) => None,
       Err(e) => match e.kind() {

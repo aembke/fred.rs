@@ -5,7 +5,7 @@ use crate::{
   router::Connections,
   utils,
 };
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{collections::HashMap, sync::Arc};
 
 /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.

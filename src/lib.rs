@@ -18,8 +18,10 @@
 #![cfg_attr(docsrs, allow(unused_attributes))]
 #![doc = include_str!("../README.md")]
 
+#[cfg(any(feature = "dns", feature = "replicas"))]
 #[macro_use]
 extern crate async_trait;
+
 #[macro_use]
 extern crate log;
 
@@ -153,22 +155,8 @@ pub mod prelude {
     error::{RedisError, RedisErrorKind},
     interfaces::*,
     types::{
-      Blocking,
-      Builder,
-      ConnectionConfig,
-      Expiration,
-      FromRedis,
-      Options,
-      PerformanceConfig,
-      ReconnectPolicy,
-      RedisConfig,
-      RedisKey,
-      RedisValue,
-      RedisValueKind,
-      Server,
-      ServerConfig,
-      SetOptions,
-      TcpConfig,
+      Blocking, Builder, ConnectionConfig, Expiration, FromRedis, Options, PerformanceConfig, ReconnectPolicy,
+      RedisConfig, RedisKey, RedisValue, RedisValueKind, Server, ServerConfig, SetOptions, TcpConfig,
     },
   };
 

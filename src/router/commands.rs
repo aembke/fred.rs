@@ -6,7 +6,7 @@ use crate::{
   types::{ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 

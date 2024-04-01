@@ -37,9 +37,10 @@ pub trait AuthInterface: ClientLike {
   fn hello(
     &self,
     version: RespVersion,
-    auth: Option<(String, String)>,
+    auth: Option<(Str, Str)>,
+    setname: Option<Str>,
   ) -> impl Future<Output = RedisResult<()>> + Send {
-    async move { commands::server::hello(self, version, auth).await }
+    async move { commands::server::hello(self, version, auth, setname).await }
   }
 }
 

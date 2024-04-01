@@ -1,7 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
-  interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
   protocol::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
@@ -17,6 +16,7 @@ use crate::{
 };
 use futures::future::try_join_all;
 use parking_lot::Mutex;
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame};
 use std::{
   collections::{BTreeSet, HashMap, VecDeque},
   iter::repeat,
@@ -428,7 +428,7 @@ pub async fn process_response_frame(
   }
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
-  if frame.is_moved_or_ask_error() {
+  if frame.is_redirection() {
     _debug!(
       inner,
       "Recv MOVED or ASK error for `{}` from {}: {:?}",
@@ -570,7 +570,9 @@ pub async fn cluster_slots_backchannel(
 
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
     let (frame, host) = if let Some((frame, host)) = backchannel_result {
-      if frame.is_error() {
+      let kind = frame.kind();
+
+      if matches!(kind, FrameKind::SimpleError | FrameKind::BlobError) {
         // try connecting to any of the nodes, then try again
         let mut transport = connect_any(inner, old_cache).await?;
         let frame = client_utils::apply_timeout(

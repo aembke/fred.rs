@@ -104,11 +104,11 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
 pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
   let command = RouterCommand::Reconnect {
-    server:                               None,
-    force:                                true,
-    tx:                                   Some(tx),
+    server: None,
+    force: true,
+    tx: Some(tx),
     #[cfg(feature = "replicas")]
-    replica:                              false,
+    replica: false,
   };
   interfaces::send_to_router(inner, command)?;
 
@@ -164,13 +164,17 @@ pub async fn info<C: ClientLike>(client: &C, section: Option<InfoKind>) -> Resul
 pub async fn hello<C: ClientLike>(
   client: &C,
   version: RespVersion,
-  auth: Option<(String, String)>,
+  auth: Option<(Str, Str)>,
+  setname: Option<Str>,
 ) -> Result<(), RedisError> {
-  let args = if let Some((username, password)) = auth {
+  let mut args = if let Some((username, password)) = auth {
     vec![username.into(), password.into()]
   } else {
     vec![]
   };
+  if let Some(name) = setname {
+    args.push(name.into());
+  }
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();

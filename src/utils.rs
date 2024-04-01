@@ -15,13 +15,11 @@ use bytes_utils::Str;
 use float_cmp::approx_eq;
 use futures::{
   future::{select, Either},
-  pin_mut,
-  Future,
-  TryFutureExt,
+  pin_mut, Future, TryFutureExt,
 };
 use parking_lot::RwLock;
 use rand::{self, distributions::Alphanumeric, Rng};
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{
   collections::HashMap,
   convert::TryInto,
@@ -167,7 +165,7 @@ where
 
 #[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
-  rand::thread_rng().gen_range(0 .. max)
+  rand::thread_rng().gen_range(0..max)
 }
 
 pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
@@ -596,7 +594,7 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   if jitter == 0 {
     delay
   } else {
-    delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
+    delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
   }
 }
 

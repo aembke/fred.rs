@@ -1,7 +1,7 @@
 use crate::{
   error::RedisErrorKind,
   modules::inner::RedisClientInner,
-  prelude::{RedisError, Resp3Frame},
+  prelude::RedisError,
   protocol::{
     command::{RedisCommand, RouterResponse},
     connection,
@@ -13,6 +13,7 @@ use crate::{
   router::{responses, utils, Connections, Written},
   types::ServerConfig,
 };
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::{collections::VecDeque, sync::Arc};
 use tokio::task::JoinHandle;
 
