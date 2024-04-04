@@ -8,16 +8,21 @@ use crate::{
   types::{
     ClientState, ClusterStateChange, ConnectHandle, ConnectionConfig, CustomCommand, FromRedis, InfoKind,
     KeyspaceEvent, Message, Options, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisValue, RespVersion,
-    Server, ShutdownFlags,
+    Server,
   },
   utils,
 };
+use bytes_utils::Str;
 use futures::Future;
 use semver::Version;
+use std::time::Duration;
 use std::{convert::TryInto, sync::Arc};
 use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
+
+#[cfg(feature = "i-server")]
+use crate::types::ShutdownFlags;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -150,22 +155,22 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     }
   }
 
-  /// Whether or not the client has a reconnection policy.
+  /// Whether the client has a reconnection policy.
   fn has_reconnect_policy(&self) -> bool {
     self.inner().policy.read().is_some()
   }
 
-  /// Whether or not the client will automatically pipeline commands.
+  /// Whether the client will automatically pipeline commands.
   fn is_pipelined(&self) -> bool {
     self.inner().is_pipelined()
   }
 
-  /// Whether or not the client is connected to a cluster.
+  /// Whether the client is connected to a cluster.
   fn is_clustered(&self) -> bool {
     self.inner().config.server.is_clustered()
   }
 
-  /// Whether or not the client uses the sentinel interface.
+  /// Whether the client uses the sentinel interface.
   fn uses_sentinels(&self) -> bool {
     self.inner().config.server.is_sentinel()
   }
@@ -187,14 +192,14 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     self.inner().state.read().clone()
   }
 
-  /// Whether or not all underlying connections are healthy.
+  /// Whether all underlying connections are healthy.
   fn is_connected(&self) -> bool {
     *self.inner().state.read() == ClientState::Connected
   }
 
   /// Read the set of active connections managed by the client.
   fn active_connections(&self) -> impl Future<Output = Result<Vec<Server>, RedisError>> + Send {
-    async move { commands::client::active_connections(self).await }
+    commands::server::active_connections(self)
   }
 
   /// Read the server version, if known.
@@ -313,8 +318,26 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Shut down the server and quit the client.
   ///
   /// <https://redis.io/commands/shutdown>
+  #[cfg(feature = "i-server")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
   fn shutdown(&self, flags: Option<ShutdownFlags>) -> impl Future<Output = RedisResult<()>> + Send {
     async move { commands::server::shutdown(self, flags).await }
+  }
+
+  /// Delete the keys in all databases.
+  ///
+  /// <https://redis.io/commands/flushall>
+  fn flushall<R>(&self, r#async: bool) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+  {
+    async move { commands::server::flushall(self, r#async).await?.convert() }
+  }
+
+  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis
+  /// interface.
+  fn flushall_cluster(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::flushall_cluster(self).await }
   }
 
   /// Ping the Redis server.
@@ -398,6 +421,69 @@ where
 
     result
   })
+}
+
+/// Functions that provide a connection heartbeat interface.
+pub trait HeartbeatInterface: ClientLike {
+  /// Return a future that will ping the server on an interval.
+  #[allow(unreachable_code)]
+  fn enable_heartbeat(
+    &self,
+    interval: Duration,
+    break_on_error: bool,
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      let _self = self.clone();
+      let mut interval = tokio::time::interval(interval);
+
+      loop {
+        interval.tick().await;
+
+        if break_on_error {
+          let _: () = _self.ping().await?;
+        } else if let Err(e) = _self.ping::<()>().await {
+          warn!("{}: Heartbeat ping failed with error: {:?}", _self.inner().id, e);
+        }
+      }
+
+      Ok(())
+    }
+  }
+}
+
+/// Functions for authenticating clients.
+pub trait AuthInterface: ClientLike {
+  /// Request for authentication in a password-protected Redis server. Returns ok if successful.
+  ///
+  /// The client will automatically authenticate with the default user if a password is provided in the associated
+  /// `RedisConfig` when calling [connect](crate::interfaces::ClientLike::connect).
+  ///
+  /// If running against clustered servers this function will authenticate all connections.
+  ///
+  /// <https://redis.io/commands/auth>
+  fn auth<S>(&self, username: Option<String>, password: S) -> impl Future<Output = RedisResult<()>> + Send
+  where
+    S: Into<Str> + Send,
+  {
+    async move {
+      into!(password);
+      commands::server::auth(self, username, password).await
+    }
+  }
+
+  /// Switch to a different protocol, optionally authenticating in the process.
+  ///
+  /// If running against clustered servers this function will issue the HELLO command to each server concurrently.
+  ///
+  /// <https://redis.io/commands/hello>
+  fn hello(
+    &self,
+    version: RespVersion,
+    auth: Option<(Str, Str)>,
+    setname: Option<Str>,
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move { commands::server::hello(self, version, auth, setname).await }
+  }
 }
 
 /// An interface that exposes various client and connection events.
@@ -563,34 +649,70 @@ pub trait EventInterface: ClientLike {
   }
 }
 
-pub use crate::commands::interfaces::{
-  acl::AclInterface,
-  client::ClientInterface,
-  cluster::ClusterInterface,
-  config::ConfigInterface,
-  geo::GeoInterface,
-  hashes::HashesInterface,
-  hyperloglog::HyperloglogInterface,
-  keys::KeysInterface,
-  lists::ListInterface,
-  lua::{FunctionInterface, LuaInterface},
-  memory::MemoryInterface,
-  metrics::MetricsInterface,
-  pubsub::PubsubInterface,
-  server::{AuthInterface, HeartbeatInterface, ServerInterface},
-  sets::SetsInterface,
-  slowlog::SlowlogInterface,
-  sorted_sets::SortedSetsInterface,
-  streams::StreamsInterface,
-};
-
-#[cfg(feature = "redis-json")]
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
+pub use crate::commands::interfaces::acl::*;
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
+pub use crate::commands::interfaces::client::*;
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
+pub use crate::commands::interfaces::cluster::*;
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
+pub use crate::commands::interfaces::config::*;
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
+pub use crate::commands::interfaces::geo::*;
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
+pub use crate::commands::interfaces::hashes::*;
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
+pub use crate::commands::interfaces::hyperloglog::*;
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
+pub use crate::commands::interfaces::keys::*;
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
+pub use crate::commands::interfaces::lists::*;
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+pub use crate::commands::interfaces::lua::*;
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
+pub use crate::commands::interfaces::memory::*;
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
+pub use crate::commands::interfaces::pubsub::*;
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
-#[cfg(feature = "time-series")]
-pub use crate::commands::interfaces::timeseries::TimeSeriesInterface;
-#[cfg(feature = "client-tracking")]
-pub use crate::commands::interfaces::tracking::TrackingInterface;
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
+pub use crate::commands::interfaces::server::*;
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
+pub use crate::commands::interfaces::sets::*;
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
+pub use crate::commands::interfaces::slowlog::*;
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
+pub use crate::commands::interfaces::sorted_sets::*;
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
+pub use crate::commands::interfaces::streams::*;
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
+pub use crate::commands::interfaces::timeseries::*;
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
+pub use crate::commands::interfaces::tracking::*;
 #[cfg(feature = "transactions")]
-pub use crate::commands::interfaces::transactions::TransactionInterface;
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
+pub use crate::commands::interfaces::transactions::*;
+
+pub use crate::commands::interfaces::metrics::MetricsInterface;

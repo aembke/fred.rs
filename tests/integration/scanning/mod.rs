@@ -1,11 +1,13 @@
+#![allow(dead_code)]
 use fred::{prelude::*, types::Scanner};
 use futures::TryStreamExt;
 use tokio_stream::StreamExt;
 
 const SCAN_KEYS: i64 = 100;
 
+#[cfg(feature = "i-keys")]
 pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0 .. SCAN_KEYS {
+  for idx in 0..SCAN_KEYS {
     client
       .set(format!("foo-{}-{}", idx, "{1}"), idx, None, None, false)
       .await?;
@@ -35,8 +37,9 @@ pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result
   Ok(())
 }
 
+#[cfg(feature = "i-hashes")]
 pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0 .. SCAN_KEYS {
+  for idx in 0..SCAN_KEYS {
     let value = (format!("bar-{}", idx), idx);
     client.hset("foo", value).await?;
   }
@@ -65,8 +68,9 @@ pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<()
   Ok(())
 }
 
+#[cfg(feature = "i-sets")]
 pub async fn should_sscan_set(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0 .. SCAN_KEYS {
+  for idx in 0..SCAN_KEYS {
     client.sadd("foo", idx).await?;
   }
 
@@ -92,8 +96,9 @@ pub async fn should_sscan_set(client: RedisClient, _: RedisConfig) -> Result<(),
   Ok(())
 }
 
+#[cfg(feature = "i-sorted-sets")]
 pub async fn should_zscan_sorted_set(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0 .. SCAN_KEYS {
+  for idx in 0..SCAN_KEYS {
     let (score, value) = (idx as f64, format!("foo-{}", idx));
     client.zadd("foo", None, None, false, false, (score, value)).await?;
   }
@@ -124,8 +129,9 @@ pub async fn should_zscan_sorted_set(client: RedisClient, _: RedisConfig) -> Res
   Ok(())
 }
 
+#[cfg(feature = "i-keys")]
 pub async fn should_scan_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0 .. 2000 {
+  for idx in 0..2000 {
     client.set(idx, idx, None, None, false).await?;
   }
 

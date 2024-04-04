@@ -2,13 +2,7 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   types::{
-    ClientKillFilter,
-    ClientKillType,
-    ClientPauseKind,
-    ClientReplyFlag,
-    ClientUnblockFlag,
-    FromRedis,
-    RedisValue,
+    ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, FromRedis, RedisValue,
     Server,
   },
 };
@@ -16,7 +10,7 @@ use bytes_utils::Str;
 use futures::Future;
 use std::collections::HashMap;
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 use crate::{
   error::RedisError,
   types::{MultipleStrings, Toggle},
@@ -170,8 +164,8 @@ pub trait ClientInterface: ClientLike + Sized {
   /// [with_options](crate::interfaces::ClientLike::with_options). See
   /// [crate::interfaces::TrackingInterface::start_tracking] for a version that works with all server deployment
   /// modes.
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  #[cfg(feature = "i-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
   fn client_tracking<R, T, P>(
     &self,
     toggle: T,
@@ -201,8 +195,8 @@ pub trait ClientInterface: ClientLike + Sized {
   /// caching feature.
   ///
   /// <https://redis.io/commands/client-trackinginfo/>
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  #[cfg(feature = "i-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
   fn client_trackinginfo<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
@@ -213,8 +207,8 @@ pub trait ClientInterface: ClientLike + Sized {
   /// This command returns the client ID we are redirecting our tracking notifications to.
   ///
   /// <https://redis.io/commands/client-getredir/>
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  #[cfg(feature = "i-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
   fn client_getredir<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
@@ -230,8 +224,8 @@ pub trait ClientInterface: ClientLike + Sized {
   /// This function is designed to work against a specific server. See
   /// [with_options](crate::interfaces::ClientLike::with_options) for a variation that works with all deployment
   /// types.
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+  #[cfg(feature = "i-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
   fn client_caching<R>(&self, enabled: bool) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,

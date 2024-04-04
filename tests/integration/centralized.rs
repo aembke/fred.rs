@@ -1,3 +1,4 @@
+#[cfg(feature = "i-keys")]
 mod keys {
   centralized_test!(keys, should_handle_missing_keys);
   centralized_test!(keys, should_set_and_get_a_value);
@@ -29,7 +30,7 @@ mod keys {
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
-#[cfg(feature = "transactions")]
+#[cfg(all(feature = "transactions", feature = "i-keys"))]
 mod multi {
 
   centralized_test!(multi, should_run_get_set_trx);
@@ -48,44 +49,50 @@ mod other {
 
   #[cfg(feature = "metrics")]
   centralized_test!(other, should_track_size_stats);
-
+  #[cfg(all(feature = "i-client", feature = "i-lists"))]
   centralized_test!(other, should_automatically_unblock);
+  #[cfg(all(feature = "i-client", feature = "i-lists"))]
   centralized_test!(other, should_manually_unblock);
+  #[cfg(all(feature = "i-client", feature = "i-lists"))]
   centralized_test!(other, should_error_when_blocked);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
   centralized_test!(other, should_smoke_test_from_redis_impl);
   centralized_test!(other, should_safely_change_protocols_repeatedly);
+  #[cfg(feature = "i-keys")]
   centralized_test!(other, should_pipeline_all);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
   centralized_test!(other, should_pipeline_all_error_early);
+  #[cfg(feature = "i-keys")]
   centralized_test!(other, should_pipeline_last);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
   centralized_test!(other, should_pipeline_try_all);
+  #[cfg(feature = "i-server")]
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
   centralized_test!(other, should_gracefully_quit);
+  #[cfg(feature = "i-lists")]
   centralized_test!(other, should_support_options_with_pipeline);
+  #[cfg(feature = "i-keys")]
   centralized_test!(other, should_reuse_pipeline);
+  #[cfg(all(feature = "i-keys", feature = "i-lists"))]
   centralized_test!(other, should_manually_connect_twice);
-  #[cfg(feature = "transactions")]
+  #[cfg(all(feature = "transactions", feature = "i-keys"))]
   centralized_test!(other, should_support_options_with_trx);
 
   //#[cfg(feature = "dns")]
   // centralized_test!(other, should_use_trust_dns);
   // centralized_test!(other, should_test_high_concurrency_pool);
 
-  #[cfg(feature = "partial-tracing")]
+  #[cfg(all(feature = "partial-tracing", feature = "i-keys"))]
   centralized_test!(other, should_use_tracing_get_set);
   #[cfg(feature = "subscriber-client")]
   centralized_test!(other, should_ping_with_subscriber_client);
 
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   centralized_test!(other, should_replica_set_and_get);
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   centralized_test!(other, should_replica_set_and_get_not_lazy);
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   centralized_test!(other, should_pipeline_with_replicas);
-
-  #[cfg(feature = "codec")]
-  centralized_test!(other, should_use_resp3_codec_example);
-  #[cfg(feature = "codec")]
-  centralized_test!(other, should_use_resp2_codec_example);
 }
 
 mod pool {
@@ -93,6 +100,7 @@ mod pool {
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
 }
 
+#[cfg(feature = "i-hashes")]
 mod hashes {
   centralized_test!(hashes, should_hset_and_hget);
   centralized_test!(hashes, should_hset_and_hdel);
@@ -109,6 +117,7 @@ mod hashes {
   centralized_test!(hashes, should_get_values);
 }
 
+#[cfg(feature = "i-pubsub")]
 mod pubsub {
   centralized_test!(pubsub, should_publish_and_recv_messages);
   centralized_test!(pubsub, should_psubscribe_and_recv_messages);
@@ -121,6 +130,7 @@ mod pubsub {
   centralized_test!(pubsub, should_get_pubsub_shard_numsub);
 }
 
+#[cfg(feature = "i-hyperloglog")]
 mod hyperloglog {
 
   centralized_test!(hyperloglog, should_pfadd_elements);
@@ -130,12 +140,17 @@ mod hyperloglog {
 
 mod scanning {
 
-  centralized_test!(scanning, should_scan_keyspace);
-  centralized_test!(scanning, should_hscan_hash);
-  centralized_test!(scanning, should_sscan_set);
-  centralized_test!(scanning, should_zscan_sorted_set);
+  #[cfg(feature = "i-keys")]
+  cluster_test!(scanning, should_scan_keyspace);
+  #[cfg(feature = "i-hashes")]
+  cluster_test!(scanning, should_hscan_hash);
+  #[cfg(feature = "i-sets")]
+  cluster_test!(scanning, should_sscan_set);
+  #[cfg(feature = "i-sorted-sets")]
+  cluster_test!(scanning, should_zscan_sorted_set);
 }
 
+#[cfg(feature = "i-slowlog")]
 mod slowlog {
 
   centralized_test!(slowlog, should_read_slowlog_length);
@@ -143,6 +158,7 @@ mod slowlog {
   centralized_test!(slowlog, should_reset_slowlog);
 }
 
+#[cfg(feature = "i-server")]
 mod server {
 
   centralized_test!(server, should_flushall);
@@ -155,6 +171,7 @@ mod server {
   centralized_test!(server, should_do_bgrewriteaof);
 }
 
+#[cfg(feature = "i-sets")]
 mod sets {
 
   centralized_test!(sets, should_sadd_elements);
@@ -174,6 +191,7 @@ mod sets {
   centralized_test!(sets, should_sunionstore_elements);
 }
 
+#[cfg(feature = "i-memory")]
 pub mod memory {
 
   centralized_test!(memory, should_run_memory_doctor);
@@ -183,6 +201,7 @@ pub mod memory {
   centralized_test!(memory, should_run_memory_usage);
 }
 
+#[cfg(feature = "i-scripts")]
 pub mod lua {
 
   #[cfg(feature = "sha-1")]
@@ -203,6 +222,7 @@ pub mod lua {
   centralized_test!(lua, should_function_delete);
   centralized_test!(lua, should_function_list);
   centralized_test!(lua, should_function_list_multiple);
+  #[cfg(feature = "i-keys")]
   centralized_test!(lua, should_function_fcall_getset);
   centralized_test!(lua, should_function_fcall_echo);
   centralized_test!(lua, should_function_fcall_ro_echo);
@@ -215,6 +235,7 @@ pub mod lua {
   centralized_test!(lua, should_create_function_from_name);
 }
 
+#[cfg(feature = "i-sorted-sets")]
 pub mod sorted_sets {
 
   centralized_test!(sorted_sets, should_bzpopmin);
@@ -248,6 +269,7 @@ pub mod sorted_sets {
   centralized_test!(sorted_sets, should_zmscore_values);
 }
 
+#[cfg(feature = "i-lists")]
 pub mod lists {
   centralized_test!(lists, should_blpop_values);
   centralized_test!(lists, should_brpop_values);
@@ -263,6 +285,7 @@ pub mod lists {
   centralized_test!(lists, should_lrange_values);
   centralized_test!(lists, should_lrem_values);
   centralized_test!(lists, should_lset_values);
+  #[cfg(feature = "i-keys")]
   centralized_test!(lists, should_ltrim_values);
   centralized_test!(lists, should_rpop_values);
   centralized_test!(lists, should_rpoplpush_values);
@@ -271,6 +294,7 @@ pub mod lists {
   centralized_test!(lists, should_rpushx_values);
 }
 
+#[cfg(feature = "i-geo")]
 pub mod geo {
 
   centralized_test!(geo, should_geoadd_values);
@@ -282,12 +306,14 @@ pub mod geo {
   centralized_test!(geo, should_geosearch_values);
 }
 
+#[cfg(feature = "i-acl")]
 pub mod acl {
   centralized_test!(acl, should_auth_as_test_user);
   centralized_test!(acl, should_auth_as_test_user_via_config);
   centralized_test!(acl, should_run_acl_getuser);
 }
 
+#[cfg(feature = "i-streams")]
 mod streams {
   centralized_test!(streams, should_xinfo_consumers);
   centralized_test!(streams, should_xinfo_groups);
@@ -328,14 +354,16 @@ mod streams {
   centralized_test!(streams, should_xautoclaim_default);
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 mod tracking {
+  #[cfg(feature = "i-keys")]
   centralized_test!(tracking, should_invalidate_foo_resp3);
+  #[cfg(feature = "i-keys")]
   centralized_test!(tracking, should_invalidate_foo_resp2_centralized);
 }
 
 // The CI settings for redis-stack only support centralized configs for now.
-#[cfg(feature = "redis-json")]
+#[cfg(feature = "i-redis-json")]
 mod redis_json {
   centralized_test!(redis_json, should_get_and_set_basic_obj);
   centralized_test!(redis_json, should_get_and_set_stringified_obj);
@@ -352,7 +380,7 @@ mod redis_json {
   centralized_test!(redis_json, should_get_value_type);
 }
 
-#[cfg(feature = "time-series")]
+#[cfg(feature = "i-time-series")]
 mod timeseries {
   centralized_test!(timeseries, should_ts_add_get_and_range);
   centralized_test!(timeseries, should_create_alter_and_del_timeseries);

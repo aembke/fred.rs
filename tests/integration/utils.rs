@@ -677,15 +677,6 @@ macro_rules! return_err(
   } }
 );
 
-macro_rules! check_null(
-  ($client:ident, $arg:expr) => { {
-    let foo: RedisValue = $client.get($arg).await?;
-    if !foo.is_null() {
-      panic!("expected {} to be null", $arg);
-    }
-  } }
-);
-
 macro_rules! check_redis_7 (
   ($client:ident) => {
     if $client.server_version().unwrap().major < 7 {

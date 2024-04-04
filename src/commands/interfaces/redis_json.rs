@@ -44,7 +44,7 @@ use serde_json::Value;
 ///   Ok(())
 /// }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 pub trait RedisJsonInterface: ClientLike + Sized {
   /// Append the json values into the array at path after the last element in it.
   ///

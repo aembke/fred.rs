@@ -1,3 +1,6 @@
+#![allow(unused_macros)]
+#![allow(dead_code)]
+
 use crate::{
   error::RedisError,
   interfaces::ClientLike,
@@ -9,12 +12,10 @@ use crate::{
 pub static MATCH: &str = "MATCH";
 pub static COUNT: &str = "COUNT";
 pub static TYPE: &str = "TYPE";
+#[cfg(any(feature = "i-geo", feature = "i-sorted-sets"))]
 pub static CHANGED: &str = "CH";
-pub static INCR: &str = "INCR";
-pub static WITH_SCORES: &str = "WITHSCORES";
+#[cfg(any(feature = "i-sorted-sets", feature = "i-streams"))]
 pub static LIMIT: &str = "LIMIT";
-pub static AGGREGATE: &str = "AGGREGATE";
-pub static WEIGHTS: &str = "WEIGHTS";
 pub static GET: &str = "GET";
 pub static RESET: &str = "RESET";
 pub static TO: &str = "TO";
@@ -162,31 +163,46 @@ pub async fn args_ok_cmd<C: ClientLike>(
   protocol_utils::expect_ok(&response)
 }
 
+#[cfg(feature = "i-acl")]
 pub mod acl;
+#[cfg(feature = "i-client")]
 pub mod client;
+#[cfg(feature = "i-cluster")]
 pub mod cluster;
+#[cfg(feature = "i-config")]
 pub mod config;
+#[cfg(feature = "i-geo")]
 pub mod geo;
+#[cfg(feature = "i-hashes")]
 pub mod hashes;
+#[cfg(feature = "i-hyperloglog")]
 pub mod hyperloglog;
+#[cfg(feature = "i-keys")]
 pub mod keys;
+#[cfg(feature = "i-lists")]
 pub mod lists;
+#[cfg(feature = "i-scripts")]
 pub mod lua;
+#[cfg(feature = "i-memory")]
 pub mod memory;
+#[cfg(feature = "i-pubsub")]
 pub mod pubsub;
-pub mod scan;
-pub mod server;
-pub mod sets;
-pub mod slowlog;
-pub mod sorted_sets;
-pub mod streams;
-pub mod strings;
-
-#[cfg(feature = "redis-json")]
+#[cfg(feature = "i-redis-json")]
 pub mod redis_json;
+pub mod scan;
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;
-#[cfg(feature = "time-series")]
+pub mod server;
+#[cfg(feature = "i-sets")]
+pub mod sets;
+#[cfg(feature = "i-slowlog")]
+pub mod slowlog;
+#[cfg(feature = "i-sorted-sets")]
+pub mod sorted_sets;
+#[cfg(feature = "i-streams")]
+pub mod streams;
+pub mod strings;
+#[cfg(feature = "i-time-series")]
 pub mod timeseries;
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 pub mod tracking;

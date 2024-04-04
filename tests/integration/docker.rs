@@ -13,7 +13,8 @@ use bollard::{
   ClientVersion, Docker, API_DEFAULT_VERSION,
 };
 use bytes::Bytes;
-use fred::{prelude::*, types::ClusterRouting};
+use fred::prelude::*;
+use fred::types::ClusterRouting;
 use futures::stream::StreamExt;
 use redis_protocol::resp2::decode::decode_bytes as resp2_decode;
 use std::collections::HashMap;

@@ -3,15 +3,7 @@ use crate::{
   interfaces::ClientLike,
   prelude::{RedisError, RedisKey, RedisResult},
   types::{
-    Aggregator,
-    DuplicatePolicy,
-    Encoding,
-    FromRedis,
-    GetLabels,
-    GetTimestamp,
-    GroupBy,
-    RangeAggregation,
-    RedisMap,
+    Aggregator, DuplicatePolicy, Encoding, FromRedis, GetLabels, GetTimestamp, GroupBy, RangeAggregation, RedisMap,
     Timestamp,
   },
 };
@@ -19,7 +11,7 @@ use bytes_utils::Str;
 use futures::Future;
 
 /// A [Redis Timeseries](https://github.com/RedisTimeSeries/RedisTimeSeries/) interface.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 pub trait TimeSeriesInterface: ClientLike {
   /// Append a sample to a time series.
   ///

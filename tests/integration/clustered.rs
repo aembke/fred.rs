@@ -1,3 +1,4 @@
+#[cfg(feature = "i-keys")]
 mod keys {
   cluster_test!(keys, should_handle_missing_keys);
   cluster_test!(keys, should_set_and_get_a_value);
@@ -30,7 +31,7 @@ mod keys {
   cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
 
-#[cfg(feature = "transactions")]
+#[cfg(all(feature = "transactions", feature = "i-keys"))]
 mod multi {
 
   cluster_test!(multi, should_run_get_set_trx);
@@ -52,43 +53,50 @@ mod other {
   cluster_test!(other, should_track_size_stats);
 
   cluster_test!(other, should_split_clustered_connection);
+  #[cfg(feature = "i-server")]
   cluster_test!(other, should_run_flushall_cluster);
+  #[cfg(all(feature = "i-client", feature = "i-lists"))]
   cluster_test!(other, should_automatically_unblock);
+  #[cfg(all(feature = "i-client", feature = "i-lists"))]
   cluster_test!(other, should_manually_unblock);
+  #[cfg(all(feature = "i-client", feature = "i-lists"))]
   cluster_test!(other, should_error_when_blocked);
   cluster_test!(other, should_safely_change_protocols_repeatedly);
+  #[cfg(feature = "i-keys")]
   cluster_test!(other, should_pipeline_all);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
   cluster_test!(other, should_pipeline_all_error_early);
+  #[cfg(feature = "i-keys")]
   cluster_test!(other, should_pipeline_last);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
   cluster_test!(other, should_pipeline_try_all);
+  #[cfg(feature = "i-server")]
   cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
   cluster_test!(other, should_gracefully_quit);
+  #[cfg(feature = "i-lists")]
   cluster_test!(other, should_support_options_with_pipeline);
+  #[cfg(feature = "i-keys")]
   cluster_test!(other, should_reuse_pipeline);
+  #[cfg(all(feature = "i-keys", feature = "i-lists"))]
   cluster_test!(other, should_manually_connect_twice);
-  #[cfg(feature = "transactions")]
+  #[cfg(all(feature = "transactions", feature = "i-keys"))]
   cluster_test!(other, should_support_options_with_trx);
 
   //#[cfg(feature = "dns")]
   // cluster_test!(other, should_use_trust_dns);
-  #[cfg(feature = "partial-tracing")]
+  #[cfg(all(feature = "partial-tracing", feature = "i-keys"))]
   cluster_test!(other, should_use_tracing_get_set);
   #[cfg(feature = "subscriber-client")]
   cluster_test!(other, should_ping_with_subscriber_client);
 
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_replica_set_and_get);
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_replica_set_and_get_not_lazy);
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_use_cluster_replica_without_redirection);
-  #[cfg(feature = "replicas")]
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_pipeline_with_replicas);
-
-  #[cfg(feature = "codec")]
-  cluster_test!(other, should_use_resp3_codec_example);
-  #[cfg(feature = "codec")]
-  cluster_test!(other, should_use_resp2_codec_example);
 }
 
 mod pool {
@@ -96,6 +104,7 @@ mod pool {
   cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
 }
 
+#[cfg(feature = "i-hashes")]
 mod hashes {
 
   cluster_test!(hashes, should_hset_and_hget);
@@ -113,6 +122,7 @@ mod hashes {
   cluster_test!(hashes, should_get_values);
 }
 
+#[cfg(feature = "i-pubsub")]
 mod pubsub {
 
   cluster_test!(pubsub, should_publish_and_recv_messages);
@@ -127,6 +137,7 @@ mod pubsub {
   cluster_test!(pubsub, should_get_pubsub_shard_numsub);
 }
 
+#[cfg(feature = "i-hyperloglog")]
 mod hyperloglog {
 
   cluster_test!(hyperloglog, should_pfadd_elements);
@@ -136,13 +147,19 @@ mod hyperloglog {
 
 mod scanning {
 
+  #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_scan_keyspace);
+  #[cfg(feature = "i-hashes")]
   cluster_test!(scanning, should_hscan_hash);
+  #[cfg(feature = "i-sets")]
   cluster_test!(scanning, should_sscan_set);
+  #[cfg(feature = "i-sorted-sets")]
   cluster_test!(scanning, should_zscan_sorted_set);
+  #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_scan_cluster);
 }
 
+#[cfg(feature = "i-slowlog")]
 mod slowlog {
 
   cluster_test!(slowlog, should_read_slowlog_length);
@@ -150,6 +167,7 @@ mod slowlog {
   cluster_test!(slowlog, should_reset_slowlog);
 }
 
+#[cfg(feature = "i-server")]
 mod server {
 
   cluster_test!(server, should_flushall);
@@ -162,6 +180,7 @@ mod server {
   cluster_test!(server, should_do_bgrewriteaof);
 }
 
+#[cfg(feature = "i-sets")]
 mod sets {
 
   cluster_test!(sets, should_sadd_elements);
@@ -181,6 +200,7 @@ mod sets {
   cluster_test!(sets, should_sunionstore_elements);
 }
 
+#[cfg(feature = "i-memory")]
 pub mod memory {
 
   cluster_test!(memory, should_run_memory_doctor);
@@ -190,6 +210,7 @@ pub mod memory {
   cluster_test!(memory, should_run_memory_usage);
 }
 
+#[cfg(feature = "i-scripts")]
 pub mod lua {
 
   #[cfg(feature = "sha-1")]
@@ -212,6 +233,7 @@ pub mod lua {
   cluster_test!(lua, should_function_delete);
   cluster_test!(lua, should_function_list);
   cluster_test!(lua, should_function_list_multiple);
+  #[cfg(feature = "i-keys")]
   cluster_test!(lua, should_function_fcall_getset);
   cluster_test!(lua, should_function_fcall_echo);
   cluster_test!(lua, should_function_fcall_ro_echo);
@@ -224,6 +246,7 @@ pub mod lua {
   cluster_test!(lua, should_create_function_from_name);
 }
 
+#[cfg(feature = "i-sorted-sets")]
 pub mod sorted_sets {
 
   cluster_test!(sorted_sets, should_bzpopmin);
@@ -257,6 +280,7 @@ pub mod sorted_sets {
   cluster_test!(sorted_sets, should_zmscore_values);
 }
 
+#[cfg(feature = "i-lists")]
 pub mod lists {
 
   cluster_test!(lists, should_blpop_values);
@@ -272,6 +296,7 @@ pub mod lists {
   cluster_test!(lists, should_lrange_values);
   cluster_test!(lists, should_lrem_values);
   cluster_test!(lists, should_lset_values);
+  #[cfg(feature = "i-keys")]
   cluster_test!(lists, should_ltrim_values);
   cluster_test!(lists, should_rpop_values);
   cluster_test!(lists, should_rpoplpush_values);
@@ -280,6 +305,7 @@ pub mod lists {
   cluster_test!(lists, should_rpushx_values);
 }
 
+#[cfg(feature = "i-geo")]
 pub mod geo {
 
   cluster_test!(geo, should_geoadd_values);
@@ -291,11 +317,12 @@ pub mod geo {
   cluster_test!(geo, should_geosearch_values);
 }
 
-#[cfg(not(feature = "redis-stack"))]
+#[cfg(all(not(feature = "redis-stack"), feature = "i-acl"))]
 pub mod acl {
   cluster_test!(acl, should_run_acl_getuser);
 }
 
+#[cfg(feature = "i-streams")]
 mod streams {
   cluster_test!(streams, should_xinfo_consumers);
   cluster_test!(streams, should_xinfo_groups);
@@ -336,16 +363,19 @@ mod streams {
   cluster_test!(streams, should_xautoclaim_default);
 }
 
+#[cfg(feature = "i-cluster")]
 mod cluster {
+  #[cfg(feature = "i-client")]
   cluster_test!(cluster, should_use_each_cluster_node);
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 mod tracking {
+  #[cfg(feature = "i-keys")]
   cluster_test!(tracking, should_invalidate_foo_resp3);
 }
 
-#[cfg(feature = "time-series")]
+#[cfg(feature = "i-time-series")]
 mod timeseries {
   cluster_test!(timeseries, should_ts_add_get_and_range);
   cluster_test!(timeseries, should_create_alter_and_del_timeseries);

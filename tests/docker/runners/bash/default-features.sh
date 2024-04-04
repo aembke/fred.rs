@@ -11,7 +11,7 @@ do
 done
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
-  cargo test --release --lib --tests -- --test-threads=1 "$@"
+  cargo test --release --lib --tests --features "i-all" -- --test-threads=1 "$@"
 else
-  cargo nextest run --release --lib --tests --test-threads=1 "$@"
+  cargo nextest run --release --lib --tests --features "i-all" --test-threads=1 "$@"
 fi

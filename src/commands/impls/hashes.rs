@@ -4,7 +4,17 @@ use crate::{
   types::*,
   utils,
 };
-use std::convert::TryInto;
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
+use std::{convert::TryInto, str};
+
+fn frame_is_queued(frame: &Resp3Frame) -> bool {
+  match frame {
+    Resp3Frame::SimpleString { ref data, .. } | Resp3Frame::BlobString { ref data, .. } => {
+      str::from_utf8(data).ok().map(|s| s == QUEUED).unwrap_or(false)
+    },
+    _ => false,
+  }
+}
 
 pub async fn hdel<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
@@ -35,7 +45,7 @@ pub async fn hget<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> 
 pub async fn hgetall<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::HGetAll, vec![key.into()]))).await?;
 
-  if protocol_utils::frame_is_queued(&frame) {
+  if frame.as_str().map(|s| s == QUEUED).unwrap_or(false) {
     protocol_utils::frame_to_results(frame)
   } else {
     Ok(RedisValue::Map(protocol_utils::frame_to_map(frame)?))
@@ -156,7 +166,7 @@ pub async fn hrandfield<C: ClientLike>(
   .await?;
 
   if has_count {
-    if has_values && !protocol_utils::frame_is_queued(&frame) {
+    if has_values && frame.as_str().map(|s| s != QUEUED).unwrap_or(false) {
       let frame = protocol_utils::flatten_frame(frame);
       protocol_utils::frame_to_map(frame).map(RedisValue::Map)
     } else {

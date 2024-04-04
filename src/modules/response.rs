@@ -1,6 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  types::{ClusterInfo, DatabaseMemoryStats, GeoPosition, MemoryStats, RedisKey, RedisValue, SlowlogEntry, QUEUED},
+  types::{RedisKey, RedisValue, QUEUED},
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -8,6 +8,15 @@ use std::{
   collections::{BTreeMap, BTreeSet, HashMap, HashSet},
   hash::{BuildHasher, Hash},
 };
+
+#[cfg(feature = "i-cluster")]
+use crate::types::ClusterInfo;
+#[cfg(feature = "i-geo")]
+use crate::types::GeoPosition;
+#[cfg(feature = "i-slowlog")]
+use crate::types::SlowlogEntry;
+#[cfg(feature = "i-memory")]
+use crate::types::{DatabaseMemoryStats, MemoryStats};
 
 #[allow(unused_imports)]
 use std::any::type_name;
@@ -595,30 +604,40 @@ impl FromRedis for Value {
   }
 }
 
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl FromRedis for GeoPosition {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     GeoPosition::try_from(value)
   }
 }
 
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
 impl FromRedis for SlowlogEntry {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     SlowlogEntry::try_from(value)
   }
 }
 
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
 impl FromRedis for ClusterInfo {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     ClusterInfo::try_from(value)
   }
 }
 
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl FromRedis for MemoryStats {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     MemoryStats::try_from(value)
   }
 }
 
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl FromRedis for DatabaseMemoryStats {
   fn from_value(value: RedisValue) -> Result<Self, RedisError> {
     DatabaseMemoryStats::try_from(value)

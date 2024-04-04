@@ -198,16 +198,26 @@ jobs:
       - test_sentinel
   test-misc:
     docker:
-      - image: cimg/rust:1.72.1
+      - image: cimg/rust:1.77.1
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
       - checkout
       - build_docs
       - test_mocks
+  check-all-interface-features:
+    docker:
+      - image: cimg/rust:1.77.1
+    environment:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+    steps:
+      - checkout
+      - run:
+          name: Check all features
+          command: tests/scripts/check_features.sh
   clippy-lint:
     docker:
-      - image: cimg/rust:1.75.0
+      - image: cimg/rust:1.77.1
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -232,3 +242,4 @@ workflows:
       - test-cluster-tls-features-7_2
       - test-cluster-rustls-features-7_2
       - clippy-lint
+      - check-all-interface-features

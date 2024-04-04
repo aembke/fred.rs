@@ -12,13 +12,17 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
-use redis_protocol::resp3::types::FrameKind;
 use redis_protocol::{
   resp2::types::{BytesFrame as Resp2Frame, Resp2Frame as _Resp2Frame},
-  resp3::types::{BytesFrame as Resp3Frame, FrameMap, Resp3Frame as _Resp3Frame},
+  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
   types::{PUBSUB_PUSH_PREFIX, REDIS_CLUSTER_SLOTS},
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
+
+#[cfg(any(feature = "i-lists", feature = "i-sorted-sets"))]
+use redis_protocol::resp3::types::FrameKind;
+#[cfg(feature = "i-hashes")]
+use redis_protocol::resp3::types::FrameMap;
 
 static LEGACY_AUTH_ERROR_BODY: &str = "ERR Client sent AUTH, but no password is set";
 static ACL_AUTH_ERROR_PREFIX: &str =
@@ -41,15 +45,6 @@ pub fn queued_frame() -> Resp3Frame {
   Resp3Frame::SimpleString {
     data: utils::static_bytes(QUEUED.as_bytes()),
     attributes: None,
-  }
-}
-
-pub fn frame_is_queued(frame: &Resp3Frame) -> bool {
-  match frame {
-    Resp3Frame::SimpleString { ref data, .. } | Resp3Frame::BlobString { ref data, .. } => {
-      str::from_utf8(data).ok().map(|s| s == QUEUED).unwrap_or(false)
-    },
-    _ => false,
   }
 }
 
@@ -356,6 +351,7 @@ pub fn frame_to_str(frame: &Resp3Frame) -> Option<Str> {
   }
 }
 
+#[cfg(feature = "i-hashes")]
 fn parse_nested_map(data: FrameMap<Resp3Frame, Resp3Frame>) -> Result<RedisMap, RedisError> {
   let mut out = HashMap::with_capacity(data.len());
 
@@ -370,6 +366,7 @@ fn parse_nested_map(data: FrameMap<Resp3Frame, Resp3Frame>) -> Result<RedisMap, 
 }
 
 /// Convert `nil` responses to a generic `Timeout` error.
+#[cfg(any(feature = "i-lists", feature = "i-sorted-sets"))]
 pub fn check_null_timeout(frame: &Resp3Frame) -> Result<(), RedisError> {
   if frame.kind() == FrameKind::Null {
     Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out."))
@@ -437,6 +434,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
 }
 
 /// Flatten a single nested layer of arrays or sets into one array.
+#[cfg(feature = "i-hashes")]
 pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
   match frame {
     Resp3Frame::Array { data, .. } => {
@@ -491,6 +489,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
   }
 }
 
+#[cfg(feature = "i-hashes")]
 /// Convert a frame to a nested RedisMap.
 pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
   match frame {
@@ -689,6 +688,7 @@ pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, Redis
   }
 }
 
+#[cfg(feature = "i-geo")]
 pub fn assert_array_len<T>(data: &[T], len: usize) -> Result<(), RedisError> {
   if data.len() == len {
     Ok(())
@@ -980,6 +980,8 @@ pub fn encode_frame(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Re
 
 #[cfg(test)]
 mod tests {
+  #![allow(dead_code)]
+  #![allow(unused_imports)]
   use super::*;
   use std::{collections::HashMap, time::Duration};
 
@@ -1005,6 +1007,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-memory")]
   fn should_parse_memory_stats() {
     // better from()/into() interfaces for frames coming in the next redis-protocol version...
     let input = frame_to_results(Resp3Frame::Array {
@@ -1115,6 +1118,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-slowlog")]
   fn should_parse_slowlog_entries_redis_3() {
     // redis 127.0.0.1:6379> slowlog get 2
     // 1) 1) (integer) 14
@@ -1183,6 +1187,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-slowlog")]
   fn should_parse_slowlog_entries_redis_4() {
     // redis 127.0.0.1:6379> slowlog get 2
     // 1) 1) (integer) 14
@@ -1259,6 +1264,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-cluster")]
   fn should_parse_cluster_info() {
     let input: RedisValue = "cluster_state:fail
 cluster_slots_assigned:16384

@@ -75,37 +75,37 @@ impl ReconnectError {
 pub enum ReconnectPolicy {
   /// Wait a constant amount of time between reconnect attempts, in ms.
   Constant {
-    attempts:     u32,
+    attempts: u32,
     max_attempts: u32,
-    delay:        u32,
-    jitter:       u32,
+    delay: u32,
+    jitter: u32,
   },
   /// Backoff reconnection attempts linearly, adding `delay` each time.
   Linear {
-    attempts:     u32,
+    attempts: u32,
     max_attempts: u32,
-    max_delay:    u32,
-    delay:        u32,
-    jitter:       u32,
+    max_delay: u32,
+    delay: u32,
+    jitter: u32,
   },
   /// Backoff reconnection attempts exponentially, multiplying the last delay by `mult` each time.
   Exponential {
-    attempts:     u32,
+    attempts: u32,
     max_attempts: u32,
-    min_delay:    u32,
-    max_delay:    u32,
-    mult:         u32,
-    jitter:       u32,
+    min_delay: u32,
+    max_delay: u32,
+    mult: u32,
+    jitter: u32,
   },
 }
 
 impl Default for ReconnectPolicy {
   fn default() -> Self {
     ReconnectPolicy::Constant {
-      attempts:     0,
+      attempts: 0,
       max_attempts: 0,
-      delay:        1000,
-      jitter:       DEFAULT_JITTER_MS,
+      delay: 1000,
+      jitter: DEFAULT_JITTER_MS,
     }
   }
 }
@@ -295,7 +295,7 @@ pub enum BackpressurePolicy {
     /// `disable_auto_backpressure` is `true`.
     ///
     /// Default: 10 ms
-    min_sleep_duration:           Duration,
+    min_sleep_duration: Duration,
   },
   /// Wait for all in-flight commands to finish before sending the next command.
   Drain,
@@ -312,7 +312,7 @@ impl BackpressurePolicy {
   pub fn default_sleep() -> Self {
     BackpressurePolicy::Sleep {
       disable_backpressure_scaling: false,
-      min_sleep_duration:           Duration::from_millis(10),
+      min_sleep_duration: Duration::from_millis(10),
     }
   }
 }
@@ -330,19 +330,19 @@ pub struct BackpressureConfig {
   /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
   ///
   /// Default: 10_000
-  pub max_in_flight_commands:    u64,
+  pub max_in_flight_commands: u64,
   /// The backpressure policy to apply when the max number of in-flight commands is reached.
   ///
   /// Default: [Drain](crate::types::BackpressurePolicy::Drain).
-  pub policy:                    BackpressurePolicy,
+  pub policy: BackpressurePolicy,
 }
 
 impl Default for BackpressureConfig {
   fn default() -> Self {
     BackpressureConfig {
       disable_auto_backpressure: false,
-      max_in_flight_commands:    10_000,
-      policy:                    BackpressurePolicy::default(),
+      max_in_flight_commands: 10_000,
+      policy: BackpressurePolicy::default(),
     }
   }
 }
@@ -351,11 +351,11 @@ impl Default for BackpressureConfig {
 #[derive(Clone, Debug, Default)]
 pub struct TcpConfig {
   /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
-  pub nodelay:   Option<bool>,
+  pub nodelay: Option<bool>,
   /// Set the [SO_LINGER](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_linger) value.
-  pub linger:    Option<Duration>,
+  pub linger: Option<Duration>,
   /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
-  pub ttl:       Option<u32>,
+  pub ttl: Option<u32>,
   /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
   pub keepalive: Option<TcpKeepalive>,
 }
@@ -390,14 +390,14 @@ pub struct UnresponsiveConfig {
   /// This value should usually be less than half of `max_timeout` and always more than 1 ms.
   ///
   /// Default: 2 sec
-  pub interval:    Duration,
+  pub interval: Duration,
 }
 
 impl Default for UnresponsiveConfig {
   fn default() -> Self {
     UnresponsiveConfig {
       max_timeout: None,
-      interval:    Duration::from_secs(2),
+      interval: Duration::from_secs(2),
     }
   }
 }
@@ -410,37 +410,37 @@ pub struct ConnectionConfig {
   /// This also includes the TLS handshake if using any of the TLS features.
   ///
   /// Default: 10 sec
-  pub connection_timeout:           Duration,
+  pub connection_timeout: Duration,
   /// The timeout to apply when sending internal commands such as `AUTH`, `SELECT`, `CLUSTER SLOTS`, `READONLY`, etc.
   ///
   /// Default: 10 sec
-  pub internal_command_timeout:     Duration,
+  pub internal_command_timeout: Duration,
   /// The amount of time to wait after a `MOVED` error is received before the client will update the cached cluster
   /// state.
   ///
   /// Default: `0`
-  pub cluster_cache_update_delay:   Duration,
+  pub cluster_cache_update_delay: Duration,
   /// The maximum number of times the client will attempt to send a command.
   ///
   /// This value be incremented whenever the connection closes while the command is in-flight.
   ///
   /// Default: `3`
-  pub max_command_attempts:         u32,
+  pub max_command_attempts: u32,
   /// The maximum number of times the client will attempt to follow a `MOVED` or `ASK` redirection per command.
   ///
   /// Default: `5`
-  pub max_redirections:             u32,
+  pub max_redirections: u32,
   /// Unresponsive connection configuration options.
-  pub unresponsive:                 UnresponsiveConfig,
+  pub unresponsive: UnresponsiveConfig,
   /// An unexpected `NOAUTH` error is treated the same as a general connection failure, causing the client to
   /// reconnect based on the [ReconnectPolicy](crate::types::ReconnectPolicy). This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.
   ///
   /// Default: `false`
-  pub reconnect_on_auth_error:      bool,
+  pub reconnect_on_auth_error: bool,
   /// Automatically send `CLIENT SETNAME` on each connection associated with a client instance.
   ///
   /// Default: `false`
-  pub auto_client_setname:          bool,
+  pub auto_client_setname: bool,
   /// Limit the size of the internal in-memory command queue.
   ///
   /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error.
@@ -448,7 +448,7 @@ pub struct ConnectionConfig {
   /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
   ///
   /// Default: `0` (unlimited)
-  pub max_command_buffer_len:       usize,
+  pub max_command_buffer_len: usize,
   /// Disable the `CLUSTER INFO` health check when initializing cluster connections.
   ///
   /// Default: `false`
@@ -458,13 +458,13 @@ pub struct ConnectionConfig {
   /// Default: `None`
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub replica:                      ReplicaConfig,
+  pub replica: ReplicaConfig,
   /// TCP connection options.
-  pub tcp:                          TcpConfig,
+  pub tcp: TcpConfig,
   ///
   #[cfg(feature = "custom-reconnect-errors")]
   #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
-  pub reconnect_errors:             Vec<ReconnectError>,
+  pub reconnect_errors: Vec<ReconnectError>,
 }
 
 impl Default for ConnectionConfig {
@@ -502,22 +502,22 @@ pub struct PerformanceConfig {
   /// whereas this flag can automatically pipeline commands across tasks.
   ///
   /// Default: `true`
-  pub auto_pipeline:              bool,
+  pub auto_pipeline: bool,
   /// Configuration options for backpressure features in the client.
-  pub backpressure:               BackpressureConfig,
+  pub backpressure: BackpressureConfig,
   /// An optional timeout to apply to all commands.
   ///
   /// If `0` this will disable any timeout being applied to commands. Callers can also set timeouts on individual
   /// commands via the [with_options](crate::interfaces::ClientLike::with_options) interface.
   ///
   /// Default: `0`
-  pub default_command_timeout:    Duration,
+  pub default_command_timeout: Duration,
   /// The maximum number of frames that will be fed to a socket before flushing.
   ///
   /// Note: in some circumstances the client with always flush the socket (`QUIT`, `EXEC`, etc).
   ///
   /// Default: 200
-  pub max_feed_count:             u64,
+  pub max_feed_count: u64,
   /// The default capacity used when creating [broadcast channels](https://docs.rs/tokio/latest/tokio/sync/broadcast/fn.channel.html) in the [EventInterface](crate::interfaces::EventInterface).
   ///
   /// Default: 32
@@ -529,7 +529,7 @@ pub struct PerformanceConfig {
   /// Default: 50_000_000
   #[cfg(feature = "blocking-encoding")]
   #[cfg_attr(docsrs, doc(cfg(feature = "blocking-encoding")))]
-  pub blocking_encode_threshold:  usize,
+  pub blocking_encode_threshold: usize,
 }
 
 impl Default for PerformanceConfig {
@@ -567,20 +567,20 @@ pub struct RedisConfig {
   /// Setting this to anything other than `Blocking::Block` incurs a small performance penalty.
   ///
   /// Default: `Blocking::Block`
-  pub blocking:  Blocking,
+  pub blocking: Blocking,
   /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
   /// be `None`.
   ///
   /// Default: `None`
-  pub username:  Option<String>,
+  pub username: Option<String>,
   /// An optional password for the client to use when authenticating.
   ///
   /// Default: `None`
-  pub password:  Option<String>,
+  pub password: Option<String>,
   /// Connection configuration for the server(s).
   ///
   /// Default: `Centralized(localhost, 6379)`
-  pub server:    ServerConfig,
+  pub server: ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
   /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
@@ -591,7 +591,7 @@ pub struct RedisConfig {
   /// has a slightly different type system than RESP2.
   ///
   /// Default: `RESP2`
-  pub version:   RespVersion,
+  pub version: RespVersion,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
   /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect`
@@ -599,23 +599,23 @@ pub struct RedisConfig {
   /// the `on_reconnect` block.
   ///
   /// Default: `None`
-  pub database:  Option<u8>,
+  pub database: Option<u8>,
   /// TLS configuration options.
   ///
   /// Default: `None`
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls:       Option<TlsConfig>,
+  pub tls: Option<TlsConfig>,
   /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   TracingConfig,
+  pub tracing: TracingConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: `None`
   #[cfg(feature = "mocks")]
   #[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
-  pub mocks:     Option<Arc<dyn Mocks>>,
+  pub mocks: Option<Arc<dyn Mocks>>,
 }
 
 impl PartialEq for RedisConfig {
@@ -923,7 +923,7 @@ pub enum ServerConfig {
   },
   Sentinel {
     /// An array of `Server` identifiers for each known sentinel instance.
-    hosts:        Vec<Server>,
+    hosts: Vec<Server>,
     /// The service name for primary/main instances.
     service_name: String,
 
@@ -977,12 +977,12 @@ impl ServerConfig {
     N: Into<String>,
   {
     ServerConfig::Sentinel {
-      hosts:                                      hosts.into_iter().map(|(h, p)| Server::new(h.into(), p)).collect(),
-      service_name:                               service_name.into(),
+      hosts: hosts.into_iter().map(|(h, p)| Server::new(h.into(), p)).collect(),
+      service_name: service_name.into(),
       #[cfg(feature = "sentinel-auth")]
-      username:                                   None,
+      username: None,
       #[cfg(feature = "sentinel-auth")]
-      password:                                   None,
+      password: None,
     }
   }
 
@@ -1089,10 +1089,10 @@ impl TracingConfig {
 impl Default for TracingConfig {
   fn default() -> Self {
     Self {
-      enabled:                                             false,
-      default_tracing_level:                               tracing::Level::INFO,
+      enabled: false,
+      default_tracing_level: tracing::Level::INFO,
       #[cfg(feature = "full-tracing")]
-      full_tracing_level:                                  tracing::Level::DEBUG,
+      full_tracing_level: tracing::Level::DEBUG,
     }
   }
 }
@@ -1105,11 +1105,11 @@ pub struct SentinelConfig {
   /// The hostname for the sentinel node.
   ///
   /// Default: `127.0.0.1`
-  pub host:     String,
+  pub host: String,
   /// The port on which the sentinel node is listening.
   ///
   /// Default: `26379`
-  pub port:     u16,
+  pub port: u16,
   /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
   /// be `None`.
   ///
@@ -1126,13 +1126,13 @@ pub struct SentinelConfig {
   /// Default: `None`
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
-  pub tls:      Option<TlsConfig>,
+  pub tls: Option<TlsConfig>,
   /// Whether or not to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:  TracingConfig,
+  pub tracing: TracingConfig,
 }
 
 #[cfg(feature = "sentinel-client")]
@@ -1200,7 +1200,7 @@ impl From<SentinelConfig> for RedisConfig {
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Options {
   /// Set the max number of write attempts for a command.
-  pub max_attempts:     Option<u32>,
+  pub max_attempts: Option<u32>,
   /// Set the max number of cluster redirections to follow for a command.
   pub max_redirections: Option<u32>,
   /// Set the timeout duration for a command.
@@ -1209,27 +1209,27 @@ pub struct Options {
   ///
   /// <sup>*</sup> But it's not perfect. There's no reliable mechanism to cancel a command once it has been written
   /// to the connection.
-  pub timeout:          Option<Duration>,
+  pub timeout: Option<Duration>,
   /// The cluster node that should receive the command.
   ///
   /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
   ///
   /// The client will still follow redirection errors via this interface. Callers may not notice this, but incorrect
   /// server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
-  pub cluster_node:     Option<Server>,
+  pub cluster_node: Option<Server>,
   /// Whether to skip backpressure checks for a command.
-  pub no_backpressure:  bool,
+  pub no_backpressure: bool,
   /// Whether the command should fail quickly if the connection is not healthy or available for writes. This always
   /// takes precedence over `max_attempts` if `true`.
   ///
   /// Setting this to `true` incurs a small performance penalty. (Checking a `RwLock`).
   ///
   /// Default: `false`
-  pub fail_fast:        bool,
+  pub fail_fast: bool,
   /// Whether to send `CLIENT CACHING yes|no` before the command.
-  #[cfg(feature = "client-tracking")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
-  pub caching:          Option<bool>,
+  #[cfg(feature = "i-tracking")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
+  pub caching: Option<bool>,
 }
 
 impl Options {
@@ -1250,7 +1250,7 @@ impl Options {
     self.no_backpressure |= other.no_backpressure;
     self.fail_fast |= other.fail_fast;
 
-    #[cfg(feature = "client-tracking")]
+    #[cfg(feature = "i-tracking")]
     if let Some(val) = other.caching {
       self.caching = Some(val);
     }
@@ -1262,14 +1262,14 @@ impl Options {
   #[cfg(feature = "transactions")]
   pub(crate) fn from_command(cmd: &RedisCommand) -> Self {
     Options {
-      max_attempts:                                Some(cmd.attempts_remaining),
-      max_redirections:                            Some(cmd.redirections_remaining),
-      timeout:                                     cmd.timeout_dur,
-      no_backpressure:                             cmd.skip_backpressure,
-      cluster_node:                                cmd.cluster_node.clone(),
-      fail_fast:                                   cmd.fail_fast,
-      #[cfg(feature = "client-tracking")]
-      caching:                                     cmd.caching,
+      max_attempts: Some(cmd.attempts_remaining),
+      max_redirections: Some(cmd.redirections_remaining),
+      timeout: cmd.timeout_dur,
+      no_backpressure: cmd.skip_backpressure,
+      cluster_node: cmd.cluster_node.clone(),
+      fail_fast: cmd.fail_fast,
+      #[cfg(feature = "i-tracking")]
+      caching: cmd.caching,
     }
   }
 
@@ -1280,7 +1280,7 @@ impl Options {
     command.cluster_node = self.cluster_node.clone();
     command.fail_fast = self.fail_fast;
 
-    #[cfg(feature = "client-tracking")]
+    #[cfg(feature = "i-tracking")]
     {
       command.caching = self.caching;
     }
@@ -1526,10 +1526,10 @@ mod tests {
                sentinelUsername=username2&sentinelPassword=password2";
     let expected = RedisConfig {
       server: ServerConfig::Sentinel {
-        hosts:        vec![Server::new("foo.com", 26379)],
+        hosts: vec![Server::new("foo.com", 26379)],
         service_name: "fakename".into(),
-        username:     Some("username2".into()),
-        password:     Some("password2".into()),
+        username: Some("username2".into()),
+        password: Some("password2".into()),
       },
       username: Some("username1".into()),
       password: Some("password1".into()),

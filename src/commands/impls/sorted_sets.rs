@@ -7,6 +7,11 @@ use crate::{
 };
 use std::convert::TryInto;
 
+static INCR: &str = "INCR";
+static WITH_SCORES: &str = "WITHSCORES";
+static AGGREGATE: &str = "AGGREGATE";
+static WEIGHTS: &str = "WEIGHTS";
+
 fn new_range_error(kind: &Option<ZSort>) -> Result<(), RedisError> {
   if let Some(ref sort) = *kind {
     Err(RedisError::new(
@@ -596,11 +601,10 @@ pub async fn zremrangebylex<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
-    Ok((RedisCommandKind::Zremrangebylex, vec![
-      key.into(),
-      min.into_value()?,
-      max.into_value()?,
-    ]))
+    Ok((
+      RedisCommandKind::Zremrangebylex,
+      vec![key.into(), min.into_value()?, max.into_value()?],
+    ))
   })
   .await?;
 
@@ -626,11 +630,10 @@ pub async fn zremrangebyscore<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     check_range_types(&min, &max, &Some(ZSort::ByScore))?;
 
-    Ok((RedisCommandKind::Zremrangebyscore, vec![
-      key.into(),
-      min.into_value()?,
-      max.into_value()?,
-    ]))
+    Ok((
+      RedisCommandKind::Zremrangebyscore,
+      vec![key.into(), min.into_value()?, max.into_value()?],
+    ))
   })
   .await?;
 

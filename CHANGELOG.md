@@ -8,15 +8,16 @@ This version should significantly reduce compilation times for most use cases.
 * Upgrade `redis-protocol` to 5.0.0
 * Split public interfaces with new feature flags.
 * Add `SORT` and `SORT_RO`
+* Change tracing span names to
+  follow [OpenTelemetry naming conventions](https://opentelemetry.io/docs/specs/semconv/general/attribute-naming/).
 
 ### Upgrading from 8.x
-
-Upgrading should be easy for most callers that can work with the new MSRV requirement.
 
 * Double-check the new feature flags. The `codec` feature was also moved
   to [redis-protocol](https://github.com/aembke/redis-protocol.rs).
 * Rustls - Check the new [aws-lc-rs](https://aws.github.io/aws-lc-rs/requirements/index.html) requirements or switch
   back to `rustls/ring`.
+* Note the new [tracing span names](src/trace/README.md).
 
 ## 8.0.6
 

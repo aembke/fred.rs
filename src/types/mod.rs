@@ -5,43 +5,62 @@ use tokio::task::JoinHandle;
 
 mod args;
 mod builder;
+#[cfg(feature = "i-client")]
 mod client;
+#[cfg(feature = "i-cluster")]
 mod cluster;
 mod config;
 mod from_tuple;
+#[cfg(feature = "i-geo")]
 mod geo;
+#[cfg(feature = "i-lists")]
 mod lists;
 mod misc;
 mod multiple;
 mod scan;
+#[cfg(feature = "i-scripts")]
 mod scripts;
+#[cfg(feature = "i-sorted-sets")]
 mod sorted_sets;
+#[cfg(feature = "i-streams")]
 mod streams;
-#[cfg(feature = "time-series")]
+#[cfg(feature = "i-time-series")]
 mod timeseries;
-
-pub use args::*;
-pub use builder::*;
-pub use client::*;
-pub use cluster::*;
-pub use config::*;
-pub use geo::*;
-pub use lists::*;
-pub use misc::*;
-pub use multiple::*;
-pub use scan::*;
-pub use scripts::*;
-pub use semver::Version;
-pub use sorted_sets::*;
-pub use streams::*;
-
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
-pub use timeseries::*;
 
 #[cfg(feature = "metrics")]
 #[cfg_attr(docsrs, doc(cfg(feature = "metrics")))]
 pub use crate::modules::metrics::Stats;
+pub use args::*;
+pub use builder::*;
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
+pub use client::*;
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
+pub use cluster::*;
+pub use config::*;
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
+pub use geo::*;
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
+pub use lists::*;
+pub use misc::*;
+pub use multiple::*;
+pub use scan::*;
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+pub use scripts::*;
+pub use semver::Version;
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
+pub use sorted_sets::*;
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
+pub use streams::*;
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
+pub use timeseries::*;
 
 #[cfg(feature = "dns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]

@@ -39,7 +39,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
   });
 
   sleep(Duration::from_secs(1)).await;
-  for idx in 0 .. NUM_MESSAGES {
+  for idx in 0..NUM_MESSAGES {
     // https://redis.io/commands/publish#return-value
     client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
@@ -76,7 +76,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   });
 
   sleep(Duration::from_secs(1)).await;
-  for idx in 0 .. NUM_MESSAGES {
+  for idx in 0..NUM_MESSAGES {
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value
@@ -98,7 +98,7 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   let mut message_stream = subscriber.message_rx();
 
   tokio::spawn(async move {
-    while let Ok(message) = message_stream.recv().await {
+    if let Ok(message) = message_stream.recv().await {
       // unsubscribe without args will result in 3 messages in this case, and none should show up here
       panic!("Recv unexpected pubsub message: {:?}", message);
     }
@@ -109,10 +109,10 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   subscriber.unsubscribe(()).await?;
   sleep(Duration::from_secs(1)).await;
 
-  // do some incr commands to make sure the response buffer is flushed correctly by this point
-  assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 1);
-  assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 2);
-  assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 3);
+  // make sure the response buffer is flushed correctly by this point
+  assert_eq!(subscriber.ping::<String>().await?, "PONG");
+  assert_eq!(subscriber.ping::<String>().await?, "PONG");
+  assert_eq!(subscriber.ping::<String>().await?, "PONG");
 
   subscriber.quit().await?;
   let _ = connection.await?;

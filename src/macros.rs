@@ -88,8 +88,8 @@ macro_rules! try_or_continue (
 /// A helper macro to wrap a string value in quotes via the [json](serde_json::json) macro.
 ///
 /// See the [RedisJSON interface](crate::interfaces::RedisJsonInterface) for more information.
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 #[macro_export]
 macro_rules! json_quote(
   ($($json:tt)+) => {

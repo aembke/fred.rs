@@ -13,3 +13,4 @@ redis_server.pid
 tests/users.acl
 tests/docker/overrides/*
 !tests/docker/overrides/.gitkeep
+process.yml

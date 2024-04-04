@@ -19,14 +19,12 @@ use tokio::time::interval as tokio_interval;
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-#[cfg(feature = "transactions")]
-use crate::interfaces::TransactionInterface;
 #[cfg(feature = "dns")]
 use crate::protocol::types::Resolve;
 
 struct RedisPoolInner {
-  clients:          Vec<RedisClient>,
-  counter:          Arc<AtomicUsize>,
+  clients: Vec<RedisClient>,
+  counter: Arc<AtomicUsize>,
   prefer_connected: Arc<AtomicBool>,
 }
 
@@ -39,6 +37,7 @@ struct RedisPoolInner {
 /// * [PubsubInterface](crate::interfaces::PubsubInterface)
 /// * [EventInterface](crate::interfaces::EventInterface)
 /// * [ClientInterface](crate::interfaces::ClientInterface)
+/// * [AuthInterface](crate::interfaces::AuthInterface)
 ///
 /// In some cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
 /// adding a call to [next](Self::next), but in other scenarios this may not work. As a general rule, any commands
@@ -87,7 +86,7 @@ impl RedisPool {
       Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
     } else {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0 .. size {
+      for _ in 0..size {
         clients.push(RedisClient::new(
           config.clone(),
           perf.clone(),
@@ -133,7 +132,7 @@ impl RedisPool {
   pub fn next_connected(&self) -> &RedisClient {
     let mut idx = utils::incr_atomic(&self.inner.counter) % self.inner.clients.len();
 
-    for _ in 0 .. self.inner.clients.len() {
+    for _ in 0..self.inner.clients.len() {
       let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;
@@ -230,14 +229,14 @@ impl ClientLike for RedisPool {
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
   async fn force_reconnection(&self) -> RedisResult<()> {
-    let _ = try_join_all(self.inner.clients.iter().map(|c| c.force_reconnection())).await?;
+    try_join_all(self.inner.clients.iter().map(|c| c.force_reconnection())).await?;
 
     Ok(())
   }
 
   /// Wait for all the clients to connect to the server.
   async fn wait_for_connect(&self) -> RedisResult<()> {
-    let _ = try_join_all(self.inner.clients.iter().map(|c| c.wait_for_connect())).await?;
+    try_join_all(self.inner.clients.iter().map(|c| c.wait_for_connect())).await?;
 
     Ok(())
   }
@@ -289,7 +288,7 @@ impl ClientLike for RedisPool {
   /// This function will also close all error, pubsub message, and reconnection event streams on all clients in the
   /// pool.
   async fn quit(&self) -> RedisResult<()> {
-    let _ = join_all(self.inner.clients.iter().map(|c| c.quit())).await;
+    join_all(self.inner.clients.iter().map(|c| c.quit())).await;
 
     Ok(())
   }
@@ -311,29 +310,63 @@ impl HeartbeatInterface for RedisPool {
   }
 }
 
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl AclInterface for RedisPool {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
+impl ClientInterface for RedisPool {}
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
 impl ClusterInterface for RedisPool {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
 impl ConfigInterface for RedisPool {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl GeoInterface for RedisPool {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
 impl HashesInterface for RedisPool {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
 impl HyperloglogInterface for RedisPool {}
-impl KeysInterface for RedisPool {}
-impl LuaInterface for RedisPool {}
-impl ListInterface for RedisPool {}
-impl MemoryInterface for RedisPool {}
-impl AuthInterface for RedisPool {}
-impl ServerInterface for RedisPool {}
-impl SlowlogInterface for RedisPool {}
-impl SetsInterface for RedisPool {}
-impl SortedSetsInterface for RedisPool {}
-impl StreamsInterface for RedisPool {}
-impl FunctionInterface for RedisPool {}
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 impl TransactionInterface for RedisPool {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
+impl KeysInterface for RedisPool {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+impl LuaInterface for RedisPool {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
+impl ListInterface for RedisPool {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
+impl MemoryInterface for RedisPool {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
+impl ServerInterface for RedisPool {}
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
+impl SlowlogInterface for RedisPool {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
+impl SetsInterface for RedisPool {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
+impl SortedSetsInterface for RedisPool {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
+impl StreamsInterface for RedisPool {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+impl FunctionInterface for RedisPool {}
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl RedisJsonInterface for RedisPool {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl TimeSeriesInterface for RedisPool {}

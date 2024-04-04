@@ -16,7 +16,7 @@ use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default(); 
+  let client = RedisClient::default();
   client.init().await?;
 
   // convert responses to many common Rust types
@@ -47,8 +47,9 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * Optional reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
-* Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/) or [functions](https://redis.io/docs/interact/programmability/functions-intro/). 
-* Streaming results from the `MONITOR` command. 
+* Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/)
+  or [functions](https://redis.io/docs/interact/programmability/functions-intro/).
+* Streaming results from the `MONITOR` command.
 * Custom commands.
 * Streaming interfaces for scanning functions.
 * [Transactions](https://redis.io/docs/interact/transactions/)
@@ -59,7 +60,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * An optional pubsub subscriber client that will automatically manage channel subscriptions.
 * [Tracing](https://github.com/tokio-rs/tracing)
 
-## Build Features 
+## Build Features
 
 | Name                      | Default | Description                                                                                                                                                         |
 |---------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -84,36 +85,36 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 | `sha-1`                   |         | Enable an interface for hashing Lua scripts.                                                                                                                        |
 | `unix-sockets`            |         | Enable Unix socket support.                                                                                                                                         |
 
-## Interface Features 
+## Interface Features
 
-The Redis interface has many functions and compile times can add up quickly. Interface features begin with `i-` and control which public interfaces are built.
+The Redis interface has many functions and compile times can add up quickly. Interface features begin with `i-` and
+control which public interfaces are built.
 
-| Name            | Default | Description                                                                                                 |
-|-----------------|---------|-------------------------------------------------------------------------------------------------------------|
-| `i-all`         |         | Enable all interfaces below.                                                                                |
-| `i-std`         |         | Enable the common data structure interfaces (lists, sets, streams, keys, etc).                              |
-| `i-acl`         |         | Enable the ACL command interface.                                                                           |
-| `i-client`      | x       | Enable the CLIENT command interface.                                                                        |
-| `i-cluster`     | x       | Enable the CLUSTER command interface.                                                                       |
-| `i-config`      |         | Enable the CONFIG command interface.                                                                        |
-| `i-geo`         |         | Enable the GEO command interface.                                                                           |
-| `i-hashes`      |         | Enable the hashes (HGET, etc) command interface.                                                            |
-| `i-hyperloglog` |         | Enable the hyperloglog command interface.                                                                   |
-| `i-keys`        | x       | Enable the main keys (GET, SET, etc) command interface.                                                     |
-| `i-lists`       |         | Enable the lists (LPUSH, etc) command interface.                                                            |
-| `i-lua`         |         | Enable the scripting command interfaces.                                                                    |
-| `i-memory`      |         | Enable the MEMORY command interfaces.                                                                       |
-| `i-pubsub`      | x       | Enable the publish-subscribe command interfaces.                                                            |
-| `i-scan`        |         | Enable the scanning command interfaces.                                                                     |
-| `i-server`      | x       | Enable the server control (SHUTDOWN, BGSAVE, etc) interfaces.                                               |
-| `i-sets`        |         | Enable the sets (SADD, etc) interface.                                                                      |
-| `i-sorted-sets` |         | Enable the sorted sets (ZADD, etc) interface.                                                               |
-| `i-slowlog`     |         | Enable the SLOWLOG interface.                                                                               |
-| `i-streams`     |         | Enable the streams (XADD, etc) interface.                                                                   |
-| `i-tracking`    |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                    |
-| `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/).  interface.                      |
-| `i-redis-json`  |         | Enable a [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.                                     |
-| `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc). |
+| Name            | Default | Description                                                                                                   |
+|-----------------|---------|---------------------------------------------------------------------------------------------------------------|
+| `i-all`         |         | Enable the interfaces included with a basic Redis installation. This does not include `redis-stack` features. |
+| `i-std`         |         | Enable the common data structure interfaces (lists, sets, streams, keys, etc).                                |
+| `i-acl`         |         | Enable the ACL command interface.                                                                             |
+| `i-client`      | x       | Enable the CLIENT command interface.                                                                          |
+| `i-cluster`     | x       | Enable the CLUSTER command interface.                                                                         |
+| `i-config`      |         | Enable the CONFIG command interface.                                                                          |
+| `i-geo`         |         | Enable the GEO command interface.                                                                             |
+| `i-hashes`      |         | Enable the hashes (HGET, etc) command interface.                                                              |
+| `i-hyperloglog` |         | Enable the hyperloglog command interface.                                                                     |
+| `i-keys`        | x       | Enable the main keys (GET, SET, etc) command interface.                                                       |
+| `i-lists`       |         | Enable the lists (LPUSH, etc) command interface.                                                              |
+| `i-scripts`     |         | Enable the scripting command interfaces.                                                                      |
+| `i-memory`      |         | Enable the MEMORY command interfaces.                                                                         |
+| `i-pubsub`      | x       | Enable the publish-subscribe command interfaces.                                                              |
+| `i-server`      | x       | Enable the server control (SHUTDOWN, BGSAVE, etc) interfaces.                                                 |
+| `i-sets`        |         | Enable the sets (SADD, etc) interface.                                                                        |
+| `i-sorted-sets` |         | Enable the sorted sets (ZADD, etc) interface.                                                                 |
+| `i-slowlog`     |         | Enable the SLOWLOG interface.                                                                                 |
+| `i-streams`     |         | Enable the streams (XADD, etc) interface.                                                                     |
+| `i-tracking`    |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                      |
+| `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/).  interface.                        |
+| `i-redis-json`  |         | Enable a [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.                                       |
+| `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc).   |
 
 ## Debugging Features
 

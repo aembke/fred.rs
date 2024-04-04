@@ -17,6 +17,14 @@ use bytes_utils::Str;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
 
+pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
+  let (tx, rx) = oneshot_channel();
+  let command = RouterCommand::Connections { tx };
+  interfaces::send_to_router(client.inner(), command)?;
+
+  rx.await.map_err(|e| e.into())
+}
+
 pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
@@ -232,10 +240,14 @@ pub async fn custom_raw<C: ClientLike>(
   utils::request_response(client, move || Ok((RedisCommandKind::_Custom(cmd), args))).await
 }
 
+#[cfg(feature = "i-server")]
 value_cmd!(dbsize, DBSize);
+#[cfg(feature = "i-server")]
 value_cmd!(bgrewriteaof, BgreWriteAof);
+#[cfg(feature = "i-server")]
 value_cmd!(bgsave, BgSave);
 
+#[cfg(feature = "i-server")]
 pub async fn failover<C: ClientLike>(
   client: &C,
   to: Option<(String, u16)>,
@@ -269,8 +281,10 @@ pub async fn failover<C: ClientLike>(
   protocol_utils::expect_ok(&response)
 }
 
+#[cfg(feature = "i-server")]
 value_cmd!(lastsave, LastSave);
 
+#[cfg(feature = "i-server")]
 pub async fn wait<C: ClientLike>(client: &C, numreplicas: i64, timeout: i64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Wait, vec![numreplicas.into(), timeout.into()]))

@@ -22,10 +22,10 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
-  id:        u64,
-  inner:     Arc<RedisClientInner>,
-  commands:  Arc<Mutex<VecDeque<RedisCommand>>>,
-  watched:   Arc<Mutex<VecDeque<RedisKey>>>,
+  id: u64,
+  inner: Arc<RedisClientInner>,
+  commands: Arc<Mutex<VecDeque<RedisCommand>>>,
+  watched: Arc<Mutex<VecDeque<RedisKey>>>,
   hash_slot: Arc<Mutex<Option<u16>>>,
 }
 
@@ -78,39 +78,68 @@ impl ClientLike for Transaction {
   }
 }
 
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl AclInterface for Transaction {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
 impl ClientInterface for Transaction {}
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 impl PubsubInterface for Transaction {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
 impl ConfigInterface for Transaction {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl GeoInterface for Transaction {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
 impl HashesInterface for Transaction {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
 impl HyperloglogInterface for Transaction {}
-impl MetricsInterface for Transaction {}
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
 impl KeysInterface for Transaction {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
 impl ListInterface for Transaction {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl MemoryInterface for Transaction {}
 impl AuthInterface for Transaction {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl ServerInterface for Transaction {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
 impl SetsInterface for Transaction {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
 impl SortedSetsInterface for Transaction {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
 impl StreamsInterface for Transaction {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl FunctionInterface for Transaction {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl RedisJsonInterface for Transaction {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl TimeSeriesInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
   pub(crate) fn from_inner(inner: &Arc<RedisClientInner>) -> Self {
     Transaction {
-      inner:     inner.clone(),
-      commands:  Arc::new(Mutex::new(VecDeque::new())),
-      watched:   Arc::new(Mutex::new(VecDeque::new())),
+      inner: inner.clone(),
+      commands: Arc::new(Mutex::new(VecDeque::new())),
+      watched: Arc::new(Mutex::new(VecDeque::new())),
       hash_slot: Arc::new(Mutex::new(None)),
-      id:        utils::random_u64(u64::MAX),
+      id: utils::random_u64(u64::MAX),
     }
   }
 

@@ -1,15 +1,13 @@
 use super::*;
 use crate::{
-  interfaces,
   protocol::{
-    command::{RedisCommand, RedisCommandKind, RouterCommand},
+    command::{RedisCommand, RedisCommandKind},
     utils as protocol_utils,
   },
   types::*,
   utils,
 };
 use bytes_utils::Str;
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 value_cmd!(client_id, ClientID);
 value_cmd!(client_info, ClientInfo);
@@ -131,12 +129,4 @@ pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockF
   let result = utils::interrupt_blocked_connection(inner, flag).await;
   inner.backchannel.write().await.set_unblocked();
   result
-}
-
-pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
-  let (tx, rx) = oneshot_channel();
-  let command = RouterCommand::Connections { tx };
-  interfaces::send_to_router(client.inner(), command)?;
-
-  rx.await.map_err(|e| e.into())
 }

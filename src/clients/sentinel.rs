@@ -45,10 +45,18 @@ impl<'a> From<&'a Arc<RedisClientInner>> for SentinelClient {
 impl EventInterface for SentinelClient {}
 impl SentinelInterface for SentinelClient {}
 impl MetricsInterface for SentinelClient {}
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl AclInterface for SentinelClient {}
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 impl PubsubInterface for SentinelClient {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
 impl ClientInterface for SentinelClient {}
 impl AuthInterface for SentinelClient {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl HeartbeatInterface for SentinelClient {}
 
 impl SentinelClient {

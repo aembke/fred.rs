@@ -7,15 +7,14 @@ use fred::{
 
 async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
   let pool = RedisPool::new(config.clone(), None, None, None, count)?;
-  pool.connect();
-  pool.wait_for_connect().await?;
+  pool.init().await?;
 
   for client in pool.clients().iter() {
     client.ping().await?;
   }
 
   pool.ping().await?;
-  let _ = pool.quit().await;
+  pool.quit().await?;
   Ok(())
 }
 

@@ -7,7 +7,7 @@ use bytes_utils::Str;
 use std::collections::HashMap;
 
 /// Encoding arguments for certain timeseries commands.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Encoding {
   Compressed,
@@ -24,7 +24,7 @@ impl Encoding {
 }
 
 /// The duplicate policy used with certain timeseries commands.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DuplicatePolicy {
   Block,
@@ -49,7 +49,7 @@ impl DuplicatePolicy {
 }
 
 /// A timestamp used in most timeseries commands.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Timestamp {
   /// Unix time (milliseconds since epoch).
@@ -111,7 +111,7 @@ impl TryFrom<String> for Timestamp {
 }
 
 /// An aggregation policy to use with certain timeseries commands.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Aggregator {
   Avg,
@@ -150,7 +150,7 @@ impl Aggregator {
 }
 
 /// Arguments equivalent to `WITHLABELS | SELECTED_LABELS label...` in various time series GET functions.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GetLabels {
   WithLabels,
@@ -194,7 +194,7 @@ where
 }
 
 /// A timestamp query used in commands such as `TS.MRANGE`.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GetTimestamp {
   /// Equivalent to `-`.
@@ -234,14 +234,14 @@ impl From<i64> for GetTimestamp {
 
 /// A struct representing `[ALIGN align] AGGREGATION aggregator bucketDuration [BUCKETTIMESTAMP bt] [EMPTY]` in
 /// commands such as `TS.MRANGE`.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RangeAggregation {
-  pub align:            Option<GetTimestamp>,
-  pub aggregation:      Aggregator,
-  pub bucket_duration:  u64,
+  pub align: Option<GetTimestamp>,
+  pub aggregation: Aggregator,
+  pub bucket_duration: u64,
   pub bucket_timestamp: Option<BucketTimestamp>,
-  pub empty:            bool,
+  pub empty: bool,
 }
 
 impl From<(Aggregator, u64)> for RangeAggregation {
@@ -257,7 +257,7 @@ impl From<(Aggregator, u64)> for RangeAggregation {
 }
 
 /// A `REDUCER` argument in commands such as `TS.MRANGE`.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Reducer {
   Avg,
@@ -290,11 +290,11 @@ impl Reducer {
 }
 
 /// A struct representing `GROUPBY label REDUCE reducer` in commands such as `TS.MRANGE`.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GroupBy {
   pub groupby: Str,
-  pub reduce:  Reducer,
+  pub reduce: Reducer,
 }
 
 impl<S: Into<Str>> From<(S, Reducer)> for GroupBy {
@@ -307,7 +307,7 @@ impl<S: Into<Str>> From<(S, Reducer)> for GroupBy {
 }
 
 /// A `BUCKETTIMESTAMP` argument in commands such as `TS.MRANGE`.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum BucketTimestamp {
   Start,
@@ -401,7 +401,7 @@ impl BucketTimestamp {
 /// ```
 ///
 /// See [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for the RESP3 equivalent.
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;
 
 /// The RESP3 equivalent of [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues).
@@ -445,5 +445,5 @@ pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64
 ///   Ok(())
 /// }
 /// ```
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 pub type Resp3TimeSeriesValues<K, Lk, Lv> = HashMap<K, (Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;

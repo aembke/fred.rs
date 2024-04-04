@@ -4,7 +4,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::*,
   modules::inner::RedisClientInner,
-  prelude::{ClientLike, StreamsInterface},
+  prelude::ClientLike,
   types::*,
 };
 use bytes_utils::Str;
@@ -13,7 +13,7 @@ use std::{fmt, fmt::Formatter, sync::Arc};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 use crate::interfaces::TrackingInterface;
 
 /// A cheaply cloneable Redis client struct.
@@ -58,39 +58,77 @@ impl ClientLike for RedisClient {
 }
 
 impl EventInterface for RedisClient {}
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
+impl RedisJsonInterface for RedisClient {}
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
+impl TimeSeriesInterface for RedisClient {}
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl AclInterface for RedisClient {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
 impl ClientInterface for RedisClient {}
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
 impl ClusterInterface for RedisClient {}
-impl PubsubInterface for RedisClient {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
 impl ConfigInterface for RedisClient {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl GeoInterface for RedisClient {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
 impl HashesInterface for RedisClient {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
 impl HyperloglogInterface for RedisClient {}
 impl MetricsInterface for RedisClient {}
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 impl TransactionInterface for RedisClient {}
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
 impl KeysInterface for RedisClient {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl LuaInterface for RedisClient {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
 impl ListInterface for RedisClient {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl MemoryInterface for RedisClient {}
 impl AuthInterface for RedisClient {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl ServerInterface for RedisClient {}
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
 impl SlowlogInterface for RedisClient {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
 impl SetsInterface for RedisClient {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
 impl SortedSetsInterface for RedisClient {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl HeartbeatInterface for RedisClient {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
 impl StreamsInterface for RedisClient {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl FunctionInterface for RedisClient {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
-impl RedisJsonInterface for RedisClient {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
-impl TimeSeriesInterface for RedisClient {}
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TrackingInterface for RedisClient {}
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
+impl PubsubInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
@@ -287,7 +325,7 @@ impl RedisClient {
     S: Into<Server>,
   {
     WithOptions {
-      client:  self.clone(),
+      client: self.clone(),
       options: Options {
         cluster_node: Some(server.into()),
         ..Default::default()

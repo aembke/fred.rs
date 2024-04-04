@@ -8,7 +8,7 @@ use futures::Future;
 use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// A high level interface that supports [client side caching](https://redis.io/docs/manual/client-side-caching/) via the [client tracking](https://redis.io/commands/client-tracking/) interface.
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 pub trait TrackingInterface: ClientLike + Sized {
   /// Send the [CLIENT TRACKING](https://redis.io/commands/client-tracking/) command to all connected servers, subscribing to [invalidation messages](Self::on_invalidation) on the same connection.
   ///

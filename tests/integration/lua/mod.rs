@@ -227,6 +227,7 @@ pub async fn should_function_list_multiple(client: RedisClient, _: RedisConfig) 
   Ok(())
 }
 
+#[cfg(feature = "i-keys")]
 pub async fn should_function_fcall_getset(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_redis_7!(client);
 

@@ -12,9 +12,6 @@ use parking_lot::RwLock;
 use std::{collections::BTreeSet, fmt, fmt::Formatter, mem, sync::Arc};
 use tokio::task::JoinHandle;
 
-#[cfg(feature = "client-tracking")]
-use crate::interfaces::TrackingInterface;
-
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 
 /// A subscriber client that will manage subscription state to any [pubsub](https://redis.io/docs/manual/pubsub/) channels or patterns for the caller.
@@ -58,10 +55,10 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "subscriber-client")))]
 pub struct SubscriberClient {
-  channels:       ChannelSet,
-  patterns:       ChannelSet,
+  channels: ChannelSet,
+  patterns: ChannelSet,
   shard_channels: ChannelSet,
-  inner:          Arc<RedisClientInner>,
+  inner: Arc<RedisClientInner>,
 }
 
 impl fmt::Debug for SubscriberClient {
@@ -83,38 +80,77 @@ impl ClientLike for SubscriberClient {
 }
 
 impl EventInterface for SubscriberClient {}
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl AclInterface for SubscriberClient {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
 impl ClientInterface for SubscriberClient {}
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
 impl ClusterInterface for SubscriberClient {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
 impl ConfigInterface for SubscriberClient {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl GeoInterface for SubscriberClient {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
 impl HashesInterface for SubscriberClient {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
 impl HyperloglogInterface for SubscriberClient {}
 impl MetricsInterface for SubscriberClient {}
+#[cfg(feature = "transactions")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 impl TransactionInterface for SubscriberClient {}
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
 impl KeysInterface for SubscriberClient {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl LuaInterface for SubscriberClient {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
 impl ListInterface for SubscriberClient {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl MemoryInterface for SubscriberClient {}
 impl AuthInterface for SubscriberClient {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl ServerInterface for SubscriberClient {}
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
 impl SlowlogInterface for SubscriberClient {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
 impl SetsInterface for SubscriberClient {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
 impl SortedSetsInterface for SubscriberClient {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl HeartbeatInterface for SubscriberClient {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
 impl StreamsInterface for SubscriberClient {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl FunctionInterface for SubscriberClient {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl RedisJsonInterface for SubscriberClient {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl TimeSeriesInterface for SubscriberClient {}
-
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TrackingInterface for SubscriberClient {}
 
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 impl PubsubInterface for SubscriberClient {
   async fn subscribe<S>(&self, channels: S) -> RedisResult<()>
   where
@@ -136,25 +172,6 @@ impl PubsubInterface for SubscriberClient {
     result
   }
 
-  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<()>
-  where
-    S: Into<MultipleStrings> + Send,
-  {
-    into!(patterns);
-
-    let result = commands::pubsub::psubscribe(self, patterns.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.patterns.write();
-
-      for pattern in patterns.inner().into_iter() {
-        if let Some(pattern) = pattern.as_bytes_str() {
-          guard.insert(pattern);
-        }
-      }
-    }
-    result
-  }
-
   async fn unsubscribe<S>(&self, channels: S) -> RedisResult<()>
   where
     S: Into<MultipleStrings> + Send,
@@ -172,6 +189,25 @@ impl PubsubInterface for SubscriberClient {
           if let Some(channel) = channel.as_bytes_str() {
             let _ = guard.remove(&channel);
           }
+        }
+      }
+    }
+    result
+  }
+
+  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<()>
+  where
+    S: Into<MultipleStrings> + Send,
+  {
+    into!(patterns);
+
+    let result = commands::pubsub::psubscribe(self, patterns.clone()).await;
+    if result.is_ok() {
+      let mut guard = self.patterns.write();
+
+      for pattern in patterns.inner().into_iter() {
+        if let Some(pattern) = pattern.as_bytes_str() {
+          guard.insert(pattern);
         }
       }
     }
@@ -255,10 +291,10 @@ impl SubscriberClient {
     policy: Option<ReconnectPolicy>,
   ) -> SubscriberClient {
     SubscriberClient {
-      channels:       Arc::new(RwLock::new(BTreeSet::new())),
-      patterns:       Arc::new(RwLock::new(BTreeSet::new())),
+      channels: Arc::new(RwLock::new(BTreeSet::new())),
+      patterns: Arc::new(RwLock::new(BTreeSet::new())),
       shard_channels: Arc::new(RwLock::new(BTreeSet::new())),
-      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
+      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 

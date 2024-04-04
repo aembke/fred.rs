@@ -44,7 +44,7 @@ tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
 tokio-rustls = { version = "0.26", optional = true }
-rustls-native-certs = { version = "0.7.0", optional = true }
+rustls-native-certs = { version = "0.7", optional = true }
 trust-dns-resolver = { version = "0.23", optional = true }
 async-trait = { version = "0.1" }
 
@@ -61,6 +61,14 @@ axum = { version = "0.7", features = ["macros"] }
 doc = true
 name = "fred"
 test = true
+
+[[example]]
+name = "misc"
+required-features = ["i-all"]
+
+[[example]]
+name = "scan"
+required-features = ["i-all"]
 
 [[example]]
 name = "monitor"
@@ -88,29 +96,22 @@ required-features = ["dns"]
 
 [[example]]
 name = "client_tracking"
-required-features = ["i-tracking"]
+required-features = ["i-tracking", "i-std"]
 
 [[example]]
 name = "lua"
-required-features = ["sha-1"]
+required-features = ["sha-1", "i-scripts"]
 
 [[example]]
 name = "events"
-required-features = ["tokio-stream/sync"]
+required-features = ["tokio-stream/sync", "i-std"]
 
 [[example]]
 name = "transactions"
-required-features = ["transactions"]
+required-features = ["transactions", "i-std"]
 
 [features]
-default = [
-    "transactions",
-    "i-client",
-    "i-cluster",
-    "i-keys",
-    "i-pubsub",
-    "i-server"
-]
+default = ["transactions", "i-std"]
 transactions = []
 serde-json = ["serde_json"]
 subscriber-client = ["i-pubsub"]
@@ -135,10 +136,9 @@ i-all = [
     "i-acl", "i-client", "i-cluster",
     "i-config", "i-geo", "i-hashes",
     "i-hyperloglog", "i-keys", "i-lists",
-    "i-lua", "i-memory", "i-pubsub",
-    "i-scan", "i-server", "i-streams",
-    "i-sorted-sets", "i-slowlog", "i-sets",
-    "i-tracking", "i-redis-stack"
+    "i-scripts", "i-memory", "i-pubsub",
+    "i-server", "i-streams", "i-tracking",
+    "i-sorted-sets", "i-slowlog", "i-sets"
 ]
 i-std = [
     "i-hashes", "i-keys",
@@ -150,21 +150,20 @@ i-acl = []
 i-client = []
 i-cluster = []
 i-config = []
-i-geo = []
+i-geo = ["i-sorted-sets"]
 i-hashes = []
 i-hyperloglog = []
 i-keys = []
 i-lists = []
-i-lua = []
+i-scripts = []
 i-memory = []
 i-pubsub = []
-i-scan = []
 i-server = []
 i-sets = []
 i-slowlog = []
 i-sorted-sets = []
 i-streams = []
-i-tracking = []
+i-tracking = ["i-client", "i-pubsub"]
 # Redis Stack Interfaces
 i-redis-stack = ["i-redis-json", "i-time-series"]
 i-redis-json = ["serde-json"]

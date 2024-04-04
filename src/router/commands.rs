@@ -6,13 +6,13 @@ use crate::{
   types::{ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
+use crate::{protocol::command::RedisCommandKind, types::Blocking};
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
-use crate::{protocol::command::RedisCommandKind, types::Blocking};
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -287,7 +287,7 @@ async fn write_with_backpressure_t(
 ) -> Result<(), RedisError> {
   if inner.should_trace() {
     command.take_queued_span();
-    let span = fspan!(command, inner.full_tracing_span_level(), "write_command");
+    let span = fspan!(command, inner.full_tracing_span_level(), "fred.write");
     write_with_backpressure(inner, router, command, force_pipeline)
       .instrument(span)
       .await

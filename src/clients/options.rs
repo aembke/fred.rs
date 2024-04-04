@@ -1,9 +1,5 @@
 use crate::{
-  error::RedisError,
-  interfaces::*,
-  modules::inner::RedisClientInner,
-  protocol::command::RedisCommand,
-  types::Options,
+  error::RedisError, interfaces::*, modules::inner::RedisClientInner, protocol::command::RedisCommand, types::Options,
 };
 use std::{fmt, ops::Deref, sync::Arc};
 
@@ -43,7 +39,7 @@ use std::{fmt, ops::Deref, sync::Arc};
 /// ```
 #[derive(Clone)]
 pub struct WithOptions<C: ClientLike> {
-  pub(crate) client:  C,
+  pub(crate) client: C,
   pub(crate) options: Options,
 }
 
@@ -94,27 +90,63 @@ impl<C: ClientLike> ClientLike for WithOptions<C> {
   }
 }
 
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl<C: AclInterface> AclInterface for WithOptions<C> {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
 impl<C: ClientInterface> ClientInterface for WithOptions<C> {}
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
 impl<C: ClusterInterface> ClusterInterface for WithOptions<C> {}
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 impl<C: PubsubInterface> PubsubInterface for WithOptions<C> {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
 impl<C: ConfigInterface> ConfigInterface for WithOptions<C> {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl<C: GeoInterface> GeoInterface for WithOptions<C> {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
 impl<C: HashesInterface> HashesInterface for WithOptions<C> {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
 impl<C: HyperloglogInterface> HyperloglogInterface for WithOptions<C> {}
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
 impl<C: KeysInterface> KeysInterface for WithOptions<C> {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
 impl<C: ListInterface> ListInterface for WithOptions<C> {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl<C: MemoryInterface> MemoryInterface for WithOptions<C> {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl<C: AuthInterface> AuthInterface for WithOptions<C> {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl<C: ServerInterface> ServerInterface for WithOptions<C> {}
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
 impl<C: SlowlogInterface> SlowlogInterface for WithOptions<C> {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
 impl<C: SetsInterface> SetsInterface for WithOptions<C> {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
 impl<C: SortedSetsInterface> SortedSetsInterface for WithOptions<C> {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
 impl<C: StreamsInterface> StreamsInterface for WithOptions<C> {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl<C: FunctionInterface> FunctionInterface for WithOptions<C> {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl<C: RedisJsonInterface> RedisJsonInterface for WithOptions<C> {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl<C: TimeSeriesInterface> TimeSeriesInterface for WithOptions<C> {}

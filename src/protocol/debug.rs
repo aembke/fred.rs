@@ -11,6 +11,7 @@ enum DebugFrame {
   Bytes(Vec<u8>),
   Integer(i64),
   Double(f64),
+  #[allow(dead_code)]
   Array(Vec<DebugFrame>),
   // TODO add support for maps in network logs
   #[allow(dead_code)]

@@ -5,10 +5,15 @@ pub use crate::protocol::{
 use crate::{
   error::{RedisError, RedisErrorKind},
   types::{RedisKey, RedisValue, Server},
-  utils::{self, convert_or_default},
+  utils,
 };
 use bytes_utils::Str;
-use std::{collections::HashMap, convert::TryFrom, fmt, time::Duration};
+use std::{convert::TryFrom, fmt, time::Duration};
+
+#[cfg(feature = "i-memory")]
+use crate::utils::convert_or_default;
+#[cfg(feature = "i-memory")]
+use std::collections::HashMap;
 
 /// Arguments passed to the SHUTDOWN command.
 ///
@@ -33,9 +38,9 @@ impl ShutdownFlags {
 /// <https://redis.io/topics/notifications>
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct KeyspaceEvent {
-  pub db:        u8,
+  pub db: u8,
   pub operation: String,
-  pub key:       RedisKey,
+  pub key: RedisKey,
 }
 
 /// Aggregate options for the [zinterstore](https://redis.io/commands/zinterstore) (and related) commands.
@@ -46,6 +51,7 @@ pub enum AggregateOptions {
 }
 
 impl AggregateOptions {
+  #[cfg(feature = "i-sorted-sets")]
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
       AggregateOptions::Sum => "SUM",
@@ -95,13 +101,13 @@ impl InfoKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CustomCommand {
   /// The command name, sent directly to the server.
-  pub cmd:          Str,
+  pub cmd: Str,
   /// The cluster hashing policy to use, if any.
   ///
   /// Cluster clients will use the default policy if not provided.
   pub cluster_hash: ClusterHash,
   /// Whether or not the command should block the connection while waiting on a response.
-  pub blocking:     bool,
+  pub blocking: bool,
 }
 
 impl CustomCommand {
@@ -160,6 +166,7 @@ pub enum SetOptions {
 }
 
 impl SetOptions {
+  #[allow(dead_code)]
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
       SetOptions::NX => "NX",
@@ -184,6 +191,7 @@ pub enum Expiration {
 }
 
 impl Expiration {
+  #[allow(dead_code)]
   pub(crate) fn into_args(self) -> (Str, Option<i64>) {
     let (prefix, value) = match self {
       Expiration::EX(i) => ("EX", Some(i)),
@@ -227,22 +235,26 @@ impl fmt::Display for ClientState {
 ///
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 pub struct DatabaseMemoryStats {
-  pub overhead_hashtable_main:         u64,
-  pub overhead_hashtable_expires:      u64,
+  pub overhead_hashtable_main: u64,
+  pub overhead_hashtable_expires: u64,
   pub overhead_hashtable_slot_to_keys: u64,
 }
 
+#[cfg(feature = "i-memory")]
 impl Default for DatabaseMemoryStats {
   fn default() -> Self {
     DatabaseMemoryStats {
-      overhead_hashtable_expires:      0,
-      overhead_hashtable_main:         0,
+      overhead_hashtable_expires: 0,
+      overhead_hashtable_main: 0,
       overhead_hashtable_slot_to_keys: 0,
     }
   }
 }
 
+#[cfg(feature = "i-memory")]
 fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value: RedisValue) {
   match key {
     "overhead.hashtable.main" => stats.overhead_hashtable_main = convert_or_default(value),
@@ -252,6 +264,8 @@ fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value:
   };
 }
 
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl TryFrom<RedisValue> for DatabaseMemoryStats {
   type Error = RedisError;
 
@@ -270,68 +284,71 @@ impl TryFrom<RedisValue> for DatabaseMemoryStats {
 ///
 /// <https://redis.io/commands/memory-stats>
 #[derive(Clone, Debug)]
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 pub struct MemoryStats {
-  pub peak_allocated:                u64,
-  pub total_allocated:               u64,
-  pub startup_allocated:             u64,
-  pub replication_backlog:           u64,
-  pub clients_slaves:                u64,
-  pub clients_normal:                u64,
-  pub aof_buffer:                    u64,
-  pub lua_caches:                    u64,
-  pub overhead_total:                u64,
-  pub keys_count:                    u64,
-  pub keys_bytes_per_key:            u64,
-  pub dataset_bytes:                 u64,
-  pub dataset_percentage:            f64,
-  pub peak_percentage:               f64,
-  pub fragmentation:                 f64,
-  pub fragmentation_bytes:           u64,
-  pub rss_overhead_ratio:            f64,
-  pub rss_overhead_bytes:            u64,
-  pub allocator_allocated:           u64,
-  pub allocator_active:              u64,
-  pub allocator_resident:            u64,
+  pub peak_allocated: u64,
+  pub total_allocated: u64,
+  pub startup_allocated: u64,
+  pub replication_backlog: u64,
+  pub clients_slaves: u64,
+  pub clients_normal: u64,
+  pub aof_buffer: u64,
+  pub lua_caches: u64,
+  pub overhead_total: u64,
+  pub keys_count: u64,
+  pub keys_bytes_per_key: u64,
+  pub dataset_bytes: u64,
+  pub dataset_percentage: f64,
+  pub peak_percentage: f64,
+  pub fragmentation: f64,
+  pub fragmentation_bytes: u64,
+  pub rss_overhead_ratio: f64,
+  pub rss_overhead_bytes: u64,
+  pub allocator_allocated: u64,
+  pub allocator_active: u64,
+  pub allocator_resident: u64,
   pub allocator_fragmentation_ratio: f64,
   pub allocator_fragmentation_bytes: u64,
-  pub allocator_rss_ratio:           f64,
-  pub allocator_rss_bytes:           u64,
-  pub db:                            HashMap<u16, DatabaseMemoryStats>,
+  pub allocator_rss_ratio: f64,
+  pub allocator_rss_bytes: u64,
+  pub db: HashMap<u16, DatabaseMemoryStats>,
 }
 
+#[cfg(feature = "i-memory")]
 impl Default for MemoryStats {
   fn default() -> Self {
     MemoryStats {
-      peak_allocated:                0,
-      total_allocated:               0,
-      startup_allocated:             0,
-      replication_backlog:           0,
-      clients_normal:                0,
-      clients_slaves:                0,
-      aof_buffer:                    0,
-      lua_caches:                    0,
-      overhead_total:                0,
-      keys_count:                    0,
-      keys_bytes_per_key:            0,
-      dataset_bytes:                 0,
-      dataset_percentage:            0.0,
-      peak_percentage:               0.0,
-      fragmentation:                 0.0,
-      fragmentation_bytes:           0,
-      rss_overhead_ratio:            0.0,
-      rss_overhead_bytes:            0,
-      allocator_allocated:           0,
-      allocator_active:              0,
-      allocator_resident:            0,
+      peak_allocated: 0,
+      total_allocated: 0,
+      startup_allocated: 0,
+      replication_backlog: 0,
+      clients_normal: 0,
+      clients_slaves: 0,
+      aof_buffer: 0,
+      lua_caches: 0,
+      overhead_total: 0,
+      keys_count: 0,
+      keys_bytes_per_key: 0,
+      dataset_bytes: 0,
+      dataset_percentage: 0.0,
+      peak_percentage: 0.0,
+      fragmentation: 0.0,
+      fragmentation_bytes: 0,
+      rss_overhead_ratio: 0.0,
+      rss_overhead_bytes: 0,
+      allocator_allocated: 0,
+      allocator_active: 0,
+      allocator_resident: 0,
       allocator_fragmentation_ratio: 0.0,
       allocator_fragmentation_bytes: 0,
-      allocator_rss_bytes:           0,
-      allocator_rss_ratio:           0.0,
-      db:                            HashMap::new(),
+      allocator_rss_bytes: 0,
+      allocator_rss_ratio: 0.0,
+      db: HashMap::new(),
     }
   }
 }
-
+#[cfg(feature = "i-memory")]
 impl PartialEq for MemoryStats {
   fn eq(&self, other: &Self) -> bool {
     self.peak_allocated == other.peak_allocated
@@ -363,8 +380,10 @@ impl PartialEq for MemoryStats {
   }
 }
 
+#[cfg(feature = "i-memory")]
 impl Eq for MemoryStats {}
 
+#[cfg(feature = "i-memory")]
 fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue) {
   match key {
     "peak.allocated" => stats.peak_allocated = convert_or_default(value),
@@ -409,6 +428,8 @@ fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue
   }
 }
 
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl TryFrom<RedisValue> for MemoryStats {
   type Error = RedisError;
 
@@ -428,12 +449,12 @@ impl TryFrom<RedisValue> for MemoryStats {
 /// <https://redis.io/commands/slowlog#output-format>
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SlowlogEntry {
-  pub id:        i64,
+  pub id: i64,
   pub timestamp: i64,
-  pub duration:  Duration,
-  pub args:      Vec<RedisValue>,
-  pub ip:        Option<Str>,
-  pub name:      Option<Str>,
+  pub duration: Duration,
+  pub args: Vec<RedisValue>,
+  pub ip: Option<Str>,
+  pub name: Option<Str>,
 }
 
 impl TryFrom<RedisValue> for SlowlogEntry {
@@ -497,6 +518,7 @@ pub enum ScriptDebugFlag {
 }
 
 impl ScriptDebugFlag {
+  #[cfg(feature = "i-scripts")]
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
       ScriptDebugFlag::Yes => "YES",
@@ -535,6 +557,7 @@ pub enum SortOrder {
 }
 
 impl SortOrder {
+  #[cfg(feature = "i-geo")]
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
       SortOrder::Asc => "ASC",
@@ -558,6 +581,7 @@ impl Default for FnPolicy {
 }
 
 impl FnPolicy {
+  #[cfg(feature = "i-scripts")]
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
       FnPolicy::Flush => "FLUSH",
@@ -619,5 +643,21 @@ impl TryFrom<&Str> for FnPolicy {
 
   fn try_from(value: &Str) -> Result<Self, Self::Error> {
     FnPolicy::from_str(value)
+  }
+}
+
+/// Arguments to the CLIENT UNBLOCK command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientUnblockFlag {
+  Timeout,
+  Error,
+}
+
+impl ClientUnblockFlag {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      ClientUnblockFlag::Timeout => "TIMEOUT",
+      ClientUnblockFlag::Error => "ERROR",
+    })
   }
 }

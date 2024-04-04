@@ -79,6 +79,7 @@ pub fn f64_eq(lhs: f64, rhs: f64) -> bool {
   approx_eq!(f64, lhs, rhs, ulps = 2)
 }
 
+#[cfg(feature = "i-geo")]
 pub fn f64_opt_eq(lhs: &Option<f64>, rhs: &Option<f64>) -> bool {
   match *lhs {
     Some(lhs) => match *rhs {
@@ -122,6 +123,7 @@ pub fn f64_to_redis_string(d: f64) -> Result<RedisValue, RedisError> {
   }
 }
 
+#[cfg(feature = "i-sorted-sets")]
 pub fn f64_to_zrange_bound(d: f64, kind: &ZRangeKind) -> Result<String, RedisError> {
   if d.is_infinite() && d.is_sign_negative() {
     Ok("-inf".into())
@@ -156,6 +158,7 @@ pub fn random_string(len: usize) -> String {
     .collect()
 }
 
+#[cfg(feature = "i-memory")]
 pub fn convert_or_default<R>(value: RedisValue) -> R
 where
   R: FromRedis + Default,
@@ -231,6 +234,7 @@ pub fn path_to_string(path: &Path) -> String {
   path.as_os_str().to_string_lossy().to_string()
 }
 
+#[cfg(feature = "i-sorted-sets")]
 pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
   let formatted = val.starts_with('(') || val.starts_with('[') || val == "+" || val == "-";
 
@@ -244,6 +248,7 @@ pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
 }
 
 /// Parse the response from `FUNCTION LIST`.
+#[cfg(feature = "i-scripts")]
 fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(functions) = value {
     let mut out = Vec::with_capacity(functions.len());
@@ -274,6 +279,7 @@ fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
 }
 
 /// Check and parse the response to `FUNCTION LIST`.
+#[cfg(feature = "i-scripts")]
 pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function>, RedisError> {
   if let RedisValue::Array(ref libraries) = value {
     for library in libraries.iter() {
@@ -523,17 +529,6 @@ pub async fn backchannel_request_response(
   let mut backchannel = inner.backchannel.write().await;
   let server = backchannel.find_server(inner, &command, use_blocked)?;
   backchannel.request_response(inner, &server, command).await
-}
-
-pub fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
-  if keys.len() == 0 {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidArgument,
-      "At least one key is required.",
-    ))
-  } else {
-    Ok(())
-  }
 }
 
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.

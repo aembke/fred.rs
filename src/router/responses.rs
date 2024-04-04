@@ -13,12 +13,12 @@ use redis_protocol::{
 };
 use std::{str, sync::Arc};
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 use crate::types::Invalidation;
 
 const KEYSPACE_PREFIX: &str = "__keyspace@";
 const KEYEVENT_PREFIX: &str = "__keyevent@";
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 const INVALIDATION_CHANNEL: &str = "__redis__:invalidate";
 
 fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
@@ -112,7 +112,7 @@ fn parse_pubsub_message(
   }
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 fn broadcast_pubsub_invalidation(inner: &Arc<RedisClientInner>, message: Message, server: &Server) {
   if let Some(invalidation) = Invalidation::from_message(message, server) {
     inner.notifications.broadcast_invalidation(invalidation);
@@ -124,20 +124,20 @@ fn broadcast_pubsub_invalidation(inner: &Arc<RedisClientInner>, message: Message
   }
 }
 
-#[cfg(not(feature = "client-tracking"))]
+#[cfg(not(feature = "i-tracking"))]
 fn broadcast_pubsub_invalidation(_: &Arc<RedisClientInner>, _: Message, _: &Server) {}
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 fn is_pubsub_invalidation(message: &Message) -> bool {
   message.channel == INVALIDATION_CHANNEL
 }
 
-#[cfg(not(feature = "client-tracking"))]
+#[cfg(not(feature = "i-tracking"))]
 fn is_pubsub_invalidation(_: &Message) -> bool {
   false
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) {
   if let Resp3Frame::Push { mut data, .. } = frame {
     if data.len() != 2 {
@@ -158,10 +158,10 @@ fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, 
   }
 }
 
-#[cfg(not(feature = "client-tracking"))]
+#[cfg(not(feature = "i-tracking"))]
 fn broadcast_resp3_invalidation(_: &Arc<RedisClientInner>, _: &Server, _: Resp3Frame) {}
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
   // RESP3 example: Push { data: [BlobString { data: b"invalidate", attributes: None }, Array { data:
   // [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
@@ -209,7 +209,7 @@ fn is_subscription_response(frame: &Resp3Frame) -> bool {
   }
 }
 
-#[cfg(not(feature = "client-tracking"))]
+#[cfg(not(feature = "i-tracking"))]
 fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
   false
 }

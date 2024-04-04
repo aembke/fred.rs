@@ -1,28 +1,6 @@
 use crate::{
   error::RedisError,
-  interfaces,
-  interfaces::{
-    AclInterface,
-    AuthInterface,
-    ClientInterface,
-    ClientLike,
-    ClusterInterface,
-    ConfigInterface,
-    FunctionInterface,
-    GeoInterface,
-    HashesInterface,
-    HyperloglogInterface,
-    KeysInterface,
-    ListInterface,
-    MemoryInterface,
-    PubsubInterface,
-    Resp3Frame,
-    ServerInterface,
-    SetsInterface,
-    SlowlogInterface,
-    SortedSetsInterface,
-    StreamsInterface,
-  },
+  interfaces::{self, *},
   modules::{inner::RedisClientInner, response::FromRedis},
   prelude::{RedisResult, RedisValue},
   protocol::{
@@ -35,11 +13,6 @@ use crate::{
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
 use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
-
-#[cfg(feature = "redis-json")]
-use crate::interfaces::RedisJsonInterface;
-#[cfg(feature = "time-series")]
-use crate::interfaces::TimeSeriesInterface;
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();
@@ -83,7 +56,7 @@ fn prepare_all_commands(
 /// See the [all](Self::all), [last](Self::last), and [try_all](Self::try_all) functions for more information.
 pub struct Pipeline<C: ClientLike> {
   commands: Arc<Mutex<VecDeque<RedisCommand>>>,
-  client:   C,
+  client: C,
 }
 
 #[doc(hidden)]
@@ -91,7 +64,7 @@ impl<C: ClientLike> Clone for Pipeline<C> {
   fn clone(&self) -> Self {
     Pipeline {
       commands: self.commands.clone(),
-      client:   self.client.clone(),
+      client: self.client.clone(),
     }
   }
 }
@@ -148,29 +121,65 @@ impl<C: ClientLike> ClientLike for Pipeline<C> {
   }
 }
 
+#[cfg(feature = "i-acl")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
 impl<C: AclInterface> AclInterface for Pipeline<C> {}
+#[cfg(feature = "i-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
 impl<C: ClientInterface> ClientInterface for Pipeline<C> {}
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
 impl<C: ClusterInterface> ClusterInterface for Pipeline<C> {}
+#[cfg(feature = "i-pubsub")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 impl<C: PubsubInterface> PubsubInterface for Pipeline<C> {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
 impl<C: ConfigInterface> ConfigInterface for Pipeline<C> {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
 impl<C: GeoInterface> GeoInterface for Pipeline<C> {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
 impl<C: HashesInterface> HashesInterface for Pipeline<C> {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
 impl<C: HyperloglogInterface> HyperloglogInterface for Pipeline<C> {}
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
 impl<C: KeysInterface> KeysInterface for Pipeline<C> {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
 impl<C: ListInterface> ListInterface for Pipeline<C> {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 impl<C: MemoryInterface> MemoryInterface for Pipeline<C> {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl<C: AuthInterface> AuthInterface for Pipeline<C> {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
 impl<C: ServerInterface> ServerInterface for Pipeline<C> {}
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
 impl<C: SlowlogInterface> SlowlogInterface for Pipeline<C> {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
 impl<C: SetsInterface> SetsInterface for Pipeline<C> {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
 impl<C: SortedSetsInterface> SortedSetsInterface for Pipeline<C> {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
 impl<C: StreamsInterface> StreamsInterface for Pipeline<C> {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl<C: FunctionInterface> FunctionInterface for Pipeline<C> {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl<C: RedisJsonInterface> RedisJsonInterface for Pipeline<C> {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl<C: TimeSeriesInterface> TimeSeriesInterface for Pipeline<C> {}
 
 impl<C: ClientLike> Pipeline<C> {
@@ -213,7 +222,7 @@ impl<C: ClientLike> Pipeline<C> {
   ///   let _: () = pipeline.hgetall("bar").await?; // this will error since `bar` is an integer
   ///
   ///   let results = pipeline.try_all::<RedisValue>().await;
-  ///   assert_eq!(results[0].unwrap().convert::<i64>(), 1);
+  ///   assert_eq!(results[0].clone().unwrap().convert::<i64>(), 1);
   ///   assert!(results[1].is_err());
   ///
   ///   Ok(())
