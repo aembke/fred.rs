@@ -369,7 +369,7 @@ pub async fn send_asking_with_policy(
         continue;
       }
     } else {
-      match client_utils::apply_timeout(rx, inner.internal_command_timeout()).await {
+      match client_utils::timeout(rx, inner.internal_command_timeout()).await {
         Ok(Err(e)) => {
           // error writing the command
           _debug!(inner, "Reconnect once after error from ASKING: {:?}", e);
@@ -497,11 +497,11 @@ pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
     }
   } else {
     let cmd = RouterCommand::Reconnect {
-      server:                               None,
-      tx:                                   None,
-      force:                                false,
+      server: None,
+      tx: None,
+      force: false,
       #[cfg(feature = "replicas")]
-      replica:                              false,
+      replica: false,
     };
     if let Err(_) = interfaces::send_to_router(inner, cmd) {
       _warn!(inner, "Failed to send deferred cluster sync.")

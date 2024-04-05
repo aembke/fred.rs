@@ -521,6 +521,13 @@ impl RedisClientInner {
     *guard = resolver;
   }
 
+  pub fn cluster_discovery_policy(&self) -> Option<&ClusterDiscoveryPolicy> {
+    match self.config.server {
+      ServerConfig::Clustered { ref policy, .. } => Some(policy),
+      _ => None,
+    }
+  }
+
   pub async fn get_resolver(&self) -> Arc<dyn Resolve> {
     self.resolver.read().await.clone()
   }

@@ -46,7 +46,7 @@ pub trait Scanner {
   /// Read the cursor returned from the last scan operation.
   fn cursor(&self) -> Option<Cow<str>>;
 
-  /// Whether or not the scan call will continue returning results. If `false` this will be the last result set
+  /// Whether the scan call will continue returning results. If `false` this will be the last result set
   /// returned on the stream.
   ///
   /// Calling `next` when this returns `false` will return `Ok(())`, so this does not need to be checked on each
@@ -81,9 +81,9 @@ pub trait Scanner {
 
 /// The result of a SCAN operation.
 pub struct ScanResult {
-  pub(crate) results:      Option<Vec<RedisKey>>,
-  pub(crate) inner:        Arc<RedisClientInner>,
-  pub(crate) scan_state:   KeyScanInner,
+  pub(crate) results: Option<Vec<RedisKey>>,
+  pub(crate) inner: Arc<RedisClientInner>,
+  pub(crate) scan_state: KeyScanInner,
   pub(crate) can_continue: bool,
 }
 
@@ -128,9 +128,9 @@ impl Scanner for ScanResult {
 
 /// The result of a HSCAN operation.
 pub struct HScanResult {
-  pub(crate) results:      Option<RedisMap>,
-  pub(crate) inner:        Arc<RedisClientInner>,
-  pub(crate) scan_state:   ValueScanInner,
+  pub(crate) results: Option<RedisMap>,
+  pub(crate) inner: Arc<RedisClientInner>,
+  pub(crate) scan_state: ValueScanInner,
   pub(crate) can_continue: bool,
 }
 
@@ -172,9 +172,9 @@ impl Scanner for HScanResult {
 
 /// The result of a SSCAN operation.
 pub struct SScanResult {
-  pub(crate) results:      Option<Vec<RedisValue>>,
-  pub(crate) inner:        Arc<RedisClientInner>,
-  pub(crate) scan_state:   ValueScanInner,
+  pub(crate) results: Option<Vec<RedisValue>>,
+  pub(crate) inner: Arc<RedisClientInner>,
+  pub(crate) scan_state: ValueScanInner,
   pub(crate) can_continue: bool,
 }
 
@@ -216,9 +216,9 @@ impl Scanner for SScanResult {
 
 /// The result of a ZSCAN operation.
 pub struct ZScanResult {
-  pub(crate) results:      Option<Vec<(RedisValue, f64)>>,
-  pub(crate) inner:        Arc<RedisClientInner>,
-  pub(crate) scan_state:   ValueScanInner,
+  pub(crate) results: Option<Vec<(RedisValue, f64)>>,
+  pub(crate) inner: Arc<RedisClientInner>,
+  pub(crate) scan_state: ValueScanInner,
   pub(crate) can_continue: bool,
 }
 

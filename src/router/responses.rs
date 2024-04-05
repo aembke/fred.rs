@@ -33,15 +33,9 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
       return None;
     }
 
-    let db = match suffix[0].replace("__", "").parse::<u8>() {
-      Ok(db) => db,
-      Err(_) => return None,
-    };
+    let db = suffix[0].replace("__", "").parse::<u8>().ok()?;
     let operation = suffix[1].to_owned();
-    let key: RedisKey = match message.clone().try_into() {
-      Ok(k) => k,
-      Err(_) => return None,
-    };
+    let key: RedisKey = message.clone().try_into().ok()?;
 
     Some(KeyspaceEvent { db, key, operation })
   } else if channel.starts_with(KEYSPACE_PREFIX) {
@@ -55,60 +49,13 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
       return None;
     }
 
-    let db = match suffix[0].replace("__", "").parse::<u8>() {
-      Ok(db) => db,
-      Err(_) => return None,
-    };
+    let db = suffix[0].replace("__", "").parse::<u8>().ok()?;
     let key: RedisKey = suffix[1].to_owned().into();
-    let operation = match message.as_string() {
-      Some(k) => k,
-      None => return None,
-    };
+    let operation = message.as_string()?;
 
     Some(KeyspaceEvent { db, key, operation })
   } else {
     None
-  }
-}
-
-/// Check for any of the expected pubsub prefix frames.
-fn check_message_prefix(s: &str) -> bool {
-  s == "message" || s == "pmessage" || s == "smessage"
-}
-
-/// Check for the various pubsub formats for both RESP2 and RESP3.
-fn check_pubsub_formats(frame: &Resp3Frame) -> (bool, bool) {
-  if frame.is_normal_pubsub_message() {
-    return (true, false);
-  }
-
-  // otherwise check for RESP2 formats automatically converted to RESP3 by the codec
-  let data = match frame {
-    Resp3Frame::Array { ref data, .. } => data,
-    Resp3Frame::Push { ref data, .. } => data,
-    _ => return (false, false),
-  };
-
-  // RESP2 and RESP3 differ in that RESP3 contains an additional "pubsub" string frame at the start
-  // so here we check the frame contents according to the RESP2 pubsub rules
-  let resp3 = (data.len() == 3 || data.len() == 4) && data[0].as_str().map(check_message_prefix).unwrap_or(false);
-
-  (resp3, false)
-}
-
-/// Try to parse the frame in either RESP2 or RESP3 pubsub formats.
-fn parse_pubsub_message(
-  server: &Server,
-  frame: Resp3Frame,
-  is_resp3: bool,
-  is_resp2: bool,
-) -> Result<Message, RedisError> {
-  if is_resp3 {
-    protocol_utils::frame_to_pubsub(server, frame)
-  } else if is_resp2 {
-    protocol_utils::parse_as_resp2_pubsub(server, frame)
-  } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub message."))
   }
 }
 
@@ -145,7 +92,7 @@ fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, 
     }
 
     // RESP3 example: Push { data: [BlobString { data: b"invalidate", attributes: None }, Array { data:
-    // [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
+    //                [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
     if let Resp3Frame::Array { data, .. } = data[1].take() {
       inner.notifications.broadcast_invalidation(Invalidation {
         keys: data
@@ -164,7 +111,7 @@ fn broadcast_resp3_invalidation(_: &Arc<RedisClientInner>, _: &Server, _: Resp3F
 #[cfg(feature = "i-tracking")]
 fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
   // RESP3 example: Push { data: [BlobString { data: b"invalidate", attributes: None }, Array { data:
-  // [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
+  //                [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
   if let Resp3Frame::Push { ref data, .. } = frame {
     data
       .first()
@@ -227,9 +174,9 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
     return None;
   }
 
-  // FIXME change this
-  let (is_resp3_pubsub, is_resp2_pubsub) = check_pubsub_formats(&frame);
-  if !is_resp3_pubsub && !is_resp2_pubsub {
+  let is_pubsub =
+    frame.is_normal_pubsub_message() || frame.is_pattern_pubsub_message() || frame.is_shard_pubsub_message();
+  if !is_pubsub {
     return Some(frame);
   }
 
@@ -238,9 +185,9 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
   let parsed_frame = if let Some(ref span) = span {
     #[allow(clippy::let_unit_value)]
     let _guard = span.enter();
-    parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
+    protocol_utils::frame_to_pubsub(server, frame)
   } else {
-    parse_pubsub_message(server, frame, is_resp3_pubsub, is_resp2_pubsub)
+    protocol_utils::frame_to_pubsub(server, frame)
   };
 
   let message = match parsed_frame {

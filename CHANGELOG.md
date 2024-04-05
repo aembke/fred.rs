@@ -1,6 +1,6 @@
 ## 9.0.0
 
-This version should significantly reduce compilation times for most use cases.
+This version should also reduce compilation times for most use cases.
 
 * **RPITIT / AFIT**
 * Set MSRV to 1.75
@@ -8,11 +8,14 @@ This version should significantly reduce compilation times for most use cases.
 * Upgrade `redis-protocol` to 5.0.0
 * Split public interfaces with new feature flags.
 * Add `SORT` and `SORT_RO`
+* Improve cluster discovery process
 * Change tracing span names to
   follow [OpenTelemetry naming conventions](https://opentelemetry.io/docs/specs/semconv/general/attribute-naming/).
 
 ### Upgrading from 8.x
 
+* Add `ClusterDiscoveryPolicy` config option. Callers that use certain managed services or Kubernetes-based deployment
+  models should review this.
 * Double-check the new feature flags. The `codec` feature was also moved
   to [redis-protocol](https://github.com/aembke/redis-protocol.rs).
 * Rustls - Check the new [aws-lc-rs](https://aws.github.io/aws-lc-rs/requirements/index.html) requirements or switch

@@ -8,7 +8,7 @@ USAGE:
     inf_loop [FLAGS] [OPTIONS]
 
 FLAGS:
-        --cluster    Whether or not to use a clustered deployment.
+        --cluster    Whether to use a clustered deployment.
         --help       Prints help information
     -V, --version    Prints version information
 

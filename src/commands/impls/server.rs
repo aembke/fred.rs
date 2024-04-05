@@ -42,7 +42,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
@@ -73,7 +73,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
@@ -141,7 +141,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -191,7 +191,7 @@ pub async fn hello<C: ClientLike>(
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
-    let _ = utils::apply_timeout(rx, timeout_dur).await??;
+    let _ = utils::timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
     let frame = utils::request_response(client, move || Ok((RedisCommandKind::_Hello(version), args))).await?;
@@ -214,7 +214,7 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
-    let _ = utils::apply_timeout(rx, timeout_dur).await??;
+    let _ = utils::timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
     let frame = utils::request_response(client, move || Ok((RedisCommandKind::Auth, args))).await?;

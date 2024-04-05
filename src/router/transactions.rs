@@ -62,7 +62,7 @@ async fn write_command(
     return Ok(TransactionResponse::Retry(e));
   }
 
-  match client_utils::apply_timeout(rx, timeout_dur).await? {
+  match client_utils::timeout(rx, timeout_dur).await? {
     RouterResponse::Continue => Ok(TransactionResponse::Continue),
     RouterResponse::Ask((slot, server, _)) => {
       Ok(TransactionResponse::Redirection((ClusterErrorKind::Ask, slot, server)))

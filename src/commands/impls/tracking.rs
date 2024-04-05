@@ -90,7 +90,7 @@ pub async fn start_tracking<C: ClientLike>(
       let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
       client.send_command(command)?;
 
-      let frame = utils::apply_timeout(rx, client.inner().internal_command_timeout()).await??;
+      let frame = utils::timeout(rx, client.inner().internal_command_timeout()).await??;
       let _ = protocol_utils::frame_to_results(frame)?;
       Ok(())
     }
@@ -118,7 +118,7 @@ pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> 
     let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
     client.send_command(command)?;
 
-    let frame = utils::apply_timeout(rx, client.inner().internal_command_timeout()).await??;
+    let frame = utils::timeout(rx, client.inner().internal_command_timeout()).await??;
     let _ = protocol_utils::frame_to_results(frame)?;
     Ok(())
   } else {

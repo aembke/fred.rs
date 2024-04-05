@@ -1,3 +1,4 @@
+use crate::types::ClusterDiscoveryPolicy;
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
@@ -540,6 +541,11 @@ pub async fn cluster_slots_backchannel(
   inner: &Arc<RedisClientInner>,
   cache: Option<&ClusterRouting>,
 ) -> Result<ClusterRouting, RedisError> {
+  if let Some(ClusterDiscoveryPolicy::ConfigEndpoint) = inner.cluster_discovery_policy() {
+    // don't bother trying to reuse the existing backchannel connection if there's a config endpoint
+    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
+  }
+
   let (response, host) = {
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
 
@@ -550,7 +556,7 @@ pub async fn cluster_slots_backchannel(
         let default_host = transport.default_host.clone();
 
         _trace!(inner, "Sending backchannel CLUSTER SLOTS to {}", transport.server);
-        client_utils::apply_timeout(
+        client_utils::timeout(
           transport.request_response(command, inner.is_resp3()),
           inner.internal_command_timeout(),
         )
@@ -566,7 +572,14 @@ pub async fn cluster_slots_backchannel(
     }
 
     // failing the backchannel, try to connect to any of the user-provided hosts or the last known cluster nodes
-    let old_cache = cache.map(|cache| cache.slots());
+    let old_cache = if let Some(policy) = inner.cluster_discovery_policy() {
+      match policy {
+        ClusterDiscoveryPolicy::ConfigEndpoint => None,
+        ClusterDiscoveryPolicy::UseCache => cache.map(|cache| cache.slots()),
+      }
+    } else {
+      cache.map(|cache| cache.slots())
+    };
 
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
     let (frame, host) = if let Some((frame, host)) = backchannel_result {
@@ -575,7 +588,7 @@ pub async fn cluster_slots_backchannel(
       if matches!(kind, FrameKind::SimpleError | FrameKind::BlobError) {
         // try connecting to any of the nodes, then try again
         let mut transport = connect_any(inner, old_cache).await?;
-        let frame = client_utils::apply_timeout(
+        let frame = client_utils::timeout(
           transport.request_response(command, inner.is_resp3()),
           inner.internal_command_timeout(),
         )
@@ -591,7 +604,7 @@ pub async fn cluster_slots_backchannel(
     } else {
       // try connecting to any of the nodes, then try again
       let mut transport = connect_any(inner, old_cache).await?;
-      let frame = client_utils::apply_timeout(
+      let frame = client_utils::timeout(
         transport.request_response(command, inner.is_resp3()),
         inner.internal_command_timeout(),
       )

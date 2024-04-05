@@ -1462,11 +1462,11 @@ pub struct RedisCommand {
   pub attempts_remaining: u32,
   /// The number of cluster redirections remaining.
   pub redirections_remaining: u32,
-  /// Whether or not the command can be pipelined.
+  /// Whether the command can be pipelined.
   ///
   /// Also used for commands like XREAD that block based on an argument.
   pub can_pipeline: bool,
-  /// Whether or not to skip backpressure checks.
+  /// Whether to skip backpressure checks.
   pub skip_backpressure: bool,
   /// Whether to fail fast without retries if the connection ever closes unexpectedly.
   pub fail_fast: bool,

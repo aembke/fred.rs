@@ -6,7 +6,7 @@ by the client and the fields emitted on each of the spans.
 
 ![](../../tests/screenshot.png)
 
-See the [pipeline test](../../bin/pipeline_test) application for an example showing how to configure tracing with a
+See the [benchmark](../../bin/benchmark) application for an example showing how to configure tracing with a
 local Jaeger instance. This crate ships with a [small example](../../tests/docker/compose/jaeger.yml) that
 uses `docker-compose` to run a local Jaeger instance.
 
@@ -20,7 +20,7 @@ only the `partial-tracing` feature flag is enabled.
 | fred.command | The top level span used for all redis commands.                                                                                                              | x             |
 | fred.prepare | Time spent checking and preparing arguments.                                                                                                                 |               |
 | fred.queued  | Time spent waiting in the in-memory queue before being sent to the server. Pipelining and backpressure settings can significantly affect this.               |               |
-| fred.write   | Time spent routing and writing a command.                                                                                                                    |               |
+| fred.write   | Time spent routing and writing a command to the socket.                                                                                                      |               |
 | fred.rtt     | Time spent waiting on a response from the server, starting from when the first byte is fed to the socket and ending when the full response has been decoded. | x             |
 | fred.pubsub  | Time spent parsing a publish-subscribe message.                                                                                                              |               |
 

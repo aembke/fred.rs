@@ -5,7 +5,7 @@ about: Run the `benchmark` tool with different argv combinations, returning resu
 args:
   - cluster:
       long: cluster
-      help: Whether or not to assume a clustered deployment.
+      help: Whether to assume a clustered deployment.
       takes_value: false
   - count:
       short: n

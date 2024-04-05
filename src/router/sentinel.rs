@@ -140,10 +140,10 @@ async fn read_sentinels(
 ) -> Result<Vec<Server>, RedisError> {
   let service_name = read_service_name(inner)?;
 
-  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
-    static_val!(SENTINELS),
-    service_name.into(),
-  ]);
+  let command = RedisCommand::new(
+    RedisCommandKind::Sentinel,
+    vec![static_val!(SENTINELS), service_name.into()],
+  );
   let frame = sentinel.request_response(command, false).await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
   _trace!(inner, "Read sentinel `sentinels` response: {:?}", response);
@@ -164,7 +164,7 @@ async fn connect_to_sentinel(inner: &Arc<RedisClientInner>) -> Result<RedisTrans
     _debug!(inner, "Connecting to sentinel {}", server);
     let mut transport = try_or_continue!(connection::create(inner, &server, None).await);
     try_or_continue!(
-      utils::apply_timeout(
+      utils::timeout(
         transport.authenticate(&inner.id, username.clone(), password.clone(), false),
         inner.internal_command_timeout()
       )
@@ -197,11 +197,11 @@ async fn discover_primary_node(
   sentinel: &mut RedisTransport,
 ) -> Result<RedisTransport, RedisError> {
   let service_name = read_service_name(inner)?;
-  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
-    static_val!(GET_MASTER_ADDR_BY_NAME),
-    service_name.into(),
-  ]);
-  let frame = utils::apply_timeout(
+  let command = RedisCommand::new(
+    RedisCommandKind::Sentinel,
+    vec![static_val!(GET_MASTER_ADDR_BY_NAME), service_name.into()],
+  );
+  let frame = utils::timeout(
     sentinel.request_response(command, false),
     inner.internal_command_timeout(),
   )
@@ -323,7 +323,7 @@ pub async fn initialize_connection(
       let mut transport = discover_primary_node(inner, &mut sentinel).await?;
       let server = transport.server.clone();
 
-      utils::apply_timeout(
+      utils::timeout(
         Box::pin(async {
           check_primary_node_role(inner, &mut transport).await?;
           update_cached_client_state(inner, writer, sentinel, transport).await?;

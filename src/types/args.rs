@@ -663,7 +663,7 @@ impl RedisValue {
     Self::from_static_str(OK)
   }
 
-  /// Whether or not the value is a simple string OK value.
+  /// Whether the value is a simple string OK value.
   pub fn is_ok(&self) -> bool {
     match *self {
       RedisValue::String(ref s) => *s == OK,
@@ -718,7 +718,7 @@ impl RedisValue {
     matches!(*self, RedisValue::Bytes(_))
   }
 
-  /// Whether or not the value is a boolean value or can be parsed as a boolean value.
+  /// Whether the value is a boolean value or can be parsed as a boolean value.
   #[allow(clippy::match_like_matches_macro)]
   pub fn is_boolean(&self) -> bool {
     match *self {
@@ -735,7 +735,7 @@ impl RedisValue {
     }
   }
 
-  /// Whether or not the inner value is a double or can be parsed as a double.
+  /// Whether the inner value is a double or can be parsed as a double.
   pub fn is_double(&self) -> bool {
     match *self {
       RedisValue::Double(_) => true,
@@ -749,12 +749,12 @@ impl RedisValue {
     matches!(*self, RedisValue::Queued)
   }
 
-  /// Whether or not the value is an array or map.
+  /// Whether the value is an array or map.
   pub fn is_aggregate_type(&self) -> bool {
     matches!(*self, RedisValue::Array(_) | RedisValue::Map(_))
   }
 
-  /// Whether or not the value is a `RedisMap`.
+  /// Whether the value is a `RedisMap`.
   ///
   /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in
   /// RESP2 mode.
@@ -762,7 +762,7 @@ impl RedisValue {
     matches!(*self, RedisValue::Map(_))
   }
 
-  /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered
+  /// Whether the value is a `RedisMap` or an array with an even number of elements where each even-numbered
   /// element is not an aggregate type.
   ///
   /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps across protocol
@@ -775,7 +775,7 @@ impl RedisValue {
     }
   }
 
-  /// Whether or not the value is an array.
+  /// Whether the value is an array.
   pub fn is_array(&self) -> bool {
     matches!(*self, RedisValue::Array(_))
   }
@@ -1324,7 +1324,7 @@ impl RedisValue {
     R::from_value(self)
   }
 
-  /// Whether or not the value can be hashed.
+  /// Whether the value can be hashed.
   ///
   /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate
   /// type can panic, and this function can be used to more gracefully handle this situation.

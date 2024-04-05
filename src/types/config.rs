@@ -320,7 +320,7 @@ impl BackpressurePolicy {
 /// Configuration options for backpressure features in the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackpressureConfig {
-  /// Whether or not to disable the automatic backpressure features when pipelining is enabled.
+  /// Whether to disable the automatic backpressure features when pipelining is enabled.
   ///
   /// If `true` then `RedisErrorKind::Backpressure` errors may be surfaced to callers. Callers can set this to `true`
   /// and `max_in_flight_commands` to `0` to effectively disable the backpressure logic.
@@ -399,6 +399,25 @@ impl Default for UnresponsiveConfig {
       max_timeout: None,
       interval: Duration::from_secs(2),
     }
+  }
+}
+
+/// A policy that determines how clustered clients initially connect to and discover other cluster nodes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClusterDiscoveryPolicy {
+  /// Always use the endpoint(s) provided in the client's [ServerConfig](ServerConfig).
+  ///
+  /// This is generally recommended with managed services, Kubernetes, or other systems that provide client routing or cluster discovery interfaces.
+  ConfigEndpoint,
+  /// Try connecting to nodes specified in both the client's [ServerConfig](ServerConfig) and the most recently cached routing table.
+  ///
+  /// Default.
+  UseCache,
+}
+
+impl Default for ClusterDiscoveryPolicy {
+  fn default() -> Self {
+    ClusterDiscoveryPolicy::UseCache
   }
 }
 
@@ -496,7 +515,7 @@ impl Default for ConnectionConfig {
 /// Configuration options that can affect the performance of the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PerformanceConfig {
-  /// Whether or not the client should automatically pipeline commands across tasks when possible.
+  /// Whether the client should automatically pipeline commands across tasks when possible.
   ///
   /// The [Pipeline](crate::clients::Pipeline) interface can be used to pipeline commands within one task,
   /// whereas this flag can automatically pipeline commands across tasks.
@@ -549,7 +568,7 @@ impl Default for PerformanceConfig {
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug)]
 pub struct RedisConfig {
-  /// Whether or not the client should return an error if it cannot connect to the server the first time when being
+  /// Whether the client should return an error if it cannot connect to the server the first time when being
   /// initialized. If `false` the client will run the reconnect logic if it cannot connect to the server the first
   /// time, but if `true` the client will return initial connection errors to the caller immediately.
   ///
@@ -825,7 +844,10 @@ impl RedisConfig {
     let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
     cluster_nodes.push(Server::new(host, port));
-    let server = ServerConfig::Clustered { hosts: cluster_nodes };
+    let server = ServerConfig::Clustered {
+      hosts: cluster_nodes,
+      policy: ClusterDiscoveryPolicy::default(),
+    };
     let (username, password) = utils::parse_url_credentials(&url)?;
 
     Ok(RedisConfig {
@@ -912,6 +934,8 @@ pub enum ServerConfig {
     /// Only one node in the cluster needs to be provided here, the rest will be discovered via the `CLUSTER SLOTS`
     /// command.
     hosts: Vec<Server>,
+    /// The cluster discovery policy to use when connecting or following redirections.
+    policy: ClusterDiscoveryPolicy,
   },
   #[cfg(feature = "unix-sockets")]
   #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
@@ -965,6 +989,7 @@ impl ServerConfig {
   {
     ServerConfig::Clustered {
       hosts: hosts.drain(..).map(|(s, p)| Server::new(s.into(), p)).collect(),
+      policy: ClusterDiscoveryPolicy::default(),
     }
   }
 
@@ -1011,6 +1036,7 @@ impl ServerConfig {
         Server::new("127.0.0.1", 30002),
         Server::new("127.0.0.1", 30003),
       ],
+      policy: ClusterDiscoveryPolicy::default(),
     }
   }
 
@@ -1042,7 +1068,7 @@ impl ServerConfig {
   pub fn hosts(&self) -> Vec<Server> {
     match *self {
       ServerConfig::Centralized { ref server } => vec![server.clone()],
-      ServerConfig::Clustered { ref hosts } => hosts.to_vec(),
+      ServerConfig::Clustered { ref hosts, .. } => hosts.to_vec(),
       ServerConfig::Sentinel { ref hosts, .. } => hosts.to_vec(),
       #[cfg(feature = "unix-sockets")]
       ServerConfig::Unix { ref path } => vec![Server::new(utils::path_to_string(path), 0)],
@@ -1055,7 +1081,7 @@ impl ServerConfig {
 #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
 #[derive(Clone, Debug)]
 pub struct TracingConfig {
-  /// Whether or not to enable tracing for this client.
+  /// Whether to enable tracing for this client.
   ///
   /// Default: `false`
   pub enabled: bool,
@@ -1127,7 +1153,7 @@ pub struct SentinelConfig {
   #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
   pub tls: Option<TlsConfig>,
-  /// Whether or not to enable tracing for this client.
+  /// Whether to enable tracing for this client.
   ///
   /// Default: `false`
   #[cfg(feature = "partial-tracing")]

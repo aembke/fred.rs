@@ -35,9 +35,9 @@ async fn check_and_create_transport(
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
-  pub transport:      Option<RedisTransport>,
+  pub transport: Option<RedisTransport>,
   /// An identifier for the blocked connection, if any.
-  pub blocked:        Option<Server>,
+  pub blocked: Option<Server>,
   /// A map of server IDs to connection IDs, as managed by the router.
   pub connection_ids: HashMap<Server, i64>,
 }
@@ -98,12 +98,12 @@ impl Backchannel {
     }
   }
 
-  /// Whether or not the client is blocked on a command.
+  /// Whether the client is blocked on a command.
   pub fn is_blocked(&self) -> bool {
     self.blocked.is_some()
   }
 
-  /// Whether or not an open connection exists to the blocked server.
+  /// Whether an open connection exists to the blocked server.
   pub fn has_blocked_transport(&self) -> bool {
     match self.blocked {
       Some(ref server) => match self.transport {
@@ -164,7 +164,7 @@ impl Backchannel {
         server
       );
 
-      utils::apply_timeout(
+      utils::timeout(
         transport.request_response(command, inner.is_resp3()),
         inner.connection_timeout(),
       )

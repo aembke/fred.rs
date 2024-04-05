@@ -473,7 +473,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Remove the existing timeout on a key, turning the key from volatile (a key with an expiration)
   /// to persistent (a key that will never expire as no timeout is associated).
   ///
-  /// Returns a boolean value describing whether or not the timeout was removed.
+  /// Returns a boolean value describing whether the timeout was removed.
   ///
   /// <https://redis.io/commands/persist>
   fn persist<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
@@ -489,7 +489,7 @@ pub trait KeysInterface: ClientLike + Sized {
 
   /// Set a timeout on key. After the timeout has expired, the key will be automatically deleted.
   ///
-  /// Returns a boolean value describing whether or not the timeout was added.
+  /// Returns a boolean value describing whether the timeout was added.
   ///
   /// <https://redis.io/commands/expire>
   fn expire<R, K>(&self, key: K, seconds: i64) -> impl Future<Output = RedisResult<R>> + Send
@@ -505,7 +505,7 @@ pub trait KeysInterface: ClientLike + Sized {
 
   /// Set a timeout on a key based on a UNIX timestamp.
   ///
-  /// Returns a boolean value describing whether or not the timeout was added.
+  /// Returns a boolean value describing whether the timeout was added.
   ///
   /// <https://redis.io/commands/expireat>
   fn expire_at<R, K>(&self, key: K, timestamp: i64) -> impl Future<Output = RedisResult<R>> + Send

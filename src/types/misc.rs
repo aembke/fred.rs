@@ -106,7 +106,7 @@ pub struct CustomCommand {
   ///
   /// Cluster clients will use the default policy if not provided.
   pub cluster_hash: ClusterHash,
-  /// Whether or not the command should block the connection while waiting on a response.
+  /// Whether the command should block the connection while waiting on a response.
   pub blocking: bool,
 }
 

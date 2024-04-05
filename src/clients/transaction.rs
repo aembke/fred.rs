@@ -339,6 +339,6 @@ async fn exec(
   let timeout_dur = trx_options.timeout.unwrap_or_else(|| inner.default_command_timeout());
 
   interfaces::send_to_router(inner, command)?;
-  let frame = utils::apply_timeout(rx, timeout_dur).await??;
+  let frame = utils::timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
 }

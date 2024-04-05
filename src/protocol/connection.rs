@@ -738,14 +738,9 @@ impl RedisTransport {
 
   /// Send `QUIT` and close the connection.
   pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
-    let command: RedisCommand = RedisCommandKind::Quit.into();
-    let quit_ft = self.request_response(command, inner.is_resp3());
-
-    if let Err(e) = client_utils::apply_timeout(quit_ft, inner.internal_command_timeout()).await {
-      _debug!(inner, "Error calling QUIT on backchannel: {:?}", e);
+    if let Err(e) = self.transport.close().await {
+      _warn!(inner, "Error closing connection to {}: {:?}", self.server, e);
     }
-    let _ = self.transport.close().await;
-
     Ok(())
   }
 
@@ -802,7 +797,7 @@ impl RedisTransport {
   pub async fn setup(&mut self, inner: &Arc<RedisClientInner>, timeout: Option<Duration>) -> Result<(), RedisError> {
     let timeout = timeout.unwrap_or(inner.internal_command_timeout());
 
-    utils::apply_timeout(
+    utils::timeout(
       async {
         if inner.config.password.is_some() || inner.config.version == RespVersion::RESP3 {
           self.switch_protocols_and_authenticate(inner).await?;
@@ -838,7 +833,7 @@ impl RedisTransport {
     }
     let timeout = timeout.unwrap_or(inner.internal_command_timeout());
 
-    utils::apply_timeout(
+    utils::timeout(
       async {
         _debug!(inner, "Sending READONLY to {}", self.server);
         let command = RedisCommand::new(RedisCommandKind::Readonly, vec![]);
@@ -862,7 +857,7 @@ impl RedisTransport {
     let timeout = timeout.unwrap_or(inner.internal_command_timeout());
     let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
 
-    utils::apply_timeout(
+    utils::timeout(
       async {
         self
           .request_response(command, inner.is_resp3())
@@ -1071,7 +1066,7 @@ impl RedisWriter {
   ///
   /// Returns the in-flight commands that had not received a response.
   pub async fn graceful_close(mut self) -> CommandBuffer {
-    let _ = utils::apply_timeout(
+    let _ = utils::timeout(
       async {
         let _ = self.sink.close().await;
         if let Some(mut reader) = self.reader {
@@ -1105,14 +1100,14 @@ pub async fn create(
     inner.config.uses_rustls(),
   );
   if inner.config.uses_native_tls() {
-    utils::apply_timeout(RedisTransport::new_native_tls(inner, server), timeout).await
+    utils::timeout(RedisTransport::new_native_tls(inner, server), timeout).await
   } else if inner.config.uses_rustls() {
-    utils::apply_timeout(RedisTransport::new_rustls(inner, server), timeout).await
+    utils::timeout(RedisTransport::new_rustls(inner, server), timeout).await
   } else {
     match inner.config.server {
       #[cfg(feature = "unix-sockets")]
-      ServerConfig::Unix { ref path } => utils::apply_timeout(RedisTransport::new_unix(inner, path), timeout).await,
-      _ => utils::apply_timeout(RedisTransport::new_tcp(inner, server), timeout).await,
+      ServerConfig::Unix { ref path } => utils::timeout(RedisTransport::new_unix(inner, path), timeout).await,
+      _ => utils::timeout(RedisTransport::new_tcp(inner, server), timeout).await,
     }
   }
 }
@@ -1187,5 +1182,5 @@ pub async fn request_response(
 
   writer.push_command(inner, command);
   writer.write_frame(frame, true, false).await?;
-  utils::apply_timeout(async { rx.await? }, timeout_dur).await
+  utils::timeout(async { rx.await? }, timeout_dur).await
 }

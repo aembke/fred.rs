@@ -303,7 +303,7 @@ pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function
   }
 }
 
-pub async fn apply_timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, RedisError>
+pub async fn timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
   Fut: Future<Output = Result<T, E>>,
@@ -435,7 +435,7 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  apply_timeout(rx, timeout_dur)
+  timeout(rx, timeout_dur)
     .and_then(|r| async { r })
     .map_err(move |error| {
       set_bool_atomic(&timed_out, true);
@@ -494,7 +494,7 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  apply_timeout(rx, timeout_dur)
+  timeout(rx, timeout_dur)
     .and_then(|r| async { r })
     .map_err(move |error| {
       set_bool_atomic(&timed_out, true);

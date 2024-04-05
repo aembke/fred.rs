@@ -279,7 +279,7 @@ async fn try_send_all(
   if let Err(e) = interfaces::send_to_router(inner, command) {
     return vec![Err(e)];
   };
-  let frame = match utils::apply_timeout(rx, timeout_dur).await {
+  let frame = match utils::timeout(rx, timeout_dur).await {
     Ok(result) => match result {
       Ok(f) => f,
       Err(e) => return vec![Err(e)],
@@ -304,7 +304,7 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
   let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
   interfaces::send_to_router(inner, command)?;
-  let frame = utils::apply_timeout(rx, timeout_dur).await??;
+  let frame = utils::timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
 }
 
@@ -325,6 +325,6 @@ async fn send_last(
   let timeout_dur = command.timeout_dur().unwrap_or_else(|| inner.default_command_timeout());
 
   interfaces::send_to_router(inner, command)?;
-  let frame = utils::apply_timeout(rx, timeout_dur).await??;
+  let frame = utils::timeout(rx, timeout_dur).await??;
   protocol_utils::frame_to_results(frame)
 }

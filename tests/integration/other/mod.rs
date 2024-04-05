@@ -392,7 +392,6 @@ pub async fn should_use_tracing_get_set(client: RedisClient, mut config: RedisCo
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  check_null!(client, "foo");
   let _: () = client.set("foo", "bar", None, None, false).await?;
   assert_eq!(client.get::<String, _>("foo").await?, "bar");
   Ok(())
@@ -465,8 +464,6 @@ pub async fn should_ping_with_subscriber_client(client: RedisClient, config: Red
 
 #[cfg(all(feature = "replicas", feature = "i-keys"))]
 pub async fn should_replica_set_and_get(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   let _: () = client.set("foo", "bar", None, None, false).await?;
   let result: String = client.replicas().get("foo").await?;
   assert_eq!(result, "bar");
@@ -483,7 +480,6 @@ pub async fn should_replica_set_and_get_not_lazy(client: RedisClient, config: Re
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  check_null!(client, "foo");
   let _: () = client.set("foo", "bar", None, None, false).await?;
   let result: String = client.replicas().get("foo").await?;
   assert_eq!(result, "bar");
@@ -493,9 +489,6 @@ pub async fn should_replica_set_and_get_not_lazy(client: RedisClient, config: Re
 
 #[cfg(all(feature = "replicas", feature = "i-keys"))]
 pub async fn should_pipeline_with_replicas(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-  check_null!(client, "bar");
-
   let _: () = client.set("foo", 1, None, None, false).await?;
   let _: () = client.set("bar", 2, None, None, false).await?;
 

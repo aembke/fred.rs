@@ -33,7 +33,7 @@ pub enum ProtocolFrame {
 }
 
 impl ProtocolFrame {
-  /// Convert the frame tp RESP3.
+  /// Convert the frame to RESP3.
   pub fn into_resp3(self) -> Resp3Frame {
     // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
     // we can just change everything to RESP3 above the protocol layer

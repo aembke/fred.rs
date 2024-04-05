@@ -18,6 +18,7 @@ use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, futu
 
 const RECONNECT_DELAY: u32 = 1000;
 
+use fred::types::ClusterDiscoveryPolicy;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
@@ -243,7 +244,7 @@ fn create_native_tls_config() -> TlsConnector {
   builder.try_into().expect("Failed to build native-tls connector")
 }
 
-fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
+fn reconnect_settings() -> (Option<ReconnectPolicy>, u32, bool) {
   (Some(ReconnectPolicy::new_constant(300, RECONNECT_DELAY)), 3, true)
 }
 
@@ -260,6 +261,7 @@ fn create_server_config(cluster: bool) -> ServerConfig {
     let (host, port) = read_redis_cluster_host();
     ServerConfig::Clustered {
       hosts: vec![Server::new(host, port)],
+      policy: ClusterDiscoveryPolicy::default(),
     }
   } else {
     let (host, port) = read_redis_centralized_host();
@@ -403,7 +405,7 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  let (policy, cmd_attempts, fail_fast) = resilience_settings();
+  let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
   let (mut config, perf) = create_redis_config(true, pipeline, resp3);
   connection.max_command_attempts = cmd_attempts;
@@ -434,7 +436,7 @@ where
     return run_sentinel(func, pipeline, resp3).await;
   }
 
-  let (policy, cmd_attempts, fail_fast) = resilience_settings();
+  let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
   let (mut config, perf) = create_redis_config(false, pipeline, resp3);
   connection.max_command_attempts = cmd_attempts;

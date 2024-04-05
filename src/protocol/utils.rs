@@ -134,6 +134,7 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
 }
 
 /// Parse the frame from a shard pubsub channel.
+// TODO clean this up with the v5 redis_protocol interface
 pub fn parse_shard_pubsub_frame(server: &Server, frame: &Resp3Frame) -> Option<Message> {
   let value = match frame {
     Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
@@ -206,8 +207,8 @@ pub fn parse_message_kind(frame: &Resp3Frame) -> Result<MessageKind, RedisError>
 }
 
 /// Parse the channel and value fields from a pubsub frame.
-pub fn parse_message_fields(frame: &Resp3Frame) -> Result<(Str, RedisValue), RedisError> {
-  let mut frames = match frame.clone() {
+pub fn parse_message_fields(frame: Resp3Frame) -> Result<(Str, RedisValue), RedisError> {
+  let mut frames = match frame {
     Resp3Frame::Array { data, .. } => data,
     Resp3Frame::Push { data, .. } => data,
     _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub frame type.")),
@@ -233,46 +234,14 @@ pub fn frame_to_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, Re
   }
 
   let kind = parse_message_kind(&frame)?;
-  let (channel, value) = parse_message_fields(&frame)?;
+  let (channel, value) = parse_message_fields(frame)?;
+
   Ok(Message {
     kind,
     channel,
     value,
     server: server.clone(),
   })
-}
-
-/// Attempt to parse a RESP3 frame as a pubsub message in the RESP2 format.
-///
-/// This can be useful in cases where the codec layer automatically upgrades to RESP3,
-/// but the contents of the pubsub message still use the RESP2 format.
-// TODO move and redo this in redis_protocol
-pub fn parse_as_resp2_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, RedisError> {
-  if let Some(message) = parse_shard_pubsub_frame(server, &frame) {
-    return Ok(message);
-  }
-
-  // resp3 has an added "pubsub" simple string frame at the front
-  let mut out = Vec::with_capacity(frame.len() + 1);
-  out.push(Resp3Frame::SimpleString {
-    data: PUBSUB_PUSH_PREFIX.into(),
-    attributes: None,
-  });
-
-  if let Resp3Frame::Push { data, .. } = frame {
-    out.extend(data);
-    let frame = Resp3Frame::Push {
-      data: out,
-      attributes: None,
-    };
-
-    frame_to_pubsub(server, frame)
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid pubsub message. Expected push frame.",
-    ))
-  }
 }
 
 pub fn check_resp2_auth_error(codec: &RedisCodec, frame: Resp2Frame) -> Resp2Frame {

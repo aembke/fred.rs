@@ -72,7 +72,7 @@ pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Resu
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(hash.into())
 }
 
@@ -89,7 +89,7 @@ pub async fn script_kill_cluster<C: ClientLike>(client: &C) -> Result<(), RedisE
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -117,7 +117,7 @@ pub async fn script_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> R
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -292,7 +292,7 @@ pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: St
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -400,7 +400,7 @@ pub async fn function_load_cluster<C: ClientLike>(
   client.send_command(command)?;
 
   // each value in the response array is the response from a different primary node
-  match utils::apply_timeout(rx, timeout_dur).await?? {
+  match utils::timeout(rx, timeout_dur).await?? {
     Resp3Frame::Array { mut data, .. } => {
       if let Some(frame) = data.pop() {
         protocol_utils::frame_to_results(frame)
@@ -454,7 +454,7 @@ pub async fn function_restore_cluster<C: ClientLike>(
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
