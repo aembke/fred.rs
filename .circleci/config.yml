@@ -38,7 +38,7 @@ commands:
     steps:
       - run:
           name: Run mock tests
-          command: cargo test --lib --features mocks --no-default-features
+          command: cargo test --lib --features "mocks i-keys" --no-default-features
   test_default_features:
     steps:
       - checkout

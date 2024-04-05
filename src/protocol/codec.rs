@@ -11,11 +11,11 @@ use bytes::BytesMut;
 use bytes_utils::Str;
 use redis_protocol::{
   resp2::{
-    decode::decode_bytes_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::BytesFrame as Resp2Frame,
+    decode::decode_bytes_mut as resp2_decode, encode::extend_encode as resp2_encode, types::BytesFrame as Resp2Frame,
   },
   resp3::{
     decode::streaming::decode_bytes_mut as resp3_decode,
-    encode::complete::encode_bytes as resp3_encode,
+    encode::complete::extend_encode as resp3_encode,
     types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, StreamedFrame},
   },
 };

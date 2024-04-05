@@ -1,6 +1,6 @@
 ## 9.0.0
 
-This version should also reduce compilation times for most use cases.
+This version should reduce compilation times for most use cases.
 
 * **RPITIT / AFIT**
 * Set MSRV to 1.75
