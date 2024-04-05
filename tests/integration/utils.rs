@@ -76,7 +76,7 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
-#[cfg(feature = "redis-stack")]
+#[cfg(feature = "i-redis-stack")]
 pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_STACK_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_STACK_PORT")
@@ -86,7 +86,7 @@ pub fn read_redis_centralized_host() -> (String, u16) {
   (host, port)
 }
 
-#[cfg(not(feature = "redis-stack"))]
+#[cfg(not(feature = "i-redis-stack"))]
 pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CENTRALIZED_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_CENTRALIZED_PORT")
@@ -120,13 +120,13 @@ pub fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
 }
 
-#[cfg(not(feature = "redis-stack"))]
+#[cfg(not(feature = "i-redis-stack"))]
 pub fn read_redis_username() -> String {
   read_env_var("REDIS_USERNAME").expect("Failed to read REDIS_USERNAME env")
 }
 
 // the CI settings for redis-stack don't set up custom ACL rules
-#[cfg(feature = "redis-stack")]
+#[cfg(feature = "i-redis-stack")]
 pub fn read_redis_username() -> String {
   read_env_var("REDIS_USERNAME").unwrap_or("default".into())
 }
