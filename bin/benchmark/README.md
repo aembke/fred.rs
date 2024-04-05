@@ -5,7 +5,7 @@ Redis includes a [benchmarking tool](https://redis.io/docs/management/optimizati
 measure the throughput of a client/connection pool. This module attempts to reproduce the same process with Tokio and
 Fred.
 
-The general strategy involves using an atomic global counter and spawning `-c` Tokio tasks that fight over `-P` clients
+The general strategy involves using an atomic global counter and spawning `-c` Tokio tasks that share`-P` clients
 in order to send `-n` total `INCR` commands to the server as quickly as possible.
 
 Each of the `-c` Tokio tasks use a different random key so commands are uniformly distributed across a cluster or
@@ -18,7 +18,7 @@ requests run in separate Tokio tasks but share a common client pool.
 
 `fred` supports several additional features or performance tuning options that can affect these results. For example:
 
-* Tracing. Simply enabling the FF cut throughput by ~20% in my tests.
+* Tracing. Enabling the FF cut throughput by ~20% in my tests.
 * Pipelining. The `auto_pipeline` feature can dramatically improve throughput in scenarios like this where a client or
   pool is shared among many Tokio tasks.
 * Clustering
@@ -26,7 +26,6 @@ requests run in separate Tokio tasks but share a common client pool.
 * Network latency
 * Log levels, often indirectly for the same reason as `tracing` (contention on a pipe, file handle, or socket).
 * The size of the client connection pool.
-* And much more...
 
 Callers should take care to consider each of these when deciding on argv values.
 
@@ -34,8 +33,6 @@ This module also includes an optional `assert-expected` feature flag that adds a
 command to ensure the response is actually correct.
 
 ## Tracing
-
-**This part frequently breaks since I rarely use tracing while benchmarking.**
 
 This also shows how to configure the client with tracing enabled against a local Jaeger instance.
 A [docker compose](../../tests/docker/compose/jaeger.yml) file is included that will run a local Jaeger instance.
@@ -59,10 +56,6 @@ Linux+Docker is the best supported option via the `./run.sh` script. The `Cargo.
 around the lines that need to change if callers want to use a remote server.
 
 Callers may have to also change `run.sh` to enable additional features in docker.
-
-**I would not even bother trying to run this on OS X, especially on Apple Silicon, with Docker at the moment.** It will
-be very slow compared to Linux or any other deployment model that avoids an Apple FS virtualization layer. All the
-docker tooling assumes a local docker engine and makes frequent use of `VOLUME`s.
 
 ## Usage
 
@@ -109,21 +102,21 @@ All the examples below use the following parameters:
 With `auto_pipeline` **disabled**:
 
 ```
-foo@bar:/path/to/fred.rs/bin/benchmark$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar no-pipeline
+$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar no-pipeline
 Performed 10000000 operations in: 31.496934107s. Throughput: 317500 req/sec
 ```
 
 With `auto_pipeline` **enabled**:
 
 ```
-foo@bar:/path/to/fred.rs/bin/benchmark$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar pipeline
+$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar pipeline
 Performed 10000000 operations in: 4.125544401s. Throughput: 2424242 req/sec
 ```
 
 With `auto_pipeline` **enabled** and using `GET` with replica nodes instead of `INCR` with primary nodes:
 
 ```
-foo@bar:/path/to/fred.rs/bin/benchmark$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar --replicas pipeline
+$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar --replicas pipeline
 Performed 10000000 operations in: 3.356416674s. Throughput: 2979737 req/sec
 ```
 

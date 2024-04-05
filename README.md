@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-A fast and ergonomic async Redis client for Rust and Tokio.
+An async Redis client for Rust and Tokio.
 
 ## Example
 
@@ -44,6 +44,8 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * Clustered, centralized, and sentinel Redis deployments.
 * TLS via `native-tls` or `rustls`.
 * Unix sockets.
+* [Efficient automatic pipelining](bin/benchmark)
+* [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
 * Optional reconnection logic with multiple backoff policies.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
@@ -93,20 +95,20 @@ control which public interfaces are built.
 | Name            | Default | Description                                                                                                   |
 |-----------------|---------|---------------------------------------------------------------------------------------------------------------|
 | `i-all`         |         | Enable the interfaces included with a basic Redis installation. This does not include `redis-stack` features. |
-| `i-std`         |         | Enable the common data structure interfaces (lists, sets, streams, keys, etc).                                |
+| `i-std`         | x       | Enable the common data structure interfaces (lists, sets, streams, keys, etc).                                |
 | `i-acl`         |         | Enable the ACL command interface.                                                                             |
-| `i-client`      | x       | Enable the CLIENT command interface.                                                                          |
-| `i-cluster`     | x       | Enable the CLUSTER command interface.                                                                         |
+| `i-client`      |         | Enable the CLIENT command interface.                                                                          |
+| `i-cluster`     |         | Enable the CLUSTER command interface.                                                                         |
 | `i-config`      |         | Enable the CONFIG command interface.                                                                          |
 | `i-geo`         |         | Enable the GEO command interface.                                                                             |
 | `i-hashes`      |         | Enable the hashes (HGET, etc) command interface.                                                              |
 | `i-hyperloglog` |         | Enable the hyperloglog command interface.                                                                     |
-| `i-keys`        | x       | Enable the main keys (GET, SET, etc) command interface.                                                       |
+| `i-keys`        |         | Enable the main keys (GET, SET, etc) command interface.                                                       |
 | `i-lists`       |         | Enable the lists (LPUSH, etc) command interface.                                                              |
 | `i-scripts`     |         | Enable the scripting command interfaces.                                                                      |
 | `i-memory`      |         | Enable the MEMORY command interfaces.                                                                         |
-| `i-pubsub`      | x       | Enable the publish-subscribe command interfaces.                                                              |
-| `i-server`      | x       | Enable the server control (SHUTDOWN, BGSAVE, etc) interfaces.                                                 |
+| `i-pubsub`      |         | Enable the publish-subscribe command interfaces.                                                              |
+| `i-server`      |         | Enable the server control (SHUTDOWN, BGSAVE, etc) interfaces.                                                 |
 | `i-sets`        |         | Enable the sets (SADD, etc) interface.                                                                        |
 | `i-sorted-sets` |         | Enable the sorted sets (ZADD, etc) interface.                                                                 |
 | `i-slowlog`     |         | Enable the SLOWLOG interface.                                                                                 |

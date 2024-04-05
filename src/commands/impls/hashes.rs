@@ -166,7 +166,7 @@ pub async fn hrandfield<C: ClientLike>(
   .await?;
 
   if has_count {
-    if has_values && frame.as_str().map(|s| s != QUEUED).unwrap_or(false) {
+    if has_values && frame.as_str().map(|s| s != QUEUED).unwrap_or(true) {
       let frame = protocol_utils::flatten_frame(frame);
       protocol_utils::frame_to_map(frame).map(RedisValue::Map)
     } else {

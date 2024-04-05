@@ -39,9 +39,43 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
   });
 
   sleep(Duration::from_secs(1)).await;
-  for idx in 0..NUM_MESSAGES {
+  for idx in 0 .. NUM_MESSAGES {
     // https://redis.io/commands/publish#return-value
     client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+
+    // pubsub messages may arrive out of order due to cross-cluster broadcasting
+    sleep(Duration::from_millis(50)).await;
+  }
+  let _ = subscriber_jh.await?;
+
+  Ok(())
+}
+
+pub async fn should_ssubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber_client = client.clone_new();
+  subscriber_client.connect();
+  subscriber_client.wait_for_connect().await?;
+  subscriber_client.ssubscribe(CHANNEL1).await?;
+
+  let subscriber_jh = tokio::spawn(async move {
+    let mut message_stream = subscriber_client.message_rx();
+
+    let mut count = 0;
+    while count < NUM_MESSAGES {
+      if let Ok(message) = message_stream.recv().await {
+        assert_eq!(CHANNEL1, message.channel);
+        assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message.value.as_str().unwrap());
+        count += 1;
+      }
+    }
+
+    Ok::<_, RedisError>(())
+  });
+
+  sleep(Duration::from_secs(1)).await;
+  for idx in 0 .. NUM_MESSAGES {
+    // https://redis.io/commands/publish#return-value
+    client.spublish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -76,7 +110,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   });
 
   sleep(Duration::from_secs(1)).await;
-  for idx in 0..NUM_MESSAGES {
+  for idx in 0 .. NUM_MESSAGES {
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value

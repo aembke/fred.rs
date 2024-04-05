@@ -25,7 +25,7 @@ bytes = "1.6"
 bytes-utils = "0.1"
 futures = { version = "0.3", features = ["std"] }
 parking_lot = "0.12"
-redis-protocol = { version = "5.0", features = ["resp2", "resp3", "bytes"] }
+redis-protocol = { version = "5.0.1", features = ["resp2", "resp3", "bytes"] }
 log = "0.4"
 float-cmp = "0.9"
 url = "2.4"
