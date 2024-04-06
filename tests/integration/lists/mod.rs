@@ -1,3 +1,4 @@
+use fred::types::SortOrder;
 use fred::{
   interfaces::*,
   prelude::*,
@@ -372,5 +373,91 @@ pub async fn should_rpushx_values(client: RedisClient, _: RedisConfig) -> Result
   let result: i64 = client.llen("foo").await?;
   assert_eq!(result, COUNT + 1);
 
+  Ok(())
+}
+
+pub async fn should_sort_int_list(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
+
+  let sorted: Vec<i64> = client.sort("foo", None, None, (), None, false, None).await?;
+  assert_eq!(sorted, vec![1, 2, 3, 4, 5]);
+  Ok(())
+}
+
+pub async fn should_sort_alpha_list(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.lpush("foo", vec!["a", "b", "c", "d", "e"]).await?;
+
+  let sorted: Vec<String> = client
+    .sort("foo", None, None, (), Some(SortOrder::Desc), true, None)
+    .await?;
+  assert_eq!(sorted, vec!["e", "d", "c", "b", "a"]);
+  Ok(())
+}
+
+pub async fn should_sort_int_list_with_limit(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
+
+  let sorted: Vec<i64> = client.sort("foo", None, Some((2, 2)), (), None, false, None).await?;
+  assert_eq!(sorted, vec![3, 4]);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_sort_int_list_with_patterns(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let vals: Vec<i64> = (1..6).collect();
+  let key: RedisKey = "foo".into();
+
+  client.lpush(&key, vals.clone()).await?;
+  for val in vals.iter() {
+    // reverse the weights
+    client
+      .set(
+        format!("{}_weight_{}", key.as_str().unwrap(), val),
+        7 - *val,
+        None,
+        None,
+        false,
+      )
+      .await?;
+  }
+  for val in vals.iter() {
+    client
+      .set(
+        format!("{}_val_{}", key.as_str().unwrap(), val),
+        *val * 2,
+        None,
+        None,
+        false,
+      )
+      .await?;
+  }
+
+  let sorted: Vec<i64> = client
+    .sort(
+      &key,
+      Some(format!("{}_weight_*", key.as_str().unwrap()).into()),
+      None,
+      format!("{}_val_*", key.as_str().unwrap()),
+      None,
+      false,
+      None,
+    )
+    .await?;
+  assert_eq!(sorted, vec![10, 8, 6, 4, 2]);
+
+  Ok(())
+}
+
+#[cfg(feature = "replicas")]
+pub async fn should_sort_ro_int_list(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
+  // wait for replicas to recv the command
+  tokio::time::sleep(Duration::from_millis(500)).await;
+
+  let sorted: Vec<i64> = client
+    .replicas()
+    .sort_ro("foo", None, None, (), Some(SortOrder::Desc), false)
+    .await?;
+  assert_eq!(sorted, vec![5, 4, 3, 2, 1]);
   Ok(())
 }

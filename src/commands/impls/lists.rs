@@ -4,7 +4,93 @@ use crate::{
   types::*,
   utils,
 };
+use bytes_utils::Str;
 use std::convert::TryInto;
+
+pub async fn sort_ro<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  by: Option<Str>,
+  limit: Option<Limit>,
+  get: MultipleStrings,
+  order: Option<SortOrder>,
+  alpha: bool,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(8 + get.len() * 2);
+    args.push(key.into());
+
+    if let Some(pattern) = by {
+      args.push(static_val!("BY"));
+      args.push(pattern.into());
+    }
+    if let Some((offset, count)) = limit {
+      args.push(static_val!(LIMIT));
+      args.push(offset.into());
+      args.push(count.into());
+    }
+    for pattern in get.inner().into_iter() {
+      args.push(static_val!(GET));
+      args.push(pattern.into());
+    }
+    if let Some(order) = order {
+      args.push(order.to_str().into());
+    }
+    if alpha {
+      args.push(static_val!("ALPHA"));
+    }
+
+    Ok((RedisCommandKind::SortRo, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn sort<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  by: Option<Str>,
+  limit: Option<Limit>,
+  get: MultipleStrings,
+  order: Option<SortOrder>,
+  alpha: bool,
+  store: Option<RedisKey>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(10 + get.len() * 2);
+    args.push(key.into());
+
+    if let Some(pattern) = by {
+      args.push(static_val!("BY"));
+      args.push(pattern.into());
+    }
+    if let Some((offset, count)) = limit {
+      args.push(static_val!(LIMIT));
+      args.push(offset.into());
+      args.push(count.into());
+    }
+    for pattern in get.inner().into_iter() {
+      args.push(static_val!(GET));
+      args.push(pattern.into());
+    }
+    if let Some(order) = order {
+      args.push(order.to_str().into());
+    }
+    if alpha {
+      args.push(static_val!("ALPHA"));
+    }
+    if let Some(dest) = store {
+      args.push(static_val!(STORE));
+      args.push(dest.into());
+    }
+
+    Ok((RedisCommandKind::Sort, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
 
 pub async fn blmpop<C: ClientLike>(
   client: &C,
@@ -81,11 +167,10 @@ pub async fn brpoplpush<C: ClientLike>(
   let timeout: RedisValue = timeout.try_into()?;
 
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::BrPopLPush, vec![
-      source.into(),
-      destination.into(),
-      timeout,
-    ]))
+    Ok((
+      RedisCommandKind::BrPopLPush,
+      vec![source.into(), destination.into(), timeout],
+    ))
   })
   .await?;
 
@@ -158,12 +243,10 @@ pub async fn linsert<C: ClientLike>(
   element: RedisValue,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::LInsert, vec![
-      key.into(),
-      location.to_str().into(),
-      pivot,
-      element,
-    ]))
+    Ok((
+      RedisCommandKind::LInsert,
+      vec![key.into(), location.to_str().into(), pivot, element],
+    ))
   })
   .await?;
 

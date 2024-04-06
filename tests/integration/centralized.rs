@@ -292,6 +292,11 @@ pub mod lists {
   centralized_test!(lists, should_lmove_values);
   centralized_test!(lists, should_rpush_values);
   centralized_test!(lists, should_rpushx_values);
+  centralized_test!(lists, should_sort_int_list);
+  centralized_test!(lists, should_sort_alpha_list);
+  centralized_test!(lists, should_sort_int_list_with_limit);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(lists, should_sort_int_list_with_patterns);
 }
 
 #[cfg(feature = "i-geo")]

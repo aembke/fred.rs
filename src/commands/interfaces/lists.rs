@@ -1,11 +1,13 @@
 use futures::Future;
 
+use crate::types::{Limit, MultipleStrings, SortOrder};
 use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, RedisValue},
 };
+use bytes_utils::Str;
 use std::convert::TryInto;
 
 /// Functions that implement the [lists](https://redis.io/commands#lists) interface.
@@ -413,6 +415,57 @@ pub trait ListInterface: ClientLike + Sized {
       into!(key);
       try_into!(elements);
       commands::lists::rpushx(self, key, elements).await?.convert()
+    }
+  }
+
+  /// Returns or stores the elements contained in the list, set or sorted set at `key`.
+  ///
+  /// <https://redis.io/commands/sort/>
+  fn sort<R, K, S>(
+    &self,
+    key: K,
+    by: Option<Str>,
+    limit: Option<Limit>,
+    get: S,
+    order: Option<SortOrder>,
+    alpha: bool,
+    store: Option<RedisKey>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    S: Into<MultipleStrings> + Send,
+  {
+    async move {
+      into!(key, get);
+      commands::lists::sort(self, key, by, limit, get, order, alpha, store)
+        .await?
+        .convert()
+    }
+  }
+
+  /// Read-only variant of the SORT command. It is exactly like the original SORT but refuses the STORE option and can safely be used in read-only replicas.
+  ///
+  /// <https://redis.io/commands/sort_ro/>
+  fn sort_ro<R, K, S>(
+    &self,
+    key: K,
+    by: Option<Str>,
+    limit: Option<Limit>,
+    get: S,
+    order: Option<SortOrder>,
+    alpha: bool,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    S: Into<MultipleStrings> + Send,
+  {
+    async move {
+      into!(key, get);
+      commands::lists::sort_ro(self, key, by, limit, get, order, alpha)
+        .await?
+        .convert()
     }
   }
 }

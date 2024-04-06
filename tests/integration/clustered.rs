@@ -304,6 +304,11 @@ pub mod lists {
   cluster_test!(lists, should_lmove_values);
   cluster_test!(lists, should_rpush_values);
   cluster_test!(lists, should_rpushx_values);
+  cluster_test!(lists, should_sort_int_list);
+  cluster_test!(lists, should_sort_alpha_list);
+  cluster_test!(lists, should_sort_int_list_with_limit);
+  #[cfg(feature = "replicas")]
+  cluster_test!(lists, should_sort_ro_int_list);
 }
 
 #[cfg(feature = "i-geo")]

@@ -557,7 +557,7 @@ pub enum SortOrder {
 }
 
 impl SortOrder {
-  #[cfg(feature = "i-geo")]
+  #[allow(dead_code)]
   pub(crate) fn to_str(&self) -> Str {
     utils::static_str(match *self {
       SortOrder::Asc => "ASC",

@@ -14,7 +14,7 @@ pub static COUNT: &str = "COUNT";
 pub static TYPE: &str = "TYPE";
 #[cfg(any(feature = "i-geo", feature = "i-sorted-sets"))]
 pub static CHANGED: &str = "CH";
-#[cfg(any(feature = "i-sorted-sets", feature = "i-streams"))]
+#[cfg(any(feature = "i-lists", feature = "i-sorted-sets", feature = "i-streams"))]
 pub static LIMIT: &str = "LIMIT";
 pub static GET: &str = "GET";
 pub static RESET: &str = "RESET";
