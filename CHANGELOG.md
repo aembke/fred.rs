@@ -7,15 +7,15 @@ This version should reduce compilation times for most use cases.
 * Upgrade `rustls` to 0.23
 * Upgrade `redis-protocol` to 5.0.0
 * Split public interfaces with new feature flags.
+* Add `ClusterDiscoveryPolicy` configuration options.
 * Add `SORT` and `SORT_RO`
-* Improve cluster discovery process
 * Change tracing span names to
   follow [OpenTelemetry naming conventions](https://opentelemetry.io/docs/specs/semconv/general/attribute-naming/).
 
 ### Upgrading from 8.x
 
-* Add `ClusterDiscoveryPolicy` config option. Callers that use certain managed services or Kubernetes-based deployment
-  models should review this.
+* Callers that use certain managed services or Kubernetes-based deployment models should review the
+  new `ClusterDiscoveryPolicy`.
 * Double-check the new feature flags. The `codec` feature was also moved
   to [redis-protocol](https://github.com/aembke/redis-protocol.rs).
 * Rustls - Check the new [aws-lc-rs](https://aws.github.io/aws-lc-rs/requirements/index.html) requirements or switch
