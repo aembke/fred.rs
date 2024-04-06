@@ -2,14 +2,12 @@ Contributing
 ===========
 
 This document gives some background on how the library is structured and how to contribute. It focuses primarily on how
-to add new commands. See the [design doc](docs/README.md) for more background on how the library is designed.
+to add new commands. See the [design doc](docs/README.md) for more info.
 
 # General
 
 * Use 2 spaces instead of tabs.
 * Run rustfmt and clippy before submitting any changes.
-* Clean up any compiler warnings.
-* Use the `async` syntax rather than `impl Future` where possible.
 * Please use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
 
 # File Structure
