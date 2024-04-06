@@ -111,6 +111,18 @@ commands:
           name: Run tests with unix socket features
           command: source tests/environ && tests/runners/unix-socket.sh
       - save-cargo-deps-cache
+  test_valkey:
+    steps:
+      - checkout
+      - restore-cargo-deps-cache
+      - run:
+          name: Run tests against local valkey deployments
+          command: |
+            source tests/environ
+            USE_VALKEY=1 tests/scripts/install_redis_centralized.sh
+            USE_VALKEY=1 tests/scripts/install_redis_clustered.sh
+            tests/runners/default-features.sh
+      - save-cargo-deps-cache
 
 jobs:
   test-default-nil-types-7_2:
@@ -196,6 +208,15 @@ jobs:
       REDIS_VERSION: 7.2.4
     steps:
       - test_sentinel
+  test-valkey-7_2:
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
+    environment:
+      REDIS_VERSION: 7.2.4
+    steps:
+      - test_valkey
   test-misc:
     docker:
       - image: cimg/rust:1.77.1

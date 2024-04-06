@@ -188,4 +188,78 @@ async fn example(state: &mut State, stream: SplitTcpStream<Frame>) -> Result<(),
 In order for the reader task to respond to the caller in the Axum task we need a mechanism for the caller's oneshot
 sender half to move between the router task and the reader task that receives the response.
 An [`Arc<SegQueue>`](https://docs.rs/crossbeam-queue/latest/crossbeam_queue/struct.SegQueue.html) is shared between the
-router and each reader task to support this. 
+router and each reader task to support this.
+
+## Connections
+
+This section describes how the connection layer works.
+
+Most connections are wrapped with a `Framed` [codec](https://docs.rs/tokio-util/latest/tokio_util/codec/index.html).
+The [redis_protocol](https://github.com/aembke/redis-protocol.rs) crate includes a general
+purpose [codec interface](https://docs.rs/redis-protocol/latest/redis_protocol/codec/index.html) similar to the one used
+here, but without the `metrics` feature flag additions.
+
+### Handshake
+
+After a connection is established the client does the following:
+
+1. Authenticate, if necessary
+    1. If RESP3 - Send `HELLO 3 AUTH <username> <password>`
+    2. If RESP2 - Send `AUTH <username> <password>`
+    3. If no auth - Send `PING`
+2. If not clustered - `SELECT` the database from the associated `RedisConfig`
+3. If `auto_client_setname` then send `CLIENT SETNAME <id>`
+4. Read and cache connection ID via `CLIENT ID`.
+5. Read the server version via `INFO server`.
+6. If clustered and not `disable_cluster_health_check` then check cluster state via `CLUSTER INFO`
+
+### Backchannel
+
+There are several features that require or benefit from having some kind of backchannel connection to the server(s) as
+the main connection used by callers could be blocked, unresponsive, or otherwise unusable. However, with clustered
+deployments it would generally be wasteful to keep twice the number of connections open to each cluster
+node just for these scenarios. The library tries to balance these concerns by using a single backchannel connection and
+lazily moving it around the cluster as needed. There are probably some use cases where this strategy causes problems, so
+it might be worth adding a new strategy via a new config option in the future.
+
+The backchannel is used for the following scenarios:
+
+* Sending `CLUSTER SLOTS` or `CLUSTER SHARDS`
+* Sending `CLIENT UNBLOCK`
+* Sending `ROLE` to check or discover replicas
+* Sending `FUNCTION KILL` or `FUNCTION STATS`
+
+Unlike connections managed by the `Router`, the backchannel connection does not use a split socket interface with a
+dedicated reader task. Instead the transport is stored in an `Arc<AsyncMutex>` without automatic pipelining features,
+which means it may close or become unresponsive without triggering an error until the next write attempt.
+
+### Clustering
+
+Cluster nodes are discovered via the function `sync_cluster` with the following process:
+
+1. Send `CLUSTER SLOTS` on the backchannel.
+    1. If the old backchannel connection is unusable, or an error occurs, then try connecting to a new node as specified
+       by the `ClusterDiscoveryPolicy`. If multiple hosts are provided they are tried in series.
+    2. Send `CLUSTER SLOTS` on this new connection, then cache the new connection as the new backchannel.
+2. Parse the `CLUSTER SLOTS` response into a `ClusterRouting` struct.
+3. Compare the new `ClusterRouting::unique_primary_nodes` output with the old connection map stored on the `Router` to
+   determine which connections should be added or removed.
+4. Drop the connections that no longer point to primary cluster nodes.
+5. Connect to the newly discovered primary cluster nodes concurrently.
+6. Split each connection and spawn reader tasks for each of the stream halves.
+7. Store the new writer halves on the `Router` connection map.
+
+The client will use this process whenever a connection closes unexpectedly or a `MOVED` error is received. In many cases
+this is wrapped in a loop and delayed based on the client's `ReconnectPolicy`.
+
+The initial cluster sync operation after a `MOVED` redirection may be delayed by `cluster_cache_update_delay`. This can
+be useful with large keys that often take several milliseconds to move.
+
+When the `Router` task receives a command it uses the command's `ClusterHash` policy
+with [redis_keyslot](https://docs.rs/redis-protocol/latest/redis_protocol/fn.redis_keyslot.html) to determine the
+correct cluster hash slot. This is then used with the cached `ClusterRouting::get_server` interface to map the command
+to a cluster node `RedisSink`.
+
+### Automatic Pipelining
+
+WIP
