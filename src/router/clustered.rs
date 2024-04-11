@@ -540,9 +540,9 @@ pub async fn connect_any(
 pub async fn cluster_slots_backchannel(
   inner: &Arc<RedisClientInner>,
   cache: Option<&ClusterRouting>,
+  force_disconnect: bool,
 ) -> Result<ClusterRouting, RedisError> {
-  if let Some(ClusterDiscoveryPolicy::ConfigEndpoint) = inner.cluster_discovery_policy() {
-    // don't bother trying to reuse the existing backchannel connection if there's a config endpoint
+  if force_disconnect {
     inner.backchannel.write().await.check_and_disconnect(inner, None).await;
   }
 
@@ -658,8 +658,14 @@ pub async fn sync(
   _debug!(inner, "Synchronizing cluster state.");
 
   if let Connections::Clustered { cache, writers } = connections {
-    // send `CLUSTER SLOTS` to any of the cluster nodes via a backchannel
-    let state = cluster_slots_backchannel(inner, Some(&*cache)).await?;
+    // force disconnect after a connection unexpectedly closes or goes unresponsive
+    let force_disconnect = writers.is_empty()
+      || writers
+        .values()
+        .find_map(|t| if t.is_working() { None } else { Some(true) })
+        .unwrap_or(false);
+
+    let state = cluster_slots_backchannel(inner, Some(&*cache), force_disconnect).await?;
     _debug!(inner, "Cluster routing state: {:?}", state.pretty());
     // update the cached routing table
     inner

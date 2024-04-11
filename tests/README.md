@@ -6,7 +6,7 @@ By default, most tests run 8 times based on the following configuration paramete
 pipelined vs non-pipelined clients, and RESP2 vs RESP3 mode. Helper macros exist to make this easy so each test only has
 to be written once.
 
-**The tests require Redis version >=6.2** As of writing the default version used is 7.2.1.
+**The tests require Redis version >=6.2** As of writing the default version used is 7.2.4.
 
 ## Installation
 
@@ -41,6 +41,9 @@ The runner scripts will set up the Redis servers and run the tests inside docker
 These scripts will pass through any extra argv so callers can filter tests as needed.
 
 See the [CI configuration](../.circleci/config.yml) for more information.
+
+There's also a [debug container](runners/docker-bash.sh) script that can be used to run `redis-cli` inside the docker
+network.
 
 ### Example
 
@@ -77,7 +80,7 @@ node in a cluster.
    or [integration/centralized.rs](integration/centralized.rs) files, or both. Create a wrapping `mod` block with the
    same name as the test's folder if necessary.
 5. Use `centralized_test!` or `cluster_test!` to generate tests in the appropriate module. Centralized tests will be
-   automatically converted to sentinel tests if using the sentinel testing features.
+   converted to sentinel tests or redis-stack tests if needed.
 
 Tests that use this pattern will run 8 times to check the functionality against clustered and centralized redis servers
 with using both pipelined and non-pipelined clients in RESP2 and RESP3 mode.
@@ -87,10 +90,3 @@ with using both pipelined and non-pipelined clients in RESP2 and RESP3 mode.
 * Since we're mutating shared state in external redis servers with these tests it's necessary to run the tests
   with `--test-threads=1`. The test runner scripts will do this automatically.
 * **The tests will periodically call `flushall` before each test iteration.**
-
-## Contributing
-
-The following modules still need better test coverage:
-
-* ACL commands
-* Cluster commands. This one is more complicated though since many of these modify the cluster.

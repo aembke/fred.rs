@@ -1,5 +1,5 @@
 Fred Benchmark
-=============
+==============
 
 Redis includes a [benchmarking tool](https://redis.io/docs/management/optimization/benchmarks/) that can be used to
 measure the throughput of a client/connection pool. This module attempts to reproduce the same process with Tokio and
@@ -16,7 +16,7 @@ requests run in separate Tokio tasks but share a common client pool.
 
 ## Tuning
 
-`fred` supports several additional features or performance tuning options that can affect these results. For example:
+There are several additional features or performance tuning options that can affect these results. For example:
 
 * Tracing. Enabling the FF cut throughput by ~20% in my tests.
 * Pipelining. The `auto_pipeline` feature can dramatically improve throughput in scenarios like this where a client or

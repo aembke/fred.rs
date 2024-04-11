@@ -22,20 +22,17 @@ Beyond the main README, here's a quick list of things that potential users may w
   message passing features, atomics, and [crossbeam queue](https://crates.io/crates/crossbeam-queue) types as
   alternatives. This creates a nice developer experience and is pretty fast.
 * The public interface is generic and supports strongly and stringly-typed usage patterns.
-* There's a fallback interface for sending any commands to the server.
+* There's a fallback interface for sending any command to the server.
 * There's an optional lower level connection management interface.
-* There are a ton of configuration options. Arguably too many. However, I think it's worthwhile to tune most of these
+* There are many configuration options. Arguably too many. However, I think it's worthwhile to tune most of these
   settings.
 
 See the [benchmark](../bin/benchmark) folder for more info on performance testing.
 
 ### Background
 
-I strongly recommend reading https://redis.io/docs/manual/pipelining.
-
-It's important to understand what RTT is, why pipelining minimizes its impact in general, and why it's often the only
-thing that really matters when measuring the throughput of an IO-bound application with dependencies like Redis. Most of
-the design choices here are based on the pipelining optimization described in this section.
+I strongly recommend reading https://redis.io/docs/manual/pipelining. Most of the design choices here are based on the
+pipelining optimization described in this section.
 
 `fred` was originally written with the following use case in mind:
 
@@ -67,13 +64,13 @@ reduces the impact of RTT much more effectively than
 
 and the effect becomes even more pronounced as concurrency (the number of tasks) increases, at least until other
 bottlenecks kick in. You'll often see me describe this as "pipelining across tasks", whereas most client pipelining
-interfaces only control pipelining __within__ a task.
+interfaces control pipelining within a task.
 
 A diagram may explain this better:
 
 ![Pipelining](./pipelining.png)
 
-With this model we're not reducing network latency or RTT, but by rarely or never waiting for the server to respond we
+With this model we're not reducing network latency or RTT, but by rarely waiting for the server to respond we
 can pack many more requests on the wire and dramatically increase throughput in high concurrency scenarios.
 
 However, there are some interesting tradeoffs with the optimization described above, at least in Rust. At its core the
@@ -152,8 +149,8 @@ async fn example(connections: &mut HashMap<Server, Connection>, rx: UnboundedRec
 Commands are processed in series, but the `auto_pipeline` flag controls whether the `send_to_server` function waits on
 the server to respond or not. When commands can be pipelined this way the loop can process requests as quickly as they
 can be written to a socket. This model also creates a pleasant developer experience where we can pretty much ignore many
-synchronization issues, and as a result it's much easier to reason about how features like reconnection should work.
-It's also easy to implement socket flushing optimizations with this model.
+synchronization issues, and as a result it's easier to reason about how features like reconnection should work. It's
+also relatively easy to implement socket flushing optimizations with this model.
 
 However, this has some drawbacks:
 
@@ -215,8 +212,8 @@ After a connection is established the client does the following:
 
 ### Backchannel
 
-There are several features that require or benefit from having some kind of backchannel connection to the server(s) as
-the main connection used by callers could be blocked, unresponsive, or otherwise unusable. However, with clustered
+There are several features that require or benefit from having some kind of backchannel connection to the server(s),
+since the main connection used by callers could be blocked, unresponsive, or otherwise unusable. However, with clustered
 deployments it would generally be wasteful to keep twice the number of connections open to each cluster
 node just for these scenarios. The library tries to balance these concerns by using a single backchannel connection and
 lazily moving it around the cluster as needed. There are probably some use cases where this strategy causes problems, so
