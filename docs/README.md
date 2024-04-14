@@ -1,8 +1,8 @@
 Design
 ======
 
-This document a more detailed overview of how the library is built. The intended audience is potential contributors,
-maintainers, or anybody looking to do a deeper technical evaluation.
+This document provides a more detailed overview of how the library is built. The intended audience is potential
+contributors, maintainers, or anybody looking to do a deeper technical evaluation.
 
 The [CONTRIBUTING](../CONTRIBUTING.md) doc also provides a high level overview, but is written specifically for users
 that want to add new commands with as little friction as possible. These documents provide more background and context.

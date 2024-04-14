@@ -46,7 +46,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * Unix sockets.
 * [Efficient automatic pipelining](bin/benchmark)
 * [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
-* Optional reconnection logic with multiple backoff policies.
+* Optional reconnection features.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
 * Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/)
@@ -57,9 +57,9 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * [Transactions](https://redis.io/docs/interact/transactions/)
 * [Pipelining](https://redis.io/topics/pipelining)
 * [Client Tracking](https://redis.io/docs/manual/client-side-caching/)
-* An optional [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.
+* A [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.
 * A round-robin cluster replica routing interface.
-* An optional pubsub subscriber client that will automatically manage channel subscriptions.
+* A subscriber client that will automatically manage channel subscriptions.
 * [Tracing](https://github.com/tokio-rs/tracing)
 
 ## Build Features
@@ -90,7 +90,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 ## Interface Features
 
 The Redis interface has many functions and compile times can add up quickly. Interface features begin with `i-` and
-control which public interfaces are built.
+control which public interfaces are built.g
 
 | Name            | Default | Description                                                                                                   |
 |-----------------|---------|---------------------------------------------------------------------------------------------------------------|
