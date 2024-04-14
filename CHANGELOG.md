@@ -9,6 +9,7 @@ This version should reduce compilation times for most use cases.
 * Split public interfaces with new feature flags.
 * Add `ClusterDiscoveryPolicy` configuration options.
 * Add `SORT` and `SORT_RO`
+* Add `cluster_hash` policy to `Options`
 * Change tracing span names to
   follow [OpenTelemetry naming conventions](https://opentelemetry.io/docs/specs/semconv/general/attribute-naming/).
 

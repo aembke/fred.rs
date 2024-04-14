@@ -2038,7 +2038,10 @@ pub enum RouterCommand {
   Connections { tx: OneshotSender<Vec<Server>> },
   /// Force sync the replica routing table with the server(s).
   #[cfg(feature = "replicas")]
-  SyncReplicas { tx: OneshotSender<Result<(), RedisError>> },
+  SyncReplicas {
+    tx: OneshotSender<Result<(), RedisError>>,
+    reset: bool,
+  },
 }
 
 impl RouterCommand {
@@ -2167,8 +2170,9 @@ impl fmt::Debug for RouterCommand {
           .field("command", &command.kind.to_str_debug());
       },
       #[cfg(feature = "replicas")]
-      RouterCommand::SyncReplicas { .. } => {
+      RouterCommand::SyncReplicas { reset, .. } => {
         formatter.field("kind", &"Sync Replicas");
+        formatter.field("reset", &reset);
       },
     };
 

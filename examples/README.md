@@ -12,7 +12,7 @@ Examples
 * [Streams](./streams.rs) - Use `XADD` and `XREAD` to communicate between tasks.
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
-* [Pool](./pool.rs) - Use a redis connection pool.
+* [Pool](./pool.rs) - Use a round-robin client pool.
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
 * [Serde JSON](./serde_json.rs) - Use the `serde-json` feature to convert between Redis types and JSON.
@@ -25,5 +25,6 @@ Examples
 * [Keyspace Notifications](./keyspace.rs) - Use
   the [keyspace notifications](https://redis.io/docs/manual/keyspace-notifications/) interface.
 * [Misc](./misc.rs) - Miscellaneous or advanced features.
+* [Replicas](./replicas.rs) - Interact with cluster replica nodes via a `RedisPool`.
 
 Or see the [tests](../tests/integration) for more examples.

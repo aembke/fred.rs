@@ -1113,7 +1113,7 @@ pub async fn create(
 }
 
 /// Split a connection, spawn a reader task, and link the reader and writer halves.
-pub fn split_and_initialize<F>(
+pub fn split<F>(
   inner: &Arc<RedisClientInner>,
   transport: RedisTransport,
   is_replica: bool,

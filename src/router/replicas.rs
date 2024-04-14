@@ -40,11 +40,11 @@ pub struct ReplicaConfig {
   /// Whether the client should lazily connect to replica nodes.
   ///
   /// Default: `true`
-  pub lazy_connections:           bool,
+  pub lazy_connections: bool,
   /// An optional interface for filtering available replica nodes.
   ///
   /// Default: `None`
-  pub filter:                     Option<Arc<dyn ReplicaFilter>>,
+  pub filter: Option<Arc<dyn ReplicaFilter>>,
   /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
   ///
   /// Default: `true`
@@ -52,11 +52,11 @@ pub struct ReplicaConfig {
   /// The number of times a command can fail with a replica connection error before being sent to a primary node.
   ///
   /// Default: `0` (unlimited)
-  pub connection_error_count:     u32,
+  pub connection_error_count: u32,
   /// Whether the client should use the associated primary node if no replica exists that can serve a command.
   ///
   /// Default: `true`
-  pub primary_fallback:           bool,
+  pub primary_fallback: bool,
 }
 
 #[cfg(feature = "replicas")]
@@ -88,11 +88,11 @@ impl Eq for ReplicaConfig {}
 impl Default for ReplicaConfig {
   fn default() -> Self {
     ReplicaConfig {
-      lazy_connections:           true,
-      filter:                     None,
+      lazy_connections: true,
+      filter: None,
       ignore_reconnection_errors: true,
-      connection_error_count:     0,
-      primary_fallback:           true,
+      connection_error_count: 0,
+      primary_fallback: true,
     }
   }
 }
@@ -242,8 +242,8 @@ impl ReplicaSet {
 #[cfg(feature = "replicas")]
 pub struct Replicas {
   pub(crate) writers: HashMap<Server, RedisWriter>,
-  routing:            ReplicaSet,
-  buffer:             VecDeque<RedisCommand>,
+  routing: ReplicaSet,
+  buffer: VecDeque<RedisCommand>,
 }
 
 #[cfg(feature = "replicas")]
@@ -253,7 +253,7 @@ impl Replicas {
     Replicas {
       writers: HashMap::new(),
       routing: ReplicaSet::new(),
-      buffer:  VecDeque::new(),
+      buffer: VecDeque::new(),
     }
   }
 
@@ -303,9 +303,9 @@ impl Replicas {
 
       let (_, writer) = if inner.config.server.is_clustered() {
         transport.readonly(inner, None).await?;
-        connection::split_and_initialize(inner, transport, true, clustered::spawn_reader_task)?
+        connection::split(inner, transport, true, clustered::spawn_reader_task)?
       } else {
-        connection::split_and_initialize(inner, transport, true, centralized::spawn_reader_task)?
+        connection::split(inner, transport, true, centralized::spawn_reader_task)?
       };
 
       self.writers.insert(replica.clone(), writer);

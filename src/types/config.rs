@@ -4,6 +4,7 @@ use socket2::TcpKeepalive;
 use std::{cmp, time::Duration};
 use url::Url;
 
+use crate::error::RedisErrorKind;
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
 #[cfg(feature = "unix-sockets")]
@@ -18,6 +19,7 @@ pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapp
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
+use crate::types::ClusterHash;
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -1074,6 +1076,16 @@ impl ServerConfig {
       ServerConfig::Unix { ref path } => vec![Server::new(utils::path_to_string(path), 0)],
     }
   }
+
+  /// Set the [ClusterDiscoveryPolicy], if possible.
+  pub fn set_cluster_discovery_policy(&mut self, new_policy: ClusterDiscoveryPolicy) -> Result<(), RedisError> {
+    if let ServerConfig::Clustered { ref mut policy, .. } = self {
+      *policy = new_policy;
+      Ok(())
+    } else {
+      Err(RedisError::new(RedisErrorKind::Config, "Expected clustered config."))
+    }
+  }
 }
 
 /// Configuration options for tracing.
@@ -1243,6 +1255,10 @@ pub struct Options {
   /// The client will still follow redirection errors via this interface. Callers may not notice this, but incorrect
   /// server arguments here could result in unnecessary calls to refresh the cached cluster routing table.
   pub cluster_node: Option<Server>,
+  /// The cluster hashing policy to use, if applicable.
+  ///
+  /// If `cluster_node` is also provided it will take precedence over this value.
+  pub cluster_hash: Option<ClusterHash>,
   /// Whether to skip backpressure checks for a command.
   pub no_backpressure: bool,
   /// Whether the command should fail quickly if the connection is not healthy or available for writes. This always
@@ -1273,6 +1289,9 @@ impl Options {
     if let Some(ref val) = other.cluster_node {
       self.cluster_node = Some(val.clone());
     }
+    if let Some(ref cluster_hash) = other.cluster_hash {
+      self.cluster_hash = Some(cluster_hash.clone());
+    }
     self.no_backpressure |= other.no_backpressure;
     self.fail_fast |= other.fail_fast;
 
@@ -1293,6 +1312,7 @@ impl Options {
       timeout: cmd.timeout_dur,
       no_backpressure: cmd.skip_backpressure,
       cluster_node: cmd.cluster_node.clone(),
+      cluster_hash: Some(cmd.hasher.clone()),
       fail_fast: cmd.fail_fast,
       #[cfg(feature = "i-tracking")]
       caching: cmd.caching,
@@ -1316,6 +1336,9 @@ impl Options {
     }
     if let Some(redirections) = self.max_redirections {
       command.redirections_remaining = redirections;
+    }
+    if let Some(ref cluster_hash) = self.cluster_hash {
+      command.hasher = cluster_hash.clone();
     }
   }
 }

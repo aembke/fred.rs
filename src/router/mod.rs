@@ -254,6 +254,7 @@ impl Connections {
       return Err(RedisError::new(RedisErrorKind::Config, "Invalid client configuration."));
     };
 
+    // TODO clean this up
     if result.is_ok() {
       if let Some(version) = self.server_version() {
         inner.server_state.write().kind.set_server_version(version);
@@ -456,7 +457,7 @@ impl Connections {
       let mut transport = connection::create(inner, server, None).await?;
       transport.setup(inner, None).await?;
 
-      let (server, writer) = connection::split_and_initialize(inner, transport, false, clustered::spawn_reader_task)?;
+      let (server, writer) = connection::split(inner, transport, false, clustered::spawn_reader_task)?;
       writers.insert(server, writer);
       Ok(())
     } else {

@@ -118,10 +118,10 @@ impl Replicas {
 
   /// Sync the cached replica routing table with the server(s).
   ///
-  /// This will also disconnect and reset any replica connections.
-  pub async fn sync(&self) -> Result<(), RedisError> {
+  /// If `reset: true` the client will forcefully disconnect from replicas even if the connections could otherwise be reused.
+  pub async fn sync(&self, reset: bool) -> Result<(), RedisError> {
     let (tx, rx) = oneshot_channel();
-    let cmd = RouterCommand::SyncReplicas { tx };
+    let cmd = RouterCommand::SyncReplicas { tx, reset };
     interfaces::send_to_router(&self.inner, cmd)?;
     rx.await?
   }

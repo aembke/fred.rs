@@ -402,7 +402,15 @@ pub async fn send_asking_with_policy(
 }
 
 #[cfg(feature = "replicas")]
-async fn sync_cluster_replicas(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
+async fn sync_cluster_replicas(
+  inner: &Arc<RedisClientInner>,
+  router: &mut Router,
+  reset: bool,
+) -> Result<(), RedisError> {
+  if reset {
+    router.replicas.clear_connections(inner).await?;
+  }
+
   if inner.config.server.is_clustered() {
     router.sync_cluster().await
   } else {
@@ -412,7 +420,11 @@ async fn sync_cluster_replicas(inner: &Arc<RedisClientInner>, router: &mut Route
 
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 #[cfg(feature = "replicas")]
-pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
+pub async fn sync_replicas_with_policy(
+  inner: &Arc<RedisClientInner>,
+  router: &mut Router,
+  reset: bool,
+) -> Result<(), RedisError> {
   let mut delay = Duration::from_millis(0);
 
   loop {
@@ -421,7 +433,7 @@ pub async fn sync_replicas_with_policy(inner: &Arc<RedisClientInner>, router: &m
       inner.wait_with_interrupt(delay).await?;
     }
 
-    if let Err(e) = sync_cluster_replicas(inner, router).await {
+    if let Err(e) = sync_cluster_replicas(inner, router, reset).await {
       _warn!(inner, "Error syncing replicas: {:?}", e);
 
       if e.should_not_reconnect() {

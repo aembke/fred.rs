@@ -704,7 +704,7 @@ pub async fn sync(
         let mut transport = connection::create(&_inner, &server, None).await?;
         transport.setup(&_inner, None).await?;
 
-        let (server, writer) = connection::split_and_initialize(&_inner, transport, false, spawn_reader_task)?;
+        let (server, writer) = connection::split(&_inner, transport, false, spawn_reader_task)?;
         inner.notifications.broadcast_reconnect(server.clone());
         _new_writers.lock().insert(server, writer);
         Ok::<_, RedisError>(())

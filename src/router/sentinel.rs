@@ -299,7 +299,7 @@ async fn update_cached_client_state(
     .update_sentinel_nodes(&transport.server, sentinels);
   let _ = update_sentinel_backchannel(inner, &transport).await;
 
-  let (_, _writer) = connection::split_and_initialize(inner, transport, false, centralized::spawn_reader_task)?;
+  let (_, _writer) = connection::split(inner, transport, false, centralized::spawn_reader_task)?;
   *writer = Some(_writer);
   Ok(())
 }

@@ -91,6 +91,10 @@ name = "redis_json"
 required-features = ["i-redis-json"]
 
 [[example]]
+name = "replicas"
+required-features = ["i-std", "i-cluster", "replicas"]
+
+[[example]]
 name = "dns"
 required-features = ["dns"]
 
@@ -144,7 +148,7 @@ i-std = [
     "i-hashes", "i-keys",
     "i-lists", "i-sets",
     "i-streams", "i-pubsub",
-    "i-sorted-sets"
+    "i-sorted-sets", "i-server"
 ]
 i-acl = []
 i-client = []

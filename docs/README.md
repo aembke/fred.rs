@@ -209,6 +209,7 @@ After a connection is established the client does the following:
 4. Read and cache connection ID via `CLIENT ID`.
 5. Read the server version via `INFO server`.
 6. If clustered and not `disable_cluster_health_check` then check cluster state via `CLUSTER INFO`
+7. If connecting to a replica - send `READONLY`
 
 ### Backchannel
 
@@ -257,6 +258,10 @@ with [redis_keyslot](https://docs.rs/redis-protocol/latest/redis_protocol/fn.red
 correct cluster hash slot. This is then used with the cached `ClusterRouting::get_server` interface to map the command
 to a cluster node `RedisSink`.
 
-### Automatic Pipelining
+### Pipelining
+
+WIP
+
+### Transactions
 
 WIP
