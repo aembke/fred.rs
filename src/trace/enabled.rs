@@ -107,7 +107,7 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> 
 }
 
 #[cfg(not(feature = "full-tracing"))]
-pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Option<FakeSpan> {
+pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Resp3Frame) -> Option<FakeSpan> {
   Some(FakeSpan {})
 }
 
