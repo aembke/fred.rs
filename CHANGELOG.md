@@ -1,3 +1,7 @@
+## 9.0.1
+
+* Fix `partial-tracing` imports
+
 ## 9.0.0
 
 This version should reduce compilation times for most use cases.

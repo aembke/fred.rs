@@ -226,6 +226,9 @@ jobs:
       - checkout
       - build_docs
       - test_mocks
+      - run:
+          name: Check partial tracing
+          command: cargo check --features partial-tracing
   check-all-interface-features:
     docker:
       - image: cimg/rust:1.77.1
