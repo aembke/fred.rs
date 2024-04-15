@@ -410,16 +410,16 @@ pub enum ClusterDiscoveryPolicy {
   /// Always use the endpoint(s) provided in the client's [ServerConfig](ServerConfig).
   ///
   /// This is generally recommended with managed services, Kubernetes, or other systems that provide client routing or cluster discovery interfaces.
-  ConfigEndpoint,
-  /// Try connecting to nodes specified in both the client's [ServerConfig](ServerConfig) and the most recently cached routing table.
   ///
   /// Default.
+  ConfigEndpoint,
+  /// Try connecting to nodes specified in both the client's [ServerConfig](ServerConfig) and the most recently cached routing table.
   UseCache,
 }
 
 impl Default for ClusterDiscoveryPolicy {
   fn default() -> Self {
-    ClusterDiscoveryPolicy::UseCache
+    ClusterDiscoveryPolicy::ConfigEndpoint
   }
 }
 
