@@ -1,7 +1,7 @@
 use crate::utils;
 use bytes_utils::Str;
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 use crate::{
   error::{RedisError, RedisErrorKind},
   types::{Message, RedisKey, RedisValue, Server},
@@ -50,10 +50,13 @@ impl ClientKillFilter {
       ClientKillFilter::User(ref user) => ("USER", user.into()),
       ClientKillFilter::Addr(ref addr) => ("ADDR", addr.into()),
       ClientKillFilter::LAddr(ref addr) => ("LADDR", addr.into()),
-      ClientKillFilter::SkipMe(ref b) => ("SKIPME", match *b {
-        true => utils::static_str("yes"),
-        false => utils::static_str("no"),
-      }),
+      ClientKillFilter::SkipMe(ref b) => (
+        "SKIPME",
+        match *b {
+          true => utils::static_str("yes"),
+          false => utils::static_str("no"),
+        },
+      ),
     };
 
     (utils::static_str(prefix), value)
@@ -98,32 +101,16 @@ impl ClientReplyFlag {
   }
 }
 
-/// Arguments to the CLIENT UNBLOCK command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ClientUnblockFlag {
-  Timeout,
-  Error,
-}
-
-impl ClientUnblockFlag {
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      ClientUnblockFlag::Timeout => "TIMEOUT",
-      ClientUnblockFlag::Error => "ERROR",
-    })
-  }
-}
-
 /// An `ON|OFF` flag used with client tracking commands.
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Toggle {
   On,
   Off,
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 impl Toggle {
   pub(crate) fn to_str(&self) -> &'static str {
     match self {
@@ -141,7 +128,8 @@ impl Toggle {
   }
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TryFrom<&str> for Toggle {
   type Error = RedisError;
 
@@ -150,7 +138,8 @@ impl TryFrom<&str> for Toggle {
   }
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TryFrom<String> for Toggle {
   type Error = RedisError;
 
@@ -159,7 +148,8 @@ impl TryFrom<String> for Toggle {
   }
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TryFrom<&String> for Toggle {
   type Error = RedisError;
 
@@ -168,7 +158,8 @@ impl TryFrom<&String> for Toggle {
   }
 }
 
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl From<bool> for Toggle {
   fn from(value: bool) -> Self {
     if value {
@@ -180,20 +171,20 @@ impl From<bool> for Toggle {
 }
 
 /// A [client tracking](https://redis.io/docs/manual/client-side-caching/) invalidation message from the provided server.
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invalidation {
-  pub keys:   Vec<RedisKey>,
+  pub keys: Vec<RedisKey>,
   pub server: Server,
 }
 
-#[cfg(feature = "client-tracking")]
-#[cfg_attr(docsrs, doc(cfg(feature = "client-tracking")))]
+#[cfg(feature = "i-tracking")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl Invalidation {
   pub(crate) fn from_message(message: Message, server: &Server) -> Option<Invalidation> {
     Some(Invalidation {
-      keys:   match message.value {
+      keys: match message.value {
         RedisValue::Array(values) => values.into_iter().filter_map(|v| v.try_into().ok()).collect(),
         RedisValue::String(s) => vec![s.into()],
         RedisValue::Bytes(b) => vec![b.into()],

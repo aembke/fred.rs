@@ -19,7 +19,4 @@ rand = "0.8"
 [dependencies.fred]
 #path = "../.."
 path = "/fred"
-default-features = false
-
-[features]
-default = ["fred/network-logs", "fred/debug-ids", "fred/replicas"]
+features = ["network-logs", "debug-ids", "replicas", "i-all"]

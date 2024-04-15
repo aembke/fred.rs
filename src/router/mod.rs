@@ -6,8 +6,7 @@ use crate::{
     connection::{self, CommandBuffer, Counters, RedisWriter},
     types::{ClusterRouting, Server},
   },
-  trace,
-  utils as client_utils,
+  trace, utils as client_utils,
 };
 use futures::future::try_join_all;
 use semver::Version;
@@ -67,17 +66,21 @@ pub enum Written {
 
 impl fmt::Display for Written {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(f, "{}", match self {
-      Written::Backpressure(_) => "Backpressure",
-      Written::Sent(_) => "Sent",
-      Written::SentAll => "SentAll",
-      Written::Disconnected(_) => "Disconnected",
-      Written::Ignore => "Ignore",
-      Written::NotFound(_) => "NotFound",
-      Written::Error(_) => "Error",
-      #[cfg(feature = "replicas")]
-      Written::Fallback(_) => "Fallback",
-    })
+    write!(
+      f,
+      "{}",
+      match self {
+        Written::Backpressure(_) => "Backpressure",
+        Written::Sent(_) => "Sent",
+        Written::SentAll => "SentAll",
+        Written::Disconnected(_) => "Disconnected",
+        Written::Ignore => "Ignore",
+        Written::NotFound(_) => "NotFound",
+        Written::Error(_) => "Error",
+        #[cfg(feature = "replicas")]
+        Written::Fallback(_) => "Fallback",
+      }
+    )
   }
 }
 
@@ -132,7 +135,7 @@ pub enum Connections {
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
-    cache:   ClusterRouting,
+    cache: ClusterRouting,
     /// A map of server IDs and connections.
     writers: HashMap<Server, RedisWriter>,
   },
@@ -153,7 +156,7 @@ impl Connections {
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache:   ClusterRouting::new(),
+      cache: ClusterRouting::new(),
       writers: HashMap::new(),
     }
   }
@@ -251,6 +254,7 @@ impl Connections {
       return Err(RedisError::new(RedisErrorKind::Config, "Invalid client configuration."));
     };
 
+    // TODO clean this up
     if result.is_ok() {
       if let Some(version) = self.server_version() {
         inner.server_state.write().kind.set_server_version(version);
@@ -453,7 +457,7 @@ impl Connections {
       let mut transport = connection::create(inner, server, None).await?;
       transport.setup(inner, None).await?;
 
-      let (server, writer) = connection::split_and_initialize(inner, transport, false, clustered::spawn_reader_task)?;
+      let (server, writer) = connection::split(inner, transport, false, clustered::spawn_reader_task)?;
       writers.insert(server, writer);
       Ok(())
     } else {
@@ -496,12 +500,12 @@ pub struct Router {
   /// The connection map for each deployment type.
   pub connections: Connections,
   /// The inner client state associated with the router.
-  pub inner:       Arc<RedisClientInner>,
+  pub inner: Arc<RedisClientInner>,
   /// Storage for commands that should be deferred or retried later.
-  pub buffer:      VecDeque<RedisCommand>,
+  pub buffer: VecDeque<RedisCommand>,
   /// The replica routing interface.
   #[cfg(feature = "replicas")]
-  pub replicas:    Replicas,
+  pub replicas: Replicas,
 }
 
 impl Router {
@@ -949,7 +953,7 @@ impl Router {
         _ => {},
       };
 
-      let _ = client_utils::apply_timeout(rx, self.inner.internal_command_timeout()).await??;
+      let _ = client_utils::timeout(rx, self.inner.internal_command_timeout()).await??;
     }
 
     Ok(())

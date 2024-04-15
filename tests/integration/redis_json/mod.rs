@@ -121,7 +121,7 @@ pub async fn should_merge_objects(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_mset_and_mget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let values = vec![json!({ "a": "b" }), json!({ "c": "d" })];
+  let values = [json!({ "a": "b" }), json!({ "c": "d" })];
   let args = vec![("foo{1}", "$", values[0].clone()), ("bar{1}", "$", values[1].clone())];
   let _: () = client.json_mset(args).await?;
 
@@ -181,7 +181,7 @@ pub async fn should_modify_strings(client: RedisClient, _: RedisConfig) -> Resul
 pub async fn should_toggle_boolean(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _: () = client.json_set("foo", "$", json!({ "a": 1, "b": true }), None).await?;
   let new_val: bool = client.json_toggle("foo", "$.b").await?;
-  assert_eq!(new_val, false);
+  assert!(!new_val);
 
   Ok(())
 }

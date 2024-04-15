@@ -1,3 +1,16 @@
+use super::utils as protocol_utils;
+use crate::prelude::RedisResult;
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{cluster, utils::server_to_parts},
+  types::*,
+  utils,
+};
+use async_trait::async_trait;
+use bytes_utils::Str;
+use rand::Rng;
+use redis_protocol::{resp2::types::BytesFrame as Resp2Frame, resp3::types::BytesFrame as Resp3Frame};
 use std::{
   cmp::Ordering,
   collections::{BTreeMap, BTreeSet, HashMap},
@@ -7,24 +20,7 @@ use std::{
   net::{SocketAddr, ToSocketAddrs},
   sync::Arc,
 };
-
-use bytes_utils::Str;
-use rand::Rng;
-#[allow(unused_imports)]
-pub use redis_protocol::{redis_keyslot, resp2::types::NULL, types::CRLF};
-use redis_protocol::{resp2::types::Frame as Resp2Frame, resp2_frame_to_resp3, resp3::types::Frame as Resp3Frame};
 use tokio::sync::mpsc::UnboundedSender;
-
-use super::utils as protocol_utils;
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{cluster, utils::server_to_parts},
-  types::*,
-  utils,
-};
-
-pub const REDIS_CLUSTER_SLOTS: u16 = 16384;
 
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use std::{net::IpAddr, str::FromStr};
@@ -37,12 +33,12 @@ pub enum ProtocolFrame {
 }
 
 impl ProtocolFrame {
-  /// Convert the frame tp RESP3.
+  /// Convert the frame to RESP3.
   pub fn into_resp3(self) -> Resp3Frame {
     // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
     // we can just change everything to RESP3 above the protocol layer
     match self {
-      ProtocolFrame::Resp2(frame) => resp2_frame_to_resp3(frame),
+      ProtocolFrame::Resp2(frame) => frame.into_resp3(),
       ProtocolFrame::Resp3(frame) => frame,
     }
   }
@@ -69,9 +65,9 @@ impl From<Resp3Frame> for ProtocolFrame {
 #[derive(Debug, Clone)]
 pub struct Server {
   /// The hostname or IP address for the server.
-  pub host:            Str,
+  pub host: Str,
   /// The port for the server.
-  pub port:            u16,
+  pub port: u16,
   /// The server name used during the TLS handshake.
   #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
   #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
@@ -276,24 +272,24 @@ pub struct Message {
   /// The channel on which the message was sent.
   pub channel: Str,
   /// The message contents.
-  pub value:   RedisValue,
+  pub value: RedisValue,
   /// The type of message subscription.
-  pub kind:    MessageKind,
+  pub kind: MessageKind,
   /// The server that sent the message.
-  pub server:  Server,
+  pub server: Server,
 }
 
 pub struct KeyScanInner {
   /// The hash slot for the command.
-  pub hash_slot:  Option<u16>,
+  pub hash_slot: Option<u16>,
   /// An optional server override.
-  pub server:     Option<Server>,
+  pub server: Option<Server>,
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args:       Vec<RedisValue>,
+  pub args: Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
+  pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
 impl KeyScanInner {
@@ -318,9 +314,9 @@ pub struct ValueScanInner {
   /// The index of the cursor argument in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args:       Vec<RedisValue>,
+  pub args: Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
+  pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
 impl ValueScanInner {
@@ -403,13 +399,13 @@ impl ValueScanInner {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start:    u16,
+  pub start: u16,
   /// The end of the hash slot range.
-  pub end:      u16,
+  pub end: u16,
   /// The primary server owner.
-  pub primary:  Server,
+  pub primary: Server,
   /// The internal ID assigned by the server.
-  pub id:       Str,
+  pub id: Str,
   /// Replica node owners.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -520,7 +516,7 @@ impl ClusterRouting {
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<&SlotRange> {
     if !self.data.is_empty() {
-      let idx = rand::thread_rng().gen_range(0 .. self.data.len());
+      let idx = rand::thread_rng().gen_range(0..self.data.len());
       Some(&self.data[idx])
     } else {
       None
@@ -555,7 +551,7 @@ impl ClusterRouting {
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: Send + Sync + 'static {
   /// Resolve a hostname.
-  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError>;
+  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
 }
 
 /// Default DNS resolver that uses `to_socket_addrs` under the hood.
@@ -573,7 +569,7 @@ impl DefaultResolver {
 
 #[async_trait]
 impl Resolve for DefaultResolver {
-  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError> {
+  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>> {
     let client_id = self.id.clone();
 
     tokio::task::spawn_blocking(move || {

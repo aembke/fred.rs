@@ -1,13 +1,16 @@
 Benchmark Metrics
 =================
 
-Two of the more interesting variables for performance tuning purposes are the number of Tokio tasks (`--concurrency` or `-c`) and the size of the client pool (`pool` or `-P`). This module will repeatedly run the [benchmark](../benchmark) tool with different combinations of these two inputs. 
+Two of the more interesting variables for performance tuning purposes are the number of Tokio tasks (`--concurrency`
+or `-c`) and the size of the client pool (`pool` or `-P`). This module will repeatedly run the [benchmark](../benchmark)
+tool with different combinations of these two inputs.
 
 ```
 ./run.sh -h redis-cluster-1 -p 30001 --cluster -n 1000000 -P 1-16 --pool-step 2 -c 50-10000 --concurrency-step 50 pipeline
 ```
 
-This will run the benchmark module with sensible combinations of argv in the ranges provided. The output CSV file maps these argv combinations to their benchmarked throughput value.
+This will run the benchmark module with sensible combinations of argv in the ranges provided. The output CSV file maps
+these argv combinations to their benchmarked throughput value.
 
 ## Usage
 
@@ -16,7 +19,7 @@ USAGE:
     benchmark_metrics [FLAGS] [OPTIONS] [SUBCOMMAND]
 
 FLAGS:
-        --cluster    Whether or not to assume a clustered deployment.
+        --cluster    Whether to assume a clustered deployment.
         --help       Prints help information
     -V, --version    Prints version information
 
@@ -37,13 +40,13 @@ SUBCOMMANDS:
 
 ## Docker
 
-See the [benchmark](../benchmark/README.md#docker) section for more information. Many of the same restrictions apply. 
+See the [benchmark](../benchmark/README.md#docker) section for more information. Many of the same restrictions apply.
 
 ## Examples
 
 The [metrics](./metrics) folder has the results of running this on my desktop with the following parameters:
 
-* 32 CPUs, 64 GB, Ubuntu 
+* 32 CPUs, 64 GB, Ubuntu
 * Clustered deployment running via local docker (3 primary nodes with one replica each)
 * Centralized deployment running via local docker (no replicas)
 * No tracing features enabled

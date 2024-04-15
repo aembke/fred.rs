@@ -19,11 +19,12 @@ use fred::{
     UnresponsiveConfig,
   },
 };
-use redis_protocol::resp3::prelude::RespVersion;
+use redis_protocol::resp3::types::RespVersion;
 use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future, time::Duration};
 
 const RECONNECT_DELAY: u32 = 1000;
 
+use fred::types::ClusterDiscoveryPolicy;
 #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
@@ -83,7 +84,7 @@ fn read_fail_fast_env() -> bool {
   }
 }
 
-#[cfg(feature = "redis-stack")]
+#[cfg(feature = "i-redis-stack")]
 pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_STACK_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_STACK_PORT")
@@ -93,7 +94,7 @@ pub fn read_redis_centralized_host() -> (String, u16) {
   (host, port)
 }
 
-#[cfg(not(feature = "redis-stack"))]
+#[cfg(not(feature = "i-redis-stack"))]
 pub fn read_redis_centralized_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CENTRALIZED_HOST").unwrap_or("redis-main".into());
   let port = read_env_var("FRED_REDIS_CENTRALIZED_PORT")
@@ -127,13 +128,13 @@ pub fn read_redis_password() -> String {
   read_env_var("REDIS_PASSWORD").expect("Failed to read REDIS_PASSWORD env")
 }
 
-#[cfg(not(feature = "redis-stack"))]
+#[cfg(not(feature = "i-redis-stack"))]
 pub fn read_redis_username() -> String {
   read_env_var("REDIS_USERNAME").expect("Failed to read REDIS_USERNAME env")
 }
 
 // the CI settings for redis-stack don't set up custom ACL rules
-#[cfg(feature = "redis-stack")]
+#[cfg(feature = "i-redis-stack")]
 pub fn read_redis_username() -> String {
   read_env_var("REDIS_USERNAME").unwrap_or("default".into())
 }
@@ -215,7 +216,7 @@ fn read_tls_creds() -> TlsCreds {
 
 #[cfg(feature = "enable-rustls")]
 fn create_rustls_config() -> TlsConnector {
-  use webpki::types::PrivatePkcs8KeyDer;
+  use rustls::pki_types::PrivatePkcs8KeyDer;
 
   let creds = read_tls_creds();
   let mut root_store = RootCertStore::empty();
@@ -251,7 +252,7 @@ fn create_native_tls_config() -> TlsConnector {
   builder.try_into().expect("Failed to build native-tls connector")
 }
 
-fn resilience_settings() -> (Option<ReconnectPolicy>, u32, bool) {
+fn reconnect_settings() -> (Option<ReconnectPolicy>, u32, bool) {
   (Some(ReconnectPolicy::new_constant(300, RECONNECT_DELAY)), 3, true)
 }
 
@@ -267,7 +268,8 @@ fn create_server_config(cluster: bool) -> ServerConfig {
   if cluster {
     let (host, port) = read_redis_cluster_host();
     ServerConfig::Clustered {
-      hosts: vec![Server::new(host, port)],
+      hosts:  vec![Server::new(host, port)],
+      policy: ClusterDiscoveryPolicy::default(),
     }
   } else {
     let (host, port) = read_redis_centralized_host();
@@ -411,7 +413,7 @@ where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
-  let (policy, cmd_attempts, fail_fast) = resilience_settings();
+  let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
   let (mut config, perf) = create_redis_config(true, pipeline, resp3);
   connection.max_command_attempts = cmd_attempts;
@@ -442,7 +444,7 @@ where
     return run_sentinel(func, pipeline, resp3).await;
   }
 
-  let (policy, cmd_attempts, fail_fast) = resilience_settings();
+  let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
   let (mut config, perf) = create_redis_config(false, pipeline, resp3);
   connection.max_command_attempts = cmd_attempts;
@@ -521,7 +523,7 @@ macro_rules! centralized_test_panic(
 macro_rules! cluster_test_panic(
   ($module:tt, $name:tt) => {
     mod $name {
-      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
+      #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
@@ -546,7 +548,7 @@ macro_rules! cluster_test_panic(
         }
       }
 
-      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
+      #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         #[should_panic]
@@ -628,7 +630,7 @@ macro_rules! centralized_test(
 macro_rules! cluster_test(
   ($module:tt, $name:tt) => {
     mod $name {
-      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
+      #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
@@ -651,7 +653,7 @@ macro_rules! cluster_test(
         }
       }
 
-      #[cfg(not(any(feature = "redis-stack", feature = "unix-sockets")))]
+      #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
       mod resp3 {
         #[tokio::test(flavor = "multi_thread")]
         async fn pipelined() {
@@ -682,15 +684,6 @@ macro_rules! return_err(
     return Err(fred::error::RedisError::new(
       fred::error::RedisErrorKind::Unknown, format!($($arg)*)
     ));
-  } }
-);
-
-macro_rules! check_null(
-  ($client:ident, $arg:expr) => { {
-    let foo: RedisValue = $client.get($arg).await?;
-    if !foo.is_null() {
-      panic!("expected {} to be null", $arg);
-    }
   } }
 );
 

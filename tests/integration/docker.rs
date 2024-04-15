@@ -5,24 +5,18 @@ use crate::integration::{
 };
 use bollard::{
   container::{
-    Config,
-    CreateContainerOptions,
-    LogOutput,
-    NetworkingConfig,
-    RemoveContainerOptions,
-    StartContainerOptions,
+    Config, CreateContainerOptions, LogOutput, NetworkingConfig, RemoveContainerOptions, StartContainerOptions,
   },
   errors::Error as BollardError,
   exec::{CreateExecOptions, StartExecResults},
   network::{ConnectNetworkOptions, ListNetworksOptions},
-  ClientVersion,
-  Docker,
-  API_DEFAULT_VERSION,
+  ClientVersion, Docker, API_DEFAULT_VERSION,
 };
 use bytes::Bytes;
-use fred::{prelude::*, types::ClusterRouting};
+use fred::prelude::*;
+use fred::types::ClusterRouting;
 use futures::stream::StreamExt;
-use redis_protocol::resp2::decode::decode as resp2_decode;
+use redis_protocol::resp2::decode::decode_bytes as resp2_decode;
 use std::collections::HashMap;
 
 macro_rules! e (
@@ -105,22 +99,28 @@ pub async fn run_in_redis_container(docker: &Docker, command: Vec<String>) -> Re
   debug!("Connecting container to the test network...");
   e!(
     docker
-      .connect_network(&test_network, ConnectNetworkOptions {
-        container: container_id.clone(),
-        ..Default::default()
-      })
+      .connect_network(
+        &test_network,
+        ConnectNetworkOptions {
+          container: container_id.clone(),
+          ..Default::default()
+        }
+      )
       .await
   )?;
 
   debug!("Running command: {:?}", command);
   let exec = e!(
     docker
-      .create_exec(&container_id, CreateExecOptions {
-        attach_stdout: Some(true),
-        attach_stderr: Some(true),
-        cmd: Some(command),
-        ..Default::default()
-      })
+      .create_exec(
+        &container_id,
+        CreateExecOptions {
+          attach_stdout: Some(true),
+          attach_stderr: Some(true),
+          cmd: Some(command),
+          ..Default::default()
+        }
+      )
       .await
   )?
   .id;
@@ -197,7 +197,7 @@ pub async fn inspect_cluster(tls: bool) -> Result<ClusterRouting, RedisError> {
   let result = run_in_redis_container(&docker, cluster_slots).await?;
   debug!("CLUSTER SLOTS response: {}", String::from_utf8_lossy(&result));
   let parsed: RedisValue = match resp2_decode(&Bytes::from(result))? {
-    Some((frame, _)) => redis_protocol::resp2_frame_to_resp3(frame).try_into()?,
+    Some((frame, _)) => frame.into_resp3().try_into()?,
     None => {
       return Err(RedisError::new(
         RedisErrorKind::Unknown,

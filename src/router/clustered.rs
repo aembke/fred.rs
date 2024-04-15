@@ -1,7 +1,7 @@
+use crate::types::ClusterDiscoveryPolicy;
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
-  interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
   protocol::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
@@ -17,6 +17,7 @@ use crate::{
 };
 use futures::future::try_join_all;
 use parking_lot::Mutex;
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame};
 use std::{
   collections::{BTreeSet, HashMap, VecDeque},
   iter::repeat,
@@ -428,7 +429,7 @@ pub async fn process_response_frame(
   }
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
-  if frame.is_moved_or_ask_error() {
+  if frame.is_redirection() {
     _debug!(
       inner,
       "Recv MOVED or ASK error for `{}` from {}: {:?}",
@@ -539,7 +540,12 @@ pub async fn connect_any(
 pub async fn cluster_slots_backchannel(
   inner: &Arc<RedisClientInner>,
   cache: Option<&ClusterRouting>,
+  force_disconnect: bool,
 ) -> Result<ClusterRouting, RedisError> {
+  if force_disconnect {
+    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
+  }
+
   let (response, host) = {
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
 
@@ -550,7 +556,7 @@ pub async fn cluster_slots_backchannel(
         let default_host = transport.default_host.clone();
 
         _trace!(inner, "Sending backchannel CLUSTER SLOTS to {}", transport.server);
-        client_utils::apply_timeout(
+        client_utils::timeout(
           transport.request_response(command, inner.is_resp3()),
           inner.internal_command_timeout(),
         )
@@ -566,14 +572,23 @@ pub async fn cluster_slots_backchannel(
     }
 
     // failing the backchannel, try to connect to any of the user-provided hosts or the last known cluster nodes
-    let old_cache = cache.map(|cache| cache.slots());
+    let old_cache = if let Some(policy) = inner.cluster_discovery_policy() {
+      match policy {
+        ClusterDiscoveryPolicy::ConfigEndpoint => None,
+        ClusterDiscoveryPolicy::UseCache => cache.map(|cache| cache.slots()),
+      }
+    } else {
+      cache.map(|cache| cache.slots())
+    };
 
     let command: RedisCommand = RedisCommandKind::ClusterSlots.into();
     let (frame, host) = if let Some((frame, host)) = backchannel_result {
-      if frame.is_error() {
+      let kind = frame.kind();
+
+      if matches!(kind, FrameKind::SimpleError | FrameKind::BlobError) {
         // try connecting to any of the nodes, then try again
         let mut transport = connect_any(inner, old_cache).await?;
-        let frame = client_utils::apply_timeout(
+        let frame = client_utils::timeout(
           transport.request_response(command, inner.is_resp3()),
           inner.internal_command_timeout(),
         )
@@ -589,7 +604,7 @@ pub async fn cluster_slots_backchannel(
     } else {
       // try connecting to any of the nodes, then try again
       let mut transport = connect_any(inner, old_cache).await?;
-      let frame = client_utils::apply_timeout(
+      let frame = client_utils::timeout(
         transport.request_response(command, inner.is_resp3()),
         inner.internal_command_timeout(),
       )
@@ -643,8 +658,14 @@ pub async fn sync(
   _debug!(inner, "Synchronizing cluster state.");
 
   if let Connections::Clustered { cache, writers } = connections {
-    // send `CLUSTER SLOTS` to any of the cluster nodes via a backchannel
-    let state = cluster_slots_backchannel(inner, Some(&*cache)).await?;
+    // force disconnect after a connection unexpectedly closes or goes unresponsive
+    let force_disconnect = writers.is_empty()
+      || writers
+        .values()
+        .find_map(|t| if t.is_working() { None } else { Some(true) })
+        .unwrap_or(false);
+
+    let state = cluster_slots_backchannel(inner, Some(&*cache), force_disconnect).await?;
     _debug!(inner, "Cluster routing state: {:?}", state.pretty());
     // update the cached routing table
     inner
@@ -683,7 +704,7 @@ pub async fn sync(
         let mut transport = connection::create(&_inner, &server, None).await?;
         transport.setup(&_inner, None).await?;
 
-        let (server, writer) = connection::split_and_initialize(&_inner, transport, false, spawn_reader_task)?;
+        let (server, writer) = connection::split(&_inner, transport, false, spawn_reader_task)?;
         inner.notifications.broadcast_reconnect(server.clone());
         _new_writers.lock().insert(server, writer);
         Ok::<_, RedisError>(())

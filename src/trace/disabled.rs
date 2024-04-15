@@ -5,7 +5,7 @@ use crate::modules::inner::RedisClientInner;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use crate::protocol::command::RedisCommand;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-use redis_protocol::resp3::types::Frame;
+use redis_protocol::resp3::types::BytesFrame as Frame;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use std::sync::Arc;
 

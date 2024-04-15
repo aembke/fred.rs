@@ -51,6 +51,40 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
   Ok(())
 }
 
+pub async fn should_ssubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let subscriber_client = client.clone_new();
+  subscriber_client.connect();
+  subscriber_client.wait_for_connect().await?;
+  subscriber_client.ssubscribe(CHANNEL1).await?;
+
+  let subscriber_jh = tokio::spawn(async move {
+    let mut message_stream = subscriber_client.message_rx();
+
+    let mut count = 0;
+    while count < NUM_MESSAGES {
+      if let Ok(message) = message_stream.recv().await {
+        assert_eq!(CHANNEL1, message.channel);
+        assert_eq!(format!("{}-{}", FAKE_MESSAGE, count), message.value.as_str().unwrap());
+        count += 1;
+      }
+    }
+
+    Ok::<_, RedisError>(())
+  });
+
+  sleep(Duration::from_secs(1)).await;
+  for idx in 0 .. NUM_MESSAGES {
+    // https://redis.io/commands/publish#return-value
+    client.spublish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+
+    // pubsub messages may arrive out of order due to cross-cluster broadcasting
+    sleep(Duration::from_millis(50)).await;
+  }
+  let _ = subscriber_jh.await?;
+
+  Ok(())
+}
+
 pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let channels = vec![CHANNEL1, CHANNEL2, CHANNEL3];
   let subscriber_channels = channels.clone();
@@ -98,7 +132,7 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   let mut message_stream = subscriber.message_rx();
 
   tokio::spawn(async move {
-    while let Ok(message) = message_stream.recv().await {
+    if let Ok(message) = message_stream.recv().await {
       // unsubscribe without args will result in 3 messages in this case, and none should show up here
       panic!("Recv unexpected pubsub message: {:?}", message);
     }
@@ -109,10 +143,10 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   subscriber.unsubscribe(()).await?;
   sleep(Duration::from_secs(1)).await;
 
-  // do some incr commands to make sure the response buffer is flushed correctly by this point
-  assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 1);
-  assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 2);
-  assert_eq!(subscriber.incr::<i64, _>("abc{1}").await?, 3);
+  // make sure the response buffer is flushed correctly by this point
+  assert_eq!(subscriber.ping::<String>().await?, "PONG");
+  assert_eq!(subscriber.ping::<String>().await?, "PONG");
+  assert_eq!(subscriber.ping::<String>().await?, "PONG");
 
   subscriber.quit().await?;
   let _ = connection.await?;

@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::{ClientLike, Resp3Frame},
   protocol::{connection::OK, utils as protocol_utils},
-  types::{FromRedis, FromRedisKey, Function, GeoPosition, GeoRadiusInfo, Server, XReadResponse, XReadValue, QUEUED},
+  types::{FromRedis, FromRedisKey, Server, QUEUED},
   utils,
 };
 use bytes::Bytes;
@@ -21,6 +21,12 @@ use std::{
   str,
 };
 
+#[cfg(feature = "i-scripts")]
+use crate::types::Function;
+#[cfg(feature = "i-geo")]
+use crate::types::{GeoPosition, GeoRadiusInfo};
+#[cfg(feature = "i-streams")]
+use crate::types::{XReadResponse, XReadValue};
 #[cfg(feature = "serde-json")]
 use serde_json::Value;
 
@@ -82,6 +88,7 @@ impl StringOrNumber {
     StringOrNumber::String(utils::static_str(s))
   }
 
+  #[cfg(feature = "i-streams")]
   pub(crate) fn into_arg(self) -> RedisValue {
     match self {
       StringOrNumber::String(s) => RedisValue::String(s),
@@ -656,7 +663,7 @@ impl RedisValue {
     Self::from_static_str(OK)
   }
 
-  /// Whether or not the value is a simple string OK value.
+  /// Whether the value is a simple string OK value.
   pub fn is_ok(&self) -> bool {
     match *self {
       RedisValue::String(ref s) => *s == OK,
@@ -711,7 +718,7 @@ impl RedisValue {
     matches!(*self, RedisValue::Bytes(_))
   }
 
-  /// Whether or not the value is a boolean value or can be parsed as a boolean value.
+  /// Whether the value is a boolean value or can be parsed as a boolean value.
   #[allow(clippy::match_like_matches_macro)]
   pub fn is_boolean(&self) -> bool {
     match *self {
@@ -728,7 +735,7 @@ impl RedisValue {
     }
   }
 
-  /// Whether or not the inner value is a double or can be parsed as a double.
+  /// Whether the inner value is a double or can be parsed as a double.
   pub fn is_double(&self) -> bool {
     match *self {
       RedisValue::Double(_) => true,
@@ -742,12 +749,12 @@ impl RedisValue {
     matches!(*self, RedisValue::Queued)
   }
 
-  /// Whether or not the value is an array or map.
+  /// Whether the value is an array or map.
   pub fn is_aggregate_type(&self) -> bool {
     matches!(*self, RedisValue::Array(_) | RedisValue::Map(_))
   }
 
-  /// Whether or not the value is a `RedisMap`.
+  /// Whether the value is a `RedisMap`.
   ///
   /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in
   /// RESP2 mode.
@@ -755,7 +762,7 @@ impl RedisValue {
     matches!(*self, RedisValue::Map(_))
   }
 
-  /// Whether or not the value is a `RedisMap` or an array with an even number of elements where each even-numbered
+  /// Whether the value is a `RedisMap` or an array with an even number of elements where each even-numbered
   /// element is not an aggregate type.
   ///
   /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps across protocol
@@ -768,7 +775,7 @@ impl RedisValue {
     }
   }
 
-  /// Whether or not the value is an array.
+  /// Whether the value is an array.
   pub fn is_array(&self) -> bool {
     matches!(*self, RedisValue::Array(_))
   }
@@ -1207,6 +1214,8 @@ impl RedisValue {
   ///
   /// See the [XREAD](crate::interfaces::StreamsInterface::xread) (or `XREADGROUP`) documentation for more
   /// information.
+  #[cfg(feature = "i-streams")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
   pub fn into_xread_response<K1, I, K2, V>(self) -> Result<XReadResponse<K1, I, K2, V>, RedisError>
   where
     K1: FromRedisKey + Hash + Eq,
@@ -1220,6 +1229,8 @@ impl RedisValue {
   /// A utility function to convert the response from `XCLAIM`, etc into a type with a less verbose type declaration.
   ///
   /// This function supports responses in both RESP2 and RESP3 formats.
+  #[cfg(feature = "i-streams")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
   pub fn into_xread_value<I, K, V>(self) -> Result<Vec<XReadValue<I, K, V>>, RedisError>
   where
     K: FromRedisKey + Hash + Eq,
@@ -1235,6 +1246,8 @@ impl RedisValue {
   ///
   /// Note: the new (as of Redis 7.x) return value containing message PIDs that were deleted from the PEL are dropped.
   /// Callers should use `xautoclaim` instead if this data is needed.
+  #[cfg(feature = "i-streams")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
   pub fn into_xautoclaim_values<I, K, V>(self) -> Result<(String, Vec<XReadValue<I, K, V>>), RedisError>
   where
     K: FromRedisKey + Hash + Eq,
@@ -1259,6 +1272,8 @@ impl RedisValue {
   }
 
   /// Parse the value as the response from `FUNCTION LIST`, including only functions with the provided library `name`.
+  #[cfg(feature = "i-scripts")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
   pub fn as_functions(&self, name: &str) -> Result<Vec<Function>, RedisError> {
     utils::value_to_functions(self, name)
   }
@@ -1266,6 +1281,8 @@ impl RedisValue {
   /// Convert the value into a `GeoPosition`, if possible.
   ///
   /// Null values are returned as `None` to work more easily with the result of the `GEOPOS` command.
+  #[cfg(feature = "i-geo")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
   pub fn as_geo_position(&self) -> Result<Option<GeoPosition>, RedisError> {
     if self.is_null() {
       Ok(None)
@@ -1276,6 +1293,8 @@ impl RedisValue {
 
   /// Parse the value as the response to any of the relevant GEO commands that return an array of
   /// [GeoRadiusInfo](crate::types::GeoRadiusInfo) values, such as `GEOSEARCH`, GEORADIUS`, etc.
+  #[cfg(feature = "i-geo")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
   pub fn into_geo_radius_result(
     self,
     withcoord: bool,
@@ -1305,7 +1324,7 @@ impl RedisValue {
     R::from_value(self)
   }
 
-  /// Whether or not the value can be hashed.
+  /// Whether the value can be hashed.
   ///
   /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate
   /// type can panic, and this function can be used to more gracefully handle this situation.

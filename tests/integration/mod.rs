@@ -1,36 +1,49 @@
 #[macro_use]
 pub mod utils;
-pub mod docker;
-
+#[cfg(feature = "i-acl")]
 mod acl;
+#[cfg(feature = "i-client")]
 mod client;
+#[cfg(feature = "i-cluster")]
 mod cluster;
+#[cfg(feature = "i-cluster")]
+pub mod docker;
+#[cfg(feature = "i-geo")]
 mod geo;
+#[cfg(feature = "i-hashes")]
 mod hashes;
+#[cfg(feature = "i-hyperloglog")]
 mod hyperloglog;
+#[cfg(feature = "i-keys")]
 mod keys;
+#[cfg(feature = "i-lists")]
 mod lists;
+#[cfg(feature = "i-scripts")]
 mod lua;
+#[cfg(feature = "i-memory")]
 mod memory;
 #[cfg(feature = "transactions")]
 mod multi;
 mod other;
 mod pool;
+#[cfg(feature = "i-pubsub")]
 mod pubsub;
-mod scanning;
-mod server;
-mod sets;
-mod slowlog;
-mod sorted_sets;
-mod streams;
-
-#[cfg(feature = "redis-json")]
+#[cfg(feature = "i-redis-json")]
 mod redis_json;
-
-#[cfg(feature = "time-series")]
+mod scanning;
+#[cfg(feature = "i-server")]
+mod server;
+#[cfg(feature = "i-sets")]
+mod sets;
+#[cfg(feature = "i-slowlog")]
+mod slowlog;
+#[cfg(feature = "i-sorted-sets")]
+mod sorted_sets;
+#[cfg(feature = "i-streams")]
+mod streams;
+#[cfg(feature = "i-time-series")]
 mod timeseries;
-
-#[cfg(feature = "client-tracking")]
+#[cfg(feature = "i-tracking")]
 mod tracking;
 
 #[cfg(not(feature = "mocks"))]

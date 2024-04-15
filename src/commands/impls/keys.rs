@@ -7,6 +7,17 @@ use crate::{
 };
 use std::convert::TryInto;
 
+fn check_empty_keys(keys: &MultipleKeys) -> Result<(), RedisError> {
+  if keys.len() == 0 {
+    Err(RedisError::new(
+      RedisErrorKind::InvalidArgument,
+      "At least one key is required.",
+    ))
+  } else {
+    Ok(())
+  }
+}
+
 value_cmd!(randomkey, Randomkey);
 
 pub async fn get<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
@@ -48,7 +59,7 @@ pub async fn set<C: ClientLike>(
 }
 
 pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
-  utils::check_empty_keys(&keys)?;
+  check_empty_keys(&keys)?;
 
   let args: Vec<RedisValue> = keys.inner().drain(..).map(|k| k.into()).collect();
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::Del, args))).await?;
@@ -56,7 +67,7 @@ pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisV
 }
 
 pub async fn unlink<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
-  utils::check_empty_keys(&keys)?;
+  check_empty_keys(&keys)?;
 
   let args: Vec<RedisValue> = keys.inner().drain(..).map(|k| k.into()).collect();
   let frame = utils::request_response(client, move || Ok((RedisCommandKind::Unlink, args))).await?;
@@ -134,7 +145,7 @@ pub async fn expire_at<C: ClientLike>(client: &C, key: RedisKey, timestamp: i64)
 }
 
 pub async fn exists<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
-  utils::check_empty_keys(&keys)?;
+  check_empty_keys(&keys)?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len());
@@ -199,11 +210,10 @@ pub async fn getrange<C: ClientLike>(
   end: usize,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::GetRange, vec![
-      key.into(),
-      start.try_into()?,
-      end.try_into()?,
-    ]))
+    Ok((
+      RedisCommandKind::GetRange,
+      vec![key.into(), start.try_into()?, end.try_into()?],
+    ))
   })
   .await?;
 
@@ -233,10 +243,11 @@ pub async fn rename<C: ClientLike>(
   source: RedisKey,
   destination: RedisKey,
 ) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::Rename, vec![
-    source.into(),
-    destination.into(),
-  ])
+  args_values_cmd(
+    client,
+    RedisCommandKind::Rename,
+    vec![source.into(), destination.into()],
+  )
   .await
 }
 
@@ -245,10 +256,11 @@ pub async fn renamenx<C: ClientLike>(
   source: RedisKey,
   destination: RedisKey,
 ) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::Renamenx, vec![
-    source.into(),
-    destination.into(),
-  ])
+  args_values_cmd(
+    client,
+    RedisCommandKind::Renamenx,
+    vec![source.into(), destination.into()],
+  )
   .await
 }
 
@@ -261,7 +273,7 @@ pub async fn strlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisVal
 }
 
 pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
-  utils::check_empty_keys(&keys)?;
+  check_empty_keys(&keys)?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len());

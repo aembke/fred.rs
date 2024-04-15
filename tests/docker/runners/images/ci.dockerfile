@@ -1,4 +1,4 @@
-FROM rust:1.75.0-slim-buster
+FROM rust:1.77-slim-buster
 
 WORKDIR /project
 # circleci doesn't mount volumes with a remote docker engine so we have to copy everything
@@ -20,7 +20,7 @@ ARG FRED_REDIS_SENTINEL_HOST
 ARG FRED_REDIS_SENTINEL_PORT
 ARG CIRCLECI_TESTS
 
-RUN USER=root apt-get update && apt-get install -y build-essential libssl-dev dnsutils
+RUN USER=root apt-get update && apt-get install -y build-essential libssl-dev dnsutils cmake
 RUN echo "REDIS_VERSION=$REDIS_VERSION"
 
 # For debugging

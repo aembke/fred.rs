@@ -1,4 +1,4 @@
-use fred::{prelude::*, types::MemoryStats};
+use fred::{cmd, prelude::*, types::MemoryStats};
 
 pub async fn should_run_memory_doctor(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   client.memory_doctor().await?;
@@ -23,7 +23,7 @@ pub async fn should_run_memory_stats(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_run_memory_usage(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.set("foo", "bar", None, None, false).await?;
+  client.custom(cmd!("SET"), vec!["foo", "bar"]).await?;
   assert!(client.memory_usage::<u64, _>("foo", None).await? > 0);
 
   Ok(())

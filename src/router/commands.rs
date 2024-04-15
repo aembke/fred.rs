@@ -6,13 +6,13 @@ use crate::{
   types::{ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
-use redis_protocol::resp3::types::Frame as Resp3Frame;
+use crate::{protocol::command::RedisCommandKind, types::Blocking};
+use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::sync::Arc;
 use tokio::sync::oneshot::Sender as OneshotSender;
 
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
-use crate::{protocol::command::RedisCommandKind, types::Blocking};
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -287,7 +287,7 @@ async fn write_with_backpressure_t(
 ) -> Result<(), RedisError> {
   if inner.should_trace() {
     command.take_queued_span();
-    let span = fspan!(command, inner.full_tracing_span_level(), "write_command");
+    let span = fspan!(command, inner.full_tracing_span_level(), "fred.write");
     write_with_backpressure(inner, router, command, force_pipeline)
       .instrument(span)
       .await
@@ -404,7 +404,7 @@ async fn process_replica_reconnect(
   replica: bool,
 ) -> Result<(), RedisError> {
   if replica {
-    let result = utils::sync_replicas_with_policy(inner, router).await;
+    let result = utils::sync_replicas_with_policy(inner, router, false).await;
     if let Some(tx) = tx {
       let _ = tx.send(result.map(|_| Resp3Frame::Null));
     }
@@ -468,8 +468,9 @@ async fn process_sync_replicas(
   inner: &Arc<RedisClientInner>,
   router: &mut Router,
   tx: OneshotSender<Result<(), RedisError>>,
+  reset: bool,
 ) -> Result<(), RedisError> {
-  let result = utils::sync_replicas_with_policy(inner, router).await;
+  let result = utils::sync_replicas_with_policy(inner, router, reset).await;
   let _ = tx.send(result);
   Ok(())
 }
@@ -500,7 +501,11 @@ fn process_connections(
   router: &Router,
   tx: OneshotSender<Vec<Server>>,
 ) -> Result<(), RedisError> {
-  let connections = router.connections.active_connections();
+  #[allow(unused_mut)]
+  let mut connections = router.connections.active_connections();
+  #[cfg(feature = "replicas")]
+  connections.extend(router.replicas.writers.keys().cloned());
+
   _debug!(inner, "Active connections: {:?}", connections);
   let _ = tx.send(connections);
   Ok(())
@@ -528,7 +533,7 @@ async fn process_command(
     RouterCommand::Command(command) => process_normal_command(inner, router, command).await,
     RouterCommand::Connections { tx } => process_connections(inner, router, tx),
     #[cfg(feature = "replicas")]
-    RouterCommand::SyncReplicas { tx } => process_sync_replicas(inner, router, tx).await,
+    RouterCommand::SyncReplicas { tx, reset } => process_sync_replicas(inner, router, tx, reset).await,
     #[cfg(not(feature = "replicas"))]
     RouterCommand::Reconnect { server, force, tx } => process_reconnect(inner, router, server, force, tx).await,
     #[cfg(feature = "replicas")]

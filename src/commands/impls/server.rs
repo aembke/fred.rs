@@ -17,6 +17,14 @@ use bytes_utils::Str;
 use std::sync::Arc;
 use tokio::sync::oneshot::channel as oneshot_channel;
 
+pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
+  let (tx, rx) = oneshot_channel();
+  let command = RouterCommand::Connections { tx };
+  interfaces::send_to_router(client.inner(), command)?;
+
+  rx.await.map_err(|e| e.into())
+}
+
 pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
@@ -34,7 +42,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
@@ -65,7 +73,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
@@ -104,11 +112,11 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
 pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
   let command = RouterCommand::Reconnect {
-    server:                               None,
-    force:                                true,
-    tx:                                   Some(tx),
+    server: None,
+    force: true,
+    tx: Some(tx),
     #[cfg(feature = "replicas")]
-    replica:                              false,
+    replica: false,
   };
   interfaces::send_to_router(inner, command)?;
 
@@ -133,7 +141,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -164,13 +172,17 @@ pub async fn info<C: ClientLike>(client: &C, section: Option<InfoKind>) -> Resul
 pub async fn hello<C: ClientLike>(
   client: &C,
   version: RespVersion,
-  auth: Option<(String, String)>,
+  auth: Option<(Str, Str)>,
+  setname: Option<Str>,
 ) -> Result<(), RedisError> {
-  let args = if let Some((username, password)) = auth {
+  let mut args = if let Some((username, password)) = auth {
     vec![username.into(), password.into()]
   } else {
     vec![]
   };
+  if let Some(name) = setname {
+    args.push(name.into());
+  }
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
@@ -179,7 +191,7 @@ pub async fn hello<C: ClientLike>(
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
-    let _ = utils::apply_timeout(rx, timeout_dur).await??;
+    let _ = utils::timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
     let frame = utils::request_response(client, move || Ok((RedisCommandKind::_Hello(version), args))).await?;
@@ -202,7 +214,7 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
-    let _ = utils::apply_timeout(rx, timeout_dur).await??;
+    let _ = utils::timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
     let frame = utils::request_response(client, move || Ok((RedisCommandKind::Auth, args))).await?;
@@ -228,10 +240,14 @@ pub async fn custom_raw<C: ClientLike>(
   utils::request_response(client, move || Ok((RedisCommandKind::_Custom(cmd), args))).await
 }
 
+#[cfg(feature = "i-server")]
 value_cmd!(dbsize, DBSize);
+#[cfg(feature = "i-server")]
 value_cmd!(bgrewriteaof, BgreWriteAof);
+#[cfg(feature = "i-server")]
 value_cmd!(bgsave, BgSave);
 
+#[cfg(feature = "i-server")]
 pub async fn failover<C: ClientLike>(
   client: &C,
   to: Option<(String, u16)>,
@@ -265,8 +281,10 @@ pub async fn failover<C: ClientLike>(
   protocol_utils::expect_ok(&response)
 }
 
+#[cfg(feature = "i-server")]
 value_cmd!(lastsave, LastSave);
 
+#[cfg(feature = "i-server")]
 pub async fn wait<C: ClientLike>(client: &C, numreplicas: i64, timeout: i64) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     Ok((RedisCommandKind::Wait, vec![numreplicas.into(), timeout.into()]))

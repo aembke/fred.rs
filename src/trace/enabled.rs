@@ -1,8 +1,5 @@
-use crate::{
-  modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, utils as protocol_utils},
-};
-use redis_protocol::resp3::types::Frame;
+use crate::{modules::inner::RedisClientInner, protocol::command::RedisCommand};
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::{fmt, ops::Deref, sync::Arc};
 pub use tracing::span::Span;
 use tracing::{event, field::Empty, Id as TraceId, Level};
@@ -12,12 +9,12 @@ use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
 pub struct CommandTraces {
-  pub cmd:     Option<Span>,
+  pub cmd: Option<Span>,
   pub network: Option<Span>,
   #[cfg(feature = "full-tracing")]
-  pub queued:  Option<Span>,
+  pub queued: Option<Span>,
   #[cfg(not(feature = "full-tracing"))]
-  pub queued:  Option<FakeSpan>,
+  pub queued: Option<FakeSpan>,
 }
 
 /// Enter the network span when the command is dropped after receiving a response.
@@ -32,8 +29,8 @@ impl Drop for CommandTraces {
 impl Default for CommandTraces {
   fn default() -> Self {
     CommandTraces {
-      cmd:     None,
-      queued:  None,
+      cmd: None,
+      queued: None,
       network: None,
     }
   }
@@ -47,31 +44,31 @@ impl fmt::Debug for CommandTraces {
 
 pub fn set_network_span(inner: &Arc<RedisClientInner>, command: &mut RedisCommand, flush: bool) {
   trace!("Setting network span from command {}", command.debug_id());
-  let span = fspan!(command, inner.tracing_span_level(), "wait_for_response", flush);
+  let span = fspan!(command, inner.tracing_span_level(), "fred.rtt", "cmd.flush" = flush);
   span.in_scope(|| {});
   command.traces.network = Some(span);
 }
 
-pub fn record_response_size(span: &Span, frame: &Frame) {
+pub fn record_response_size(span: &Span, frame: &Resp3Frame) {
   #[allow(clippy::needless_borrows_for_generic_args)]
-  span.record("res_size", &protocol_utils::resp3_frame_size(frame));
+  span.record("cmd.res", &frame.encode_len());
 }
 
 pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
   span_lvl!(
     inner.tracing_span_level(),
-    "redis_command",
+    "fred.command",
     module = "fred",
-    client_id = &inner.id.deref(),
-    cmd = Empty,
-    req_size = Empty,
-    res_size = Empty
+    "client.id" = &inner.id.deref(),
+    "cmd.name" = Empty,
+    "cmd.req" = Empty,
+    "cmd.res" = Empty
   )
 }
 
 #[cfg(feature = "full-tracing")]
 pub fn create_args_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
-  span_lvl!(inner.full_tracing_span_level(), parent: parent, "prepare_args", num_args = Empty)
+  span_lvl!(inner.full_tracing_span_level(), parent: parent, "fred.prepare", "cmd.args" = Empty)
 }
 
 #[cfg(not(feature = "full-tracing"))]
@@ -91,16 +88,16 @@ pub fn create_queued_span(_parent: Option<TraceId>, _inner: &Arc<RedisClientInne
 }
 
 #[cfg(feature = "full-tracing")]
-pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Frame) -> Option<Span> {
+pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<Span> {
   if inner.should_trace() {
     let span = span_lvl!(
       inner.full_tracing_span_level(),
       parent: None,
-      "parse_pubsub",
+      "fred.pubsub",
       module = "fred",
-      client_id = &inner.id.deref(),
-      res_size = &protocol_utils::resp3_frame_size(frame),
-      channel = Empty
+      "client.id" = &inner.id.deref(),
+      "cmd.res" = &frame.encode_len(),
+      "msg.channel" = Empty
     );
 
     Some(span)
@@ -117,8 +114,8 @@ pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Opt
 pub fn backpressure_event(cmd: &RedisCommand, duration: Option<u128>) {
   let id = cmd.traces.cmd.as_ref().and_then(|c| c.id());
   if let Some(duration) = duration {
-    event!(parent: id, Level::INFO, "backpressure duration_ms={}", duration);
+    event!(parent: id, Level::INFO, "fred.backpressure duration={}", duration);
   } else {
-    event!(parent: id, Level::INFO, "backpressure drain");
+    event!(parent: id, Level::INFO, "fred.backpressure drain");
   }
 }

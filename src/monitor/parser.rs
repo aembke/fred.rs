@@ -7,7 +7,10 @@ use nom::{
   sequence::{delimited as nom_delimited, preceded as nom_preceded, terminated as nom_terminated},
   IResult,
 };
-use redis_protocol::{resp3::types::Frame as Resp3Frame, types::RedisParseError};
+use redis_protocol::{
+  error::RedisParseError,
+  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
+};
 use std::{str, sync::Arc};
 
 const EMPTY_SPACE: &str = " ";
@@ -142,10 +145,10 @@ mod tests {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"SET\" \"foo\" \"2\"";
     let expected = Command {
       timestamp: 1631469940.785623,
-      db:        0,
-      client:    "127.0.0.1:46998".into(),
-      command:   "SET".into(),
-      args:      vec!["foo".into(), "2".into()],
+      db: 0,
+      client: "127.0.0.1:46998".into(),
+      command: "SET".into(),
+      args: vec!["foo".into(), "2".into()],
     };
 
     let actual = d_parse_frame(input.as_bytes()).unwrap();
@@ -157,10 +160,10 @@ mod tests {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"SET\" \"foo bar\" \"2\"";
     let expected = Command {
       timestamp: 1631469940.785623,
-      db:        0,
-      client:    "127.0.0.1:46998".into(),
-      command:   "SET".into(),
-      args:      vec!["foo bar".into(), "2".into()],
+      db: 0,
+      client: "127.0.0.1:46998".into(),
+      command: "SET".into(),
+      args: vec!["foo bar".into(), "2".into()],
     };
 
     let actual = d_parse_frame(input.as_bytes()).unwrap();
@@ -173,10 +176,10 @@ mod tests {
                  - \\\"ghi\\\" \\\"jkl\\\"\"";
     let expected = Command {
       timestamp: 1631475365.563304,
-      db:        0,
-      client:    "127.0.0.1:47438".into(),
-      command:   "SET".into(),
-      args:      vec![
+      db: 0,
+      client: "127.0.0.1:47438".into(),
+      command: "SET".into(),
+      args: vec![
         "foo".into(),
         "0 - \\\"abc\\\"".into(),
         "1 - \\\"def\\\"".into(),
@@ -193,10 +196,10 @@ mod tests {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"KEYS\"";
     let expected = Command {
       timestamp: 1631469940.785623,
-      db:        0,
-      client:    "127.0.0.1:46998".into(),
-      command:   "KEYS".into(),
-      args:      vec![],
+      db: 0,
+      client: "127.0.0.1:46998".into(),
+      command: "KEYS".into(),
+      args: vec![],
     };
 
     let actual = d_parse_frame(input.as_bytes()).unwrap();

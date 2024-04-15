@@ -3,7 +3,6 @@ use crate::{clients::Transaction, interfaces::ClientLike};
 /// Functions that implement the [transactions](https://redis.io/commands#transactions) interface.
 ///
 /// See the [Transaction](crate::clients::Transaction) client for more information;
-#[async_trait]
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub trait TransactionInterface: ClientLike + Sized {

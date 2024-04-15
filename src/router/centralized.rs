@@ -1,7 +1,7 @@
 use crate::{
   error::RedisErrorKind,
   modules::inner::RedisClientInner,
-  prelude::{RedisError, Resp3Frame},
+  prelude::RedisError,
   protocol::{
     command::{RedisCommand, RouterResponse},
     connection,
@@ -13,6 +13,7 @@ use crate::{
   router::{responses, utils, Connections, Written},
   types::ServerConfig,
 };
+use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::{collections::VecDeque, sync::Arc};
 use tokio::task::JoinHandle;
 
@@ -196,7 +197,7 @@ pub async fn initialize_connection(
       };
       let mut transport = connection::create(inner, &server, None).await?;
       transport.setup(inner, None).await?;
-      let (server, _writer) = connection::split_and_initialize(inner, transport, false, spawn_reader_task)?;
+      let (server, _writer) = connection::split(inner, transport, false, spawn_reader_task)?;
       inner.notifications.broadcast_reconnect(server);
 
       *writer = Some(_writer);

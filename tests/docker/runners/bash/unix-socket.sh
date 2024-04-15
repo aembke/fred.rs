@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="network-logs subscriber-client debug-ids transactions unix-sockets"
+FEATURES="network-logs subscriber-client debug-ids transactions unix-sockets i-all"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

@@ -1,7 +1,4 @@
-use redis_protocol::{
-  resp2::types::Frame as Resp2Frame,
-  resp3::types::{Auth, Frame as Resp3Frame},
-};
+use redis_protocol::{resp2::types::BytesFrame as Resp2Frame, resp3::types::BytesFrame as Resp3Frame};
 use std::{
   collections::{HashMap, HashSet},
   hash::{Hash, Hasher},
@@ -14,6 +11,7 @@ enum DebugFrame {
   Bytes(Vec<u8>),
   Integer(i64),
   Double(f64),
+  #[allow(dead_code)]
   Array(Vec<DebugFrame>),
   // TODO add support for maps in network logs
   #[allow(dead_code)]
@@ -92,11 +90,7 @@ impl<'a> From<&'a Resp3Frame> for DebugFrame {
         ref version, ref auth, ..
       } => {
         let mut values = vec![DebugFrame::Integer(version.to_byte() as i64)];
-        if let Some(Auth {
-          ref username,
-          ref password,
-        }) = auth
-        {
+        if let Some((ref username, ref password)) = auth {
           values.push(DebugFrame::String(username.to_string()));
           values.push(DebugFrame::String(password.to_string()));
         }

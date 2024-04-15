@@ -1,16 +1,17 @@
+use fred::cmd;
 use fred::prelude::*;
 use std::time::Duration;
 use tokio::time::sleep;
 
 pub async fn should_flushall(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.set("foo{1}", "bar", None, None, false).await?;
+  client.custom(cmd!("SET"), vec!["foo{1}", "bar"]).await?;
   if client.is_clustered() {
     client.flushall_cluster().await?;
   } else {
     client.flushall(false).await?;
   };
 
-  let result: Option<String> = client.get("foo{1}").await?;
+  let result: Option<String> = client.custom(cmd!("GET"), vec!["foo{1}"]).await?;
   assert!(result.is_none());
 
   Ok(())
@@ -43,8 +44,10 @@ pub async fn should_read_last_save(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_read_db_size(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0 .. 50 {
-    client.set(format!("foo-{}", idx), idx, None, None, false).await?;
+  for idx in 0..50 {
+    client
+      .custom(cmd!("SET"), vec![format!("foo-{}", idx), idx.to_string()])
+      .await?;
   }
 
   // this is tricky to assert b/c the dbsize command isnt linked to a specific server in the cluster, hence the loop

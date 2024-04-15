@@ -12,14 +12,13 @@ use std::{
 use tokio::time::sleep;
 
 #[allow(dead_code)]
+#[cfg(feature = "i-keys")]
 pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   if client.protocol_version() == RespVersion::RESP2 {
     return Ok(());
   }
 
   let key: RedisKey = "foo{1}".into();
-  check_null!(client, "foo{1}");
-
   let invalidated = Arc::new(AtomicBool::new(false));
   let _invalidated = invalidated.clone();
 
@@ -49,13 +48,13 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
 }
 
 #[allow(dead_code)]
+#[cfg(feature = "i-keys")]
 pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   if client.protocol_version() == RespVersion::RESP3 || client.is_clustered() {
     return Ok(());
   }
 
   let key: RedisKey = "foo{1}".into();
-  check_null!(client, "foo{1}");
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;

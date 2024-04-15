@@ -8,7 +8,6 @@ use crate::{
     command::{RedisCommand, RedisCommandKind},
     hashers::ClusterHash,
     responders::ResponseKind,
-    types::*,
     utils as protocol_utils,
   },
   types::*,
@@ -16,6 +15,7 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
+use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{convert::TryInto, str, sync::Arc};
 use tokio::sync::oneshot::channel as oneshot_channel;
 
@@ -26,7 +26,7 @@ pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &[RedisKey]) -> Resul
     inner.with_cluster_state(|state| {
       let (mut cmd_server, mut cmd_slot) = (None, None);
       for key in keys.iter() {
-        let key_slot = redis_keyslot(key.as_bytes());
+        let key_slot = redis_protocol::redis_keyslot(key.as_bytes());
 
         if let Some(server) = state.get_server(key_slot) {
           if let Some(ref cmd_server) = cmd_server {
@@ -72,7 +72,7 @@ pub async fn script_load_cluster<C: ClientLike>(client: &C, script: Str) -> Resu
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(hash.into())
 }
 
@@ -89,7 +89,7 @@ pub async fn script_kill_cluster<C: ClientLike>(client: &C) -> Result<(), RedisE
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -117,7 +117,7 @@ pub async fn script_flush_cluster<C: ClientLike>(client: &C, r#async: bool) -> R
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -292,7 +292,7 @@ pub async fn function_delete_cluster<C: ClientLike>(client: &C, library_name: St
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 
@@ -400,8 +400,8 @@ pub async fn function_load_cluster<C: ClientLike>(
   client.send_command(command)?;
 
   // each value in the response array is the response from a different primary node
-  match utils::apply_timeout(rx, timeout_dur).await?? {
-    Frame::Array { mut data, .. } => {
+  match utils::timeout(rx, timeout_dur).await?? {
+    Resp3Frame::Array { mut data, .. } => {
       if let Some(frame) = data.pop() {
         protocol_utils::frame_to_results(frame)
       } else {
@@ -411,8 +411,8 @@ pub async fn function_load_cluster<C: ClientLike>(
         ))
       }
     },
-    Frame::SimpleError { data, .. } => Err(protocol_utils::pretty_error(&data)),
-    Frame::BlobError { data, .. } => {
+    Resp3Frame::SimpleError { data, .. } => Err(protocol_utils::pretty_error(&data)),
+    Resp3Frame::BlobError { data, .. } => {
       let parsed = str::from_utf8(&data)?;
       Err(protocol_utils::pretty_error(parsed))
     },
@@ -454,7 +454,7 @@ pub async fn function_restore_cluster<C: ClientLike>(
 
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
-  let _ = utils::apply_timeout(rx, timeout_dur).await??;
+  let _ = utils::timeout(rx, timeout_dur).await??;
   Ok(())
 }
 

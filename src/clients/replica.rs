@@ -48,27 +48,57 @@ impl ClientLike for Replicas {
   }
 }
 
-impl GeoInterface for Replicas {}
-impl HashesInterface for Replicas {}
-impl HyperloglogInterface for Replicas {}
-impl MetricsInterface for Replicas {}
-impl KeysInterface for Replicas {}
-impl LuaInterface for Replicas {}
-impl FunctionInterface for Replicas {}
-impl ListInterface for Replicas {}
-impl MemoryInterface for Replicas {}
-impl AuthInterface for Replicas {}
-impl ServerInterface for Replicas {}
-impl SlowlogInterface for Replicas {}
-impl SetsInterface for Replicas {}
-impl SortedSetsInterface for Replicas {}
-impl StreamsInterface for Replicas {}
-#[cfg(feature = "redis-json")]
-#[cfg_attr(docsrs, doc(cfg(feature = "redis-json")))]
+#[cfg(feature = "i-redis-json")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl RedisJsonInterface for Replicas {}
-#[cfg(feature = "time-series")]
-#[cfg_attr(docsrs, doc(cfg(feature = "time-series")))]
+#[cfg(feature = "i-time-series")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl TimeSeriesInterface for Replicas {}
+#[cfg(feature = "i-cluster")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
+impl ClusterInterface for Replicas {}
+#[cfg(feature = "i-config")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
+impl ConfigInterface for Replicas {}
+#[cfg(feature = "i-geo")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
+impl GeoInterface for Replicas {}
+#[cfg(feature = "i-hashes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
+impl HashesInterface for Replicas {}
+#[cfg(feature = "i-hyperloglog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
+impl HyperloglogInterface for Replicas {}
+#[cfg(feature = "i-keys")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
+impl KeysInterface for Replicas {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+impl LuaInterface for Replicas {}
+#[cfg(feature = "i-lists")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
+impl ListInterface for Replicas {}
+#[cfg(feature = "i-memory")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
+impl MemoryInterface for Replicas {}
+#[cfg(feature = "i-server")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
+impl ServerInterface for Replicas {}
+#[cfg(feature = "i-slowlog")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
+impl SlowlogInterface for Replicas {}
+#[cfg(feature = "i-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
+impl SetsInterface for Replicas {}
+#[cfg(feature = "i-sorted-sets")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
+impl SortedSetsInterface for Replicas {}
+#[cfg(feature = "i-streams")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
+impl StreamsInterface for Replicas {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+impl FunctionInterface for Replicas {}
 
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.
@@ -88,10 +118,10 @@ impl Replicas {
 
   /// Sync the cached replica routing table with the server(s).
   ///
-  /// This will also disconnect and reset any replica connections.
-  pub async fn sync(&self) -> Result<(), RedisError> {
+  /// If `reset: true` the client will forcefully disconnect from replicas even if the connections could otherwise be reused.
+  pub async fn sync(&self, reset: bool) -> Result<(), RedisError> {
     let (tx, rx) = oneshot_channel();
-    let cmd = RouterCommand::SyncReplicas { tx };
+    let cmd = RouterCommand::SyncReplicas { tx, reset };
     interfaces::send_to_router(&self.inner, cmd)?;
     rx.await?
   }

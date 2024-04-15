@@ -1,5 +1,7 @@
+#![allow(unused_imports)]
 use fred::{error::RedisError, interfaces::*, prelude::RedisClient, types::RedisConfig};
 
+#[cfg(all(feature = "i-cluster", feature = "i-client"))]
 pub async fn should_use_each_cluster_node(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let connections = client.active_connections().await?;
 

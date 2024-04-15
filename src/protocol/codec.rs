@@ -10,11 +10,13 @@ use crate::{
 use bytes::BytesMut;
 use bytes_utils::Str;
 use redis_protocol::{
-  resp2::{decode::decode_mut as resp2_decode, encode::encode_bytes as resp2_encode, types::Frame as Resp2Frame},
+  resp2::{
+    decode::decode_bytes_mut as resp2_decode, encode::extend_encode as resp2_encode, types::BytesFrame as Resp2Frame,
+  },
   resp3::{
-    decode::streaming::decode_mut as resp3_decode,
-    encode::complete::encode_bytes as resp3_encode,
-    types::{Frame as Resp3Frame, StreamedFrame},
+    decode::streaming::decode_bytes_mut as resp3_decode,
+    encode::complete::extend_encode as resp3_encode,
+    types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, StreamedFrame},
   },
 };
 use std::sync::{atomic::AtomicBool, Arc};
@@ -133,7 +135,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
       streamed_frame.add_frame(frame);
 
       if streamed_frame.is_finished() {
-        let frame = streamed_frame.into_frame()?;
+        let frame = streamed_frame.take()?;
         trace!("{}: Ending {:?} stream", codec.name, frame.kind());
         log_resp3_frame(&codec.name, &frame, false);
         Some(frame)
@@ -186,27 +188,27 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name:            Str,
-  pub server:          Server,
-  pub resp3:           Arc<AtomicBool>,
-  pub streaming_state: Option<StreamedFrame>,
+  pub name: Str,
+  pub server: Server,
+  pub resp3: Arc<AtomicBool>,
+  pub streaming_state: Option<StreamedFrame<Resp3Frame>>,
   #[cfg(feature = "metrics")]
-  pub req_size_stats:  Arc<RwLock<MovingStats>>,
+  pub req_size_stats: Arc<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
-  pub res_size_stats:  Arc<RwLock<MovingStats>>,
+  pub res_size_stats: Arc<RwLock<MovingStats>>,
 }
 
 impl RedisCodec {
   pub fn new(inner: &Arc<RedisClientInner>, server: &Server) -> Self {
     RedisCodec {
-      server:                                     server.clone(),
-      name:                                       inner.id.clone(),
-      resp3:                                      inner.shared_resp3(),
-      streaming_state:                            None,
+      server: server.clone(),
+      name: inner.id.clone(),
+      resp3: inner.shared_resp3(),
+      streaming_state: None,
       #[cfg(feature = "metrics")]
-      req_size_stats:                             inner.req_size_stats.clone(),
+      req_size_stats: inner.req_size_stats.clone(),
       #[cfg(feature = "metrics")]
-      res_size_stats:                             inner.res_size_stats.clone(),
+      res_size_stats: inner.res_size_stats.clone(),
     }
   }
 

@@ -20,7 +20,7 @@ async fn main() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0 .. 50 {
+  for idx in 0..50 {
     publisher_client.publish("foo", idx).await?;
     sleep(Duration::from_secs(1)).await;
   }
@@ -32,6 +32,7 @@ async fn main() -> Result<(), RedisError> {
 }
 
 #[cfg(feature = "subscriber-client")]
+#[allow(dead_code)]
 async fn subscriber_example() -> Result<(), RedisError> {
   let subscriber = Builder::default_centralized().build_subscriber_client()?;
   subscriber.init().await?;

@@ -1,6 +1,6 @@
 use bytes_utils::string::Utf8Error as BytesUtf8Error;
 use futures::channel::oneshot::Canceled;
-use redis_protocol::{resp2::types::Frame as Resp2Frame, types::RedisProtocolError};
+use redis_protocol::{error::RedisProtocolError, resp2::types::BytesFrame as Resp2Frame};
 use semver::Error as SemverError;
 use std::{
   borrow::{Borrow, Cow},
@@ -96,7 +96,7 @@ pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind:    RedisErrorKind,
+  kind: RedisErrorKind,
 }
 
 impl Clone for RedisError {
@@ -277,15 +277,6 @@ impl From<native_tls::Error> for RedisError {
 #[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-impl From<tokio_rustls::rustls::Error> for RedisError {
-  fn from(e: tokio_rustls::rustls::Error) -> Self {
-    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
-  }
-}
-
-#[doc(hidden)]
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
 impl From<rustls::pki_types::InvalidDnsNameError> for RedisError {
   fn from(e: rustls::pki_types::InvalidDnsNameError) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
@@ -295,8 +286,8 @@ impl From<rustls::pki_types::InvalidDnsNameError> for RedisError {
 #[doc(hidden)]
 #[cfg(feature = "enable-rustls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
-impl From<webpki::Error> for RedisError {
-  fn from(e: webpki::Error) -> Self {
+impl From<rustls::Error> for RedisError {
+  fn from(e: rustls::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
   }
 }

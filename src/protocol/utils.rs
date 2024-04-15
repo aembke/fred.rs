@@ -13,10 +13,16 @@ use crate::{
 use bytes::Bytes;
 use bytes_utils::Str;
 use redis_protocol::{
-  resp2::types::Frame as Resp2Frame,
-  resp3::types::{Auth, Frame as Resp3Frame, FrameMap, PUBSUB_PUSH_PREFIX},
+  resp2::types::{BytesFrame as Resp2Frame, Resp2Frame as _Resp2Frame},
+  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
+  types::{PUBSUB_PUSH_PREFIX, REDIS_CLUSTER_SLOTS},
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
+
+#[cfg(any(feature = "i-lists", feature = "i-sorted-sets"))]
+use redis_protocol::resp3::types::FrameKind;
+#[cfg(feature = "i-hashes")]
+use redis_protocol::resp3::types::FrameMap;
 
 static LEGACY_AUTH_ERROR_BODY: &str = "ERR Client sent AUTH, but no password is set";
 static ACL_AUTH_ERROR_PREFIX: &str =
@@ -39,15 +45,6 @@ pub fn queued_frame() -> Resp3Frame {
   Resp3Frame::SimpleString {
     data:       utils::static_bytes(QUEUED.as_bytes()),
     attributes: None,
-  }
-}
-
-pub fn frame_is_queued(frame: &Resp3Frame) -> bool {
-  match frame {
-    Resp3Frame::SimpleString { ref data, .. } | Resp3Frame::BlobString { ref data, .. } => {
-      str::from_utf8(data).ok().map(|s| s == QUEUED).unwrap_or(false)
-    },
-    _ => false,
   }
 }
 
@@ -137,6 +134,7 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
 }
 
 /// Parse the frame from a shard pubsub channel.
+// TODO clean this up with the v5 redis_protocol interface
 pub fn parse_shard_pubsub_frame(server: &Server, frame: &Resp3Frame) -> Option<Message> {
   let value = match frame {
     Resp3Frame::Array { ref data, .. } | Resp3Frame::Push { ref data, .. } => {
@@ -209,8 +207,8 @@ pub fn parse_message_kind(frame: &Resp3Frame) -> Result<MessageKind, RedisError>
 }
 
 /// Parse the channel and value fields from a pubsub frame.
-pub fn parse_message_fields(frame: &Resp3Frame) -> Result<(Str, RedisValue), RedisError> {
-  let mut frames = match frame.clone() {
+pub fn parse_message_fields(frame: Resp3Frame) -> Result<(Str, RedisValue), RedisError> {
+  let mut frames = match frame {
     Resp3Frame::Array { data, .. } => data,
     Resp3Frame::Push { data, .. } => data,
     _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub frame type.")),
@@ -236,46 +234,14 @@ pub fn frame_to_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, Re
   }
 
   let kind = parse_message_kind(&frame)?;
-  let (channel, value) = parse_message_fields(&frame)?;
+  let (channel, value) = parse_message_fields(frame)?;
+
   Ok(Message {
     kind,
     channel,
     value,
     server: server.clone(),
   })
-}
-
-/// Attempt to parse a RESP3 frame as a pubsub message in the RESP2 format.
-///
-/// This can be useful in cases where the codec layer automatically upgrades to RESP3,
-/// but the contents of the pubsub message still use the RESP2 format.
-// TODO move and redo this in redis_protocol
-pub fn parse_as_resp2_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, RedisError> {
-  if let Some(message) = parse_shard_pubsub_frame(server, &frame) {
-    return Ok(message);
-  }
-
-  // resp3 has an added "pubsub" simple string frame at the front
-  let mut out = Vec::with_capacity(frame.len() + 1);
-  out.push(Resp3Frame::SimpleString {
-    data:       PUBSUB_PUSH_PREFIX.into(),
-    attributes: None,
-  });
-
-  if let Resp3Frame::Push { data, .. } = frame {
-    out.extend(data);
-    let frame = Resp3Frame::Push {
-      data:       out,
-      attributes: None,
-    };
-
-    frame_to_pubsub(server, frame)
-  } else {
-    Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid pubsub message. Expected push frame.",
-    ))
-  }
 }
 
 pub fn check_resp2_auth_error(codec: &RedisCodec, frame: Resp2Frame) -> Resp2Frame {
@@ -354,11 +320,10 @@ pub fn frame_to_str(frame: &Resp3Frame) -> Option<Str> {
   }
 }
 
-fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
+#[cfg(feature = "i-hashes")]
+fn parse_nested_map(data: FrameMap<Resp3Frame, Resp3Frame>) -> Result<RedisMap, RedisError> {
   let mut out = HashMap::with_capacity(data.len());
 
-  // maybe make this smarter, but that would require changing the RedisMap type to use potentially non-hashable types
-  // as keys...
   for (key, value) in data.into_iter() {
     let key: RedisKey = frame_to_results(key)?.try_into()?;
     let value = frame_to_results(value)?;
@@ -370,8 +335,9 @@ fn parse_nested_map(data: FrameMap) -> Result<RedisMap, RedisError> {
 }
 
 /// Convert `nil` responses to a generic `Timeout` error.
+#[cfg(any(feature = "i-lists", feature = "i-sorted-sets"))]
 pub fn check_null_timeout(frame: &Resp3Frame) -> Result<(), RedisError> {
-  if frame.is_null() {
+  if frame.kind() == FrameKind::Null {
     Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out."))
   } else {
     Ok(())
@@ -437,6 +403,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
 }
 
 /// Flatten a single nested layer of arrays or sets into one array.
+#[cfg(feature = "i-hashes")]
 pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
   match frame {
     Resp3Frame::Array { data, .. } => {
@@ -491,6 +458,7 @@ pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
   }
 }
 
+#[cfg(feature = "i-hashes")]
 /// Convert a frame to a nested RedisMap.
 pub fn frame_to_map(frame: Resp3Frame) -> Result<RedisMap, RedisError> {
   match frame {
@@ -689,6 +657,7 @@ pub fn parse_master_role_replicas(data: RedisValue) -> Result<Vec<Server>, Redis
   }
 }
 
+#[cfg(feature = "i-geo")]
 pub fn assert_array_len<T>(data: &[T], len: usize) -> Result<(), RedisError> {
   if data.len() == len {
     Ok(())
@@ -790,11 +759,6 @@ pub fn arg_size(value: &RedisValue) -> usize {
 }
 
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
-pub fn resp3_frame_size(frame: &Resp3Frame) -> usize {
-  frame.encode_len().unwrap_or(0)
-}
-
-#[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 pub fn args_size(args: &[RedisValue]) -> usize {
   args.iter().fold(0, |c, arg| c + arg_size(arg))
 }
@@ -802,8 +766,39 @@ pub fn args_size(args: &[RedisValue]) -> usize {
 fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp3Frame, RedisError> {
   let args = command.args();
 
-  let auth = if args.len() == 2 {
-    // has username and password
+  let (auth, setname) = if args.len() == 3 {
+    // has auth and setname
+    let username = match args[0].as_bytes_str() {
+      Some(username) => username,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Invalid username. Expected string.",
+        ));
+      },
+    };
+    let password = match args[1].as_bytes_str() {
+      Some(password) => password,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Invalid password. Expected string.",
+        ));
+      },
+    };
+    let name = match args[2].as_bytes_str() {
+      Some(val) => val,
+      None => {
+        return Err(RedisError::new(
+          RedisErrorKind::InvalidArgument,
+          "Invalid setname value. Expected string.",
+        ));
+      },
+    };
+
+    (Some((username, password)), Some(name))
+  } else if args.len() == 2 {
+    // has auth but no setname
     let username = match args[0].as_bytes_str() {
       Some(username) => username,
       None => {
@@ -823,27 +818,28 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
       },
     };
 
-    Some(Auth { username, password })
+    (Some((username, password)), None)
   } else if args.len() == 1 {
-    // just has a password (assume the default user)
-    let password = match args[0].as_bytes_str() {
-      Some(password) => password,
+    // has setname but no auth
+    let name = match args[0].as_bytes_str() {
+      Some(val) => val,
       None => {
         return Err(RedisError::new(
           RedisErrorKind::InvalidArgument,
-          "Invalid password. Expected string.",
+          "Invalid setname value. Expected string.",
         ));
       },
     };
 
-    Some(Auth::from_password(password))
+    (None, Some(name))
   } else {
-    None
+    (None, None)
   };
 
   Ok(Resp3Frame::Hello {
     version: version.clone(),
     auth,
+    setname,
   })
 }
 
@@ -870,7 +866,9 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, Redi
         attributes: None,
       })
     },
-    RedisCommandKind::_Hello(ref version) => serialize_hello(command, version),
+    RedisCommandKind::_HelloAllCluster(ref version) | RedisCommandKind::_Hello(ref version) => {
+      serialize_hello(command, version)
+    },
     _ => {
       let mut bulk_strings = Vec::with_capacity(args.len() + 2);
 
@@ -951,6 +949,8 @@ pub fn encode_frame(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Re
 
 #[cfg(test)]
 mod tests {
+  #![allow(dead_code)]
+  #![allow(unused_imports)]
   use super::*;
   use std::{collections::HashMap, time::Duration};
 
@@ -976,6 +976,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-memory")]
   fn should_parse_memory_stats() {
     // better from()/into() interfaces for frames coming in the next redis-protocol version...
     let input = frame_to_results(Resp3Frame::Array {
@@ -1086,6 +1087,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-slowlog")]
   fn should_parse_slowlog_entries_redis_3() {
     // redis 127.0.0.1:6379> slowlog get 2
     // 1) 1) (integer) 14
@@ -1144,6 +1146,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-slowlog")]
   fn should_parse_slowlog_entries_redis_4() {
     // redis 127.0.0.1:6379> slowlog get 2
     // 1) 1) (integer) 14
@@ -1220,6 +1223,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg(feature = "i-cluster")]
   fn should_parse_cluster_info() {
     let input: RedisValue = "cluster_state:fail
 cluster_slots_assigned:16384

@@ -36,8 +36,6 @@ fn assert_diff_len(values: Vec<&'static str>, value: RedisValue, len: usize) {
 }
 
 pub async fn should_hset_and_hget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   let result: i64 = client.hset("foo", ("a", 1)).await?;
   assert_eq!(result, 1);
   let result: i64 = client.hset("foo", vec![("b", 2), ("c", 3)]).await?;
@@ -54,8 +52,6 @@ pub async fn should_hset_and_hget(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_hset_and_hdel(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   let result: i64 = client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
   assert_eq!(result, 3);
   let result: i64 = client.hdel("foo", vec!["a", "b"]).await?;
@@ -69,8 +65,6 @@ pub async fn should_hset_and_hdel(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_hexists(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hset("foo", ("a", 1)).await?;
   let a: bool = client.hexists("foo", "a").await?;
   assert!(a);
@@ -81,8 +75,6 @@ pub async fn should_hexists(client: RedisClient, _: RedisConfig) -> Result<(), R
 }
 
 pub async fn should_hgetall(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
   let values: HashMap<String, i64> = client.hgetall("foo").await?;
 
@@ -97,8 +89,6 @@ pub async fn should_hgetall(client: RedisClient, _: RedisConfig) -> Result<(), R
 }
 
 pub async fn should_hincryby(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   let result: i64 = client.hincrby("foo", "a", 1).await?;
   assert_eq!(result, 1);
   let result: i64 = client.hincrby("foo", "a", 2).await?;
@@ -108,8 +98,6 @@ pub async fn should_hincryby(client: RedisClient, _: RedisConfig) -> Result<(), 
 }
 
 pub async fn should_hincryby_float(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   let result: f64 = client.hincrbyfloat("foo", "a", 0.5).await?;
   assert_eq!(result, 0.5);
   let result: f64 = client.hincrbyfloat("foo", "a", 3.7).await?;
@@ -119,8 +107,6 @@ pub async fn should_hincryby_float(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_get_keys(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let keys = client.hkeys("foo").await?;
@@ -130,8 +116,6 @@ pub async fn should_get_keys(client: RedisClient, _: RedisConfig) -> Result<(), 
 }
 
 pub async fn should_hmset(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let a: i64 = client.hget("foo", "a").await?;
@@ -145,8 +129,6 @@ pub async fn should_hmset(client: RedisClient, _: RedisConfig) -> Result<(), Red
 }
 
 pub async fn should_hmget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let result: Vec<i64> = client.hmget("foo", vec!["a", "b"]).await?;
@@ -156,8 +138,6 @@ pub async fn should_hmget(client: RedisClient, _: RedisConfig) -> Result<(), Red
 }
 
 pub async fn should_hsetnx(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hset("foo", ("a", 1)).await?;
   let result: bool = client.hsetnx("foo", "a", 2).await?;
   assert!(!result);
@@ -172,8 +152,6 @@ pub async fn should_hsetnx(client: RedisClient, _: RedisConfig) -> Result<(), Re
 }
 
 pub async fn should_get_random_field(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let field: String = client.hrandfield("foo", None).await?;
@@ -199,8 +177,6 @@ pub async fn should_get_random_field(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_get_strlen(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   let expected = "abcdefhijklmnopqrstuvwxyz";
   client.hset("foo", ("a", expected)).await?;
 
@@ -211,8 +187,6 @@ pub async fn should_get_strlen(client: RedisClient, _: RedisConfig) -> Result<()
 }
 
 pub async fn should_get_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  check_null!(client, "foo");
-
   client.hmset("foo", vec![("a", "1"), ("b", "2")]).await?;
 
   let values: RedisValue = client.hvals("foo").await?;
