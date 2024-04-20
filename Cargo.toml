@@ -36,14 +36,14 @@ semver = "1.0"
 socket2 = "0.5"
 urlencoding = "2.1"
 crossbeam-queue = "0.3"
-rustls = { version = "0.23", optional = true }
+rustls = { version = "0.23", optional = true, default-features = false }
 native-tls = { version = "0.2", optional = true }
 tokio-native-tls = { version = "0.3", optional = true }
 tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 serde_json = { version = "1", optional = true }
-tokio-rustls = { version = "0.26", optional = true }
+tokio-rustls = { version = "0.26", optional = true, default-features = false }
 rustls-native-certs = { version = "0.7", optional = true }
 trust-dns-resolver = { version = "0.23", optional = true }
 async-trait = { version = "0.1" }
@@ -122,7 +122,18 @@ subscriber-client = ["i-pubsub"]
 metrics = []
 mocks = []
 dns = ["trust-dns-resolver", "trust-dns-resolver/tokio"]
-enable-rustls = ["rustls", "tokio-rustls", "rustls-native-certs"]
+# Enables rustls with the rustls/aws_lc_rs crypto backend
+enable-rustls = [
+    "rustls", "tokio-rustls", "rustls-native-certs",
+    "rustls/std", "tokio-rustls/logging", "tokio-rustls/tls12",
+    "tokio-rustls/aws_lc_rs"
+]
+# Enables rustls with the rustls/ring backend
+enable-rustls-ring = [
+    "rustls", "tokio-rustls", "rustls-native-certs",
+    "rustls/std", "tokio-rustls/logging", "tokio-rustls/tls12",
+    "tokio-rustls/ring"
+]
 enable-native-tls = ["native-tls", "tokio-native-tls"]
 vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
 full-tracing = ["partial-tracing"]
