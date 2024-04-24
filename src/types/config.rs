@@ -624,8 +624,19 @@ pub struct RedisConfig {
   /// TLS configuration options.
   ///
   /// Default: `None`
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+      feature = "enable-native-tls",
+      feature = "enable-rustls",
+      feature = "enable-rustls-ring"
+    )))
+  )]
   pub tls: Option<TlsConfig>,
   /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
@@ -663,7 +674,11 @@ impl Default for RedisConfig {
       server: ServerConfig::default(),
       version: RespVersion::RESP2,
       database: None,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: TracingConfig::default(),
@@ -675,13 +690,21 @@ impl Default for RedisConfig {
 
 impl RedisConfig {
   /// Whether the client uses TLS.
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   pub fn uses_tls(&self) -> bool {
     self.tls.is_some()
   }
 
   /// Whether the client uses TLS.
-  #[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
+  #[cfg(not(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  )))]
   pub fn uses_tls(&self) -> bool {
     false
   }
@@ -816,7 +839,11 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
     })
@@ -856,7 +883,11 @@ impl RedisConfig {
       server,
       username,
       password,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
     })
@@ -916,7 +947,11 @@ impl RedisConfig {
       username,
       password,
       database,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
     })
@@ -1162,8 +1197,19 @@ pub struct SentinelConfig {
   /// See the `tls` examples on Github for more information.
   ///
   /// Default: `None`
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+      feature = "enable-native-tls",
+      feature = "enable-rustls",
+      feature = "enable-rustls-ring"
+    )))
+  )]
   pub tls: Option<TlsConfig>,
   /// Whether to enable tracing for this client.
   ///
@@ -1181,7 +1227,11 @@ impl Default for SentinelConfig {
       port: 26379,
       username: None,
       password: None,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls: None,
       #[cfg(feature = "partial-tracing")]
       tracing: TracingConfig::default(),
@@ -1203,7 +1253,11 @@ impl From<SentinelConfig> for RedisConfig {
       username: config.username,
       password: config.password,
       version: RespVersion::RESP2,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls: config.tls,
       #[cfg(feature = "partial-tracing")]
       tracing: config.tracing,

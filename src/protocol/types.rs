@@ -183,7 +183,11 @@ impl From<(String, u16)> for Server {
     Server {
       host: host.into(),
       port,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls_server_name: None,
     }
   }
@@ -194,7 +198,11 @@ impl From<(&str, u16)> for Server {
     Server {
       host: host.into(),
       port,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls_server_name: None,
     }
   }

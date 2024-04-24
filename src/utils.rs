@@ -40,7 +40,11 @@ use tokio::{
 use url::Url;
 use urlencoding::decode as percent_decode;
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 use crate::protocol::tls::{TlsConfig, TlsConnector};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
@@ -659,10 +663,18 @@ pub fn is_maybe_array_map(arr: &[RedisValue]) -> bool {
   }
 }
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 pub fn check_tls_features() {}
 
-#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
+#[cfg(not(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+)))]
 pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }

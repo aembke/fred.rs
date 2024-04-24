@@ -3,7 +3,11 @@
 
 use fred::prelude::*;
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 use fred::types::TlsConnector;
 
 #[cfg(feature = "enable-native-tls")]

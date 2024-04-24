@@ -38,8 +38,19 @@ pub enum RedisErrorKind {
   /// A protocol error such as an invalid or unexpected frame from the server.
   Protocol,
   /// A TLS error.
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+      feature = "enable-native-tls",
+      feature = "enable-rustls",
+      feature = "enable-rustls-ring"
+    )))
+  )]
   Tls,
   /// An error indicating the request was canceled.
   Canceled,
@@ -78,7 +89,11 @@ impl RedisErrorKind {
       RedisErrorKind::Canceled => "Canceled",
       RedisErrorKind::Cluster => "Cluster Error",
       RedisErrorKind::Timeout => "Timeout Error",
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       RedisErrorKind::Tls => "TLS Error",
       RedisErrorKind::Config => "Config Error",
       RedisErrorKind::Parse => "Parse Error",

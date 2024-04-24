@@ -34,7 +34,11 @@ use tokio_util::codec::Framed;
 
 #[cfg(feature = "unix-sockets")]
 use crate::prelude::ServerConfig;
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
 use crate::{

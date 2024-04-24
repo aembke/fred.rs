@@ -8,7 +8,11 @@ use crate::{
 use bytes_utils::Str;
 use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 use crate::protocol::tls::TlsHostMapping;
 
 fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
@@ -135,7 +139,11 @@ fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &
       Some(Server {
         host,
         port,
-        #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+        #[cfg(any(
+          feature = "enable-native-tls",
+          feature = "enable-rustls",
+          feature = "enable-rustls-ring"
+        ))]
         tls_server_name: None,
       })
     })
@@ -176,7 +184,11 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &Str)
     primary: Server {
       host,
       port,
-      #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+      #[cfg(any(
+        feature = "enable-native-tls",
+        feature = "enable-rustls",
+        feature = "enable-rustls-ring"
+      ))]
       tls_server_name: None,
     },
     #[cfg(feature = "replicas")]
@@ -236,15 +248,27 @@ pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, _: &mut Vec<
 #[cfg(test)]
 mod tests {
   use super::*;
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   use crate::protocol::tls::{HostMapping, TlsHostMapping};
   use crate::protocol::types::SlotRange;
 
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   #[derive(Debug)]
   struct FakeHostMapper;
 
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   impl HostMapping for FakeHostMapper {
     fn map(&self, _: &IpAddr, _: &str) -> Option<String> {
       Some("foobarbaz".into())
@@ -352,7 +376,11 @@ mod tests {
   }
 
   #[test]
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   fn should_modify_cluster_slot_hostnames_default_host_without_metadata() {
     let policy = TlsHostMapping::DefaultHost;
     let fake_data = fake_cluster_slots_without_metadata();
@@ -372,7 +400,11 @@ mod tests {
   }
 
   #[test]
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   fn should_not_modify_cluster_slot_hostnames_default_host_with_metadata() {
     let policy = TlsHostMapping::DefaultHost;
     let fake_data = fake_cluster_slots_with_metadata();
@@ -393,7 +425,11 @@ mod tests {
   }
 
   #[test]
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
   fn should_modify_cluster_slot_hostnames_custom() {
     let policy = TlsHostMapping::Custom(Arc::new(FakeHostMapper));
     let fake_data = fake_cluster_slots_without_metadata();
@@ -419,56 +455,80 @@ mod tests {
     let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:                                 0,
-        end:                                   5460,
-        primary:                               Server {
+        start: 0,
+        end: 5460,
+        primary: Server {
           host: "host-1.redis.example.com".into(),
           port: 30001,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "host-2.redis.example.com".into(),
           port: 30004,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 5461,
-        end:                                   10922,
-        primary:                               Server {
+        start: 5461,
+        end: 10922,
+        primary: Server {
           host: "host-3.redis.example.com".into(),
           port: 30002,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "host-4.redis.example.com".into(),
           port: 30005,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 10923,
-        end:                                   16383,
-        primary:                               Server {
+        start: 10923,
+        end: 16383,
+        primary: Server {
           host: "host-5.redis.example.com".into(),
           port: 30003,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "host-6.redis.example.com".into(),
           port: 30006,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
@@ -483,56 +543,80 @@ mod tests {
     let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:                                 0,
-        end:                                   5460,
-        primary:                               Server {
+        start: 0,
+        end: 5460,
+        primary: Server {
           host: "127.0.0.1".into(),
           port: 30001,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "127.0.0.1".into(),
           port: 30004,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 5461,
-        end:                                   10922,
-        primary:                               Server {
+        start: 5461,
+        end: 10922,
+        primary: Server {
           host: "127.0.0.1".into(),
           port: 30002,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "127.0.0.1".into(),
           port: 30005,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 10923,
-        end:                                   16383,
-        primary:                               Server {
+        start: 10923,
+        end: 16383,
+        primary: Server {
           host: "127.0.0.1".into(),
           port: 30003,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "127.0.0.1".into(),
           port: 30006,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
@@ -595,56 +679,80 @@ mod tests {
     let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:                                 0,
-        end:                                   5460,
-        primary:                               Server {
+        start: 0,
+        end: 5460,
+        primary: Server {
           host: "127.0.0.1".into(),
           port: 30001,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "127.0.0.1".into(),
           port: 30004,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 5461,
-        end:                                   10922,
-        primary:                               Server {
+        start: 5461,
+        end: 10922,
+        primary: Server {
           host: "127.0.0.1".into(),
           port: 30002,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "127.0.0.1".into(),
           port: 30005,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 10923,
-        end:                                   16383,
-        primary:                               Server {
+        start: 10923,
+        end: 16383,
+        primary: Server {
           host: "127.0.0.1".into(),
           port: 30003,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "127.0.0.1".into(),
           port: 30006,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
@@ -707,56 +815,80 @@ mod tests {
     let actual = parse_cluster_slots(input, &Str::from("fake-host")).expect("Failed to parse input");
     let expected = vec![
       SlotRange {
-        start:                                 0,
-        end:                                   5460,
-        primary:                               Server {
+        start: 0,
+        end: 5460,
+        primary: Server {
           host: "fake-host".into(),
           port: 30001,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "fake-host".into(),
           port: 30004,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 5461,
-        end:                                   10922,
-        primary:                               Server {
+        start: 5461,
+        end: 10922,
+        primary: Server {
           host: "fake-host".into(),
           port: 30002,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "fake-host".into(),
           port: 30005,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
       SlotRange {
-        start:                                 10923,
-        end:                                   16383,
-        primary:                               Server {
+        start: 10923,
+        end: 16383,
+        primary: Server {
           host: "fake-host".into(),
           port: 30003,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         },
-        id:                                    "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
         #[cfg(feature = "replicas")]
-        replicas:                              vec![Server {
+        replicas: vec![Server {
           host: "fake-host".into(),
           port: 30006,
-          #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         }],
       },
