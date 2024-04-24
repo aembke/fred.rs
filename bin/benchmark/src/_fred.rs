@@ -8,7 +8,11 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enabled-rustls-ring"
+))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 use futures::TryStreamExt;
 

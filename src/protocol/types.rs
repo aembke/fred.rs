@@ -22,7 +22,11 @@ use std::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 use std::{net::IpAddr, str::FromStr};
 
 /// Any kind of RESP frame.
@@ -69,15 +73,37 @@ pub struct Server {
   /// The port for the server.
   pub port: u16,
   /// The server name used during the TLS handshake.
-  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  #[cfg(any(
+    feature = "enable-rustls",
+    feature = "enable-native-tls",
+    feature = "enable-rustls-ring"
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+      feature = "enable-rustls",
+      feature = "enable-native-tls",
+      feature = "enable-rustls-ring"
+    )))
+  )]
   pub tls_server_name: Option<Str>,
 }
 
 impl Server {
   /// Create a new `Server` from parts with a TLS server name.
-  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  #[cfg(any(
+    feature = "enable-rustls",
+    feature = "enable-native-tls",
+    feature = "enable-rustls-ring"
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+      feature = "enable-rustls",
+      feature = "enable-native-tls",
+      feature = "enable-rustls-ring"
+    )))
+  )]
   pub fn new_with_tls<S: Into<Str>>(host: S, port: u16, tls_server_name: Option<String>) -> Self {
     Server {
       host: host.into(),
@@ -91,12 +117,20 @@ impl Server {
     Server {
       host: host.into(),
       port,
-      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+      #[cfg(any(
+        feature = "enable-rustls",
+        feature = "enable-native-tls",
+        feature = "enable-rustls-ring"
+      ))]
       tls_server_name: None,
     }
   }
 
-  #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+  #[cfg(any(
+    feature = "enable-rustls",
+    feature = "enable-native-tls",
+    feature = "enable-rustls-ring"
+  ))]
   pub(crate) fn set_tls_server_name(&mut self, policy: &TlsHostMapping, default_host: &str) {
     if *policy == TlsHostMapping::None {
       return;
@@ -119,7 +153,11 @@ impl Server {
         Some(Server {
           host: parts[0].into(),
           port,
-          #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+          #[cfg(any(
+            feature = "enable-rustls",
+            feature = "enable-native-tls",
+            feature = "enable-rustls-ring"
+          ))]
           tls_server_name: None,
         })
       } else {
@@ -142,7 +180,11 @@ impl Server {
       Server {
         host,
         port,
-        #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+        #[cfg(any(
+          feature = "enable-rustls",
+          feature = "enable-native-tls",
+          feature = "enable-rustls-ring"
+        ))]
         tls_server_name: None,
       }
     })
@@ -156,7 +198,11 @@ impl From<&std::path::Path> for Server {
     Server {
       host: utils::path_to_string(value).into(),
       port: 0,
-      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+      #[cfg(any(
+        feature = "enable-rustls",
+        feature = "enable-native-tls",
+        feature = "enable-rustls-ring"
+      ))]
       tls_server_name: None,
     }
   }

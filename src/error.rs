@@ -290,8 +290,8 @@ impl From<native_tls::Error> for RedisError {
 }
 
 #[doc(hidden)]
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
 impl From<rustls::pki_types::InvalidDnsNameError> for RedisError {
   fn from(e: rustls::pki_types::InvalidDnsNameError) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
@@ -299,8 +299,8 @@ impl From<rustls::pki_types::InvalidDnsNameError> for RedisError {
 }
 
 #[doc(hidden)]
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
 impl From<rustls::Error> for RedisError {
   fn from(e: rustls::Error) -> Self {
     RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))

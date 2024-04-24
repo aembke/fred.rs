@@ -210,7 +210,11 @@ pub fn parse_cluster_slots(frame: RedisValue, default_host: &Str) -> Result<Vec<
   Ok(out)
 }
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut [SlotRange], default_host: &Str) {
   for slot_range in ranges.iter_mut() {
     slot_range.primary.set_tls_server_name(policy, default_host);
@@ -223,7 +227,11 @@ fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut [SlotRange], d
 }
 
 /// Modify the `CLUSTER SLOTS` command according to the hostname mapping policy in the `TlsHostMapping`.
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut [SlotRange], default_host: &Str) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
@@ -240,7 +248,11 @@ pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut
   replace_tls_server_names(policy, ranges, default_host);
 }
 
-#[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+#[cfg(not(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+)))]
 pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, _: &mut Vec<SlotRange>, _: &Str) {
   _trace!(inner, "Skip modifying TLS hostnames.")
 }

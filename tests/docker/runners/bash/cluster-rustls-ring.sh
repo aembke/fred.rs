@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="enable-rustls-ring transactions i-all"
+FEATURES="enable-rustls-ring transactions i-all network-logs debug-ids"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   FRED_CI_TLS=true cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

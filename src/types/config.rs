@@ -12,8 +12,19 @@ use std::path::PathBuf;
 #[cfg(feature = "mocks")]
 use std::sync::Arc;
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
-#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
+#[cfg_attr(
+  docsrs,
+  doc(cfg(any(
+    feature = "enable-rustls",
+    feature = "enable-native-tls",
+    feature = "enable-rustls-ring"
+  )))
+)]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
 
 #[cfg(feature = "replicas")]

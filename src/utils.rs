@@ -679,7 +679,10 @@ pub fn check_tls_features() {
   warn!("TLS features are not enabled, but a TLS feature may have been used.");
 }
 
-#[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
+#[cfg(all(
+  feature = "enable-native-tls",
+  not(any(feature = "enable-rustls", feature = "enable-rustls-ring"))
+))]
 pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   if tls {
     TlsConnector::default_native_tls().map(|c| Some(c.into()))
@@ -688,7 +691,10 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   }
 }
 
-#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
+#[cfg(all(
+  any(feature = "enable-rustls", feature = "enable-rustls-ring"),
+  not(feature = "enable-native-tls")
+))]
 pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   if tls {
     TlsConnector::default_rustls().map(|c| Some(c.into()))
@@ -697,7 +703,10 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   }
 }
 
-#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(all(
+  feature = "enable-native-tls",
+  any(feature = "enable-rustls", feature = "enable-rustls-ring")
+))]
 pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   // default to native-tls when both are enabled
   if tls {
