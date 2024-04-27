@@ -737,7 +737,7 @@ impl RedisConfig {
   }
 
   /// Whether the client uses a `rustls` connector.
-  #[cfg(feature = "enable-rustls")]
+  #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
   pub fn uses_rustls(&self) -> bool {
     self
       .tls
@@ -747,7 +747,7 @@ impl RedisConfig {
   }
 
   /// Whether the client uses a `rustls` connector.
-  #[cfg(not(feature = "enable-rustls"))]
+  #[cfg(not(any(feature = "enable-rustls", feature = "enable-rustls-ring")))]
   pub fn uses_rustls(&self) -> bool {
     false
   }
