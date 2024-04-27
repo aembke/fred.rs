@@ -68,7 +68,8 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 |---------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `transactions`            | x       | Enable a [Transaction](https://redis.io/docs/interact/transactions/) interface.                                                                                     |
 | `enable-native-tls`       |         | Enable TLS support via [native-tls](https://crates.io/crates/native-tls).                                                                                           |
-| `enable-rustls`           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls).                                                                                                   |
+| `enable-rustls`           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls) with the default crypto backend features.                                                          |
+| `enable-rustls-ring`      |         | Enable TLS support via [rustls](https://crates.io/crates/rustls) and the ring crypto backend.                                                                       |
 | `vendored-openssl`        |         | Enable the `native-tls/vendored` feature.                                                                                                                           |
 | `metrics`                 |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                 |
 | `full-tracing`            |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data.                                                                                  |

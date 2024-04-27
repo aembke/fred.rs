@@ -3,7 +3,11 @@
 
 use fred::prelude::*;
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 use fred::types::TlsConnector;
 
 #[cfg(feature = "enable-native-tls")]
@@ -20,7 +24,10 @@ fn create_tls_config() -> TlsConnector {
     .into()
 }
 
-#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
+#[cfg(all(
+  any(feature = "enable-rustls", feature = "enable-rustls-ring"),
+  not(feature = "enable-native-tls")
+))]
 fn create_tls_config() -> TlsConnector {
   use fred::rustls::{ClientConfig, RootCertStore};
 
@@ -34,7 +41,11 @@ fn create_tls_config() -> TlsConnector {
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let config = RedisConfig {
-    #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+    #[cfg(any(
+      feature = "enable-rustls",
+      feature = "enable-native-tls",
+      feature = "enable-rustls-ring"
+    ))]
     tls: Some(create_tls_config().into()),
     ..RedisConfig::default()
   };
