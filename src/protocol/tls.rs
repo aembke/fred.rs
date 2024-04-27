@@ -12,14 +12,13 @@ use crate::error::RedisErrorKind;
 use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
-  TlsConnector as NativeTlsConnector,
-  TlsConnectorBuilder as NativeTlsConnectorBuilder,
+  TlsConnector as NativeTlsConnector, TlsConnectorBuilder as NativeTlsConnectorBuilder,
 };
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
-#[cfg(feature = "enable-rustls")]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 use tokio_rustls::rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
-#[cfg(feature = "enable-rustls")]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 use tokio_rustls::TlsConnector as RustlsConnector;
 
 /// A trait used for mapping IP addresses to hostnames when processing the `CLUSTER SLOTS` response.
@@ -120,8 +119,8 @@ pub enum TlsConnector {
   #[cfg(feature = "enable-native-tls")]
   #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
   Native(TokioNativeTlsConnector),
-  #[cfg(feature = "enable-rustls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+  #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
   Rustls(RustlsConnector),
 }
 
@@ -136,12 +135,15 @@ impl Eq for TlsConnector {}
 impl Debug for TlsConnector {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("TlsConnector")
-      .field("kind", match self {
-        #[cfg(feature = "enable-native-tls")]
-        TlsConnector::Native(_) => &"Native",
-        #[cfg(feature = "enable-rustls")]
-        TlsConnector::Rustls(_) => &"Rustls",
-      })
+      .field(
+        "kind",
+        match self {
+          #[cfg(feature = "enable-native-tls")]
+          TlsConnector::Native(_) => &"Native",
+          #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+          TlsConnector::Rustls(_) => &"Rustls",
+        },
+      )
       .finish()
   }
 }
@@ -156,8 +158,8 @@ impl TlsConnector {
   }
 
   /// Create a default TLS connector with the `rustls` module with safe defaults and system certs via [rustls-native-certs](https://github.com/rustls/rustls-native-certs).
-  #[cfg(feature = "enable-rustls")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+  #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
   pub fn default_rustls() -> Result<Self, RedisError> {
     let system_certs = rustls_native_certs::load_native_certs()?;
     let mut cert_store = RootCertStore::empty();
@@ -204,16 +206,16 @@ impl From<TokioNativeTlsConnector> for TlsConnector {
   }
 }
 
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
 impl From<RustlsClientConfig> for TlsConnector {
   fn from(config: RustlsClientConfig) -> Self {
     TlsConnector::Rustls(RustlsConnector::from(Arc::new(config)))
   }
 }
 
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
 impl From<RustlsConnector> for TlsConnector {
   fn from(connector: RustlsConnector) -> Self {
     TlsConnector::Rustls(connector)
@@ -225,7 +227,7 @@ mod tests {
   use super::*;
 
   #[test]
-  #[cfg(feature = "enable-rustls")]
+  #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
   fn should_create_default_rustls() {
     let _ = TlsConnector::default_rustls().unwrap();
   }

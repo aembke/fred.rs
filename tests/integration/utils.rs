@@ -9,13 +9,7 @@ use fred::{
   error::RedisError,
   interfaces::*,
   types::{
-    Builder,
-    ConnectionConfig,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    Server,
-    ServerConfig,
+    Builder, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig, Server, ServerConfig,
     UnresponsiveConfig,
   },
 };
@@ -25,15 +19,17 @@ use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, futu
 const RECONNECT_DELAY: u32 = 1000;
 
 use fred::types::ClusterDiscoveryPolicy;
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
-  Certificate as NativeTlsCertificate,
-  Identity,
-  TlsConnector as NativeTlsConnector,
+  Certificate as NativeTlsCertificate, Identity, TlsConnector as NativeTlsConnector,
 };
-#[cfg(feature = "enable-rustls")]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 use tokio_rustls::rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
 
 pub fn read_env_var(name: &str) -> Option<String> {
@@ -104,7 +100,11 @@ pub fn read_redis_centralized_host() -> (String, u16) {
   (host, port)
 }
 
-#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
+#[cfg(not(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+)))]
 pub fn read_redis_cluster_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CLUSTER_HOST").unwrap_or("redis-cluster-1".into());
   let port = read_env_var("FRED_REDIS_CLUSTER_PORT")
@@ -114,7 +114,11 @@ pub fn read_redis_cluster_host() -> (String, u16) {
   (host, port)
 }
 
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 pub fn read_redis_cluster_host() -> (String, u16) {
   let host = read_env_var("FRED_REDIS_CLUSTER_TLS_HOST").unwrap_or("redis-cluster-tls-1".into());
   let port = read_env_var("FRED_REDIS_CLUSTER_TLS_PORT")
@@ -160,18 +164,26 @@ pub fn read_sentinel_server() -> (String, u16) {
   (host, port)
 }
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 #[allow(dead_code)]
 struct TlsCreds {
-  root_cert_der:   Vec<u8>,
-  root_cert_pem:   Vec<u8>,
+  root_cert_der: Vec<u8>,
+  root_cert_pem: Vec<u8>,
   client_cert_der: Vec<u8>,
   client_cert_pem: Vec<u8>,
-  client_key_der:  Vec<u8>,
-  client_key_pem:  Vec<u8>,
+  client_key_der: Vec<u8>,
+  client_key_pem: Vec<u8>,
 }
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 fn check_file_contents(value: &Vec<u8>, msg: &str) {
   if value.is_empty() {
     panic!("Invalid empty TLS file: {}", msg);
@@ -180,7 +192,11 @@ fn check_file_contents(value: &Vec<u8>, msg: &str) {
 
 /// Read the (root cert.pem, root cert.der, client cert.pem, client cert.der, client key.pem, client key.der) tuple
 /// from the test/tmp/creds directory.
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
 fn read_tls_creds() -> TlsCreds {
   let creds_path = read_env_var("FRED_TEST_TLS_CREDS").expect("Failed to read TLS path from env");
   let root_cert_pem_path = format!("{}/ca.pem", creds_path);
@@ -214,7 +230,7 @@ fn read_tls_creds() -> TlsCreds {
   }
 }
 
-#[cfg(feature = "enable-rustls")]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 fn create_rustls_config() -> TlsConnector {
   use rustls::pki_types::PrivatePkcs8KeyDer;
 
@@ -268,7 +284,7 @@ fn create_server_config(cluster: bool) -> ServerConfig {
   if cluster {
     let (host, port) = read_redis_cluster_host();
     ServerConfig::Clustered {
-      hosts:  vec![Server::new(host, port)],
+      hosts: vec![Server::new(host, port)],
       policy: ClusterDiscoveryPolicy::default(),
     }
   } else {
@@ -297,18 +313,28 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
   (config, perf)
 }
 
-#[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+#[cfg(not(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+)))]
 fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   create_normal_redis_config(cluster, pipeline, resp3)
 }
 
-#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(all(
+  feature = "enable-native-tls",
+  any(feature = "enable-rustls", feature = "enable-rustls-ring")
+))]
 fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   // if both are enabled then don't use either since all the tests assume one or the other
   create_normal_redis_config(cluster, pipeline, resp3)
 }
 
-#[cfg(all(feature = "enable-rustls", not(feature = "enable-native-tls")))]
+#[cfg(all(
+  any(feature = "enable-rustls", feature = "enable-rustls-ring"),
+  not(feature = "enable-native-tls")
+))]
 fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   if !read_ci_tls_env() {
     return create_normal_redis_config(cluster, pipeline, resp3);
@@ -336,7 +362,10 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   (config, perf)
 }
 
-#[cfg(all(feature = "enable-native-tls", not(feature = "enable-rustls")))]
+#[cfg(all(
+  feature = "enable-native-tls",
+  not(any(feature = "enable-rustls", feature = "enable-rustls-ring"))
+))]
 fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   if !read_ci_tls_env() {
     return create_normal_redis_config(cluster, pipeline, resp3);
@@ -383,12 +412,12 @@ where
     fail_fast: read_fail_fast_env(),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     server: ServerConfig::Sentinel {
-      hosts:                                      vec![read_sentinel_server().into()],
-      service_name:                               "redis-sentinel-main".into(),
+      hosts: vec![read_sentinel_server().into()],
+      service_name: "redis-sentinel-main".into(),
       #[cfg(feature = "sentinel-auth")]
-      username:                                   None,
+      username: None,
       #[cfg(feature = "sentinel-auth")]
-      password:                                   Some(read_sentinel_password()),
+      password: Some(read_sentinel_password()),
     },
     password: Some(read_redis_password()),
     ..Default::default()
@@ -420,7 +449,7 @@ where
   connection.max_redirections = 10;
   connection.unresponsive = UnresponsiveConfig {
     max_timeout: Some(Duration::from_secs(10)),
-    interval:    Duration::from_millis(400),
+    interval: Duration::from_millis(400),
   };
   config.fail_fast = fail_fast;
 
@@ -450,7 +479,7 @@ where
   connection.max_command_attempts = cmd_attempts;
   connection.unresponsive = UnresponsiveConfig {
     max_timeout: Some(Duration::from_secs(10)),
-    interval:    Duration::from_millis(400),
+    interval: Duration::from_millis(400),
   };
   config.fail_fast = fail_fast;
 
@@ -467,7 +496,7 @@ where
 
 macro_rules! centralized_test_panic(
   ($module:tt, $name:tt) => {
-    #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+    #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls", feature = "enable-rustls-ring")))]
     mod $name {
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]
@@ -578,7 +607,7 @@ macro_rules! cluster_test_panic(
 
 macro_rules! centralized_test(
   ($module:tt, $name:tt) => {
-    #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls")))]
+    #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls", feature = "enable-rustls-ring")))]
     mod $name {
       mod resp2 {
         #[tokio::test(flavor = "multi_thread")]

@@ -47,7 +47,11 @@ static DEFAULT_PORT: u16 = 6379;
 
 mod utils;
 
-#[cfg(all(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(all(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 compile_error!("Cannot use both TLS feature flags.");
 
 #[cfg(not(feature = "redis-rs"))]
@@ -62,18 +66,18 @@ use _redis::run as run_benchmark;
 // TODO update clap
 #[derive(Debug)]
 struct Argv {
-  pub cluster:  bool,
+  pub cluster: bool,
   pub replicas: bool,
-  pub tracing:  bool,
-  pub count:    usize,
-  pub tasks:    usize,
-  pub unix:     Option<String>,
-  pub host:     String,
-  pub port:     u16,
+  pub tracing: bool,
+  pub count: usize,
+  pub tasks: usize,
+  pub unix: Option<String>,
+  pub host: String,
+  pub port: u16,
   pub pipeline: bool,
-  pub pool:     usize,
-  pub quiet:    bool,
-  pub auth:     Option<String>,
+  pub pool: usize,
+  pub quiet: bool,
+  pub auth: Option<String>,
 }
 
 fn parse_argv() -> Arc<Argv> {

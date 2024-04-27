@@ -160,7 +160,18 @@ pub mod prelude {
     },
   };
 
-  #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-  #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))))]
+  #[cfg(any(
+    feature = "enable-native-tls",
+    feature = "enable-rustls",
+    feature = "enable-rustls-ring"
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(any(
+      feature = "enable-rustls",
+      feature = "enable-native-tls",
+      feature = "enable-rustls-ring"
+    )))
+  )]
   pub use crate::types::{TlsConfig, TlsConnector};
 }
