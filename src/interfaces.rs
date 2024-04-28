@@ -6,8 +6,21 @@ use crate::{
   protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
   types::{
-    ClientState, ClusterStateChange, ConnectHandle, ConnectionConfig, CustomCommand, FromRedis, InfoKind,
-    KeyspaceEvent, Message, Options, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisValue, RespVersion,
+    ClientState,
+    ClusterStateChange,
+    ConnectHandle,
+    ConnectionConfig,
+    CustomCommand,
+    FromRedis,
+    InfoKind,
+    KeyspaceEvent,
+    Message,
+    Options,
+    PerformanceConfig,
+    ReconnectPolicy,
+    RedisConfig,
+    RedisValue,
+    RespVersion,
     Server,
   },
   utils,
@@ -15,8 +28,7 @@ use crate::{
 use bytes_utils::Str;
 use futures::Future;
 use semver::Version;
-use std::time::Duration;
-use std::{convert::TryInto, sync::Arc};
+use std::{convert::TryInto, sync::Arc, time::Duration};
 use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
@@ -398,7 +410,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Customize various configuration options on commands.
   fn with_options(&self, options: &Options) -> WithOptions<Self> {
     WithOptions {
-      client: self.clone(),
+      client:  self.clone(),
       options: options.clone(),
     }
   }
@@ -688,6 +700,9 @@ pub use crate::commands::interfaces::pubsub::*;
 #[cfg(feature = "i-redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+pub use crate::commands::interfaces::redisearch::*;
 #[cfg(feature = "sentinel-client")]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
 #[cfg(feature = "i-server")]

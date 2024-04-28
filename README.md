@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-An async Redis client for Rust and Tokio.
+A fast and ergonomic async client for Redis and Valkey.
 
 ## Example
 
@@ -40,29 +40,28 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 ## Features
 
+* Supports Valkey and Redis.
 * RESP2 and RESP3 protocol modes.
-* Clustered, centralized, and sentinel Redis deployments.
+* Clustered, centralized, and sentinel server deployments.
 * TLS via `native-tls` or `rustls`.
 * Unix sockets.
-* [Efficient automatic pipelining](bin/benchmark)
-* [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
-* Optional reconnection features.
+* Automatic reconnection interfaces.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
+* A round-robin cluster replica routing interface.
+* Built-in mocking interfaces.
 * Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/)
   or [functions](https://redis.io/docs/interact/programmability/functions-intro/).
-* Streaming results from the `MONITOR` command.
-* Custom commands.
-* Streaming interfaces for scanning functions.
 * [Transactions](https://redis.io/docs/interact/transactions/)
 * [Pipelining](https://redis.io/topics/pipelining)
 * [Client Tracking](https://redis.io/docs/manual/client-side-caching/)
-* A [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.
-* A round-robin cluster replica routing interface.
-* A subscriber client that will automatically manage channel subscriptions.
+* [Efficient automatic pipelining](bin/benchmark)
+* [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
 * [Tracing](https://github.com/tokio-rs/tracing)
 
-## Build Features
+See the build features for more information.
+
+## Client Features
 
 | Name                      | Default | Description                                                                                                                                                         |
 |---------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -90,8 +89,8 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 ## Interface Features
 
-The Redis interface has many functions and compile times can add up quickly. Interface features begin with `i-` and
-control which public interfaces are built.
+The Redis interface has many command functions and compile times can add up quickly. Interface features begin with `i-`
+and control which public interfaces are built.
 
 | Name            | Default | Description                                                                                                   |
 |-----------------|---------|---------------------------------------------------------------------------------------------------------------|
@@ -117,6 +116,7 @@ control which public interfaces are built.
 | `i-tracking`    |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                      |
 | `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/).  interface.                        |
 | `i-redis-json`  |         | Enable a [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.                                       |
+| `i-redisearch`  |         | Enable a [RediSearch](https://github.com/RediSearch/RediSearch) interface.                                    |
 | `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc).   |
 
 ## Debugging Features
