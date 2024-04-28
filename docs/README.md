@@ -71,7 +71,9 @@ A diagram may explain this better:
 ![Pipelining](./pipelining.png)
 
 With this model we're not reducing network latency or RTT, but by rarely waiting for the server to respond we
-can pack many more requests on the wire and dramatically increase throughput in high concurrency scenarios.
+can pack many more requests on the wire and dramatically increase throughput in high concurrency scenarios. Unlike many
+IO-bound use cases, Redis is fast enough that this kind of pipelining optimization can make a big difference in
+practice.
 
 However, there are some interesting tradeoffs with the optimization described above, at least in Rust. At its core the
 primary challenge with this strategy is that it requires not only separating write and read operations on the socket,

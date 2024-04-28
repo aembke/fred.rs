@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-An async Redis client for Rust and Tokio.
+An async Redis client for Rust.
 
 ## Example
 
@@ -61,6 +61,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * A round-robin cluster replica routing interface.
 * A subscriber client that will automatically manage channel subscriptions.
 * [Tracing](https://github.com/tokio-rs/tracing)
+* Supports Valkey
 
 ## Build Features
 

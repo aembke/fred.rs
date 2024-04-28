@@ -4,6 +4,9 @@
 if [ -z "$REDIS_VERSION" ]; then
   export REDIS_VERSION=7.2.4
 fi
+if [ -z "$VALKEY_VERSION" ]; then
+  export VALKEY_VERSION=7.2.5
+fi
 
 if [ -z "$CARGO_HTTP_DEBUG" ]; then
   export CARGO_HTTP_DEBUG=false

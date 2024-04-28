@@ -6,8 +6,8 @@ mod acl;
 mod client;
 #[cfg(feature = "i-cluster")]
 mod cluster;
-#[cfg(feature = "i-cluster")]
-pub mod docker;
+//#[cfg(feature = "i-cluster")]
+//pub mod docker;
 #[cfg(feature = "i-geo")]
 mod geo;
 #[cfg(feature = "i-hashes")]
