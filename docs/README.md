@@ -77,42 +77,17 @@ practice.
 
 However, there are some interesting tradeoffs with the optimization described above, at least in Rust. At its core the
 primary challenge with this strategy is that it requires not only separating write and read operations on the socket,
-but it also requires operating on each half of the socket concurrently according to RESP's frame ordering rules.
+but also requires operating on each half of the socket concurrently according to RESP's frame ordering rules.
 
-### Message Passing & Queues
-
-Another mental model that tends to work well with pipelined protocols is to think of the client as a series of queues.
-For example:
-
-1. An end user task interacts with the client by putting a message in an in-memory queue.
-2. Some time later the client pops this message off the queue, serializes it, and sends it to the server over a TCP
-   connection, which also effectively acts as a queue in this context. We also put the original request into another
-   in-memory queue associated with the chosen connection.
-3. Some time later we pop a frame off the TCP connection. Since the server always* responds to commands in order we know
-   that the request at the front of the in-memory queue associated with this connection must be associated with the
-   frame we just received.
-4. We pop the request off the in-memory queue mentioned above and use this to respond to the caller in the original end
-   user task.
-
-This kind of approach also tends to work well in high concurrency scenarios since shared queues can be
-implemented without locks (just atomics). There are several options for this, including several interfaces within Tokio.
-
-If we think of the client as a set of queues like this then it becomes much easier to reason about how the pipelining
-above should be implemented. All we really need to do is implement some policy checks in step 2 that determine whether
-we should wait for step 4 to finish before processing the next command in step 2. In most cases we want to write
-commands as quickly as possible, but in some cases maybe the client should wait (like `AUTH`, `HELLO`, blocking
-commands, etc). Fortunately Tokio offers several ways to coordinate tasks like this.
-
-This is why the library uses a message passing implementation. The `auto_pipeline` flag controls this optimization and
-the benchmarking results show a dramatic improvement when enabled.
+The `auto_pipeline` flag controls this optimization and the benchmarking results show a significant improvement when
+enabled.
 
 ## Technical Overview
 
-As mentioned above, for the most part the library uses message passing and dependency injection patterns. The primary
-concern is to support highly concurrent use cases, therefore we want to minimize contention on shared resources. There
-are several ways to do this, but the one used here is to utilize something like the actor model. Thankfully Tokio
-provides all the underlying interfaces one would need to use basic actor model patterns without any additional
-frameworks or libraries.
+For the most part the library uses message passing and dependency injection patterns. The primary concern is to support
+highly concurrent use cases, therefore we want to minimize contention on shared resources. There are several ways to do
+this, but the one used here is to utilize something like the actor model. Thankfully Tokio provides all the underlying
+interfaces one would need to use basic actor model patterns without any additional frameworks or libraries.
 
 If you're not familiar with message passing in Rust I would strongly recommend
 reading [the Tokio docs](https://docs.rs/tokio/latest/tokio/sync/index.html#message-passing) first.

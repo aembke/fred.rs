@@ -125,11 +125,7 @@ commands:
       - restore-cargo-deps-cache
       - run:
           name: Run tests against local valkey deployments
-          command: |
-            source tests/environ
-            USE_VALKEY=1 tests/scripts/install_redis_centralized.sh
-            USE_VALKEY=1 tests/scripts/install_redis_clustered.sh
-            tests/runners/default-features.sh
+          command: source tests/environ && tests/runners/valkey-all-features.sh
       - save-cargo-deps-cache
 
 jobs:
@@ -233,11 +229,12 @@ jobs:
     resource_class: medium
     environment:
       REDIS_VERSION: 7.2.4
+      VALKEY_VERSION: 7.2.5
     steps:
       - test_valkey
   test-misc:
     docker:
-      - image: cimg/rust:1.77.1
+      - image: cimg/rust:1.77
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -249,7 +246,7 @@ jobs:
           command: cargo check --features partial-tracing
   check-all-interface-features:
     docker:
-      - image: cimg/rust:1.77.1
+      - image: cimg/rust:1.77
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -259,7 +256,7 @@ jobs:
           command: tests/scripts/check_features.sh
   clippy-lint:
     docker:
-      - image: cimg/rust:1.77.1
+      - image: cimg/rust:1.77
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -280,6 +277,7 @@ workflows:
       - test-redis-stack-7_2
       - test-sentinel-7_2
       - test-unix-socket-7_2
+      - test-valkey-7_2
       - test-misc
       - test-cluster-tls-features-7_2
       - test-cluster-rustls-features-7_2
