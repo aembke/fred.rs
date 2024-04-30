@@ -1,3 +1,7 @@
+## 9.0.2
+
+* Add `enable-rustls-ring` feature flag
+
 ## 9.0.1
 
 * Fix `partial-tracing` imports

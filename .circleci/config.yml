@@ -95,6 +95,14 @@ commands:
           name: Run cluster tests with rustls features
           command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-rustls.sh
       - save-cargo-deps-cache
+  test_rustls_cluster_ring:
+    steps:
+      - checkout
+      - restore-cargo-deps-cache
+      - run:
+          name: Run cluster tests with rustls/ring features
+          command: source tests/environ && tests/scripts/tls-creds.sh && tests/runners/cluster-rustls-ring.sh
+      - save-cargo-deps-cache
   test_default_nil_types_features:
     steps:
       - checkout
@@ -199,6 +207,16 @@ jobs:
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
+  test-cluster-rustls-ring-features-7_2:
+    machine:
+      image: ubuntu-2204:2022.10.2
+      docker_layer_caching: true
+    resource_class: medium
+    environment:
+      REDIS_VERSION: 7.2.4
+      FRED_CI_TLS: true
+    steps:
+      - test_rustls_cluster_ring
   test-sentinel-7_2:
     machine:
       image: ubuntu-2204:2022.10.2
@@ -265,5 +283,6 @@ workflows:
       - test-misc
       - test-cluster-tls-features-7_2
       - test-cluster-rustls-features-7_2
+      - test-cluster-rustls-ring-features-7_2
       - clippy-lint
       - check-all-interface-features

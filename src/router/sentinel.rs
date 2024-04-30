@@ -217,7 +217,11 @@ async fn discover_primary_node(
     Server {
       host,
       port,
-      #[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+      #[cfg(any(
+        feature = "enable-rustls",
+        feature = "enable-native-tls",
+        feature = "enable-rustls-ring"
+      ))]
       tls_server_name: None,
     }
   };

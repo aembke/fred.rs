@@ -7,7 +7,11 @@ pub mod debug;
 pub mod hashers;
 pub mod responders;
 /// TLS configuration types.
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 pub mod tls;
 pub mod types;
 pub mod utils;

@@ -8,7 +8,11 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
-#[cfg(any(feature = "enable-rustls", feature = "enable-native-tls"))]
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enabled-rustls-ring"
+))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 use futures::TryStreamExt;
 
@@ -45,7 +49,11 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
     },
     username,
     password: argv.auth.clone().or(password),
-    #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+    #[cfg(any(
+      feature = "enable-native-tls",
+      feature = "enable-rustls",
+      feature = "enable-rustls-ring"
+    ))]
     tls: default_tls_config(),
     #[cfg(any(feature = "stdout-tracing", feature = "partial-tracing", feature = "full-tracing"))]
     tracing: TracingConfig::new(argv.tracing),
@@ -114,7 +122,7 @@ pub async fn run(argv: Arc<Argv>, counter: Arc<AtomicUsize>, bar: Option<Progres
 
   info!("Starting commands...");
   let started = SystemTime::now();
-  for _ in 0 .. argv.tasks {
+  for _ in 0..argv.tasks {
     tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
   }
   if let Err(e) = futures::future::try_join_all(tasks).await {
