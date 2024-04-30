@@ -40,23 +40,23 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 ## Features
 
-* Supports Valkey and Redis
+* Supports Valkey and Redis.
 * RESP2 and RESP3 protocol modes.
 * Clustered, centralized, and sentinel Redis deployments.
 * TLS via `native-tls` or `rustls`.
 * Unix sockets.
-* [Efficient automatic pipelining](bin/benchmark)
-* [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
-* Multiple automatic reconnection interfaces.
+* Automatic reconnection interfaces.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
+* A round-robin cluster replica routing interface.
+* Built-in mocking interfaces.
 * Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/)
   or [functions](https://redis.io/docs/interact/programmability/functions-intro/).
 * [Transactions](https://redis.io/docs/interact/transactions/)
 * [Pipelining](https://redis.io/topics/pipelining)
 * [Client Tracking](https://redis.io/docs/manual/client-side-caching/)
-* A [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.
-* A round-robin cluster replica routing interface**.
+* [Efficient automatic pipelining](bin/benchmark)
+* [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
 * [Tracing](https://github.com/tokio-rs/tracing)
 
 See the build features for more information.

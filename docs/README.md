@@ -63,8 +63,8 @@ reduces the impact of RTT much more effectively than
 4. Task B reads command response 2 from server.
 
 and the effect becomes even more pronounced as concurrency (the number of tasks) increases, at least until other
-bottlenecks kick in. You'll often see me describe this as "pipelining across tasks", whereas most client pipelining
-interfaces control pipelining within a task.
+bottlenecks kick in. Elsewhere in the docs this is called "pipelining across tasks", whereas most client pipelining
+interfaces can only control pipelining within a task.
 
 A diagram may explain this better:
 
@@ -163,6 +163,8 @@ In order for the reader task to respond to the caller in the Axum task we need a
 sender half to move between the router task and the reader task that receives the response.
 An [`Arc<SegQueue>`](https://docs.rs/crossbeam-queue/latest/crossbeam_queue/struct.SegQueue.html) is shared between the
 router and each reader task to support this.
+
+The rest of this document is intended for potential contributors looking to change the inner interfaces.
 
 ## Connections
 
