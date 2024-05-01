@@ -1,3 +1,8 @@
+## 9.0.3
+
+* Fix `bytes_utils` min version
+* Fix rustls reexports with `enable-rustls-ring`.
+
 ## 9.0.2
 
 * Add `enable-rustls-ring` feature flag
