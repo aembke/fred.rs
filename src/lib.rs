@@ -30,11 +30,11 @@ pub extern crate bytes_utils;
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
 pub extern crate native_tls;
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
 pub extern crate rustls;
-#[cfg(feature = "enable-rustls")]
-#[cfg_attr(docsrs, doc(cfg(feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+#[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
 pub extern crate rustls_native_certs;
 #[cfg(feature = "serde-json")]
 pub extern crate serde_json;
