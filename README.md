@@ -42,7 +42,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 * Supports Valkey and Redis.
 * RESP2 and RESP3 protocol modes.
-* Clustered, centralized, and sentinel Redis deployments.
+* Clustered, centralized, and sentinel server deployments.
 * TLS via `native-tls` or `rustls`.
 * Unix sockets.
 * Automatic reconnection interfaces.
@@ -61,7 +61,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 See the build features for more information.
 
-## Build Features
+## Client Features
 
 | Name                      | Default | Description                                                                                                                                                         |
 |---------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -89,8 +89,8 @@ See the build features for more information.
 
 ## Interface Features
 
-The Redis interface has many functions and compile times can add up quickly. Interface features begin with `i-` and
-control which public interfaces are built.
+The Redis interface has many command functions and compile times can add up quickly. Interface features begin with `i-`
+and control which public interfaces are built.
 
 | Name            | Default | Description                                                                                                   |
 |-----------------|---------|---------------------------------------------------------------------------------------------------------------|

@@ -52,7 +52,7 @@ async-trait = { version = "0.1" }
 base64 = "0.22.0"
 subprocess = "0.2"
 pretty_env_logger = "0.5"
-serde = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 axum = { version = "0.7", features = ["macros"] }
 
@@ -181,7 +181,7 @@ i-tracking = ["i-client", "i-pubsub"]
 # Redis Stack Interfaces
 i-redis-stack = ["i-redis-json", "i-time-series", "i-redisearch"]
 i-redis-json = ["serde-json"]
-i-redisearch = []
+i-redisearch = ["i-sorted-sets", "i-geo"]
 i-time-series = []
 # Debugging Features
 debug-ids = []

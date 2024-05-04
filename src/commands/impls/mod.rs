@@ -68,6 +68,7 @@ macro_rules! ok_cmd(
   }
 );
 
+// TODO clean this up
 /// Macro to generate a command function that takes no arguments and returns a single `RedisValue` to the caller.
 macro_rules! simple_cmd(
   ($name:ident, $cmd:tt, $res:ty) => {

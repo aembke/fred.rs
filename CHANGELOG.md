@@ -1,7 +1,7 @@
 ## 9.1.0
 
 * Add [RediSearch](https://github.com/RediSearch/RediSearch) interface.
-* Adapt tests and CI to run against both Redis and Valkey
+* Adapt testing and CI processes for both Redis and Valkey
 
 ## 9.0.3
 
