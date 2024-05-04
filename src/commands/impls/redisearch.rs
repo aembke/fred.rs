@@ -4,10 +4,12 @@ use crate::{
   interfaces::ClientLike,
   protocol::{command::RedisCommandKind, utils as protocol_utils},
   types::{
+    AggregateOperation,
     FtAggregateOptions,
     FtAlterOptions,
     FtCreateOptions,
     FtSearchOptions,
+    Load,
     MultipleStrings,
     RedisKey,
     RedisValue,
@@ -18,7 +20,6 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
-use std::os::macos::raw::stat;
 
 static DD: &str = "DD";
 static DIALECT: &str = "DIALECT";
@@ -59,9 +60,104 @@ static EXPLAINSCORE: &str = "EXPLAINSCORE";
 static SORTBY: &str = "SORTBY";
 static PARAMS: &str = "PARAMS";
 static WITHCOUNT: &str = "WITHCOUNT";
+static LOAD: &str = "LOAD";
+static WITHCURSOR: &str = "WITHCURSOR";
+static MAXIDLE: &str = "MAXIDLE";
+static APPLY: &str = "APPLY";
+static GROUPBY: &str = "GROUPBY";
+static REDUCE: &str = "REDUCE";
+
+fn gen_aggregate_op(args: &mut Vec<RedisValue>, operation: AggregateOperation) -> Result<(), RedisError> {
+  match operation {
+    AggregateOperation::Filter { expression } => {
+      args.extend([static_val!(FILTER), expression.into()]);
+    },
+    AggregateOperation::Limit { offset, num } => {
+      args.extend([static_val!(LIMIT), offset.try_into()?, num.try_into()?]);
+    },
+    AggregateOperation::Apply { expression, name } => {
+      args.extend([static_val!(APPLY), expression.into(), static_val!(AS), name.into()]);
+    },
+    AggregateOperation::SortBy { properties, max } => {
+      args.extend([static_val!(SORTBY), properties.len().try_into()?]);
+      for (property, order) in properties.into_iter() {
+        args.extend([property.into(), order.to_str().into()]);
+      }
+      if let Some(max) = max {
+        args.extend([static_val!(MAX), max.try_into()?]);
+      }
+    },
+    AggregateOperation::GroupBy { fields, reducers } => {
+      args.extend([static_val!(GROUPBY), fields.len().try_into()?]);
+      args.extend(fields.into_iter().map(|f| f.into()));
+
+      for reducer in reducers.into_iter() {
+        args.extend([
+          static_val!(REDUCE),
+          static_val!(reducer.func.to_str()),
+          reducer.args.len().try_into()?,
+        ]);
+        args.extend(reducer.args.into_iter().map(|a| a.into()));
+        if let Some(name) = reducer.name {
+          args.extend([static_val!(AS), name.into()]);
+        }
+      }
+    },
+  };
+
+  Ok(())
+}
 
 fn gen_aggregate_options(args: &mut Vec<RedisValue>, options: FtAggregateOptions) -> Result<(), RedisError> {
-  unimplemented!()
+  if options.verbatim {
+    args.push(static_val!(VERBATIM));
+  }
+  if let Some(load) = options.load {
+    match load {
+      Load::All => {
+        args.push(static_val!(LOAD));
+        args.push(static_val!("*"));
+      },
+      Load::Some(fields) => {
+        if !fields.is_empty() {
+          args.push(static_val!(LOAD));
+          args.push(fields.len().try_into()?);
+          for field in fields.into_iter() {
+            args.push(field.identifier.into());
+            if let Some(property) = field.property {
+              args.extend([static_val!(AS), property.into()]);
+            }
+          }
+        }
+      },
+    }
+  }
+  if let Some(timeout) = options.timeout {
+    args.extend([static_val!(TIMEOUT), timeout.into()]);
+  }
+  for operation in options.pipeline.into_iter() {
+    gen_aggregate_op(args, operation)?;
+  }
+  if let Some(cursor) = options.cursor {
+    args.push(static_val!(WITHCURSOR));
+    if let Some(count) = cursor.count {
+      args.extend([static_val!(COUNT), count.try_into()?]);
+    }
+    if let Some(idle) = cursor.max_idle {
+      args.extend([static_val!(MAXIDLE), idle.try_into()?]);
+    }
+  }
+  if !options.params.is_empty() {
+    args.extend([static_val!(PARAMS), options.params.len().try_into()?]);
+    for param in options.params.into_iter() {
+      args.extend([param.name.into(), param.value.into()]);
+    }
+  }
+  if let Some(dialect) = options.dialect {
+    args.extend([static_val!(DIALECT), dialect.into()]);
+  }
+
+  Ok(())
 }
 
 fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> Result<(), RedisError> {
@@ -112,8 +208,7 @@ fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> R
     args.extend(options.infields.into_iter().map(|s| s.into()));
   }
   if !options.r#return.is_empty() {
-    args.push(static_val!(_RETURN));
-    args.push(options.r#return.len().try_into()?);
+    args.extend([static_val!(_RETURN), options.r#return.len().try_into()?]);
     for field in options.r#return.into_iter() {
       args.push(field.identifier.into());
       if let Some(property) = field.property {
@@ -154,34 +249,28 @@ fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> R
     }
   }
   if let Some(slop) = options.slop {
-    args.push(static_val!(SLOP));
-    args.push(slop.into());
+    args.extend([static_val!(SLOP), slop.into()]);
   }
   if let Some(timeout) = options.timeout {
-    args.push(static_val!(TIMEOUT));
-    args.push(timeout.into());
+    args.extend([static_val!(TIMEOUT), timeout.into()]);
   }
   if options.inorder {
     args.push(static_val!(INORDER));
   }
   if let Some(language) = options.language {
-    args.push(static_val!(LANGUAGE));
-    args.push(language.into());
+    args.extend([static_val!(LANGUAGE), language.into()]);
   }
   if let Some(expander) = options.expander {
-    args.push(static_val!(EXPANDER));
-    args.push(expander.into());
+    args.extend([static_val!(EXPANDER), expander.into()]);
   }
   if let Some(scorer) = options.scorer {
-    args.push(static_val!(SCORER));
-    args.push(scorer.into());
+    args.extend([static_val!(SCORER), scorer.into()]);
   }
   if options.explainscore {
     args.push(static_val!(EXPLAINSCORE));
   }
   if let Some(payload) = options.payload {
-    args.push(static_val!(PAYLOAD));
-    args.push(RedisValue::Bytes(payload));
+    args.extend([static_val!(PAYLOAD), RedisValue::Bytes(payload)]);
   }
   if let Some(sort) = options.sortby {
     args.push(static_val!(SORTBY));

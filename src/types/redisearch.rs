@@ -52,11 +52,11 @@ pub struct SearchReducer {
   pub name: Option<Str>,
 }
 
-// FT.AGGREGATE books-idx *
-// GROUPBY 1 @published_year
-// REDUCE COUNT 0 AS num_published
-// GROUPBY 0
-// REDUCE MAX 1 @num_published AS max_books_published_per_year
+impl SearchReducer {
+  pub(crate) fn num_args(&self) -> usize {
+    3 + self.args.len() + self.name.as_ref().map(|_| 2).unwrap_or(0)
+  }
+}
 
 /// A search field with an optional property.
 ///
@@ -67,6 +67,12 @@ pub struct SearchField {
   pub property:   Option<Str>,
 }
 
+impl SearchField {
+  pub(crate) fn num_args(&self) -> usize {
+    1 + self.property.as_ref().map(|_| 2).unwrap_or(0)
+  }
+}
+
 /// Arguments to `LOAD` in `FT.AGGREGATE`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Load {
@@ -74,25 +80,11 @@ pub enum Load {
   Some(Vec<SearchField>),
 }
 
-/// Arguments to `SORTBY` in `FT.AGGREGATE`.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SortByProperty {
-  pub properties: Vec<(Str, SortOrder)>,
-  pub max:        Option<u64>,
-}
-
-/// Arguments to `APPLY` in `FT.AGGREGATE`.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Apply {
-  pub expression: Str,
-  pub name:       Str,
-}
-
 /// Arguments for `WITHCURSOR` in `FT.AGGREGATE`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WithCursor {
-  pub count:    u64,
-  pub max_idle: u64,
+  pub count:    Option<u64>,
+  pub max_idle: Option<u64>,
 }
 
 /// Arguments for `PARAMS` in `FT.AGGREGATE`.
@@ -102,18 +94,58 @@ pub struct SearchParameter {
   pub value: Str,
 }
 
+/// An aggregation operation used in `FT.AGGREGATE`.
+///
+/// <https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/aggregations/>
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AggregateOperation {
+  Filter {
+    expression: Str,
+  },
+  GroupBy {
+    /// An empty array is equivalent to `GROUPBY 0`
+    fields:   Vec<Str>,
+    reducers: Vec<SearchReducer>,
+  },
+  Apply {
+    expression: Str,
+    name:       Str,
+  },
+  SortBy {
+    properties: Vec<(Str, SortOrder)>,
+    max:        Option<u64>,
+  },
+  Limit {
+    offset: u64,
+    num:    u64,
+  },
+}
+
+impl AggregateOperation {
+  pub(crate) fn num_args(&self) -> usize {
+    match self {
+      AggregateOperation::Filter { .. } => 2,
+      AggregateOperation::Limit { .. } => 3,
+      AggregateOperation::Apply { .. } => 4,
+      AggregateOperation::SortBy { max, properties, .. } => {
+        2 + (properties.len() * 2) + max.as_ref().map(|_| 2).unwrap_or(0)
+      },
+      AggregateOperation::GroupBy { fields, reducers } => {
+        2 + fields.len() + reducers.iter().fold(0, |m, r| m + r.num_args())
+      },
+    }
+  }
+}
+
 /// Arguments to the `FT.AGGREGATE` command.
+///
+/// <https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/aggregations/>
 #[derive(Clone, Debug, Default)]
 pub struct FtAggregateOptions {
   pub verbatim: bool,
   pub load:     Option<Load>,
   pub timeout:  Option<i64>,
-  pub group_by: Vec<Str>,
-  pub reduce:   Vec<SearchReducer>,
-  pub sort_by:  Option<SortByProperty>,
-  pub apply:    Vec<Apply>,
-  pub limit:    Option<Limit>,
-  pub filter:   Option<Str>,
+  pub pipeline: Vec<AggregateOperation>,
   pub cursor:   Option<WithCursor>,
   pub params:   Vec<SearchParameter>,
   pub dialect:  Option<i64>,
@@ -129,17 +161,30 @@ impl FtAggregateOptions {
       count += 1
         + match load {
           Load::All => 1,
-          Load::Some(ref v) => 1 + v.len(),
+          Load::Some(ref v) => 1 + v.iter().fold(0, |m, f| m + f.num_args()),
         };
     }
     if self.timeout.is_some() {
       count += 2;
     }
-    if !self.group_by.is_empty() {
-      count += 2 + self.group_by.len();
+    count += self.pipeline.iter().fold(0, |m, op| m + op.num_args());
+    if let Some(ref cursor) = self.cursor {
+      count += 1;
+      if cursor.count.is_some() {
+        count += 2;
+      }
+      if cursor.max_idle.is_some() {
+        count += 2;
+      }
+    }
+    if !self.params.is_empty() {
+      count += 2 + self.params.len() * 2;
+    }
+    if self.dialect.is_some() {
+      count += 2;
     }
 
-    unimplemented!()
+    count
   }
 }
 
