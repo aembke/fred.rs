@@ -10,6 +10,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::new_without_default)]
+#![allow(clippy::assigning_clones)]
 #![warn(clippy::large_types_passed_by_value)]
 #![warn(clippy::large_stack_frames)]
 #![warn(clippy::large_futures)]
@@ -155,8 +156,22 @@ pub mod prelude {
     error::{RedisError, RedisErrorKind},
     interfaces::*,
     types::{
-      Blocking, Builder, ConnectionConfig, Expiration, FromRedis, Options, PerformanceConfig, ReconnectPolicy,
-      RedisConfig, RedisKey, RedisValue, RedisValueKind, Server, ServerConfig, SetOptions, TcpConfig,
+      Blocking,
+      Builder,
+      ConnectionConfig,
+      Expiration,
+      FromRedis,
+      Options,
+      PerformanceConfig,
+      ReconnectPolicy,
+      RedisConfig,
+      RedisKey,
+      RedisValue,
+      RedisValueKind,
+      Server,
+      ServerConfig,
+      SetOptions,
+      TcpConfig,
     },
   };
 

@@ -1,5 +1,5 @@
 use crate::{
-  commands::{args_values_cmd, one_arg_values_cmd, COUNT, LEN, LIMIT, WITHCODE},
+  commands::{args_values_cmd, one_arg_values_cmd, COUNT, LEN, LIMIT},
   error::RedisError,
   interfaces::ClientLike,
   protocol::{command::RedisCommandKind, utils as protocol_utils},
@@ -14,6 +14,7 @@ use crate::{
     RedisKey,
     RedisValue,
     SearchSchema,
+    SearchSchemaKind,
     SpellcheckTerms,
   },
   utils,
@@ -66,6 +67,37 @@ static MAXIDLE: &str = "MAXIDLE";
 static APPLY: &str = "APPLY";
 static GROUPBY: &str = "GROUPBY";
 static REDUCE: &str = "REDUCE";
+static ON: &str = "ON";
+static HASH: &str = "HASH";
+static JSON: &str = "JSON";
+static PREFIX: &str = "PREFIX";
+static LANGUAGE_FIELD: &str = "LANGUAGE_FIELD";
+static SCORE: &str = "SCORE";
+static SCORE_FIELD: &str = "SCORE_FIELD";
+static PAYLOAD_FIELD: &str = "PAYLOAD_FIELD";
+static MAXTEXTFIELDS: &str = "MAXTEXTFIELDS";
+static TEMPORARY: &str = "TEMPORARY";
+static NOOFFSETS: &str = "NOOFFSETS";
+static NOHL: &str = "NOHL";
+static NOFIELDS: &str = "NOFIELDS";
+static NOFREQS: &str = "NOFREQS";
+static STOPWORDS: &str = "STOPWORDS";
+static SCHEMA: &str = "SCHEMA";
+static ADD: &str = "ADD";
+static SORTABLE: &str = "SORTABLE";
+static UNF: &str = "UNF";
+static NOINDEX: &str = "NOINDEX";
+static NOSTEM: &str = "NOSTEM";
+static PHONETIC: &str = "PHONETIC";
+static WEIGHT: &str = "WEIGHT";
+static CASESENSITIVE: &str = "CASESENSITIVE";
+static WITHSUFFIXTRIE: &str = "WITHSUFFIXTRIE";
+static TEXT: &str = "TEXT";
+static TAG: &str = "TAG";
+static NUMERIC: &str = "NUMERIC";
+static GEO: &str = "GEO";
+static VECTOR: &str = "VECTOR";
+static GEOSHAPE: &str = "GEOSHAPE";
 
 fn gen_aggregate_op(args: &mut Vec<RedisValue>, operation: AggregateOperation) -> Result<(), RedisError> {
   match operation {
@@ -115,13 +147,11 @@ fn gen_aggregate_options(args: &mut Vec<RedisValue>, options: FtAggregateOptions
   if let Some(load) = options.load {
     match load {
       Load::All => {
-        args.push(static_val!(LOAD));
-        args.push(static_val!("*"));
+        args.extend([static_val!(LOAD), static_val!("*")]);
       },
       Load::Some(fields) => {
         if !fields.is_empty() {
-          args.push(static_val!(LOAD));
-          args.push(fields.len().try_into()?);
+          args.extend([static_val!(LOAD), fields.len().try_into()?]);
           for field in fields.into_iter() {
             args.push(field.identifier.into());
             if let Some(property) = field.property {
@@ -299,16 +329,187 @@ fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> R
   Ok(())
 }
 
+fn gen_schema_kind(args: &mut Vec<RedisValue>, kind: SearchSchemaKind) -> Result<(), RedisError> {
+  match kind {
+    SearchSchemaKind::Custom { name, arguments } => {
+      args.push(name.into());
+      args.extend(arguments);
+    },
+    SearchSchemaKind::GeoShape { noindex } => {
+      args.push(static_val!(GEOSHAPE));
+      if noindex {
+        args.push(static_val!(NOINDEX));
+      }
+    },
+    SearchSchemaKind::Vector { noindex } => {
+      args.push(static_val!(VECTOR));
+      if noindex {
+        args.push(static_val!(NOINDEX));
+      }
+    },
+    SearchSchemaKind::Geo { sortable, unf, noindex } => {
+      args.push(static_val!(GEO));
+      if sortable {
+        args.push(static_val!(SORTABLE));
+      }
+      if unf {
+        args.push(static_val!(UNF));
+      }
+      if noindex {
+        args.push(static_val!(NOINDEX));
+      }
+    },
+    SearchSchemaKind::Numeric { sortable, unf, noindex } => {
+      args.push(static_val!(NUMERIC));
+      if sortable {
+        args.push(static_val!(SORTABLE));
+      }
+      if unf {
+        args.push(static_val!(UNF));
+      }
+      if noindex {
+        args.push(static_val!(NOINDEX));
+      }
+    },
+    SearchSchemaKind::Tag {
+      sortable,
+      unf,
+      separator,
+      casesensitive,
+      withsuffixtrie,
+      noindex,
+    } => {
+      args.push(static_val!(TAG));
+      if sortable {
+        args.push(static_val!(SORTABLE));
+      }
+      if unf {
+        args.push(static_val!(UNF));
+      }
+      if let Some(separator) = separator {
+        args.extend([static_val!(SEPARATOR), separator.to_string().into()]);
+      }
+      if casesensitive {
+        args.push(static_val!(CASESENSITIVE));
+      }
+      if withsuffixtrie {
+        args.push(static_val!(WITHSUFFIXTRIE));
+      }
+      if noindex {
+        args.push(static_val!(NOINDEX));
+      }
+    },
+    SearchSchemaKind::Text {
+      sortable,
+      unf,
+      nostem,
+      phonetic,
+      weight,
+      withsuffixtrie,
+      noindex,
+    } => {
+      args.push(static_val!(TEXT));
+      if sortable {
+        args.push(static_val!(SORTABLE));
+      }
+      if unf {
+        args.push(static_val!(UNF));
+      }
+      if nostem {
+        args.push(static_val!(NOSTEM));
+      }
+      if let Some(matcher) = phonetic {
+        args.extend([static_val!(PHONETIC), matcher.into()]);
+      }
+      if let Some(weight) = weight {
+        args.extend([static_val!(WEIGHT), weight.into()]);
+      }
+      if withsuffixtrie {
+        args.push(static_val!(WITHSUFFIXTRIE));
+      }
+      if noindex {
+        args.push(static_val!(NOINDEX));
+      }
+    },
+  };
+
+  Ok(())
+}
+
 fn gen_alter_options(args: &mut Vec<RedisValue>, options: FtAlterOptions) -> Result<(), RedisError> {
-  unimplemented!()
+  if options.skipinitialscan {
+    args.push(static_val!(SKIPINITIALSCAN));
+  }
+  args.extend([static_val!(SCHEMA), static_val!(ADD), options.attribute.into()]);
+  gen_schema_kind(args, options.options)?;
+
+  Ok(())
 }
 
 fn gen_create_options(args: &mut Vec<RedisValue>, options: FtCreateOptions) -> Result<(), RedisError> {
-  unimplemented!()
+  if let Some(kind) = options.on {
+    args.extend([static_val!(ON), kind.to_str().into()]);
+  }
+  if !options.prefixes.is_empty() {
+    args.extend([static_val!(PREFIX), options.prefixes.len().try_into()?]);
+    args.extend(options.prefixes.into_iter().map(|s| s.into()));
+  }
+  if let Some(filter) = options.filter {
+    args.extend([static_val!(FILTER), filter.into()]);
+  }
+  if let Some(language) = options.language {
+    args.extend([static_val!(LANGUAGE), language.into()]);
+  }
+  if let Some(language_field) = options.language_field {
+    args.extend([static_val!(LANGUAGE_FIELD), language_field.into()]);
+  }
+  if let Some(score) = options.score {
+    args.extend([static_val!(SCORE), score.try_into()?]);
+  }
+  if let Some(score_field) = options.score_field {
+    args.extend([static_val!(SCORE_FIELD), score_field.try_into()?]);
+  }
+  if let Some(payload_field) = options.payload_field {
+    args.extend([static_val!(PAYLOAD_FIELD), payload_field.into()]);
+  }
+  if options.maxtextfields {
+    args.push(static_val!(MAXTEXTFIELDS));
+  }
+  if let Some(temporary) = options.temporary {
+    args.extend([static_val!(TEMPORARY), temporary.try_into()?]);
+  }
+  if options.nooffsets {
+    args.push(static_val!(NOOFFSETS));
+  }
+  if options.nohl {
+    args.push(static_val!(NOHL));
+  }
+  if options.nofields {
+    args.push(static_val!(NOFIELDS));
+  }
+  if options.nofreqs {
+    args.push(static_val!(NOFREQS));
+  }
+  if !options.stopwords.is_empty() {
+    args.extend([static_val!(STOPWORDS), options.stopwords.len().try_into()?]);
+    args.extend(options.stopwords.into_iter().map(|s| s.into()));
+  }
+  if options.skipinitialscan {
+    args.push(static_val!(SKIPINITIALSCAN));
+  }
+
+  Ok(())
 }
 
+// does not include the prefix SCHEMA
 fn gen_schema_args(args: &mut Vec<RedisValue>, options: SearchSchema) -> Result<(), RedisError> {
-  unimplemented!()
+  args.push(options.field_name.into());
+  if let Some(alias) = options.alias {
+    args.extend([static_val!(AS), alias.into()]);
+  }
+  gen_schema_kind(args, options.kind)?;
+
+  Ok(())
 }
 
 pub async fn ft_list<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
@@ -342,8 +543,7 @@ pub async fn ft_search<C: ClientLike>(
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + options.num_args());
-    args.push(index.into());
-    args.push(query.into());
+    args.extend([index.into(), query.into()]);
     gen_search_options(&mut args, options)?;
 
     Ok((RedisCommandKind::FtSearch, args))
@@ -365,6 +565,7 @@ pub async fn ft_create<C: ClientLike>(
     args.push(index.into());
     gen_create_options(&mut args, options)?;
 
+    args.push(static_val!(SCHEMA));
     for schema in schema.into_iter() {
       gen_schema_args(&mut args, schema)?;
     }
@@ -552,8 +753,7 @@ pub async fn ft_spellcheck<C: ClientLike>(
       }
     }
     if let Some(dialect) = dialect {
-      args.push(static_val!(DIALECT));
-      args.push(dialect.into());
+      args.extend([static_val!(DIALECT), dialect.into()]);
     }
 
     Ok((RedisCommandKind::FtSpellCheck, args))
@@ -573,16 +773,13 @@ pub async fn ft_sugadd<C: ClientLike>(
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
-    args.push(key.into());
-    args.push(string.into());
-    args.push(score.try_into()?);
+    args.extend([key.into(), string.into(), score.try_into()?]);
 
     if incr {
       args.push(static_val!(INCR));
     }
     if let Some(payload) = payload {
-      args.push(static_val!(PAYLOAD));
-      args.push(RedisValue::Bytes(payload));
+      args.extend([static_val!(PAYLOAD), RedisValue::Bytes(payload)]);
     }
 
     Ok((RedisCommandKind::FtSugAdd, args))
@@ -619,8 +816,7 @@ pub async fn ft_sugget<C: ClientLike>(
       args.push(static_val!(WITHPAYLOADS));
     }
     if let Some(max) = max {
-      args.push(static_val!(MAX));
-      args.push(max.try_into()?);
+      args.extend([static_val!(MAX), max.try_into()?]);
     }
 
     Ok((RedisCommandKind::FtSugGet, args))

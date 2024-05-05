@@ -27,10 +27,6 @@ async fn main() -> Result<(), RedisError> {
   // or use turbofish to declare response types
   println!("Foo: {:?}", client.get::<String, _>("foo").await?);
 
-  // or use a lower level interface for responses to defer parsing, etc
-  let foo: RedisValue = client.get("foo").await?;
-  assert_eq!(foo.as_str().unwrap(), "bar");
-
   client.quit().await?;
   Ok(())
 }
@@ -114,7 +110,7 @@ and control which public interfaces are built.
 | `i-slowlog`     |         | Enable the SLOWLOG interface.                                                                                 |
 | `i-streams`     |         | Enable the streams (XADD, etc) interface.                                                                     |
 | `i-tracking`    |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                      |
-| `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/).  interface.                        |
+| `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/)  interface.                         |
 | `i-redis-json`  |         | Enable a [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.                                       |
 | `i-redisearch`  |         | Enable a [RediSearch](https://github.com/RediSearch/RediSearch) interface.                                    |
 | `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc).   |

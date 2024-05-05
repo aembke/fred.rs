@@ -1824,7 +1824,6 @@ impl RedisCommand {
     }
   }
 
-  ///
   pub fn decr_check_redirections(&mut self) -> Result<(), RedisError> {
     if self.redirections_remaining == 0 {
       Err(RedisError::new(RedisErrorKind::Unknown, "Too many redirections."))
