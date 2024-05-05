@@ -1,6 +1,21 @@
-use crate::types::{GeoPosition, GeoUnit, Limit, RedisKey, RedisValue, SortOrder, ZRange};
+use crate::{
+  types::{GeoPosition, GeoUnit, Limit, RedisKey, RedisValue, SortOrder, ZRange},
+  utils,
+};
 use bytes::Bytes;
 use bytes_utils::Str;
+
+fn bool_args(b: bool) -> usize {
+  if b {
+    1
+  } else {
+    0
+  }
+}
+
+fn named_opt_args<T>(opt: &Option<T>) -> usize {
+  opt.as_ref().map(|_| 2).unwrap_or(0)
+}
 
 /// `GROUPBY` reducer functions.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,7 +69,7 @@ pub struct SearchReducer {
 
 impl SearchReducer {
   pub(crate) fn num_args(&self) -> usize {
-    3 + self.args.len() + self.name.as_ref().map(|_| 2).unwrap_or(0)
+    3 + self.args.len() + named_opt_args(&self.name)
   }
 }
 
@@ -69,7 +84,7 @@ pub struct SearchField {
 
 impl SearchField {
   pub(crate) fn num_args(&self) -> usize {
-    1 + self.property.as_ref().map(|_| 2).unwrap_or(0)
+    1 + named_opt_args(&self.property)
   }
 }
 
@@ -127,9 +142,7 @@ impl AggregateOperation {
       AggregateOperation::Filter { .. } => 2,
       AggregateOperation::Limit { .. } => 3,
       AggregateOperation::Apply { .. } => 4,
-      AggregateOperation::SortBy { max, properties, .. } => {
-        2 + (properties.len() * 2) + max.as_ref().map(|_| 2).unwrap_or(0)
-      },
+      AggregateOperation::SortBy { max, properties, .. } => 2 + (properties.len() * 2) + named_opt_args(max),
       AggregateOperation::GroupBy { fields, reducers } => {
         2 + fields.len() + reducers.iter().fold(0, |m, r| m + r.num_args())
       },
@@ -154,9 +167,7 @@ pub struct FtAggregateOptions {
 impl FtAggregateOptions {
   pub(crate) fn num_args(&self) -> usize {
     let mut count = 0;
-    if self.verbatim {
-      count += 1;
-    }
+    count += bool_args(self.verbatim);
     if let Some(ref load) = self.load {
       count += 1
         + match load {
@@ -164,25 +175,15 @@ impl FtAggregateOptions {
           Load::Some(ref v) => 1 + v.iter().fold(0, |m, f| m + f.num_args()),
         };
     }
-    if self.timeout.is_some() {
-      count += 2;
-    }
+    count += named_opt_args(&self.timeout);
     count += self.pipeline.iter().fold(0, |m, op| m + op.num_args());
     if let Some(ref cursor) = self.cursor {
-      count += 1;
-      if cursor.count.is_some() {
-        count += 2;
-      }
-      if cursor.max_idle.is_some() {
-        count += 2;
-      }
+      count += 1 + named_opt_args(&cursor.count) + named_opt_args(&cursor.max_idle);
     }
     if !self.params.is_empty() {
       count += 2 + self.params.len() * 2;
     }
-    if self.dialect.is_some() {
-      count += 2;
-    }
+    count += named_opt_args(&self.dialect);
 
     count
   }
@@ -268,24 +269,12 @@ pub struct FtSearchOptions {
 impl FtSearchOptions {
   pub(crate) fn num_args(&self) -> usize {
     let mut count = 0;
-    if self.nocontent {
-      count += 1;
-    }
-    if self.verbatim {
-      count += 1;
-    }
-    if self.nostopwords {
-      count += 1;
-    }
-    if self.withscores {
-      count += 1;
-    }
-    if self.withpayloads {
-      count += 1;
-    }
-    if self.withsortkeys {
-      count += 1;
-    }
+    count += bool_args(self.nocontent);
+    count += bool_args(self.verbatim);
+    count += bool_args(self.nostopwords);
+    count += bool_args(self.withscores);
+    count += bool_args(self.withpayloads);
+    count += bool_args(self.withsortkeys);
     count += self.filters.len() * 4;
     count += self.geofilters.len() * 6;
     if !self.inkeys.is_empty() {
@@ -305,15 +294,9 @@ impl FtSearchOptions {
       if !summarize.fields.is_empty() {
         count += 2 + summarize.fields.len();
       }
-      if summarize.frags.is_some() {
-        count += 2;
-      }
-      if summarize.len.is_some() {
-        count += 2;
-      }
-      if summarize.separator.is_some() {
-        count += 2;
-      }
+      count += named_opt_args(&summarize.frags);
+      count += named_opt_args(&summarize.len);
+      count += named_opt_args(&summarize.separator);
     }
     if let Some(ref highlight) = self.highlight {
       count += 1;
@@ -324,32 +307,16 @@ impl FtSearchOptions {
         count += 3;
       }
     }
-    if self.slop.is_some() {
-      count += 2;
-    }
-    if self.timeout.is_some() {
-      count += 2;
-    }
-    if self.inorder {
-      count += 1;
-    }
-    if self.language.is_some() {
-      count += 2;
-    }
-    if self.expander.is_some() {
-      count += 2;
-    }
-    if self.scorer.is_some() {
-      count += 2;
-    }
-    if self.explainscore {
-      count += 1;
-    }
-    if self.payload.is_some() {
-      count += 2;
-    }
+    count += named_opt_args(&self.slop);
+    count += named_opt_args(&self.timeout);
+    count += bool_args(self.inorder);
+    count += named_opt_args(&self.language);
+    count += named_opt_args(&self.expander);
+    count += named_opt_args(&self.scorer);
+    count += bool_args(self.explainscore);
+    count += named_opt_args(&self.payload);
     if let Some(ref sort) = self.sortby {
-      count += 2 + if sort.order.is_some() { 1 } else { 0 } + if sort.withcount { 1 } else { 0 };
+      count += 2 + if sort.order.is_some() { 1 } else { 0 } + bool_args(sort.withcount)
     }
     if self.limit.is_some() {
       count += 3;
@@ -357,9 +324,7 @@ impl FtSearchOptions {
     if !self.params.is_empty() {
       count += 2 + self.params.len() * 2;
     }
-    if self.dialect.is_some() {
-      count += 2;
-    }
+    count += named_opt_args(&self.dialect);
     count
   }
 }
@@ -367,8 +332,17 @@ impl FtSearchOptions {
 /// Index arguments for `FT.CREATE`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndexKind {
-  OnHash,
+  Hash,
   JSON,
+}
+
+impl IndexKind {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match self {
+      IndexKind::JSON => "JSON",
+      IndexKind::Hash => "HASH",
+    })
+  }
 }
 
 /// Arguments for `FT.CREATE`.
@@ -395,54 +369,26 @@ pub struct FtCreateOptions {
 impl FtCreateOptions {
   pub(crate) fn num_args(&self) -> usize {
     let mut count = 0;
-    if self.on.is_some() {
-      count += 2;
-    }
+    count += named_opt_args(&self.on);
     if !self.prefixes.is_empty() {
       count += 2 + self.prefixes.len();
     }
-    if self.filter.is_some() {
-      count += 2;
-    }
-    if self.language.is_some() {
-      count += 2;
-    }
-    if self.language_field.is_some() {
-      count += 2;
-    }
-    if self.score.is_some() {
-      count += 2;
-    }
-    if self.score_field.is_some() {
-      count += 2;
-    }
-    if self.payload_field.is_some() {
-      count += 2;
-    }
-    if self.maxtextfields {
-      count += 1;
-    }
-    if self.temporary.is_some() {
-      count += 2;
-    }
-    if self.nooffsets {
-      count += 1;
-    }
-    if self.nohl {
-      count += 1;
-    }
-    if self.nofields {
-      count += 1;
-    }
-    if self.nofreqs {
-      count += 1;
-    }
+    count += named_opt_args(&self.filter);
+    count += named_opt_args(&self.language);
+    count += named_opt_args(&self.language_field);
+    count += named_opt_args(&self.score);
+    count += named_opt_args(&self.score_field);
+    count += named_opt_args(&self.payload_field);
+    count += bool_args(self.maxtextfields);
+    count += named_opt_args(&self.temporary);
+    count += bool_args(self.nooffsets);
+    count += bool_args(self.nohl);
+    count += bool_args(self.nofields);
+    count += bool_args(self.nofreqs);
     if !self.stopwords.is_empty() {
       count += 2 + self.stopwords.len();
     }
-    if self.skipinitialscan {
-      count += 1;
-    }
+    count += bool_args(self.skipinitialscan);
 
     count
   }
@@ -455,7 +401,7 @@ pub enum SearchSchemaKind {
     sortable:       bool,
     unf:            bool,
     nostem:         bool,
-    phonetic:       bool,
+    phonetic:       Option<Str>,
     weight:         Option<i64>,
     withsuffixtrie: bool,
     noindex:        bool,
@@ -485,14 +431,52 @@ pub enum SearchSchemaKind {
     noindex: bool,
   },
   Custom {
-    name: Str,
-    args: Vec<RedisValue>,
+    name:      Str,
+    arguments: Vec<RedisValue>,
   },
 }
 
 impl SearchSchemaKind {
   pub(crate) fn num_args(&self) -> usize {
-    unimplemented!()
+    match self {
+      SearchSchemaKind::Custom { arguments, .. } => 1 + arguments.len(),
+      SearchSchemaKind::GeoShape { noindex } | SearchSchemaKind::Vector { noindex } => 1 + bool_args(*noindex),
+      SearchSchemaKind::Geo { sortable, unf, noindex } | SearchSchemaKind::Numeric { sortable, unf, noindex } => {
+        1 + bool_args(*sortable) + bool_args(*unf) + bool_args(*noindex)
+      },
+      SearchSchemaKind::Tag {
+        sortable,
+        unf,
+        separator,
+        casesensitive,
+        withsuffixtrie,
+        noindex,
+      } => {
+        1 + bool_args(*sortable)
+          + bool_args(*unf)
+          + named_opt_args(separator)
+          + bool_args(*casesensitive)
+          + bool_args(*withsuffixtrie)
+          + bool_args(*noindex)
+      },
+      SearchSchemaKind::Text {
+        sortable,
+        unf,
+        nostem,
+        phonetic,
+        weight,
+        withsuffixtrie,
+        noindex,
+      } => {
+        1 + bool_args(*sortable)
+          + bool_args(*unf)
+          + bool_args(*nostem)
+          + named_opt_args(phonetic)
+          + named_opt_args(weight)
+          + bool_args(*withsuffixtrie)
+          + bool_args(*noindex)
+      },
+    }
   }
 }
 
@@ -506,11 +490,7 @@ pub struct SearchSchema {
 
 impl SearchSchema {
   pub(crate) fn num_args(&self) -> usize {
-    let mut count = 2;
-    if self.alias.is_some() {
-      count += 2;
-    }
-    count + self.kind.num_args()
+    2 + named_opt_args(&self.alias) + self.kind.num_args()
   }
 }
 
@@ -524,12 +504,7 @@ pub struct FtAlterOptions {
 
 impl FtAlterOptions {
   pub(crate) fn num_args(&self) -> usize {
-    // [SKIPINITIALSCAN] SCHEMA ADD {attribute} {options} ...
-    let mut count = 3;
-    if self.skipinitialscan {
-      count += 1;
-    }
-    count + self.options.num_args()
+    3 + bool_args(self.skipinitialscan) + self.options.num_args()
   }
 }
 

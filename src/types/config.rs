@@ -495,7 +495,7 @@ pub struct ConnectionConfig {
   pub replica:                      ReplicaConfig,
   /// TCP connection options.
   pub tcp:                          TcpConfig,
-  ///
+  /// Errors that should trigger reconnection logic.
   #[cfg(feature = "custom-reconnect-errors")]
   #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
   pub reconnect_errors:             Vec<ReconnectError>,
