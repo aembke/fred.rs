@@ -99,6 +99,9 @@ impl StreamsInterface for Replicas {}
 #[cfg(feature = "i-scripts")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl FunctionInterface for Replicas {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl RediSearchInterface for Replicas {}
 
 impl Replicas {
   /// Read a mapping of replica server IDs to primary server IDs.
@@ -118,7 +121,8 @@ impl Replicas {
 
   /// Sync the cached replica routing table with the server(s).
   ///
-  /// If `reset: true` the client will forcefully disconnect from replicas even if the connections could otherwise be reused.
+  /// If `reset: true` the client will forcefully disconnect from replicas even if the connections could otherwise be
+  /// reused.
   pub async fn sync(&self, reset: bool) -> Result<(), RedisError> {
     let (tx, rx) = oneshot_channel();
     let cmd = RouterCommand::SyncReplicas { tx, reset };

@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-A fast and ergonomic async client for Redis and Valkey.
+A fast and ergonomic client for Redis and Valkey.
 
 ## Example
 
@@ -36,7 +36,6 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 
 ## Features
 
-* Supports Valkey and Redis.
 * RESP2 and RESP3 protocol modes.
 * Clustered, centralized, and sentinel server deployments.
 * TLS via `native-tls` or `rustls`.

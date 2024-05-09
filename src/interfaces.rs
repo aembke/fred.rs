@@ -704,6 +704,7 @@ pub use crate::commands::interfaces::redis_json::RedisJsonInterface;
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
 pub use crate::commands::interfaces::redisearch::*;
 #[cfg(feature = "sentinel-client")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub use crate::commands::interfaces::sentinel::SentinelInterface;
 #[cfg(feature = "i-server")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]

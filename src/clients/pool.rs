@@ -23,8 +23,8 @@ use crate::clients::Replicas;
 use crate::protocol::types::Resolve;
 
 struct RedisPoolInner {
-  clients: Vec<RedisClient>,
-  counter: Arc<AtomicUsize>,
+  clients:          Vec<RedisClient>,
+  counter:          Arc<AtomicUsize>,
   prefer_connected: Arc<AtomicBool>,
 }
 
@@ -86,7 +86,7 @@ impl RedisPool {
       Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
     } else {
       let mut clients = Vec::with_capacity(size);
-      for _ in 0..size {
+      for _ in 0 .. size {
         clients.push(RedisClient::new(
           config.clone(),
           perf.clone(),
@@ -132,7 +132,7 @@ impl RedisPool {
   pub fn next_connected(&self) -> &RedisClient {
     let mut idx = utils::incr_atomic(&self.inner.counter) % self.inner.clients.len();
 
-    for _ in 0..self.inner.clients.len() {
+    for _ in 0 .. self.inner.clients.len() {
       let client = &self.inner.clients[idx];
       if client.is_connected() {
         return client;
@@ -370,3 +370,6 @@ impl RedisJsonInterface for RedisPool {}
 #[cfg(feature = "i-time-series")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl TimeSeriesInterface for RedisPool {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl RediSearchInterface for RedisPool {}

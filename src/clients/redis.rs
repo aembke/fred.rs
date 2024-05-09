@@ -129,6 +129,9 @@ impl TrackingInterface for RedisClient {}
 #[cfg(feature = "i-pubsub")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 impl PubsubInterface for RedisClient {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl RediSearchInterface for RedisClient {}
 
 impl RedisClient {
   /// Create a new client instance without connecting to the server.
@@ -325,7 +328,7 @@ impl RedisClient {
     S: Into<Server>,
   {
     WithOptions {
-      client: self.clone(),
+      client:  self.clone(),
       options: Options {
         cluster_node: Some(server.into()),
         ..Default::default()

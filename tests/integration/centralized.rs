@@ -395,3 +395,9 @@ mod timeseries {
   centralized_test!(timeseries, should_madd_and_mrange);
   centralized_test!(timeseries, should_madd_and_mrevrange);
 }
+
+#[cfg(feature = "i-redisearch")]
+mod redisearch {
+  centralized_test!(redisearch, should_list_indexes);
+  centralized_test!(redisearch, should_index_and_info_basic_json);
+}

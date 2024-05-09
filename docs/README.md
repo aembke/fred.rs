@@ -64,11 +64,104 @@ reduces the impact of RTT much more effectively than
 
 and the effect becomes even more pronounced as concurrency (the number of tasks) increases, at least until other
 bottlenecks kick in. Elsewhere in the docs this is called "pipelining across tasks", whereas most client pipelining
-interfaces can only control pipelining within a task.
+interfaces only control pipelining within a task.
 
 A diagram may explain this better:
 
 ![Pipelining](./pipelining.png)
+
+#### No pipelining
+
+```rust
+use fred::prelude::*;
+use tokio::task::JoinSet;
+
+async fn example() {
+  let client = Builder::default_centralized()
+    .with_performance_config(|config| {
+      config.auto_pipeline = false;
+    })
+    .build()
+    .unwrap();
+
+  let mut set = JoinSet::new();
+  for _ in 0..1000 {
+    let client = client.clone();
+    set.spawn(async move {
+      client.incr::<i64, _>("foo").await.unwrap();
+      client.incr::<i64, _>("foo").await.unwrap()
+    });
+  }
+
+  while let Some(val) = set.join_next().await {
+    println!("Result: {val}");
+  }
+}
+```
+
+#### Pipelining within a task
+
+```rust
+use fred::prelude::*;
+use tokio::task::JoinSet;
+
+async fn example() {
+  let client = Builder::default_centralized()
+    .with_performance_config(|config| {
+      config.auto_pipeline = false;
+    })
+    .build()
+    .unwrap();
+
+  let mut set = JoinSet::new();
+  for _ in 0..1000 {
+    let client = client.clone();
+    set.spawn(async move {
+      let pipeline = client.pipeline();
+      pipeline.incr().await.unwrap();
+      pipeline.incr().await.unwrap();
+      pipeline.last::<i64>().await.unwrap()
+    });
+  }
+
+  while let Some(val) = set.join_next().await {
+    println!("Result: {val}");
+  }
+}
+```
+
+#### Pipelining across tasks
+
+```rust
+use fred::prelude::*;
+use tokio::task::JoinSet;
+
+async fn example() {
+  let client = Builder::default_centralized()
+    .with_performance_config(|config| {
+      config.auto_pipeline = true;
+    })
+    .build()
+    .unwrap();
+
+  // with `auto_pipeline: true` no task will wait on another task to recv a response from the server
+  let mut set = JoinSet::new();
+  for _ in 0..1000 {
+    let client = client.clone();
+    set.spawn(async move {
+      // in this case we still want to pipeline commands within the task as well. 
+      let pipeline = client.pipeline();
+      pipeline.incr().await.unwrap();
+      pipeline.incr().await.unwrap();
+      pipeline.last::<i64>().await.unwrap()
+    });
+  }
+
+  while let Some(val) = set.join_next().await {
+    println!("Result: {val}");
+  }
+}
+```
 
 With this model we're not reducing network latency or RTT, but by rarely waiting for the server to respond we
 can pack many more requests on the wire and dramatically increase throughput in high concurrency scenarios. Unlike many
@@ -79,8 +172,8 @@ However, there are some interesting tradeoffs with the optimization described ab
 primary challenge with this strategy is that it requires not only separating write and read operations on the socket,
 but also requires operating on each half of the socket concurrently according to RESP's frame ordering rules.
 
-The `auto_pipeline` flag controls this optimization and the benchmarking results show a significant improvement when
-enabled.
+The `auto_pipeline` flag controls this optimization and the [benchmarking results](../bin/benchmark) show a significant
+improvement when enabled.
 
 ## Technical Overview
 
