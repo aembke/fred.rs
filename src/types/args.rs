@@ -163,14 +163,14 @@ pub struct RedisKey {
 
 impl RedisKey {
   /// Create a new `RedisKey` from static bytes without copying.
-  pub fn from_static(b: &'static [u8]) -> Self {
+  pub const fn from_static(b: &'static [u8]) -> Self {
     RedisKey {
       key: Bytes::from_static(b),
     }
   }
 
   /// Create a new `RedisKey` from a `&'static str` without copying.
-  pub fn from_static_str(b: &'static str) -> Self {
+  pub const fn from_static_str(b: &'static str) -> Self {
     RedisKey {
       key: Bytes::from_static(b.as_bytes()),
     }
@@ -1106,16 +1106,14 @@ impl RedisValue {
 
   /// Convert this value to an array if it's an array or map.
   ///
-  /// If the value is not an array or map this returns a single-element array containing the current value.
+  /// If the value is not an array or map this returns a single-element array containing the original value.
   pub fn into_array(self) -> Vec<RedisValue> {
     match self {
       RedisValue::Array(values) => values,
       RedisValue::Map(map) => {
         let mut out = Vec::with_capacity(map.len() * 2);
-
         for (key, value) in map.inner().into_iter() {
-          out.push(key.into());
-          out.push(value);
+          out.extend([key.into(), value]);
         }
         out
       },

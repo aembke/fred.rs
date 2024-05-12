@@ -27,7 +27,7 @@ Beyond the main README, here's a quick list of things that potential users may w
 * There are many configuration options. Arguably too many. However, I think it's worthwhile to tune most of these
   settings.
 
-See the [benchmark](../bin/benchmark) folder for more info on performance testing.
+See the [benchmark](../bin/benchmark) folder for more info on performance tuning.
 
 ### Background
 
@@ -37,7 +37,8 @@ pipelining optimization described in this section.
 `fred` was originally written with the following use case in mind:
 
 * The app layer's primary throughput bottleneck is RTT to Redis.
-* The app uses different Redis server deployment types, including managed services like Elasticache.
+* The app uses different Redis server deployment types, including managed services like Elasticache. Ideally most code
+  paths could be decoupled from the server deployment model.
 * The app makes frequent use of Tokio concurrency features on a multi-thread runtime. Requests/jobs run in separate
   Tokio tasks.
 * The app uses dependency injection patterns to share a small pool of connections/clients among each of the Tokio tasks.

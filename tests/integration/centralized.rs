@@ -399,6 +399,6 @@ mod timeseries {
 #[cfg(feature = "i-redisearch")]
 mod redisearch {
   centralized_test!(redisearch, should_list_indexes);
-  centralized_test!(redisearch, should_index_and_info_basic_json);
-  centralized_test!(redisearch, should_index_and_search_basic_json);
+  centralized_test!(redisearch, should_index_and_info_basic_hash);
+  centralized_test!(redisearch, should_index_and_search_hash);
 }

@@ -181,7 +181,7 @@ i-tracking = ["i-client", "i-pubsub"]
 # Redis Stack Interfaces
 i-redis-stack = ["i-redis-json", "i-time-series", "i-redisearch"]
 i-redis-json = ["serde-json"]
-i-redisearch = ["i-sorted-sets", "i-geo"]
+i-redisearch = ["i-sorted-sets", "i-geo", "i-hashes"]
 i-time-series = []
 # Debugging Features
 debug-ids = []

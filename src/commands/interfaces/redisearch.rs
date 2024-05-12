@@ -57,6 +57,8 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Search the index with a textual query, returning either documents or just ids.
   ///
   /// <https://redis.io/docs/latest/commands/ft.search/>
+  ///
+  /// Note: `FT.SEARCH` uses a different format in RESP3 mode.
   fn ft_search<R, I, Q>(
     &self,
     index: I,
