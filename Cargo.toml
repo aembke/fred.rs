@@ -49,6 +49,7 @@ trust-dns-resolver = { version = "0.23", optional = true }
 async-trait = { version = "0.1" }
 
 [dev-dependencies]
+maplit = "1.0"
 base64 = "0.22.0"
 subprocess = "0.2"
 pretty_env_logger = "0.5"

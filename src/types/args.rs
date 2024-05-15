@@ -379,7 +379,7 @@ impl RedisMap {
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
     RedisMap {
-      inner: std::mem::take(&mut self.inner),
+      inner: mem::take(&mut self.inner),
     }
   }
 

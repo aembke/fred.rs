@@ -84,35 +84,35 @@ See the build features for more information.
 
 ## Interface Features
 
-The Redis interface has many command functions and compile times can add up quickly. Interface features begin with `i-`
-and control which public interfaces are built.
+The Valkey and Redis interfaces have many command functions and compile times can add up quickly. Interface features
+begin with `i-` and control which public interfaces are built.
 
-| Name            | Default | Description                                                                                                   |
-|-----------------|---------|---------------------------------------------------------------------------------------------------------------|
-| `i-all`         |         | Enable the interfaces included with a basic Redis installation. This does not include `redis-stack` features. |
-| `i-std`         | x       | Enable the common data structure interfaces (lists, sets, streams, keys, etc).                                |
-| `i-acl`         |         | Enable the ACL command interface.                                                                             |
-| `i-client`      |         | Enable the CLIENT command interface.                                                                          |
-| `i-cluster`     |         | Enable the CLUSTER command interface.                                                                         |
-| `i-config`      |         | Enable the CONFIG command interface.                                                                          |
-| `i-geo`         |         | Enable the GEO command interface.                                                                             |
-| `i-hashes`      |         | Enable the hashes (HGET, etc) command interface.                                                              |
-| `i-hyperloglog` |         | Enable the hyperloglog command interface.                                                                     |
-| `i-keys`        |         | Enable the main keys (GET, SET, etc) command interface.                                                       |
-| `i-lists`       |         | Enable the lists (LPUSH, etc) command interface.                                                              |
-| `i-scripts`     |         | Enable the scripting command interfaces.                                                                      |
-| `i-memory`      |         | Enable the MEMORY command interfaces.                                                                         |
-| `i-pubsub`      |         | Enable the publish-subscribe command interfaces.                                                              |
-| `i-server`      |         | Enable the server control (SHUTDOWN, BGSAVE, etc) interfaces.                                                 |
-| `i-sets`        |         | Enable the sets (SADD, etc) interface.                                                                        |
-| `i-sorted-sets` |         | Enable the sorted sets (ZADD, etc) interface.                                                                 |
-| `i-slowlog`     |         | Enable the SLOWLOG interface.                                                                                 |
-| `i-streams`     |         | Enable the streams (XADD, etc) interface.                                                                     |
-| `i-tracking`    |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                      |
-| `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/)  interface.                         |
-| `i-redis-json`  |         | Enable a [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.                                       |
-| `i-redisearch`  |         | Enable a [RediSearch](https://github.com/RediSearch/RediSearch) interface.                                    |
-| `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc).   |
+| Name            | Default | Description                                                                                                               |
+|-----------------|---------|---------------------------------------------------------------------------------------------------------------------------|
+| `i-all`         |         | Enable the interfaces included with a basic Redis or Valkey installation. This does not include `i-redis-stack` features. |
+| `i-std`         | x       | Enable the common data structure interfaces (lists, sets, streams, keys, etc).                                            |
+| `i-acl`         |         | Enable the ACL command interface.                                                                                         |
+| `i-client`      |         | Enable the CLIENT command interface.                                                                                      |
+| `i-cluster`     |         | Enable the CLUSTER command interface.                                                                                     |
+| `i-config`      |         | Enable the CONFIG command interface.                                                                                      |
+| `i-geo`         |         | Enable the GEO command interface.                                                                                         |
+| `i-hashes`      |         | Enable the hashes (HGET, etc) command interface.                                                                          |
+| `i-hyperloglog` |         | Enable the hyperloglog command interface.                                                                                 |
+| `i-keys`        |         | Enable the main keys (GET, SET, etc) command interface.                                                                   |
+| `i-lists`       |         | Enable the lists (LPUSH, etc) command interface.                                                                          |
+| `i-scripts`     |         | Enable the scripting command interfaces.                                                                                  |
+| `i-memory`      |         | Enable the MEMORY command interfaces.                                                                                     |
+| `i-pubsub`      |         | Enable the publish-subscribe command interfaces.                                                                          |
+| `i-server`      |         | Enable the server control (SHUTDOWN, BGSAVE, etc) interfaces.                                                             |
+| `i-sets`        |         | Enable the sets (SADD, etc) interface.                                                                                    |
+| `i-sorted-sets` |         | Enable the sorted sets (ZADD, etc) interface.                                                                             |
+| `i-slowlog`     |         | Enable the SLOWLOG interface.                                                                                             |
+| `i-streams`     |         | Enable the streams (XADD, etc) interface.                                                                                 |
+| `i-tracking`    |         | Enable a [client tracking](https://redis.io/docs/manual/client-side-caching/) interface.                                  |
+| `i-time-series` |         | Enable a [Redis Timeseries](https://redis.io/docs/data-types/timeseries/)  interface.                                     |
+| `i-redis-json`  |         | Enable a [RedisJSON](https://github.com/RedisJSON/RedisJSON) interface.                                                   |
+| `i-redisearch`  |         | Enable a [RediSearch](https://github.com/RediSearch/RediSearch) interface.                                                |
+| `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc).               |
 
 ## Debugging Features
 
