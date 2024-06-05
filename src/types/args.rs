@@ -542,6 +542,18 @@ where
   }
 }
 
+impl<K, V> FromIterator<(K, V)> for RedisMap
+where
+  K: Into<RedisKey>,
+  V: Into<RedisValue>,
+{
+  fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+    Self {
+      inner: HashMap::from_iter(iter.into_iter().map(|(k, v)| (k.into(), v.into()))),
+    }
+  }
+}
+
 /// The kind of value from Redis.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RedisValueKind {
@@ -1687,5 +1699,16 @@ impl TryFrom<Resp3Frame> for RedisValue {
 
   fn try_from(value: Resp3Frame) -> Result<Self, Self::Error> {
     protocol_utils::frame_to_results(value)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn redis_map_from_iter() {
+    let map = [("hello", "world")].into_iter().collect::<RedisMap>();
+    assert_eq!(map.inner[&RedisKey::from("hello")], RedisValue::from("world"));
   }
 }
