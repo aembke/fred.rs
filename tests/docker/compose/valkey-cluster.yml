@@ -13,12 +13,12 @@ services:
       args:
         VALKEY_VERSION: "${VALKEY_VERSION}"
     environment:
-      - 'VALKEY_PORT_NUMBER=${FRED_REDIS_CLUSTER_PORT}'
+      - 'VALKEY_PORT_NUMBER=${FRED_VALKEY_CLUSTER_PORT}'
       - 'VALKEYCLI_AUTH=${REDIS_PASSWORD}'
       - 'VALKEY_NODES=valkey-cluster-1 valkey-cluster-2 valkey-cluster-3 valkey-cluster-4 valkey-cluster-5 valkey-cluster-6'
       - 'VALKEY_ACLFILE=/usr/local/etc/valkey/users.acl'
     ports:
-      - "30001:${FRED_REDIS_CLUSTER_PORT}"
+      - "30001:${FRED_VALKEY_CLUSTER_PORT}"
     networks:
       - fred-tests
     volumes:
@@ -31,12 +31,12 @@ services:
       args:
         VALKEY_VERSION: "${VALKEY_VERSION}"
     environment:
-      - 'VALKEY_PORT_NUMBER=${FRED_REDIS_CLUSTER_PORT}'
+      - 'VALKEY_PORT_NUMBER=${FRED_VALKEY_CLUSTER_PORT}'
       - 'VALKEYCLI_AUTH=${REDIS_PASSWORD}'
       - 'VALKEY_NODES=valkey-cluster-1 valkey-cluster-2 valkey-cluster-3 valkey-cluster-4 valkey-cluster-5 valkey-cluster-6'
       - 'VALKEY_ACLFILE=/usr/local/etc/valkey/users.acl'
     ports:
-      - "30002:${FRED_REDIS_CLUSTER_PORT}"
+      - "30002:${FRED_VALKEY_CLUSTER_PORT}"
     networks:
       - fred-tests
     volumes:
@@ -49,12 +49,12 @@ services:
       args:
         VALKEY_VERSION: "${VALKEY_VERSION}"
     environment:
-      - 'VALKEY_PORT_NUMBER=${FRED_REDIS_CLUSTER_PORT}'
+      - 'VALKEY_PORT_NUMBER=${FRED_VALKEY_CLUSTER_PORT}'
       - 'VALKEYCLI_AUTH=${REDIS_PASSWORD}'
       - 'VALKEY_NODES=valkey-cluster-1 valkey-cluster-2 valkey-cluster-3 valkey-cluster-4 valkey-cluster-5 valkey-cluster-6'
       - 'VALKEY_ACLFILE=/usr/local/etc/valkey/users.acl'
     ports:
-      - "30003:${FRED_REDIS_CLUSTER_PORT}"
+      - "30003:${FRED_VALKEY_CLUSTER_PORT}"
     networks:
       - fred-tests
     volumes:
@@ -67,12 +67,12 @@ services:
       args:
         VALKEY_VERSION: "${VALKEY_VERSION}"
     environment:
-      - 'VALKEY_PORT_NUMBER=${FRED_REDIS_CLUSTER_PORT}'
+      - 'VALKEY_PORT_NUMBER=${FRED_VALKEY_CLUSTER_PORT}'
       - 'VALKEYCLI_AUTH=${REDIS_PASSWORD}'
       - 'VALKEY_NODES=valkey-cluster-1 valkey-cluster-2 valkey-cluster-3 valkey-cluster-4 valkey-cluster-5 valkey-cluster-6'
       - 'VALKEY_ACLFILE=/usr/local/etc/valkey/users.acl'
     ports:
-      - "30004:${FRED_REDIS_CLUSTER_PORT}"
+      - "30004:${FRED_VALKEY_CLUSTER_PORT}"
     networks:
       - fred-tests
     volumes:
@@ -85,12 +85,12 @@ services:
       args:
         VALKEY_VERSION: "${VALKEY_VERSION}"
     environment:
-      - 'VALKEY_PORT_NUMBER=${FRED_REDIS_CLUSTER_PORT}'
+      - 'VALKEY_PORT_NUMBER=${FRED_VALKEY_CLUSTER_PORT}'
       - 'VALKEYCLI_AUTH=${REDIS_PASSWORD}'
       - 'VALKEY_NODES=valkey-cluster-1 valkey-cluster-2 valkey-cluster-3 valkey-cluster-4 valkey-cluster-5 valkey-cluster-6'
       - 'VALKEY_ACLFILE=/usr/local/etc/valkey/users.acl'
     ports:
-      - "30005:${FRED_REDIS_CLUSTER_PORT}"
+      - "30005:${FRED_VALKEY_CLUSTER_PORT}"
     networks:
       - fred-tests
     volumes:
@@ -109,14 +109,14 @@ services:
       args:
         VALKEY_VERSION: "${VALKEY_VERSION}"
     environment:
-      - 'VALKEY_PORT_NUMBER=${FRED_REDIS_CLUSTER_PORT}'
+      - 'VALKEY_PORT_NUMBER=${FRED_VALKEY_CLUSTER_PORT}'
       - 'VALKEYCLI_AUTH=${REDIS_PASSWORD}'
       - 'VALKEY_NODES=valkey-cluster-1 valkey-cluster-2 valkey-cluster-3 valkey-cluster-4 valkey-cluster-5 valkey-cluster-6'
       - 'VALKEY_CLUSTER_REPLICAS=1'
       - 'VALKEY_CLUSTER_CREATOR=yes'
       - 'VALKEY_ACLFILE=/usr/local/etc/valkey/users.acl'
     ports:
-      - "30006:${FRED_REDIS_CLUSTER_PORT}"
+      - "30006:${FRED_VALKEY_CLUSTER_PORT}"
     networks:
       - fred-tests
     volumes:

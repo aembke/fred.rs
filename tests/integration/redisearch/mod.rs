@@ -228,11 +228,8 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
 
   if client.protocol_version() == RespVersion::RESP3 {
     // RESP3 uses maps and includes extra metadata fields
-
-    unimplemented!()
   } else {
     //
-    unimplemented!()
   }
 
   Ok(())

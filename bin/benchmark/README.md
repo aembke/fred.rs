@@ -134,10 +134,8 @@ The `USE_REDIS_RS` environment variable can be toggled to [switch the benchmark 
 use `redis-rs` instead of `fred`. There's also an `info` level log line that can confirm this at runtime.
 
 The `redis-rs` variant uses the same general strategy, but with [bb8-redis](https://crates.io/crates/bb8-redis) (
-specifically `Pool<RedisMultiplexedConnectionManager>`) instead of `fred::clients::RedisPool`. All the other more
-structural components in the benchmark logic are the same.
-
-Please reach out if you think this tooling or strategy is not representative of a real-world Tokio-based use case.
+specifically `Pool<RedisMultiplexedConnectionManager>`) instead of `fred::clients::RedisPool`. All the other components
+in the benchmark logic are the same.
 
 ### Examples
 

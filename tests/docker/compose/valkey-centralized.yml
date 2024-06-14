@@ -12,11 +12,11 @@ services:
       - "valkey-server"
       - "/usr/local/etc/valkey/valkey.conf"
       - "--port"
-      - "${FRED_REDIS_CENTRALIZED_PORT}"
+      - "${FRED_VALKEY_CENTRALIZED_PORT}"
       - "--aclfile"
       - "/usr/local/etc/valkey/users.acl"
     ports:
-      - "6379:${FRED_REDIS_CENTRALIZED_PORT}"
+      - "6379:${FRED_VALKEY_CENTRALIZED_PORT}"
     networks:
       - fred-tests
     volumes:
