@@ -279,6 +279,7 @@ pub mod sorted_sets {
   cluster_test!(sorted_sets, should_zunion_values);
   cluster_test!(sorted_sets, should_zunionstore_values);
   cluster_test!(sorted_sets, should_zmscore_values);
+  cluster_test!(sorted_sets, should_zrangebyscore_neg_infinity);
 }
 
 #[cfg(feature = "i-lists")]

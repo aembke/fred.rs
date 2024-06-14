@@ -267,6 +267,7 @@ pub mod sorted_sets {
   centralized_test!(sorted_sets, should_zunion_values);
   centralized_test!(sorted_sets, should_zunionstore_values);
   centralized_test!(sorted_sets, should_zmscore_values);
+  centralized_test!(sorted_sets, should_zrangebyscore_neg_infinity);
 }
 
 #[cfg(feature = "i-lists")]
