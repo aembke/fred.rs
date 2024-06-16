@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-A fast and ergonomic client for Redis and Valkey.
+An async client for Redis and Valkey.
 
 ## Example
 
@@ -50,7 +50,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * [Transactions](https://redis.io/docs/interact/transactions/)
 * [Pipelining](https://redis.io/topics/pipelining)
 * [Client Tracking](https://redis.io/docs/manual/client-side-caching/)
-* [Efficient automatic pipelining](bin/benchmark)
+* [Automatic pipelining](bin/benchmark/README.md)
 * [Zero-copy frame parsing](https://github.com/aembke/redis-protocol.rs)
 * [Tracing](https://github.com/tokio-rs/tracing)
 

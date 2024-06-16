@@ -226,7 +226,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     async move { self.inner().set_resolver(resolver).await }
   }
 
-  /// Connect to the Redis server.
+  /// Connect to the server.
   ///
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the
   /// connection closes, of if a reconnection policy with unlimited attempts is provided then it will

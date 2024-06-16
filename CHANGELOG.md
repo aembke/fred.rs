@@ -2,13 +2,8 @@
 
 * Add [RediSearch](https://github.com/RediSearch/RediSearch) interface.
 * Adapt testing and CI processes to use both Redis and Valkey
-
-### Valkey
-
-Going forward `fred` will support both Redis and Valkey by running CI and testing pipelines for both
-systems. In the future if the two projects diverge then we will likely introduce new `i-redis-*` or `i-valkey-*`
-interface feature flags. Over time the library will start to phase out the term `Redis` in the relevant shared public
-interfaces to avoid any confusion.
+* Add `FromIterator` impl to `RedisMap`
+* Add `ExclusivePool` client
 
 ## 9.0.3
 

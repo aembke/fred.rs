@@ -24,8 +24,8 @@ use crate::protocol::types::Resolve;
 
 struct RedisPoolInner {
   clients:          Vec<RedisClient>,
-  counter:          Arc<AtomicUsize>,
-  prefer_connected: Arc<AtomicBool>,
+  counter:          AtomicUsize,
+  prefer_connected: AtomicBool,
 }
 
 /// A cheaply cloneable round-robin client pool.
@@ -52,6 +52,10 @@ impl fmt::Debug for RedisPool {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     f.debug_struct("RedisPool")
       .field("size", &self.inner.clients.len())
+      .field(
+        "prefer_connected",
+        &utils::read_bool_atomic(&self.inner.prefer_connected),
+      )
       .finish()
   }
 }
@@ -65,8 +69,8 @@ impl RedisPool {
       Ok(RedisPool {
         inner: Arc::new(RedisPoolInner {
           clients,
-          counter: Arc::new(AtomicUsize::new(0)),
-          prefer_connected: Arc::new(AtomicBool::new(true)),
+          counter: AtomicUsize::new(0),
+          prefer_connected: AtomicBool::new(true),
         }),
       })
     }
@@ -98,8 +102,8 @@ impl RedisPool {
       Ok(RedisPool {
         inner: Arc::new(RedisPoolInner {
           clients,
-          counter: Arc::new(AtomicUsize::new(0)),
-          prefer_connected: Arc::new(AtomicBool::new(true)),
+          counter: AtomicUsize::new(0),
+          prefer_connected: AtomicBool::new(true),
         }),
       })
     }
@@ -205,7 +209,7 @@ impl ClientLike for RedisPool {
     }
   }
 
-  /// Connect each client to the Redis server.
+  /// Connect each client to the server.
   ///
   /// This function returns a `JoinHandle` to a task that drives **all** connections via [join](https://docs.rs/futures/latest/futures/macro.join.html).
   ///

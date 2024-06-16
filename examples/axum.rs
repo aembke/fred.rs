@@ -11,9 +11,9 @@ use log::{debug, info};
 use std::{env, str, time::Duration};
 use tokio::net::TcpListener;
 
-// cloning a client or pool just clones an inner `Arc`.
 #[derive(Clone)]
 struct AppState {
+  // all client types are cheaply cloneable
   pub pool: RedisPool,
 }
 
