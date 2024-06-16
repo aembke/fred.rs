@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::ClientLike,
   prelude::{RedisClient, RedisResult},
-  types::{ConnectHandle, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig, Resolve},
+  types::{ConnectHandle, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig},
   utils,
 };
 use futures::future::{join_all, try_join_all};
@@ -12,6 +12,9 @@ use std::{
   sync::{atomic::AtomicUsize, Arc},
 };
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+
+#[cfg(feature = "dns")]
+use crate::types::Resolve;
 
 struct PoolInner {
   clients: Vec<Arc<AsyncMutex<RedisClient>>>,
