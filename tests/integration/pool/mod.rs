@@ -2,8 +2,12 @@ use fred::{
   clients::{RedisClient, RedisPool},
   error::RedisError,
   interfaces::*,
-  types::{Builder, ReconnectPolicy, RedisConfig},
+  types::RedisConfig,
 };
+
+#[cfg(feature = "i-keys")]
+use fred::types::{Builder, ReconnectPolicy};
+#[cfg(feature = "i-keys")]
 use futures::future::try_join_all;
 
 async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
@@ -33,6 +37,7 @@ pub async fn should_connect_and_ping_static_pool_two_conn(
   create_and_ping_pool(&config, 2).await
 }
 
+#[cfg(feature = "i-keys")]
 pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
   let perf = client.perf_config();
   let policy = client
@@ -67,6 +72,7 @@ pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig
   Ok(())
 }
 
+#[cfg(all(feature = "i-keys", feature = "transactions"))]
 pub async fn should_watch_and_trx_exclusive_pool(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
   let perf = client.perf_config();
   let policy = client
