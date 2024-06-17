@@ -1,12 +1,10 @@
 Contributing
 ===========
 
-This document gives some background on how the library is structured and how to contribute. It focuses primarily on how
-to add new commands. See the [design doc](docs/README.md) for more info.
+This document gives some background on how the library is structured and how to contribute.
 
 # General
 
-* Use 2 spaces instead of tabs.
 * Run rustfmt and clippy before submitting any changes.
 * Please use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
 
@@ -118,15 +116,16 @@ pub trait KeysInterface: ClientLike {
   ///
   /// <https://redis.io/commands/mget>
   fn mget<R, K>(&self, keys: K) -> impl Future<Output=RedisResult<R>> + Send
-    where
-      R: FromRedis,
-      K: Into<MultipleKeys> + Send,
+  where
+    R: FromRedis,
+    K: Into<MultipleKeys> + Send,
   {
     async move {
       into!(keys);
       commands::keys::mget(self, keys).await?.convert()
     }
   }
+
   // ...
 }
 ```

@@ -98,6 +98,8 @@ mod other {
 mod pool {
   centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
+  centralized_test!(pool, should_incr_exclusive_pool);
+  centralized_test!(pool, should_watch_and_trx_exclusive_pool);
 }
 
 #[cfg(feature = "i-hashes")]

@@ -279,7 +279,7 @@ impl RedisClient {
     Pipeline::from(self.clone())
   }
 
-  /// Shorthand to bind subsequent commands to the provided server.
+  /// Shorthand to route subsequent commands to the provided server.
   ///
   /// See [with_options](crate::interfaces::ClientLike::with_options) for more information.
   ///

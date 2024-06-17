@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-An async client for Redis and Valkey.
+An async client for Redis and Valkey
 
 ## Example
 
@@ -43,7 +43,7 @@ See the [examples](https://github.com/aembke/fred.rs/tree/main/examples) for mor
 * Automatic reconnection interfaces.
 * Publish-Subscribe and keyspace events interfaces.
 * A round-robin client pooling interface.
-* A round-robin cluster replica routing interface.
+* A round-robin replica routing interface.
 * Built-in mocking interfaces.
 * Lua [scripts](https://redis.io/docs/interact/programmability/eval-intro/)
   or [functions](https://redis.io/docs/interact/programmability/functions-intro/).
@@ -84,7 +84,7 @@ See the build features for more information.
 
 ## Interface Features
 
-The Valkey and Redis interfaces have many command functions and compile times can add up quickly. Interface features
+The command interfaces have many functions and compile times can add up quickly. Interface features
 begin with `i-` and control which public interfaces are built.
 
 | Name            | Default | Description                                                                                                               |

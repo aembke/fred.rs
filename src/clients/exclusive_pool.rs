@@ -21,7 +21,7 @@ struct PoolInner {
   counter: AtomicUsize,
 }
 
-/// A cheaply cloneable round-robin client pool that enforces exclusive ownership over the inner clients.
+/// A cheaply cloneable round-robin client pool that provides exclusive ownership over the inner clients.
 ///
 /// This interface can be significantly slower than [RedisPool](crate::clients::RedisPool) when shared among many
 /// Tokio tasks, but can be used when callers require exclusive ownership over the connection. For example,
@@ -125,7 +125,7 @@ impl ExclusivePool {
     }
   }
 
-  /// Read the individual clients in the pool.
+  /// Read the clients in the pool.
   pub fn clients(&self) -> &[Arc<AsyncMutex<RedisClient>>] {
     &self.inner.clients
   }
