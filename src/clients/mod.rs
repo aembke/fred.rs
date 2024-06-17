@@ -1,13 +1,11 @@
-mod exclusive_pool;
 mod options;
 mod pipeline;
 mod pool;
 mod redis;
 
-pub use exclusive_pool::ExclusivePool;
 pub use options::WithOptions;
 pub use pipeline::Pipeline;
-pub use pool::RedisPool;
+pub use pool::{ExclusivePool, RedisPool};
 pub use redis::RedisClient;
 
 #[cfg(feature = "sentinel-client")]
