@@ -15,6 +15,3 @@ pub mod responders;
 pub mod tls;
 pub mod types;
 pub mod utils;
-
-#[cfg(feature = "codec")]
-pub mod public;

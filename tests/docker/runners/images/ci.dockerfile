@@ -1,4 +1,4 @@
-FROM rust:1.77-slim-buster
+FROM rust:1.78-slim-buster
 
 WORKDIR /project
 # circleci doesn't mount volumes with a remote docker engine so we have to copy everything

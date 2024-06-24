@@ -6,8 +6,8 @@ mod acl;
 mod client;
 #[cfg(feature = "i-cluster")]
 mod cluster;
-#[cfg(feature = "i-cluster")]
-pub mod docker;
+//#[cfg(feature = "i-cluster")]
+// pub mod docker;
 #[cfg(feature = "i-geo")]
 mod geo;
 #[cfg(feature = "i-hashes")]
@@ -30,6 +30,8 @@ mod pool;
 mod pubsub;
 #[cfg(feature = "i-redis-json")]
 mod redis_json;
+#[cfg(feature = "i-redisearch")]
+mod redisearch;
 mod scanning;
 #[cfg(feature = "i-server")]
 mod server;
@@ -73,18 +75,5 @@ mod macro_tests {
     assert_eq!(command.cmd, "GET");
     assert_eq!(command.cluster_hash, ClusterHash::FirstValue);
     assert!(command.blocking);
-  }
-}
-
-mod docker_tests {
-  use super::*;
-
-  #[tokio::test]
-  async fn should_read_docker_state() {
-    // pretty_env_logger::try_init().unwrap();
-    // FIXME need a portable way to expose the docker socket
-    // let routing = docker::inspect_cluster(false).await.unwrap();
-    // println!("routing {:?}", routing.slots());
-    // panic!("meh");
   }
 }

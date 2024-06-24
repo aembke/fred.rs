@@ -163,14 +163,14 @@ pub struct RedisKey {
 
 impl RedisKey {
   /// Create a new `RedisKey` from static bytes without copying.
-  pub fn from_static(b: &'static [u8]) -> Self {
+  pub const fn from_static(b: &'static [u8]) -> Self {
     RedisKey {
       key: Bytes::from_static(b),
     }
   }
 
   /// Create a new `RedisKey` from a `&'static str` without copying.
-  pub fn from_static_str(b: &'static str) -> Self {
+  pub const fn from_static_str(b: &'static str) -> Self {
     RedisKey {
       key: Bytes::from_static(b.as_bytes()),
     }
@@ -379,7 +379,7 @@ impl RedisMap {
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
     RedisMap {
-      inner: std::mem::take(&mut self.inner),
+      inner: mem::take(&mut self.inner),
     }
   }
 
@@ -539,6 +539,18 @@ where
       inner.insert(to!(key)?, to!(value)?);
     }
     Ok(RedisMap { inner })
+  }
+}
+
+impl<K, V> FromIterator<(K, V)> for RedisMap
+where
+  K: Into<RedisKey>,
+  V: Into<RedisValue>,
+{
+  fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+    Self {
+      inner: HashMap::from_iter(iter.into_iter().map(|(k, v)| (k.into(), v.into()))),
+    }
   }
 }
 
@@ -1106,16 +1118,14 @@ impl RedisValue {
 
   /// Convert this value to an array if it's an array or map.
   ///
-  /// If the value is not an array or map this returns a single-element array containing the current value.
+  /// If the value is not an array or map this returns a single-element array containing the original value.
   pub fn into_array(self) -> Vec<RedisValue> {
     match self {
       RedisValue::Array(values) => values,
       RedisValue::Map(map) => {
         let mut out = Vec::with_capacity(map.len() * 2);
-
         for (key, value) in map.inner().into_iter() {
-          out.push(key.into());
-          out.push(value);
+          out.extend([key.into(), value]);
         }
         out
       },
@@ -1687,5 +1697,16 @@ impl TryFrom<Resp3Frame> for RedisValue {
 
   fn try_from(value: Resp3Frame) -> Result<Self, Self::Error> {
     protocol_utils::frame_to_results(value)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn redis_map_from_iter() {
+    let map = [("hello", "world")].into_iter().collect::<RedisMap>();
+    assert_eq!(map.inner[&RedisKey::from("hello")], RedisValue::from("world"));
   }
 }

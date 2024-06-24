@@ -5,7 +5,7 @@ mod redis;
 
 pub use options::WithOptions;
 pub use pipeline::Pipeline;
-pub use pool::RedisPool;
+pub use pool::{ExclusivePool, RedisPool};
 pub use redis::RedisClient;
 
 #[cfg(feature = "sentinel-client")]

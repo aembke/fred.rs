@@ -9,7 +9,13 @@ use fred::{
   error::RedisError,
   interfaces::*,
   types::{
-    Builder, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig, Server, ServerConfig,
+    Builder,
+    ConnectionConfig,
+    PerformanceConfig,
+    ReconnectPolicy,
+    RedisConfig,
+    Server,
+    ServerConfig,
     UnresponsiveConfig,
   },
 };
@@ -27,7 +33,9 @@ use fred::types::ClusterDiscoveryPolicy;
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
-  Certificate as NativeTlsCertificate, Identity, TlsConnector as NativeTlsConnector,
+  Certificate as NativeTlsCertificate,
+  Identity,
+  TlsConnector as NativeTlsConnector,
 };
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 use tokio_rustls::rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
@@ -171,12 +179,12 @@ pub fn read_sentinel_server() -> (String, u16) {
 ))]
 #[allow(dead_code)]
 struct TlsCreds {
-  root_cert_der: Vec<u8>,
-  root_cert_pem: Vec<u8>,
+  root_cert_der:   Vec<u8>,
+  root_cert_pem:   Vec<u8>,
   client_cert_der: Vec<u8>,
   client_cert_pem: Vec<u8>,
-  client_key_der: Vec<u8>,
-  client_key_pem: Vec<u8>,
+  client_key_der:  Vec<u8>,
+  client_key_pem:  Vec<u8>,
 }
 
 #[cfg(any(
@@ -284,7 +292,7 @@ fn create_server_config(cluster: bool) -> ServerConfig {
   if cluster {
     let (host, port) = read_redis_cluster_host();
     ServerConfig::Clustered {
-      hosts: vec![Server::new(host, port)],
+      hosts:  vec![Server::new(host, port)],
       policy: ClusterDiscoveryPolicy::default(),
     }
   } else {
@@ -412,12 +420,12 @@ where
     fail_fast: read_fail_fast_env(),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     server: ServerConfig::Sentinel {
-      hosts: vec![read_sentinel_server().into()],
-      service_name: "redis-sentinel-main".into(),
+      hosts:                                      vec![read_sentinel_server().into()],
+      service_name:                               "redis-sentinel-main".into(),
       #[cfg(feature = "sentinel-auth")]
-      username: None,
+      username:                                   None,
       #[cfg(feature = "sentinel-auth")]
-      password: Some(read_sentinel_password()),
+      password:                                   Some(read_sentinel_password()),
     },
     password: Some(read_redis_password()),
     ..Default::default()
@@ -449,7 +457,7 @@ where
   connection.max_redirections = 10;
   connection.unresponsive = UnresponsiveConfig {
     max_timeout: Some(Duration::from_secs(10)),
-    interval: Duration::from_millis(400),
+    interval:    Duration::from_millis(400),
   };
   config.fail_fast = fail_fast;
 
@@ -479,7 +487,7 @@ where
   connection.max_command_attempts = cmd_attempts;
   connection.unresponsive = UnresponsiveConfig {
     max_timeout: Some(Duration::from_secs(10)),
-    interval: Duration::from_millis(400),
+    interval:    Duration::from_millis(400),
   };
   config.fail_fast = fail_fast;
 
