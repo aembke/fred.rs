@@ -25,6 +25,8 @@ pub mod metrics;
 pub mod pubsub;
 #[cfg(feature = "i-redis-json")]
 pub mod redis_json;
+#[cfg(feature = "i-redisearch")]
+pub mod redisearch;
 pub mod scan;
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;

@@ -20,7 +20,7 @@ async fn main() -> Result<(), RedisError> {
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..50 {
+  for idx in 0 .. 50 {
     publisher_client.publish("foo", idx).await?;
     sleep(Duration::from_secs(1)).await;
   }
@@ -34,7 +34,12 @@ async fn main() -> Result<(), RedisError> {
 #[cfg(feature = "subscriber-client")]
 #[allow(dead_code)]
 async fn subscriber_example() -> Result<(), RedisError> {
-  let subscriber = Builder::default_centralized().build_subscriber_client()?;
+  let subscriber = Builder::default_centralized()
+    .with_performance_config(|config| {
+      // tune the size of the buffer behind the pubsub broadcast channels
+      config.broadcast_channel_capacity = 64;
+    })
+    .build_subscriber_client()?;
   subscriber.init().await?;
 
   // or use the `on_message` shorthand

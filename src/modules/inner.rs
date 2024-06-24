@@ -24,7 +24,7 @@ use std::{
 };
 use tokio::{
   sync::{
-    broadcast::{self, Sender as BroadcastSender},
+    broadcast::{self, Sender as BroadcastSender, error::SendError as BroadcastSendError},
     mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     RwLock as AsyncRwLock,
   },
@@ -100,8 +100,8 @@ impl Notifications {
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
-    if let Err(_) = self.errors.load().send(error) {
-      debug!("{}: No `on_error` listener.", self.id);
+    if let Err(BroadcastSendError(err)) = self.errors.load().send(error) {
+      debug!("{}: No `on_error` listener. The error was: {err:?}", self.id);
     }
   }
 
