@@ -8,14 +8,16 @@ use crate::{
     utils as protocol_utils,
   },
   types::InfoKind,
-  utils as client_utils, utils,
+  utils as client_utils,
+  utils,
 };
 use bytes_utils::Str;
 use crossbeam_queue::SegQueue;
 use futures::{
   sink::SinkExt,
   stream::{SplitSink, SplitStream, StreamExt},
-  Sink, Stream,
+  Sink,
+  Stream,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, RespVersion};
 use semver::Version;
@@ -69,14 +71,14 @@ pub type CommandBuffer = Vec<RedisCommand>;
 /// A shared buffer across tasks.
 #[derive(Clone, Debug)]
 pub struct SharedBuffer {
-  inner: Arc<SegQueue<RedisCommand>>,
+  inner:   Arc<SegQueue<RedisCommand>>,
   blocked: Arc<AtomicBool>,
 }
 
 impl SharedBuffer {
   pub fn new() -> Self {
     SharedBuffer {
-      inner: Arc::new(SegQueue::new()),
+      inner:   Arc::new(SegQueue::new()),
       blocked: Arc::new(AtomicBool::new(false)),
     }
   }
@@ -383,16 +385,16 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
 #[derive(Clone, Debug)]
 pub struct Counters {
   pub cmd_buffer_len: Arc<AtomicUsize>,
-  pub in_flight: Arc<AtomicUsize>,
-  pub feed_count: Arc<AtomicUsize>,
+  pub in_flight:      Arc<AtomicUsize>,
+  pub feed_count:     Arc<AtomicUsize>,
 }
 
 impl Counters {
   pub fn new(cmd_buffer_len: &Arc<AtomicUsize>) -> Self {
     Counters {
       cmd_buffer_len: cmd_buffer_len.clone(),
-      in_flight: Arc::new(AtomicUsize::new(0)),
-      feed_count: Arc::new(AtomicUsize::new(0)),
+      in_flight:      Arc::new(AtomicUsize::new(0)),
+      feed_count:     Arc::new(AtomicUsize::new(0)),
     }
   }
 
@@ -425,19 +427,19 @@ impl Counters {
 
 pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
-  pub server: Server,
+  pub server:       Server,
   /// The parsed `SocketAddr` for the connection.
-  pub addr: Option<SocketAddr>,
+  pub addr:         Option<SocketAddr>,
   /// The hostname used to initialize the connection.
   pub default_host: Str,
   /// The network connection.
-  pub transport: ConnectionKind,
+  pub transport:    ConnectionKind,
   /// The connection/client ID from the CLIENT ID command.
-  pub id: Option<i64>,
+  pub id:           Option<i64>,
   /// The server version.
-  pub version: Option<Version>,
+  pub version:      Option<Version>,
   /// Counters for the connection state.
-  pub counters: Counters,
+  pub counters:     Counters,
 }
 
 impl RedisTransport {
@@ -666,15 +668,7 @@ impl RedisTransport {
       let frame = self.request_response(command, is_resp3).await?;
 
       if !protocol_utils::is_ok(&frame) {
-        let error = match protocol_utils::frame_into_string(frame) {
-          Ok(error) => error,
-          Err(_) => {
-            return Err(RedisError::new(
-              RedisErrorKind::Auth,
-              "Invalid auth response. Expected string.",
-            ));
-          },
-        };
+        let error = protocol_utils::frame_into_string(frame)?;
         return Err(protocol_utils::pretty_error(&error));
       }
     } else {
@@ -918,11 +912,11 @@ impl RedisTransport {
 }
 
 pub struct RedisReader {
-  pub stream: Option<SplitStreamKind>,
-  pub server: Server,
-  pub buffer: SharedBuffer,
+  pub stream:   Option<SplitStreamKind>,
+  pub server:   Server,
+  pub buffer:   SharedBuffer,
   pub counters: Counters,
-  pub task: Option<JoinHandle<Result<(), RedisError>>>,
+  pub task:     Option<JoinHandle<Result<(), RedisError>>>,
 }
 
 impl RedisReader {
@@ -953,15 +947,15 @@ impl RedisReader {
 }
 
 pub struct RedisWriter {
-  pub sink: SplitSinkKind,
-  pub server: Server,
+  pub sink:         SplitSinkKind,
+  pub server:       Server,
   pub default_host: Str,
-  pub addr: Option<SocketAddr>,
-  pub buffer: SharedBuffer,
-  pub version: Option<Version>,
-  pub id: Option<i64>,
-  pub counters: Counters,
-  pub reader: Option<RedisReader>,
+  pub addr:         Option<SocketAddr>,
+  pub buffer:       SharedBuffer,
+  pub version:      Option<Version>,
+  pub id:           Option<i64>,
+  pub counters:     Counters,
+  pub reader:       Option<RedisReader>,
 }
 
 impl fmt::Debug for RedisWriter {

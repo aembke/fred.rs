@@ -95,6 +95,8 @@ mod other {
   cluster_test!(other, should_replica_set_and_get_not_lazy);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_use_cluster_replica_without_redirection);
+  //#[cfg(all(feature = "replicas", feature = "i-keys"))]
+  // cluster_test!(other, should_combine_options_and_replicas);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_pipeline_with_replicas);
 }
@@ -102,6 +104,10 @@ mod other {
 mod pool {
   cluster_test!(pool, should_connect_and_ping_static_pool_single_conn);
   cluster_test!(pool, should_connect_and_ping_static_pool_two_conn);
+  #[cfg(feature = "i-keys")]
+  cluster_test!(pool, should_incr_exclusive_pool);
+  #[cfg(all(feature = "i-keys", feature = "transactions"))]
+  cluster_test!(pool, should_watch_and_trx_exclusive_pool);
 }
 
 #[cfg(feature = "i-hashes")]
@@ -279,6 +285,7 @@ pub mod sorted_sets {
   cluster_test!(sorted_sets, should_zunion_values);
   cluster_test!(sorted_sets, should_zunionstore_values);
   cluster_test!(sorted_sets, should_zmscore_values);
+  cluster_test!(sorted_sets, should_zrangebyscore_neg_infinity);
 }
 
 #[cfg(feature = "i-lists")]
