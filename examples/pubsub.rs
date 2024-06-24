@@ -15,31 +15,35 @@ async fn main() -> Result<(), RedisError> {
   subscriber_client.init().await?;
 
   // or use `message_rx()` to use the underlying `BroadcastReceiver` directly without spawning a new task
-  let message_task = subscriber_client.on_message(|message| {
+  let _message_task = subscriber_client.on_message(|message| {
     println!("{}: {}", message.channel, message.value.convert::<i64>()?);
     Ok::<_, RedisError>(())
   });
 
-  for idx in 0..50 {
+  for idx in 0 .. 50 {
     publisher_client.publish("foo", idx).await?;
     sleep(Duration::from_secs(1)).await;
   }
 
   publisher_client.quit().await?;
   subscriber_client.quit().await?;
-  let _ = message_task.await;
   Ok(())
 }
 
 #[cfg(feature = "subscriber-client")]
 #[allow(dead_code)]
 async fn subscriber_example() -> Result<(), RedisError> {
-  let subscriber = Builder::default_centralized().build_subscriber_client()?;
+  let subscriber = Builder::default_centralized()
+    .with_performance_config(|config| {
+      // tune the size of the buffer behind the pubsub broadcast channels
+      config.broadcast_channel_capacity = 64;
+    })
+    .build_subscriber_client()?;
   subscriber.init().await?;
 
   // or use the `on_message` shorthand
   let mut message_stream = subscriber.message_rx();
-  let subscriber_task = tokio::spawn(async move {
+  let _subscriber_task = tokio::spawn(async move {
     while let Ok(message) = message_stream.recv().await {
       println!("Recv {:?} on channel {}", message.value, message.channel);
     }
@@ -48,7 +52,7 @@ async fn subscriber_example() -> Result<(), RedisError> {
   });
 
   // spawn a task to sync subscriptions whenever the client reconnects
-  let resubscribe_task = subscriber.manage_subscriptions();
+  let _resubscribe_task = subscriber.manage_subscriptions();
 
   subscriber.subscribe("foo").await?;
   subscriber.psubscribe(vec!["bar*", "baz*"]).await?;
@@ -67,7 +71,5 @@ async fn subscriber_example() -> Result<(), RedisError> {
   subscriber.unsubscribe_all().await?;
 
   subscriber.quit().await?;
-  let _ = subscriber_task.await;
-  let _ = resubscribe_task.await;
   Ok(())
 }

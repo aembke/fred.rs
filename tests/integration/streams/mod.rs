@@ -19,7 +19,7 @@ async fn add_stream_entries(
 ) -> Result<(Vec<String>, FakeExpectedValues), RedisError> {
   let mut ids = Vec::with_capacity(count);
   let mut expected = Vec::with_capacity(count);
-  for idx in 0..count {
+  for idx in 0 .. count {
     let id: String = client.xadd(key, false, None, "*", ("count", idx)).await?;
     ids.push(id.clone());
 
@@ -185,7 +185,7 @@ pub async fn should_xdel_multiple_ids_in_a_stream(client: RedisClient, _: RedisC
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let (ids, _) = add_stream_entries(&client, "foo{1}", 3).await?;
 
-  let deleted: usize = client.xdel("foo{1}", ids[0..2].to_vec()).await?;
+  let deleted: usize = client.xdel("foo{1}", ids[0 .. 2].to_vec()).await?;
   assert_eq!(deleted, 2);
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 1);
@@ -303,8 +303,8 @@ pub async fn should_xread_multiple_keys_count_2(client: RedisClient, _: RedisCon
   let (bar_ids, bar_inner) = add_stream_entries(&client, "bar{1}", 3).await?;
 
   let mut expected = HashMap::new();
-  expected.insert("foo{1}".into(), foo_inner[1..].to_vec());
-  expected.insert("bar{1}".into(), bar_inner[1..].to_vec());
+  expected.insert("foo{1}".into(), foo_inner[1 ..].to_vec());
+  expected.insert("bar{1}".into(), bar_inner[1 ..].to_vec());
 
   let ids: Vec<XID> = vec![foo_ids[0].as_str().into(), bar_ids[0].as_str().into()];
   let result: HashMap<String, Vec<HashMap<String, HashMap<String, usize>>>> = client

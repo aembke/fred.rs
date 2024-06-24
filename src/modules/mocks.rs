@@ -30,14 +30,14 @@ pub struct MockCommand {
   /// * `SET` - `"SET"`
   /// * `XGROUP CREATE` - `"XGROUP"`
   /// * `INCRBY` - `"INCRBY"`
-  pub cmd: Str,
+  pub cmd:        Str,
   /// The optional subcommand string (or second word) in the command string. For example:
   /// * `SET` - `None`
   /// * `XGROUP CREATE` - `Some("CREATE")`
   /// * `INCRBY` - `None`
   pub subcommand: Option<Str>,
   /// The ordered list of arguments to the command.
-  pub args: Vec<RedisValue>,
+  pub args:       Vec<RedisValue>,
 }
 
 /// An interface for intercepting and processing Redis commands in a mocking layer.
@@ -391,14 +391,14 @@ mod tests {
 
     let expected = vec![
       MockCommand {
-        cmd: "SET".into(),
+        cmd:        "SET".into(),
         subcommand: None,
-        args: vec!["foo".as_bytes().into(), "bar".into()],
+        args:       vec!["foo".as_bytes().into(), "bar".into()],
       },
       MockCommand {
-        cmd: "GET".into(),
+        cmd:        "GET".into(),
         subcommand: None,
-        args: vec!["foo".as_bytes().into()],
+        args:       vec!["foo".as_bytes().into()],
       },
     ];
     assert_eq!(buffer.take(), expected);

@@ -45,7 +45,7 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
 
   let reconnect_subscriber = subscriber.clone();
   // resubscribe to the foo- prefix whenever we reconnect to a server
-  let reconnect_task = tokio::spawn(async move {
+  let _reconnect_task = tokio::spawn(async move {
     let mut reconnect_rx = reconnect_subscriber.reconnect_rx();
 
     while let Ok(server) = reconnect_rx.recv().await {
@@ -61,7 +61,7 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
 
   let mut keyspace_rx = subscriber.keyspace_event_rx();
   // set up a task that listens for keyspace events
-  let keyspace_task = tokio::spawn(async move {
+  let _keyspace_task = tokio::spawn(async move {
     while let Ok(event) = keyspace_rx.recv().await {
       println!(
         "Recv: {} on {} in db {}",
@@ -78,9 +78,6 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
   fake_traffic(&subscriber, 1_000).await?;
   sleep(Duration::from_secs(1)).await;
   subscriber.quit().await?;
-  keyspace_task.await??;
-  reconnect_task.await??;
-
   Ok(())
 }
 
@@ -89,7 +86,7 @@ async fn clustered_keyspace_events() -> Result<(), RedisError> {
 
   let reconnect_subscriber = subscriber.clone();
   // resubscribe to the foo- prefix whenever we reconnect to a server
-  let reconnect_task = tokio::spawn(async move {
+  let _reconnect_task = tokio::spawn(async move {
     let mut reconnect_rx = reconnect_subscriber.reconnect_rx();
 
     // in 7.x the reconnection interface added a `Server` struct to reconnect events to make this easier.
@@ -109,7 +106,7 @@ async fn clustered_keyspace_events() -> Result<(), RedisError> {
 
   let mut keyspace_rx = subscriber.keyspace_event_rx();
   // set up a task that listens for keyspace events
-  let keyspace_task = tokio::spawn(async move {
+  let _keyspace_task = tokio::spawn(async move {
     while let Ok(event) = keyspace_rx.recv().await {
       println!(
         "Recv: {} on {} in db {}",
@@ -126,8 +123,5 @@ async fn clustered_keyspace_events() -> Result<(), RedisError> {
   fake_traffic(&subscriber, 1_000).await?;
   sleep(Duration::from_secs(1)).await;
   subscriber.quit().await?;
-  keyspace_task.await??;
-  reconnect_task.await??;
-
   Ok(())
 }

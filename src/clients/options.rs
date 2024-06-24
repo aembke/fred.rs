@@ -1,5 +1,9 @@
 use crate::{
-  error::RedisError, interfaces::*, modules::inner::RedisClientInner, protocol::command::RedisCommand, types::Options,
+  error::RedisError,
+  interfaces::*,
+  modules::inner::RedisClientInner,
+  protocol::command::RedisCommand,
+  types::Options,
 };
 use std::{fmt, ops::Deref, sync::Arc};
 
@@ -39,7 +43,7 @@ use std::{fmt, ops::Deref, sync::Arc};
 /// ```
 #[derive(Clone)]
 pub struct WithOptions<C: ClientLike> {
-  pub(crate) client: C,
+  pub(crate) client:  C,
   pub(crate) options: Options,
 }
 
@@ -150,3 +154,6 @@ impl<C: RedisJsonInterface> RedisJsonInterface for WithOptions<C> {}
 #[cfg(feature = "i-time-series")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl<C: TimeSeriesInterface> TimeSeriesInterface for WithOptions<C> {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl<C: RediSearchInterface> RediSearchInterface for WithOptions<C> {}

@@ -24,11 +24,11 @@ async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
 
   // use the on_* functions
-  let reconnect_task = client.on_reconnect(|server| {
+  let _reconnect_task = client.on_reconnect(|server| {
     println!("Reconnected to {}", server);
     Ok(())
   });
-  let error_task = client.on_error(|error| {
+  let _error_task = client.on_error(|error| {
     println!("Connection error: {:?}", error);
     Ok(())
   });
@@ -36,14 +36,14 @@ async fn main() -> Result<(), RedisError> {
   // use the *_rx functions to do the same thing shown above. although not shown here, callers have more freedom to
   // reduce the number of spawned tokio tasks with this interface.
   let mut reconnect_rx = client.reconnect_rx();
-  let reconnect_task_2 = tokio::spawn(async move {
+  let _reconnect_task_2 = tokio::spawn(async move {
     while let Ok(server) = reconnect_rx.recv().await {
       println!("Reconnected to {}", server);
     }
   });
 
   let mut error_rx = client.error_rx();
-  let error_task_2 = tokio::spawn(async move {
+  let _error_task_2 = tokio::spawn(async move {
     while let Ok(error) = error_rx.recv().await {
       println!("Connection error: {:?}", error);
     }
@@ -54,10 +54,6 @@ async fn main() -> Result<(), RedisError> {
   // ...
 
   client.quit().await?;
-  reconnect_task.await??;
-  error_task.await??;
-  reconnect_task_2.await?;
-  error_task_2.await?;
   Ok(())
 }
 
@@ -81,7 +77,7 @@ async fn setup_pool() -> Result<(), RedisError> {
   let mut error_rx = futures::stream::select_all(error_rxs);
   let mut reconnect_rx = futures::stream::select_all(reconnect_rxs);
 
-  let all_events_task = tokio::spawn(async move {
+  let _all_events_task = tokio::spawn(async move {
     loop {
       tokio::select! {
         Some(Ok(error)) = error_rx.next() => {
@@ -99,6 +95,5 @@ async fn setup_pool() -> Result<(), RedisError> {
   // ...
 
   pool.quit().await?;
-  all_events_task.abort();
   Ok(())
 }

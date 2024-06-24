@@ -1,8 +1,8 @@
 use super::utils as protocol_utils;
-use crate::prelude::RedisResult;
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
+  prelude::RedisResult,
   protocol::{cluster, utils::server_to_parts},
   types::*,
   utils,
@@ -69,9 +69,9 @@ impl From<Resp3Frame> for ProtocolFrame {
 #[derive(Debug, Clone)]
 pub struct Server {
   /// The hostname or IP address for the server.
-  pub host: Str,
+  pub host:            Str,
   /// The port for the server.
-  pub port: u16,
+  pub port:            u16,
   /// The server name used during the TLS handshake.
   #[cfg(any(
     feature = "enable-rustls",
@@ -196,8 +196,8 @@ impl Server {
 impl From<&std::path::Path> for Server {
   fn from(value: &std::path::Path) -> Self {
     Server {
-      host: utils::path_to_string(value).into(),
-      port: 0,
+      host:            utils::path_to_string(value).into(),
+      port:            0,
       #[cfg(any(
         feature = "enable-rustls",
         feature = "enable-native-tls",
@@ -326,24 +326,24 @@ pub struct Message {
   /// The channel on which the message was sent.
   pub channel: Str,
   /// The message contents.
-  pub value: RedisValue,
+  pub value:   RedisValue,
   /// The type of message subscription.
-  pub kind: MessageKind,
+  pub kind:    MessageKind,
   /// The server that sent the message.
-  pub server: Server,
+  pub server:  Server,
 }
 
 pub struct KeyScanInner {
   /// The hash slot for the command.
-  pub hash_slot: Option<u16>,
+  pub hash_slot:  Option<u16>,
   /// An optional server override.
-  pub server: Option<Server>,
+  pub server:     Option<Server>,
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args: Vec<RedisValue>,
+  pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx: UnboundedSender<Result<ScanResult, RedisError>>,
+  pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
 impl KeyScanInner {
@@ -368,9 +368,9 @@ pub struct ValueScanInner {
   /// The index of the cursor argument in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args: Vec<RedisValue>,
+  pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx: UnboundedSender<Result<ValueScanResult, RedisError>>,
+  pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
 }
 
 impl ValueScanInner {
@@ -453,13 +453,13 @@ impl ValueScanInner {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SlotRange {
   /// The start of the hash slot range.
-  pub start: u16,
+  pub start:    u16,
   /// The end of the hash slot range.
-  pub end: u16,
+  pub end:      u16,
   /// The primary server owner.
-  pub primary: Server,
+  pub primary:  Server,
   /// The internal ID assigned by the server.
-  pub id: Str,
+  pub id:       Str,
   /// Replica node owners.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -570,7 +570,7 @@ impl ClusterRouting {
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<&SlotRange> {
     if !self.data.is_empty() {
-      let idx = rand::thread_rng().gen_range(0..self.data.len());
+      let idx = rand::thread_rng().gen_range(0 .. self.data.len());
       Some(&self.data[idx])
     } else {
       None
@@ -608,7 +608,7 @@ pub trait Resolve: Send + Sync + 'static {
   async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
 }
 
-/// Default DNS resolver that uses `to_socket_addrs` under the hood.
+/// Default DNS resolver that uses [to_socket_addrs](std::net::ToSocketAddrs::to_socket_addrs).
 #[derive(Clone, Debug)]
 pub struct DefaultResolver {
   id: Str,

@@ -2,7 +2,13 @@ use crate::{
   commands,
   interfaces::{ClientLike, RedisResult},
   types::{
-    ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag, ClientUnblockFlag, FromRedis, RedisValue,
+    ClientKillFilter,
+    ClientKillType,
+    ClientPauseKind,
+    ClientReplyFlag,
+    ClientUnblockFlag,
+    FromRedis,
+    RedisValue,
     Server,
   },
 };

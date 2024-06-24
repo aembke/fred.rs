@@ -15,7 +15,9 @@ use bytes_utils::Str;
 use float_cmp::approx_eq;
 use futures::{
   future::{select, Either},
-  pin_mut, Future, TryFutureExt,
+  pin_mut,
+  Future,
+  TryFutureExt,
 };
 use parking_lot::RwLock;
 use rand::{self, distributions::Alphanumeric, Rng};
@@ -33,6 +35,7 @@ use std::{
 use tokio::{
   sync::{
     broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
+    mpsc::unbounded_channel,
     oneshot::channel as oneshot_channel,
   },
   time::sleep,
@@ -53,8 +56,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "transactions")]
 use std::mem;
 #[cfg(feature = "unix-sockets")]
-use std::path::Path;
-use tokio::sync::mpsc::unbounded_channel;
+use std::path::{Path, PathBuf};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -172,7 +174,7 @@ where
 
 #[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
-  rand::thread_rng().gen_range(0..max)
+  rand::thread_rng().gen_range(0 .. max)
 }
 
 pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
@@ -195,27 +197,27 @@ pub fn check_and_set_client_state(
   }
 }
 
-pub fn read_bool_atomic(val: &Arc<AtomicBool>) -> bool {
+pub fn read_bool_atomic(val: &AtomicBool) -> bool {
   val.load(Ordering::Acquire)
 }
 
-pub fn set_bool_atomic(val: &Arc<AtomicBool>, new: bool) -> bool {
+pub fn set_bool_atomic(val: &AtomicBool, new: bool) -> bool {
   val.swap(new, Ordering::SeqCst)
 }
 
-pub fn decr_atomic(size: &Arc<AtomicUsize>) -> usize {
+pub fn decr_atomic(size: &AtomicUsize) -> usize {
   size.fetch_sub(1, Ordering::AcqRel).saturating_sub(1)
 }
 
-pub fn incr_atomic(size: &Arc<AtomicUsize>) -> usize {
+pub fn incr_atomic(size: &AtomicUsize) -> usize {
   size.fetch_add(1, Ordering::AcqRel).saturating_add(1)
 }
 
-pub fn read_atomic(size: &Arc<AtomicUsize>) -> usize {
+pub fn read_atomic(size: &AtomicUsize) -> usize {
   size.load(Ordering::Acquire)
 }
 
-pub fn set_atomic(size: &Arc<AtomicUsize>, val: usize) -> usize {
+pub fn set_atomic(size: &AtomicUsize, val: usize) -> usize {
   size.swap(val, Ordering::SeqCst)
 }
 
@@ -593,7 +595,7 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   if jitter == 0 {
     delay
   } else {
-    delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
+    delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
   }
 }
 
@@ -752,6 +754,17 @@ pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u
   }
 
   Ok((url, host, port, tls))
+}
+
+pub fn url_is_unix_socket(url: &Url) -> bool {
+  url.scheme() == "redis+unix"
+}
+
+#[cfg(feature = "unix-sockets")]
+pub fn parse_unix_url(url: &str) -> Result<(Url, PathBuf), RedisError> {
+  let url = Url::parse(url)?;
+  let path: PathBuf = url.path().into();
+  Ok((url, path))
 }
 
 pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {

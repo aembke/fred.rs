@@ -278,6 +278,10 @@ pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut R
     }
 
     if let Err(e) = reconnect_once(inner, router).await {
+      if e.should_not_reconnect() {
+        return Err(e);
+      }
+
       delay = match next_reconnection_delay(inner) {
         Ok(delay) => delay,
         Err(_) => return Err(e),
@@ -509,11 +513,11 @@ pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
     }
   } else {
     let cmd = RouterCommand::Reconnect {
-      server: None,
-      tx: None,
-      force: false,
+      server:                               None,
+      tx:                                   None,
+      force:                                false,
       #[cfg(feature = "replicas")]
-      replica: false,
+      replica:                              false,
     };
     if let Err(_) = interfaces::send_to_router(inner, cmd) {
       _warn!(inner, "Failed to send deferred cluster sync.")

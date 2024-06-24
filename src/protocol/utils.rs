@@ -98,7 +98,15 @@ pub fn pretty_error(resp: &str) -> RedisError {
 
     match parts.next().unwrap_or("") {
       "" => RedisErrorKind::Unknown,
-      "ERR" => RedisErrorKind::Unknown,
+      "ERR" => {
+        if resp.contains("instance has cluster support disabled") {
+          // Cluster client connecting to non-cluster server.
+          // Returning Config to signal no reconnect will help.
+          RedisErrorKind::Config
+        } else {
+          RedisErrorKind::Unknown
+        }
+      },
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" | "WRONGPASS" => RedisErrorKind::Auth,
       "MOVED" | "ASK" | "CLUSTERDOWN" => RedisErrorKind::Cluster,
@@ -129,7 +137,9 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
     Resp3Frame::Boolean { data, .. } => Ok(data.to_string()),
     Resp3Frame::VerbatimString { data, .. } => Ok(String::from_utf8(data.to_vec())?),
     Resp3Frame::BigNumber { data, .. } => Ok(String::from_utf8(data.to_vec())?),
-    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected protocol string.")),
+    Resp3Frame::SimpleError { data, .. } => Err(pretty_error(&data)),
+    Resp3Frame::BlobError { data, .. } => Err(pretty_error(str::from_utf8(&data)?)),
+    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected string.")),
   }
 }
 

@@ -48,15 +48,15 @@ pub enum ResponseKind {
   /// cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames: Arc<Mutex<Vec<Resp3Frame>>>,
+    frames:      Arc<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
-    expected: usize,
+    expected:    usize,
     /// The number of response frames received.
-    received: Arc<AtomicUsize>,
+    received:    Arc<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx: Arc<Mutex<Option<ResponseSender>>>,
+    tx:          Arc<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
-    index: usize,
+    index:       usize,
     /// Whether errors should be returned early to the caller.
     error_early: bool,
   },
@@ -68,17 +68,13 @@ pub enum ResponseKind {
 
 impl fmt::Debug for ResponseKind {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(
-      f,
-      "{}",
-      match self {
-        ResponseKind::Skip => "Skip",
-        ResponseKind::Buffer { .. } => "Buffer",
-        ResponseKind::Respond(_) => "Respond",
-        ResponseKind::KeyScan(_) => "KeyScan",
-        ResponseKind::ValueScan(_) => "ValueScan",
-      }
-    )
+    write!(f, "{}", match self {
+      ResponseKind::Skip => "Skip",
+      ResponseKind::Buffer { .. } => "Buffer",
+      ResponseKind::Respond(_) => "Respond",
+      ResponseKind::KeyScan(_) => "KeyScan",
+      ResponseKind::ValueScan(_) => "ValueScan",
+    })
   }
 }
 
@@ -99,11 +95,11 @@ impl ResponseKind {
         expected,
         error_early,
       } => ResponseKind::Buffer {
-        frames: frames.clone(),
-        tx: tx.clone(),
-        received: received.clone(),
-        index: *index,
-        expected: *expected,
+        frames:      frames.clone(),
+        tx:          tx.clone(),
+        received:    received.clone(),
+        index:       *index,
+        expected:    *expected,
         error_early: *error_early,
       },
       ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
@@ -127,11 +123,11 @@ impl ResponseKind {
 
   pub fn new_buffer(tx: ResponseSender) -> Self {
     ResponseKind::Buffer {
-      frames: Arc::new(Mutex::new(vec![])),
-      tx: Arc::new(Mutex::new(Some(tx))),
-      received: Arc::new(AtomicUsize::new(0)),
-      index: 0,
-      expected: 0,
+      frames:      Arc::new(Mutex::new(vec![])),
+      tx:          Arc::new(Mutex::new(Some(tx))),
+      received:    Arc::new(AtomicUsize::new(0)),
+      index:       0,
+      expected:    0,
       error_early: true,
     }
   }
@@ -272,7 +268,7 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>, error_early: bool) -> Res
   }
 
   Resp3Frame::Array {
-    data: mem::take(frames),
+    data:       mem::take(frames),
     attributes: None,
   }
 }
