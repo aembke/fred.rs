@@ -1,7 +1,7 @@
 ## 9.1.0
 
 * Add [RediSearch](https://github.com/RediSearch/RediSearch) interface.
-* Adapt testing and CI processes to use both Redis and Valkey
+* Adapt testing and CI processes to test Redis and Valkey
 * Add `FromIterator` impl to `RedisMap`
 * Add `ExclusivePool` client
 
