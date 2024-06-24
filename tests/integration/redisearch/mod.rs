@@ -1,7 +1,17 @@
 use fred::{
   error::RedisError,
   prelude::*,
-  types::{FtCreateOptions, FtSearchOptions, IndexKind, RedisMap, SearchSchema, SearchSchemaKind},
+  types::{
+    AggregateOperation,
+    FtAggregateOptions,
+    FtCreateOptions,
+    FtSearchOptions,
+    IndexKind,
+    Load,
+    RedisMap,
+    SearchSchema,
+    SearchSchemaKind,
+  },
   util::NONE,
 };
 use maplit::hashmap;
@@ -145,8 +155,6 @@ pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -
     })
     .collect::<Vec<_>>();
     assert_eq!(results, expected);
-
-    // TODO search by @foo:(abc)
   } else {
     // RESP2 uses an array format w/o extra metadata
     let results: (usize, RedisKey, RedisKey, RedisKey) = client
@@ -196,18 +204,69 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
     )
     .await?;
 
-  for idx in 0 .. 1000 {
+  for idx in 0 .. 100 {
     let rand: u64 = thread_rng().gen_range(0 .. 10000);
     client
-      .hset(format!("record:{}", idx), [("timestamp", idx + rand), ("user_id", idx)])
+      .hset(format!("record:{}", idx), [
+        ("timestamp", idx),
+        ("user_id", idx + 1000),
+        ("rand", rand),
+      ])
       .await?;
   }
   tokio::time::sleep(Duration::from_millis(100)).await;
 
-  // TODO
-  // FT.AGGREGATE myIndex "*"
-  //   APPLY "@timestamp - (@timestamp % 3600)" AS hour
+  if client.protocol_version() == RespVersion::RESP3 {
+    // RESP3 uses maps and includes extra metadata fields
 
+    // FT.AGGREGATE myIndex "*"
+    //   APPLY "@timestamp - (@timestamp % 3600)" AS hour
+    let mut result: HashMap<String, RedisValue> = client
+      .ft_aggregate("timestamp_idx", "*", FtAggregateOptions {
+        load: Some(Load::All),
+        pipeline: vec![AggregateOperation::Apply {
+          expression: "@timestamp - (@timestamp % 3600)".into(),
+          name:       "hour".into(),
+        }],
+        ..Default::default()
+      })
+      .await?;
+
+    let results: Vec<RedisValue> = result.remove("results").unwrap().convert()?;
+    for (idx, val) in results.into_iter().enumerate() {
+      let mut val: HashMap<String, RedisValue> = val.convert()?;
+      let mut val: HashMap<String, usize> = val.remove("extra_attributes").unwrap().convert()?;
+      assert_eq!(val.remove("timestamp").unwrap(), idx);
+      assert_eq!(val.remove("hour").unwrap(), 0);
+      assert_eq!(val.remove("user_id").unwrap(), 1000 + idx);
+    }
+  } else {
+    // FT.AGGREGATE myIndex "*"
+    //   APPLY "@timestamp - (@timestamp % 3600)" AS hour
+    let result: Vec<RedisValue> = client
+      .ft_aggregate("timestamp_idx", "*", FtAggregateOptions {
+        load: Some(Load::All),
+        pipeline: vec![AggregateOperation::Apply {
+          expression: "@timestamp - (@timestamp % 3600)".into(),
+          name:       "hour".into(),
+        }],
+        ..Default::default()
+      })
+      .await?;
+
+    for (idx, val) in result.into_iter().enumerate() {
+      if idx == 0 {
+        assert_eq!(val.convert::<i64>()?, 1);
+      } else {
+        let mut val: HashMap<String, usize> = val.convert()?;
+        assert_eq!(val.remove("timestamp").unwrap(), idx - 1);
+        assert_eq!(val.remove("hour").unwrap(), 0);
+        assert_eq!(val.remove("user_id").unwrap(), 1000 + idx - 1);
+      }
+    }
+  }
+
+  // TODO
   // FT.AGGREGATE myIndex "*"
   //   APPLY "@timestamp - (@timestamp % 3600)" AS hour
   //   GROUPBY 1 @hour
@@ -225,12 +284,6 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
   //   	REDUCE COUNT_DISTINCT 1 @user_id AS num_users
   //   SORTBY 2 @hour ASC
   //   APPLY timefmt(@hour) AS hour
-
-  if client.protocol_version() == RespVersion::RESP3 {
-    // RESP3 uses maps and includes extra metadata fields
-  } else {
-    //
-  }
 
   Ok(())
 }
