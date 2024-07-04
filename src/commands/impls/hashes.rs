@@ -101,7 +101,7 @@ pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
 
-    for (key, value) in values.inner().into_iter() {
+    for (key, value) in values.inner().into_iter().filter(|x| !x.1.is_null()) {
       args.push(key.into());
       args.push(value);
     }
@@ -117,7 +117,7 @@ pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) ->
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
 
-    for (key, value) in values.inner().into_iter() {
+    for (key, value) in values.inner().into_iter().filter(|x| !x.1.is_null()) {
       args.push(key.into());
       args.push(value);
     }
