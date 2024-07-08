@@ -22,7 +22,7 @@ async fn main() -> Result<(), RedisError> {
   println!("Script result for {hash}: {results:?}");
 
   // or use `EVAL`
-  let results = client.eval(SCRIPT, vec!["foo", "bar"], vec![1, 2]).await?;
+  let results: RedisValue = client.eval(SCRIPT, vec!["foo", "bar"], vec![1, 2]).await?;
   println!("Script result: {results:?}");
 
   client.quit().await?;
@@ -37,7 +37,7 @@ async fn scripts() -> Result<(), RedisError> {
 
   let script = Script::from_lua(SCRIPT);
   script.load(&client).await?;
-  let _ = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
+  script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
   // retry after calling SCRIPT LOAD, if needed
   let (key1, key2, arg1, arg2): (String, String, i64, i64) = script
     .evalsha_with_reload(&client, vec!["foo", "bar"], vec![1, 2])

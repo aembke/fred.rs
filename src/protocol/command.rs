@@ -1596,6 +1596,9 @@ impl fmt::Debug for RedisCommand {
       .field("write_attempts", &self.write_attempts)
       .field("timeout_dur", &self.timeout_dur)
       .field("no_backpressure", &self.skip_backpressure)
+      .field("cluster_node", &self.cluster_node)
+      .field("cluster_hash", &self.hasher)
+      .field("use_replica", &self.use_replica)
       .field("fail_fast", &self.fail_fast);
 
     #[cfg(feature = "network-logs")]
@@ -2230,10 +2233,21 @@ impl fmt::Debug for RouterCommand {
           .field("slot", &slot)
           .field("command", &command.kind.to_str_debug());
       },
+      #[cfg(not(feature = "replicas"))]
       RouterCommand::Reconnect { server, force, .. } => {
         formatter
           .field("kind", &"Reconnect")
           .field("server", &server)
+          .field("force", &force);
+      },
+      #[cfg(feature = "replicas")]
+      RouterCommand::Reconnect {
+        server, force, replica, ..
+      } => {
+        formatter
+          .field("kind", &"Reconnect")
+          .field("server", &server)
+          .field("replica", &replica)
           .field("force", &force);
       },
       RouterCommand::SyncCluster { .. } => {
