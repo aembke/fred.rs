@@ -129,7 +129,9 @@ pub fn frame_into_string(frame: Resp3Frame) -> Result<String, RedisError> {
     Resp3Frame::Boolean { data, .. } => Ok(data.to_string()),
     Resp3Frame::VerbatimString { data, .. } => Ok(String::from_utf8(data.to_vec())?),
     Resp3Frame::BigNumber { data, .. } => Ok(String::from_utf8(data.to_vec())?),
-    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected protocol string.")),
+    Resp3Frame::SimpleError { data, .. } => Err(pretty_error(&data)),
+    Resp3Frame::BlobError { data, .. } => Err(pretty_error(str::from_utf8(&data)?)),
+    _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected string.")),
   }
 }
 

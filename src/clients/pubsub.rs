@@ -55,10 +55,10 @@ type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "subscriber-client")))]
 pub struct SubscriberClient {
-  channels: ChannelSet,
-  patterns: ChannelSet,
+  channels:       ChannelSet,
+  patterns:       ChannelSet,
   shard_channels: ChannelSet,
-  inner: Arc<RedisClientInner>,
+  inner:          Arc<RedisClientInner>,
 }
 
 impl fmt::Debug for SubscriberClient {
@@ -148,6 +148,9 @@ impl TimeSeriesInterface for SubscriberClient {}
 #[cfg(feature = "i-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TrackingInterface for SubscriberClient {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl RediSearchInterface for SubscriberClient {}
 
 #[cfg(feature = "i-pubsub")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
@@ -291,10 +294,10 @@ impl SubscriberClient {
     policy: Option<ReconnectPolicy>,
   ) -> SubscriberClient {
     SubscriberClient {
-      channels: Arc::new(RwLock::new(BTreeSet::new())),
-      patterns: Arc::new(RwLock::new(BTreeSet::new())),
+      channels:       Arc::new(RwLock::new(BTreeSet::new())),
+      patterns:       Arc::new(RwLock::new(BTreeSet::new())),
       shard_channels: Arc::new(RwLock::new(BTreeSet::new())),
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
+      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 

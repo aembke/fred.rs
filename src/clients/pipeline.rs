@@ -56,7 +56,7 @@ fn prepare_all_commands(
 /// See the [all](Self::all), [last](Self::last), and [try_all](Self::try_all) functions for more information.
 pub struct Pipeline<C: ClientLike> {
   commands: Arc<Mutex<VecDeque<RedisCommand>>>,
-  client: C,
+  client:   C,
 }
 
 #[doc(hidden)]
@@ -64,7 +64,7 @@ impl<C: ClientLike> Clone for Pipeline<C> {
   fn clone(&self) -> Self {
     Pipeline {
       commands: self.commands.clone(),
-      client: self.client.clone(),
+      client:   self.client.clone(),
     }
   }
 }
@@ -181,6 +181,9 @@ impl<C: RedisJsonInterface> RedisJsonInterface for Pipeline<C> {}
 #[cfg(feature = "i-time-series")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl<C: TimeSeriesInterface> TimeSeriesInterface for Pipeline<C> {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl<C: RediSearchInterface> RediSearchInterface for Pipeline<C> {}
 
 impl<C: ClientLike> Pipeline<C> {
   /// Send the pipeline and respond with an array of all responses.

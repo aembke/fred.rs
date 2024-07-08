@@ -1,6 +1,4 @@
 #![allow(clippy::disallowed_names)]
-#![allow(clippy::let_underscore_future)]
-#![allow(clippy::let_unit_value)]
 
 use fred::{
   prelude::*,
@@ -8,35 +6,26 @@ use fred::{
   util as fred_utils,
 };
 
-static SCRIPTS: &[&str] = &[
-  "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}",
-  "return {KEYS[2],KEYS[1],ARGV[1],ARGV[2]}",
-  "return {KEYS[1],KEYS[2],ARGV[2],ARGV[1]}",
-  "return {KEYS[2],KEYS[1],ARGV[2],ARGV[1]}",
-];
+static SCRIPT: &str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
   client.init().await?;
 
-  for script in SCRIPTS.iter() {
-    let hash = fred_utils::sha1_hash(script);
-    let mut script_exists: Vec<bool> = client.script_exists(&hash).await?;
-
-    if !script_exists.pop().unwrap_or(false) {
-      client.script_load(*script).await?;
-    }
-
-    let results = client.evalsha(&hash, vec!["foo", "bar"], vec![1, 2]).await?;
-    println!("Script results for {}: {:?}", hash, results);
+  let hash = fred_utils::sha1_hash(SCRIPT);
+  if !client.script_exists::<bool, _>(&hash).await? {
+    client.script_load(SCRIPT).await?;
   }
 
-  // or use eval without script_load
-  let result = client.eval(SCRIPTS[0], vec!["foo", "bar"], vec![1, 2]).await?;
-  println!("First script result: {:?}", result);
+  let results: RedisValue = client.evalsha(&hash, vec!["foo", "bar"], vec![1, 2]).await?;
+  println!("Script result for {hash}: {results:?}");
 
-  let _ = client.quit().await;
+  // or use `EVAL`
+  let results: RedisValue = client.eval(SCRIPT, vec!["foo", "bar"], vec![1, 2]).await?;
+  println!("Script result: {results:?}");
+
+  client.quit().await?;
   Ok(())
 }
 
@@ -46,10 +35,14 @@ async fn scripts() -> Result<(), RedisError> {
   let client = RedisClient::default();
   client.init().await?;
 
-  let script = Script::from_lua(SCRIPTS[0]);
+  let script = Script::from_lua(SCRIPT);
   script.load(&client).await?;
-  let result = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
-  println!("First script result: {:?}", result);
+  script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
+  // retry after calling SCRIPT LOAD, if needed
+  let (key1, key2, arg1, arg2): (String, String, i64, i64) = script
+    .evalsha_with_reload(&client, vec!["foo", "bar"], vec![1, 2])
+    .await?;
+  println!("Script result: [{key1}, {key2}, {arg1}, {arg2}]");
 
   Ok(())
 }

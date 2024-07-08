@@ -22,10 +22,10 @@ use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
-  id: u64,
-  inner: Arc<RedisClientInner>,
-  commands: Arc<Mutex<VecDeque<RedisCommand>>>,
-  watched: Arc<Mutex<VecDeque<RedisKey>>>,
+  id:        u64,
+  inner:     Arc<RedisClientInner>,
+  commands:  Arc<Mutex<VecDeque<RedisCommand>>>,
+  watched:   Arc<Mutex<VecDeque<RedisKey>>>,
   hash_slot: Arc<Mutex<Option<u16>>>,
 }
 
@@ -130,16 +130,19 @@ impl RedisJsonInterface for Transaction {}
 #[cfg(feature = "i-time-series")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 impl TimeSeriesInterface for Transaction {}
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+impl RediSearchInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
   pub(crate) fn from_inner(inner: &Arc<RedisClientInner>) -> Self {
     Transaction {
-      inner: inner.clone(),
-      commands: Arc::new(Mutex::new(VecDeque::new())),
-      watched: Arc::new(Mutex::new(VecDeque::new())),
+      inner:     inner.clone(),
+      commands:  Arc::new(Mutex::new(VecDeque::new())),
+      watched:   Arc::new(Mutex::new(VecDeque::new())),
       hash_slot: Arc::new(Mutex::new(None)),
-      id: utils::random_u64(u64::MAX),
+      id:        utils::random_u64(u64::MAX),
     }
   }
 

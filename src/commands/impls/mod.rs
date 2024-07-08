@@ -68,6 +68,7 @@ macro_rules! ok_cmd(
   }
 );
 
+// TODO clean this up
 /// Macro to generate a command function that takes no arguments and returns a single `RedisValue` to the caller.
 macro_rules! simple_cmd(
   ($name:ident, $cmd:tt, $res:ty) => {
@@ -189,6 +190,8 @@ pub mod memory;
 pub mod pubsub;
 #[cfg(feature = "i-redis-json")]
 pub mod redis_json;
+#[cfg(feature = "i-redisearch")]
+pub mod redisearch;
 pub mod scan;
 #[cfg(feature = "sentinel-client")]
 pub mod sentinel;

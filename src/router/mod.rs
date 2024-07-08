@@ -6,7 +6,8 @@ use crate::{
     connection::{self, CommandBuffer, Counters, RedisWriter},
     types::{ClusterRouting, Server},
   },
-  trace, utils as client_utils,
+  trace,
+  utils as client_utils,
 };
 use futures::future::try_join_all;
 use semver::Version;
@@ -51,7 +52,7 @@ pub enum Written {
   Sent((Server, bool)),
   /// Indicates that the command was sent to all servers.
   SentAll,
-  /// The command could not be written since the connection is down.  
+  /// The command could not be written since the connection is down.
   Disconnected((Option<Server>, Option<RedisCommand>, RedisError)),
   /// Ignore the result and move on to the next command.
   Ignore,
@@ -66,21 +67,17 @@ pub enum Written {
 
 impl fmt::Display for Written {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    write!(
-      f,
-      "{}",
-      match self {
-        Written::Backpressure(_) => "Backpressure",
-        Written::Sent(_) => "Sent",
-        Written::SentAll => "SentAll",
-        Written::Disconnected(_) => "Disconnected",
-        Written::Ignore => "Ignore",
-        Written::NotFound(_) => "NotFound",
-        Written::Error(_) => "Error",
-        #[cfg(feature = "replicas")]
-        Written::Fallback(_) => "Fallback",
-      }
-    )
+    write!(f, "{}", match self {
+      Written::Backpressure(_) => "Backpressure",
+      Written::Sent(_) => "Sent",
+      Written::SentAll => "SentAll",
+      Written::Disconnected(_) => "Disconnected",
+      Written::Ignore => "Ignore",
+      Written::NotFound(_) => "NotFound",
+      Written::Error(_) => "Error",
+      #[cfg(feature = "replicas")]
+      Written::Fallback(_) => "Fallback",
+    })
   }
 }
 
@@ -135,7 +132,7 @@ pub enum Connections {
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
-    cache: ClusterRouting,
+    cache:   ClusterRouting,
     /// A map of server IDs and connections.
     writers: HashMap<Server, RedisWriter>,
   },
@@ -156,7 +153,7 @@ impl Connections {
 
   pub fn new_clustered() -> Self {
     Connections::Clustered {
-      cache: ClusterRouting::new(),
+      cache:   ClusterRouting::new(),
       writers: HashMap::new(),
     }
   }
@@ -500,12 +497,12 @@ pub struct Router {
   /// The connection map for each deployment type.
   pub connections: Connections,
   /// The inner client state associated with the router.
-  pub inner: Arc<RedisClientInner>,
+  pub inner:       Arc<RedisClientInner>,
   /// Storage for commands that should be deferred or retried later.
-  pub buffer: VecDeque<RedisCommand>,
+  pub buffer:      VecDeque<RedisCommand>,
   /// The replica routing interface.
   #[cfg(feature = "replicas")]
-  pub replicas: Replicas,
+  pub replicas:    Replicas,
 }
 
 impl Router {
