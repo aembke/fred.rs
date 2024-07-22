@@ -509,11 +509,11 @@ pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
     }
   } else {
     let cmd = RouterCommand::Reconnect {
-      server: None,
-      tx: None,
-      force: false,
+      server:                               None,
+      tx:                                   None,
+      force:                                false,
       #[cfg(feature = "replicas")]
-      replica: false,
+      replica:                              false,
     };
     if let Err(_) = interfaces::send_to_router(inner, cmd) {
       _warn!(inner, "Failed to send deferred cluster sync.")

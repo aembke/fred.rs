@@ -237,11 +237,11 @@ impl From<i64> for GetTimestamp {
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RangeAggregation {
-  pub align: Option<GetTimestamp>,
-  pub aggregation: Aggregator,
-  pub bucket_duration: u64,
+  pub align:            Option<GetTimestamp>,
+  pub aggregation:      Aggregator,
+  pub bucket_duration:  u64,
   pub bucket_timestamp: Option<BucketTimestamp>,
-  pub empty: bool,
+  pub empty:            bool,
 }
 
 impl From<(Aggregator, u64)> for RangeAggregation {
@@ -294,7 +294,7 @@ impl Reducer {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GroupBy {
   pub groupby: Str,
-  pub reduce: Reducer,
+  pub reduce:  Reducer,
 }
 
 impl<S: Into<Str>> From<(S, Reducer)> for GroupBy {
