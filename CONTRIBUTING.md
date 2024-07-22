@@ -1,14 +1,15 @@
-Contributing
-===========
+# Contributing
 
 This document gives some background on how the library is structured and how to contribute.
 
-# General
+## General
 
 * Run rustfmt and clippy before submitting any changes.
+  * Formatting should adhere to [rustfmt.toml](./rustfmt.toml), i.e. by running `cargo +nightly fmt --all`
+  * VS Code users should use the checked-in settings in the [.vscode](./.vscode) directory
 * Please use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
 
-# File Structure
+## File Structure
 
 The code has the following structure:
 
@@ -38,113 +39,113 @@ The code has the following structure:
 
 ## Examples
 
-## Add A New Command
+### Add A New Command
 
 This example shows how to add `MGET` to the commands.
 
 1. Add the new variant to the `RedisCommandKind` enum, if needed.
 
-```rust
-pub enum RedisCommandKind {
-  // ...
-  Mget,
-  // ...
-}
+    ```rust
+    pub enum RedisCommandKind {
+      // ...
+      Mget,
+      // ...
+    }
 
-impl RedisCommandKind {
-  // ..
-
-  pub fn to_str_debug(&self) -> &str {
-    match *self {
+    impl RedisCommandKind {
       // ..
-      RedisCommandKind::Mget => "MGET",
+
+      pub fn to_str_debug(&self) -> &str {
+        match *self {
+          // ..
+          RedisCommandKind::Mget => "MGET",
+          // ..
+        }
+      }
+
+      // ..
+
+      pub fn cmd_str(&self) -> Str {
+        match *self {
+          // .. 
+          RedisCommandKind::Mget => "MGET"
+          // ..
+        }
+      }
+
       // ..
     }
-  }
-
-  // ..
-
-  pub fn cmd_str(&self) -> Str {
-    match *self {
-      // .. 
-      RedisCommandKind::Mget => "MGET"
-      // ..
-    }
-  }
-
-  // ..
-}
-```
+    ```
 
 2. Create the private function implementing the command in [src/commands/impls/keys.rs](src/commands/impls/keys.rs).
 
-```rust
-pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
-  // maybe do some kind of validation 
-  utils::check_empty_keys(&keys)?;
+    ```rust
+    pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+      // maybe do some kind of validation 
+      utils::check_empty_keys(&keys)?;
 
-  let frame = utils::request_response(client, move || {
-    // time spent here will show up in traces in the `prepare_command` span
-    Ok((RedisCommandKind::Mget, keys.into_values()))
-  })
-    .await?;
+      let frame = utils::request_response(client, move || {
+        // time spent here will show up in traces in the `prepare_command` span
+        Ok((RedisCommandKind::Mget, keys.into_values()))
+      })
+        .await?;
 
-  protocol_utils::frame_to_results(frame)
-}
-```
+      protocol_utils::frame_to_results(frame)
+    }
+    ```
 
-Or use one of the shorthand helper functions or macros.
+    Or use one of the shorthand helper functions or macros.
 
-```rust
-pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
-  utils::check_empty_keys(&keys)?;
-  args_values_cmd(client, keys.into_values()).await
-}
-```
+    ```rust
+    pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+      utils::check_empty_keys(&keys)?;
+      args_values_cmd(client, keys.into_values()).await
+    }
+    ```
 
 3. Create the public function in the [src/commands/interfaces/keys.rs](src/commands/interfaces/keys.rs) file.
 
-```rust
+    ```rust
 
-// ...
+    // ...
 
-pub trait KeysInterface: ClientLike {
+    pub trait KeysInterface: ClientLike {
 
-  // ...
+      // ...
 
-  /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the special value nil is returned.
-  ///
-  /// <https://redis.io/commands/mget>
-  fn mget<R, K>(&self, keys: K) -> impl Future<Output=RedisResult<R>> + Send
-  where
-    R: FromRedis,
-    K: Into<MultipleKeys> + Send,
-  {
-    async move {
-      into!(keys);
-      commands::keys::mget(self, keys).await?.convert()
+      /// Returns the values of all specified keys. For every key that does not hold a string value or does not exist, the special value nil is returned.
+      ///
+      /// <https://redis.io/commands/mget>
+      fn mget<R, K>(&self, keys: K) -> impl Future<Output=RedisResult<R>> + Send
+      where
+        R: FromRedis,
+        K: Into<MultipleKeys> + Send,
+      {
+        async move {
+          into!(keys);
+          commands::keys::mget(self, keys).await?.convert()
+        }
+      }
+
+      // ...
     }
-  }
-
-  // ...
-}
-```
+    ```
 
 4. Implement the interface on the client structs, if needed.
 
-In the [RedisClient](src/clients/redis.rs) file.
+    In the [RedisClient](src/clients/redis.rs) file.
 
-```rust
-impl KeysInterface for RedisClient {}
-```
+    ```rust
+    impl KeysInterface for RedisClient {}
+    ```
 
-In the [transaction](src/clients/transaction.rs) file.
+    In the [transaction](src/clients/transaction.rs) file.
 
-```rust
-impl KeysInterface for Transaction {}
-```
+    ```rust
+    impl KeysInterface for Transaction {}
+    ```
 
-# Adding Tests
+## Adding Tests
 
 Integration tests are in the [tests/integration](tests/integration) folder organized by category. See the
 tests [README](tests/README.md) for more information.
@@ -153,41 +154,40 @@ Using `MGET` as an example again:
 
 1. Write tests in the [keys](tests/integration/keys/mod.rs) file.
 
-```rust
-pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
-  for (key, value) in expected.iter() {
-    let _: () = client.set(key, value.clone(), None, None, false).await?;
-  }
-  let values: Vec<i64> = client.mget(vec!["a{1}", "b{1}", "c{1}"]).await?;
-  assert_eq!(values, vec![1, 2, 3]);
+    ```rust
+    pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+      let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
+      for (key, value) in expected.iter() {
+        let _: () = client.set(key, value.clone(), None, None, false).await?;
+      }
+      let values: Vec<i64> = client.mget(vec!["a{1}", "b{1}", "c{1}"]).await?;
+      assert_eq!(values, vec![1, 2, 3]);
 
-  Ok(())
-}
-```
+      Ok(())
+    }
+    ```
 
 2. Call the tests from the [centralized server tests](tests/integration/centralized.rs).
 
-```rust
-mod keys {
-  // ..
-  centralized_test!(keys, should_mget_values);
-}
+    ```rust
+    mod keys {
+      // ..
+      centralized_test!(keys, should_mget_values);
+    }
 
-```
+    ```
 
 3. Call the tests from the [cluster server tests](tests/integration/clustered.rs).
 
-```rust
-mod keys {
-  // ..
-  cluster_test!(keys, should_mget_values);
-}
-```
+    ```rust
+    mod keys {
+      // ..
+      cluster_test!(keys, should_mget_values);
+    }
+    ```
 
 These macros will generate test wrapper functions to call your test 8 times based on the following options:
 
 * Clustered vs centralized deployments
 * Pipelined vs non-pipelined clients
 * RESP2 vs RESP3 protocol modes
-
