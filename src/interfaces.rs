@@ -39,7 +39,7 @@ use crate::types::ShutdownFlags;
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
 
-#[cfg(feature = "dns")]
+#[cfg(any(feature = "dns", feature = "trust-dns-resolver"))]
 use crate::protocol::types::Resolve;
 
 /// Send a single `RedisCommand` to the router.
