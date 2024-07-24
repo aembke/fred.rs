@@ -11,7 +11,9 @@ use bytes::BytesMut;
 use bytes_utils::Str;
 use redis_protocol::{
   resp2::{
-    decode::decode_bytes_mut as resp2_decode, encode::extend_encode as resp2_encode, types::BytesFrame as Resp2Frame,
+    decode::decode_bytes_mut as resp2_decode,
+    encode::extend_encode as resp2_encode,
+    types::BytesFrame as Resp2Frame,
   },
   resp3::{
     decode::streaming::decode_bytes_mut as resp3_decode,
@@ -188,27 +190,27 @@ fn resp2_decode_with_fallback(
 }
 
 pub struct RedisCodec {
-  pub name: Str,
-  pub server: Server,
-  pub resp3: Arc<AtomicBool>,
+  pub name:            Str,
+  pub server:          Server,
+  pub resp3:           Arc<AtomicBool>,
   pub streaming_state: Option<StreamedFrame<Resp3Frame>>,
   #[cfg(feature = "metrics")]
-  pub req_size_stats: Arc<RwLock<MovingStats>>,
+  pub req_size_stats:  Arc<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
-  pub res_size_stats: Arc<RwLock<MovingStats>>,
+  pub res_size_stats:  Arc<RwLock<MovingStats>>,
 }
 
 impl RedisCodec {
   pub fn new(inner: &Arc<RedisClientInner>, server: &Server) -> Self {
     RedisCodec {
-      server: server.clone(),
-      name: inner.id.clone(),
-      resp3: inner.shared_resp3(),
-      streaming_state: None,
+      server:                                     server.clone(),
+      name:                                       inner.id.clone(),
+      resp3:                                      inner.shared_resp3(),
+      streaming_state:                            None,
       #[cfg(feature = "metrics")]
-      req_size_stats: inner.req_size_stats.clone(),
+      req_size_stats:                             inner.req_size_stats.clone(),
       #[cfg(feature = "metrics")]
-      res_size_stats: inner.res_size_stats.clone(),
+      res_size_stats:                             inner.res_size_stats.clone(),
     }
   }
 

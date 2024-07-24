@@ -12,7 +12,8 @@ use crate::error::RedisErrorKind;
 use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
-  TlsConnector as NativeTlsConnector, TlsConnectorBuilder as NativeTlsConnectorBuilder,
+  TlsConnector as NativeTlsConnector,
+  TlsConnectorBuilder as NativeTlsConnectorBuilder,
 };
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsConnector as TokioNativeTlsConnector;
@@ -135,15 +136,12 @@ impl Eq for TlsConnector {}
 impl Debug for TlsConnector {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("TlsConnector")
-      .field(
-        "kind",
-        match self {
-          #[cfg(feature = "enable-native-tls")]
-          TlsConnector::Native(_) => &"Native",
-          #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
-          TlsConnector::Rustls(_) => &"Rustls",
-        },
-      )
+      .field("kind", match self {
+        #[cfg(feature = "enable-native-tls")]
+        TlsConnector::Native(_) => &"Native",
+        #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+        TlsConnector::Rustls(_) => &"Rustls",
+      })
       .finish()
   }
 }

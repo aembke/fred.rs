@@ -140,10 +140,10 @@ async fn read_sentinels(
 ) -> Result<Vec<Server>, RedisError> {
   let service_name = read_service_name(inner)?;
 
-  let command = RedisCommand::new(
-    RedisCommandKind::Sentinel,
-    vec![static_val!(SENTINELS), service_name.into()],
-  );
+  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
+    static_val!(SENTINELS),
+    service_name.into(),
+  ]);
   let frame = sentinel.request_response(command, false).await?;
   let response = stry!(protocol_utils::frame_to_results(frame));
   _trace!(inner, "Read sentinel `sentinels` response: {:?}", response);
@@ -197,10 +197,10 @@ async fn discover_primary_node(
   sentinel: &mut RedisTransport,
 ) -> Result<RedisTransport, RedisError> {
   let service_name = read_service_name(inner)?;
-  let command = RedisCommand::new(
-    RedisCommandKind::Sentinel,
-    vec![static_val!(GET_MASTER_ADDR_BY_NAME), service_name.into()],
-  );
+  let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
+    static_val!(GET_MASTER_ADDR_BY_NAME),
+    service_name.into(),
+  ]);
   let frame = utils::timeout(
     sentinel.request_response(command, false),
     inner.internal_command_timeout(),

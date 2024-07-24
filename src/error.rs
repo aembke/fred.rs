@@ -111,7 +111,7 @@ pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind: RedisErrorKind,
+  kind:    RedisErrorKind,
 }
 
 impl Clone for RedisError {

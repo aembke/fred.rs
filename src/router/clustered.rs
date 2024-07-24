@@ -1,4 +1,3 @@
-use crate::types::ClusterDiscoveryPolicy;
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
@@ -12,7 +11,7 @@ use crate::{
     utils as protocol_utils,
   },
   router::{responses, types::ClusterChange, utils, Connections, Written},
-  types::ClusterStateChange,
+  types::{ClusterDiscoveryPolicy, ClusterStateChange},
   utils as client_utils,
 };
 use futures::future::try_join_all;
