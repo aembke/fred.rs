@@ -144,6 +144,46 @@ pub async fn expire_at<C: ClientLike>(client: &C, key: RedisKey, timestamp: i64)
   protocol_utils::frame_to_results(frame)
 }
 
+pub async fn pexpire<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  milliseconds: i64,
+  options: Option<ExpireOptions>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let args = if let Some(options) = options {
+      vec![key.into(), milliseconds.into(), options.to_str().into()]
+    } else {
+      vec![key.into(), milliseconds.into()]
+    };
+
+    Ok((RedisCommandKind::Pexpire, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn pexpire_at<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  timestamp: i64,
+  options: Option<ExpireOptions>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let args = if let Some(options) = options {
+      vec![key.into(), timestamp.into(), options.to_str().into()]
+    } else {
+      vec![key.into(), timestamp.into()]
+    };
+
+    Ok((RedisCommandKind::Pexpireat, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
 pub async fn exists<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   check_empty_keys(&keys)?;
 

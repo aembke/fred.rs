@@ -1,44 +1,45 @@
 [package]
-authors      = ["Alec Embke <aembke@gmail.com>"]
-categories   = ["asynchronous", "database", "web-programming"]
-description  = "An async client for Redis and Valkey."
-edition      = "2021"
-exclude      = ["tests", ".circleci", "bin", ".github", "docs"]
-homepage     = "https://github.com/aembke/fred.rs"
-keywords     = ["redis", "valkey", "cluster", "sentinel"]
-license      = "MIT"
-name         = "fred"
-readme       = "README.md"
-repository   = "https://github.com/aembke/fred.rs"
+authors = ["Alec Embke <aembke@gmail.com>"]
+categories = ["asynchronous", "database", "web-programming"]
+description = "An async client for Redis and Valkey."
+edition = "2021"
+exclude = ["tests", ".circleci", "bin", ".github", "docs"]
+homepage = "https://github.com/aembke/fred.rs"
+keywords = ["redis", "valkey", "cluster", "sentinel"]
+license = "MIT"
+name = "fred"
+readme = "README.md"
+repository = "https://github.com/aembke/fred.rs"
 rust-version = "1.75"
-version      = "9.1.0"
+version = "9.1.0"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
-doc  = true
+doc = true
 name = "fred"
 test = true
 
 [features]
 default = ["transactions", "i-std"]
 
-blocking-encoding       = ["tokio/rt-multi-thread"]
+blocking-encoding = ["tokio/rt-multi-thread"]
 custom-reconnect-errors = []
-default-nil-types       = []
-dns                     = ["trust-dns-resolver", "trust-dns-resolver/tokio"]
-metrics                 = []
-mocks                   = []
-monitor                 = ["nom"]
-replicas                = []
-sentinel-auth           = []
-sentinel-client         = []
-serde-json              = ["serde_json"]
-subscriber-client       = ["i-pubsub"]
-transactions            = []
-unix-sockets            = []
+default-nil-types = []
+dns = ["hickory-resolver"]
+metrics = []
+mocks = []
+monitor = ["nom"]
+replicas = []
+sentinel-auth = []
+sentinel-client = []
+serde-json = ["serde_json"]
+subscriber-client = ["i-pubsub"]
+transactions = []
+trust-dns-resolver = ["dep:trust-dns-resolver"]
+unix-sockets = []
 
 # Enables rustls with the rustls/aws_lc_rs crypto backend
 enable-rustls = [
@@ -119,17 +120,17 @@ i-streams = []
 i-tracking = ["i-client", "i-pubsub"]
 
 # Redis Stack Interfaces
-i-redis-json  = ["serde-json"]
+i-redis-json = ["serde-json"]
 i-redis-stack = ["i-redis-json", "i-time-series", "i-redisearch"]
-i-redisearch  = ["i-sorted-sets", "i-geo", "i-hashes"]
+i-redisearch = ["i-sorted-sets", "i-geo", "i-hashes"]
 i-time-series = []
 
 # Full and partial tracing
-full-tracing    = ["partial-tracing"]
+full-tracing = ["partial-tracing"]
 partial-tracing = ["tracing", "tracing-futures"]
 
 # Debugging Features
-debug-ids    = []
+debug-ids = []
 network-logs = []
 
 [dependencies]
@@ -165,67 +166,68 @@ tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = { version = "0.1", optional = true }
 tracing-futures = { version = "0.2", optional = true }
-trust-dns-resolver = { version = "0.23", optional = true }
+trust-dns-resolver = { version = "0.23", optional = true, features = ["tokio"] }
+hickory-resolver = { version = "0.24.1", optional = true, features = ["tokio"] }
 url = "2.4"
 urlencoding = "2.1"
 
 [dev-dependencies]
-axum              = { version = "0.7", features = ["macros"] }
-base64            = "0.22.0"
-maplit            = "1.0"
+axum = { version = "0.7", features = ["macros"] }
+base64 = "0.22.0"
+maplit = "1.0"
 pretty_env_logger = "0.5"
-serde             = { version = "1.0", features = ["derive"] }
-subprocess        = "0.2"
-tokio-stream      = { version = "0.1", features = ["sync"] }
+serde = { version = "1.0", features = ["derive"] }
+subprocess = "0.2"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 [[example]]
-name              = "misc"
+name = "misc"
 required-features = ["i-all"]
 
 [[example]]
-name              = "scan"
+name = "scan"
 required-features = ["i-all"]
 
 [[example]]
-name              = "monitor"
+name = "monitor"
 required-features = ["monitor"]
 
 [[example]]
-name              = "pubsub"
+name = "pubsub"
 required-features = ["subscriber-client"]
 
 [[example]]
-name              = "axum"
+name = "axum"
 required-features = ["subscriber-client"]
 
 [[example]]
-name              = "serde_json"
+name = "serde_json"
 required-features = ["serde-json"]
 
 [[example]]
-name              = "redis_json"
+name = "redis_json"
 required-features = ["i-redis-json"]
 
 [[example]]
-name              = "replicas"
+name = "replicas"
 required-features = ["i-std", "i-cluster", "replicas"]
 
 [[example]]
-name              = "dns"
+name = "dns"
 required-features = ["dns"]
 
 [[example]]
-name              = "client_tracking"
+name = "client_tracking"
 required-features = ["i-tracking", "i-std"]
 
 [[example]]
-name              = "lua"
+name = "lua"
 required-features = ["sha-1", "i-scripts"]
 
 [[example]]
-name              = "events"
+name = "events"
 required-features = ["tokio-stream/sync", "i-std"]
 
 [[example]]
-name              = "transactions"
+name = "transactions"
 required-features = ["transactions", "i-std"]

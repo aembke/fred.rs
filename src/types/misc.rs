@@ -175,6 +175,27 @@ impl SetOptions {
   }
 }
 
+/// Options for certain expiration commands (`PEXPIRE`, etc).
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ExpireOptions {
+  NX,
+  XX,
+  GT,
+  LT,
+}
+
+impl ExpireOptions {
+  #[allow(dead_code)]
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      ExpireOptions::NX => "NX",
+      ExpireOptions::XX => "XX",
+      ExpireOptions::GT => "GT",
+      ExpireOptions::LT => "LT",
+    })
+  }
+}
+
 /// Expiration options for the [set](https://redis.io/commands/set) command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Expiration {
