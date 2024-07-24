@@ -9,12 +9,12 @@ use crate::trace::disabled::Span as FakeSpan;
 
 /// Struct for storing spans used by the client when sending a command.
 pub struct CommandTraces {
-  pub cmd: Option<Span>,
+  pub cmd:     Option<Span>,
   pub network: Option<Span>,
   #[cfg(feature = "full-tracing")]
-  pub queued: Option<Span>,
+  pub queued:  Option<Span>,
   #[cfg(not(feature = "full-tracing"))]
-  pub queued: Option<FakeSpan>,
+  pub queued:  Option<FakeSpan>,
 }
 
 /// Enter the network span when the command is dropped after receiving a response.
@@ -29,8 +29,8 @@ impl Drop for CommandTraces {
 impl Default for CommandTraces {
   fn default() -> Self {
     CommandTraces {
-      cmd: None,
-      queued: None,
+      cmd:     None,
+      queued:  None,
       network: None,
     }
   }

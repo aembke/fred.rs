@@ -5,7 +5,14 @@ use fred::{
   interfaces::*,
   prelude::RedisResult,
   types::{
-    Aggregator, GetLabels, RedisConfig, RedisKey, RedisValue, Resp2TimeSeriesValues, Resp3TimeSeriesValues, Timestamp,
+    Aggregator,
+    GetLabels,
+    RedisConfig,
+    RedisKey,
+    RedisValue,
+    Resp2TimeSeriesValues,
+    Resp3TimeSeriesValues,
+    Timestamp,
   },
 };
 use redis_protocol::resp3::types::RespVersion;
@@ -62,16 +69,12 @@ pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result
     values.sort_by(|(lhs_key, _, _), (rhs_key, _, _)| lhs_key.cmp(rhs_key));
 
     let expected = vec![
-      (
-        "bar{1}".to_string(),
-        vec![("a".to_string(), "b".to_string())],
-        vec![(2, 2.3)],
-      ),
-      (
-        "foo{1}".to_string(),
-        vec![("a".to_string(), "b".to_string())],
-        vec![(3, 3.3)],
-      ),
+      ("bar{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![(
+        2, 2.3,
+      )]),
+      ("foo{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![(
+        3, 3.3,
+      )]),
     ];
     assert_eq!(values, expected);
   } else {
@@ -136,24 +139,16 @@ pub async fn should_incr_and_decr(client: RedisClient, _: RedisConfig) -> Result
 
 pub async fn should_create_and_delete_rules(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   client
-    .ts_create(
-      "temp:TLV",
-      None,
-      None,
-      None,
-      None,
-      [("type", "temp"), ("location", "TLV")],
-    )
+    .ts_create("temp:TLV", None, None, None, None, [
+      ("type", "temp"),
+      ("location", "TLV"),
+    ])
     .await?;
   client
-    .ts_create(
-      "dailyAvgTemp:TLV",
-      None,
-      None,
-      None,
-      None,
-      [("type", "temp"), ("location", "TLV")],
-    )
+    .ts_create("dailyAvgTemp:TLV", None, None, None, None, [
+      ("type", "temp"),
+      ("location", "TLV"),
+    ])
     .await?;
   client
     .ts_createrule("temp:TLV", "dailyAvgTemp:TLV", (Aggregator::TWA, 86400000), None)
@@ -196,16 +191,15 @@ pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Resu
     samples.sort_by(|(l, _, _), (r, _, _)| l.cmp(r));
 
     let expected = vec![
-      (
-        "bar{1}".to_string(),
-        vec![("a".to_string(), "b".to_string())],
-        vec![(1, 1.2), (2, 2.3)],
-      ),
-      (
-        "foo{1}".to_string(),
-        vec![("a".to_string(), "b".to_string())],
-        vec![(1, 1.1), (2, 2.2), (3, 3.3)],
-      ),
+      ("bar{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (1, 1.2),
+        (2, 2.3),
+      ]),
+      ("foo{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (1, 1.1),
+        (2, 2.2),
+        (3, 3.3),
+      ]),
     ];
     assert_eq!(samples, expected)
   } else {
@@ -332,16 +326,15 @@ pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> R
     samples.sort_by(|(l, _, _), (r, _, _)| l.cmp(r));
 
     let expected = vec![
-      (
-        "bar{1}".to_string(),
-        vec![("a".to_string(), "b".to_string())],
-        vec![(2, 2.3), (1, 1.2)],
-      ),
-      (
-        "foo{1}".to_string(),
-        vec![("a".to_string(), "b".to_string())],
-        vec![(3, 3.3), (2, 2.2), (1, 1.1)],
-      ),
+      ("bar{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (2, 2.3),
+        (1, 1.2),
+      ]),
+      ("foo{1}".to_string(), vec![("a".to_string(), "b".to_string())], vec![
+        (3, 3.3),
+        (2, 2.2),
+        (1, 1.1),
+      ]),
     ];
     assert_eq!(samples, expected)
   } else {
