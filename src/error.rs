@@ -16,9 +16,6 @@ use std::{
 use tokio::task::JoinError;
 use url::ParseError;
 
-#[cfg(feature = "dns")]
-use trust_dns_resolver::error::ResolveError;
-
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RedisErrorKind {
@@ -111,7 +108,7 @@ pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind: RedisErrorKind,
+  kind:    RedisErrorKind,
 }
 
 impl Clone for RedisError {
@@ -308,10 +305,19 @@ impl From<rustls::Error> for RedisError {
 }
 
 #[doc(hidden)]
+#[cfg(feature = "trust-dns-resolver")]
+#[cfg_attr(docsrs, doc(cfg(feature = "trust-dns-resolver")))]
+impl From<trust_dns_resolver::error::ResolveError> for RedisError {
+  fn from(e: trust_dns_resolver::error::ResolveError) -> Self {
+    RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
+  }
+}
+
+#[doc(hidden)]
 #[cfg(feature = "dns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-impl From<ResolveError> for RedisError {
-  fn from(e: ResolveError) -> Self {
+impl From<hickory_resolver::error::ResolveError> for RedisError {
+  fn from(e: hickory_resolver::error::ResolveError) -> Self {
     RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
   }
 }

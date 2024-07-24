@@ -1,11 +1,21 @@
 use futures::Future;
 
-use crate::types::{Limit, MultipleStrings, SortOrder};
 use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, LMoveDirection, ListLocation, MultipleKeys, MultipleValues, RedisKey, RedisValue},
+  types::{
+    FromRedis,
+    LMoveDirection,
+    Limit,
+    ListLocation,
+    MultipleKeys,
+    MultipleStrings,
+    MultipleValues,
+    RedisKey,
+    RedisValue,
+    SortOrder,
+  },
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
@@ -444,7 +454,8 @@ pub trait ListInterface: ClientLike + Sized {
     }
   }
 
-  /// Read-only variant of the SORT command. It is exactly like the original SORT but refuses the STORE option and can safely be used in read-only replicas.
+  /// Read-only variant of the SORT command. It is exactly like the original SORT but refuses the STORE option and can
+  /// safely be used in read-only replicas.
   ///
   /// <https://redis.io/commands/sort_ro/>
   fn sort_ro<R, K, S>(

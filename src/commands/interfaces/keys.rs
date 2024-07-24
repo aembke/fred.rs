@@ -4,7 +4,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{Expiration, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions},
+  types::{Expiration, ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions},
 };
 use std::convert::TryInto;
 
@@ -489,8 +489,6 @@ pub trait KeysInterface: ClientLike + Sized {
 
   /// Set a timeout on key. After the timeout has expired, the key will be automatically deleted.
   ///
-  /// Returns a boolean value describing whether the timeout was added.
-  ///
   /// <https://redis.io/commands/expire>
   fn expire<R, K>(&self, key: K, seconds: i64) -> impl Future<Output = RedisResult<R>> + Send
   where
@@ -505,8 +503,6 @@ pub trait KeysInterface: ClientLike + Sized {
 
   /// Set a timeout on a key based on a UNIX timestamp.
   ///
-  /// Returns a boolean value describing whether the timeout was added.
-  ///
   /// <https://redis.io/commands/expireat>
   fn expire_at<R, K>(&self, key: K, timestamp: i64) -> impl Future<Output = RedisResult<R>> + Send
   where
@@ -516,6 +512,50 @@ pub trait KeysInterface: ClientLike + Sized {
     async move {
       into!(key);
       commands::keys::expire_at(self, key, timestamp).await?.convert()
+    }
+  }
+
+  /// This command works exactly like EXPIRE but the time to live of the key is specified in milliseconds instead of
+  /// seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/pexpire/>
+  fn pexpire<R, K>(
+    &self,
+    key: K,
+    milliseconds: i64,
+    options: Option<ExpireOptions>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+  {
+    async move {
+      into!(key);
+      commands::keys::pexpire(self, key, milliseconds, options)
+        .await?
+        .convert()
+    }
+  }
+
+  /// PEXPIREAT has the same effect and semantic as EXPIREAT, but the Unix time at which the key will expire is
+  /// specified in milliseconds instead of seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/pexpireat/>
+  fn pexpire_at<R, K>(
+    &self,
+    key: K,
+    timestamp: i64,
+    options: Option<ExpireOptions>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+  {
+    async move {
+      into!(key);
+      commands::keys::pexpire_at(self, key, timestamp, options)
+        .await?
+        .convert()
     }
   }
 

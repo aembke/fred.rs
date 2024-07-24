@@ -1508,12 +1508,6 @@ impl From<Bytes> for RedisValue {
   }
 }
 
-impl From<&Box<[u8]>> for RedisValue {
-  fn from(b: &Box<[u8]>) -> Self {
-    b.into()
-  }
-}
-
 impl From<Box<[u8]>> for RedisValue {
   fn from(b: Box<[u8]>) -> Self {
     RedisValue::Bytes(b.into())

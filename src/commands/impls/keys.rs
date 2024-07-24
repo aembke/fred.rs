@@ -144,6 +144,46 @@ pub async fn expire_at<C: ClientLike>(client: &C, key: RedisKey, timestamp: i64)
   protocol_utils::frame_to_results(frame)
 }
 
+pub async fn pexpire<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  milliseconds: i64,
+  options: Option<ExpireOptions>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let args = if let Some(options) = options {
+      vec![key.into(), milliseconds.into(), options.to_str().into()]
+    } else {
+      vec![key.into(), milliseconds.into()]
+    };
+
+    Ok((RedisCommandKind::Pexpire, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn pexpire_at<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  timestamp: i64,
+  options: Option<ExpireOptions>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let args = if let Some(options) = options {
+      vec![key.into(), timestamp.into(), options.to_str().into()]
+    } else {
+      vec![key.into(), timestamp.into()]
+    };
+
+    Ok((RedisCommandKind::Pexpireat, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
 pub async fn exists<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   check_empty_keys(&keys)?;
 
@@ -210,10 +250,11 @@ pub async fn getrange<C: ClientLike>(
   end: usize,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::GetRange,
-      vec![key.into(), start.try_into()?, end.try_into()?],
-    ))
+    Ok((RedisCommandKind::GetRange, vec![
+      key.into(),
+      start.try_into()?,
+      end.try_into()?,
+    ]))
   })
   .await?;
 
@@ -243,11 +284,10 @@ pub async fn rename<C: ClientLike>(
   source: RedisKey,
   destination: RedisKey,
 ) -> Result<RedisValue, RedisError> {
-  args_values_cmd(
-    client,
-    RedisCommandKind::Rename,
-    vec![source.into(), destination.into()],
-  )
+  args_values_cmd(client, RedisCommandKind::Rename, vec![
+    source.into(),
+    destination.into(),
+  ])
   .await
 }
 
@@ -256,11 +296,10 @@ pub async fn renamenx<C: ClientLike>(
   source: RedisKey,
   destination: RedisKey,
 ) -> Result<RedisValue, RedisError> {
-  args_values_cmd(
-    client,
-    RedisCommandKind::Renamenx,
-    vec![source.into(), destination.into()],
-  )
+  args_values_cmd(client, RedisCommandKind::Renamenx, vec![
+    source.into(),
+    destination.into(),
+  ])
   .await
 }
 

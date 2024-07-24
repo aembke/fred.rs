@@ -6,9 +6,8 @@ use crate::{
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
   utils,
 };
-use redis_protocol::resp3::types::FrameKind;
 use redis_protocol::{
-  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
+  resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame},
   types::PUBSUB_PUSH_PREFIX,
 };
 use std::{str, sync::Arc};
@@ -95,7 +94,7 @@ fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, 
     //                [BlobString { data: b"foo", attributes: None }], attributes: None }], attributes: None }
     if let Resp3Frame::Array { data, .. } = data[1].take() {
       inner.notifications.broadcast_invalidation(Invalidation {
-        keys: data
+        keys:   data
           .into_iter()
           .filter_map(|f| f.as_bytes().map(|b| b.into()))
           .collect(),

@@ -264,7 +264,19 @@ jobs:
       - run:
           name: Clippy
           command: cargo clippy --all-features --lib -p fred -- -Dwarnings
-
+  cargo-fmt:
+    docker:
+      - image: cimg/rust:1.78
+    environment:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+    steps:
+      - checkout
+      - run:
+          name: Install nightly toolchain
+          command: rustup toolchain install nightly
+      - run:
+          name: Cargo fmt
+          command: cargo +nightly fmt --all --check
 
 workflows:
   version: 2
@@ -283,4 +295,5 @@ workflows:
       - test-cluster-rustls-features-7_2
       - test-cluster-rustls-ring-features-7_2
       - clippy-lint
+      - cargo-fmt
       - check-all-interface-features

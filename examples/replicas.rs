@@ -40,7 +40,7 @@ async fn main() -> Result<(), RedisError> {
 
   // use pipelines and WAIT to concurrently SET then GET a value from replica nodes
   let mut ops = Vec::with_capacity(1000);
-  for idx in 0..1000 {
+  for idx in 0 .. 1000 {
     let pool = pool.clone();
     ops.push(async move {
       let key: RedisKey = format!("foo-{}", idx).into();
@@ -67,7 +67,8 @@ async fn main() -> Result<(), RedisError> {
   Ok(())
 }
 
-// use one client to demonstrate how lazy connections are created. in this case each primary node is expected to have one replica.
+// use one client to demonstrate how lazy connections are created. in this case each primary node is expected to have
+// one replica.
 async fn lazy_connection_example(client: &RedisClient) -> Result<(), RedisError> {
   let replica_routing = client.replicas().nodes();
   let cluster_routing = client
@@ -82,7 +83,8 @@ async fn lazy_connection_example(client: &RedisClient) -> Result<(), RedisError>
   client.replicas().get("foo").await?;
   let new_connections: HashSet<_> = client.active_connections().await?.into_iter().collect();
   let new_servers: Vec<_> = new_connections.difference(&old_connections).collect();
-  // verify that 1 new connection was created, and that it's in the replica map as a replica of the expected primary node
+  // verify that 1 new connection was created, and that it's in the replica map as a replica of the expected primary
+  // node
   assert_eq!(new_servers.len(), 1);
   assert_eq!(replica_routing.get(new_servers[0]), Some(expected_primary));
 

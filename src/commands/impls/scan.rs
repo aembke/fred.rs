@@ -75,11 +75,11 @@ pub fn scan_cluster(
   for slot in hash_slots.into_iter() {
     _trace!(inner, "Scan cluster hash slot server: {}", slot);
     let response = ResponseKind::KeyScan(KeyScanInner {
-      hash_slot: Some(slot),
-      args: args.clone(),
+      hash_slot:  Some(slot),
+      args:       args.clone(),
       cursor_idx: 0,
-      tx: tx.clone(),
-      server: None,
+      tx:         tx.clone(),
+      server:     None,
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 

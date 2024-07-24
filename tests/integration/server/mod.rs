@@ -1,5 +1,4 @@
-use fred::cmd;
-use fred::prelude::*;
+use fred::{cmd, prelude::*};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -44,7 +43,7 @@ pub async fn should_read_last_save(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_read_db_size(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  for idx in 0..50 {
+  for idx in 0 .. 50 {
     client
       .custom(cmd!("SET"), vec![format!("foo-{}", idx), idx.to_string()])
       .await?;

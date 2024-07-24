@@ -10,6 +10,7 @@ use fred::{
     BackpressureConfig,
     Builder,
     ClientUnblockFlag,
+    ClusterHash,
     Options,
     PerformanceConfig,
     RedisConfig,
@@ -35,7 +36,6 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
-use fred::types::ClusterHash;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -43,9 +43,9 @@ use fred::types::Resolve;
 #[cfg(feature = "partial-tracing")]
 use fred::types::TracingConfig;
 #[cfg(feature = "dns")]
-use std::net::{IpAddr, SocketAddr};
+use hickory_resolver::{config::*, TokioAsyncResolver};
 #[cfg(feature = "dns")]
-use trust_dns_resolver::{config::*, TokioAsyncResolver};
+use std::net::{IpAddr, SocketAddr};
 
 #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
