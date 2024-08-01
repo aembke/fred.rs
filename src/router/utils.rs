@@ -278,6 +278,10 @@ pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut R
     }
 
     if let Err(e) = reconnect_once(inner, router).await {
+      if e.should_not_reconnect() {
+        return Err(e);
+      }
+
       delay = match next_reconnection_delay(inner) {
         Ok(delay) => delay,
         Err(_) => return Err(e),

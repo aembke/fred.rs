@@ -98,7 +98,15 @@ pub fn pretty_error(resp: &str) -> RedisError {
 
     match parts.next().unwrap_or("") {
       "" => RedisErrorKind::Unknown,
-      "ERR" => RedisErrorKind::Unknown,
+      "ERR" => {
+        if resp.contains("instance has cluster support disabled") {
+          // Cluster client connecting to non-cluster server.
+          // Returning Config to signal no reconnect will help.
+          RedisErrorKind::Config
+        } else {
+          RedisErrorKind::Unknown
+        }
+      },
       "WRONGTYPE" => RedisErrorKind::InvalidArgument,
       "NOAUTH" | "WRONGPASS" => RedisErrorKind::Auth,
       "MOVED" | "ASK" | "CLUSTERDOWN" => RedisErrorKind::Cluster,
