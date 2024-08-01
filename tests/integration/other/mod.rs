@@ -774,3 +774,26 @@ pub async fn should_combine_options_and_replicas(client: RedisClient, config: Re
   assert_eq!(error.details(), "Too many redirections.");
   Ok(())
 }
+
+pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  if let ServerConfig::Clustered { hosts, policy } = config.server {
+    config.server = ServerConfig::Centralized {
+      server: hosts.first().expect("At least one server must be configured").clone(),
+    };
+  } else {
+    return Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Failed to set server to Centralized.",
+    ));
+  }
+
+  let client = RedisClient::new(config, None, None, None);
+  client.connect();
+
+  if let Err(err) = client.wait_for_connect().await {
+    assert_eq!(*err.kind(), RedisErrorKind::Config, "err = {:?}", err);
+    return Ok(());
+  }
+
+  Err(RedisError::new(RedisErrorKind::Unknown, "Expected a config error."))
+}

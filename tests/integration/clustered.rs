@@ -49,6 +49,7 @@ mod other {
   cluster_test!(other, pool_should_fail_with_bad_host_via_init_interface);
   cluster_test!(other, pool_should_connect_correctly_via_wait_interface);
   cluster_test!(other, pool_should_fail_with_bad_host_via_wait_interface);
+  cluster_test!(other, should_fail_on_centralized_connect);
 
   #[cfg(feature = "metrics")]
   cluster_test!(other, should_track_size_stats);
