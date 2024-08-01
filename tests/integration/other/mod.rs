@@ -38,6 +38,7 @@ use fred::types::TracingConfig;
 use std::net::{IpAddr, SocketAddr};
 #[cfg(feature = "dns")]
 use trust_dns_resolver::{config::*, TokioAsyncResolver};
+use fred::types::ServerConfig::Centralized;
 
 #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
@@ -708,4 +709,22 @@ pub async fn should_fail_with_bad_host_via_wait_interface(
 
   let _ = task.await;
   Ok(())
+}
+
+pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  if let ServerConfig::Clustered { hosts, policy } = config.server {
+    config.server = Centralized { server: hosts.first().expect("At least one server must be configured").clone() };
+  } else {
+    return Err(RedisError::new(RedisErrorKind::Unknown, "Failed to set server to Centralized."));
+  }
+
+  let client = RedisClient::new(config, None, None, None);
+  client.connect();
+
+  if let Err(err) = client.wait_for_connect().await {
+      assert_eq!(*err.kind(), RedisErrorKind::Config, "err = {:?}", err);
+      return Ok(());
+  }
+
+  Err(RedisError::new(RedisErrorKind::Unknown, "Expected a config error."))
 }
