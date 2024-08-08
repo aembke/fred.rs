@@ -48,9 +48,9 @@ fn check_metadata_hostname(data: &HashMap<Str, Str>) -> Option<&Str> {
 /// The implementation here does the following:
 /// 1. If `server[0]` is a hostname then use that.
 /// 2. If `server[0]` is an IP address, then check `server[3]` for a "hostname" metadata field and use that if found.
-/// Otherwise use the IP address in `server[0]`.
+///    Otherwise use the IP address in `server[0]`.
 /// 3. If `server[0]` is null, but `server[3]` has a "hostname" metadata field, then use the metadata field. Otherwise
-/// use `default_host`.
+///    use `default_host`.
 ///
 /// The `default_host` is the host that returned the `CLUSTER SLOTS` response.
 ///

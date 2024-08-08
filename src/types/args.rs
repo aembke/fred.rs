@@ -735,10 +735,8 @@ impl RedisValue {
   pub fn is_boolean(&self) -> bool {
     match *self {
       RedisValue::Boolean(_) => true,
-      RedisValue::Integer(i) => match i {
-        0 | 1 => true,
-        _ => false,
-      },
+      RedisValue::Integer(0 | 1) => true,
+      RedisValue::Integer(_) => false,
       RedisValue::String(ref s) => match s.as_bytes() {
         b"true" | b"false" | b"t" | b"f" | b"TRUE" | b"FALSE" | b"T" | b"F" | b"1" | b"0" => true,
         _ => false,
@@ -748,7 +746,7 @@ impl RedisValue {
   }
 
   /// Whether the inner value is a double or can be parsed as a double.
-  pub fn is_double(&self) -> bool {
+  pub fn is_double(&self) -> bool {gi
     match *self {
       RedisValue::Double(_) => true,
       RedisValue::String(ref s) => utils::redis_string_to_f64(s).is_ok(),

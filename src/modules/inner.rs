@@ -11,6 +11,7 @@ use crate::{
   utils,
 };
 use arc_swap::ArcSwap;
+use bytes_utils::Str;
 use futures::future::{select, Either};
 use parking_lot::{Mutex, RwLock};
 use semver::Version;
@@ -33,7 +34,6 @@ use tokio::{
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use bytes_utils::Str;
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
 

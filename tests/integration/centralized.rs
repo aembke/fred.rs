@@ -9,6 +9,7 @@ mod keys {
   centralized_test!(keys, should_mset_a_non_empty_map);
   centralized_test_panic!(keys, should_error_mset_empty_map);
   centralized_test!(keys, should_expire_key);
+  centralized_test!(keys, should_pexpire_key);
   centralized_test!(keys, should_persist_key);
   centralized_test!(keys, should_check_ttl);
   centralized_test!(keys, should_check_pttl);
