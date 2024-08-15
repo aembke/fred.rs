@@ -37,7 +37,9 @@ fn is_ip_address(value: &Str) -> bool {
 }
 
 fn check_metadata_hostname(data: &HashMap<Str, Str>) -> Option<&Str> {
-  data.get(&utils::static_str("hostname"))
+  data
+    .get(&utils::static_str("hostname"))
+    .filter(|&hostname| !hostname.is_empty())
 }
 
 /// Find the correct hostname for the server, preferring hostnames over IP addresses for TLS purposes.
@@ -820,6 +822,142 @@ mod tests {
         30006.into(),
         "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
         RedisValue::Array(vec![]),
+      ]),
+    ]);
+    let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
+
+    let actual = parse_cluster_slots(input, &Str::from("fake-host")).expect("Failed to parse input");
+    let expected = vec![
+      SlotRange {
+        start: 0,
+        end: 5460,
+        primary: Server {
+          host: "fake-host".into(),
+          port: 30001,
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
+          tls_server_name: None,
+        },
+        id: "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        #[cfg(feature = "replicas")]
+        replicas: vec![Server {
+          host: "fake-host".into(),
+          port: 30004,
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
+          tls_server_name: None,
+        }],
+      },
+      SlotRange {
+        start: 5461,
+        end: 10922,
+        primary: Server {
+          host: "fake-host".into(),
+          port: 30002,
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
+          tls_server_name: None,
+        },
+        id: "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        #[cfg(feature = "replicas")]
+        replicas: vec![Server {
+          host: "fake-host".into(),
+          port: 30005,
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
+          tls_server_name: None,
+        }],
+      },
+      SlotRange {
+        start: 10923,
+        end: 16383,
+        primary: Server {
+          host: "fake-host".into(),
+          port: 30003,
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
+          tls_server_name: None,
+        },
+        id: "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        #[cfg(feature = "replicas")]
+        replicas: vec![Server {
+          host: "fake-host".into(),
+          port: 30006,
+          #[cfg(any(
+            feature = "enable-native-tls",
+            feature = "enable-rustls",
+            feature = "enable-rustls-ring"
+          ))]
+          tls_server_name: None,
+        }],
+      },
+    ];
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  fn should_parse_cluster_slots_example_empty_hostname() {
+    let first_slot_range = RedisValue::Array(vec![
+      0.into(),
+      5460.into(),
+      RedisValue::Array(vec![
+        RedisValue::Null,
+        30001.into(),
+        "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
+        RedisValue::Array(vec!["hostname".into(), "".into()]),
+      ]),
+      RedisValue::Array(vec![
+        RedisValue::Null,
+        30004.into(),
+        "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
+        RedisValue::Array(vec!["hostname".into(), "".into()]),
+      ]),
+    ]);
+    let second_slot_range = RedisValue::Array(vec![
+      5461.into(),
+      10922.into(),
+      RedisValue::Array(vec![
+        RedisValue::Null,
+        30002.into(),
+        "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
+        RedisValue::Array(vec!["hostname".into(), "".into()]),
+      ]),
+      RedisValue::Array(vec![
+        RedisValue::Null,
+        30005.into(),
+        "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
+        RedisValue::Array(vec!["hostname".into(), "".into()]),
+      ]),
+    ]);
+    let third_slot_range = RedisValue::Array(vec![
+      10923.into(),
+      16383.into(),
+      RedisValue::Array(vec![
+        RedisValue::Null,
+        30003.into(),
+        "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
+        RedisValue::Array(vec!["hostname".into(), "".into()]),
+      ]),
+      RedisValue::Array(vec![
+        RedisValue::Null,
+        30006.into(),
+        "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
+        RedisValue::Array(vec!["hostname".into(), "".into()]),
       ]),
     ]);
     let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
