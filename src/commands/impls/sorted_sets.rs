@@ -601,10 +601,11 @@ pub async fn zremrangebylex<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
-    Ok((
-      RedisCommandKind::Zremrangebylex,
-      vec![key.into(), min.into_value()?, max.into_value()?],
-    ))
+    Ok((RedisCommandKind::Zremrangebylex, vec![
+      key.into(),
+      min.into_value()?,
+      max.into_value()?,
+    ]))
   })
   .await?;
 
@@ -630,10 +631,11 @@ pub async fn zremrangebyscore<C: ClientLike>(
   let frame = utils::request_response(client, move || {
     check_range_types(&min, &max, &Some(ZSort::ByScore))?;
 
-    Ok((
-      RedisCommandKind::Zremrangebyscore,
-      vec![key.into(), min.into_value()?, max.into_value()?],
-    ))
+    Ok((RedisCommandKind::Zremrangebyscore, vec![
+      key.into(),
+      min.into_value()?,
+      max.into_value()?,
+    ]))
   })
   .await?;
 

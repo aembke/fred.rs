@@ -3,7 +3,15 @@ use crate::{
   interfaces::ClientLike,
   prelude::{RedisError, RedisKey, RedisResult},
   types::{
-    Aggregator, DuplicatePolicy, Encoding, FromRedis, GetLabels, GetTimestamp, GroupBy, RangeAggregation, RedisMap,
+    Aggregator,
+    DuplicatePolicy,
+    Encoding,
+    FromRedis,
+    GetLabels,
+    GetTimestamp,
+    GroupBy,
+    RangeAggregation,
+    RedisMap,
     Timestamp,
   },
 };

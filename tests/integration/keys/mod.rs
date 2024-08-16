@@ -338,3 +338,12 @@ pub async fn should_get_keys_from_pool_in_a_stream(
 
   Ok(())
 }
+
+pub async fn should_pexpire_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let _: () = client.set("foo", "bar", None, None, false).await?;
+  assert_eq!(client.pexpire::<i64, _>("foo", 100, None).await?, 1);
+
+  sleep(Duration::from_millis(150)).await;
+  assert_eq!(client.get::<Option<String>, _>("foo").await?, None);
+  Ok(())
+}

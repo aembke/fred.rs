@@ -1,66 +1,184 @@
 [package]
-name = "fred"
-version = "9.1.0"
 authors = ["Alec Embke <aembke@gmail.com>"]
-edition = "2021"
+categories = ["asynchronous", "database", "web-programming"]
 description = "An async client for Redis and Valkey."
-readme = "README.md"
-repository = "https://github.com/aembke/fred.rs"
+edition = "2021"
+exclude = ["tests", ".circleci", "bin", ".github", "docs"]
 homepage = "https://github.com/aembke/fred.rs"
 keywords = ["redis", "valkey", "cluster", "sentinel"]
-categories = ["asynchronous", "database", "web-programming"]
 license = "MIT"
+name = "fred"
+readme = "README.md"
+repository = "https://github.com/aembke/fred.rs"
 rust-version = "1.75"
-exclude = ["tests", ".circleci", "bin", ".github", "docs"]
+version = "9.1.0"
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
-[dependencies]
-arc-swap = "1.7"
-tokio = { version = "1.34", features = ["net", "sync", "rt", "rt-multi-thread", "macros"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-bytes = "1.6"
-bytes-utils = "0.1.3"
-futures = { version = "0.3", features = ["std"] }
-parking_lot = "0.12"
-redis-protocol = { version = "5.0.1", features = ["resp2", "resp3", "bytes"] }
-log = "0.4"
-float-cmp = "0.9"
-url = "2.4"
-tokio-stream = "0.1"
-sha-1 = { version = "0.10", optional = true }
-rand = "0.8"
-semver = "1.0"
-socket2 = "0.5"
-urlencoding = "2.1"
-crossbeam-queue = "0.3"
-rustls = { version = "0.23", optional = true, default-features = false }
-native-tls = { version = "0.2", optional = true }
-tokio-native-tls = { version = "0.3", optional = true }
-tracing = { version = "0.1", optional = true }
-tracing-futures = { version = "0.2", optional = true }
-nom = { version = "7.1", optional = true }
-serde_json = { version = "1", optional = true }
-tokio-rustls = { version = "0.26", optional = true, default-features = false }
-rustls-native-certs = { version = "0.7", optional = true }
-trust-dns-resolver = { version = "0.23", optional = true }
-async-trait = { version = "0.1" }
-
-[dev-dependencies]
-maplit = "1.0"
-base64 = "0.22.0"
-subprocess = "0.2"
-pretty_env_logger = "0.5"
-serde = { version = "1.0", features = ["derive"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-axum = { version = "0.7", features = ["macros"] }
-
 [lib]
 doc = true
 name = "fred"
 test = true
+
+[features]
+default = ["transactions", "i-std"]
+
+blocking-encoding = ["tokio/rt-multi-thread"]
+custom-reconnect-errors = []
+default-nil-types = []
+dns = ["hickory-resolver"]
+metrics = []
+mocks = []
+monitor = ["nom"]
+replicas = []
+sentinel-auth = []
+sentinel-client = []
+serde-json = ["serde_json"]
+subscriber-client = ["i-pubsub"]
+transactions = []
+trust-dns-resolver = ["dep:trust-dns-resolver"]
+unix-sockets = []
+
+# Enables rustls with the rustls/aws_lc_rs crypto backend
+enable-rustls = [
+    "rustls",
+    "tokio-rustls",
+    "rustls-native-certs",
+    "rustls/std",
+    "tokio-rustls/logging",
+    "tokio-rustls/tls12",
+    "tokio-rustls/aws_lc_rs",
+]
+
+# Enables rustls with the rustls/ring backend
+enable-rustls-ring = [
+    "rustls",
+    "tokio-rustls",
+    "rustls-native-certs",
+    "rustls/std",
+    "tokio-rustls/logging",
+    "tokio-rustls/tls12",
+    "tokio-rustls/ring",
+]
+
+# Enables native tls
+enable-native-tls = ["native-tls", "tokio-native-tls"]
+
+# Enables native tls with vendored openssl
+vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
+
+# Standard Redis Interfaces
+i-acl = []
+i-all = [
+    "i-acl",
+    "i-client",
+    "i-cluster",
+    "i-config",
+    "i-geo",
+    "i-hashes",
+    "i-hyperloglog",
+    "i-keys",
+    "i-lists",
+    "i-scripts",
+    "i-memory",
+    "i-pubsub",
+    "i-server",
+    "i-streams",
+    "i-tracking",
+    "i-sorted-sets",
+    "i-slowlog",
+    "i-sets",
+]
+i-client = []
+i-cluster = []
+i-config = []
+i-geo = ["i-sorted-sets"]
+i-hashes = []
+i-hyperloglog = []
+i-keys = []
+i-lists = []
+i-memory = []
+i-pubsub = []
+i-scripts = []
+i-server = []
+i-sets = []
+i-slowlog = []
+i-sorted-sets = []
+i-std = [
+    "i-hashes",
+    "i-keys",
+    "i-lists",
+    "i-sets",
+    "i-streams",
+    "i-pubsub",
+    "i-sorted-sets",
+    "i-server",
+]
+i-streams = []
+i-tracking = ["i-client", "i-pubsub"]
+
+# Redis Stack Interfaces
+i-redis-json = ["serde-json"]
+i-redis-stack = ["i-redis-json", "i-time-series", "i-redisearch"]
+i-redisearch = ["i-sorted-sets", "i-geo", "i-hashes"]
+i-time-series = []
+
+# Full and partial tracing
+full-tracing = ["partial-tracing"]
+partial-tracing = ["tracing", "tracing-futures"]
+
+# Debugging Features
+debug-ids = []
+network-logs = []
+
+[dependencies]
+arc-swap = "1.7"
+async-trait = { version = "0.1" }
+bytes = "1.6"
+bytes-utils = "0.1.3"
+crossbeam-queue = "0.3"
+float-cmp = "0.9"
+futures = { version = "0.3", features = ["std"] }
+log = "0.4"
+native-tls = { version = "0.2", optional = true }
+nom = { version = "7.1", optional = true }
+parking_lot = "0.12"
+rand = "0.8"
+redis-protocol = { version = "5.0.1", features = ["resp2", "resp3", "bytes"] }
+rustls = { version = "0.23", optional = true, default-features = false }
+rustls-native-certs = { version = "0.7", optional = true }
+semver = "1.0"
+serde_json = { version = "1", optional = true }
+sha-1 = { version = "0.10", optional = true }
+socket2 = "0.5"
+tokio = { version = "1.34", features = [
+    "net",
+    "sync",
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }
+tokio-native-tls = { version = "0.3", optional = true }
+tokio-rustls = { version = "0.26", optional = true, default-features = false }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["codec"] }
+tracing = { version = "0.1", optional = true }
+tracing-futures = { version = "0.2", optional = true }
+trust-dns-resolver = { version = "0.23", optional = true, features = ["tokio"] }
+hickory-resolver = { version = "0.24.1", optional = true, features = ["tokio"] }
+url = "2.4"
+urlencoding = "2.1"
+
+[dev-dependencies]
+axum = { version = "0.7", features = ["macros"] }
+base64 = "0.22.0"
+maplit = "1.0"
+pretty_env_logger = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+subprocess = "0.2"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 [[example]]
 name = "misc"
@@ -113,77 +231,3 @@ required-features = ["tokio-stream/sync", "i-std"]
 [[example]]
 name = "transactions"
 required-features = ["transactions", "i-std"]
-
-[features]
-default = ["transactions", "i-std"]
-transactions = []
-serde-json = ["serde_json"]
-subscriber-client = ["i-pubsub"]
-metrics = []
-mocks = []
-dns = ["trust-dns-resolver", "trust-dns-resolver/tokio"]
-# Enables rustls with the rustls/aws_lc_rs crypto backend
-enable-rustls = [
-    "rustls", "tokio-rustls", "rustls-native-certs",
-    "rustls/std", "tokio-rustls/logging", "tokio-rustls/tls12",
-    "tokio-rustls/aws_lc_rs"
-]
-# Enables rustls with the rustls/ring backend
-enable-rustls-ring = [
-    "rustls", "tokio-rustls", "rustls-native-certs",
-    "rustls/std", "tokio-rustls/logging", "tokio-rustls/tls12",
-    "tokio-rustls/ring"
-]
-enable-native-tls = ["native-tls", "tokio-native-tls"]
-vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
-full-tracing = ["partial-tracing"]
-partial-tracing = ["tracing", "tracing-futures"]
-blocking-encoding = ["tokio/rt-multi-thread"]
-custom-reconnect-errors = []
-monitor = ["nom"]
-sentinel-client = []
-sentinel-auth = []
-replicas = []
-default-nil-types = []
-unix-sockets = []
-# Standard Redis Interfaces
-i-all = [
-    "i-acl", "i-client", "i-cluster",
-    "i-config", "i-geo", "i-hashes",
-    "i-hyperloglog", "i-keys", "i-lists",
-    "i-scripts", "i-memory", "i-pubsub",
-    "i-server", "i-streams", "i-tracking",
-    "i-sorted-sets", "i-slowlog", "i-sets"
-]
-i-std = [
-    "i-hashes", "i-keys",
-    "i-lists", "i-sets",
-    "i-streams", "i-pubsub",
-    "i-sorted-sets", "i-server"
-]
-i-acl = []
-i-client = []
-i-cluster = []
-i-config = []
-i-geo = ["i-sorted-sets"]
-i-hashes = []
-i-hyperloglog = []
-i-keys = []
-i-lists = []
-i-scripts = []
-i-memory = []
-i-pubsub = []
-i-server = []
-i-sets = []
-i-slowlog = []
-i-sorted-sets = []
-i-streams = []
-i-tracking = ["i-client", "i-pubsub"]
-# Redis Stack Interfaces
-i-redis-stack = ["i-redis-json", "i-time-series", "i-redisearch"]
-i-redis-json = ["serde-json"]
-i-redisearch = ["i-sorted-sets", "i-geo", "i-hashes"]
-i-time-series = []
-# Debugging Features
-debug-ids = []
-network-logs = []

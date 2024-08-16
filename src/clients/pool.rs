@@ -42,8 +42,8 @@ struct RedisPoolInner {
 /// * [ClientInterface](crate::interfaces::ClientInterface)
 /// * [AuthInterface](crate::interfaces::AuthInterface)
 ///
-/// In some cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
-/// adding a call to [next](Self::next), but in other scenarios this may not work. As a general rule, any commands
+/// In many cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
+/// adding a call to [next](Self::next), but in some scenarios this may not work. As a general rule, any commands
 /// that change or depend on local connection state will not be implemented directly on `RedisPool`. Callers can use
 /// [clients](Self::clients), [next](Self::next), or [last](Self::last) to operate on individual clients if needed.
 #[derive(Clone)]
@@ -388,8 +388,7 @@ struct PoolInner {
 
 /// A cheaply cloneable round-robin client pool that provides exclusive ownership over the inner clients.
 ///
-/// This interface can be significantly slower than [RedisPool](crate::clients::RedisPool) when shared among many
-/// Tokio tasks, but can be used when callers require exclusive ownership over the connection. For example,
+/// This interface can be used when callers require exclusive ownership over the connection. For example,
 ///
 /// ```no_run no_compile
 /// WATCH foo
@@ -403,8 +402,8 @@ struct PoolInner {
 /// ```
 ///
 /// Unlike [RedisPool](crate::clients::RedisPool), this pooling interface does not directly implement
-/// [ClientLike](crate::interfaces::ClientLike). Callers must `await` and manage the returned
-/// [MutexGuard](OwnedMutexGuard) scopes directly.
+/// [ClientLike](crate::interfaces::ClientLike). Callers acquire and release clients via the returned
+/// [MutexGuard](OwnedMutexGuard).
 ///
 /// ```rust
 /// use fred::{
@@ -424,7 +423,7 @@ struct PoolInner {
 ///
 ///   // with an `ExclusivePool` callers acquire and release clients with an async lock guard
 ///   let results: Option<(i64, i64, i64)> = {
-///     let client = exclusive_pool.next().await;
+///     let client = exclusive_pool.acquire().await;
 ///
 ///     client.watch("foo").await?;
 ///     if let Some(1) = client.get::<Option<i64>, _>("foo").await? {
@@ -614,7 +613,7 @@ impl ExclusivePool {
   }
 
   /// Read the client that should run the next command.
-  pub async fn next(&self) -> OwnedMutexGuard<RedisClient> {
+  pub async fn acquire(&self) -> OwnedMutexGuard<RedisClient> {
     let mut idx = utils::incr_atomic(&self.inner.counter) % self.inner.clients.len();
 
     for _ in 0 .. self.inner.clients.len() {

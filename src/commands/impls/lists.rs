@@ -167,10 +167,11 @@ pub async fn brpoplpush<C: ClientLike>(
   let timeout: RedisValue = timeout.try_into()?;
 
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::BrPopLPush,
-      vec![source.into(), destination.into(), timeout],
-    ))
+    Ok((RedisCommandKind::BrPopLPush, vec![
+      source.into(),
+      destination.into(),
+      timeout,
+    ]))
   })
   .await?;
 
@@ -243,10 +244,12 @@ pub async fn linsert<C: ClientLike>(
   element: RedisValue,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((
-      RedisCommandKind::LInsert,
-      vec![key.into(), location.to_str().into(), pivot, element],
-    ))
+    Ok((RedisCommandKind::LInsert, vec![
+      key.into(),
+      location.to_str().into(),
+      pivot,
+      element,
+    ]))
   })
   .await?;
 

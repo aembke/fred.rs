@@ -9,6 +9,7 @@ mod keys {
   centralized_test!(keys, should_mset_a_non_empty_map);
   centralized_test_panic!(keys, should_error_mset_empty_map);
   centralized_test!(keys, should_expire_key);
+  centralized_test!(keys, should_pexpire_key);
   centralized_test!(keys, should_persist_key);
   centralized_test!(keys, should_check_ttl);
   centralized_test!(keys, should_check_pttl);
@@ -46,6 +47,7 @@ mod other {
   centralized_test!(other, pool_should_fail_with_bad_host_via_init_interface);
   centralized_test!(other, pool_should_connect_correctly_via_wait_interface);
   centralized_test!(other, pool_should_fail_with_bad_host_via_wait_interface);
+  centralized_test!(other, should_fail_on_centralized_connect);
 
   #[cfg(feature = "metrics")]
   centralized_test!(other, should_track_size_stats);

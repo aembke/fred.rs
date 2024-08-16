@@ -14,7 +14,7 @@ async fn main() -> Result<(), RedisError> {
   publisher_client.init().await?;
   subscriber_client.init().await?;
 
-  let subscriber_jh = tokio::spawn(async move {
+  let _subscriber_jh = tokio::spawn(async move {
     loop {
       let (key, value): (String, i64) = match subscriber_client.blpop("foo", 5.0).await.ok() {
         Some(value) => value,
@@ -30,6 +30,5 @@ async fn main() -> Result<(), RedisError> {
     sleep(Duration::from_secs(1)).await;
   }
 
-  subscriber_jh.abort();
   Ok(())
 }

@@ -4,6 +4,9 @@
 * Adapt testing and CI processes to test Redis and Valkey
 * Add `FromIterator` impl to `RedisMap`
 * Add `ExclusivePool` client
+* Support `redis+unix` config URLs for Unix domain sockets.
+* Add `PEXPIRE` and `PEXPIREAT`
+* Replace `trust-dns-resolver` with `hickory-resolver`
 
 ## 9.0.3
 

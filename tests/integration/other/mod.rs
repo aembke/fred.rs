@@ -10,6 +10,7 @@ use fred::{
     BackpressureConfig,
     Builder,
     ClientUnblockFlag,
+    ClusterHash,
     Options,
     PerformanceConfig,
     RedisConfig,
@@ -35,7 +36,7 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
-use fred::types::ClusterHash;
+use fred::types::ClusterDiscoveryPolicy;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -43,9 +44,9 @@ use fred::types::Resolve;
 #[cfg(feature = "partial-tracing")]
 use fred::types::TracingConfig;
 #[cfg(feature = "dns")]
-use std::net::{IpAddr, SocketAddr};
+use hickory_resolver::{config::*, TokioAsyncResolver};
 #[cfg(feature = "dns")]
-use trust_dns_resolver::{config::*, TokioAsyncResolver};
+use std::net::{IpAddr, SocketAddr};
 
 #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
@@ -773,4 +774,26 @@ pub async fn should_combine_options_and_replicas(client: RedisClient, config: Re
   // not ideal
   assert_eq!(error.details(), "Too many redirections.");
   Ok(())
+}
+
+pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  if let ServerConfig::Centralized { server } = config.server {
+    config.server = ServerConfig::Clustered {
+      hosts:  vec![server],
+      policy: ClusterDiscoveryPolicy::default(),
+    };
+  } else {
+    // skip for unix socket and sentinel tests
+    return Ok(());
+  }
+
+  let client = RedisClient::new(config, None, None, None);
+  client.connect();
+
+  if let Err(err) = client.wait_for_connect().await {
+    assert_eq!(*err.kind(), RedisErrorKind::Config, "err = {:?}", err);
+    return Ok(());
+  }
+
+  Err(RedisError::new(RedisErrorKind::Unknown, "Expected a config error."))
 }

@@ -50,13 +50,10 @@ impl ClientKillFilter {
       ClientKillFilter::User(ref user) => ("USER", user.into()),
       ClientKillFilter::Addr(ref addr) => ("ADDR", addr.into()),
       ClientKillFilter::LAddr(ref addr) => ("LADDR", addr.into()),
-      ClientKillFilter::SkipMe(ref b) => (
-        "SKIPME",
-        match *b {
-          true => utils::static_str("yes"),
-          false => utils::static_str("no"),
-        },
-      ),
+      ClientKillFilter::SkipMe(ref b) => ("SKIPME", match *b {
+        true => utils::static_str("yes"),
+        false => utils::static_str("no"),
+      }),
     };
 
     (utils::static_str(prefix), value)
@@ -175,7 +172,7 @@ impl From<bool> for Toggle {
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invalidation {
-  pub keys: Vec<RedisKey>,
+  pub keys:   Vec<RedisKey>,
   pub server: Server,
 }
 
@@ -184,7 +181,7 @@ pub struct Invalidation {
 impl Invalidation {
   pub(crate) fn from_message(message: Message, server: &Server) -> Option<Invalidation> {
     Some(Invalidation {
-      keys: match message.value {
+      keys:   match message.value {
         RedisValue::Array(values) => values.into_iter().filter_map(|v| v.try_into().ok()).collect(),
         RedisValue::String(s) => vec![s.into()],
         RedisValue::Bytes(b) => vec![b.into()],

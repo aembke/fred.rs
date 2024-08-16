@@ -35,6 +35,7 @@ use std::{
 use tokio::{
   sync::{
     broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
+    mpsc::unbounded_channel,
     oneshot::channel as oneshot_channel,
   },
   time::sleep,
@@ -55,8 +56,7 @@ use parking_lot::Mutex;
 #[cfg(feature = "transactions")]
 use std::mem;
 #[cfg(feature = "unix-sockets")]
-use std::path::Path;
-use tokio::sync::mpsc::unbounded_channel;
+use std::path::{Path, PathBuf};
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use tracing_futures::Instrument;
 
@@ -754,6 +754,17 @@ pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u
   }
 
   Ok((url, host, port, tls))
+}
+
+pub fn url_is_unix_socket(url: &Url) -> bool {
+  url.scheme() == "redis+unix"
+}
+
+#[cfg(feature = "unix-sockets")]
+pub fn parse_unix_url(url: &str) -> Result<(Url, PathBuf), RedisError> {
+  let url = Url::parse(url)?;
+  let path: PathBuf = url.path().into();
+  Ok((url, path))
 }
 
 pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {

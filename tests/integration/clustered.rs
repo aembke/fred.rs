@@ -9,6 +9,7 @@ mod keys {
   cluster_test!(keys, should_mset_a_non_empty_map);
   cluster_test_panic!(keys, should_error_mset_empty_map);
   cluster_test!(keys, should_expire_key);
+  cluster_test!(keys, should_pexpire_key);
   cluster_test!(keys, should_persist_key);
   cluster_test!(keys, should_check_ttl);
   cluster_test!(keys, should_check_pttl);
@@ -330,7 +331,7 @@ pub mod geo {
   cluster_test!(geo, should_geosearch_values);
 }
 
-#[cfg(all(not(feature = "redis-stack"), feature = "i-acl"))]
+#[cfg(all(not(feature = "i-redis-stack"), feature = "i-acl"))]
 pub mod acl {
   cluster_test!(acl, should_run_acl_getuser);
 }

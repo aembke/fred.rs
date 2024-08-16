@@ -735,10 +735,8 @@ impl RedisValue {
   pub fn is_boolean(&self) -> bool {
     match *self {
       RedisValue::Boolean(_) => true,
-      RedisValue::Integer(i) => match i {
-        0 | 1 => true,
-        _ => false,
-      },
+      RedisValue::Integer(0 | 1) => true,
+      RedisValue::Integer(_) => false,
       RedisValue::String(ref s) => match s.as_bytes() {
         b"true" | b"false" | b"t" | b"f" | b"TRUE" | b"FALSE" | b"T" | b"F" | b"1" | b"0" => true,
         _ => false,
@@ -1505,12 +1503,6 @@ impl From<Str> for RedisValue {
 impl From<Bytes> for RedisValue {
   fn from(b: Bytes) -> Self {
     RedisValue::Bytes(b)
-  }
-}
-
-impl From<&Box<[u8]>> for RedisValue {
-  fn from(b: &Box<[u8]>) -> Self {
-    b.into()
   }
 }
 

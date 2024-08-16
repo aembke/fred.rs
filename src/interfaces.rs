@@ -39,7 +39,7 @@ use crate::types::ShutdownFlags;
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
 
-#[cfg(feature = "dns")]
+#[cfg(any(feature = "dns", feature = "trust-dns-resolver"))]
 use crate::protocol::types::Resolve;
 
 /// Send a single `RedisCommand` to the router.
@@ -229,8 +229,9 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Connect to the server.
   ///
   /// This function returns a `JoinHandle` to a task that drives the connection. It will not resolve until the
-  /// connection closes, of if a reconnection policy with unlimited attempts is provided then it will
-  /// run until `QUIT` is called.
+  /// connection closes, or if a reconnection policy with unlimited attempts is provided then it will
+  /// run until `QUIT` is called. Callers should avoid calling [abort](tokio::task::JoinHandle::abort) on the returned
+  /// `JoinHandle` unless the client will no longer be used.
   ///
   /// **Calling this function more than once will drop all state associated with the previous connection(s).** Any
   /// pending commands on the old connection(s) will either finish or timeout, but they will not be retried on the
@@ -283,7 +284,8 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Initialize a new routing and connection task and wait for it to connect successfully.
   ///
   /// The returned [ConnectHandle](crate::types::ConnectHandle) refers to the task that drives the routing and
-  /// connection layer. It will not finish until the max reconnection count is reached.
+  /// connection layer. It will not finish until the max reconnection count is reached. Callers should avoid calling
+  /// [abort](tokio::task::JoinHandle::abort) on the returned `JoinHandle` unless the client will no longer be used.
   ///
   /// Callers can also use [connect](Self::connect) and [wait_for_connect](Self::wait_for_connect) separately if
   /// needed.
