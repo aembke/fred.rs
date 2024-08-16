@@ -36,6 +36,7 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
+use fred::types::ClusterDiscoveryPolicy;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -776,9 +777,10 @@ pub async fn should_combine_options_and_replicas(client: RedisClient, config: Re
 }
 
 pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
-  if let ServerConfig::Clustered { hosts, policy } = config.server {
-    config.server = ServerConfig::Centralized {
-      server: hosts.first().expect("At least one server must be configured").clone(),
+  if let ServerConfig::Centralized { server } = config.server {
+    config.server = ServerConfig::Clustered {
+      hosts:  vec![server],
+      policy: ClusterDiscoveryPolicy::default(),
     };
   } else {
     return Err(RedisError::new(
