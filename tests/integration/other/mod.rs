@@ -783,10 +783,8 @@ pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: Redi
       policy: ClusterDiscoveryPolicy::default(),
     };
   } else {
-    return Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Failed to set server to Centralized.",
-    ));
+    // skip for unix socket and sentinel tests
+    return Ok(());
   }
 
   let client = RedisClient::new(config, None, None, None);
