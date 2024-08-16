@@ -52,7 +52,7 @@ pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig
   pool.init().await?;
 
   for _ in 0 .. 10 {
-    let client = pool.next().await;
+    let client = pool.acquire().await;
     client.incr("foo").await?;
   }
   assert_eq!(client.get::<i64, _>("foo").await?, 10);
@@ -62,7 +62,7 @@ pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig
   for _ in 0 .. 10 {
     let pool = pool.clone();
     fts.push(async move {
-      let client = pool.next().await;
+      let client = pool.acquire().await;
       client.incr::<i64, _>("foo").await
     });
   }
@@ -89,7 +89,7 @@ pub async fn should_watch_and_trx_exclusive_pool(client: RedisClient, config: Re
   client.set("foo{1}", 1, None, None, false).await?;
 
   let results: Option<(i64, i64, i64)> = {
-    let client = pool.next().await;
+    let client = pool.acquire().await;
 
     client.watch("foo").await?;
     if let Some(1) = client.get::<Option<i64>, _>("foo{1}").await? {

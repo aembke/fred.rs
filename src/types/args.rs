@@ -746,7 +746,7 @@ impl RedisValue {
   }
 
   /// Whether the inner value is a double or can be parsed as a double.
-  pub fn is_double(&self) -> bool {gi
+  pub fn is_double(&self) -> bool {
     match *self {
       RedisValue::Double(_) => true,
       RedisValue::String(ref s) => utils::redis_string_to_f64(s).is_ok(),

@@ -777,6 +777,12 @@ impl RedisConfig {
   ///                             [&sentinelServiceName=myservice][&sentinelUsername=username2][&sentinelPassword=password2]]
   /// ```
   ///
+  /// **Unix Socket**
+  ///
+  /// ```text
+  /// redis+unix:// [[username:]password@] /path/to/redis.sock
+  /// ```
+  ///
   /// # Schemes
   ///
   /// This function will use the URL scheme to determine which server type the caller is using. Valid schemes include:
@@ -787,8 +793,9 @@ impl RedisConfig {
   /// * `rediss-cluster` - TLS connected to a cluster.
   /// * `redis-sentinel` - TCP connected to a centralized server behind a sentinel layer.
   /// * `rediss-sentinel` - TLS connected to a centralized server behind a sentinel layer.
+  /// * `redis+unix` - Unix domain socket followed by a path.
   ///
-  /// **The `rediss` scheme prefix requires the `enable-native-tls` or `enable-rustls` feature.**
+  /// **The `rediss` scheme prefix requires one of the TLS feature flags.**
   ///
   /// # Query Parameters
   ///
@@ -809,15 +816,20 @@ impl RedisConfig {
   ///   Redis server. The `password` part of the URL immediately following the scheme will refer to the password used
   ///   when connecting to the backing Redis server.
   ///
-  /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered), and
-  /// [from_url_sentinel](Self::from_url_sentinel) for more information. Or see the [RedisConfig](Self) unit tests for
-  /// examples.
+  /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered),
+  /// [from_url_sentinel](Self::from_url_sentinel), and [from_url_unix](Self::from_url_unix) for more information. Or
+  /// see the [RedisConfig](Self) unit tests for examples.
   pub fn from_url(url: &str) -> Result<RedisConfig, RedisError> {
     let parsed_url = Url::parse(url)?;
     if utils::url_is_clustered(&parsed_url) {
       RedisConfig::from_url_clustered(url)
     } else if utils::url_is_sentinel(&parsed_url) {
       RedisConfig::from_url_sentinel(url)
+    } else if utils::url_is_unix_socket(&parsed_url) {
+      #[cfg(feature = "unix-sockets")]
+      return RedisConfig::from_url_unix(url);
+      #[allow(unreachable_code)]
+      Err(RedisError::new(RedisErrorKind::Config, "Missing unix-socket feature."))
     } else {
       RedisConfig::from_url_centralized(url)
     }
@@ -967,6 +979,36 @@ impl RedisConfig {
       ))]
       tls: utils::tls_config_from_url(_tls)?,
       ..RedisConfig::default()
+    })
+  }
+
+  /// Create a `RedisConfig` from a URL that connects via a Unix domain socket.
+  ///
+  /// ```text
+  /// redis+unix:///path/to/redis.sock
+  /// redis+unix://username:password@nonemptyhost/path/to/redis.sock
+  /// ```
+  ///
+  /// **Important**
+  ///
+  /// * In the other URL parsing functions the path section indicates the database that the client should `SELECT`
+  ///   after connecting. However, Unix sockets are also specified by a path rather than a hostname:port, which
+  ///   creates some ambiguity in this case. Callers should manually set the database field on the returned
+  ///   `RedisConfig` if needed.
+  /// * If credentials are provided the caller must also specify a hostname in order to pass to the [URL
+  ///   validation](Url::parse) process. This function will ignore the value, but some non-empty string must be
+  ///   provided.
+  #[cfg(feature = "unix-sockets")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
+  pub fn from_url_unix(url: &str) -> Result<RedisConfig, RedisError> {
+    let (url, path) = utils::parse_unix_url(url)?;
+    let (username, password) = utils::parse_url_credentials(&url)?;
+
+    Ok(RedisConfig {
+      server: ServerConfig::Unix { path },
+      username,
+      password,
+      ..Default::default()
     })
   }
 }
@@ -1614,6 +1656,44 @@ mod tests {
     let actual = RedisConfig::from_url(url).unwrap();
     assert_eq!(actual, expected);
     let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  #[cfg(feature = "unix-sockets")]
+  fn should_parse_unix_socket_url_no_auth() {
+    let url = "redis+unix:///path/to/redis.sock";
+    let expected = RedisConfig {
+      server: ServerConfig::Unix {
+        path: "/path/to/redis.sock".into(),
+      },
+      username: None,
+      password: None,
+      ..Default::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_unix(url).unwrap();
+    assert_eq!(actual, expected);
+  }
+
+  #[test]
+  #[cfg(feature = "unix-sockets")]
+  fn should_parse_unix_socket_url_with_auth() {
+    let url = "redis+unix://username:password@foo/path/to/redis.sock";
+    let expected = RedisConfig {
+      server: ServerConfig::Unix {
+        path: "/path/to/redis.sock".into(),
+      },
+      username: Some("username".into()),
+      password: Some("password".into()),
+      ..Default::default()
+    };
+
+    let actual = RedisConfig::from_url(url).unwrap();
+    assert_eq!(actual, expected);
+    let actual = RedisConfig::from_url_unix(url).unwrap();
     assert_eq!(actual, expected);
   }
 

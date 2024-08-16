@@ -331,7 +331,7 @@ pub mod geo {
   cluster_test!(geo, should_geosearch_values);
 }
 
-#[cfg(all(not(feature = "redis-stack"), feature = "i-acl"))]
+#[cfg(all(not(feature = "i-redis-stack"), feature = "i-acl"))]
 pub mod acl {
   cluster_test!(acl, should_run_acl_getuser);
 }
