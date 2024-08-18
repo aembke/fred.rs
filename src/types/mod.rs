@@ -17,6 +17,8 @@ mod geo;
 mod lists;
 mod misc;
 mod multiple;
+#[cfg(feature = "i-redisearch")]
+mod redisearch;
 mod scan;
 #[cfg(feature = "i-scripts")]
 mod scripts;
@@ -47,6 +49,9 @@ pub use geo::*;
 pub use lists::*;
 pub use misc::*;
 pub use multiple::*;
+#[cfg(feature = "i-redisearch")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+pub use redisearch::*;
 pub use scan::*;
 #[cfg(feature = "i-scripts")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]

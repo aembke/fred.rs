@@ -9,6 +9,7 @@ mod keys {
   centralized_test!(keys, should_mset_a_non_empty_map);
   centralized_test_panic!(keys, should_error_mset_empty_map);
   centralized_test!(keys, should_expire_key);
+  centralized_test!(keys, should_pexpire_key);
   centralized_test!(keys, should_persist_key);
   centralized_test!(keys, should_check_ttl);
   centralized_test!(keys, should_check_pttl);
@@ -46,6 +47,7 @@ mod other {
   centralized_test!(other, pool_should_fail_with_bad_host_via_init_interface);
   centralized_test!(other, pool_should_connect_correctly_via_wait_interface);
   centralized_test!(other, pool_should_fail_with_bad_host_via_wait_interface);
+  centralized_test!(other, should_fail_on_centralized_connect);
 
   #[cfg(feature = "metrics")]
   centralized_test!(other, should_track_size_stats);
@@ -98,6 +100,10 @@ mod other {
 mod pool {
   centralized_test!(pool, should_connect_and_ping_static_pool_single_conn);
   centralized_test!(pool, should_connect_and_ping_static_pool_two_conn);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(pool, should_incr_exclusive_pool);
+  #[cfg(all(feature = "i-keys", feature = "transactions"))]
+  centralized_test!(pool, should_watch_and_trx_exclusive_pool);
 }
 
 #[cfg(feature = "i-hashes")]
@@ -267,6 +273,7 @@ pub mod sorted_sets {
   centralized_test!(sorted_sets, should_zunion_values);
   centralized_test!(sorted_sets, should_zunionstore_values);
   centralized_test!(sorted_sets, should_zmscore_values);
+  centralized_test!(sorted_sets, should_zrangebyscore_neg_infinity);
 }
 
 #[cfg(feature = "i-lists")]
@@ -394,4 +401,12 @@ mod timeseries {
   centralized_test!(timeseries, should_create_and_delete_rules);
   centralized_test!(timeseries, should_madd_and_mrange);
   centralized_test!(timeseries, should_madd_and_mrevrange);
+}
+
+#[cfg(feature = "i-redisearch")]
+mod redisearch {
+  centralized_test!(redisearch, should_list_indexes);
+  centralized_test!(redisearch, should_index_and_info_basic_hash);
+  centralized_test!(redisearch, should_index_and_search_hash);
+  centralized_test!(redisearch, should_index_and_aggregate_timestamps);
 }

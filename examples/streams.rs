@@ -2,6 +2,7 @@
 
 use bytes_utils::Str;
 use fred::{prelude::*, types::XReadResponse};
+use futures::future::try_join_all;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -74,7 +75,7 @@ async fn main() {
     Ok::<_, RedisError>(())
   });
 
-  futures::future::try_join_all([writer_task, reader_task]).await.unwrap();
+  try_join_all([writer_task, reader_task]).await.unwrap();
 }
 
 // example output:

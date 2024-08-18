@@ -38,9 +38,9 @@ impl ShutdownFlags {
 /// <https://redis.io/topics/notifications>
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct KeyspaceEvent {
-  pub db: u8,
+  pub db:        u8,
   pub operation: String,
-  pub key: RedisKey,
+  pub key:       RedisKey,
 }
 
 /// Aggregate options for the [zinterstore](https://redis.io/commands/zinterstore) (and related) commands.
@@ -101,13 +101,13 @@ impl InfoKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CustomCommand {
   /// The command name, sent directly to the server.
-  pub cmd: Str,
+  pub cmd:          Str,
   /// The cluster hashing policy to use, if any.
   ///
   /// Cluster clients will use the default policy if not provided.
   pub cluster_hash: ClusterHash,
   /// Whether the command should block the connection while waiting on a response.
-  pub blocking: bool,
+  pub blocking:     bool,
 }
 
 impl CustomCommand {
@@ -175,6 +175,27 @@ impl SetOptions {
   }
 }
 
+/// Options for certain expiration commands (`PEXPIRE`, etc).
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ExpireOptions {
+  NX,
+  XX,
+  GT,
+  LT,
+}
+
+impl ExpireOptions {
+  #[allow(dead_code)]
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      ExpireOptions::NX => "NX",
+      ExpireOptions::XX => "XX",
+      ExpireOptions::GT => "GT",
+      ExpireOptions::LT => "LT",
+    })
+  }
+}
+
 /// Expiration options for the [set](https://redis.io/commands/set) command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Expiration {
@@ -238,8 +259,8 @@ impl fmt::Display for ClientState {
 #[cfg(feature = "i-memory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 pub struct DatabaseMemoryStats {
-  pub overhead_hashtable_main: u64,
-  pub overhead_hashtable_expires: u64,
+  pub overhead_hashtable_main:         u64,
+  pub overhead_hashtable_expires:      u64,
   pub overhead_hashtable_slot_to_keys: u64,
 }
 
@@ -247,8 +268,8 @@ pub struct DatabaseMemoryStats {
 impl Default for DatabaseMemoryStats {
   fn default() -> Self {
     DatabaseMemoryStats {
-      overhead_hashtable_expires: 0,
-      overhead_hashtable_main: 0,
+      overhead_hashtable_expires:      0,
+      overhead_hashtable_main:         0,
       overhead_hashtable_slot_to_keys: 0,
     }
   }
@@ -287,64 +308,64 @@ impl TryFrom<RedisValue> for DatabaseMemoryStats {
 #[cfg(feature = "i-memory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
 pub struct MemoryStats {
-  pub peak_allocated: u64,
-  pub total_allocated: u64,
-  pub startup_allocated: u64,
-  pub replication_backlog: u64,
-  pub clients_slaves: u64,
-  pub clients_normal: u64,
-  pub aof_buffer: u64,
-  pub lua_caches: u64,
-  pub overhead_total: u64,
-  pub keys_count: u64,
-  pub keys_bytes_per_key: u64,
-  pub dataset_bytes: u64,
-  pub dataset_percentage: f64,
-  pub peak_percentage: f64,
-  pub fragmentation: f64,
-  pub fragmentation_bytes: u64,
-  pub rss_overhead_ratio: f64,
-  pub rss_overhead_bytes: u64,
-  pub allocator_allocated: u64,
-  pub allocator_active: u64,
-  pub allocator_resident: u64,
+  pub peak_allocated:                u64,
+  pub total_allocated:               u64,
+  pub startup_allocated:             u64,
+  pub replication_backlog:           u64,
+  pub clients_slaves:                u64,
+  pub clients_normal:                u64,
+  pub aof_buffer:                    u64,
+  pub lua_caches:                    u64,
+  pub overhead_total:                u64,
+  pub keys_count:                    u64,
+  pub keys_bytes_per_key:            u64,
+  pub dataset_bytes:                 u64,
+  pub dataset_percentage:            f64,
+  pub peak_percentage:               f64,
+  pub fragmentation:                 f64,
+  pub fragmentation_bytes:           u64,
+  pub rss_overhead_ratio:            f64,
+  pub rss_overhead_bytes:            u64,
+  pub allocator_allocated:           u64,
+  pub allocator_active:              u64,
+  pub allocator_resident:            u64,
   pub allocator_fragmentation_ratio: f64,
   pub allocator_fragmentation_bytes: u64,
-  pub allocator_rss_ratio: f64,
-  pub allocator_rss_bytes: u64,
-  pub db: HashMap<u16, DatabaseMemoryStats>,
+  pub allocator_rss_ratio:           f64,
+  pub allocator_rss_bytes:           u64,
+  pub db:                            HashMap<u16, DatabaseMemoryStats>,
 }
 
 #[cfg(feature = "i-memory")]
 impl Default for MemoryStats {
   fn default() -> Self {
     MemoryStats {
-      peak_allocated: 0,
-      total_allocated: 0,
-      startup_allocated: 0,
-      replication_backlog: 0,
-      clients_normal: 0,
-      clients_slaves: 0,
-      aof_buffer: 0,
-      lua_caches: 0,
-      overhead_total: 0,
-      keys_count: 0,
-      keys_bytes_per_key: 0,
-      dataset_bytes: 0,
-      dataset_percentage: 0.0,
-      peak_percentage: 0.0,
-      fragmentation: 0.0,
-      fragmentation_bytes: 0,
-      rss_overhead_ratio: 0.0,
-      rss_overhead_bytes: 0,
-      allocator_allocated: 0,
-      allocator_active: 0,
-      allocator_resident: 0,
+      peak_allocated:                0,
+      total_allocated:               0,
+      startup_allocated:             0,
+      replication_backlog:           0,
+      clients_normal:                0,
+      clients_slaves:                0,
+      aof_buffer:                    0,
+      lua_caches:                    0,
+      overhead_total:                0,
+      keys_count:                    0,
+      keys_bytes_per_key:            0,
+      dataset_bytes:                 0,
+      dataset_percentage:            0.0,
+      peak_percentage:               0.0,
+      fragmentation:                 0.0,
+      fragmentation_bytes:           0,
+      rss_overhead_ratio:            0.0,
+      rss_overhead_bytes:            0,
+      allocator_allocated:           0,
+      allocator_active:              0,
+      allocator_resident:            0,
       allocator_fragmentation_ratio: 0.0,
       allocator_fragmentation_bytes: 0,
-      allocator_rss_bytes: 0,
-      allocator_rss_ratio: 0.0,
-      db: HashMap::new(),
+      allocator_rss_bytes:           0,
+      allocator_rss_ratio:           0.0,
+      db:                            HashMap::new(),
     }
   }
 }
@@ -449,12 +470,12 @@ impl TryFrom<RedisValue> for MemoryStats {
 /// <https://redis.io/commands/slowlog#output-format>
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SlowlogEntry {
-  pub id: i64,
+  pub id:        i64,
   pub timestamp: i64,
-  pub duration: Duration,
-  pub args: Vec<RedisValue>,
-  pub ip: Option<Str>,
-  pub name: Option<Str>,
+  pub duration:  Duration,
+  pub args:      Vec<RedisValue>,
+  pub ip:        Option<Str>,
+  pub name:      Option<Str>,
 }
 
 impl TryFrom<RedisValue> for SlowlogEntry {

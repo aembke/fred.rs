@@ -1,6 +1,5 @@
 use super::utils;
 use async_trait::async_trait;
-use fred::types::Builder;
 use fred::{
   clients::{RedisClient, RedisPool},
   cmd,
@@ -8,7 +7,16 @@ use fred::{
   interfaces::*,
   prelude::{Blocking, RedisValue},
   types::{
-    BackpressureConfig, ClientUnblockFlag, Options, PerformanceConfig, RedisConfig, RedisKey, RedisMap, ServerConfig,
+    BackpressureConfig,
+    Builder,
+    ClientUnblockFlag,
+    ClusterHash,
+    Options,
+    PerformanceConfig,
+    RedisConfig,
+    RedisKey,
+    RedisMap,
+    ServerConfig,
   },
 };
 use futures::future::try_join;
@@ -28,6 +36,7 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
+use fred::types::ClusterDiscoveryPolicy;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -35,9 +44,9 @@ use fred::types::Resolve;
 #[cfg(feature = "partial-tracing")]
 use fred::types::TracingConfig;
 #[cfg(feature = "dns")]
-use std::net::{IpAddr, SocketAddr};
+use hickory_resolver::{config::*, TokioAsyncResolver};
 #[cfg(feature = "dns")]
-use trust_dns_resolver::{config::*, TokioAsyncResolver};
+use std::net::{IpAddr, SocketAddr};
 
 #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
 fn hash_to_btree(vals: &RedisMap) -> BTreeMap<RedisKey, u16> {
@@ -197,14 +206,14 @@ pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) 
 pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let count: i64 = 200;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     client
       .custom(cmd!("SET"), vec![format!("foo-{}", idx), idx.to_string()])
       .await?;
   }
   client.flushall_cluster().await?;
 
-  for idx in 0..count {
+  for idx in 0 .. count {
     let value: Option<i64> = client.custom(cmd!("GET"), vec![format!("foo-{}", idx)]).await?;
     assert!(value.is_none());
   }
@@ -231,7 +240,7 @@ pub async fn should_safely_change_protocols_repeatedly(
   });
 
   // switch protocols every half second
-  for idx in 0..15 {
+  for idx in 0 .. 15 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
@@ -267,7 +276,7 @@ pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: Redis
   let mut tasks = Vec::with_capacity(num_tasks);
   let counter = Arc::new(AtomicUsize::new(0));
 
-  for idx in 0..num_tasks {
+  for idx in 0 .. num_tasks {
     let client = pool.next().clone();
     let counter = counter.clone();
 
@@ -366,14 +375,14 @@ pub async fn should_pipeline_try_all(client: RedisClient, _: RedisConfig) -> Res
 pub async fn should_use_all_cluster_nodes_repeatedly(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let other = client.clone();
   let jh1 = tokio::spawn(async move {
-    for _ in 0..200 {
+    for _ in 0 .. 200 {
       other.flushall_cluster().await?;
     }
 
     Ok::<_, RedisError>(())
   });
   let jh2 = tokio::spawn(async move {
-    for _ in 0..200 {
+    for _ in 0 .. 200 {
       client.flushall_cluster().await?;
     }
 
@@ -463,7 +472,13 @@ pub async fn should_ping_with_subscriber_client(client: RedisClient, config: Red
 }
 
 #[cfg(all(feature = "replicas", feature = "i-keys"))]
-pub async fn should_replica_set_and_get(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_replica_set_and_get(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let policy = client.client_reconnect_policy();
+  let mut connection = client.connection_config().clone();
+  connection.replica = ReplicaConfig::default();
+  let client = RedisClient::new(config, None, Some(connection), policy);
+  client.init().await?;
+
   let _: () = client.set("foo", "bar", None, None, false).await?;
   let result: String = client.replicas().get("foo").await?;
   assert_eq!(result, "bar");
@@ -477,8 +492,7 @@ pub async fn should_replica_set_and_get_not_lazy(client: RedisClient, config: Re
   let mut connection = client.connection_config().clone();
   connection.replica.lazy_connections = false;
   let client = RedisClient::new(config, None, Some(connection), policy);
-  let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.init().await?;
 
   let _: () = client.set("foo", "bar", None, None, false).await?;
   let result: String = client.replicas().get("foo").await?;
@@ -708,4 +722,78 @@ pub async fn should_fail_with_bad_host_via_wait_interface(
 
   let _ = task.await;
   Ok(())
+}
+
+// TODO this will require a breaking change to support. The `Replicas` struct assumes that it's operating on a
+// `RedisClient` and is not generic for other client or decorator types. `Replicas` must become `Replicas<C:
+// ClientLike>` first.
+#[allow(dead_code)]
+#[cfg(all(feature = "replicas", feature = "i-keys"))]
+pub async fn should_combine_options_and_replicas(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+  let mut connection = client.connection_config().clone();
+  connection.replica = ReplicaConfig {
+    lazy_connections: true,
+    primary_fallback: false,
+    ignore_reconnection_errors: true,
+    ..ReplicaConfig::default()
+  };
+  connection.max_redirections = 0;
+  let policy = client.client_reconnect_policy();
+  let client = RedisClient::new(config, None, Some(connection), policy);
+  client.init().await?;
+
+  // change the cluster hash policy such that we get a routing error if both replicas and options are correctly
+  // applied
+  let key = RedisKey::from_static_str("foo");
+  let (servers, foo_owner) = client
+    .cached_cluster_state()
+    .map(|s| {
+      (
+        s.unique_primary_nodes(),
+        s.get_server(key.cluster_hash()).unwrap().clone(),
+      )
+    })
+    .unwrap();
+  let wrong_owner = servers.iter().find(|s| foo_owner != **s).unwrap().clone();
+
+  let options = Options {
+    max_redirections: Some(0),
+    max_attempts: Some(1),
+    cluster_node: Some(wrong_owner),
+    ..Default::default()
+  };
+
+  let error = client
+    .with_options(&options)
+    .replicas()
+    .get::<Option<String>, _>(key)
+    .await
+    .err()
+    .unwrap();
+
+  // not ideal
+  assert_eq!(error.details(), "Too many redirections.");
+  Ok(())
+}
+
+pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  if let ServerConfig::Centralized { server } = config.server {
+    config.server = ServerConfig::Clustered {
+      hosts:  vec![server],
+      policy: ClusterDiscoveryPolicy::default(),
+    };
+  } else {
+    // skip for unix socket and sentinel tests
+    return Ok(());
+  }
+
+  let client = RedisClient::new(config, None, None, None);
+  client.connect();
+
+  if let Err(err) = client.wait_for_connect().await {
+    assert_eq!(*err.kind(), RedisErrorKind::Config, "err = {:?}", err);
+    return Ok(());
+  }
+
+  Err(RedisError::new(RedisErrorKind::Unknown, "Expected a config error."))
 }

@@ -39,5 +39,6 @@ async fn main() -> Result<(), RedisError> {
   assert_eq!(result[0], json!(["a", "b", "c", "d", { "e": "f" }]));
 
   // or see the redis-json integration tests for more
+  client.quit().await?;
   Ok(())
 }

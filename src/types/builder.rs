@@ -5,6 +5,7 @@ use crate::{
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 
+use crate::clients::ExclusivePool;
 #[cfg(feature = "subscriber-client")]
 use crate::clients::SubscriberClient;
 #[cfg(feature = "sentinel-client")]
@@ -236,6 +237,21 @@ impl Builder {
   pub fn build_pool(&self, size: usize) -> Result<RedisPool, RedisError> {
     if let Some(config) = self.config.as_ref() {
       RedisPool::new(
+        config.clone(),
+        Some(self.performance.clone()),
+        Some(self.connection.clone()),
+        self.policy.clone(),
+        size,
+      )
+    } else {
+      Err(RedisError::new(RedisErrorKind::Config, "Missing client configuration."))
+    }
+  }
+
+  /// Create a new exclusive client pool.
+  pub fn build_exclusive_pool(&self, size: usize) -> Result<ExclusivePool, RedisError> {
+    if let Some(config) = self.config.as_ref() {
+      ExclusivePool::new(
         config.clone(),
         Some(self.performance.clone()),
         Some(self.connection.clone()),

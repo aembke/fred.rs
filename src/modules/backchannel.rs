@@ -35,9 +35,9 @@ async fn check_and_create_transport(
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
-  pub transport: Option<RedisTransport>,
+  pub transport:      Option<RedisTransport>,
   /// An identifier for the blocked connection, if any.
-  pub blocked: Option<Server>,
+  pub blocked:        Option<Server>,
   /// A map of server IDs to connection IDs, as managed by the router.
   pub connection_ids: HashMap<Server, i64>,
 }
