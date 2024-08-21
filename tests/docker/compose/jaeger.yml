@@ -1,8 +1,15 @@
 version: "3"
+
+networks:
+  fred-tests:
+    driver: bridge
+    
 services:
   jaeger:
     container_name: "jaeger"
     image: "jaegertracing/all-in-one:latest"
+    networks:
+      - fred-tests
     environment:
       - "COLLECTOR_ZIPKIN_HOST_PORT=:9411"
       - "COLLECTOR_OTLP_ENABLED=true"
