@@ -1,17 +1,21 @@
+## 9.1.1
+
+* Fix tracing span names and missing fields
+
 ## 9.1.0
 
 * Add [RediSearch](https://github.com/RediSearch/RediSearch) interface.
 * Adapt testing and CI processes to test Redis and Valkey
 * Add `FromIterator` impl to `RedisMap`
 * Add `ExclusivePool` client
-* Support `redis+unix` config URLs for Unix domain sockets.
+* Support `redis+unix` config URLs for Unix domain sockets
 * Add `PEXPIRE` and `PEXPIREAT`
 * Replace `trust-dns-resolver` with `hickory-resolver`
 
 ## 9.0.3
 
 * Fix `bytes_utils` min version
-* Fix rustls reexports with `enable-rustls-ring`.
+* Fix rustls reexports with `enable-rustls-ring`
 
 ## 9.0.2
 

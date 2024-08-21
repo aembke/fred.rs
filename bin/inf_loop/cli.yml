@@ -7,6 +7,10 @@ args:
       long: cluster
       help: Whether to use a clustered deployment.
       takes_value: false
+  - tracing:
+      long: tracing
+      help: Whether to enable tracing.
+      takes_value: false
   - replicas:
       long: replicas
       help: Whether to use `GET` with replicas instead of `INCR` with primary nodes.

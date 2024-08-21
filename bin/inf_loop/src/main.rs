@@ -14,9 +14,18 @@ use fred::{
   prelude::*,
   types::{ReplicaConfig, UnresponsiveConfig},
 };
+use opentelemetry::{
+  global,
+  sdk::{
+    export::trace::stdout,
+    runtime::{Runtime, Tokio},
+    trace::{self, RandomIdGenerator, Sampler, TraceRuntime},
+  },
+};
 use rand::{self, distributions::Alphanumeric, Rng};
 use std::{default::Default, time::Duration};
 use tokio::time::sleep;
+use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 
 #[derive(Debug)]
 struct Argv {
@@ -28,6 +37,7 @@ struct Argv {
   pub interval: u64,
   pub wait:     u64,
   pub auth:     String,
+  pub tracing:  bool,
 }
 
 fn parse_argv() -> Argv {
@@ -35,6 +45,7 @@ fn parse_argv() -> Argv {
   let matches = App::from_yaml(yaml).get_matches();
   let cluster = matches.is_present("cluster");
   let replicas = matches.is_present("replicas");
+  let tracing = matches.is_present("tracing");
 
   let host = matches
     .value_of("host")
@@ -67,7 +78,65 @@ fn parse_argv() -> Argv {
     interval,
     wait,
     replicas,
+    tracing,
   }
+}
+
+#[cfg(all(
+  not(feature = "partial-tracing"),
+  not(feature = "stdout-tracing"),
+  not(feature = "full-tracing")
+))]
+pub fn setup_tracing(enable: bool) {}
+
+#[cfg(feature = "stdout-tracing")]
+pub fn setup_tracing(enable: bool) {
+  if enable {
+    info!("Starting stdout tracing...");
+    let layer = tracing_subscriber::fmt::layer()
+      .with_writer(std::io::stdout)
+      .with_ansi(false)
+      .event_format(tracing_subscriber::fmt::format().pretty())
+      .with_thread_names(true)
+      .with_level(true)
+      .with_line_number(true)
+      .with_filter(tracing_subscriber::filter::LevelFilter::TRACE);
+    let subscriber = Registry::default().with(layer);
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set global tracing subscriber");
+  }
+}
+
+#[cfg(any(feature = "partial-tracing", feature = "full-tracing"))]
+pub fn setup_tracing(enable: bool) {
+  let sampler = if enable {
+    info!("Starting tracing...");
+    Sampler::AlwaysOn
+  } else {
+    Sampler::AlwaysOff
+  };
+
+  global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
+  let jaeger_install = opentelemetry_jaeger::new_agent_pipeline()
+    .with_service_name("fred-inf-loop")
+    .with_endpoint("jaeger:6831")
+    .with_trace_config(
+      trace::config()
+        .with_sampler(sampler)
+        .with_id_generator(RandomIdGenerator::default())
+        .with_max_attributes_per_span(32),
+    )
+    .install_simple();
+
+  let tracer = match jaeger_install {
+    Ok(t) => t,
+    Err(e) => panic!("Fatal error initializing tracing: {:?}", e),
+  };
+
+  let telemetry = tracing_opentelemetry::layer().with_tracer(tracer);
+  let subscriber = Registry::default().with(telemetry);
+  tracing::subscriber::set_global_default(subscriber).expect("Failed to set global tracing subscriber");
+
+  info!("Initialized opentelemetry-jaeger pipeline.");
 }
 
 #[tokio::main]
@@ -75,8 +144,14 @@ async fn main() -> Result<(), RedisError> {
   pretty_env_logger::init_timed();
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
+  setup_tracing(argv.tracing);
 
   let config = RedisConfig {
+    #[cfg(any(feature = "partial-tracing", feature = "stdout-tracing", feature = "full-tracing"))]
+    tracing: TracingConfig {
+      enabled: argv.tracing,
+      ..Default::default()
+    },
     server: if argv.cluster {
       ServerConfig::new_clustered(vec![(&argv.host, argv.port)])
     } else {
@@ -118,7 +193,7 @@ async fn main() -> Result<(), RedisError> {
 
   info!("Connecting to {}:{}...", argv.host, argv.port);
   pool.init().await?;
-  info!("Connected to {}:{}.", argv.host, argv.port);
+  info!("Connected to {}:{}", argv.host, argv.port);
   pool.flushall_cluster().await?;
 
   if argv.wait > 0 {

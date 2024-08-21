@@ -79,7 +79,7 @@ pub fn create_args_span(_parent: Option<TraceId>, _inner: &Arc<RedisClientInner>
 #[cfg(feature = "full-tracing")]
 pub fn create_queued_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
   let buf_len = inner.counters.read_cmd_buffer_len();
-  span_lvl!(inner.full_tracing_span_level(), parent: parent, "queued", buf_len)
+  span_lvl!(inner.full_tracing_span_level(), parent: parent, "fred.queued", buf_len)
 }
 
 #[cfg(not(feature = "full-tracing"))]
