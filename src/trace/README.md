@@ -4,7 +4,7 @@ Tracing
 Tracing is implemented via the [tracing](https://github.com/tokio-rs/tracing) crate. This page describes the spans used
 by the client and the fields emitted on each of the spans.
 
-![](../../tests/screenshot.png)
+![](../../tests/jaeger-2024.jpg)
 
 See the [benchmark](../../bin/benchmark) application for an example showing how to configure tracing with a
 local Jaeger instance. This crate ships with a [small example](../../tests/docker/compose/jaeger.yml) that

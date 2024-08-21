@@ -13,7 +13,7 @@ services:
         REDIS_VERSION: "${REDIS_VERSION}"
     networks:
       - fred-tests
-    entrypoint: "cargo run --release -- ${TEST_ARGV}"
+    entrypoint: "cargo run --release --features partial-tracing -- ${TEST_ARGV}"
     environment:
       RUST_LOG: "${RUST_LOG}"
       REDIS_VERSION: "${REDIS_VERSION}"

@@ -481,8 +481,8 @@ where
     args_span.record("num_args", &command.args().len());
     (command, rx, req_size)
   };
-  cmd_span.record("cmd", &command.kind.to_str_debug());
-  cmd_span.record("req_size", &req_size);
+  cmd_span.record("cmd.name", &command.kind.to_str_debug());
+  cmd_span.record("cmd.req", &req_size);
 
   let queued_span = trace::create_queued_span(cmd_span.id(), inner);
   let timed_out = command.timed_out.clone();
