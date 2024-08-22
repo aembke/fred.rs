@@ -41,6 +41,8 @@ pub const DEFAULT_JITTER_MS: u32 = 100;
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "custom-reconnect-errors")]
 #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "UPPERCASE"))]
 pub enum ReconnectError {
   /// The CLUSTERDOWN prefix.
   ClusterDown,
@@ -60,12 +62,13 @@ pub enum ReconnectError {
   /// A case-sensitive prefix on an error message.
   ///
   /// See [the source](https://github.com/redis/redis/blob/fe37e4fc874a92dcf61b3b0de899ec6f674d2442/src/server.c#L1845) for examples.
-  Custom(&'static str),
+  #[cfg_attr(feature = "serde", serde(untagged))]
+  Custom(String),
 }
 
 #[cfg(feature = "custom-reconnect-errors")]
 impl ReconnectError {
-  pub(crate) fn to_str(&self) -> &'static str {
+  pub(crate) fn to_str(&self) -> &str {
     use ReconnectError::*;
 
     match self {
@@ -85,6 +88,7 @@ impl ReconnectError {
 ///
 /// Use a `max_attempts` value of `0` to retry forever.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ReconnectPolicy {
   /// Wait a constant amount of time between reconnect attempts, in ms.
   Constant {
@@ -275,6 +279,7 @@ impl ReconnectPolicy {
 /// Describes how the client should respond when a command is sent while the client is in a blocked state from a
 /// blocking command.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Blocking {
   /// Wait to send the command until the blocked command finishes. (Default)
   Block,
@@ -292,6 +297,7 @@ impl Default for Blocking {
 
 /// Backpressure policies to apply when the max number of in-flight commands is reached on a connection.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BackpressurePolicy {
   /// Sleep for some amount of time before sending the next command.
   Sleep {
@@ -332,6 +338,8 @@ impl BackpressurePolicy {
 
 /// Configuration options for backpressure features in the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct BackpressureConfig {
   /// Whether to disable the automatic backpressure features when pipelining is enabled.
   ///
@@ -362,6 +370,7 @@ impl Default for BackpressureConfig {
 
 /// TCP configuration options.
 #[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TcpConfig {
   /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
   pub nodelay:   Option<bool>,
@@ -370,6 +379,7 @@ pub struct TcpConfig {
   /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
   pub ttl:       Option<u32>,
   /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
+  #[cfg_attr(feature = "serde", serde(skip))]
   pub keepalive: Option<TcpKeepalive>,
 }
 
@@ -383,6 +393,8 @@ impl Eq for TcpConfig {}
 
 /// Configuration options used to detect potentially unresponsive connections.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct UnresponsiveConfig {
   /// If provided, the amount of time a frame can wait without a response before the associated connection is
   /// considered unresponsive.
@@ -417,6 +429,7 @@ impl Default for UnresponsiveConfig {
 
 /// A policy that determines how clustered clients initially connect to and discover other cluster nodes.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ClusterDiscoveryPolicy {
   /// Always use the endpoint(s) provided in the client's [ServerConfig](ServerConfig).
   ///
@@ -438,6 +451,8 @@ impl Default for ClusterDiscoveryPolicy {
 
 /// Configuration options related to the creation or management of TCP connection.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct ConnectionConfig {
   /// The timeout to apply when attempting to create a new TCP connection.
   ///
@@ -529,6 +544,8 @@ impl Default for ConnectionConfig {
 
 /// Configuration options that can affect the performance of the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct PerformanceConfig {
   /// Whether the client should automatically pipeline commands across tasks when possible.
   ///
@@ -582,6 +599,8 @@ impl Default for PerformanceConfig {
 
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct RedisConfig {
   /// Whether the client should return an error if it cannot connect to the server the first time when being
   /// initialized. If `false` the client will run the reconnect logic if it cannot connect to the server the first
@@ -595,26 +614,27 @@ pub struct RedisConfig {
   ///
   /// Default: `true`
   pub fail_fast: bool,
+
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking
   /// command.
   ///
   /// Setting this to anything other than `Blocking::Block` incurs a small performance penalty.
   ///
   /// Default: `Blocking::Block`
-  pub blocking:  Blocking,
+  pub blocking: Blocking,
   /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
   /// be `None`.
   ///
   /// Default: `None`
-  pub username:  Option<String>,
+  pub username: Option<String>,
   /// An optional password for the client to use when authenticating.
   ///
   /// Default: `None`
-  pub password:  Option<String>,
+  pub password: Option<String>,
   /// Connection configuration for the server(s).
   ///
   /// Default: `Centralized(localhost, 6379)`
-  pub server:    ServerConfig,
+  pub server:   ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
   /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
@@ -625,7 +645,7 @@ pub struct RedisConfig {
   /// has a slightly different type system than RESP2.
   ///
   /// Default: `RESP2`
-  pub version:   RespVersion,
+  pub version:  RespVersion,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
   /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect`
@@ -633,7 +653,7 @@ pub struct RedisConfig {
   /// the `on_reconnect` block.
   ///
   /// Default: `None`
-  pub database:  Option<u8>,
+  pub database: Option<u8>,
   /// TLS configuration options.
   ///
   /// Default: `None`
@@ -650,17 +670,20 @@ pub struct RedisConfig {
       feature = "enable-rustls-ring"
     )))
   )]
-  pub tls:       Option<TlsConfig>,
+  #[cfg_attr(feature = "serde", serde(skip))]
+  pub tls:      Option<TlsConfig>,
   /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   TracingConfig,
+  #[cfg_attr(feature = "serde", serde(skip))]
+  pub tracing:  TracingConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: `None`
   #[cfg(feature = "mocks")]
   #[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
-  pub mocks:     Option<Arc<dyn Mocks>>,
+  #[cfg_attr(feature = "serde", serde(skip))]
+  pub mocks:    Option<Arc<dyn Mocks>>,
 }
 
 impl PartialEq for RedisConfig {
@@ -1015,6 +1038,7 @@ impl RedisConfig {
 
 /// Connection configuration for the Redis server.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ServerConfig {
   Centralized {
     /// The `Server` identifier.
