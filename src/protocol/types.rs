@@ -67,6 +67,7 @@ impl From<Resp3Frame> for ProtocolFrame {
 
 /// State necessary to identify or connect to a server.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Server {
   /// The hostname or IP address for the server.
   pub host:            Str,

@@ -36,6 +36,8 @@ pub trait ReplicaFilter: Send + Sync + 'static {
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct ReplicaConfig {
   /// Whether the client should lazily connect to replica nodes.
   ///
@@ -44,6 +46,7 @@ pub struct ReplicaConfig {
   /// An optional interface for filtering available replica nodes.
   ///
   /// Default: `None`
+  #[cfg_attr(feature = "serde", serde(skip))]
   pub filter:                     Option<Arc<dyn ReplicaFilter>>,
   /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
   ///

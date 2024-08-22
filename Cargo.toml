@@ -40,6 +40,7 @@ subscriber-client = ["i-pubsub"]
 transactions = []
 trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = []
+serde = ["dep:serde", "bytes-utils/serde", "redis-protocol/serde"]
 
 # Enables rustls with the rustls/aws_lc_rs crypto backend
 enable-rustls = [
@@ -146,10 +147,15 @@ native-tls = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 parking_lot = "0.12"
 rand = "0.8"
-redis-protocol = { version = "5.0.1", features = ["resp2", "resp3", "bytes"] }
+redis-protocol = { git = "https://github.com/caass/redis-protocol.rs.git", branch = "caass/serde-config", features = [
+    "resp2",
+    "resp3",
+    "bytes",
+] }
 rustls = { version = "0.23", optional = true, default-features = false }
 rustls-native-certs = { version = "0.7", optional = true }
 semver = "1.0"
+serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = { version = "1", optional = true }
 sha-1 = { version = "0.10", optional = true }
 socket2 = "0.5"
