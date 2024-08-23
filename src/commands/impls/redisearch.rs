@@ -111,7 +111,7 @@ fn gen_aggregate_op(args: &mut Vec<RedisValue>, operation: AggregateOperation) -
       args.extend([static_val!(APPLY), expression.into(), static_val!(AS), name.into()]);
     },
     AggregateOperation::SortBy { properties, max } => {
-      args.extend([static_val!(SORTBY), properties.len().try_into()?]);
+      args.extend([static_val!(SORTBY), (properties.len() * 2).try_into()?]);
       for (property, order) in properties.into_iter() {
         args.extend([property.into(), order.to_str().into()]);
       }
