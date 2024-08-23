@@ -381,11 +381,10 @@ pub async fn interrupt_blocked_connection(
     id
   };
 
-  let mut args = Vec::with_capacity(2);
-  args.push(connection_id.into());
-  args.push(flag.to_str().into());
-  let command = RedisCommand::new(RedisCommandKind::ClientUnblock, args);
-
+  let command = RedisCommand::new(RedisCommandKind::ClientUnblock, vec![
+    connection_id.into(),
+    flag.to_str().into(),
+  ]);
   let frame = backchannel_request_response(inner, command, true).await?;
   protocol_utils::frame_to_results(frame).map(|_| ())
 }
