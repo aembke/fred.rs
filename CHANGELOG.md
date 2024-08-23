@@ -1,3 +1,7 @@
+## 9.1.2
+
+* Fix `FT.AGGREGATE` command with `SORTBY` operation
+
 ## 9.1.1
 
 * Fix tracing span names and missing fields
