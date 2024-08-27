@@ -580,6 +580,36 @@ impl Default for PerformanceConfig {
   }
 }
 
+/// Credential provider trait
+pub trait CredentialProvider: std::fmt::Debug + Send + Sync {
+  fn provide(
+    &self,
+  ) -> std::pin::Pin<
+    std::boxed::Box<
+      dyn std::future::Future<Output = Result<(Option<String>, Option<String>), RedisError>> + Send + '_,
+    >,
+  >;
+}
+
+impl<F> CredentialProvider for F
+where
+  F: Fn() -> std::pin::Pin<
+      std::boxed::Box<dyn std::future::Future<Output = Result<(Option<String>, Option<String>), RedisError>> + Send>,
+    > + Send
+    + Sync
+    + std::fmt::Debug,
+{
+  fn provide(
+    &self,
+  ) -> std::pin::Pin<
+    std::boxed::Box<
+      dyn std::future::Future<Output = Result<(Option<String>, Option<String>), RedisError>> + Send + '_,
+    >,
+  > {
+    std::boxed::Box::pin((self)())
+  }
+}
+
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug)]
 pub struct RedisConfig {
@@ -594,27 +624,31 @@ pub struct RedisConfig {
   /// difficult.
   ///
   /// Default: `true`
-  pub fail_fast: bool,
+  pub fail_fast:           bool,
   /// The default behavior of the client when a command is sent while the connection is blocked on a blocking
   /// command.
   ///
   /// Setting this to anything other than `Blocking::Block` incurs a small performance penalty.
   ///
   /// Default: `Blocking::Block`
-  pub blocking:  Blocking,
+  pub blocking:            Blocking,
   /// An optional ACL username for the client to use when authenticating. If ACL rules are not configured this should
   /// be `None`.
   ///
   /// Default: `None`
-  pub username:  Option<String>,
+  pub username:            Option<String>,
   /// An optional password for the client to use when authenticating.
   ///
   /// Default: `None`
-  pub password:  Option<String>,
+  pub password:            Option<String>,
+  /// An optional credential provider callback.
+  ///
+  /// Default: `None`
+  pub credential_provider: Option<std::sync::Arc<dyn CredentialProvider>>,
   /// Connection configuration for the server(s).
   ///
   /// Default: `Centralized(localhost, 6379)`
-  pub server:    ServerConfig,
+  pub server:              ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
   /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
@@ -625,7 +659,7 @@ pub struct RedisConfig {
   /// has a slightly different type system than RESP2.
   ///
   /// Default: `RESP2`
-  pub version:   RespVersion,
+  pub version:             RespVersion,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
   /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect`
@@ -633,7 +667,7 @@ pub struct RedisConfig {
   /// the `on_reconnect` block.
   ///
   /// Default: `None`
-  pub database:  Option<u8>,
+  pub database:            Option<u8>,
   /// TLS configuration options.
   ///
   /// Default: `None`
@@ -650,17 +684,17 @@ pub struct RedisConfig {
       feature = "enable-rustls-ring"
     )))
   )]
-  pub tls:       Option<TlsConfig>,
+  pub tls:                 Option<TlsConfig>,
   /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   TracingConfig,
+  pub tracing:             TracingConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: `None`
   #[cfg(feature = "mocks")]
   #[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
-  pub mocks:     Option<Arc<dyn Mocks>>,
+  pub mocks:               Option<Arc<dyn Mocks>>,
 }
 
 impl PartialEq for RedisConfig {
@@ -684,6 +718,7 @@ impl Default for RedisConfig {
       blocking:                                    Blocking::default(),
       username:                                    None,
       password:                                    None,
+      credential_provider:                         None,
       server:                                      ServerConfig::default(),
       version:                                     RespVersion::RESP2,
       database:                                    None,
@@ -1307,6 +1342,7 @@ impl From<SentinelConfig> for RedisConfig {
       blocking:                                    Blocking::Block,
       username:                                    config.username,
       password:                                    config.password,
+      credential_provider:                         None,
       version:                                     RespVersion::RESP2,
       #[cfg(any(
         feature = "enable-native-tls",

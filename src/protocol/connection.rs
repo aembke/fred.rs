@@ -682,8 +682,11 @@ impl RedisTransport {
   pub async fn switch_protocols_and_authenticate(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
     // reset the protocol version to the one specified by the config when we create new connections
     inner.reset_protocol_version();
-    let username = inner.config.username.clone();
-    let password = inner.config.password.clone();
+    let (username, password) = if let Some(credential_provider) = &inner.config.credential_provider {
+      credential_provider.provide().await?
+    } else {
+      (inner.config.username.clone(), inner.config.password.clone())
+    };
 
     if inner.is_resp3() {
       _debug!(inner, "Switching to RESP3 protocol with HELLO...");
