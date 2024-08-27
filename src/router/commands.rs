@@ -626,8 +626,13 @@ pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError>
     inner.store_command_rx(rx, false);
     Err(error)
   } else {
+    #[cfg(feature = "credential-provider")]
+    inner.reset_credential_refresh_task();
+
     let result = Box::pin(process_commands(inner, &mut router, &mut rx)).await;
     inner.store_command_rx(rx, false);
+    #[cfg(feature = "credential-provider")]
+    inner.abort_credential_refresh_task();
     result
   }
 }
@@ -637,9 +642,10 @@ pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError>
 mod mocking {
   use super::*;
   use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
+  use std::sync::Arc;
 
   /// Process any kind of router command.
-  pub fn process_command(mocks: &RefCount<dyn Mocks>, command: RouterCommand) -> Result<(), RedisError> {
+  pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), RedisError> {
     match command {
       #[cfg(feature = "transactions")]
       RouterCommand::Transaction { commands, mut tx, .. } => {
@@ -680,7 +686,7 @@ mod mocking {
 
   pub async fn process_commands(
     inner: &RefCount<RedisClientInner>,
-    mocks: &RefCount<dyn Mocks>,
+    mocks: &Arc<dyn Mocks>,
     rx: &mut CommandReceiver,
   ) -> Result<(), RedisError> {
     while let Some(command) = rx.recv().await {
@@ -701,7 +707,7 @@ mod mocking {
     Ok(())
   }
 
-  pub async fn start(inner: &RefCount<RedisClientInner>, mocks: &RefCount<dyn Mocks>) -> Result<(), RedisError> {
+  pub async fn start(inner: &RefCount<RedisClientInner>, mocks: &Arc<dyn Mocks>) -> Result<(), RedisError> {
     _debug!(inner, "Starting mocking layer");
 
     #[cfg(feature = "glommio")]

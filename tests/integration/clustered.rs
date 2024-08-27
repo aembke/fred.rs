@@ -34,7 +34,6 @@ mod keys {
 
 #[cfg(all(feature = "transactions", feature = "i-keys"))]
 mod multi {
-
   cluster_test!(multi, should_run_get_set_trx);
   cluster_test_panic!(multi, should_fail_with_hashslot_error);
   cluster_test_panic!(multi, should_run_error_get_set_trx);
@@ -49,11 +48,14 @@ mod other {
   cluster_test!(other, pool_should_fail_with_bad_host_via_init_interface);
   cluster_test!(other, pool_should_connect_correctly_via_wait_interface);
   cluster_test!(other, pool_should_fail_with_bad_host_via_wait_interface);
+  cluster_test!(other, should_split_clustered_connection);
+  cluster_test!(other, should_safely_change_protocols_repeatedly);
+  cluster_test!(other, should_gracefully_quit);
 
+  #[cfg(feature = "credential-provider")]
+  cluster_test!(other, should_use_credential_provider);
   #[cfg(feature = "metrics")]
   cluster_test!(other, should_track_size_stats);
-
-  cluster_test!(other, should_split_clustered_connection);
   #[cfg(feature = "i-server")]
   cluster_test!(other, should_run_flushall_cluster);
   #[cfg(all(feature = "i-client", feature = "i-lists"))]
@@ -62,7 +64,6 @@ mod other {
   cluster_test!(other, should_manually_unblock);
   #[cfg(all(feature = "i-client", feature = "i-lists"))]
   cluster_test!(other, should_error_when_blocked);
-  cluster_test!(other, should_safely_change_protocols_repeatedly);
   #[cfg(feature = "i-keys")]
   cluster_test!(other, should_pipeline_all);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
@@ -73,7 +74,6 @@ mod other {
   cluster_test!(other, should_pipeline_try_all);
   #[cfg(feature = "i-server")]
   cluster_test!(other, should_use_all_cluster_nodes_repeatedly);
-  cluster_test!(other, should_gracefully_quit);
   #[cfg(feature = "i-lists")]
   cluster_test!(other, should_support_options_with_pipeline);
   #[cfg(feature = "i-keys")]
@@ -113,7 +113,6 @@ mod pool {
 
 #[cfg(feature = "i-hashes")]
 mod hashes {
-
   cluster_test!(hashes, should_hset_and_hget);
   cluster_test!(hashes, should_hset_and_hdel);
   cluster_test!(hashes, should_hexists);
@@ -131,7 +130,6 @@ mod hashes {
 
 #[cfg(feature = "i-pubsub")]
 mod pubsub {
-
   cluster_test!(pubsub, should_publish_and_recv_messages);
   cluster_test!(pubsub, should_ssubscribe_and_recv_messages);
   cluster_test!(pubsub, should_psubscribe_and_recv_messages);
@@ -147,14 +145,12 @@ mod pubsub {
 
 #[cfg(feature = "i-hyperloglog")]
 mod hyperloglog {
-
   cluster_test!(hyperloglog, should_pfadd_elements);
   cluster_test!(hyperloglog, should_pfcount_elements);
   cluster_test!(hyperloglog, should_pfmerge_elements);
 }
 
 mod scanning {
-
   #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_scan_keyspace);
   #[cfg(feature = "i-hashes")]
@@ -169,7 +165,6 @@ mod scanning {
 
 #[cfg(feature = "i-slowlog")]
 mod slowlog {
-
   cluster_test!(slowlog, should_read_slowlog_length);
   cluster_test!(slowlog, should_read_slowlog_entries);
   cluster_test!(slowlog, should_reset_slowlog);
@@ -177,7 +172,6 @@ mod slowlog {
 
 #[cfg(feature = "i-server")]
 mod server {
-
   cluster_test!(server, should_flushall);
   cluster_test!(server, should_read_server_info);
   cluster_test!(server, should_ping_server);
@@ -190,7 +184,6 @@ mod server {
 
 #[cfg(feature = "i-sets")]
 mod sets {
-
   cluster_test!(sets, should_sadd_elements);
   cluster_test!(sets, should_scard_elements);
   cluster_test!(sets, should_sdiff_elements);
@@ -210,7 +203,6 @@ mod sets {
 
 #[cfg(feature = "i-memory")]
 pub mod memory {
-
   cluster_test!(memory, should_run_memory_doctor);
   cluster_test!(memory, should_run_memory_malloc_stats);
   cluster_test!(memory, should_run_memory_purge);
@@ -220,7 +212,6 @@ pub mod memory {
 
 #[cfg(feature = "i-scripts")]
 pub mod lua {
-
   #[cfg(feature = "sha-1")]
   cluster_test!(lua, should_load_script);
   #[cfg(feature = "sha-1")]
@@ -256,7 +247,6 @@ pub mod lua {
 
 #[cfg(feature = "i-sorted-sets")]
 pub mod sorted_sets {
-
   cluster_test!(sorted_sets, should_bzpopmin);
   cluster_test!(sorted_sets, should_bzpopmax);
   cluster_test!(sorted_sets, should_zadd_values);
@@ -291,7 +281,6 @@ pub mod sorted_sets {
 
 #[cfg(feature = "i-lists")]
 pub mod lists {
-
   cluster_test!(lists, should_blpop_values);
   cluster_test!(lists, should_brpop_values);
   cluster_test!(lists, should_brpoplpush_values);
@@ -321,7 +310,6 @@ pub mod lists {
 
 #[cfg(feature = "i-geo")]
 pub mod geo {
-
   cluster_test!(geo, should_geoadd_values);
   cluster_test!(geo, should_geohash_values);
   cluster_test!(geo, should_geopos_values);

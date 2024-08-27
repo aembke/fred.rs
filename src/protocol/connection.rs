@@ -707,8 +707,7 @@ impl RedisTransport {
   ) -> Result<(), RedisError> {
     // reset the protocol version to the one specified by the config when we create new connections
     inner.reset_protocol_version();
-    let username = inner.config.username.clone();
-    let password = inner.config.password.clone();
+    let (username, password) = inner.read_credentials(&self.server).await?;
 
     if inner.is_resp3() {
       _debug!(inner, "Switching to RESP3 protocol with HELLO...");
@@ -823,10 +822,13 @@ impl RedisTransport {
     timeout: Option<Duration>,
   ) -> Result<(), RedisError> {
     let timeout = timeout.unwrap_or(inner.internal_command_timeout());
+    let has_credentials = inner.config.password.is_some() || inner.config.version == RespVersion::RESP3;
+    #[cfg(feature = "credential-provider")]
+    let has_credentials = has_credentials || inner.config.credential_provider.is_some();
 
     utils::timeout(
       async {
-        if inner.config.password.is_some() || inner.config.version == RespVersion::RESP3 {
+        if has_credentials {
           self.switch_protocols_and_authenticate(inner).await?;
         } else {
           self.ping(inner).await?;

@@ -246,32 +246,49 @@ jobs:
           command: cargo check --features partial-tracing
   check-all-interface-features:
     docker:
-      - image: cimg/rust:1.80
+      - image: rust:1.80-slim-bullseye
+    environment:
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+      YQ_VERSION: v4.44.3
+    steps:
+      - checkout
+      - run:
+          name: Install build dependencies
+          command: |
+            apt-get update && apt-get install -y build-essential libssl-dev pkg-config git wget 
+            wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64
+            chmod +x /usr/local/bin/yq
+            rustup component add clippy
+      - run:
+          name: Check all features
+          command: tests/scripts/check_features.sh
+      - run:
+          name: Check all Glommio features
+          command: tests/scripts/check_glommio_features.sh
+  clippy-lint:
+    docker:
+      - image: rust:1.80-slim-bullseye
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
       - checkout
       - run:
-          name: Check all features
-          command: tests/scripts/check_features.sh
-  clippy-lint:
-    docker:
-      - image: cimg/rust:1.80-slim-bullseye
-    environment:
-      CARGO_NET_GIT_FETCH_WITH_CLI: true
-    steps:
-      - checkout
+          name: Install build dependencies
+          command: apt-get update && apt-get install -y build-essential libssl-dev pkg-config git
+      - run:
+          name: Install clippy
+          command: rustup component add clippy
       - run:
           name: Clippy Tokio features
           command: |
             cargo clippy --features "i-all i-redis-stack transactions blocking-encoding dns metrics mocks monitor \
-              replicas sentinel-auth sentinel-client serde-json subscriber-client unix-sockets \
+              replicas sentinel-auth sentinel-client serde-json subscriber-client unix-sockets credential-provider \
               enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
       - run:
           name: Clippy Glommio features
           command: |
             cargo clippy --features "i-all i-redis-stack transactions blocking-encoding dns metrics mocks monitor \
-              replicas sentinel-auth sentinel-client serde-json subscriber-client glommio \
+              replicas sentinel-auth sentinel-client serde-json subscriber-client glommio credential-provider \
               enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
   cargo-fmt:
     docker:

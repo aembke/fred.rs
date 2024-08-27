@@ -32,7 +32,8 @@ features = [
     "unix-sockets",
     "enable-rustls",
     "enable-native-tls",
-    "full-tracing"
+    "full-tracing",
+    "credential-provider"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -59,6 +60,7 @@ subscriber-client = ["i-pubsub"]
 transactions = []
 trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = []
+credential-provider = []
 
 # Enable experimental support for the Glommio runtime.
 glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]

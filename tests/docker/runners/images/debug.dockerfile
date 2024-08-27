@@ -24,4 +24,4 @@ RUN echo "REDIS_VERSION=$REDIS_VERSION"
 
 # For debugging
 RUN cargo --version && rustc --version
-RUN rustup component add clippy
+RUN rustup component add clippy && rustup install nightly

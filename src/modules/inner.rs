@@ -33,6 +33,13 @@ use std::{ops::DerefMut, time::Duration};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+#[cfg(feature = "credential-provider")]
+use crate::{
+  clients::RedisClient,
+  interfaces::RedisResult,
+  interfaces::{AuthInterface, ClientLike},
+  runtime::{spawn, JoinHandle},
+};
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
 
@@ -373,6 +380,51 @@ fn create_resolver(id: &Str) -> RefCount<dyn Resolve> {
   RefCount::new(DefaultResolver::new(id))
 }
 
+#[cfg(feature = "credential-provider")]
+fn spawn_credential_refresh(client: RedisClient, interval: Duration) -> JoinHandle<RedisResult<()>> {
+  spawn(async move {
+    loop {
+      trace!(
+        "{}: Waiting {} ms before refreshing credentials.",
+        client.inner.id,
+        interval.as_millis()
+      );
+      client.inner.wait_with_interrupt(interval).await?;
+
+      let (username, password) = match client.inner.config.credential_provider {
+        Some(ref provider) => match provider.fetch(None).await {
+          Ok(creds) => creds,
+          Err(e) => {
+            warn!("{}: Failed to fetch and refresh credentials: {e:?}", client.inner.id);
+            continue;
+          },
+        },
+        None => (None, None),
+      };
+
+      if client.state() != ClientState::Connected {
+        debug!("{}: Skip credential refresh when disconnected", client.inner.id);
+        continue;
+      }
+
+      if let Some(password) = password {
+        if client.inner.config.version == RespVersion::RESP3 {
+          let username = username.unwrap_or("default".into());
+          let result = client
+            .hello(RespVersion::RESP3, Some((username.into(), password.into())), None)
+            .await;
+
+          if let Err(err) = result {
+            warn!("{}: Failed to refresh credentials: {err}", client.inner.id);
+          }
+        } else if let Err(err) = client.auth(username, password).await {
+          warn!("{}: Failed to refresh credentials: {err}", client.inner.id);
+        }
+      }
+    }
+  })
+}
+
 pub struct RedisClientInner {
   /// An internal lock used to sync certain select operations that should not run concurrently across tasks.
   pub _lock:         Mutex<()>,
@@ -406,6 +458,9 @@ pub struct RedisClientInner {
   /// Temporary storage for the receiver half of the router command channel.
   pub command_rx: RwLock<Option<CommandReceiver>>,
 
+  /// A handle to a task that refreshes credentials on an interval.
+  #[cfg(feature = "credential-provider")]
+  pub credentials_task:      RwLock<Option<JoinHandle<RedisResult<()>>>>,
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
   pub latency_stats:         RwLock<MovingStats>,
@@ -418,6 +473,13 @@ pub struct RedisClientInner {
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
   pub res_size_stats:        RefCount<RwLock<MovingStats>>,
+}
+
+#[cfg(feature = "credential-provider")]
+impl Drop for RedisClientInner {
+  fn drop(&mut self) {
+    self.abort_credential_refresh_task();
+  }
 }
 
 impl RedisClientInner {
@@ -443,7 +505,6 @@ impl RedisClientInner {
       RefCount::new(AtomicBool::new(false))
     };
     let connection = RefCount::new(connection);
-
     #[cfg(feature = "glommio")]
     let command_tx = command_tx.into();
     let command_tx = RefSwap::new(RefCount::new(command_tx));
@@ -458,6 +519,8 @@ impl RedisClientInner {
       req_size_stats: RefCount::new(RwLock::new(MovingStats::default())),
       #[cfg(feature = "metrics")]
       res_size_stats: RefCount::new(RwLock::new(MovingStats::default())),
+      #[cfg(feature = "credential-provider")]
+      credentials_task: RwLock::new(None),
 
       backchannel,
       command_rx,
@@ -747,5 +810,44 @@ impl RedisClientInner {
       glommio::GlommioError::WouldBlock(glommio::ResourceType::Channel(v)) => v,
       _ => unreachable!(),
     })
+  }
+
+  #[cfg(not(feature = "credential-provider"))]
+  pub async fn read_credentials(&self, _: &Server) -> Result<(Option<String>, Option<String>), RedisError> {
+    Ok((self.config.username.clone(), self.config.password.clone()))
+  }
+
+  #[cfg(feature = "credential-provider")]
+  pub async fn read_credentials(&self, server: &Server) -> Result<(Option<String>, Option<String>), RedisError> {
+    Ok(if let Some(ref provider) = self.config.credential_provider {
+      provider.fetch(Some(server)).await?
+    } else {
+      (self.config.username.clone(), self.config.password.clone())
+    })
+  }
+
+  #[cfg(feature = "credential-provider")]
+  pub fn reset_credential_refresh_task(self: &RefCount<Self>) {
+    let mut guard = self.credentials_task.write();
+
+    if let Some(task) = guard.take() {
+      task.abort();
+    }
+    let refresh_interval = self
+      .config
+      .credential_provider
+      .as_ref()
+      .and_then(|provider| provider.refresh_interval());
+
+    if let Some(interval) = refresh_interval {
+      *guard = Some(spawn_credential_refresh(self.into(), interval));
+    }
+  }
+
+  #[cfg(feature = "credential-provider")]
+  pub fn abort_credential_refresh_task(&self) {
+    if let Some(task) = self.credentials_task.write().take() {
+      task.abort();
+    }
   }
 }

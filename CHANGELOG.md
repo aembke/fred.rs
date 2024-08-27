@@ -1,3 +1,8 @@
+## 9.2.0
+
+* Add initial support for the [Glommio](https://github.com/DataDog/glommio) runtime
+* Add `credential-provider` feature
+
 ## 9.1.2
 
 * Fix `FT.AGGREGATE` command with `SORTBY` operation

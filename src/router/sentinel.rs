@@ -113,22 +113,39 @@ fn read_sentinel_auth(inner: &RefCount<RedisClientInner>) -> Result<(Option<Stri
   Ok((inner.config.username.clone(), inner.config.password.clone()))
 }
 
+fn read_sentinel_hosts(inner: &RefCount<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+  inner
+    .server_state
+    .read()
+    .kind
+    .read_sentinel_nodes(&inner.config.server)
+    .ok_or(RedisError::new(
+      RedisErrorKind::Sentinel,
+      "Failed to read cached sentinel nodes.",
+    ))
+}
+
 /// Read the `(host, port)` tuples for the known sentinel nodes, and the credentials to use when connecting.
-fn read_sentinel_nodes_and_auth(
+#[cfg(feature = "credential-provider")]
+async fn read_sentinel_credentials(
   inner: &RefCount<RedisClientInner>,
-) -> Result<(Vec<Server>, (Option<String>, Option<String>)), RedisError> {
-  let (username, password) = read_sentinel_auth(inner)?;
-  let hosts = match inner.server_state.read().kind.read_sentinel_nodes(&inner.config.server) {
-    Some(hosts) => hosts,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::Sentinel,
-        "Failed to read cached sentinel nodes.",
-      ))
-    },
+  server: &Server,
+) -> Result<(Option<String>, Option<String>), RedisError> {
+  let (username, password) = if let Some(ref provider) = inner.config.credential_provider {
+    provider.fetch(Some(server)).await?
+  } else {
+    read_sentinel_auth(inner)?
   };
 
-  Ok((hosts, (username, password)))
+  Ok((username, password))
+}
+
+#[cfg(not(feature = "credential-provider"))]
+async fn read_sentinel_credentials(
+  inner: &RefCount<RedisClientInner>,
+  _: &Server,
+) -> Result<(Option<String>, Option<String>), RedisError> {
+  read_sentinel_auth(inner)
 }
 
 /// Read the set of sentinel nodes via `SENTINEL sentinels`.
@@ -156,9 +173,11 @@ async fn read_sentinels(
 
 /// Connect to any of the sentinel nodes provided on the associated `RedisConfig`.
 async fn connect_to_sentinel(inner: &RefCount<RedisClientInner>) -> Result<RedisTransport, RedisError> {
-  let (hosts, (username, password)) = read_sentinel_nodes_and_auth(inner)?;
+  let hosts = read_sentinel_hosts(inner)?;
 
   for server in hosts.into_iter() {
+    let (username, password) = read_sentinel_credentials(inner, &server).await?;
+
     _debug!(inner, "Connecting to sentinel {}", server);
     let mut transport = try_or_continue!(connection::create(inner, &server, None).await);
     try_or_continue!(

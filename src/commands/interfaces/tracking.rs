@@ -26,7 +26,7 @@ pub trait TrackingInterface: ClientLike + Sized {
     optin: bool,
     optout: bool,
     noloop: bool,
-  ) -> impl Future<Output=RedisResult<()>> + Send
+  ) -> impl Future<Output = RedisResult<()>> + Send
   where
     P: Into<MultipleStrings> + Send,
   {
@@ -37,7 +37,7 @@ pub trait TrackingInterface: ClientLike + Sized {
   }
 
   /// Disable client tracking on all connections.
-  fn stop_tracking(&self) -> impl Future<Output=RedisResult<()>> + Send {
+  fn stop_tracking(&self) -> impl Future<Output = RedisResult<()>> + Send {
     async move { commands::tracking::stop_tracking(self).await }
   }
 
