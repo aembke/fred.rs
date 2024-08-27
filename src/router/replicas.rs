@@ -10,6 +10,7 @@ use crate::{
     connection::{CommandBuffer, RedisWriter},
   },
   router::{centralized, clustered, utils, Written},
+  runtime::RefCount,
   types::Server,
 };
 #[cfg(feature = "replicas")]
@@ -17,7 +18,6 @@ use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
-  sync::Arc,
 };
 
 /// An interface used to filter the list of available replica nodes.
@@ -44,7 +44,7 @@ pub struct ReplicaConfig {
   /// An optional interface for filtering available replica nodes.
   ///
   /// Default: `None`
-  pub filter:                     Option<Arc<dyn ReplicaFilter>>,
+  pub filter:                     Option<RefCount<dyn ReplicaFilter>>,
   /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
   ///
   /// Default: `true`
@@ -258,7 +258,7 @@ impl Replicas {
   }
 
   /// Sync the connection map in place based on the cached routing table.
-  pub async fn sync_connections(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn sync_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     for (_, writer) in self.writers.drain() {
       let commands = writer.graceful_close().await;
       self.buffer.extend(commands);
@@ -272,7 +272,7 @@ impl Replicas {
   }
 
   /// Drop all connections and clear the cached routing table.
-  pub async fn clear_connections(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn clear_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     self.routing.clear();
     self.sync_connections(inner).await
   }
@@ -285,7 +285,7 @@ impl Replicas {
   /// Connect to the replica and add it to the cached routing table.
   pub async fn add_connection(
     &mut self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     primary: Server,
     replica: Server,
     force: bool,
@@ -331,7 +331,7 @@ impl Replicas {
   /// Close the replica connection and optionally remove the replica from the routing table.
   pub async fn remove_connection(
     &mut self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     primary: &Server,
     replica: &Server,
     keep_routable: bool,
@@ -414,7 +414,7 @@ impl Replicas {
   /// Send a command to one of the replicas associated with the provided primary server.
   pub async fn write(
     &mut self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     primary: &Server,
     mut command: RedisCommand,
     force_flush: bool,
@@ -532,7 +532,7 @@ impl Replicas {
 }
 
 #[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
-pub fn map_replica_tls_names(inner: &Arc<RedisClientInner>, primary: &Server, replica: &mut Server) {
+pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Server, replica: &mut Server) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {
@@ -552,4 +552,4 @@ pub fn map_replica_tls_names(inner: &Arc<RedisClientInner>, primary: &Server, re
   feature = "replicas",
   not(any(feature = "enable-native-tls", feature = "enable-rustls"))
 ))]
-pub fn map_replica_tls_names(_: &Arc<RedisClientInner>, _: &Server, _: &mut Server) {}
+pub fn map_replica_tls_names(_: &RefCount<RedisClientInner>, _: &Server, _: &mut Server) {}

@@ -11,10 +11,29 @@ name = "fred"
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 rust-version = "1.75"
-version = "9.1.2"
+version = "9.2.0"
 
 [package.metadata.docs.rs]
-all-features = true
+# do not show the glommio version of the docs
+features = [
+    "i-all",
+    "i-redis-stack",
+    "transactions",
+    "blocking-encoding",
+    "dns",
+    "metrics",
+    "mocks",
+    "monnitor",
+    "replicas",
+    "sentinel-auth",
+    "sentinel-client",
+    "serde-json",
+    "subscriber-client",
+    "unix-sockets",
+    "enable-rustls",
+    "enable-native-tls",
+    "full-tracing"
+]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
@@ -40,6 +59,9 @@ subscriber-client = ["i-pubsub"]
 transactions = []
 trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = []
+
+# Enable experimental support for the Glommio runtime.
+glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]
 
 # Enables rustls with the rustls/aws_lc_rs crypto backend
 enable-rustls = [
@@ -170,6 +192,12 @@ trust-dns-resolver = { version = "0.23", optional = true, features = ["tokio"] }
 hickory-resolver = { version = "0.24.1", optional = true, features = ["tokio"] }
 url = "2.4"
 urlencoding = "2.1"
+fred-macros = "0.1"
+glommio = { version = "0.9.0", optional = true }
+futures-io = { version = "0.3", optional = true }
+pin-project = { version = "1.1.5", optional = true }
+oneshot = { version = "0.1.8", optional = true, features = ["async"] }
+futures-lite = { version = "2.3", optional = true }
 
 [dev-dependencies]
 axum = { version = "0.7", features = ["macros"] }
@@ -179,6 +207,10 @@ pretty_env_logger = "0.5"
 serde = { version = "1.0", features = ["derive"] }
 subprocess = "0.2"
 tokio-stream = { version = "0.1", features = ["sync"] }
+
+[[example]]
+name = "glommio"
+required-features = ["glommio", "i-std"]
 
 [[example]]
 name = "misc"

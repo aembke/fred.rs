@@ -8,13 +8,13 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
+  runtime::{oneshot_channel, AtomicBool, Mutex, OneshotReceiver, OneshotSender, RefCount},
   trace,
   types::{CustomCommand, RedisValue},
   utils as client_utils,
   utils,
 };
 use bytes_utils::Str;
-use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
 use std::{
   convert::TryFrom,
@@ -22,10 +22,8 @@ use std::{
   fmt::Formatter,
   mem,
   str,
-  sync::{atomic::AtomicBool, Arc},
   time::{Duration, Instant},
 };
-use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
 #[cfg(feature = "mocks")]
 use crate::modules::mocks::MockCommand;
@@ -33,9 +31,7 @@ use crate::modules::mocks::MockCommand;
 use crate::trace::CommandTraces;
 
 #[cfg(feature = "debug-ids")]
-use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "debug-ids")]
-static COMMAND_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static COMMAND_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[cfg(feature = "debug-ids")]
 pub fn command_counter() -> usize {
   COMMAND_COUNTER
@@ -1544,7 +1540,7 @@ pub struct RedisCommand {
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
   pub arguments:              Vec<RedisValue>,
   /// A oneshot sender used to communicate with the router.
-  pub router_tx:              Arc<Mutex<Option<RouterSender>>>,
+  pub router_tx:              RefCount<Mutex<Option<RouterSender>>>,
   /// The number of times the command has been written to a socket.
   pub write_attempts:         u32,
   /// The number of write attempts remaining.
@@ -1564,7 +1560,7 @@ pub struct RedisCommand {
   /// The timeout duration provided by the `with_options` interface.
   pub timeout_dur:            Option<Duration>,
   /// Whether the command has timed out from the perspective of the caller.
-  pub timed_out:              Arc<AtomicBool>,
+  pub timed_out:              RefCount<AtomicBool>,
   /// A timestamp of when the command was last written to the socket.
   pub network_start:          Option<Instant>,
   /// Whether to route the command to a replica, if possible.
@@ -1625,11 +1621,11 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
     RedisCommand {
       kind,
       arguments,
-      timed_out: Arc::new(AtomicBool::new(false)),
+      timed_out: RefCount::new(AtomicBool::new(false)),
       timeout_dur: None,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
+      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1658,10 +1654,10 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       kind,
       arguments,
       response: ResponseKind::Respond(Some(tx)),
-      timed_out: Arc::new(AtomicBool::new(false)),
+      timed_out: RefCount::new(AtomicBool::new(false)),
       timeout_dur: None,
       hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
+      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1690,10 +1686,10 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       kind,
       arguments,
       response,
-      timed_out: Arc::new(AtomicBool::new(false)),
+      timed_out: RefCount::new(AtomicBool::new(false)),
       timeout_dur: None,
       hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
+      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1722,11 +1718,11 @@ impl RedisCommand {
     RedisCommand {
       kind,
       arguments,
-      timed_out: Arc::new(AtomicBool::new(false)),
+      timed_out: RefCount::new(AtomicBool::new(false)),
       timeout_dur: None,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
-      router_tx: Arc::new(Mutex::new(None)),
+      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1754,10 +1750,10 @@ impl RedisCommand {
       kind:                                       RedisCommandKind::Asking,
       hasher:                                     ClusterHash::Custom(hash_slot),
       arguments:                                  Vec::new(),
-      timed_out:                                  Arc::new(AtomicBool::new(false)),
+      timed_out:                                  RefCount::new(AtomicBool::new(false)),
       timeout_dur:                                None,
       response:                                   ResponseKind::Respond(None),
-      router_tx:                                  Arc::new(Mutex::new(None)),
+      router_tx:                                  RefCount::new(Mutex::new(None)),
       attempts_remaining:                         0,
       redirections_remaining:                     0,
       can_pipeline:                               true,
@@ -1780,7 +1776,7 @@ impl RedisCommand {
   }
 
   /// Whether to pipeline the command.
-  pub fn should_auto_pipeline(&self, inner: &Arc<RedisClientInner>, force: bool) -> bool {
+  pub fn should_auto_pipeline(&self, inner: &RefCount<RedisClientInner>, force: bool) -> bool {
     let should_pipeline = force
       || (inner.is_pipelined()
       && self.can_pipeline
@@ -1810,7 +1806,7 @@ impl RedisCommand {
   }
 
   /// Whether errors writing the command should be returned to the caller.
-  pub fn should_finish_with_error(&self, inner: &Arc<RedisClientInner>) -> bool {
+  pub fn should_finish_with_error(&self, inner: &RefCount<RedisClientInner>) -> bool {
     self.fail_fast || self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
@@ -1895,8 +1891,9 @@ impl RedisCommand {
   }
 
   /// Send a message to unblock the router loop, if necessary.
-  pub fn respond_to_router(&self, inner: &Arc<RedisClientInner>, cmd: RouterResponse) {
-    if let Some(tx) = self.router_tx.lock().take() {
+  pub fn respond_to_router(&self, inner: &RefCount<RedisClientInner>, cmd: RouterResponse) {
+    #[allow(unused_mut)]
+    if let Some(mut tx) = self.router_tx.lock().take() {
       if tx.send(cmd).is_err() {
         _debug!(inner, "Failed to unblock router loop.");
       }
@@ -1918,7 +1915,7 @@ impl RedisCommand {
   /// Note: this will **not** clone the router channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
     RedisCommand {
-      timed_out: Arc::new(AtomicBool::new(false)),
+      timed_out: RefCount::new(AtomicBool::new(false)),
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
       hasher: self.hasher.clone(),
@@ -1947,7 +1944,7 @@ impl RedisCommand {
   }
 
   /// Inherit connection and perf settings from the client.
-  pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
+  pub fn inherit_options(&mut self, inner: &RefCount<RedisClientInner>) {
     if self.attempts_remaining == 0 {
       self.attempts_remaining = inner.connection.max_command_attempts;
     }
@@ -1996,13 +1993,14 @@ impl RedisCommand {
 
   /// Respond to the caller, taking the response channel in the process.
   pub fn respond_to_caller(&mut self, result: Result<Resp3Frame, RedisError>) {
-    if let Some(tx) = self.take_responder() {
+    #[allow(unused_mut)]
+    if let Some(mut tx) = self.take_responder() {
       let _ = tx.send(result);
     }
   }
 
   /// Finish the command, responding to both the caller and router.
-  pub fn finish(mut self, inner: &Arc<RedisClientInner>, result: Result<Resp3Frame, RedisError>) {
+  pub fn finish(mut self, inner: &RefCount<RedisClientInner>, result: Result<Resp3Frame, RedisError>) {
     self.respond_to_caller(result);
     self.respond_to_router(inner, RouterResponse::Continue);
   }
@@ -2035,7 +2033,7 @@ impl RedisCommand {
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
-  #[cfg(feature = "blocking-encoding")]
+  #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
   pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(self.args());
 
@@ -2156,6 +2154,7 @@ impl RouterCommand {
   }
 
   /// Finish the command early with the provided error.
+  #[allow(unused_mut)]
   pub fn finish_with_error(self, error: RedisError) {
     match self {
       RouterCommand::Command(mut command) => {
@@ -2167,12 +2166,12 @@ impl RouterCommand {
         }
       },
       #[cfg(feature = "transactions")]
-      RouterCommand::Transaction { tx, .. } => {
+      RouterCommand::Transaction { mut tx, .. } => {
         if let Err(_) = tx.send(Err(error)) {
           warn!("Error responding early to transaction.");
         }
       },
-      RouterCommand::Reconnect { tx: Some(tx), .. } => {
+      RouterCommand::Reconnect { tx: Some(mut tx), .. } => {
         if let Err(_) = tx.send(Err(error)) {
           warn!("Error responding early to reconnect command.");
         }
@@ -2182,7 +2181,7 @@ impl RouterCommand {
   }
 
   /// Inherit settings from the configuration structs on `inner`.
-  pub fn inherit_options(&mut self, inner: &Arc<RedisClientInner>) {
+  pub fn inherit_options(&mut self, inner: &RefCount<RedisClientInner>) {
     match self {
       RouterCommand::Command(ref mut cmd) => {
         cmd.inherit_options(inner);

@@ -11,14 +11,14 @@ use crate::{
     utils as protocol_utils,
   },
   router::{responses, utils, Connections, Written},
+  runtime::{spawn, JoinHandle, RefCount},
   types::ServerConfig,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
-use std::{collections::VecDeque, sync::Arc};
-use tokio::task::JoinHandle;
+use std::collections::VecDeque;
 
 pub async fn write(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   command: RedisCommand,
   force_flush: bool,
@@ -38,7 +38,7 @@ pub async fn write(
 /// Spawn a task to read response frames from the reader half of the socket.
 #[allow(unused_assignments)]
 pub fn spawn_reader_task(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   mut reader: SplitStreamKind,
   server: &Server,
   buffer: &SharedBuffer,
@@ -47,8 +47,10 @@ pub fn spawn_reader_task(
 ) -> JoinHandle<Result<(), RedisError>> {
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
+  #[cfg(feature = "glommio")]
+  let tq = inner.connection.connection_task_queue;
 
-  tokio::spawn(async move {
+  let reader_ft = async move {
     let mut last_error = None;
 
     loop {
@@ -91,14 +93,23 @@ pub fn spawn_reader_task(
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())
-  })
+  };
+
+  #[cfg(feature = "glommio")]
+  if let Some(tq) = tq {
+    crate::runtime::spawn_into(reader_ft, tq)
+  } else {
+    spawn(reader_ft)
+  }
+  #[cfg(not(feature = "glommio"))]
+  spawn(reader_ft)
 }
 
 /// Process the response frame in the context of the last command.
 ///
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 pub async fn process_response_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
@@ -131,7 +142,8 @@ pub async fn process_response_frame(
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      if let Some(tx) = command.take_router_tx() {
+      #[allow(unused_mut)]
+      if let Some(mut tx) = command.take_router_tx() {
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());
@@ -179,7 +191,7 @@ pub async fn process_response_frame(
 /// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on
 /// `buffer`.
 pub async fn initialize_connection(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   connections: &mut Connections,
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {

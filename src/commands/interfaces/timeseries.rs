@@ -16,10 +16,12 @@ use crate::{
   },
 };
 use bytes_utils::Str;
+use fred_macros::rm_send_if;
 use futures::Future;
 
 /// A [Redis Timeseries](https://github.com/RedisTimeSeries/RedisTimeSeries/) interface.
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
+#[rm_send_if(feature = "glommio")]
 pub trait TimeSeriesInterface: ClientLike {
   /// Append a sample to a time series.
   ///

@@ -10,12 +10,11 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::{oneshot_channel, RefCount},
   types::*,
   utils,
 };
 use bytes_utils::Str;
-use std::sync::Arc;
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
   let (tx, rx) = oneshot_channel();
@@ -83,7 +82,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
 }
 
 /// Create a new client struct for each unique primary cluster node based on the cached cluster state.
-pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
+pub fn split(inner: &RefCount<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
   if !inner.config.server.is_clustered() {
     return Err(RedisError::new(
       RedisErrorKind::Config,
@@ -109,7 +108,7 @@ pub fn split(inner: &Arc<RedisClientInner>) -> Result<Vec<RedisClient>, RedisErr
   )
 }
 
-pub async fn force_reconnection(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn force_reconnection(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
   let command = RouterCommand::Reconnect {
     server:                               None,

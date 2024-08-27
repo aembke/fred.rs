@@ -7,26 +7,18 @@ use crate::{
     types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
+  runtime::{AtomicUsize, Mutex, RefCount},
   types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
   utils as client_utils,
 };
 use bytes_utils::Str;
-use parking_lot::Mutex;
-use redis_protocol::resp3::types::Resp3Frame as _Resp3Frame;
-use std::{
-  fmt,
-  fmt::Formatter,
-  iter::repeat,
-  mem,
-  ops::DerefMut,
-  sync::{atomic::AtomicUsize, Arc},
-};
+use redis_protocol::resp3::types::{FrameKind, Resp3Frame as _Resp3Frame};
+use std::{fmt, fmt::Formatter, iter::repeat, mem, ops::DerefMut};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
-use parking_lot::RwLock;
-use redis_protocol::resp3::types::FrameKind;
+use crate::runtime::RwLock;
 #[cfg(feature = "metrics")]
 use std::{cmp, time::Instant};
 
@@ -48,13 +40,13 @@ pub enum ResponseKind {
   /// cluster connections.
   Buffer {
     /// A shared buffer for response frames.
-    frames:      Arc<Mutex<Vec<Resp3Frame>>>,
+    frames:      RefCount<Mutex<Vec<Resp3Frame>>>,
     /// The expected number of response frames.
     expected:    usize,
     /// The number of response frames received.
-    received:    Arc<AtomicUsize>,
+    received:    RefCount<AtomicUsize>,
     /// A shared oneshot channel to the caller.
-    tx:          Arc<Mutex<Option<ResponseSender>>>,
+    tx:          RefCount<Mutex<Option<ResponseSender>>>,
     /// A local field for tracking the expected index of the response in the `frames` array.
     index:       usize,
     /// Whether errors should be returned early to the caller.
@@ -123,9 +115,9 @@ impl ResponseKind {
 
   pub fn new_buffer(tx: ResponseSender) -> Self {
     ResponseKind::Buffer {
-      frames:      Arc::new(Mutex::new(vec![])),
-      tx:          Arc::new(Mutex::new(Some(tx))),
-      received:    Arc::new(AtomicUsize::new(0)),
+      frames:      RefCount::new(Mutex::new(vec![])),
+      tx:          RefCount::new(Mutex::new(Some(tx))),
+      received:    RefCount::new(AtomicUsize::new(0)),
       index:       0,
       expected:    0,
       error_early: true,
@@ -135,9 +127,9 @@ impl ResponseKind {
   pub fn new_buffer_with_size(expected: usize, tx: ResponseSender) -> Self {
     let frames = repeat(Resp3Frame::Null).take(expected).collect();
     ResponseKind::Buffer {
-      frames: Arc::new(Mutex::new(frames)),
-      tx: Arc::new(Mutex::new(Some(tx))),
-      received: Arc::new(AtomicUsize::new(0)),
+      frames: RefCount::new(Mutex::new(frames)),
+      tx: RefCount::new(Mutex::new(Some(tx))),
+      received: RefCount::new(AtomicUsize::new(0)),
       index: 0,
       error_early: true,
       expected,
@@ -154,7 +146,7 @@ impl ResponseKind {
   }
 
   /// Clone the shared response sender for `Buffer` or `Multiple` variants.
-  pub fn clone_shared_response_tx(&self) -> Option<Arc<Mutex<Option<ResponseSender>>>> {
+  pub fn clone_shared_response_tx(&self) -> Option<RefCount<Mutex<Option<ResponseSender>>>> {
     match self {
       ResponseKind::Buffer { tx, .. } => Some(tx.clone()),
       _ => None,
@@ -187,7 +179,7 @@ fn sample_latency(latency_stats: &RwLock<MovingStats>, sent: Instant) {
 
 /// Sample overall and network latency values for a command.
 #[cfg(feature = "metrics")]
-fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) {
+fn sample_command_latencies(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) {
   if let Some(sent) = command.network_start.take() {
     sample_latency(&inner.network_latency_stats, sent);
   }
@@ -195,10 +187,10 @@ fn sample_command_latencies(inner: &Arc<RedisClientInner>, command: &mut RedisCo
 }
 
 #[cfg(not(feature = "metrics"))]
-fn sample_command_latencies(_: &Arc<RedisClientInner>, _: &mut RedisCommand) {}
+fn sample_command_latencies(_: &RefCount<RedisClientInner>, _: &mut RedisCommand) {}
 
 /// Update the client's protocol version codec version after receiving a non-error response to HELLO.
-fn update_protocol_version(inner: &Arc<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {
+fn update_protocol_version(inner: &RefCount<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {
   if !matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
     let version = match command.kind {
       RedisCommandKind::_Hello(ref version) => version,
@@ -213,8 +205,8 @@ fn update_protocol_version(inner: &Arc<RedisClientInner>, command: &RedisCommand
 }
 
 fn respond_locked(
-  inner: &Arc<RedisClientInner>,
-  tx: &Arc<Mutex<Option<ResponseSender>>>,
+  inner: &RefCount<RedisClientInner>,
+  tx: &RefCount<Mutex<Option<ResponseSender>>>,
   result: Result<Resp3Frame, RedisError>,
 ) {
   if let Some(tx) = tx.lock().take() {
@@ -226,7 +218,7 @@ fn respond_locked(
 
 fn add_buffered_frame(
   server: &Server,
-  buffer: &Arc<Mutex<Vec<Resp3Frame>>>,
+  buffer: &RefCount<Mutex<Vec<Resp3Frame>>>,
   index: usize,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
@@ -366,7 +358,7 @@ fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), R
 
 /// Send the output to the caller of a command that scans values.
 fn send_value_scan_result(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   scanner: ValueScanInner,
   command: &RedisCommand,
   result: Vec<RedisValue>,
@@ -430,7 +422,7 @@ fn send_value_scan_result(
 
 /// Respond to the caller with the default response policy.
 pub fn respond_to_caller(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
   mut command: RedisCommand,
   tx: ResponseSender,
@@ -456,15 +448,15 @@ pub fn respond_to_caller(
 /// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in
 /// the shared buffer.
 pub fn respond_buffer(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
   command: RedisCommand,
-  received: Arc<AtomicUsize>,
+  received: RefCount<AtomicUsize>,
   expected: usize,
   error_early: bool,
-  frames: Arc<Mutex<Vec<Resp3Frame>>>,
+  frames: RefCount<Mutex<Vec<Resp3Frame>>>,
   index: usize,
-  tx: Arc<Mutex<Option<ResponseSender>>>,
+  tx: RefCount<Mutex<Option<ResponseSender>>>,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(
@@ -476,22 +468,30 @@ pub fn respond_buffer(
     index,
     command.debug_id()
   );
+  let closes_connection = command.kind.closes_connection();
 
   // errors are buffered like normal frames and are not returned early
   if let Err(e) = add_buffered_frame(server, &frames, index, frame) {
-    respond_locked(inner, &tx, Err(e));
-    command.respond_to_router(inner, RouterResponse::Continue);
-    _error!(
-      inner,
-      "Exiting early after unexpected buffer response index from {} with command {}, ID {}",
-      server,
-      command.kind.to_str_debug(),
-      command.debug_id()
-    );
-    return Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Invalid buffer response index.",
-    ));
+    if closes_connection {
+      _debug!(inner, "Ignoring unexpected buffer response index from QUIT or SHUTDOWN");
+      respond_locked(inner, &tx, Err(RedisError::new_canceled()));
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Err(RedisError::new_canceled());
+    } else {
+      respond_locked(inner, &tx, Err(e));
+      command.respond_to_router(inner, RouterResponse::Continue);
+      _error!(
+        inner,
+        "Exiting early after unexpected buffer response index from {} with command {}, ID {}",
+        server,
+        command.kind.to_str_debug(),
+        command.debug_id()
+      );
+      return Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Invalid buffer response index.",
+      ));
+    }
   }
 
   // this must come after adding the buffered frame. there's a potential race condition if this task is interrupted
@@ -537,7 +537,7 @@ pub fn respond_buffer(
 
 /// Respond to the caller of a key scanning operation.
 pub fn respond_key_scan(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
   command: RedisCommand,
   mut scanner: KeyScanInner,
@@ -577,7 +577,7 @@ pub fn respond_key_scan(
 
 /// Respond to the caller of a value scanning operation.
 pub fn respond_value_scan(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
   command: RedisCommand,
   mut scanner: ValueScanInner,

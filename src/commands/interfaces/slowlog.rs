@@ -3,9 +3,11 @@ use crate::{
   interfaces::{ClientLike, RedisResult},
   types::FromRedis,
 };
+use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [slowlog](https://redis.io/commands#server) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait SlowlogInterface: ClientLike + Sized {
   /// This command is used to read the slow queries log.
   ///

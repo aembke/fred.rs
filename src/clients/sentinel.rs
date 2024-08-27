@@ -1,9 +1,10 @@
 use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
+  runtime::RefCount,
   types::{ConnectionConfig, PerformanceConfig, ReconnectPolicy, SentinelConfig},
 };
-use std::{fmt, sync::Arc};
+use std::fmt;
 
 /// A struct for interacting directly with Sentinel nodes.
 ///
@@ -16,12 +17,12 @@ use std::{fmt, sync::Arc};
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub struct SentinelClient {
-  inner: Arc<RedisClientInner>,
+  inner: RefCount<RedisClientInner>,
 }
 
 impl ClientLike for SentinelClient {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     &self.inner
   }
 }
@@ -36,8 +37,8 @@ impl fmt::Debug for SentinelClient {
 }
 
 #[doc(hidden)]
-impl<'a> From<&'a Arc<RedisClientInner>> for SentinelClient {
-  fn from(inner: &'a Arc<RedisClientInner>) -> Self {
+impl<'a> From<&'a RefCount<RedisClientInner>> for SentinelClient {
+  fn from(inner: &'a RefCount<RedisClientInner>) -> Self {
     SentinelClient { inner: inner.clone() }
   }
 }

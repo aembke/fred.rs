@@ -19,6 +19,7 @@ use crate::{
   },
 };
 use bytes_utils::Str;
+use fred_macros::rm_send_if;
 use futures::Future;
 use std::{convert::TryInto, hash::Hash};
 
@@ -29,6 +30,7 @@ use std::{convert::TryInto, hash::Hash};
 /// [xreadgroup_map](Self::xreadgroup_map), [xrange_values](Self::xrange_values), etc exist to make this easier for
 /// callers. These functions apply an additional layer of parsing logic that can make declaring response types easier,
 /// as well as automatically handling any differences between RESP2 and RESP3 return value types.
+#[rm_send_if(feature = "glommio")]
 pub trait StreamsInterface: ClientLike + Sized {
   /// This command returns the list of consumers that belong to the `groupname` consumer group of the stream stored at
   /// `key`.

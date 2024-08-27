@@ -4,6 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::RedisResult,
   protocol::{cluster, utils::server_to_parts},
+  runtime::{RefCount, UnboundedSender},
   types::*,
   utils,
 };
@@ -18,9 +19,7 @@ use std::{
   fmt::{Display, Formatter},
   hash::{Hash, Hasher},
   net::{SocketAddr, ToSocketAddrs},
-  sync::Arc,
 };
-use tokio::sync::mpsc::UnboundedSender;
 
 #[cfg(any(
   feature = "enable-rustls",
@@ -514,7 +513,7 @@ impl ClusterRouting {
   /// Rebuild the cache in place with the output of a `CLUSTER SLOTS` command.
   pub(crate) fn rebuild(
     &mut self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     cluster_slots: RedisValue,
     default_host: &Str,
   ) -> Result<(), RedisError> {
@@ -598,16 +597,6 @@ impl ClusterRouting {
   }
 }
 
-/// A trait that can be used to override DNS resolution logic.
-///
-/// Note: currently this requires [async-trait](https://crates.io/crates/async-trait).
-#[async_trait]
-#[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-pub trait Resolve: Send + Sync + 'static {
-  /// Resolve a hostname.
-  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
-}
-
 /// Default DNS resolver that uses [to_socket_addrs](std::net::ToSocketAddrs::to_socket_addrs).
 #[derive(Clone, Debug)]
 pub struct DefaultResolver {
@@ -621,6 +610,54 @@ impl DefaultResolver {
   }
 }
 
+/// A trait that can be used to override DNS resolution logic.
+///
+/// Note: currently this requires [async-trait](https://crates.io/crates/async-trait).
+#[cfg(feature = "glommio")]
+#[async_trait(?Send)]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+pub trait Resolve: 'static {
+  /// Resolve a hostname.
+  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
+}
+
+#[cfg(feature = "glommio")]
+#[async_trait(?Send)]
+impl Resolve for DefaultResolver {
+  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>> {
+    let client_id = self.id.clone();
+
+    // glommio users should probably use a non-blocking impl such as hickory-dns
+    crate::runtime::spawn(async move {
+      let addr = format!("{}:{}", host, port);
+      let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
+
+      if ips.is_empty() {
+        Err(RedisError::new(
+          RedisErrorKind::IO,
+          format!("Failed to resolve {}:{}", host, port),
+        ))
+      } else {
+        trace!("{}: Found {} addresses for {}", client_id, ips.len(), addr);
+        Ok(ips)
+      }
+    })
+    .await?
+  }
+}
+
+/// A trait that can be used to override DNS resolution logic.
+///
+/// Note: currently this requires [async-trait](https://crates.io/crates/async-trait).
+#[cfg(not(feature = "glommio"))]
+#[async_trait]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+pub trait Resolve: Send + Sync + 'static {
+  /// Resolve a hostname.
+  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
+}
+
+#[cfg(not(feature = "glommio"))]
 #[async_trait]
 impl Resolve for DefaultResolver {
   async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>> {

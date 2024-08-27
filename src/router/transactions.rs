@@ -7,10 +7,10 @@ use crate::{
     responders::ResponseKind,
   },
   router::{utils, Router, Written},
+  runtime::RefCount,
   types::{ClusterHash, Server},
   utils as client_utils,
 };
-use std::sync::Arc;
 
 /// An internal enum describing the result of an attempt to send a transaction command.
 #[derive(Debug)]
@@ -34,7 +34,7 @@ enum TransactionResponse {
 ///
 /// Returns the command result policy or a fatal error that should end the transaction.
 async fn write_command(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   command: RedisCommand,
@@ -86,7 +86,7 @@ async fn write_command(
 
 /// Send EXEC to the provided server.
 async fn send_exec(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   id: u64,
@@ -102,7 +102,7 @@ async fn send_exec(
 
 /// Send DISCARD to the provided server.
 async fn send_discard(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   id: u64,
@@ -124,14 +124,15 @@ fn update_hash_slot(commands: &mut [RedisCommand], slot: u16) {
 
 /// Run the transaction, following cluster redirects and reconnecting as needed.
 // this would be a lot cleaner with GATs if we could abstract the inner loops with async closures
+#[allow(unused_mut)]
 pub async fn run(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   mut commands: Vec<RedisCommand>,
   watched: Option<RedisCommand>,
   id: u64,
   abort_on_error: bool,
-  tx: ResponseSender,
+  mut tx: ResponseSender,
 ) -> Result<(), RedisError> {
   if commands.is_empty() {
     let _ = tx.send(Ok(Resp3Frame::Null));

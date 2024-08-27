@@ -9,7 +9,12 @@ use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
-  let publisher_client = RedisClient::default();
+  let publisher_client = Builder::default_centralized()
+    .with_performance_config(|config| {
+      // change the buffer size of the broadcast channels used by the EventInterface
+      config.broadcast_channel_capacity = 64;
+    })
+    .build()?;
   let subscriber_client = publisher_client.clone_new();
   publisher_client.init().await?;
   subscriber_client.init().await?;

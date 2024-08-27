@@ -14,10 +14,11 @@
 
 use crate::{
   error::{RedisError, RedisErrorKind},
+  runtime::Mutex,
   types::{RedisKey, RedisValue},
 };
 use bytes_utils::Str;
-use parking_lot::Mutex;
+use fred_macros::rm_send_if;
 use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,
@@ -42,6 +43,7 @@ pub struct MockCommand {
 
 /// An interface for intercepting and processing Redis commands in a mocking layer.
 #[allow(unused_variables)]
+#[rm_send_if(feature = "glommio")]
 pub trait Mocks: Debug + Send + Sync + 'static {
   /// Intercept and process a Redis command, returning any `RedisValue`.
   ///

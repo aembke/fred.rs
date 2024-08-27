@@ -7,9 +7,20 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::{
+    broadcast_channel,
+    oneshot_channel,
+    sleep,
+    unbounded_channel,
+    AtomicBool,
+    AtomicUsize,
+    BroadcastSender,
+    RefCount,
+    RefSwap,
+    RwLock,
+  },
   types::*,
 };
-use arc_swap::ArcSwap;
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
@@ -19,27 +30,9 @@ use futures::{
   Future,
   TryFutureExt,
 };
-use parking_lot::RwLock;
 use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
-use std::{
-  collections::HashMap,
-  convert::TryInto,
-  f64,
-  sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
-  },
-  time::Duration,
-};
-use tokio::{
-  sync::{
-    broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
-    mpsc::unbounded_channel,
-    oneshot::channel as oneshot_channel,
-  },
-  time::sleep,
-};
+use std::{collections::HashMap, convert::TryInto, f64, sync::atomic::Ordering, time::Duration};
 use url::Url;
 use urlencoding::decode as percent_decode;
 
@@ -49,10 +42,10 @@ use urlencoding::decode as percent_decode;
   feature = "enable-rustls-ring"
 ))]
 use crate::protocol::tls::{TlsConfig, TlsConnector};
+#[cfg(feature = "transactions")]
+use crate::runtime::Mutex;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
-#[cfg(feature = "transactions")]
-use parking_lot::Mutex;
 #[cfg(feature = "transactions")]
 use std::mem;
 #[cfg(feature = "unix-sockets")]
@@ -330,7 +323,7 @@ where
 }
 
 /// Disconnect any state shared with the last router task spawned by the client.
-pub fn reset_router_task(inner: &Arc<RedisClientInner>) {
+pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
   let _guard = inner._lock.lock();
 
   if !inner.has_command_rx() {
@@ -338,6 +331,9 @@ pub fn reset_router_task(inner: &Arc<RedisClientInner>) {
     // another connection task is running. this will let the command channel drain, then it'll drop everything on
     // the old connection/router interface.
     let (tx, rx) = unbounded_channel();
+    #[cfg(feature = "glommio")]
+    let tx = tx.into();
+
     let old_command_tx = inner.swap_command_tx(tx);
     inner.store_command_rx(rx, true);
     close_router_channel(inner, old_command_tx);
@@ -345,12 +341,12 @@ pub fn reset_router_task(inner: &Arc<RedisClientInner>) {
 }
 
 /// Whether the router should check and interrupt the blocked command.
-async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> bool {
+async fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> bool {
   if command.kind.closes_connection() {
     return false;
   }
   if matches!(inner.config.blocking, Blocking::Error | Blocking::Interrupt) {
-    inner.backchannel.read().await.is_blocked()
+    inner.backchannel.write().await.is_blocked()
   } else {
     false
   }
@@ -358,11 +354,11 @@ async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: 
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
 pub async fn interrupt_blocked_connection(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   flag: ClientUnblockFlag,
 ) -> Result<(), RedisError> {
   let connection_id = {
-    let backchannel = inner.backchannel.read().await;
+    let backchannel = inner.backchannel.write().await;
     let server = match backchannel.blocked_server() {
       Some(server) => server,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),
@@ -391,7 +387,7 @@ pub async fn interrupt_blocked_connection(
 
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should
 /// be unblocked automatically.
-async fn check_blocking_policy(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
+async fn check_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
   if should_enforce_blocking_policy(inner, command).await {
     _debug!(
       inner,
@@ -527,7 +523,7 @@ where
 ///
 /// A new connection may be created.
 pub async fn backchannel_request_response(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   command: RedisCommand,
   use_blocked: bool,
 ) -> Result<Resp3Frame, RedisError> {
@@ -539,7 +535,7 @@ pub async fn backchannel_request_response(
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.
 ///
 /// These patterns will result in scanning a random node if used against a clustered redis.
-pub fn clustered_scan_pattern_has_hash_tag(inner: &Arc<RedisClientInner>, pattern: &str) -> bool {
+pub fn clustered_scan_pattern_has_hash_tag(inner: &RefCount<RedisClientInner>, pattern: &str) -> bool {
   let (mut i, mut j, mut has_wildcard) = (None, None, false);
   for (idx, c) in pattern.chars().enumerate() {
     if c == '{' && i.is_none() {
@@ -717,9 +713,9 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   }
 }
 
-pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>, capacity: usize) {
+pub fn swap_new_broadcast_channel<T: Clone>(old: &RefSwap<RefCount<BroadcastSender<T>>>, capacity: usize) {
   let new = broadcast_channel(capacity).0;
-  old.swap(Arc::new(new));
+  old.swap(RefCount::new(new));
 }
 
 pub fn url_uses_tls(url: &Url) -> bool {
@@ -860,12 +856,12 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
   })
 }
 
-pub async fn clear_backchannel_state(inner: &Arc<RedisClientInner>) {
+pub async fn clear_backchannel_state(inner: &RefCount<RedisClientInner>) {
   inner.backchannel.write().await.clear_router_state(inner).await;
 }
 
 /// Send QUIT to the servers and clean up the old router task's state.
-fn close_router_channel(inner: &Arc<RedisClientInner>, command_tx: Arc<CommandSender>) {
+fn close_router_channel(inner: &RefCount<RedisClientInner>, command_tx: RefCount<CommandSender>) {
   inner.notifications.broadcast_close();
   inner.reset_server_state();
 

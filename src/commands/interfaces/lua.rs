@@ -6,10 +6,12 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
+use fred_macros::rm_send_if;
 use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [lua](https://redis.io/commands#lua) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait LuaInterface: ClientLike + Sized {
   /// Load a script into the scripts cache, without executing it. After the specified command is loaded into the
   /// script cache it will be callable using EVALSHA with the correct SHA1 digest of the script.
@@ -133,6 +135,7 @@ pub trait LuaInterface: ClientLike + Sized {
 }
 
 /// Functions that implement the [function](https://redis.io/docs/manual/programmability/functions-intro/) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait FunctionInterface: ClientLike + Sized {
   /// Invoke a function.
   ///
