@@ -10,12 +10,12 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::oneshot_channel,
   types::*,
   utils,
 };
 use bytes_utils::Str;
 use std::sync::Arc;
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
   let (tx, rx) = oneshot_channel();

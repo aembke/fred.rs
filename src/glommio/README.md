@@ -34,7 +34,8 @@ such as:
   to [async-oneshot](https://crates.io/crates/async-oneshot).
 * [tokio_util::codec](https://docs.rs/tokio-util/latest/tokio_util/codec/index.html) needs a compatibility layer or a
   re-implementation of `Encoder+Decoder` on top of the `AsyncRead+AsyncWrite` traits in `futures-io`. Currently, Tokio
-  re-implements these traits internally.
+  re-implements these traits internally. The compatibility layer in [src/glommio/io_compat.rs](./io_compat.rs) also
+  allows `tokio-native-tls` and `tokio-rustls` to work with Glommio's `TcpStream`.
 * Most tokio message passing `send` functions are synchronous, but most glommio `send` functions are async. To work
   around this the compat layer uses unbounded channels
   with [try_send](https://docs.rs/glommio/latest/glommio/channels/local_channel/struct.LocalSender.html#method.try_send).

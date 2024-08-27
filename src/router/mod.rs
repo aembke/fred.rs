@@ -20,11 +20,11 @@ use std::{
 };
 
 #[cfg(feature = "transactions")]
+use crate::runtime::oneshot_channel;
+#[cfg(feature = "transactions")]
 use crate::{protocol::command::ClusterErrorKind, protocol::responders::ResponseKind};
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
-#[cfg(feature = "transactions")]
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub mod centralized;
 pub mod clustered;

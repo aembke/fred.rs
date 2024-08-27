@@ -49,8 +49,6 @@ extern crate tracing_futures;
 mod macros;
 
 mod commands;
-#[cfg(feature = "glommio")]
-mod glommio;
 mod modules;
 mod protocol;
 mod router;
@@ -74,39 +72,14 @@ pub mod monitor;
 pub mod types;
 
 #[cfg(feature = "glommio")]
-use glommio::runtime_compat;
+mod glommio;
+#[cfg(feature = "glommio")]
+pub(crate) use glommio::compat as runtime;
 
 #[cfg(not(feature = "glommio"))]
-mod runtime_compat {
-  use crate::glommio::runtime_types::broadcast_channel;
-  use std::sync::Arc;
-  use tokio::sync::broadcast::{Receiver, Sender};
-  pub use tokio::{
-    sync::{
-      broadcast::{self, error::SendError as BroadcastSendError},
-      mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-      oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender},
-      RwLock as AsyncRwLock,
-    },
-    task::JoinHandle,
-    time::sleep,
-  };
-
-  pub type RefCount<T> = Arc<T>;
-
-  pub type BroadcastSender<T> = Sender<T>;
-  pub type BroadcastReceiver<T> = Receiver<T>;
-
-  pub fn broadcast_send<T, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, func: F) {
-    if let Err(BroadcastSendError(val)) = tx.send(msg.clone()) {
-      func(&val);
-    }
-  }
-
-  pub fn broadcast_channel<T>(capacity: usize) -> (BroadcastSender<T>, BroadcastReceiver<T>) {
-    broadcast::channel(capacity)
-  }
-}
+mod _tokio;
+#[cfg(not(feature = "glommio"))]
+pub(crate) use _tokio as runtime;
 
 /// Various client utility functions.
 pub mod util {

@@ -10,6 +10,7 @@ use crate::{
     utils as protocol_utils,
   },
   router::{utils, Backpressure, Counters, Router, Written},
+  runtime::{oneshot_channel, sleep},
   types::*,
   utils as client_utils,
 };
@@ -19,7 +20,6 @@ use std::{
   sync::Arc,
   time::{Duration, Instant},
 };
-use tokio::{self, sync::oneshot::channel as oneshot_channel, time::sleep};
 
 #[cfg(feature = "transactions")]
 use crate::protocol::command::ClusterErrorKind;
@@ -181,7 +181,8 @@ pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer
     None => return,
   };
   if command.has_router_channel() {
-    let tx = match command.take_router_tx() {
+    #[allow(unused_mut)]
+    let mut tx = match command.take_router_tx() {
       Some(tx) => tx,
       None => return,
     };
@@ -546,7 +547,7 @@ pub async fn next_frame(
     // complicated.
     //
     // The approach here implements a ~~hack~~ heuristic where we measure the time since first noticing a new
-    // frame in the shared buffer from the reader task perspective. This only works because we use `Stream::next`
+    // frame in the shared buffer from the reader task's perspective. This only works because we use `Stream::next`
     // which is noted to be cancellation-safe in the tokio::select! docs. With this implementation the worst case
     // error margin is an extra `interval`.
 

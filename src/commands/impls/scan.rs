@@ -8,14 +8,13 @@ use crate::{
     responders::ResponseKind,
     types::*,
   },
+  runtime::{rx_stream, unbounded_channel, UnboundedSender},
   types::*,
   utils,
 };
 use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
 use std::sync::Arc;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 static STARTING_CURSOR: &str = "0";
 
@@ -54,7 +53,7 @@ pub fn scan_cluster(
     Ok(slots) => slots,
     Err(e) => {
       early_error(&tx, e);
-      return UnboundedReceiverStream::new(rx);
+      return rx_stream(rx);
     },
   };
 
@@ -89,7 +88,7 @@ pub fn scan_cluster(
     }
   }
 
-  UnboundedReceiverStream::new(rx)
+  rx_stream(rx)
 }
 
 pub fn scan(
@@ -138,7 +137,7 @@ pub fn scan(
     early_error(&tx, e);
   }
 
-  UnboundedReceiverStream::new(rx)
+  rx_stream(rx)
 }
 
 pub fn hscan(
@@ -161,7 +160,7 @@ pub fn hscan(
     early_error(&tx, e);
   }
 
-  UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
+  rx_stream(rx).try_filter_map(|result| async move {
     match result {
       ValueScanResult::HScan(res) => Ok(Some(res)),
       _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected HSCAN result.")),
@@ -189,7 +188,7 @@ pub fn sscan(
     early_error(&tx, e);
   }
 
-  UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
+  rx_stream(rx).try_filter_map(|result| async move {
     match result {
       ValueScanResult::SScan(res) => Ok(Some(res)),
       _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected SSCAN result.")),
@@ -217,7 +216,7 @@ pub fn zscan(
     early_error(&tx, e);
   }
 
-  UnboundedReceiverStream::new(rx).try_filter_map(|result| async move {
+  rx_stream(rx).try_filter_map(|result| async move {
     match result {
       ValueScanResult::ZScan(res) => Ok(Some(res)),
       _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected ZSCAN result.")),

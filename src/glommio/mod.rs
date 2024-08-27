@@ -10,29 +10,34 @@ compile_error!("Cannot use glommio and blocking-encoding features together.");
 #[cfg(all(feature = "glommio", feature = "unix-sockets"))]
 compile_error!("Cannot use glommio and unix-sockets features together.");
 
-use crate::{error::RedisError, modules::inner::RedisClientInner, types::ConnectHandle, utils};
-use glommio::task::JoinHandle;
-use std::{rc::Rc, sync::Arc};
 // TODO add `AtomicBool` replacement type that doesn't use atomics
-
 pub(crate) mod broadcast;
 pub(crate) mod interfaces;
 pub(crate) mod io_compat;
 
-pub(crate) mod runtime_compat {
+pub(crate) mod compat {
   pub use super::broadcast::{BroadcastReceiver, BroadcastSender};
+  use crate::error::RedisError;
   pub use async_oneshot::{oneshot as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
+  use futures::Stream;
   pub use glommio::{
     channels::local_channel::new_unbounded as unbounded_channel,
-    task::JoinHandle,
+    task::JoinHandle as GlommioJoinHandle,
     timer::sleep,
     GlommioError as BroadcastSendError,
   };
   use glommio::{
     channels::local_channel::{LocalReceiver, LocalSender},
     sync::{RwLock, RwLockWriteGuard},
+    TaskQueueHandle,
   };
-  use std::rc::Rc;
+  use std::{
+    cell::RefCell,
+    future::Future,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll},
+  };
 
   pub type RefCount<T> = Rc<T>;
   pub type UnboundedSender<T> = LocalSender<T>;
@@ -62,5 +67,74 @@ pub(crate) mod runtime_compat {
     pub async fn write(&self) -> RwLockWriteGuard<T> {
       self.inner.write().await.unwrap()
     }
+  }
+
+  pub struct JoinHandle<T> {
+    pub(crate) inner:    GlommioJoinHandle<T>,
+    pub(crate) finished: Rc<RefCell<bool>>,
+  }
+
+  pub fn spawn<T: 'static>(ft: impl Future<Output = T> + 'static) -> JoinHandle<T> {
+    let finished = Rc::new(RefCell::new(false));
+    let _finished = finished.clone();
+    let inner = glommio::spawn_local(async move {
+      let result = ft.await;
+      _finished.replace(true);
+      result
+    })
+    .detach();
+
+    JoinHandle { inner, finished }
+  }
+
+  pub fn spawn_into<T: 'static>(ft: impl Future<Output = T> + 'static, tq: TaskQueueHandle) -> JoinHandle<T> {
+    let finished = Rc::new(RefCell::new(false));
+    let _finished = finished.clone();
+    let inner = glommio::spawn_local_into(
+      async move {
+        let result = ft.await;
+        _finished.replace(true);
+        result
+      },
+      tq,
+    )
+    .detach();
+
+    JoinHandle { inner, finished }
+  }
+
+  impl<T> Future for JoinHandle<T> {
+    type Output = Result<T, RedisError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+      let result = self
+        .inner
+        .poll(cx)
+        .map(|result| result.unwrap_or(RedisError::new_canceled()));
+
+      if Poll::Ready(_) = result {
+        self.set_finished();
+      }
+      result
+    }
+  }
+
+  impl<T> JoinHandle<T> {
+    pub(crate) fn set_finished(&self) {
+      self.finished.replace(true);
+    }
+
+    pub fn is_finished(&self) -> bool {
+      *self.finished.as_ref().borrow()
+    }
+
+    pub fn abort(&self) {
+      self.inner.cancel();
+      self.set_finished();
+    }
+  }
+
+  pub fn rx_stream<T>(rx: UnboundedReceiver<T>) -> impl Stream<Item = T> {
+    rx.stream()
   }
 }

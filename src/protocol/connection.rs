@@ -7,7 +7,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime_compat::JoinHandle,
+  runtime::JoinHandle,
   types::InfoKind,
   utils as client_utils,
   utils,
@@ -38,9 +38,14 @@ use std::{
 use tokio_util::codec::Framed;
 
 #[cfg(feature = "glommio")]
-use glommio::net::TcpStream;
+use glommio::net::TcpStream as BaseTcpStream;
+#[cfg(feature = "glommio")]
+pub type TcpStream = crate::glommio::io_compat::TokioIO<BaseTcpStream>;
+
 #[cfg(not(feature = "glommio"))]
 use tokio::net::TcpStream;
+#[cfg(not(feature = "glommio"))]
+use tokio::net::TcpStream as BaseTcpStream;
 
 #[cfg(feature = "unix-sockets")]
 use crate::prelude::ServerConfig;
@@ -51,7 +56,7 @@ use crate::prelude::ServerConfig;
 ))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
-use crate::runtime_compat::oneshot_channel;
+use crate::runtime::oneshot_channel;
 #[cfg(feature = "replicas")]
 use crate::{
   protocol::{connection, responders::ResponseKind},
@@ -143,7 +148,7 @@ async fn tcp_connect_any(
       addr.ip(),
       addr.port()
     );
-    let socket = match TcpStream::connect(addr).await {
+    let socket = match BaseTcpStream::connect(addr).await {
       Ok(socket) => socket,
       Err(e) => {
         _debug!(inner, "Error connecting to {}: {:?}", addr, e);
@@ -167,6 +172,8 @@ async fn tcp_connect_any(
       SockRef::from(&socket).set_tcp_keepalive(keepalive)?;
     }
 
+    #[cfg(feature = "glommio")]
+    let socket = crate::glommio::io_compat::TokioIO(socket);
     return Ok((socket, *addr));
   }
 
@@ -993,7 +1000,7 @@ impl RedisWriter {
   #[cfg(feature = "replicas")]
   pub async fn discover_replicas(&mut self, inner: &Arc<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
     let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
-    let role = connection::request_response(inner, self, command, None)
+    let role = request_response(inner, self, command, None)
       .await
       .and_then(protocol_utils::frame_to_results)?;
 

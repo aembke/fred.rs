@@ -107,7 +107,7 @@ pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind: RedisErrorKind,
+  kind:    RedisErrorKind,
 }
 
 impl Clone for RedisError {
@@ -254,6 +254,14 @@ impl From<tokio::task::JoinError> for RedisError {
 impl<T: fmt::Debug> From<glommio::GlommioError<T>> for RedisError {
   fn from(e: glommio::GlommioError<T>) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("{:?}", e))
+  }
+}
+
+#[doc(hidden)]
+#[cfg(feature = "glommio")]
+impl From<async_oneshot::Closed> for RedisError {
+  fn from(_: async_oneshot::Closed) -> Self {
+    RedisError::new_canceled()
   }
 }
 

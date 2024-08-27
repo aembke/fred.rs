@@ -154,7 +154,7 @@ semver = "1.0"
 serde_json = { version = "1", optional = true }
 sha-1 = { version = "0.10", optional = true }
 socket2 = "0.5"
-tokio = { optional = true, version = "1.34", features = [
+tokio = { version = "1.34", features = [
     "net",
     "sync",
     "rt",

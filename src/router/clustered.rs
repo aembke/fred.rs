@@ -11,6 +11,7 @@ use crate::{
     utils as protocol_utils,
   },
   router::{responses, types::ClusterChange, utils, Connections, Written},
+  runtime::{spawn, JoinHandle},
   types::{ClusterDiscoveryPolicy, ClusterStateChange},
   utils as client_utils,
 };
@@ -22,7 +23,6 @@ use std::{
   iter::repeat,
   sync::Arc,
 };
-use tokio::task::JoinHandle;
 
 /// Find the cluster node that should receive the command.
 pub fn route_command<'a>(
@@ -245,7 +245,8 @@ pub fn spawn_reader_task(
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
-  tokio::spawn(async move {
+  // TODO support spawn_into() with glommio
+  spawn(async move {
     let mut last_error = None;
 
     loop {
@@ -333,7 +334,8 @@ fn process_cluster_error(
     },
   };
 
-  if let Some(tx) = command.take_router_tx() {
+  #[allow(unused_mut)]
+  if let Some(mut tx) = command.take_router_tx() {
     let response = match kind {
       ClusterErrorKind::Ask => RouterResponse::Ask((slot, server, command)),
       ClusterErrorKind::Moved => RouterResponse::Moved((slot, server, command)),
@@ -442,7 +444,8 @@ pub async fn process_response_frame(
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      if let Some(tx) = command.take_router_tx() {
+      #[allow(unused_mut)]
+      if let Some(mut tx) = command.take_router_tx() {
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());

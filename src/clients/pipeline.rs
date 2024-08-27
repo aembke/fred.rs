@@ -8,11 +8,11 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::{oneshot_channel, OneshotReceiver},
   utils,
 };
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
-use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver};
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();
@@ -100,6 +100,7 @@ impl<C: ClientLike> ClientLike for Pipeline<C> {
   }
 
   #[doc(hidden)]
+  #[allow(unused_mut)]
   fn send_command<T>(&self, command: T) -> Result<(), RedisError>
   where
     T: Into<RedisCommand>,
@@ -107,7 +108,7 @@ impl<C: ClientLike> ClientLike for Pipeline<C> {
     let mut command: RedisCommand = command.into();
     self.change_command(&mut command);
 
-    if let Some(tx) = command.take_responder() {
+    if let Some(mut tx) = command.take_responder() {
       trace!(
         "{}: Respond early to {} command in pipeline.",
         &self.client.inner().id,

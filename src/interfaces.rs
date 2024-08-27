@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
-  runtime_compat::{sleep, BroadcastReceiver, JoinHandle},
+  runtime::{sleep, BroadcastReceiver, JoinHandle},
   types::{
     ClientState,
     ClusterStateChange,

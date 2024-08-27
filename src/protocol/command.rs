@@ -8,7 +8,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime_compat::{oneshot_channel, OneshotReceiver, OneshotSender},
+  runtime::{oneshot_channel, OneshotReceiver, OneshotSender},
   trace,
   types::{CustomCommand, RedisValue},
   utils as client_utils,

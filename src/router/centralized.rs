@@ -11,11 +11,11 @@ use crate::{
     utils as protocol_utils,
   },
   router::{responses, utils, Connections, Written},
+  runtime::{spawn, JoinHandle},
   types::ServerConfig,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::{collections::VecDeque, sync::Arc};
-use tokio::task::JoinHandle;
 
 pub async fn write(
   inner: &Arc<RedisClientInner>,
@@ -48,7 +48,7 @@ pub fn spawn_reader_task(
   let (inner, server) = (inner.clone(), server.clone());
   let (buffer, counters) = (buffer.clone(), counters.clone());
 
-  tokio::spawn(async move {
+  spawn(async move {
     let mut last_error = None;
 
     loop {
@@ -131,7 +131,8 @@ pub async fn process_response_frame(
 
   if command.transaction_id.is_some() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      if let Some(tx) = command.take_router_tx() {
+      #[allow(unused_mut)]
+      if let Some(mut tx) = command.take_router_tx() {
         let _ = tx.send(RouterResponse::TransactionError((error, command)));
       }
       return Ok(());

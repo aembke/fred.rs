@@ -7,14 +7,12 @@ use crate::{
     connection::RedisTransport,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
-  runtime_compat::{
+  runtime::{
     broadcast_channel,
     broadcast_send,
     sleep,
     unbounded_channel,
     AsyncRwLock,
-    BroadcastReceiver,
-    BroadcastSendError,
     BroadcastSender,
     UnboundedReceiver,
     UnboundedSender,
@@ -104,13 +102,13 @@ impl Notifications {
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
-    broadcast_send(self.errors.load().as_ref(), &error, |val| {
+    broadcast_send(self.errors.load().as_ref(), &error, |err| {
       debug!("{}: No `on_error` listener. The error was: {err:?}", self.id);
     });
   }
 
   pub fn broadcast_pubsub(&self, message: Message) {
-    broadcast_send(self.pubsub.load().as_ref(), &message, |val| {
+    broadcast_send(self.pubsub.load().as_ref(), &message, |_| {
       debug!("{}: No `on_message` listeners.", self.id);
     });
   }
