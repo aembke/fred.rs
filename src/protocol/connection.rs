@@ -7,6 +7,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
+  runtime_compat::JoinHandle,
   types::InfoKind,
   utils as client_utils,
   utils,
@@ -27,12 +28,19 @@ use std::{
   net::SocketAddr,
   pin::Pin,
   str,
-  sync::{atomic::AtomicUsize, Arc},
+  sync::{
+    atomic::{AtomicBool, AtomicUsize},
+    Arc,
+  },
   task::{Context, Poll},
   time::Duration,
 };
-use tokio::{net::TcpStream, task::JoinHandle};
 use tokio_util::codec::Framed;
+
+#[cfg(feature = "glommio")]
+use glommio::net::TcpStream;
+#[cfg(not(feature = "glommio"))]
+use tokio::net::TcpStream;
 
 #[cfg(feature = "unix-sockets")]
 use crate::prelude::ServerConfig;
@@ -43,19 +51,18 @@ use crate::prelude::ServerConfig;
 ))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
+use crate::runtime_compat::oneshot_channel;
+#[cfg(feature = "replicas")]
 use crate::{
   protocol::{connection, responders::ResponseKind},
   types::RedisValue,
 };
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 use std::{convert::TryInto, ops::Deref};
 #[cfg(feature = "unix-sockets")]
 use tokio::net::UnixStream;
-#[cfg(feature = "replicas")]
-use tokio::sync::oneshot::channel as oneshot_channel;
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::TlsStream as NativeTlsStream;
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
@@ -148,7 +155,10 @@ async fn tcp_connect_any(
       socket.set_nodelay(val)?;
     }
     if let Some(dur) = inner.connection.tcp.linger {
+      #[cfg(not(feature = "glommio"))]
       socket.set_linger(Some(dur))?;
+      #[cfg(feature = "glommio")]
+      SockRef::from(&socket).set_linger(Some(dur))?
     }
     if let Some(ttl) = inner.connection.tcp.ttl {
       socket.set_ttl(ttl)?;
@@ -382,6 +392,7 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
 }
 
 /// Atomic counters stored with connection state.
+// TODO with glommio these don't need to be atomics
 #[derive(Clone, Debug)]
 pub struct Counters {
   pub cmd_buffer_len: Arc<AtomicUsize>,

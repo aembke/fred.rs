@@ -5,6 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
+  runtime_compat::{sleep, BroadcastReceiver, JoinHandle},
   types::{
     ClientState,
     ClusterStateChange,
@@ -29,12 +30,11 @@ use bytes_utils::Str;
 use futures::Future;
 use semver::Version;
 use std::{convert::TryInto, sync::Arc, time::Duration};
-use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
-
-pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 
 #[cfg(feature = "i-server")]
 use crate::types::ShutdownFlags;
+pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
+use rm_send_macros::rm_send_if;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -87,11 +87,11 @@ pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterComma
     return Ok(());
   }
 
-  if let Err(e) = inner.command_tx.load().send(command) {
+  if let Err(e) = inner.send_command(command) {
     // usually happens if the caller tries to send a command before calling `connect` or after calling `quit`
     inner.counters.decr_cmd_buffer_len();
 
-    if let RouterCommand::Command(mut command) = e.0 {
+    if let RouterCommand::Command(mut command) = e {
       _warn!(
         inner,
         "Fatal error sending {} command to router. Client may be stopped or not yet initialized.",
@@ -119,6 +119,7 @@ pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterComma
 }
 
 /// Any Redis client that implements any part of the Redis interface.
+#[cfg(not(feature = "glommio"))]
 pub trait ClientLike: Clone + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner>;
@@ -418,6 +419,10 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   }
 }
 
+#[cfg(feature = "glommio")]
+pub use crate::glommio::interfaces::ClientLike;
+
+#[cfg(not(feature = "glommio"))]
 fn spawn_event_listener<T, F>(mut rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
 where
   T: Clone + Send + 'static,
@@ -437,10 +442,14 @@ where
   })
 }
 
+#[cfg(feature = "glommio")]
+pub use crate::glommio::interfaces::spawn_event_listener;
+
 /// Functions that provide a connection heartbeat interface.
 pub trait HeartbeatInterface: ClientLike {
   /// Return a future that will ping the server on an interval.
   #[allow(unreachable_code)]
+  #[rm_send_if(features = "glommio")]
   fn enable_heartbeat(
     &self,
     interval: Duration,
@@ -448,10 +457,9 @@ pub trait HeartbeatInterface: ClientLike {
   ) -> impl Future<Output = RedisResult<()>> + Send {
     async move {
       let _self = self.clone();
-      let mut interval = tokio::time::interval(interval);
 
       loop {
-        interval.tick().await;
+        sleep(interval).await;
 
         if break_on_error {
           let _: () = _self.ping().await?;

@@ -8,6 +8,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
+  runtime_compat::{oneshot_channel, OneshotReceiver, OneshotSender},
   trace,
   types::{CustomCommand, RedisValue},
   utils as client_utils,
@@ -25,7 +26,6 @@ use std::{
   sync::{atomic::AtomicBool, Arc},
   time::{Duration, Instant},
 };
-use tokio::sync::oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
 
 #[cfg(feature = "mocks")]
 use crate::modules::mocks::MockCommand;
@@ -1896,7 +1896,8 @@ impl RedisCommand {
 
   /// Send a message to unblock the router loop, if necessary.
   pub fn respond_to_router(&self, inner: &Arc<RedisClientInner>, cmd: RouterResponse) {
-    if let Some(tx) = self.router_tx.lock().take() {
+    #[allow(unused_mut)]
+    if let Some(mut tx) = self.router_tx.lock().take() {
       if tx.send(cmd).is_err() {
         _debug!(inner, "Failed to unblock router loop.");
       }
@@ -1996,7 +1997,8 @@ impl RedisCommand {
 
   /// Respond to the caller, taking the response channel in the process.
   pub fn respond_to_caller(&mut self, result: Result<Resp3Frame, RedisError>) {
-    if let Some(tx) = self.take_responder() {
+    #[allow(unused_mut)]
+    if let Some(mut tx) = self.take_responder() {
       let _ = tx.send(result);
     }
   }
@@ -2156,6 +2158,7 @@ impl RouterCommand {
   }
 
   /// Finish the command early with the provided error.
+  #[allow(unused_mut)]
   pub fn finish_with_error(self, error: RedisError) {
     match self {
       RouterCommand::Command(mut command) => {
@@ -2167,12 +2170,12 @@ impl RouterCommand {
         }
       },
       #[cfg(feature = "transactions")]
-      RouterCommand::Transaction { tx, .. } => {
+      RouterCommand::Transaction { mut tx, .. } => {
         if let Err(_) = tx.send(Err(error)) {
           warn!("Error responding early to transaction.");
         }
       },
-      RouterCommand::Reconnect { tx: Some(tx), .. } => {
+      RouterCommand::Reconnect { tx: Some(mut tx), .. } => {
         if let Err(_) = tx.send(Err(error)) {
           warn!("Error responding early to reconnect command.");
         }

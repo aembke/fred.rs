@@ -7,6 +7,7 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime_compat::{broadcast_channel, oneshot_channel, sleep, unbounded_channel, BroadcastSender},
   types::*,
 };
 use arc_swap::ArcSwap;
@@ -31,14 +32,6 @@ use std::{
     Arc,
   },
   time::Duration,
-};
-use tokio::{
-  sync::{
-    broadcast::{channel as broadcast_channel, Sender as BroadcastSender},
-    mpsc::unbounded_channel,
-    oneshot::channel as oneshot_channel,
-  },
-  time::sleep,
 };
 use url::Url;
 use urlencoding::decode as percent_decode;
@@ -350,7 +343,7 @@ async fn should_enforce_blocking_policy(inner: &Arc<RedisClientInner>, command: 
     return false;
   }
   if matches!(inner.config.blocking, Blocking::Error | Blocking::Interrupt) {
-    inner.backchannel.read().await.is_blocked()
+    inner.backchannel.write().await.is_blocked()
   } else {
     false
   }
@@ -362,7 +355,7 @@ pub async fn interrupt_blocked_connection(
   flag: ClientUnblockFlag,
 ) -> Result<(), RedisError> {
   let connection_id = {
-    let backchannel = inner.backchannel.read().await;
+    let backchannel = inner.backchannel.write().await;
     let server = match backchannel.blocked_server() {
       Some(server) => server,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),

@@ -81,6 +81,7 @@ See the build features for more information.
 | `default-nil-types`       |         | Enable a looser parsing interface for `nil` values.                                                                                                                 |
 | `sha-1`                   |         | Enable an interface for hashing Lua scripts.                                                                                                                        |
 | `unix-sockets`            |         | Enable Unix socket support.                                                                                                                                         |
+| `glommio`                 |         | Enable experimental [Glommio](https://github.com/DataDog/glommio) support. See [the Runtime docs](./src/glommio/README.md) for more information.                    |
 
 ## Interface Features
 

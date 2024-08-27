@@ -499,6 +499,16 @@ pub struct ConnectionConfig {
   #[cfg(feature = "custom-reconnect-errors")]
   #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
   pub reconnect_errors:             Vec<ReconnectError>,
+
+  /// The task queue onto which routing tasks will be spawned.
+  #[cfg(feature = "glommio")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "glommio")))]
+  pub router_task_queue: Option<glommio::TaskQueueHandle>,
+
+  /// The task queue onto which connection reader tasks will be spawned.
+  #[cfg(feature = "glommio")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "glommio")))]
+  pub connection_task_queue: Option<glommio::TaskQueueHandle>,
 }
 
 impl Default for ConnectionConfig {
@@ -523,6 +533,10 @@ impl Default for ConnectionConfig {
         ReconnectError::Loading,
         ReconnectError::ReadOnly,
       ],
+      #[cfg(feature = "glommio")]
+      router_task_queue: None,
+      #[cfg(feature = "glommio")]
+      connection_task_queue: None,
     }
   }
 }

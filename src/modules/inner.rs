@@ -7,6 +7,18 @@ use crate::{
     connection::RedisTransport,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
+  runtime_compat::{
+    broadcast_channel,
+    broadcast_send,
+    sleep,
+    unbounded_channel,
+    AsyncRwLock,
+    BroadcastReceiver,
+    BroadcastSendError,
+    BroadcastSender,
+    UnboundedReceiver,
+    UnboundedSender,
+  },
   types::*,
   utils,
 };
@@ -22,14 +34,6 @@ use std::{
     Arc,
   },
   time::Duration,
-};
-use tokio::{
-  sync::{
-    broadcast::{self, error::SendError as BroadcastSendError, Sender as BroadcastSender},
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    RwLock as AsyncRwLock,
-  },
-  time::sleep,
 };
 
 #[cfg(feature = "metrics")]
@@ -73,16 +77,16 @@ impl Notifications {
   pub fn new(id: &Str, capacity: usize) -> Self {
     Notifications {
       id:                                           id.clone(),
-      close:                                        broadcast::channel(capacity).0,
-      errors:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      pubsub:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      keyspace:                                     ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      reconnect:                                    ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      cluster_change:                               ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      connect:                                      ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      close:                                        broadcast_channel(capacity).0,
+      errors:                                       ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
+      pubsub:                                       ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
+      keyspace:                                     ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
+      reconnect:                                    ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
+      cluster_change:                               ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
+      connect:                                      ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
       #[cfg(feature = "i-tracking")]
-      invalidations:                                ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      unresponsive:                                 ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      invalidations:                                ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
+      unresponsive:                                 ArcSwap::new(Arc::new(broadcast_channel(capacity).0)),
     }
   }
 
@@ -100,60 +104,60 @@ impl Notifications {
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
-    if let Err(BroadcastSendError(err)) = self.errors.load().send(error) {
+    broadcast_send(self.errors.load().as_ref(), &error, |val| {
       debug!("{}: No `on_error` listener. The error was: {err:?}", self.id);
-    }
+    });
   }
 
   pub fn broadcast_pubsub(&self, message: Message) {
-    if let Err(_) = self.pubsub.load().send(message) {
+    broadcast_send(self.pubsub.load().as_ref(), &message, |val| {
       debug!("{}: No `on_message` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_keyspace(&self, event: KeyspaceEvent) {
-    if let Err(_) = self.keyspace.load().send(event) {
+    broadcast_send(self.keyspace.load().as_ref(), &event, |_| {
       debug!("{}: No `on_keyspace_event` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_reconnect(&self, server: Server) {
-    if let Err(_) = self.reconnect.load().send(server) {
+    broadcast_send(self.reconnect.load().as_ref(), &server, |_| {
       debug!("{}: No `on_reconnect` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_cluster_change(&self, changes: Vec<ClusterStateChange>) {
-    if let Err(_) = self.cluster_change.load().send(changes) {
+    broadcast_send(self.cluster_change.load().as_ref(), &changes, |_| {
       debug!("{}: No `on_cluster_change` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
-    if let Err(_) = self.connect.load().send(result) {
+    broadcast_send(self.connect.load().as_ref(), &result, |_| {
       debug!("{}: No `on_connect` listeners.", self.id);
-    }
+    });
   }
 
   /// Interrupt any tokio `sleep` calls.
   //`RedisClientInner::wait_with_interrupt` hides the subscription part from callers.
   pub fn broadcast_close(&self) {
-    if let Err(_) = self.close.send(()) {
+    broadcast_send(&self.close, &(), |_| {
       debug!("{}: No `close` listeners.", self.id);
-    }
+    });
   }
 
   #[cfg(feature = "i-tracking")]
   pub fn broadcast_invalidation(&self, msg: Invalidation) {
-    if let Err(_) = self.invalidations.load().send(msg) {
+    broadcast_send(&self.invalidations.load().as_ref(), &msg, |_| {
       debug!("{}: No `on_invalidation` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_unresponsive(&self, server: Server) {
-    if let Err(_) = self.unresponsive.load().send(server) {
+    broadcast_send(&self.unresponsive.load().as_ref(), &server, |_| {
       debug!("{}: No unresponsive listeners", self.id);
-    }
+    });
   }
 }
 
@@ -393,10 +397,6 @@ pub struct RedisClientInner {
   pub policy:        RwLock<Option<ReconnectPolicy>>,
   /// Notification channels for the event interfaces.
   pub notifications: Arc<Notifications>,
-  /// An mpsc sender for commands to the router.
-  pub command_tx:    ArcSwap<CommandSender>,
-  /// Temporary storage for the receiver half of the router command channel.
-  pub command_rx:    RwLock<Option<CommandReceiver>>,
   /// Shared counters.
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
@@ -405,6 +405,11 @@ pub struct RedisClientInner {
   pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
   pub server_state:  RwLock<ServerState>,
+
+  /// An mpsc sender for commands to the router.
+  pub command_tx: ArcSwap<CommandSender>,
+  /// Temporary storage for the receiver half of the router command channel.
+  pub command_rx: RwLock<Option<CommandReceiver>>,
 
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
@@ -529,7 +534,7 @@ impl RedisClientInner {
   }
 
   pub async fn get_resolver(&self) -> Arc<dyn Resolve> {
-    self.resolver.read().await.clone()
+    self.resolver.write().await.clone()
   }
 
   pub fn client_name(&self) -> &str {
@@ -729,5 +734,19 @@ impl RedisClientInner {
     } else {
       Ok(())
     }
+  }
+
+  #[cfg(not(feature = "glommio"))]
+  pub fn send_command(&self, command: RouterCommand) -> Result<(), RouterCommand> {
+    self.command_tx.load().send(command).map_err(|e| e.0)
+  }
+
+  #[cfg(feature = "glommio")]
+  pub fn send_command(&self, command: RouterCommand) -> Result<(), RouterCommand> {
+    self.command_tx.load().try_send(command).map_err(|e| match e {
+      glommio::GlommioError::Closed(glommio::ResourceType::Channel(v)) => v,
+      glommio::GlommioError::WouldBlock(glommio::ResourceType::Channel(v)) => v,
+      _ => unreachable!(),
+    })
   }
 }
