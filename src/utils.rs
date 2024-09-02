@@ -166,7 +166,7 @@ where
 
 #[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
-  rand::thread_rng().gen_range(0..max)
+  rand::thread_rng().gen_range(0 .. max)
 }
 
 pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
@@ -304,7 +304,7 @@ pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function
 pub async fn timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, RedisError>
 where
   E: Into<RedisError>,
-  Fut: Future<Output=Result<T, E>>,
+  Fut: Future<Output = Result<T, E>>,
 {
   if !timeout.is_zero() {
     let sleep_ft = sleep(timeout);
@@ -369,7 +369,7 @@ pub async fn interrupt_blocked_connection(
           RedisErrorKind::Unknown,
           "Failed to read connection ID.",
         ))
-      }
+      },
     };
 
     _debug!(inner, "Sending CLIENT UNBLOCK to {}, ID: {}", server, id);
@@ -589,13 +589,13 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   if jitter == 0 {
     delay
   } else {
-    delay.saturating_add(rand::thread_rng().gen_range(0..jitter as u64))
+    delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
   }
 }
 
 pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
 where
-  I: Iterator<Item=(K, V)>,
+  I: Iterator<Item = (K, V)>,
   K: TryInto<RedisKey>,
   K::Error: Into<RedisError>,
   V: TryInto<RedisValue>,
@@ -627,12 +627,12 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
             for value in inner.into_iter() {
               out.push(flatten_nested_array_values(value, depth - 1));
             }
-          }
+          },
           _ => out.push(value),
         }
       }
       RedisValue::Array(out)
-    }
+    },
     RedisValue::Map(values) => {
       let mut out = HashMap::with_capacity(values.len());
 
@@ -646,7 +646,7 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
         out.insert(key, value);
       }
       RedisValue::Map(RedisMap { inner: out })
-    }
+    },
     _ => value,
   }
 }
@@ -925,8 +925,8 @@ mod tests {
         ]),
       ]),
     ]
-      .into_iter()
-      .collect();
+    .into_iter()
+    .collect();
 
     // flatten the top level nested array into something that can be cast to a map
     let expected: RedisValue = vec![
@@ -938,8 +938,8 @@ mod tests {
         a(vec![m("1643479925582-0"), a(vec![m("count"), m(6)])]),
       ]),
     ]
-      .into_iter()
-      .collect();
+    .into_iter()
+    .collect();
 
     assert_eq!(flatten_nested_array_values(actual, 1), expected);
   }
