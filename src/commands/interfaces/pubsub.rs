@@ -6,9 +6,11 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the [pubsub](https://redis.io/commands#pubsub) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Subscribe to a channel on the publish-subscribe interface.
   ///
@@ -16,7 +18,6 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   fn subscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
-    Self: Send + Sync,
   {
     async move {
       into!(channels);
@@ -30,7 +31,6 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   fn unsubscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
-    Self: Sync,
   {
     async move {
       into!(channels);

@@ -1,3 +1,4 @@
+use arc_swap::{ArcSwap, ArcSwapAny};
 use futures::Stream;
 use tokio::sync::broadcast::{Receiver, Sender};
 pub use tokio::{
@@ -13,6 +14,7 @@ pub use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+pub type RefSwap<T> = ArcSwapAny<T>;
 pub type BroadcastSender<T> = Sender<T>;
 pub type BroadcastReceiver<T> = Receiver<T>;
 

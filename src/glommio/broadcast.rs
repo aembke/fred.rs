@@ -77,8 +77,8 @@ impl<T: Clone> BroadcastSender<T> {
       .iter()
       .filter_map(|(id, tx)| {
         if let Err(GlommioError::Closed(ResourceType::Channel(val))) = tx.try_send(msg.clone()) {
-          func(val);
-          Some(id)
+          func(&val);
+          Some(*id)
         } else {
           None
         }

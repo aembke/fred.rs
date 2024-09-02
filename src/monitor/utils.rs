@@ -9,19 +9,19 @@ use crate::{
     types::ProtocolFrame,
     utils as protocol_utils,
   },
+  runtime::{rx_stream, spawn, unbounded_channel, UnboundedSender},
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
 use redis_protocol::resp3::types::Resp3Frame;
 use std::sync::Arc;
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  sync::mpsc::{unbounded_channel, UnboundedSender},
-};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-#[cfg(feature = "blocking-encoding")]
+#[cfg(not(feature = "glommio"))]
+use tokio_stream::wrappers::UnboundedReceiverStream;
+
+#[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
 async fn handle_monitor_frame(
   inner: &Arc<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
@@ -53,7 +53,7 @@ async fn handle_monitor_frame(
   }
 }
 
-#[cfg(not(feature = "blocking-encoding"))]
+#[cfg(any(not(feature = "blocking-encoding"), feature = "glommio"))]
 async fn handle_monitor_frame(
   inner: &Arc<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
@@ -144,9 +144,14 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
   // background task with a channel to process the frames so that the server can keep sending data even if the
   // stream consumer slows down processing the frames.
   let (tx, rx) = unbounded_channel();
-  tokio::spawn(async move {
+  #[cfg(feature = "glommio")]
+  let tx = tx.into();
+  spawn(async move {
     process_stream(&inner, tx, connection).await;
   });
 
-  Ok(UnboundedReceiverStream::new(rx))
+  #[cfg(feature = "glommio")]
+  return Ok(rx_stream(rx));
+  #[cfg(not(feature = "glommio"))]
+  return Ok(UnboundedReceiverStream::new(rx));
 }

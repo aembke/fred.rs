@@ -6,9 +6,11 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::{convert::TryInto, net::IpAddr};
 
 /// Functions that implement the [sentinel](https://redis.io/topics/sentinel#sentinel-commands) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait SentinelInterface: ClientLike + Sized {
   /// Check if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the
   /// majority needed to authorize the failover.

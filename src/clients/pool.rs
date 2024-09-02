@@ -1,29 +1,27 @@
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
+#[cfg(feature = "dns")]
+use crate::protocol::types::Resolve;
 use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::*,
   modules::inner::RedisClientInner,
+  runtime::{sleep, spawn},
   types::{ConnectHandle, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig, Server},
   utils,
 };
 use futures::future::{join_all, try_join_all};
+use rm_send_macros::rm_send_if;
 use std::{
   fmt,
+  future::Future,
   sync::{
     atomic::{AtomicBool, AtomicUsize},
     Arc,
   },
   time::Duration,
 };
-use tokio::{
-  sync::{Mutex as AsyncMutex, OwnedMutexGuard},
-  time::interval as tokio_interval,
-};
-
-#[cfg(feature = "replicas")]
-use crate::clients::Replicas;
-#[cfg(feature = "dns")]
-use crate::protocol::types::Resolve;
 
 struct RedisPoolInner {
   clients:          Vec<RedisClient>,
@@ -168,6 +166,7 @@ impl RedisPool {
   }
 }
 
+#[rm_send_if(feature = "glommio")]
 impl ClientLike for RedisPool {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<RedisClientInner> {
@@ -187,28 +186,32 @@ impl ClientLike for RedisPool {
   }
 
   /// Read the set of active connections across all clients in the pool.
-  async fn active_connections(&self) -> Result<Vec<Server>, RedisError> {
-    let all_connections = try_join_all(self.inner.clients.iter().map(|c| c.active_connections())).await?;
-    let total_size = if all_connections.is_empty() {
-      return Ok(Vec::new());
-    } else {
-      all_connections.len() * all_connections[0].len()
-    };
-    let mut out = Vec::with_capacity(total_size);
+  fn active_connections(&self) -> impl Future<Output = Result<Vec<Server>, RedisError>> + Send {
+    async move {
+      let all_connections = try_join_all(self.inner.clients.iter().map(|c| c.active_connections())).await?;
+      let total_size = if all_connections.is_empty() {
+        return Ok(Vec::new());
+      } else {
+        all_connections.len() * all_connections[0].len()
+      };
+      let mut out = Vec::with_capacity(total_size);
 
-    for connections in all_connections.into_iter() {
-      out.extend(connections);
+      for connections in all_connections.into_iter() {
+        out.extend(connections);
+      }
+      Ok(out)
     }
-    Ok(out)
   }
 
   /// Override the DNS resolution logic for all clients in the pool.
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
   #[allow(refining_impl_trait)]
-  async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
-    for client in self.inner.clients.iter() {
-      client.set_resolver(resolver.clone()).await;
+  fn set_resolver(&self, resolver: Arc<dyn Resolve>) -> impl Future + Send {
+    async move {
+      for client in self.inner.clients.iter() {
+        client.set_resolver(resolver.clone()).await;
+      }
     }
   }
 
@@ -222,30 +225,32 @@ impl ClientLike for RedisPool {
   /// See [init](Self::init) for an alternative shorthand.
   fn connect(&self) -> ConnectHandle {
     let clients = self.inner.clients.clone();
-    tokio::spawn(async move {
+    spawn(async move {
       let tasks: Vec<_> = clients.iter().map(|c| c.connect()).collect();
       for result in join_all(tasks).await.into_iter() {
         result??;
       }
 
-      Ok(())
+      Ok::<(), RedisError>(())
     })
   }
 
   /// Force a reconnection to the server(s) for each client.
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
-  async fn force_reconnection(&self) -> RedisResult<()> {
-    try_join_all(self.inner.clients.iter().map(|c| c.force_reconnection())).await?;
-
-    Ok(())
+  fn force_reconnection(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      try_join_all(self.inner.clients.iter().map(|c| c.force_reconnection())).await?;
+      Ok(())
+    }
   }
 
   /// Wait for all the clients to connect to the server.
-  async fn wait_for_connect(&self) -> RedisResult<()> {
-    try_join_all(self.inner.clients.iter().map(|c| c.wait_for_connect())).await?;
-
-    Ok(())
+  fn wait_for_connect(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      try_join_all(self.inner.clients.iter().map(|c| c.wait_for_connect())).await?;
+      Ok(())
+    }
   }
 
   /// Initialize a new routing and connection task for each client and wait for them to connect successfully.
@@ -270,20 +275,22 @@ impl ClientLike for RedisPool {
   ///   connection_task.await?
   /// }
   /// ```
-  async fn init(&self) -> RedisResult<ConnectHandle> {
-    let rxs: Vec<_> = self.inner.clients.iter().map(|c| c.wait_for_connect()).collect();
+  fn init(&self) -> impl Future<Output = RedisResult<ConnectHandle>> + Send {
+    async move {
+      let rxs: Vec<_> = self.inner.clients.iter().map(|c| c.wait_for_connect()).collect();
 
-    let connect_task = self.connect();
-    let init_err = futures::future::join_all(rxs).await.into_iter().find_map(|r| r.err());
+      let connect_task = self.connect();
+      let init_err = futures::future::join_all(rxs).await.into_iter().find_map(|r| r.err());
 
-    if let Some(err) = init_err {
-      for client in self.inner.clients.iter() {
-        utils::reset_router_task(client.inner());
+      if let Some(err) = init_err {
+        for client in self.inner.clients.iter() {
+          utils::reset_router_task(client.inner());
+        }
+
+        Err(err)
+      } else {
+        Ok(connect_task)
       }
-
-      Err(err)
-    } else {
-      Ok(connect_task)
     }
   }
 
@@ -294,23 +301,30 @@ impl ClientLike for RedisPool {
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams on all clients in the
   /// pool.
-  async fn quit(&self) -> RedisResult<()> {
-    join_all(self.inner.clients.iter().map(|c| c.quit())).await;
+  fn quit(&self) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      join_all(self.inner.clients.iter().map(|c| c.quit())).await;
 
-    Ok(())
+      Ok(())
+    }
   }
 }
 
+#[rm_send_if(feature = "glommio")]
 impl HeartbeatInterface for RedisPool {
-  async fn enable_heartbeat(&self, interval: Duration, break_on_error: bool) -> RedisResult<()> {
-    let mut interval = tokio_interval(interval);
+  fn enable_heartbeat(
+    &self,
+    interval: Duration,
+    break_on_error: bool,
+  ) -> impl Future<Output = RedisResult<()>> + Send {
+    async move {
+      loop {
+        sleep(interval).await;
 
-    loop {
-      interval.tick().await;
-
-      if let Err(error) = try_join_all(self.inner.clients.iter().map(|c| c.ping::<()>())).await {
-        if break_on_error {
-          return Err(error);
+        if let Err(error) = try_join_all(self.inner.clients.iter().map(|c| c.ping::<()>())).await {
+          if break_on_error {
+            return Err(error);
+          }
         }
       }
     }
@@ -381,6 +395,7 @@ impl TimeSeriesInterface for RedisPool {}
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
 impl RediSearchInterface for RedisPool {}
 
+#[cfg(not(feature = "glommio"))]
 struct PoolInner {
   clients: Vec<Arc<AsyncMutex<RedisClient>>>,
   counter: AtomicUsize,
@@ -443,11 +458,13 @@ struct PoolInner {
 /// ```
 ///
 /// Callers should avoid cloning the inner clients, if possible.
+#[cfg(not(feature = "glommio"))]
 #[derive(Clone)]
 pub struct ExclusivePool {
   inner: Arc<PoolInner>,
 }
 
+#[cfg(not(feature = "glommio"))]
 impl fmt::Debug for ExclusivePool {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("ExclusivePool")
@@ -456,6 +473,7 @@ impl fmt::Debug for ExclusivePool {
   }
 }
 
+#[cfg(not(feature = "glommio"))]
 impl ExclusivePool {
   /// Create a new pool without connecting to the server.
   ///

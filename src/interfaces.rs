@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::command::{RedisCommand, RouterCommand},
   router::commands as router_commands,
-  runtime::{sleep, BroadcastReceiver, JoinHandle},
+  runtime::{sleep, spawn, BroadcastReceiver, JoinHandle, RefCount},
   types::{
     ClientState,
     ClusterStateChange,
@@ -28,13 +28,13 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Future;
+pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
+use rm_send_macros::rm_send_if;
 use semver::Version;
-use std::{convert::TryInto, sync::Arc, time::Duration};
+use std::{convert::TryInto, time::Duration};
 
 #[cfg(feature = "i-server")]
 use crate::types::ShutdownFlags;
-pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
-use rm_send_macros::rm_send_if;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -43,7 +43,7 @@ pub type RedisResult<T> = Result<T, RedisError>;
 use crate::protocol::types::Resolve;
 
 /// Send a single `RedisCommand` to the router.
-pub(crate) fn default_send_command<C>(inner: &Arc<RedisClientInner>, command: C) -> Result<(), RedisError>
+pub(crate) fn default_send_command<C>(inner: &RefCount<RedisClientInner>, command: C) -> Result<(), RedisError>
 where
   C: Into<RedisCommand>,
 {
@@ -60,7 +60,7 @@ where
 }
 
 /// Send a `RouterCommand` to the router.
-pub(crate) fn send_to_router(inner: &Arc<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
+pub(crate) fn send_to_router(inner: &RefCount<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
   #[allow(clippy::collapsible_if)]
   if command.should_check_fail_fast() {
     if utils::read_locked(&inner.state) != ClientState::Connected {
@@ -446,10 +446,10 @@ where
 pub use crate::glommio::interfaces::spawn_event_listener;
 
 /// Functions that provide a connection heartbeat interface.
+#[rm_send_if(feature = "glommio")]
 pub trait HeartbeatInterface: ClientLike {
   /// Return a future that will ping the server on an interval.
   #[allow(unreachable_code)]
-  #[rm_send_if(features = "glommio")]
   fn enable_heartbeat(
     &self,
     interval: Duration,
@@ -474,6 +474,7 @@ pub trait HeartbeatInterface: ClientLike {
 }
 
 /// Functions for authenticating clients.
+#[rm_send_if(feature = "glommio")]
 pub trait AuthInterface: ClientLike {
   /// Request for authentication in a password-protected Redis server. Returns ok if successful.
   ///
@@ -511,6 +512,7 @@ pub trait AuthInterface: ClientLike {
 /// An interface that exposes various client and connection events.
 ///
 /// Calling [quit](crate::interfaces::ClientLike::quit) will close all event streams.
+#[rm_send_if(feature = "glommio")]
 pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each publish-subscribe message.
   ///
@@ -589,7 +591,7 @@ pub trait EventInterface: ClientLike {
     let mut reconnect_rx = self.reconnect_rx();
     let mut cluster_rx = self.cluster_change_rx();
 
-    tokio::spawn(async move {
+    spawn(async move {
       #[allow(unused_assignments)]
       let mut result = Ok(());
 

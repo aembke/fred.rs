@@ -4,10 +4,10 @@ use crate::{
   interfaces::{self, *},
   modules::inner::RedisClientInner,
   protocol::command::{RedisCommand, RouterCommand},
+  runtime::oneshot_channel,
   types::Server,
 };
 use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A struct for interacting with cluster replica nodes.
 ///

@@ -1,14 +1,15 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue},
 };
+use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the [hashes](https://redis.io/commands#hashes) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait HashesInterface: ClientLike + Sized {
   /// Returns all fields and values of the hash stored at `key`.
   ///

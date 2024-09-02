@@ -1,14 +1,15 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, MultipleKeys, MultipleValues, RedisKey},
 };
+use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the [HyperLogLog](https://redis.io/commands#hyperloglog) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait HyperloglogInterface: ClientLike + Sized {
   /// Adds all the element arguments to the HyperLogLog data structure stored at the variable name specified as first
   /// argument.

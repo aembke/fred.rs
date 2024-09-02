@@ -5,8 +5,8 @@
 // uses their own impl in the tokio_util::codec interface. this means we have to reimplement the codec traits
 // (Encoder+Decoder) here, but with the futures_io version of AsyncRead and AsyncWrite
 
-#[cfg(all(feature = "glommio", feature = "blocking-encoding"))]
-compile_error!("Cannot use glommio and blocking-encoding features together.");
+use futures::{Future, FutureExt};
+
 #[cfg(all(feature = "glommio", feature = "unix-sockets"))]
 compile_error!("Cannot use glommio and unix-sockets features together.");
 
@@ -17,9 +17,9 @@ pub(crate) mod io_compat;
 
 pub(crate) mod compat {
   pub use super::broadcast::{BroadcastReceiver, BroadcastSender};
-  use crate::error::RedisError;
+  use crate::{error::RedisError, prelude::RedisErrorKind};
   pub use async_oneshot::{oneshot as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
-  use futures::Stream;
+  use futures::{stream::StreamExt, Stream};
   pub use glommio::{
     channels::local_channel::new_unbounded as unbounded_channel,
     task::JoinHandle as GlommioJoinHandle,
@@ -29,25 +29,28 @@ pub(crate) mod compat {
   use glommio::{
     channels::local_channel::{LocalReceiver, LocalSender},
     sync::{RwLock, RwLockWriteGuard},
+    GlommioError,
     TaskQueueHandle,
   };
   use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell},
+    fmt::Debug,
     future::Future,
+    mem,
+    ops::Deref,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll},
   };
 
   pub type RefCount<T> = Rc<T>;
-  pub type UnboundedSender<T> = LocalSender<T>;
   pub type UnboundedReceiver<T> = LocalReceiver<T>;
 
-  pub fn broadcast_send<T, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, func: F) {
+  pub fn broadcast_send<T: Clone, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, func: F) {
     tx.send(msg, func);
   }
 
-  pub fn broadcast_channel<T>(_: usize) -> (BroadcastSender<T>, BroadcastReceiver<T>) {
+  pub fn broadcast_channel<T: Clone>(_: usize) -> (BroadcastSender<T>, BroadcastReceiver<T>) {
     let tx = BroadcastSender::new();
     let rx = tx.subscribe();
     (tx, rx)
@@ -69,6 +72,8 @@ pub(crate) mod compat {
     }
   }
 
+  /// A wrapper type around [JoinHandle](glommio::task::JoinHandle) with an interface similar to Tokio's
+  /// [JoinHandle](tokio::task::JoinHandle)
   pub struct JoinHandle<T> {
     pub(crate) inner:    GlommioJoinHandle<T>,
     pub(crate) finished: Rc<RefCell<bool>>,
@@ -87,7 +92,10 @@ pub(crate) mod compat {
     JoinHandle { inner, finished }
   }
 
-  pub fn spawn_into<T: 'static>(ft: impl Future<Output = T> + 'static, tq: TaskQueueHandle) -> JoinHandle<T> {
+  pub fn spawn_into<T: 'static>(
+    ft: impl Future<Output = T> + 'static,
+    tq: TaskQueueHandle,
+  ) -> Result<JoinHandle<T>, RedisError> {
     let finished = Rc::new(RefCell::new(false));
     let _finished = finished.clone();
     let inner = glommio::spawn_local_into(
@@ -97,10 +105,10 @@ pub(crate) mod compat {
         result
       },
       tq,
-    )
+    )?
     .detach();
 
-    JoinHandle { inner, finished }
+    Ok(JoinHandle { inner, finished })
   }
 
   impl<T> Future for JoinHandle<T> {
@@ -110,7 +118,7 @@ pub(crate) mod compat {
       let result = self
         .inner
         .poll(cx)
-        .map(|result| result.unwrap_or(RedisError::new_canceled()));
+        .map(|result| result.ok_or(RedisError::new_canceled()));
 
       if Poll::Ready(_) = result {
         self.set_finished();
@@ -134,7 +142,93 @@ pub(crate) mod compat {
     }
   }
 
-  pub fn rx_stream<T>(rx: UnboundedReceiver<T>) -> impl Stream<Item = T> {
-    rx.stream()
+  pub fn rx_stream<T: 'static>(rx: LocalReceiver<T>) -> impl Stream<Item = T> + 'static {
+    // what happens if we `join` the futures from `recv()` and `rx.stream().next()`?
+    UnboundedReceiverStream::from(rx)
+  }
+
+  pub struct UnboundedReceiverStream<T> {
+    rx: LocalReceiver<T>,
+  }
+
+  impl<T> From<LocalReceiver<T>> for UnboundedReceiverStream<T> {
+    fn from(rx: LocalReceiver<T>) -> Self {
+      UnboundedReceiverStream { rx }
+    }
+  }
+
+  impl<T> UnboundedReceiverStream<T> {
+    pub async fn recv(&mut self) -> Option<T> {
+      self.rx.recv().await
+    }
+  }
+
+  impl<T> Stream for UnboundedReceiverStream<T> {
+    type Item = T;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+      // TODO make sure this is cancellation-safe. it's a bit unclear why the internal impl of ChannelStream does what
+      // it does.
+      self.rx.stream().poll_next(cx)
+    }
+  }
+
+  pub struct UnboundedSender<T> {
+    tx: Rc<LocalSender<T>>,
+  }
+
+  // https://github.com/rust-lang/rust/issues/26925
+  impl<T> Clone for UnboundedSender<T> {
+    fn clone(&self) -> Self {
+      UnboundedSender { tx: self.tx.clone() }
+    }
+  }
+
+  impl<T> From<LocalSender<T>> for UnboundedSender<T> {
+    fn from(tx: LocalSender<T>) -> Self {
+      UnboundedSender { tx: Rc::new(tx) }
+    }
+  }
+
+  impl<T> UnboundedSender<T> {
+    pub fn try_send(&self, msg: T) -> Result<(), GlommioError<T>> {
+      self.tx.try_send(msg)
+    }
+
+    pub fn send(&self, msg: T) -> Result<(), RedisError> {
+      if let Err(_e) = self.tx.deref().try_send(msg) {
+        // shouldn't happen since we use unbounded channels
+        Err(RedisError::new(
+          RedisErrorKind::Canceled,
+          "Failed to send message on channel.",
+        ))
+      } else {
+        Ok(())
+      }
+    }
+  }
+
+  pub struct RefSwap<T> {
+    inner: RefCell<T>,
+  }
+
+  impl<T> RefSwap<T> {
+    pub fn new(val: T) -> Self {
+      RefSwap {
+        inner: RefCell::new(val),
+      }
+    }
+
+    pub fn swap(&self, other: T) -> T {
+      mem::replace(&mut self.inner.borrow_mut(), other)
+    }
+
+    pub fn store(&self, other: T) {
+      self.swap(other);
+    }
+
+    pub fn load(&self) -> Ref<'_, T> {
+      self.inner.borrow()
+    }
   }
 }

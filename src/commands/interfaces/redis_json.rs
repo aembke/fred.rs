@@ -5,6 +5,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Future;
+use rm_send_macros::rm_send_if;
 use serde_json::Value;
 
 /// The client commands in the [RedisJSON](https://redis.io/docs/data-types/json/) interface.
@@ -45,6 +46,7 @@ use serde_json::Value;
 /// }
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
+#[rm_send_if(feature = "glommio")]
 pub trait RedisJsonInterface: ClientLike + Sized {
   /// Append the json values into the array at path after the last element in it.
   ///

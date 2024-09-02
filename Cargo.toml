@@ -14,7 +14,26 @@ rust-version = "1.75"
 version = "9.2.0"
 
 [package.metadata.docs.rs]
-all-features = true
+# do not show the glommio version of the docs
+features = [
+    "i-all",
+    "i-redis-stack",
+    "transactions",
+    "blocking-encoding",
+    "dns",
+    "metrics",
+    "mocks",
+    "monnitor",
+    "replicas",
+    "sentinel-auth",
+    "sentinel-client",
+    "serde-json",
+    "subscriber-client",
+    "unix-sockets",
+    "enable-rustls",
+    "enable-native-tls",
+    "full-tracing"
+]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]

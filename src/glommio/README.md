@@ -63,4 +63,5 @@ and Glommio.
 ## TODO
 
 * Counters no longer need to be atomic when ClientLike is not Send.
-* All the parking_lot locks can change to RefCell. 
+* All the parking_lot locks can change to RefCell.
+* Support the `ExclusivePool` interface with Glommio. Currently there's no equivalent to Tokio's `OwnedMutexGuard`.

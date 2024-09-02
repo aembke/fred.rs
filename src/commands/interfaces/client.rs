@@ -12,17 +12,18 @@ use crate::{
     Server,
   },
 };
-use bytes_utils::Str;
-use futures::Future;
-use std::collections::HashMap;
-
 #[cfg(feature = "i-tracking")]
 use crate::{
   error::RedisError,
   types::{MultipleStrings, Toggle},
 };
+use bytes_utils::Str;
+use futures::Future;
+use rm_send_macros::rm_send_if;
+use std::collections::HashMap;
 
 /// Functions that implement the [client](https://redis.io/commands#connection) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait ClientInterface: ClientLike + Sized {
   /// Return the ID of the current connection.
   ///
@@ -43,7 +44,7 @@ pub trait ClientInterface: ClientLike + Sized {
   ///
   /// Note: despite being async this function will return cached information from the client if possible.
   fn connection_ids(&self) -> impl Future<Output = HashMap<Server, i64>> + Send {
-    async move { self.inner().backchannel.read().await.connection_ids.clone() }
+    async move { self.inner().backchannel.write().await.connection_ids.clone() }
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable
@@ -201,6 +202,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// caching feature.
   ///
   /// <https://redis.io/commands/client-trackinginfo/>
+
   #[cfg(feature = "i-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
   fn client_trackinginfo<R>(&self) -> impl Future<Output = RedisResult<R>> + Send

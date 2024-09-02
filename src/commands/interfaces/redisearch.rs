@@ -17,10 +17,12 @@ use crate::{
 };
 use bytes::Bytes;
 use bytes_utils::Str;
+use rm_send_macros::rm_send_if;
 use std::future::Future;
 
 /// A [RediSearch](https://github.com/RediSearch/RediSearch) interface.
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
+#[rm_send_if(feature = "glommio")]
 pub trait RediSearchInterface: ClientLike + Sized {
   /// Returns a list of all existing indexes.
   ///

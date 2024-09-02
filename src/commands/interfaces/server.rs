@@ -5,8 +5,10 @@ use crate::{
   types::{FromRedis, Server},
 };
 use futures::Future;
+use rm_send_macros::rm_send_if;
 
 /// Functions that implement the [server](https://redis.io/commands#server) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait ServerInterface: ClientLike {
   /// Instruct Redis to start an Append Only File rewrite process.
   ///

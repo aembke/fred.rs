@@ -7,10 +7,9 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  runtime::{broadcast_channel, oneshot_channel, sleep, unbounded_channel, BroadcastSender},
+  runtime::{broadcast_channel, oneshot_channel, sleep, unbounded_channel, BroadcastSender, RefSwap},
   types::*,
 };
-use arc_swap::ArcSwap;
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
@@ -331,6 +330,9 @@ pub fn reset_router_task(inner: &Arc<RedisClientInner>) {
     // another connection task is running. this will let the command channel drain, then it'll drop everything on
     // the old connection/router interface.
     let (tx, rx) = unbounded_channel();
+    #[cfg(feature = "glommio")]
+    let tx = tx.into();
+
     let old_command_tx = inner.swap_command_tx(tx);
     inner.store_command_rx(rx, true);
     close_router_channel(inner, old_command_tx);
@@ -710,8 +712,11 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   }
 }
 
-pub fn swap_new_broadcast_channel<T: Clone>(old: &ArcSwap<BroadcastSender<T>>, capacity: usize) {
+pub fn swap_new_broadcast_channel<T: Clone>(old: &RefSwap<BroadcastSender<T>>, capacity: usize) {
   let new = broadcast_channel(capacity).0;
+  #[cfg(feature = "glommio")]
+  old.swap(new);
+  #[cfg(not(feature = "glommio"))]
   old.swap(Arc::new(new));
 }
 

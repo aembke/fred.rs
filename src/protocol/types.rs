@@ -4,6 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::RedisResult,
   protocol::{cluster, utils::server_to_parts},
+  runtime::{spawn, UnboundedSender},
   types::*,
   utils,
 };
@@ -20,7 +21,6 @@ use std::{
   net::{SocketAddr, ToSocketAddrs},
   sync::Arc,
 };
-use tokio::sync::mpsc::UnboundedSender;
 
 #[cfg(any(
   feature = "enable-rustls",
@@ -626,7 +626,8 @@ impl Resolve for DefaultResolver {
   async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>> {
     let client_id = self.id.clone();
 
-    tokio::task::spawn_blocking(move || {
+    // glommio users should probably use a non-blocking impl such as hickory-dns
+    spawn(move || {
       let addr = format!("{}:{}", host, port);
       let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 

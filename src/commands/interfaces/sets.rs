@@ -1,14 +1,15 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{FromRedis, MultipleKeys, MultipleValues, RedisKey, RedisValue},
 };
+use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the [sets](https://redis.io/commands#set) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait SetsInterface: ClientLike + Sized {
   /// Add the specified members to the set stored at `key`.
   ///

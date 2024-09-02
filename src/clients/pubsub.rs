@@ -4,13 +4,14 @@ use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
   prelude::RedisClient,
+  runtime::{spawn, JoinHandle},
   types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
   util::group_by_hash_slot,
 };
 use bytes_utils::Str;
 use parking_lot::RwLock;
-use std::{collections::BTreeSet, fmt, fmt::Formatter, mem, sync::Arc};
-use tokio::task::JoinHandle;
+use rm_send_macros::rm_send_if;
+use std::{collections::BTreeSet, fmt, fmt::Formatter, future::Future, mem, sync::Arc};
 
 type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
 
@@ -154,132 +155,145 @@ impl RediSearchInterface for SubscriberClient {}
 
 #[cfg(feature = "i-pubsub")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
+#[rm_send_if(feature = "glommio")]
 impl PubsubInterface for SubscriberClient {
-  async fn subscribe<S>(&self, channels: S) -> RedisResult<()>
+  fn subscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
     into!(channels);
 
-    let result = commands::pubsub::subscribe(self, channels.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.channels.write();
+    async move {
+      let result = commands::pubsub::subscribe(self, channels.clone()).await;
+      if result.is_ok() {
+        let mut guard = self.channels.write();
 
-      for channel in channels.inner().into_iter() {
-        if let Some(channel) = channel.as_bytes_str() {
-          guard.insert(channel);
-        }
-      }
-    }
-
-    result
-  }
-
-  async fn unsubscribe<S>(&self, channels: S) -> RedisResult<()>
-  where
-    S: Into<MultipleStrings> + Send,
-  {
-    into!(channels);
-
-    let result = commands::pubsub::unsubscribe(self, channels.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.channels.write();
-
-      if channels.len() == 0 {
-        guard.clear();
-      } else {
         for channel in channels.inner().into_iter() {
           if let Some(channel) = channel.as_bytes_str() {
-            let _ = guard.remove(&channel);
+            guard.insert(channel);
           }
         }
       }
+
+      result
     }
-    result
   }
 
-  async fn psubscribe<S>(&self, patterns: S) -> RedisResult<()>
+  fn unsubscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
-    into!(patterns);
+    into!(channels);
 
-    let result = commands::pubsub::psubscribe(self, patterns.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.patterns.write();
+    async move {
+      let result = commands::pubsub::unsubscribe(self, channels.clone()).await;
+      if result.is_ok() {
+        let mut guard = self.channels.write();
 
-      for pattern in patterns.inner().into_iter() {
-        if let Some(pattern) = pattern.as_bytes_str() {
-          guard.insert(pattern);
+        if channels.len() == 0 {
+          guard.clear();
+        } else {
+          for channel in channels.inner().into_iter() {
+            if let Some(channel) = channel.as_bytes_str() {
+              let _ = guard.remove(&channel);
+            }
+          }
         }
       }
+      result
     }
-    result
   }
 
-  async fn punsubscribe<S>(&self, patterns: S) -> RedisResult<()>
+  fn psubscribe<S>(&self, patterns: S) -> impl Future<Output = RedisResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
     into!(patterns);
 
-    let result = commands::pubsub::punsubscribe(self, patterns.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.patterns.write();
+    async move {
+      let result = commands::pubsub::psubscribe(self, patterns.clone()).await;
+      if result.is_ok() {
+        let mut guard = self.patterns.write();
 
-      if patterns.len() == 0 {
-        guard.clear();
-      } else {
         for pattern in patterns.inner().into_iter() {
           if let Some(pattern) = pattern.as_bytes_str() {
-            let _ = guard.remove(&pattern);
+            guard.insert(pattern);
           }
         }
       }
+      result
     }
-    result
   }
 
-  async fn ssubscribe<C>(&self, channels: C) -> RedisResult<()>
+  fn punsubscribe<S>(&self, patterns: S) -> impl Future<Output = RedisResult<()>> + Send
   where
-    C: Into<MultipleStrings> + Send,
+    S: Into<MultipleStrings> + Send,
   {
-    into!(channels);
+    into!(patterns);
 
-    let result = commands::pubsub::ssubscribe(self, channels.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.shard_channels.write();
+    async move {
+      let result = commands::pubsub::punsubscribe(self, patterns.clone()).await;
+      if result.is_ok() {
+        let mut guard = self.patterns.write();
 
-      for channel in channels.inner().into_iter() {
-        if let Some(channel) = channel.as_bytes_str() {
-          guard.insert(channel);
+        if patterns.len() == 0 {
+          guard.clear();
+        } else {
+          for pattern in patterns.inner().into_iter() {
+            if let Some(pattern) = pattern.as_bytes_str() {
+              let _ = guard.remove(&pattern);
+            }
+          }
         }
       }
+      result
     }
-    result
   }
 
-  async fn sunsubscribe<C>(&self, channels: C) -> RedisResult<()>
+  fn ssubscribe<C>(&self, channels: C) -> impl Future<Output = RedisResult<()>> + Send
   where
     C: Into<MultipleStrings> + Send,
   {
     into!(channels);
 
-    let result = commands::pubsub::sunsubscribe(self, channels.clone()).await;
-    if result.is_ok() {
-      let mut guard = self.shard_channels.write();
+    async move {
+      let result = commands::pubsub::ssubscribe(self, channels.clone()).await;
+      if result.is_ok() {
+        let mut guard = self.shard_channels.write();
 
-      if channels.len() == 0 {
-        guard.clear();
-      } else {
         for channel in channels.inner().into_iter() {
           if let Some(channel) = channel.as_bytes_str() {
-            let _ = guard.remove(&channel);
+            guard.insert(channel);
           }
         }
       }
+      result
     }
-    result
+  }
+
+  fn sunsubscribe<C>(&self, channels: C) -> impl Future<Output = RedisResult<()>> + Send
+  where
+    C: Into<MultipleStrings> + Send,
+  {
+    into!(channels);
+
+    async move {
+      let result = commands::pubsub::sunsubscribe(self, channels.clone()).await;
+      if result.is_ok() {
+        let mut guard = self.shard_channels.write();
+
+        if channels.len() == 0 {
+          guard.clear();
+        } else {
+          for channel in channels.inner().into_iter() {
+            if let Some(channel) = channel.as_bytes_str() {
+              let _ = guard.remove(&channel);
+            }
+          }
+        }
+      }
+      result
+    }
   }
 }
 
@@ -324,7 +338,7 @@ impl SubscriberClient {
   /// Spawn a task that will automatically re-subscribe to any channels or channel patterns used by the client.
   pub fn manage_subscriptions(&self) -> JoinHandle<()> {
     let _self = self.clone();
-    tokio::spawn(async move {
+    spawn(async move {
       let mut stream = _self.reconnect_rx();
 
       while let Ok(_) = stream.recv().await {

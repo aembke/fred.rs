@@ -1,14 +1,15 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{Expiration, ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions},
 };
+use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the generic [keys](https://redis.io/commands#generic) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait KeysInterface: ClientLike + Sized {
   /// Marks the given keys to be watched for conditional execution of a transaction.
   ///

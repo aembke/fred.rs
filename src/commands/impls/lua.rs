@@ -10,6 +10,7 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::oneshot_channel,
   types::*,
   utils,
 };
@@ -17,7 +18,6 @@ use bytes::Bytes;
 use bytes_utils::Str;
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{convert::TryInto, str, sync::Arc};
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// Check that all the keys in an EVAL* command belong to the same server, returning a key slot that maps to that
 /// server.

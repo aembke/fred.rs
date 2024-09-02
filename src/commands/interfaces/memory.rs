@@ -5,8 +5,10 @@ use crate::{
   types::RedisKey,
 };
 use futures::Future;
+use rm_send_macros::rm_send_if;
 
 /// Functions that implement the [memory](https://redis.io/commands#server) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait MemoryInterface: ClientLike + Sized {
   /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and
   /// advises about possible remedies.

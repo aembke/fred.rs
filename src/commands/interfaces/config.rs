@@ -6,9 +6,11 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the [config](https://redis.io/commands#server) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait ConfigInterface: ClientLike + Sized {
   /// Resets the statistics reported by Redis using the INFO command.
   ///

@@ -2,11 +2,11 @@ use crate::{
   clients::WithOptions,
   commands,
   error::RedisError,
-  glommio::runtime_compat::BroadcastReceiver,
   interfaces::{RedisResult, Resp3Frame},
   modules::inner::RedisClientInner,
   prelude::default_send_command,
   protocol::command::RedisCommand,
+  runtime::{spawn, BroadcastReceiver, JoinHandle},
   types::{
     ClientState,
     ConnectHandle,
@@ -25,7 +25,6 @@ use crate::{
   },
   utils,
 };
-use glommio::task::JoinHandle;
 use redis_protocol::resp3::types::RespVersion;
 use semver::Version;
 use std::{future::Future, sync::Arc};
@@ -150,6 +149,7 @@ pub trait ClientLike: Clone + Sized {
   ///
   /// See [init](Self::init) for an alternative shorthand.
   fn connect(&self) -> ConnectHandle {
+    // TODO glommio connect
     unimplemented!()
   }
 
@@ -318,7 +318,7 @@ where
   T: Clone + 'static,
   F: Fn(T) -> RedisResult<()> + 'static,
 {
-  glommio::spawn_local(async move {
+  spawn(async move {
     let mut result = Ok(());
 
     while let Ok(val) = rx.recv().await {
@@ -330,5 +330,4 @@ where
 
     result
   })
-  .detach()
 }

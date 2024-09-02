@@ -124,6 +124,7 @@ fn update_hash_slot(commands: &mut [RedisCommand], slot: u16) {
 
 /// Run the transaction, following cluster redirects and reconnecting as needed.
 // this would be a lot cleaner with GATs if we could abstract the inner loops with async closures
+#[allow(unused_mut)]
 pub async fn run(
   inner: &Arc<RedisClientInner>,
   router: &mut Router,
@@ -131,7 +132,7 @@ pub async fn run(
   watched: Option<RedisCommand>,
   id: u64,
   abort_on_error: bool,
-  tx: ResponseSender,
+  mut tx: ResponseSender,
 ) -> Result<(), RedisError> {
   if commands.is_empty() {
     let _ = tx.send(Ok(Resp3Frame::Null));

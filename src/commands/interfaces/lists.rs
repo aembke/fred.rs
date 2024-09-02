@@ -1,5 +1,3 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
@@ -18,9 +16,12 @@ use crate::{
   },
 };
 use bytes_utils::Str;
+use futures::Future;
+use rm_send_macros::rm_send_if;
 use std::convert::TryInto;
 
 /// Functions that implement the [lists](https://redis.io/commands#lists) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait ListInterface: ClientLike + Sized {
   /// The blocking variant of [Self::lmpop].
   ///
@@ -148,7 +149,7 @@ pub trait ListInterface: ClientLike + Sized {
     }
   }
 
-  /// Returns the element at index index in the list stored at key.
+  /// Returns the element at index in the list stored at key.
   ///
   /// <https://redis.io/commands/lindex>
   fn lindex<R, K>(&self, key: K, index: i64) -> impl Future<Output = RedisResult<R>> + Send

@@ -10,12 +10,12 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::oneshot_channel,
   types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
   utils,
 };
 use parking_lot::Mutex;
 use std::{collections::VecDeque, fmt, sync::Arc};
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 /// A cheaply cloneable transaction block.
 #[derive(Clone)]
@@ -64,7 +64,8 @@ impl ClientLike for Transaction {
     // check cluster slot mappings as commands are added
     self.update_hash_slot(&command)?;
 
-    if let Some(tx) = command.take_responder() {
+    #[allow(unused_mut)]
+    if let Some(mut tx) = command.take_responder() {
       trace!(
         "{}: Respond early to {} command in transaction.",
         &self.inner.id,
