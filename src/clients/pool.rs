@@ -1,27 +1,22 @@
-#[cfg(feature = "replicas")]
-use crate::clients::Replicas;
-#[cfg(feature = "dns")]
-use crate::protocol::types::Resolve;
 use crate::{
   clients::RedisClient,
   error::{RedisError, RedisErrorKind},
   interfaces::*,
   modules::inner::RedisClientInner,
-  runtime::{sleep, spawn},
+  runtime::{sleep, spawn, AtomicBool, AtomicUsize, RefCount},
   types::{ConnectHandle, ConnectionConfig, PerformanceConfig, ReconnectPolicy, RedisConfig, Server},
   utils,
 };
 use futures::future::{join_all, try_join_all};
 use rm_send_macros::rm_send_if;
-use std::{
-  fmt,
-  future::Future,
-  sync::{
-    atomic::{AtomicBool, AtomicUsize},
-    Arc,
-  },
-  time::Duration,
-};
+use std::{fmt, future::Future, time::Duration};
+
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
+#[cfg(feature = "dns")]
+use crate::protocol::types::Resolve;
+#[cfg(not(feature = "glommio"))]
+pub use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 struct RedisPoolInner {
   clients:          Vec<RedisClient>,
@@ -46,7 +41,7 @@ struct RedisPoolInner {
 /// [clients](Self::clients), [next](Self::next), or [last](Self::last) to operate on individual clients if needed.
 #[derive(Clone)]
 pub struct RedisPool {
-  inner: Arc<RedisPoolInner>,
+  inner: RefCount<RedisPoolInner>,
 }
 
 impl fmt::Debug for RedisPool {
@@ -68,7 +63,7 @@ impl RedisPool {
       Err(RedisError::new(RedisErrorKind::Config, "Pool cannot be empty."))
     } else {
       Ok(RedisPool {
-        inner: Arc::new(RedisPoolInner {
+        inner: RefCount::new(RedisPoolInner {
           clients,
           counter: AtomicUsize::new(0),
           prefer_connected: AtomicBool::new(true),
@@ -101,7 +96,7 @@ impl RedisPool {
       }
 
       Ok(RedisPool {
-        inner: Arc::new(RedisPoolInner {
+        inner: RefCount::new(RedisPoolInner {
           clients,
           counter: AtomicUsize::new(0),
           prefer_connected: AtomicBool::new(true),
@@ -169,7 +164,7 @@ impl RedisPool {
 #[rm_send_if(feature = "glommio")]
 impl ClientLike for RedisPool {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     if utils::read_bool_atomic(&self.inner.prefer_connected) {
       &self.next_connected().inner
     } else {
@@ -207,7 +202,7 @@ impl ClientLike for RedisPool {
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
   #[allow(refining_impl_trait)]
-  fn set_resolver(&self, resolver: Arc<dyn Resolve>) -> impl Future + Send {
+  fn set_resolver(&self, resolver: RefCount<dyn Resolve>) -> impl Future + Send {
     async move {
       for client in self.inner.clients.iter() {
         client.set_resolver(resolver.clone()).await;
@@ -397,7 +392,7 @@ impl RediSearchInterface for RedisPool {}
 
 #[cfg(not(feature = "glommio"))]
 struct PoolInner {
-  clients: Vec<Arc<AsyncMutex<RedisClient>>>,
+  clients: Vec<RefCount<AsyncMutex<RedisClient>>>,
   counter: AtomicUsize,
 }
 
@@ -461,7 +456,7 @@ struct PoolInner {
 #[cfg(not(feature = "glommio"))]
 #[derive(Clone)]
 pub struct ExclusivePool {
-  inner: Arc<PoolInner>,
+  inner: RefCount<PoolInner>,
 }
 
 #[cfg(not(feature = "glommio"))]
@@ -490,7 +485,7 @@ impl ExclusivePool {
     } else {
       let mut clients = Vec::with_capacity(size);
       for _ in 0 .. size {
-        clients.push(Arc::new(AsyncMutex::new(RedisClient::new(
+        clients.push(RefCount::new(AsyncMutex::new(RedisClient::new(
           config.clone(),
           perf.clone(),
           connection.clone(),
@@ -499,7 +494,7 @@ impl ExclusivePool {
       }
 
       Ok(ExclusivePool {
-        inner: Arc::new(PoolInner {
+        inner: RefCount::new(PoolInner {
           clients,
           counter: AtomicUsize::new(0),
         }),
@@ -508,7 +503,7 @@ impl ExclusivePool {
   }
 
   /// Read the clients in the pool.
-  pub fn clients(&self) -> &[Arc<AsyncMutex<RedisClient>>] {
+  pub fn clients(&self) -> &[RefCount<AsyncMutex<RedisClient>>] {
     &self.inner.clients
   }
 
@@ -657,7 +652,7 @@ impl ExclusivePool {
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
   #[allow(refining_impl_trait)]
-  pub async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
+  pub async fn set_resolver(&self, resolver: RefCount<dyn Resolve>) {
     for client in self.inner.clients.iter() {
       client.lock().await.set_resolver(resolver.clone()).await;
     }

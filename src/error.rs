@@ -259,8 +259,8 @@ impl<T: fmt::Debug> From<glommio::GlommioError<T>> for RedisError {
 
 #[doc(hidden)]
 #[cfg(feature = "glommio")]
-impl From<async_oneshot::Closed> for RedisError {
-  fn from(_: async_oneshot::Closed) -> Self {
+impl From<oneshot::RecvError> for RedisError {
+  fn from(_: oneshot::RecvError) -> Self {
     RedisError::new_canceled()
   }
 }

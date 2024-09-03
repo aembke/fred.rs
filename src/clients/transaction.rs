@@ -10,12 +10,11 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  runtime::oneshot_channel,
+  runtime::{oneshot_channel, Mutex, RefCount},
   types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
   utils,
 };
-use parking_lot::Mutex;
-use std::{collections::VecDeque, fmt, sync::Arc};
+use std::{collections::VecDeque, fmt};
 
 /// A cheaply cloneable transaction block.
 #[derive(Clone)]
@@ -23,10 +22,10 @@ use std::{collections::VecDeque, fmt, sync::Arc};
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
   id:        u64,
-  inner:     Arc<RedisClientInner>,
-  commands:  Arc<Mutex<VecDeque<RedisCommand>>>,
-  watched:   Arc<Mutex<VecDeque<RedisKey>>>,
-  hash_slot: Arc<Mutex<Option<u16>>>,
+  inner:     RefCount<RedisClientInner>,
+  commands:  RefCount<Mutex<VecDeque<RedisCommand>>>,
+  watched:   RefCount<Mutex<VecDeque<RedisKey>>>,
+  hash_slot: RefCount<Mutex<Option<u16>>>,
 }
 
 impl fmt::Debug for Transaction {
@@ -50,7 +49,7 @@ impl Eq for Transaction {}
 
 impl ClientLike for Transaction {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     &self.inner
   }
 
@@ -137,12 +136,12 @@ impl RediSearchInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
-  pub(crate) fn from_inner(inner: &Arc<RedisClientInner>) -> Self {
+  pub(crate) fn from_inner(inner: &RefCount<RedisClientInner>) -> Self {
     Transaction {
       inner:     inner.clone(),
-      commands:  Arc::new(Mutex::new(VecDeque::new())),
-      watched:   Arc::new(Mutex::new(VecDeque::new())),
-      hash_slot: Arc::new(Mutex::new(None)),
+      commands:  RefCount::new(Mutex::new(VecDeque::new())),
+      watched:   RefCount::new(Mutex::new(VecDeque::new())),
+      hash_slot: RefCount::new(Mutex::new(None)),
       id:        utils::random_u64(u64::MAX),
     }
   }
@@ -279,7 +278,7 @@ impl Transaction {
 }
 
 async fn exec(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   commands: VecDeque<RedisCommand>,
   watched: VecDeque<RedisKey>,
   hash_slot: Option<u16>,

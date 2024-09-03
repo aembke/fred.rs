@@ -4,16 +4,15 @@ use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
   prelude::RedisClient,
-  runtime::{spawn, JoinHandle},
+  runtime::{spawn, JoinHandle, RefCount, RwLock},
   types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
   util::group_by_hash_slot,
 };
 use bytes_utils::Str;
-use parking_lot::RwLock;
 use rm_send_macros::rm_send_if;
-use std::{collections::BTreeSet, fmt, fmt::Formatter, future::Future, mem, sync::Arc};
+use std::{collections::BTreeSet, fmt, fmt::Formatter, future::Future, mem};
 
-type ChannelSet = Arc<RwLock<BTreeSet<Str>>>;
+type ChannelSet = RefCount<RwLock<BTreeSet<Str>>>;
 
 /// A subscriber client that will manage subscription state to any [pubsub](https://redis.io/docs/manual/pubsub/) channels or patterns for the caller.
 ///
@@ -59,7 +58,7 @@ pub struct SubscriberClient {
   channels:       ChannelSet,
   patterns:       ChannelSet,
   shard_channels: ChannelSet,
-  inner:          Arc<RedisClientInner>,
+  inner:          RefCount<RedisClientInner>,
 }
 
 impl fmt::Debug for SubscriberClient {
@@ -75,7 +74,7 @@ impl fmt::Debug for SubscriberClient {
 
 impl ClientLike for SubscriberClient {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     &self.inner
   }
 }
@@ -308,9 +307,9 @@ impl SubscriberClient {
     policy: Option<ReconnectPolicy>,
   ) -> SubscriberClient {
     SubscriberClient {
-      channels:       Arc::new(RwLock::new(BTreeSet::new())),
-      patterns:       Arc::new(RwLock::new(BTreeSet::new())),
-      shard_channels: Arc::new(RwLock::new(BTreeSet::new())),
+      channels:       RefCount::new(RwLock::new(BTreeSet::new())),
+      patterns:       RefCount::new(RwLock::new(BTreeSet::new())),
+      shard_channels: RefCount::new(RwLock::new(BTreeSet::new())),
       inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
@@ -329,9 +328,9 @@ impl SubscriberClient {
 
     SubscriberClient {
       inner,
-      channels: Arc::new(RwLock::new(self.channels.read().clone())),
-      patterns: Arc::new(RwLock::new(self.patterns.read().clone())),
-      shard_channels: Arc::new(RwLock::new(self.shard_channels.read().clone())),
+      channels: RefCount::new(RwLock::new(self.channels.read().clone())),
+      patterns: RefCount::new(RwLock::new(self.patterns.read().clone())),
+      shard_channels: RefCount::new(RwLock::new(self.shard_channels.read().clone())),
     }
   }
 
@@ -339,6 +338,7 @@ impl SubscriberClient {
   pub fn manage_subscriptions(&self) -> JoinHandle<()> {
     let _self = self.clone();
     spawn(async move {
+      #[allow(unused_mut)]
       let mut stream = _self.reconnect_rx();
 
       while let Ok(_) = stream.recv().await {

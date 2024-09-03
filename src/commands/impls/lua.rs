@@ -10,18 +10,18 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  runtime::oneshot_channel,
+  runtime::{oneshot_channel, RefCount},
   types::*,
   utils,
 };
 use bytes::Bytes;
 use bytes_utils::Str;
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
-use std::{convert::TryInto, str, sync::Arc};
+use std::{convert::TryInto, str};
 
 /// Check that all the keys in an EVAL* command belong to the same server, returning a key slot that maps to that
 /// server.
-pub fn check_key_slot(inner: &Arc<RedisClientInner>, keys: &[RedisKey]) -> Result<Option<u16>, RedisError> {
+pub fn check_key_slot(inner: &RefCount<RedisClientInner>, keys: &[RedisKey]) -> Result<Option<u16>, RedisError> {
   if inner.config.server.is_clustered() {
     inner.with_cluster_state(|state| {
       let (mut cmd_server, mut cmd_slot) = (None, None);

@@ -4,7 +4,7 @@ use glommio::{
   GlommioError,
   ResourceType,
 };
-use std::{borrow::BorrowMut, cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 struct Inner<T: Clone> {
   pub counter: u64,
@@ -57,8 +57,9 @@ impl<T: Clone> BroadcastSender<T> {
     let (tx, rx) = new_unbounded();
     let id = {
       let mut guard = self.inner.as_ref().borrow_mut();
-      guard.counter = guard.counter.wrapping_add(1);
-      guard.senders.insert(guard.counter, tx);
+      let count = guard.counter.wrapping_add(1);
+      guard.counter = count;
+      guard.senders.insert(count, tx);
       guard.counter
     };
 

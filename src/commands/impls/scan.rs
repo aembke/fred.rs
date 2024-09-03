@@ -8,14 +8,15 @@ use crate::{
     responders::ResponseKind,
     types::*,
   },
-  runtime::{rx_stream, spawn, unbounded_channel, UnboundedSender},
+  runtime::{rx_stream, unbounded_channel, RefCount},
   types::*,
   utils,
 };
 use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
-use rm_send_macros::rm_send_if;
-use std::sync::Arc;
+
+#[cfg(feature = "glommio")]
+use crate::runtime::UnboundedSender;
 
 static STARTING_CURSOR: &str = "0";
 
@@ -35,7 +36,7 @@ fn values_args(key: RedisKey, pattern: Str, count: Option<u32>) -> Vec<RedisValu
 }
 
 pub fn scan_cluster(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
@@ -88,7 +89,7 @@ pub fn scan_cluster(
 }
 
 pub fn scan(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
@@ -139,7 +140,7 @@ pub fn scan(
 }
 
 pub fn hscan(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   key: RedisKey,
   pattern: Str,
   count: Option<u32>,
@@ -169,7 +170,7 @@ pub fn hscan(
 }
 
 pub fn sscan(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   key: RedisKey,
   pattern: Str,
   count: Option<u32>,
@@ -199,7 +200,7 @@ pub fn sscan(
 }
 
 pub fn zscan(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   key: RedisKey,
   pattern: Str,
   count: Option<u32>,

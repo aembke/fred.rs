@@ -9,12 +9,10 @@ use crate::{
     types::ProtocolFrame,
     utils as protocol_utils,
   },
-  runtime::{rx_stream, spawn, unbounded_channel, UnboundedSender},
+  runtime::{rx_stream, spawn, unbounded_channel, RefCount, UnboundedSender},
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
-use redis_protocol::resp3::types::Resp3Frame;
-use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
@@ -23,7 +21,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
 async fn handle_monitor_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
 ) -> Option<Command> {
   let frame = match frame {
@@ -55,7 +53,7 @@ async fn handle_monitor_frame(
 
 #[cfg(any(not(feature = "blocking-encoding"), feature = "glommio"))]
 async fn handle_monitor_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
 ) -> Option<Command> {
   let frame = match frame {
@@ -70,7 +68,7 @@ async fn handle_monitor_frame(
 }
 
 async fn send_monitor_command(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   mut connection: RedisTransport,
 ) -> Result<RedisTransport, RedisError> {
   _debug!(inner, "Sending MONITOR command.");
@@ -85,7 +83,7 @@ async fn send_monitor_command(
 }
 
 async fn forward_results<T>(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   tx: UnboundedSender<Command>,
   mut framed: Framed<T, RedisCodec>,
 ) where
@@ -103,7 +101,11 @@ async fn forward_results<T>(
   }
 }
 
-async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Command>, connection: RedisTransport) {
+async fn process_stream(
+  inner: &RefCount<RedisClientInner>,
+  tx: UnboundedSender<Command>,
+  connection: RedisTransport,
+) {
   _debug!(inner, "Starting monitor stream processing...");
 
   match connection.transport {

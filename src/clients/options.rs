@@ -3,9 +3,10 @@ use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
   protocol::command::RedisCommand,
+  runtime::RefCount,
   types::Options,
 };
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{fmt, ops::Deref};
 
 /// A client interface used to customize command configuration options.
 ///
@@ -73,7 +74,7 @@ impl<C: ClientLike> fmt::Debug for WithOptions<C> {
 
 impl<C: ClientLike> ClientLike for WithOptions<C> {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     self.client.inner()
   }
 

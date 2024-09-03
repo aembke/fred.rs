@@ -8,11 +8,10 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  runtime::{oneshot_channel, OneshotReceiver},
+  runtime::{oneshot_channel, Mutex, OneshotReceiver, RefCount},
   utils,
 };
-use parking_lot::Mutex;
-use std::{collections::VecDeque, fmt, fmt::Formatter, sync::Arc};
+use std::{collections::VecDeque, fmt, fmt::Formatter};
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
   let guard = buffer.lock();
@@ -55,7 +54,7 @@ fn prepare_all_commands(
 ///
 /// See the [all](Self::all), [last](Self::last), and [try_all](Self::try_all) functions for more information.
 pub struct Pipeline<C: ClientLike> {
-  commands: Arc<Mutex<VecDeque<RedisCommand>>>,
+  commands: RefCount<Mutex<VecDeque<RedisCommand>>>,
   client:   C,
 }
 
@@ -83,14 +82,14 @@ impl<C: ClientLike> From<C> for Pipeline<C> {
   fn from(client: C) -> Self {
     Pipeline {
       client,
-      commands: Arc::new(Mutex::new(VecDeque::new())),
+      commands: RefCount::new(Mutex::new(VecDeque::new())),
     }
   }
 }
 
 impl<C: ClientLike> ClientLike for Pipeline<C> {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     self.client.inner()
   }
 
@@ -226,7 +225,7 @@ impl<C: ClientLike> Pipeline<C> {
   ///   let _: () = pipeline.hgetall("bar").await?; // this will error since `bar` is an integer
   ///
   ///   let results = pipeline.try_all::<RedisValue>().await;
-  ///   assert_eq!(results[0].clone().unwrap().convert::<i64>(), 1);
+  ///   assert_eq!(results[0].clone()?.convert::<i64>()?, 1);
   ///   assert!(results[1].is_err());
   ///
   ///   Ok(())
@@ -269,7 +268,7 @@ impl<C: ClientLike> Pipeline<C> {
 }
 
 async fn try_send_all(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   commands: VecDeque<RedisCommand>,
 ) -> Vec<Result<RedisValue, RedisError>> {
   if commands.is_empty() {
@@ -298,7 +297,10 @@ async fn try_send_all(
   }
 }
 
-async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand>) -> Result<RedisValue, RedisError> {
+async fn send_all(
+  inner: &RefCount<RedisClientInner>,
+  commands: VecDeque<RedisCommand>,
+) -> Result<RedisValue, RedisError> {
   if commands.is_empty() {
     return Ok(RedisValue::Array(Vec::new()));
   }
@@ -313,7 +315,7 @@ async fn send_all(inner: &Arc<RedisClientInner>, commands: VecDeque<RedisCommand
 }
 
 async fn send_last(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   commands: VecDeque<RedisCommand>,
 ) -> Result<RedisValue, RedisError> {
   if commands.is_empty() {

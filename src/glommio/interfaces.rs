@@ -6,7 +6,8 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::default_send_command,
   protocol::command::RedisCommand,
-  runtime::{spawn, BroadcastReceiver, JoinHandle},
+  router::commands as router_commands,
+  runtime::{spawn, BroadcastReceiver, JoinHandle, RefCount},
   types::{
     ClientState,
     ConnectHandle,
@@ -19,19 +20,23 @@ use crate::{
     ReconnectPolicy,
     RedisConfig,
     RedisValue,
-    Resolve,
     Server,
-    ShutdownFlags,
   },
   utils,
 };
 use redis_protocol::resp3::types::RespVersion;
 use semver::Version;
-use std::{future::Future, sync::Arc};
+use std::future::Future;
+
+#[cfg(feature = "i-server")]
+use crate::types::ShutdownFlags;
+
+#[cfg(any(feature = "dns", feature = "trust-dns-resolver"))]
+use crate::protocol::types::Resolve;
 
 pub trait ClientLike: Clone + Sized {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner>;
+  fn inner(&self) -> &RefCount<RedisClientInner>;
 
   /// Helper function to intercept and modify a command without affecting how it is sent to the connection layer.
   #[doc(hidden)]
@@ -132,7 +137,7 @@ pub trait ClientLike: Clone + Sized {
   /// Override the DNS resolution logic for the client.
   #[cfg(feature = "dns")]
   #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-  fn set_resolver(&self, resolver: Arc<dyn Resolve>) -> impl Future {
+  fn set_resolver(&self, resolver: RefCount<dyn Resolve>) -> impl Future {
     async move { self.inner().set_resolver(resolver).await }
   }
 
@@ -149,8 +154,24 @@ pub trait ClientLike: Clone + Sized {
   ///
   /// See [init](Self::init) for an alternative shorthand.
   fn connect(&self) -> ConnectHandle {
-    // TODO glommio connect
-    unimplemented!()
+    let inner = self.inner().clone();
+    utils::reset_router_task(&inner);
+
+    spawn(async move {
+      utils::clear_backchannel_state(&inner).await;
+      let result = router_commands::start(&inner).await;
+      // a canceled error means we intentionally closed the client
+      _trace!(inner, "Ending connection task with {:?}", result);
+
+      if let Err(ref error) = result {
+        if !error.is_canceled() {
+          inner.notifications.broadcast_connect(Err(error.clone()));
+        }
+      }
+
+      utils::check_and_set_client_state(&inner.state, ClientState::Disconnecting, ClientState::Disconnected);
+      result
+    })
   }
 
   /// Force a reconnection to the server(s).
@@ -166,11 +187,12 @@ pub trait ClientLike: Clone + Sized {
   /// connection attempt vs all subsequent attempts.
   fn wait_for_connect(&self) -> impl Future<Output = RedisResult<()>> {
     async move {
-      if utils::read_locked(&self.inner().state) == ClientState::Connected {
+      if { utils::read_locked(&self.inner().state) } == ClientState::Connected {
         debug!("{}: Client is already connected.", self.inner().id);
         Ok(())
       } else {
-        self.inner().notifications.connect.load().subscribe().recv().await?
+        let rx = { self.inner().notifications.connect.load().subscribe() };
+        rx.recv().await?
       }
     }
   }
@@ -200,7 +222,7 @@ pub trait ClientLike: Clone + Sized {
   /// ```
   fn init(&self) -> impl Future<Output = RedisResult<ConnectHandle>> {
     async move {
-      let mut rx = { self.inner().notifications.connect.load().subscribe() };
+      let rx = { self.inner().notifications.connect.load().subscribe() };
       let task = self.connect();
       let error = rx.recv().await.map_err(RedisError::from).and_then(|r| r).err();
 
@@ -312,8 +334,7 @@ pub trait ClientLike: Clone + Sized {
   }
 }
 
-#[cfg(feature = "glommio")]
-pub fn spawn_event_listener<T, F>(mut rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
+pub fn spawn_event_listener<T, F>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
 where
   T: Clone + 'static,
   F: Fn(T) -> RedisResult<()> + 'static,

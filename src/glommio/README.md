@@ -31,7 +31,7 @@ Additionally, Glommio uses or requires some different implementations of some co
 such as:
 
 * [tokio::sync::oneshot](https://docs.rs/tokio/latest/tokio/sync/oneshot/index.html) must change
-  to [async-oneshot](https://crates.io/crates/async-oneshot).
+  to [oneshot](https://crates.io/crates/oneshot).
 * [tokio_util::codec](https://docs.rs/tokio-util/latest/tokio_util/codec/index.html) needs a compatibility layer or a
   re-implementation of `Encoder+Decoder` on top of the `AsyncRead+AsyncWrite` traits in `futures-io`. Currently, Tokio
   re-implements these traits internally. The compatibility layer in [src/glommio/io_compat.rs](./io_compat.rs) also

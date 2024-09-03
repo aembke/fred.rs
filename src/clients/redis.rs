@@ -5,11 +5,12 @@ use crate::{
   interfaces::*,
   modules::inner::RedisClientInner,
   prelude::ClientLike,
+  runtime::RefCount,
   types::*,
 };
 use bytes_utils::Str;
 use futures::Stream;
-use std::{fmt, fmt::Formatter, sync::Arc};
+use std::{fmt, fmt::Formatter};
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
@@ -19,7 +20,7 @@ use crate::interfaces::TrackingInterface;
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
 pub struct RedisClient {
-  pub(crate) inner: Arc<RedisClientInner>,
+  pub(crate) inner: RefCount<RedisClientInner>,
 }
 
 impl Default for RedisClient {
@@ -44,15 +45,15 @@ impl fmt::Display for RedisClient {
 }
 
 #[doc(hidden)]
-impl<'a> From<&'a Arc<RedisClientInner>> for RedisClient {
-  fn from(inner: &'a Arc<RedisClientInner>) -> RedisClient {
+impl<'a> From<&'a RefCount<RedisClientInner>> for RedisClient {
+  fn from(inner: &'a RefCount<RedisClientInner>) -> RedisClient {
     RedisClient { inner: inner.clone() }
   }
 }
 
 impl ClientLike for RedisClient {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     &self.inner
   }
 }

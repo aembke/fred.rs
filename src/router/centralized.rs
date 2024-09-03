@@ -11,14 +11,14 @@ use crate::{
     utils as protocol_utils,
   },
   router::{responses, utils, Connections, Written},
-  runtime::{spawn, JoinHandle},
+  runtime::{spawn, JoinHandle, RefCount},
   types::ServerConfig,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
 pub async fn write(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   writer: &mut Option<RedisWriter>,
   command: RedisCommand,
   force_flush: bool,
@@ -38,7 +38,7 @@ pub async fn write(
 /// Spawn a task to read response frames from the reader half of the socket.
 #[allow(unused_assignments)]
 pub fn spawn_reader_task(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   mut reader: SplitStreamKind,
   server: &Server,
   buffer: &SharedBuffer,
@@ -98,7 +98,7 @@ pub fn spawn_reader_task(
 ///
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 pub async fn process_response_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
   buffer: &SharedBuffer,
   counters: &Counters,
@@ -180,7 +180,7 @@ pub async fn process_response_frame(
 /// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on
 /// `buffer`.
 pub async fn initialize_connection(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   connections: &mut Connections,
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {

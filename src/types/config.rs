@@ -715,6 +715,7 @@ impl Default for RedisConfig {
   }
 }
 
+#[cfg_attr(docsrs, allow(rustdoc::broken_intra_doc_links))]
 impl RedisConfig {
   /// Whether the client uses TLS.
   #[cfg(any(

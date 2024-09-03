@@ -4,10 +4,10 @@ use crate::{
   interfaces::{self, *},
   modules::inner::RedisClientInner,
   protocol::command::{RedisCommand, RouterCommand},
-  runtime::oneshot_channel,
+  runtime::{oneshot_channel, RefCount},
   types::Server,
 };
-use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
+use std::{collections::HashMap, fmt, fmt::Formatter};
 
 /// A struct for interacting with cluster replica nodes.
 ///
@@ -20,7 +20,7 @@ use std::{collections::HashMap, fmt, fmt::Formatter, sync::Arc};
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub struct Replicas {
-  inner: Arc<RedisClientInner>,
+  inner: RefCount<RedisClientInner>,
 }
 
 impl fmt::Debug for Replicas {
@@ -30,15 +30,15 @@ impl fmt::Debug for Replicas {
 }
 
 #[doc(hidden)]
-impl From<&Arc<RedisClientInner>> for Replicas {
-  fn from(inner: &Arc<RedisClientInner>) -> Self {
+impl From<&RefCount<RedisClientInner>> for Replicas {
+  fn from(inner: &RefCount<RedisClientInner>) -> Self {
     Replicas { inner: inner.clone() }
   }
 }
 
 impl ClientLike for Replicas {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     &self.inner
   }
 

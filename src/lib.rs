@@ -11,6 +11,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::assigning_clones)]
+#![allow(clippy::manual_async_fn)]
 #![warn(clippy::large_types_passed_by_value)]
 #![warn(clippy::large_stack_frames)]
 #![warn(clippy::large_futures)]

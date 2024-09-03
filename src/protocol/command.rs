@@ -8,14 +8,13 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime::{oneshot_channel, OneshotReceiver, OneshotSender, RefCount},
+  runtime::{oneshot_channel, AtomicBool, Mutex, OneshotReceiver, OneshotSender, RefCount},
   trace,
   types::{CustomCommand, RedisValue},
   utils as client_utils,
   utils,
 };
 use bytes_utils::Str;
-use parking_lot::Mutex;
 use redis_protocol::resp3::types::RespVersion;
 use std::{
   convert::TryFrom,
@@ -23,7 +22,6 @@ use std::{
   fmt::Formatter,
   mem,
   str,
-  sync::atomic::AtomicBool,
   time::{Duration, Instant},
 };
 
@@ -33,9 +31,7 @@ use crate::modules::mocks::MockCommand;
 use crate::trace::CommandTraces;
 
 #[cfg(feature = "debug-ids")]
-use std::sync::atomic::AtomicUsize;
-#[cfg(feature = "debug-ids")]
-static COMMAND_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static COMMAND_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 #[cfg(feature = "debug-ids")]
 pub fn command_counter() -> usize {
   COMMAND_COUNTER

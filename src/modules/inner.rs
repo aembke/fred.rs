@@ -13,9 +13,13 @@ use crate::{
     sleep,
     unbounded_channel,
     AsyncRwLock,
+    AtomicBool,
+    AtomicUsize,
     BroadcastSender,
+    Mutex,
     RefCount,
     RefSwap,
+    RwLock,
     UnboundedReceiver,
     UnboundedSender,
   },
@@ -24,13 +28,8 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::future::{select, Either};
-use parking_lot::{Mutex, RwLock};
 use semver::Version;
-use std::{
-  ops::DerefMut,
-  sync::atomic::{AtomicBool, AtomicUsize},
-  time::Duration,
-};
+use std::{ops::DerefMut, time::Duration};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
@@ -145,13 +144,13 @@ impl Notifications {
 
   #[cfg(feature = "i-tracking")]
   pub fn broadcast_invalidation(&self, msg: Invalidation) {
-    broadcast_send(&self.invalidations.load().as_ref(), &msg, |_| {
+    broadcast_send(self.invalidations.load().as_ref(), &msg, |_| {
       debug!("{}: No `on_invalidation` listeners.", self.id);
     });
   }
 
   pub fn broadcast_unresponsive(&self, server: Server) {
-    broadcast_send(&self.unresponsive.load().as_ref(), &server, |_| {
+    broadcast_send(self.unresponsive.load().as_ref(), &server, |_| {
       debug!("{}: No unresponsive listeners", self.id);
     });
   }
@@ -722,6 +721,7 @@ impl RedisClientInner {
   }
 
   pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
+    #[allow(unused_mut)]
     let mut rx = self.notifications.close.subscribe();
     debug!("{}: Sleeping for {} ms", self.id, duration.as_millis());
     let (sleep_ft, recv_ft) = (sleep(duration), rx.recv());

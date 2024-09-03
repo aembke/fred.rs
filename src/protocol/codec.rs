@@ -5,7 +5,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime::RefCount,
+  runtime::{AtomicBool, RefCount},
   utils,
 };
 use bytes::BytesMut;
@@ -22,13 +22,12 @@ use redis_protocol::{
     types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, StreamedFrame},
   },
 };
-use std::sync::atomic::AtomicBool;
 use tokio_util::codec::{Decoder, Encoder};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
-use parking_lot::RwLock;
+use crate::runtime::RwLock;
 
 #[cfg(not(feature = "network-logs"))]
 fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}

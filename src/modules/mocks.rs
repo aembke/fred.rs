@@ -14,10 +14,10 @@
 
 use crate::{
   error::{RedisError, RedisErrorKind},
+  runtime::Mutex,
   types::{RedisKey, RedisValue},
 };
 use bytes_utils::Str;
-use parking_lot::Mutex;
 use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,

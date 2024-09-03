@@ -7,7 +7,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime::{JoinHandle, RefCount},
+  runtime::{AtomicBool, AtomicUsize, JoinHandle, RefCount},
   types::InfoKind,
   utils as client_utils,
   utils,
@@ -22,17 +22,18 @@ use futures::{
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, RespVersion};
 use semver::Version;
-use socket2::SockRef;
 use std::{
   fmt,
   net::SocketAddr,
   pin::Pin,
   str,
-  sync::atomic::{AtomicBool, AtomicUsize},
   task::{Context, Poll},
   time::Duration,
 };
 use tokio_util::codec::Framed;
+
+#[cfg(not(feature = "glommio"))]
+use socket2::SockRef;
 
 #[cfg(feature = "glommio")]
 use glommio::net::TcpStream as BaseTcpStream;
@@ -55,10 +56,7 @@ use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
 use crate::runtime::oneshot_channel;
 #[cfg(feature = "replicas")]
-use crate::{
-  protocol::{connection, responders::ResponseKind},
-  types::RedisValue,
-};
+use crate::{protocol::responders::ResponseKind, types::RedisValue};
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
@@ -156,18 +154,18 @@ async fn tcp_connect_any(
     if let Some(val) = inner.connection.tcp.nodelay {
       socket.set_nodelay(val)?;
     }
-    if let Some(dur) = inner.connection.tcp.linger {
+    if let Some(_dur) = inner.connection.tcp.linger {
       #[cfg(not(feature = "glommio"))]
-      socket.set_linger(Some(dur))?;
+      socket.set_linger(Some(_dur))?;
       #[cfg(feature = "glommio")]
       _warn!(inner, "TCP Linger is not yet supported with Glommio features.");
     }
     if let Some(ttl) = inner.connection.tcp.ttl {
       socket.set_ttl(ttl)?;
     }
-    if let Some(ref keepalive) = inner.connection.tcp.keepalive {
+    if let Some(ref _keepalive) = inner.connection.tcp.keepalive {
       #[cfg(not(feature = "glommio"))]
-      SockRef::from(&socket).set_tcp_keepalive(keepalive)?;
+      SockRef::from(&socket).set_tcp_keepalive(_keepalive)?;
       #[cfg(feature = "glommio")]
       _warn!(inner, "TCP keepalive is not yet supported with Glommio features.");
     }
