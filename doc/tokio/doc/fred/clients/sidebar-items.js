@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["ExclusivePool","Pipeline","RedisClient","RedisPool","Replicas","SentinelClient","SubscriberClient","Transaction","WithOptions"]};

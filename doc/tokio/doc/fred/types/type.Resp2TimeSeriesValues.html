@@ -1,0 +1,51 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Shorthand for the result of commands such as `MGET`, `MRANGE`, etc."><title>Resp2TimeSeriesValues in fred::types - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-46f98efaafac5295.ttf.woff2,FiraSans-Regular-018c141bf0843ffd.woff2,FiraSans-Medium-8f9a781e4970d388.woff2,SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2,SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../static.files/rustdoc-492a78a4a87dcc01.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="fred" data-themes="" data-resource-suffix="" data-rustdoc-version="1.82.0-nightly (f167efad2 2024-08-24)" data-channel="nightly" data-search-js="search-a2a4ff0acfd716f8.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../../static.files/storage-118b08c4c78b968e.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-cb0df477c2d67d00.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-3b12f09e550e0385.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc type"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../fred/index.html">fred</a><span class="version">9.2.0</span></h2></div><h2 class="location"><a href="#">Resp2<wbr>Time<wbr>Series<wbr>Values</a></h2><div class="sidebar-elems"><section><h3><a href="#aliased-type">Aliased type</a></h3></section><h2><a href="index.html">In fred::<wbr>types</a></h2></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1>Type Alias <a href="../index.html">fred</a>::<wbr><a href="index.html">types</a>::<wbr><a class="type" href="#">Resp2TimeSeriesValues</a><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><span class="out-of-band"><a class="src" href="../../src/fred/types/timeseries.rs.html#405">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub type Resp2TimeSeriesValues&lt;K, Lk, Lv&gt; = <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;(K, <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.tuple.html">(Lk, Lv)</a>&gt;, <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;(<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.i64.html">i64</a>, <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.f64.html">f64</a>)&gt;)&gt;;</code></pre><span class="item-info"><div class="stab portability">Available on <strong>crate feature <code>i-time-series</code></strong> only.</div></span><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Shorthand for the result of commands such as <code>MGET</code>, <code>MRANGE</code>, etc.</p>
+<ul>
+<li><strong>K</strong> - The key type, usually a <code>RedisKey</code>, <code>Str</code>, or <code>String</code>.</li>
+<li><strong>Lk</strong> - The label key type, usually a <code>Str</code> or <code>String</code>.</li>
+<li><strong>Lv</strong> - The label value type, often some kind of string type.</li>
+</ul>
+<p>The fastest/cheapest option is usually <code>TimeseriesValues&lt;RedisKey, Str, Str&gt;</code>.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>example(client: <span class="kw-2">&amp;</span>RedisClient) -&gt; <span class="prelude-ty">Result</span>&lt;(), RedisError&gt; {
+  <span class="macro">assert_eq!</span>(client.protocol_version(), RespVersion::RESP2);
+
+  client
+    .ts_add(<span class="string">"foo"</span>, <span class="string">"*"</span>, <span class="number">1.1</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, (<span class="string">"a"</span>, <span class="string">"b"</span>))
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+  sleep(Duration::from_millis(<span class="number">5</span>)).<span class="kw">await</span>;
+  client
+    .ts_add(<span class="string">"foo"</span>, <span class="string">"*"</span>, <span class="number">2.2</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, (<span class="string">"a"</span>, <span class="string">"b"</span>))
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+  sleep(Duration::from_millis(<span class="number">5</span>)).<span class="kw">await</span>;
+  client
+    .ts_add(<span class="string">"bar"</span>, <span class="string">"*"</span>, <span class="number">3.3</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, (<span class="string">"a"</span>, <span class="string">"b"</span>))
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+  sleep(Duration::from_millis(<span class="number">5</span>)).<span class="kw">await</span>;
+  client
+    .ts_add(<span class="string">"bar"</span>, <span class="string">"*"</span>, <span class="number">4.4</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, <span class="prelude-val">None</span>, (<span class="string">"a"</span>, <span class="string">"b"</span>))
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+
+  <span class="kw">let </span>ranges: Resp2TimeSeriesValues&lt;RedisKey, Str, Str&gt; = client
+    .ts_mrange(
+      <span class="string">"-"</span>,
+      <span class="string">"+"</span>,
+      <span class="bool-val">true</span>,
+      [],
+      <span class="prelude-val">None</span>,
+      <span class="prelude-val">Some</span>(GetLabels::WithLabels),
+      <span class="prelude-val">None</span>,
+      <span class="prelude-val">None</span>,
+      [<span class="string">"a=b"</span>],
+      <span class="prelude-val">None</span>,
+    )
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+
+  <span class="kw">for </span>(key, labels, values) <span class="kw">in </span>ranges.into_iter() {
+    <span class="macro">println!</span>(<span class="string">"{} [{:?}] {:?}"</span>, key.as_str_lossy(), labels, values);
+  }
+  <span class="comment">// bar [[("a", "b")]] [(1705355605510, 3.3), (1705355605517, 4.4)]
+  // foo [[("a", "b")]] [(1705355605498, 1.1), (1705355605504, 2.2)]
+  </span><span class="prelude-val">Ok</span>(())
+}</code></pre></div>
+<p>See <a href="type.Resp3TimeSeriesValues.html" title="type fred::types::Resp3TimeSeriesValues">Resp3TimeSeriesValues</a> for the RESP3 equivalent.</p>
+</div></details><h2 id="aliased-type" class="section-header">Aliased Type<a href="#aliased-type" class="anchor">§</a></h2><pre class="rust item-decl"><code>struct Resp2TimeSeriesValues&lt;K, Lk, Lv&gt; { <span class="comment">/* private fields */</span> }</code></pre><script src="../../type.impl/alloc/vec/struct.Vec.js" data-self-path="fred::types::timeseries::Resp2TimeSeriesValues" async></script></section></div></main></body></html>
