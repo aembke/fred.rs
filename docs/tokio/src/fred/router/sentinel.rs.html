@@ -497,7 +497,7 @@
   server: <span class="kw-2">&amp;</span>Server,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;(<span class="prelude-ty">Option</span>&lt;String&gt;, <span class="prelude-ty">Option</span>&lt;String&gt;), RedisError&gt; {
   <span class="kw">let </span>(username, password) = <span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">ref </span>provider) = inner.config.credential_provider {
-    provider.fetch(server).<span class="kw">await</span><span class="question-mark">?
+    provider.fetch(<span class="prelude-val">Some</span>(server)).<span class="kw">await</span><span class="question-mark">?
   </span>} <span class="kw">else </span>{
     read_sentinel_auth(inner)<span class="question-mark">?
   </span>};

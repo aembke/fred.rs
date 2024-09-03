@@ -726,6 +726,11 @@
 <a href="#726" id="726">726</a>
 <a href="#727" id="727">727</a>
 <a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a>
+<a href="#732" id="732">732</a>
+<a href="#733" id="733">733</a>
 </pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
@@ -1354,8 +1359,13 @@
     inner.store_command_rx(rx, <span class="bool-val">false</span>);
     <span class="prelude-val">Err</span>(error)
   } <span class="kw">else </span>{
+    <span class="attr">#[cfg(feature = <span class="string">"credential-provider"</span>)]
+    </span>inner.reset_credential_refresh_task();
+
     <span class="kw">let </span>result = Box::pin(process_commands(inner, <span class="kw-2">&amp;mut </span>router, <span class="kw-2">&amp;mut </span>rx)).<span class="kw">await</span>;
     inner.store_command_rx(rx, <span class="bool-val">false</span>);
+    <span class="attr">#[cfg(feature = <span class="string">"credential-provider"</span>)]
+    </span>inner.abort_credential_refresh_task();
     result
   }
 }
