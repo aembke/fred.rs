@@ -1,0 +1,418 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="A RediSearch interface."><title>RediSearchInterface in fred::interfaces - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-46f98efaafac5295.ttf.woff2,FiraSans-Regular-018c141bf0843ffd.woff2,FiraSans-Medium-8f9a781e4970d388.woff2,SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2,SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../static.files/rustdoc-fecee23daa4e8a6d.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="fred" data-themes="" data-resource-suffix="" data-rustdoc-version="1.83.0-nightly (bd53aa3bf 2024-09-02)" data-channel="nightly" data-search-js="search-a99f1315e7cc5121.js" data-settings-js="settings-4313503d2e1961c2.js" ><script src="../../static.files/storage-118b08c4c78b968e.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-921df33f47b8780c.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-3b12f09e550e0385.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../fred/index.html">fred</a><span class="version">9.2.0</span></h2></div><h2 class="location"><a href="#">Redi<wbr>Search<wbr>Interface</a></h2><div class="sidebar-elems"><section><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.ft_aggregate">ft_aggregate</a></li><li><a href="#method.ft_aliasadd">ft_aliasadd</a></li><li><a href="#method.ft_aliasdel">ft_aliasdel</a></li><li><a href="#method.ft_aliasupdate">ft_aliasupdate</a></li><li><a href="#method.ft_alter">ft_alter</a></li><li><a href="#method.ft_config_get">ft_config_get</a></li><li><a href="#method.ft_config_set">ft_config_set</a></li><li><a href="#method.ft_create">ft_create</a></li><li><a href="#method.ft_cursor_del">ft_cursor_del</a></li><li><a href="#method.ft_cursor_read">ft_cursor_read</a></li><li><a href="#method.ft_dictadd">ft_dictadd</a></li><li><a href="#method.ft_dictdel">ft_dictdel</a></li><li><a href="#method.ft_dictdump">ft_dictdump</a></li><li><a href="#method.ft_dropindex">ft_dropindex</a></li><li><a href="#method.ft_explain">ft_explain</a></li><li><a href="#method.ft_info">ft_info</a></li><li><a href="#method.ft_list">ft_list</a></li><li><a href="#method.ft_search">ft_search</a></li><li><a href="#method.ft_spellcheck">ft_spellcheck</a></li><li><a href="#method.ft_sugadd">ft_sugadd</a></li><li><a href="#method.ft_sugdel">ft_sugdel</a></li><li><a href="#method.ft_sugget">ft_sugget</a></li><li><a href="#method.ft_suglen">ft_suglen</a></li><li><a href="#method.ft_syndump">ft_syndump</a></li><li><a href="#method.ft_synupdate">ft_synupdate</a></li><li><a href="#method.ft_tagvals">ft_tagvals</a></li></ul><h3><a href="#object-safety">Object Safety</a></h3><h3><a href="#implementors">Implementors</a></h3></section><h2><a href="index.html">In fred::<wbr>interfaces</a></h2></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1>Trait <a href="../index.html">fred</a>::<wbr><a href="index.html">interfaces</a>::<wbr><a class="trait" href="#">RediSearchInterface</a><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><span class="out-of-band"><a class="src" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub trait RediSearchInterface: <a class="trait" href="trait.ClientLike.html" title="trait fred::interfaces::ClientLike">ClientLike</a> + <a class="trait" href="https://doc.rust-lang.org/nightly/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a> {
+<details class="toggle type-contents-toggle"><summary class="hideme"><span>Show 26 methods</span></summary>    // Provided methods
+    fn <a href="#method.ft_list" class="fn">ft_list</a>&lt;R&gt;(&amp;self) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a></span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_aggregate" class="fn">ft_aggregate</a>&lt;R, I, Q&gt;(
+        &amp;self,
+        index: I,
+        query: Q,
+        options: <a class="struct" href="../types/struct.FtAggregateOptions.html" title="struct fred::types::FtAggregateOptions">FtAggregateOptions</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_search" class="fn">ft_search</a>&lt;R, I, Q&gt;(
+        &amp;self,
+        index: I,
+        query: Q,
+        options: <a class="struct" href="../types/struct.FtSearchOptions.html" title="struct fred::types::FtSearchOptions">FtSearchOptions</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_create" class="fn">ft_create</a>&lt;R, I&gt;(
+        &amp;self,
+        index: I,
+        options: <a class="struct" href="../types/struct.FtCreateOptions.html" title="struct fred::types::FtCreateOptions">FtCreateOptions</a>,
+        schema: <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../types/struct.SearchSchema.html" title="struct fred::types::SearchSchema">SearchSchema</a>&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_alter" class="fn">ft_alter</a>&lt;R, I&gt;(
+        &amp;self,
+        index: I,
+        options: <a class="struct" href="../types/struct.FtAlterOptions.html" title="struct fred::types::FtAlterOptions">FtAlterOptions</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_aliasadd" class="fn">ft_aliasadd</a>&lt;R, A, I&gt;(
+        &amp;self,
+        alias: A,
+        index: I,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             A: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_aliasdel" class="fn">ft_aliasdel</a>&lt;R, A&gt;(
+        &amp;self,
+        alias: A,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             A: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_aliasupdate" class="fn">ft_aliasupdate</a>&lt;R, A, I&gt;(
+        &amp;self,
+        alias: A,
+        index: I,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             A: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_config_get" class="fn">ft_config_get</a>&lt;R, S&gt;(
+        &amp;self,
+        option: S,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_config_set" class="fn">ft_config_set</a>&lt;R, S, V&gt;(
+        &amp;self,
+        option: S,
+        value: V,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             V: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;<a class="enum" href="../types/enum.RedisValue.html" title="enum fred::types::RedisValue">RedisValue</a>&gt;,
+             V::<a class="associatedtype" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html#associatedtype.Error" title="type core::convert::TryInto::Error">Error</a>: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../error/struct.RedisError.html" title="struct fred::error::RedisError">RedisError</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_cursor_del" class="fn">ft_cursor_del</a>&lt;R, I, C&gt;(
+        &amp;self,
+        index: I,
+        cursor: C,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             C: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;<a class="enum" href="../types/enum.RedisValue.html" title="enum fred::types::RedisValue">RedisValue</a>&gt;,
+             C::<a class="associatedtype" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html#associatedtype.Error" title="type core::convert::TryInto::Error">Error</a>: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../error/struct.RedisError.html" title="struct fred::error::RedisError">RedisError</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_cursor_read" class="fn">ft_cursor_read</a>&lt;R, I, C&gt;(
+        &amp;self,
+        index: I,
+        cursor: C,
+        count: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u64.html">u64</a>&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             C: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;<a class="enum" href="../types/enum.RedisValue.html" title="enum fred::types::RedisValue">RedisValue</a>&gt;,
+             C::<a class="associatedtype" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html#associatedtype.Error" title="type core::convert::TryInto::Error">Error</a>: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../error/struct.RedisError.html" title="struct fred::error::RedisError">RedisError</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_dictadd" class="fn">ft_dictadd</a>&lt;R, D, S&gt;(
+        &amp;self,
+        dict: D,
+        terms: S,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             D: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="type" href="../types/type.MultipleStrings.html" title="type fred::types::MultipleStrings">MultipleStrings</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_dictdel" class="fn">ft_dictdel</a>&lt;R, D, S&gt;(
+        &amp;self,
+        dict: D,
+        terms: S,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             D: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="type" href="../types/type.MultipleStrings.html" title="type fred::types::MultipleStrings">MultipleStrings</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_dictdump" class="fn">ft_dictdump</a>&lt;R, D&gt;(&amp;self, dict: D) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             D: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_dropindex" class="fn">ft_dropindex</a>&lt;R, I&gt;(
+        &amp;self,
+        index: I,
+        dd: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_explain" class="fn">ft_explain</a>&lt;R, I, Q&gt;(
+        &amp;self,
+        index: I,
+        query: Q,
+        dialect: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.i64.html">i64</a>&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_info" class="fn">ft_info</a>&lt;R, I&gt;(&amp;self, index: I) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_spellcheck" class="fn">ft_spellcheck</a>&lt;R, I, Q&gt;(
+        &amp;self,
+        index: I,
+        query: Q,
+        distance: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u8.html">u8</a>&gt;,
+        terms: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="enum" href="../types/enum.SpellcheckTerms.html" title="enum fred::types::SpellcheckTerms">SpellcheckTerms</a>&gt;,
+        dialect: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.i64.html">i64</a>&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_sugadd" class="fn">ft_sugadd</a>&lt;R, K, S&gt;(
+        &amp;self,
+        key: K,
+        string: S,
+        score: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.f64.html">f64</a>,
+        incr: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+        payload: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;Bytes&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_sugdel" class="fn">ft_sugdel</a>&lt;R, K, S&gt;(
+        &amp;self,
+        key: K,
+        string: S,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_sugget" class="fn">ft_sugget</a>&lt;R, K, P&gt;(
+        &amp;self,
+        key: K,
+        prefix: P,
+        fuzzy: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+        withscores: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+        withpayloads: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+        max: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u64.html">u64</a>&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,
+             P: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_suglen" class="fn">ft_suglen</a>&lt;R, K&gt;(&amp;self, key: K) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_syndump" class="fn">ft_syndump</a>&lt;R, I&gt;(&amp;self, index: I) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_synupdate" class="fn">ft_synupdate</a>&lt;R, I, S, T&gt;(
+        &amp;self,
+        index: I,
+        synonym_group_id: S,
+        skipinitialscan: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+        terms: T,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             T: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="type" href="../types/type.MultipleStrings.html" title="type fred::types::MultipleStrings">MultipleStrings</a>&gt;</span> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.ft_tagvals" class="fn">ft_tagvals</a>&lt;R, I, F&gt;(
+        &amp;self,
+        index: I,
+        field_name: F,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;
+       <span class="where">where R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+             I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+             F: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;</span> { ... }
+</details>}</code></pre><span class="item-info"><div class="stab portability">Available on <strong>crate feature <code>i-redisearch</code></strong> only.</div></span><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>A <a href="https://github.com/RediSearch/RediSearch">RediSearch</a> interface.</p>
+</div></details><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.ft_list" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_list" class="fn">ft_list</a>&lt;R&gt;(&amp;self) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,</div></h4></section></summary><div class="docblock"><p>Returns a list of all existing indexes.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft._list/">https://redis.io/docs/latest/commands/ft._list/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_aggregate" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_aggregate" class="fn">ft_aggregate</a>&lt;R, I, Q&gt;(
+    &amp;self,
+    index: I,
+    query: Q,
+    options: <a class="struct" href="../types/struct.FtAggregateOptions.html" title="struct fred::types::FtAggregateOptions">FtAggregateOptions</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Run a search query on an index, and perform aggregate transformations on the results.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.aggregate/">https://redis.io/docs/latest/commands/ft.aggregate/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_search" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_search" class="fn">ft_search</a>&lt;R, I, Q&gt;(
+    &amp;self,
+    index: I,
+    query: Q,
+    options: <a class="struct" href="../types/struct.FtSearchOptions.html" title="struct fred::types::FtSearchOptions">FtSearchOptions</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Search the index with a textual query, returning either documents or just ids.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.search/">https://redis.io/docs/latest/commands/ft.search/</a></p>
+<p>Note: <code>FT.SEARCH</code> uses a different format in RESP3 mode.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_create" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_create" class="fn">ft_create</a>&lt;R, I&gt;(
+    &amp;self,
+    index: I,
+    options: <a class="struct" href="../types/struct.FtCreateOptions.html" title="struct fred::types::FtCreateOptions">FtCreateOptions</a>,
+    schema: <a class="struct" href="https://doc.rust-lang.org/nightly/alloc/vec/struct.Vec.html" title="struct alloc::vec::Vec">Vec</a>&lt;<a class="struct" href="../types/struct.SearchSchema.html" title="struct fred::types::SearchSchema">SearchSchema</a>&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Create an index with the given specification.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.create/">https://redis.io/docs/latest/commands/ft.create/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_alter" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_alter" class="fn">ft_alter</a>&lt;R, I&gt;(
+    &amp;self,
+    index: I,
+    options: <a class="struct" href="../types/struct.FtAlterOptions.html" title="struct fred::types::FtAlterOptions">FtAlterOptions</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Add a new attribute to the index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.alter/">https://redis.io/docs/latest/commands/ft.alter/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_aliasadd" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_aliasadd" class="fn">ft_aliasadd</a>&lt;R, A, I&gt;(
+    &amp;self,
+    alias: A,
+    index: I,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    A: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Add an alias to an index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.aliasadd/">https://redis.io/docs/latest/commands/ft.aliasadd/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_aliasdel" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_aliasdel" class="fn">ft_aliasdel</a>&lt;R, A&gt;(&amp;self, alias: A) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    A: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Remove an alias from an index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.aliasdel/">https://redis.io/docs/latest/commands/ft.aliasdel/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_aliasupdate" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_aliasupdate" class="fn">ft_aliasupdate</a>&lt;R, A, I&gt;(
+    &amp;self,
+    alias: A,
+    index: I,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    A: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Add an alias to an index. If the alias is already associated with another index, FT.ALIASUPDATE removes the
+alias association with the previous index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.aliasupdate/">https://redis.io/docs/latest/commands/ft.aliasupdate/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_config_get" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_config_get" class="fn">ft_config_get</a>&lt;R, S&gt;(&amp;self, option: S) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Retrieve configuration options.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.config-get/">https://redis.io/docs/latest/commands/ft.config-get/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_config_set" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_config_set" class="fn">ft_config_set</a>&lt;R, S, V&gt;(
+    &amp;self,
+    option: S,
+    value: V,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    V: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;<a class="enum" href="../types/enum.RedisValue.html" title="enum fred::types::RedisValue">RedisValue</a>&gt;,
+    V::<a class="associatedtype" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html#associatedtype.Error" title="type core::convert::TryInto::Error">Error</a>: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../error/struct.RedisError.html" title="struct fred::error::RedisError">RedisError</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Set the value of a RediSearch configuration parameter.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.config-set/">https://redis.io/docs/latest/commands/ft.config-set/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_cursor_del" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_cursor_del" class="fn">ft_cursor_del</a>&lt;R, I, C&gt;(
+    &amp;self,
+    index: I,
+    cursor: C,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    C: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;<a class="enum" href="../types/enum.RedisValue.html" title="enum fred::types::RedisValue">RedisValue</a>&gt;,
+    C::<a class="associatedtype" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html#associatedtype.Error" title="type core::convert::TryInto::Error">Error</a>: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../error/struct.RedisError.html" title="struct fred::error::RedisError">RedisError</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Delete a cursor.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.cursor-del/">https://redis.io/docs/latest/commands/ft.cursor-del/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_cursor_read" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_cursor_read" class="fn">ft_cursor_read</a>&lt;R, I, C&gt;(
+    &amp;self,
+    index: I,
+    cursor: C,
+    count: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u64.html">u64</a>&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    C: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;<a class="enum" href="../types/enum.RedisValue.html" title="enum fred::types::RedisValue">RedisValue</a>&gt;,
+    C::<a class="associatedtype" href="https://doc.rust-lang.org/nightly/core/convert/trait.TryInto.html#associatedtype.Error" title="type core::convert::TryInto::Error">Error</a>: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../error/struct.RedisError.html" title="struct fred::error::RedisError">RedisError</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Read next results from an existing cursor.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.cursor-read/">https://redis.io/docs/latest/commands/ft.cursor-read/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_dictadd" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_dictadd" class="fn">ft_dictadd</a>&lt;R, D, S&gt;(
+    &amp;self,
+    dict: D,
+    terms: S,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    D: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="type" href="../types/type.MultipleStrings.html" title="type fred::types::MultipleStrings">MultipleStrings</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Add terms to a dictionary.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.dictadd/">https://redis.io/docs/latest/commands/ft.dictadd/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_dictdel" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_dictdel" class="fn">ft_dictdel</a>&lt;R, D, S&gt;(
+    &amp;self,
+    dict: D,
+    terms: S,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    D: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="type" href="../types/type.MultipleStrings.html" title="type fred::types::MultipleStrings">MultipleStrings</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Remove terms from a dictionary.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.dictdel/">https://redis.io/docs/latest/commands/ft.dictdel/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_dictdump" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_dictdump" class="fn">ft_dictdump</a>&lt;R, D&gt;(&amp;self, dict: D) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    D: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Dump all terms in the given dictionary.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.dictdump/">https://redis.io/docs/latest/commands/ft.dictdump/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_dropindex" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_dropindex" class="fn">ft_dropindex</a>&lt;R, I&gt;(
+    &amp;self,
+    index: I,
+    dd: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Delete an index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.dropindex/">https://redis.io/docs/latest/commands/ft.dropindex/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_explain" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_explain" class="fn">ft_explain</a>&lt;R, I, Q&gt;(
+    &amp;self,
+    index: I,
+    query: Q,
+    dialect: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.i64.html">i64</a>&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Return the execution plan for a complex query.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.explain/">https://redis.io/docs/latest/commands/ft.explain/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_info" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_info" class="fn">ft_info</a>&lt;R, I&gt;(&amp;self, index: I) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Return information and statistics on the index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.info/">https://redis.io/docs/latest/commands/ft.info/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_spellcheck" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_spellcheck" class="fn">ft_spellcheck</a>&lt;R, I, Q&gt;(
+    &amp;self,
+    index: I,
+    query: Q,
+    distance: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u8.html">u8</a>&gt;,
+    terms: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="enum" href="../types/enum.SpellcheckTerms.html" title="enum fred::types::SpellcheckTerms">SpellcheckTerms</a>&gt;,
+    dialect: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.i64.html">i64</a>&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    Q: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Perform spelling correction on a query, returning suggestions for misspelled terms.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.spellcheck/">https://redis.io/docs/latest/commands/ft.spellcheck/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_sugadd" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_sugadd" class="fn">ft_sugadd</a>&lt;R, K, S&gt;(
+    &amp;self,
+    key: K,
+    string: S,
+    score: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.f64.html">f64</a>,
+    incr: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+    payload: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;Bytes&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Add a suggestion string to an auto-complete suggestion dictionary.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.sugadd/">https://redis.io/docs/latest/commands/ft.sugadd/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_sugdel" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_sugdel" class="fn">ft_sugdel</a>&lt;R, K, S&gt;(
+    &amp;self,
+    key: K,
+    string: S,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Delete a string from a suggestion index.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.sugdel/">https://redis.io/docs/latest/commands/ft.sugdel/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_sugget" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_sugget" class="fn">ft_sugget</a>&lt;R, K, P&gt;(
+    &amp;self,
+    key: K,
+    prefix: P,
+    fuzzy: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+    withscores: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+    withpayloads: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+    max: <a class="enum" href="https://doc.rust-lang.org/nightly/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.u64.html">u64</a>&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,
+    P: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Get completion suggestions for a prefix.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.sugget/">https://redis.io/docs/latest/commands/ft.sugget/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_suglen" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_suglen" class="fn">ft_suglen</a>&lt;R, K&gt;(&amp;self, key: K) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    K: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../types/struct.RedisKey.html" title="struct fred::types::RedisKey">RedisKey</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Get the size of an auto-complete suggestion dictionary.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.suglen/">https://redis.io/docs/latest/commands/ft.suglen/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_syndump" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_syndump" class="fn">ft_syndump</a>&lt;R, I&gt;(&amp;self, index: I) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Dump the contents of a synonym group.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.syndump/">https://redis.io/docs/latest/commands/ft.syndump/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_synupdate" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_synupdate" class="fn">ft_synupdate</a>&lt;R, I, S, T&gt;(
+    &amp;self,
+    index: I,
+    synonym_group_id: S,
+    skipinitialscan: <a class="primitive" href="https://doc.rust-lang.org/nightly/std/primitive.bool.html">bool</a>,
+    terms: T,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    S: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    T: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="type" href="../types/type.MultipleStrings.html" title="type fred::types::MultipleStrings">MultipleStrings</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Update a synonym group.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.synupdate/">https://redis.io/docs/latest/commands/ft.synupdate/</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ft_tagvals" class="method"><a class="src rightside" href="../../src/fred/commands/interfaces/redisearch.rs.html#25">source</a><h4 class="code-header">fn <a href="#method.ft_tagvals" class="fn">ft_tagvals</a>&lt;R, I, F&gt;(
+    &amp;self,
+    index: I,
+    field_name: F,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/nightly/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="type" href="type.RedisResult.html" title="type fred::interfaces::RedisResult">RedisResult</a>&lt;R&gt;&gt;<div class="where">where
+    R: <a class="trait" href="../types/trait.FromRedis.html" title="trait fred::types::FromRedis">FromRedis</a>,
+    I: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,
+    F: <a class="trait" href="https://doc.rust-lang.org/nightly/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;Str&gt;,</div></h4></section></summary><div class="docblock"><p>Return a distinct set of values indexed in a Tag field.</p>
+<p><a href="https://redis.io/docs/latest/commands/ft.tagvals/">https://redis.io/docs/latest/commands/ft.tagvals/</a></p>
+</div></details></div><h2 id="object-safety" class="section-header">Object Safety<a href="#object-safety" class="anchor">§</a></h2><div class="object-safety-info">This trait is <b>not</b> <a href="https://doc.rust-lang.org/nightly/reference/items/traits.html#object-safety">object safe</a>.</div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"><section id="impl-RediSearchInterface-for-RedisClient" class="impl"><a class="src rightside" href="../../src/fred/clients/redis.rs.html#135">source</a><a href="#impl-RediSearchInterface-for-RedisClient" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.RedisClient.html" title="struct fred::clients::RedisClient">RedisClient</a></h3></section><section id="impl-RediSearchInterface-for-RedisPool" class="impl"><a class="src rightside" href="../../src/fred/clients/pool.rs.html#404">source</a><a href="#impl-RediSearchInterface-for-RedisPool" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.RedisPool.html" title="struct fred::clients::RedisPool">RedisPool</a></h3></section><section id="impl-RediSearchInterface-for-Replicas" class="impl"><a class="src rightside" href="../../src/fred/clients/replica.rs.html#104">source</a><a href="#impl-RediSearchInterface-for-Replicas" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.Replicas.html" title="struct fred::clients::Replicas">Replicas</a></h3></section><section id="impl-RediSearchInterface-for-SubscriberClient" class="impl"><a class="src rightside" href="../../src/fred/clients/pubsub.rs.html#153">source</a><a href="#impl-RediSearchInterface-for-SubscriberClient" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.SubscriberClient.html" title="struct fred::clients::SubscriberClient">SubscriberClient</a></h3></section><section id="impl-RediSearchInterface-for-Transaction" class="impl"><a class="src rightside" href="../../src/fred/clients/transaction.rs.html#135">source</a><a href="#impl-RediSearchInterface-for-Transaction" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.Transaction.html" title="struct fred::clients::Transaction">Transaction</a></h3></section><section id="impl-RediSearchInterface-for-Pipeline%3CC%3E" class="impl"><a class="src rightside" href="../../src/fred/clients/pipeline.rs.html#186">source</a><a href="#impl-RediSearchInterface-for-Pipeline%3CC%3E" class="anchor">§</a><h3 class="code-header">impl&lt;C: <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a>&gt; <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.Pipeline.html" title="struct fred::clients::Pipeline">Pipeline</a>&lt;C&gt;</h3></section><section id="impl-RediSearchInterface-for-WithOptions%3CC%3E" class="impl"><a class="src rightside" href="../../src/fred/clients/options.rs.html#160">source</a><a href="#impl-RediSearchInterface-for-WithOptions%3CC%3E" class="anchor">§</a><h3 class="code-header">impl&lt;C: <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a>&gt; <a class="trait" href="trait.RediSearchInterface.html" title="trait fred::interfaces::RediSearchInterface">RediSearchInterface</a> for <a class="struct" href="../clients/struct.WithOptions.html" title="struct fred::clients::WithOptions">WithOptions</a>&lt;C&gt;</h3></section></div><script src="../../trait.impl/fred/commands/interfaces/redisearch/trait.RediSearchInterface.js" async></script></section></div></main></body></html>
