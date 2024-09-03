@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["Pipeline","RedisClient","RedisPool","Replicas","SentinelClient","SubscriberClient","Transaction","WithOptions"]};
