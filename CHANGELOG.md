@@ -1,3 +1,10 @@
+## 9.2.0
+
+* Add initial support for the [Glommio](https://github.com/DataDog/glommio) runtime
+* Add `credential-provider` feature
+* Fix pipeline processing in mocks
+* Support pipelined transactions
+
 ## 9.1.2
 
 * Fix `FT.AGGREGATE` command with `SORTBY` operation

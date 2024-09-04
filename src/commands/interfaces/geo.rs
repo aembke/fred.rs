@@ -1,5 +1,3 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
@@ -17,9 +15,12 @@ use crate::{
     SortOrder,
   },
 };
+use fred_macros::rm_send_if;
+use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [geo](https://redis.io/commands#geo) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait GeoInterface: ClientLike + Sized {
   /// Adds the specified geospatial items (longitude, latitude, name) to the specified key.
   ///

@@ -1,15 +1,21 @@
 pub use crate::protocol::types::Server;
-use crate::{error::RedisError, protocol::command::RedisCommand, types::RespVersion, utils};
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  protocol::command::RedisCommand,
+  types::{ClusterHash, RespVersion},
+  utils,
+};
 use socket2::TcpKeepalive;
-use std::{cmp, time::Duration};
+use std::{cmp, fmt::Debug, time::Duration};
 use url::Url;
 
-use crate::error::RedisErrorKind;
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
+#[cfg(feature = "credential-provider")]
+use async_trait::async_trait;
 #[cfg(feature = "unix-sockets")]
 use std::path::PathBuf;
-#[cfg(feature = "mocks")]
+#[cfg(any(feature = "mocks", feature = "credential-provider"))]
 use std::sync::Arc;
 
 #[cfg(any(
@@ -30,7 +36,6 @@ pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapp
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
-use crate::types::ClusterHash;
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -499,6 +504,20 @@ pub struct ConnectionConfig {
   #[cfg(feature = "custom-reconnect-errors")]
   #[cfg_attr(docsrs, doc(cfg(feature = "custom-reconnect-errors")))]
   pub reconnect_errors:             Vec<ReconnectError>,
+
+  /// The task queue onto which routing tasks will be spawned.
+  ///
+  /// May cause a panic if [spawn_local_into](glommio::spawn_local_into) fails.
+  #[cfg(feature = "glommio")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "glommio")))]
+  pub router_task_queue: Option<glommio::TaskQueueHandle>,
+
+  /// The task queue onto which connection reader tasks will be spawned.
+  ///
+  /// May cause a panic if [spawn_local_into](glommio::spawn_local_into) fails.
+  #[cfg(feature = "glommio")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "glommio")))]
+  pub connection_task_queue: Option<glommio::TaskQueueHandle>,
 }
 
 impl Default for ConnectionConfig {
@@ -523,6 +542,10 @@ impl Default for ConnectionConfig {
         ReconnectError::Loading,
         ReconnectError::ReadOnly,
       ],
+      #[cfg(feature = "glommio")]
+      router_task_queue: None,
+      #[cfg(feature = "glommio")]
+      connection_task_queue: None,
     }
   }
 }
@@ -580,6 +603,34 @@ impl Default for PerformanceConfig {
   }
 }
 
+/// A trait that can be used to override the credentials used in each `AUTH` or `HELLO` command.
+#[async_trait]
+#[cfg(all(feature = "credential-provider", not(feature = "glommio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "credential-provider")))]
+pub trait CredentialProvider: Debug + Send + Sync + 'static {
+  /// Read the username and password that should be used in the next `AUTH` or `HELLO` command.
+  async fn fetch(&self, server: Option<&Server>) -> Result<(Option<String>, Option<String>), RedisError>;
+
+  /// Configure the client to call [fetch](Self::fetch) and send `AUTH` or `HELLO` on some interval.
+  fn refresh_interval(&self) -> Option<Duration> {
+    None
+  }
+}
+
+/// A trait that can be used to override the credentials used in each `AUTH` or `HELLO` command.
+#[async_trait(?Send)]
+#[cfg(all(feature = "credential-provider", feature = "glommio"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "credential-provider")))]
+pub trait CredentialProvider: Debug + 'static {
+  /// Read the username and password that should be used in the next `AUTH` or `HELLO` command.
+  async fn fetch(&self, server: Option<&Server>) -> Result<(Option<String>, Option<String>), RedisError>;
+
+  /// Configure the client to call [fetch](Self::fetch) and send `AUTH` or `HELLO` on some interval.
+  fn refresh_interval(&self) -> Option<Duration> {
+    None
+  }
+}
+
 /// Configuration options for a `RedisClient`.
 #[derive(Clone, Debug)]
 pub struct RedisConfig {
@@ -611,10 +662,11 @@ pub struct RedisConfig {
   ///
   /// Default: `None`
   pub password:  Option<String>,
+
   /// Connection configuration for the server(s).
   ///
   /// Default: `Centralized(localhost, 6379)`
-  pub server:    ServerConfig,
+  pub server:              ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
   /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
@@ -625,7 +677,7 @@ pub struct RedisConfig {
   /// has a slightly different type system than RESP2.
   ///
   /// Default: `RESP2`
-  pub version:   RespVersion,
+  pub version:             RespVersion,
   /// An optional database number that the client will automatically `SELECT` after connecting or reconnecting.
   ///
   /// It is recommended that callers use this field instead of putting a `select()` call inside the `on_reconnect`
@@ -633,7 +685,7 @@ pub struct RedisConfig {
   /// the `on_reconnect` block.
   ///
   /// Default: `None`
-  pub database:  Option<u8>,
+  pub database:            Option<u8>,
   /// TLS configuration options.
   ///
   /// Default: `None`
@@ -650,17 +702,26 @@ pub struct RedisConfig {
       feature = "enable-rustls-ring"
     )))
   )]
-  pub tls:       Option<TlsConfig>,
+  pub tls:                 Option<TlsConfig>,
   /// Tracing configuration options.
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub tracing:   TracingConfig,
+  pub tracing:             TracingConfig,
   /// An optional [mocking layer](crate::mocks) to intercept and process commands.
   ///
   /// Default: `None`
   #[cfg(feature = "mocks")]
   #[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
-  pub mocks:     Option<Arc<dyn Mocks>>,
+  pub mocks:               Option<Arc<dyn Mocks>>,
+  /// An optional credential provider callback interface.
+  ///
+  /// Default: `None`
+  ///
+  /// When used with the `sentinel-auth` feature this interface will take precedence over all `username` and
+  /// `password` fields for both sentinel nodes and Redis servers.
+  #[cfg(feature = "credential-provider")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "credential-provider")))]
+  pub credential_provider: Option<Arc<dyn CredentialProvider>>,
 }
 
 impl PartialEq for RedisConfig {
@@ -680,27 +741,30 @@ impl Eq for RedisConfig {}
 impl Default for RedisConfig {
   fn default() -> Self {
     RedisConfig {
-      fail_fast:                                   true,
-      blocking:                                    Blocking::default(),
-      username:                                    None,
-      password:                                    None,
-      server:                                      ServerConfig::default(),
-      version:                                     RespVersion::RESP2,
-      database:                                    None,
+      fail_fast: true,
+      blocking: Blocking::default(),
+      username: None,
+      password: None,
+      server: ServerConfig::default(),
+      version: RespVersion::RESP2,
+      database: None,
       #[cfg(any(
         feature = "enable-native-tls",
         feature = "enable-rustls",
         feature = "enable-rustls-ring"
       ))]
-      tls:                                         None,
+      tls: None,
       #[cfg(feature = "partial-tracing")]
-      tracing:                                     TracingConfig::default(),
+      tracing: TracingConfig::default(),
       #[cfg(feature = "mocks")]
-      mocks:                                       None,
+      mocks: None,
+      #[cfg(feature = "credential-provider")]
+      credential_provider: None,
     }
   }
 }
 
+#[cfg_attr(docsrs, allow(rustdoc::broken_intra_doc_links))]
 impl RedisConfig {
   /// Whether the client uses TLS.
   #[cfg(any(
@@ -1299,25 +1363,27 @@ impl Default for SentinelConfig {
 impl From<SentinelConfig> for RedisConfig {
   fn from(config: SentinelConfig) -> Self {
     RedisConfig {
-      server:                                      ServerConfig::Centralized {
+      server: ServerConfig::Centralized {
         server: Server::new(config.host, config.port),
       },
-      fail_fast:                                   true,
-      database:                                    None,
-      blocking:                                    Blocking::Block,
-      username:                                    config.username,
-      password:                                    config.password,
-      version:                                     RespVersion::RESP2,
+      fail_fast: true,
+      database: None,
+      blocking: Blocking::Block,
+      username: config.username,
+      password: config.password,
+      version: RespVersion::RESP2,
       #[cfg(any(
         feature = "enable-native-tls",
         feature = "enable-rustls",
         feature = "enable-rustls-ring"
       ))]
-      tls:                                         config.tls,
+      tls: config.tls,
       #[cfg(feature = "partial-tracing")]
-      tracing:                                     config.tracing,
+      tracing: config.tracing,
       #[cfg(feature = "mocks")]
-      mocks:                                       None,
+      mocks: None,
+      #[cfg(feature = "credential-provider")]
+      credential_provider: None,
     }
   }
 }

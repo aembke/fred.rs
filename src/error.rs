@@ -13,7 +13,6 @@ use std::{
   str::Utf8Error,
   string::FromUtf8Error,
 };
-use tokio::task::JoinError;
 use url::ParseError;
 
 /// An enum representing the type of error from Redis.
@@ -243,9 +242,26 @@ impl From<Canceled> for RedisError {
 }
 
 #[doc(hidden)]
-impl From<JoinError> for RedisError {
-  fn from(e: JoinError) -> Self {
+#[cfg(not(feature = "glommio"))]
+impl From<tokio::task::JoinError> for RedisError {
+  fn from(e: tokio::task::JoinError) -> Self {
     RedisError::new(RedisErrorKind::Unknown, format!("Spawn Error: {:?}", e))
+  }
+}
+
+#[doc(hidden)]
+#[cfg(feature = "glommio")]
+impl<T: fmt::Debug> From<glommio::GlommioError<T>> for RedisError {
+  fn from(e: glommio::GlommioError<T>) -> Self {
+    RedisError::new(RedisErrorKind::Unknown, format!("{:?}", e))
+  }
+}
+
+#[doc(hidden)]
+#[cfg(feature = "glommio")]
+impl From<oneshot::RecvError> for RedisError {
+  fn from(_: oneshot::RecvError) -> Self {
+    RedisError::new_canceled()
   }
 }
 

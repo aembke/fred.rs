@@ -2,6 +2,7 @@
 target
 Cargo.lock
 .idea
+.doc
 tests/tmp/*
 !tests/tmp/.gitkeep
 dump.rdb

@@ -3,17 +3,18 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
   router::Connections,
+  runtime::RefCount,
   utils,
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.
 ///
 /// Returns whether a new connection was created.
 async fn check_and_create_transport(
   backchannel: &mut Backchannel,
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   server: &Server,
 ) -> Result<bool, RedisError> {
   if let Some(ref mut transport) = backchannel.transport {
@@ -45,7 +46,7 @@ pub struct Backchannel {
 impl Backchannel {
   /// Check if the current server matches the provided server, and disconnect.
   // TODO does this need to disconnect whenever the caller manually changes the RESP protocol mode?
-  pub async fn check_and_disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&Server>) {
+  pub async fn check_and_disconnect(&mut self, inner: &RefCount<RedisClientInner>, server: Option<&Server>) {
     let should_close = self
       .current_server()
       .map(|current| server.map(|server| *server == current).unwrap_or(true))
@@ -60,7 +61,7 @@ impl Backchannel {
   }
 
   /// Clear all local state that depends on the associated `Router` instance.
-  pub async fn clear_router_state(&mut self, inner: &Arc<RedisClientInner>) {
+  pub async fn clear_router_state(&mut self, inner: &RefCount<RedisClientInner>) {
     self.connection_ids.clear();
     self.blocked = None;
 
@@ -149,7 +150,7 @@ impl Backchannel {
   /// If a new connection is created this function also sets it on `self` before returning.
   pub async fn request_response(
     &mut self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     server: &Server,
     command: RedisCommand,
   ) -> Result<Resp3Frame, RedisError> {
@@ -188,7 +189,7 @@ impl Backchannel {
   /// * Failing all of the above a random server will be used.
   pub fn find_server(
     &self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     command: &RedisCommand,
     use_blocked: bool,
   ) -> Result<Server, RedisError> {

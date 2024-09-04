@@ -1,4 +1,4 @@
-use crate::{modules::inner::RedisClientInner, monitor::Command, types::RedisValue};
+use crate::{modules::inner::RedisClientInner, monitor::Command, runtime::RefCount, types::RedisValue};
 use nom::{
   bytes::complete::{escaped as nom_escaped, tag as nom_tag, take as nom_take, take_until as nom_take_until},
   character::complete::none_of as nom_none_of,
@@ -11,7 +11,7 @@ use redis_protocol::{
   error::RedisParseError,
   resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
 };
-use std::{str, sync::Arc};
+use std::str;
 
 const EMPTY_SPACE: &str = " ";
 const RIGHT_BRACKET: &str = "]";
@@ -110,7 +110,7 @@ fn d_parse_frame(input: &[u8]) -> Result<Command, RedisParseError<&[u8]>> {
 }
 
 #[cfg(feature = "network-logs")]
-fn log_frame(inner: &Arc<RedisClientInner>, frame: &[u8]) {
+fn log_frame(inner: &RefCount<RedisClientInner>, frame: &[u8]) {
   if let Ok(s) = str::from_utf8(frame) {
     _trace!(inner, "Monitor frame: {}", s);
   } else {
@@ -119,9 +119,9 @@ fn log_frame(inner: &Arc<RedisClientInner>, frame: &[u8]) {
 }
 
 #[cfg(not(feature = "network-logs"))]
-fn log_frame(_: &Arc<RedisClientInner>, _: &[u8]) {}
+fn log_frame(_: &RefCount<RedisClientInner>, _: &[u8]) {}
 
-pub fn parse(inner: &Arc<RedisClientInner>, frame: Resp3Frame) -> Option<Command> {
+pub fn parse(inner: &RefCount<RedisClientInner>, frame: Resp3Frame) -> Option<Command> {
   let frame_bytes = match frame {
     Resp3Frame::SimpleString { ref data, .. } => data,
     Resp3Frame::BlobString { ref data, .. } => data,

@@ -5,8 +5,11 @@ mod redis;
 
 pub use options::WithOptions;
 pub use pipeline::Pipeline;
-pub use pool::{ExclusivePool, RedisPool};
+pub use pool::RedisPool;
 pub use redis::RedisClient;
+
+#[cfg(not(feature = "glommio"))]
+pub use pool::ExclusivePool;
 
 #[cfg(feature = "sentinel-client")]
 mod sentinel;

@@ -4,6 +4,7 @@ use crate::{
   types::{FromRedis, MultipleKeys, MultipleStrings, RedisKey, SetOptions},
 };
 use bytes_utils::Str;
+use fred_macros::rm_send_if;
 use futures::Future;
 use serde_json::Value;
 
@@ -45,6 +46,7 @@ use serde_json::Value;
 /// }
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
+#[rm_send_if(feature = "glommio")]
 pub trait RedisJsonInterface: ClientLike + Sized {
   /// Append the json values into the array at path after the last element in it.
   ///

@@ -5,6 +5,7 @@ use crate::{
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 
+#[cfg(not(feature = "glommio"))]
 use crate::clients::ExclusivePool;
 #[cfg(feature = "subscriber-client")]
 use crate::clients::SubscriberClient;
@@ -249,6 +250,7 @@ impl Builder {
   }
 
   /// Create a new exclusive client pool.
+  #[cfg(not(feature = "glommio"))]
   pub fn build_exclusive_pool(&self, size: usize) -> Result<ExclusivePool, RedisError> {
     if let Some(config) = self.config.as_ref() {
       ExclusivePool::new(

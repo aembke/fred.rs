@@ -7,33 +7,39 @@ use crate::{
     connection::RedisTransport,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
+  runtime::{
+    broadcast_channel,
+    broadcast_send,
+    sleep,
+    unbounded_channel,
+    AsyncRwLock,
+    AtomicBool,
+    AtomicUsize,
+    BroadcastSender,
+    Mutex,
+    RefCount,
+    RefSwap,
+    RwLock,
+    UnboundedReceiver,
+    UnboundedSender,
+  },
   types::*,
   utils,
 };
-use arc_swap::ArcSwap;
 use bytes_utils::Str;
 use futures::future::{select, Either};
-use parking_lot::{Mutex, RwLock};
 use semver::Version;
-use std::{
-  ops::DerefMut,
-  sync::{
-    atomic::{AtomicBool, AtomicUsize},
-    Arc,
-  },
-  time::Duration,
-};
-use tokio::{
-  sync::{
-    broadcast::{self, error::SendError as BroadcastSendError, Sender as BroadcastSender},
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-    RwLock as AsyncRwLock,
-  },
-  time::sleep,
-};
+use std::{ops::DerefMut, time::Duration};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
+#[cfg(feature = "credential-provider")]
+use crate::{
+  clients::RedisClient,
+  interfaces::RedisResult,
+  interfaces::{AuthInterface, ClientLike},
+  runtime::{spawn, JoinHandle},
+};
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
 
@@ -47,42 +53,42 @@ pub struct Notifications {
   /// The client ID.
   pub id:             Str,
   /// A broadcast channel for the `on_error` interface.
-  pub errors:         ArcSwap<BroadcastSender<RedisError>>,
+  pub errors:         RefSwap<RefCount<BroadcastSender<RedisError>>>,
   /// A broadcast channel for the `on_message` interface.
-  pub pubsub:         ArcSwap<BroadcastSender<Message>>,
+  pub pubsub:         RefSwap<RefCount<BroadcastSender<Message>>>,
   /// A broadcast channel for the `on_keyspace_event` interface.
-  pub keyspace:       ArcSwap<BroadcastSender<KeyspaceEvent>>,
+  pub keyspace:       RefSwap<RefCount<BroadcastSender<KeyspaceEvent>>>,
   /// A broadcast channel for the `on_reconnect` interface.
-  pub reconnect:      ArcSwap<BroadcastSender<Server>>,
+  pub reconnect:      RefSwap<RefCount<BroadcastSender<Server>>>,
   /// A broadcast channel for the `on_cluster_change` interface.
-  pub cluster_change: ArcSwap<BroadcastSender<Vec<ClusterStateChange>>>,
+  pub cluster_change: RefSwap<RefCount<BroadcastSender<Vec<ClusterStateChange>>>>,
   /// A broadcast channel for the `on_connect` interface.
-  pub connect:        ArcSwap<BroadcastSender<Result<(), RedisError>>>,
+  pub connect:        RefSwap<RefCount<BroadcastSender<Result<(), RedisError>>>>,
   /// A channel for events that should close all client tasks with `Canceled` errors.
   ///
   /// Emitted when QUIT, SHUTDOWN, etc are called.
   pub close:          BroadcastSender<()>,
   /// A broadcast channel for the `on_invalidation` interface.
   #[cfg(feature = "i-tracking")]
-  pub invalidations:  ArcSwap<BroadcastSender<Invalidation>>,
+  pub invalidations:  RefSwap<RefCount<BroadcastSender<Invalidation>>>,
   /// A broadcast channel for notifying callers when servers go unresponsive.
-  pub unresponsive:   ArcSwap<BroadcastSender<Server>>,
+  pub unresponsive:   RefSwap<RefCount<BroadcastSender<Server>>>,
 }
 
 impl Notifications {
   pub fn new(id: &Str, capacity: usize) -> Self {
     Notifications {
       id:                                           id.clone(),
-      close:                                        broadcast::channel(capacity).0,
-      errors:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      pubsub:                                       ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      keyspace:                                     ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      reconnect:                                    ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      cluster_change:                               ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      connect:                                      ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      close:                                        broadcast_channel(capacity).0,
+      errors:                                       RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
+      pubsub:                                       RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
+      keyspace:                                     RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
+      reconnect:                                    RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
+      cluster_change:                               RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
+      connect:                                      RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
       #[cfg(feature = "i-tracking")]
-      invalidations:                                ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
-      unresponsive:                                 ArcSwap::new(Arc::new(broadcast::channel(capacity).0)),
+      invalidations:                                RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
+      unresponsive:                                 RefSwap::new(RefCount::new(broadcast_channel(capacity).0)),
     }
   }
 
@@ -100,74 +106,74 @@ impl Notifications {
   }
 
   pub fn broadcast_error(&self, error: RedisError) {
-    if let Err(BroadcastSendError(err)) = self.errors.load().send(error) {
+    broadcast_send(self.errors.load().as_ref(), &error, |err| {
       debug!("{}: No `on_error` listener. The error was: {err:?}", self.id);
-    }
+    });
   }
 
   pub fn broadcast_pubsub(&self, message: Message) {
-    if let Err(_) = self.pubsub.load().send(message) {
+    broadcast_send(self.pubsub.load().as_ref(), &message, |_| {
       debug!("{}: No `on_message` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_keyspace(&self, event: KeyspaceEvent) {
-    if let Err(_) = self.keyspace.load().send(event) {
+    broadcast_send(self.keyspace.load().as_ref(), &event, |_| {
       debug!("{}: No `on_keyspace_event` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_reconnect(&self, server: Server) {
-    if let Err(_) = self.reconnect.load().send(server) {
+    broadcast_send(self.reconnect.load().as_ref(), &server, |_| {
       debug!("{}: No `on_reconnect` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_cluster_change(&self, changes: Vec<ClusterStateChange>) {
-    if let Err(_) = self.cluster_change.load().send(changes) {
+    broadcast_send(self.cluster_change.load().as_ref(), &changes, |_| {
       debug!("{}: No `on_cluster_change` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
-    if let Err(_) = self.connect.load().send(result) {
+    broadcast_send(self.connect.load().as_ref(), &result, |_| {
       debug!("{}: No `on_connect` listeners.", self.id);
-    }
+    });
   }
 
   /// Interrupt any tokio `sleep` calls.
   //`RedisClientInner::wait_with_interrupt` hides the subscription part from callers.
   pub fn broadcast_close(&self) {
-    if let Err(_) = self.close.send(()) {
+    broadcast_send(&self.close, &(), |_| {
       debug!("{}: No `close` listeners.", self.id);
-    }
+    });
   }
 
   #[cfg(feature = "i-tracking")]
   pub fn broadcast_invalidation(&self, msg: Invalidation) {
-    if let Err(_) = self.invalidations.load().send(msg) {
+    broadcast_send(self.invalidations.load().as_ref(), &msg, |_| {
       debug!("{}: No `on_invalidation` listeners.", self.id);
-    }
+    });
   }
 
   pub fn broadcast_unresponsive(&self, server: Server) {
-    if let Err(_) = self.unresponsive.load().send(server) {
+    broadcast_send(self.unresponsive.load().as_ref(), &server, |_| {
       debug!("{}: No unresponsive listeners", self.id);
-    }
+    });
   }
 }
 
 #[derive(Clone)]
 pub struct ClientCounters {
-  pub cmd_buffer_len:   Arc<AtomicUsize>,
-  pub redelivery_count: Arc<AtomicUsize>,
+  pub cmd_buffer_len:   RefCount<AtomicUsize>,
+  pub redelivery_count: RefCount<AtomicUsize>,
 }
 
 impl Default for ClientCounters {
   fn default() -> Self {
     ClientCounters {
-      cmd_buffer_len:   Arc::new(AtomicUsize::new(0)),
-      redelivery_count: Arc::new(AtomicUsize::new(0)),
+      cmd_buffer_len:   RefCount::new(AtomicUsize::new(0)),
+      redelivery_count: RefCount::new(AtomicUsize::new(0)),
     }
   }
 }
@@ -370,8 +376,53 @@ impl ServerKind {
 }
 
 // TODO make a config option for other defaults and extend this
-fn create_resolver(id: &Str) -> Arc<dyn Resolve> {
-  Arc::new(DefaultResolver::new(id))
+fn create_resolver(id: &Str) -> RefCount<dyn Resolve> {
+  RefCount::new(DefaultResolver::new(id))
+}
+
+#[cfg(feature = "credential-provider")]
+fn spawn_credential_refresh(client: RedisClient, interval: Duration) -> JoinHandle<RedisResult<()>> {
+  spawn(async move {
+    loop {
+      trace!(
+        "{}: Waiting {} ms before refreshing credentials.",
+        client.inner.id,
+        interval.as_millis()
+      );
+      client.inner.wait_with_interrupt(interval).await?;
+
+      let (username, password) = match client.inner.config.credential_provider {
+        Some(ref provider) => match provider.fetch(None).await {
+          Ok(creds) => creds,
+          Err(e) => {
+            warn!("{}: Failed to fetch and refresh credentials: {e:?}", client.inner.id);
+            continue;
+          },
+        },
+        None => (None, None),
+      };
+
+      if client.state() != ClientState::Connected {
+        debug!("{}: Skip credential refresh when disconnected", client.inner.id);
+        continue;
+      }
+
+      if let Some(password) = password {
+        if client.inner.config.version == RespVersion::RESP3 {
+          let username = username.unwrap_or("default".into());
+          let result = client
+            .hello(RespVersion::RESP3, Some((username.into(), password.into())), None)
+            .await;
+
+          if let Err(err) = result {
+            warn!("{}: Failed to refresh credentials: {err}", client.inner.id);
+          }
+        } else if let Err(err) = client.auth(username, password).await {
+          warn!("{}: Failed to refresh credentials: {err}", client.inner.id);
+        }
+      }
+    }
+  })
 }
 
 pub struct RedisClientInner {
@@ -380,32 +431,36 @@ pub struct RedisClientInner {
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
   pub id:            Str,
   /// Whether the client uses RESP3.
-  pub resp3:         Arc<AtomicBool>,
+  pub resp3:         RefCount<AtomicBool>,
   /// The state of the underlying connection.
   pub state:         RwLock<ClientState>,
   /// Client configuration options.
-  pub config:        Arc<RedisConfig>,
+  pub config:        RefCount<RedisConfig>,
   /// Connection configuration options.
-  pub connection:    Arc<ConnectionConfig>,
+  pub connection:    RefCount<ConnectionConfig>,
   /// Performance config options for the client.
-  pub performance:   ArcSwap<PerformanceConfig>,
+  pub performance:   RefSwap<RefCount<PerformanceConfig>>,
   /// An optional reconnect policy.
   pub policy:        RwLock<Option<ReconnectPolicy>>,
   /// Notification channels for the event interfaces.
-  pub notifications: Arc<Notifications>,
-  /// An mpsc sender for commands to the router.
-  pub command_tx:    ArcSwap<CommandSender>,
-  /// Temporary storage for the receiver half of the router command channel.
-  pub command_rx:    RwLock<Option<CommandReceiver>>,
+  pub notifications: RefCount<Notifications>,
   /// Shared counters.
   pub counters:      ClientCounters,
   /// The DNS resolver to use when establishing new connections.
-  pub resolver:      AsyncRwLock<Arc<dyn Resolve>>,
+  pub resolver:      AsyncRwLock<RefCount<dyn Resolve>>,
   /// A backchannel that can be used to control the router connections even while the connections are blocked.
-  pub backchannel:   Arc<AsyncRwLock<Backchannel>>,
+  pub backchannel:   RefCount<AsyncRwLock<Backchannel>>,
   /// Server state cache for various deployment types.
   pub server_state:  RwLock<ServerState>,
 
+  /// An mpsc sender for commands to the router.
+  pub command_tx: RefSwap<RefCount<CommandSender>>,
+  /// Temporary storage for the receiver half of the router command channel.
+  pub command_rx: RwLock<Option<CommandReceiver>>,
+
+  /// A handle to a task that refreshes credentials on an interval.
+  #[cfg(feature = "credential-provider")]
+  pub credentials_task:      RwLock<Option<JoinHandle<RedisResult<()>>>>,
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
   pub latency_stats:         RwLock<MovingStats>,
@@ -414,10 +469,17 @@ pub struct RedisClientInner {
   pub network_latency_stats: RwLock<MovingStats>,
   /// Payload size metrics tracking for requests.
   #[cfg(feature = "metrics")]
-  pub req_size_stats:        Arc<RwLock<MovingStats>>,
+  pub req_size_stats:        RefCount<RwLock<MovingStats>>,
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
-  pub res_size_stats:        Arc<RwLock<MovingStats>>,
+  pub res_size_stats:        RefCount<RwLock<MovingStats>>,
+}
+
+#[cfg(feature = "credential-provider")]
+impl Drop for RedisClientInner {
+  fn drop(&mut self) {
+    self.abort_credential_refresh_task();
+  }
 }
 
 impl RedisClientInner {
@@ -426,35 +488,39 @@ impl RedisClientInner {
     perf: PerformanceConfig,
     connection: ConnectionConfig,
     policy: Option<ReconnectPolicy>,
-  ) -> Arc<RedisClientInner> {
+  ) -> RefCount<RedisClientInner> {
     let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = unbounded_channel();
-    let notifications = Arc::new(Notifications::new(&id, perf.broadcast_channel_capacity));
-    let (config, policy) = (Arc::new(config), RwLock::new(policy));
-    let performance = ArcSwap::new(Arc::new(perf));
+    let notifications = RefCount::new(Notifications::new(&id, perf.broadcast_channel_capacity));
+    let (config, policy) = (RefCount::new(config), RwLock::new(policy));
+    let performance = RefSwap::new(RefCount::new(perf));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
     let command_rx = RwLock::new(Some(command_rx));
-    let backchannel = Arc::new(AsyncRwLock::new(Backchannel::default()));
+    let backchannel = RefCount::new(AsyncRwLock::new(Backchannel::default()));
     let server_state = RwLock::new(ServerState::new(&config));
     let resp3 = if config.version == RespVersion::RESP3 {
-      Arc::new(AtomicBool::new(true))
+      RefCount::new(AtomicBool::new(true))
     } else {
-      Arc::new(AtomicBool::new(false))
+      RefCount::new(AtomicBool::new(false))
     };
-    let connection = Arc::new(connection);
-    let command_tx = ArcSwap::new(Arc::new(command_tx));
+    let connection = RefCount::new(connection);
+    #[cfg(feature = "glommio")]
+    let command_tx = command_tx.into();
+    let command_tx = RefSwap::new(RefCount::new(command_tx));
 
-    Arc::new(RedisClientInner {
+    RefCount::new(RedisClientInner {
       _lock: Mutex::new(()),
       #[cfg(feature = "metrics")]
       latency_stats: RwLock::new(MovingStats::default()),
       #[cfg(feature = "metrics")]
       network_latency_stats: RwLock::new(MovingStats::default()),
       #[cfg(feature = "metrics")]
-      req_size_stats: Arc::new(RwLock::new(MovingStats::default())),
+      req_size_stats: RefCount::new(RwLock::new(MovingStats::default())),
       #[cfg(feature = "metrics")]
-      res_size_stats: Arc::new(RwLock::new(MovingStats::default())),
+      res_size_stats: RefCount::new(RwLock::new(MovingStats::default())),
+      #[cfg(feature = "credential-provider")]
+      credentials_task: RwLock::new(None),
 
       backchannel,
       command_rx,
@@ -488,8 +554,8 @@ impl RedisClientInner {
   }
 
   /// Swap the command channel sender, returning the old one.
-  pub fn swap_command_tx(&self, tx: CommandSender) -> Arc<CommandSender> {
-    self.command_tx.swap(Arc::new(tx))
+  pub fn swap_command_tx(&self, tx: CommandSender) -> RefCount<CommandSender> {
+    self.command_tx.swap(RefCount::new(tx))
   }
 
   /// Whether the client has the command channel receiver stored. If not then the caller can assume another
@@ -503,7 +569,7 @@ impl RedisClientInner {
     self.server_state.write().replicas.clear()
   }
 
-  pub fn shared_resp3(&self) -> Arc<AtomicBool> {
+  pub fn shared_resp3(&self) -> RefCount<AtomicBool> {
     self.resp3.clone()
   }
 
@@ -516,7 +582,7 @@ impl RedisClientInner {
     }
   }
 
-  pub async fn set_resolver(&self, resolver: Arc<dyn Resolve>) {
+  pub async fn set_resolver(&self, resolver: RefCount<dyn Resolve>) {
     let mut guard = self.resolver.write().await;
     *guard = resolver;
   }
@@ -528,8 +594,8 @@ impl RedisClientInner {
     }
   }
 
-  pub async fn get_resolver(&self) -> Arc<dyn Resolve> {
-    self.resolver.read().await.clone()
+  pub async fn get_resolver(&self) -> RefCount<dyn Resolve> {
+    self.resolver.write().await.clone()
   }
 
   pub fn client_name(&self) -> &str {
@@ -598,7 +664,7 @@ impl RedisClientInner {
   }
 
   pub fn update_performance_config(&self, config: PerformanceConfig) {
-    self.performance.store(Arc::new(config));
+    self.performance.store(RefCount::new(config));
   }
 
   pub fn performance_config(&self) -> PerformanceConfig {
@@ -666,7 +732,7 @@ impl RedisClientInner {
   }
 
   pub fn send_reconnect(
-    self: &Arc<RedisClientInner>,
+    self: &RefCount<RedisClientInner>,
     server: Option<Server>,
     force: bool,
     tx: Option<ResponseSender>,
@@ -686,7 +752,7 @@ impl RedisClientInner {
   }
 
   #[cfg(feature = "replicas")]
-  pub fn send_replica_reconnect(self: &Arc<RedisClientInner>, server: &Server) {
+  pub fn send_replica_reconnect(self: &RefCount<RedisClientInner>, server: &Server) {
     debug!(
       "{}: Sending replica reconnect message to router for {:?}",
       self.id, server
@@ -718,6 +784,7 @@ impl RedisClientInner {
   }
 
   pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
+    #[allow(unused_mut)]
     let mut rx = self.notifications.close.subscribe();
     debug!("{}: Sleeping for {} ms", self.id, duration.as_millis());
     let (sleep_ft, recv_ft) = (sleep(duration), rx.recv());
@@ -728,6 +795,59 @@ impl RedisClientInner {
       Err(RedisError::new(RedisErrorKind::Canceled, "Connection(s) closed."))
     } else {
       Ok(())
+    }
+  }
+
+  #[cfg(not(feature = "glommio"))]
+  pub fn send_command(&self, command: RouterCommand) -> Result<(), RouterCommand> {
+    self.command_tx.load().send(command).map_err(|e| e.0)
+  }
+
+  #[cfg(feature = "glommio")]
+  pub fn send_command(&self, command: RouterCommand) -> Result<(), RouterCommand> {
+    self.command_tx.load().try_send(command).map_err(|e| match e {
+      glommio::GlommioError::Closed(glommio::ResourceType::Channel(v)) => v,
+      glommio::GlommioError::WouldBlock(glommio::ResourceType::Channel(v)) => v,
+      _ => unreachable!(),
+    })
+  }
+
+  #[cfg(not(feature = "credential-provider"))]
+  pub async fn read_credentials(&self, _: &Server) -> Result<(Option<String>, Option<String>), RedisError> {
+    Ok((self.config.username.clone(), self.config.password.clone()))
+  }
+
+  #[cfg(feature = "credential-provider")]
+  pub async fn read_credentials(&self, server: &Server) -> Result<(Option<String>, Option<String>), RedisError> {
+    Ok(if let Some(ref provider) = self.config.credential_provider {
+      provider.fetch(Some(server)).await?
+    } else {
+      (self.config.username.clone(), self.config.password.clone())
+    })
+  }
+
+  #[cfg(feature = "credential-provider")]
+  pub fn reset_credential_refresh_task(self: &RefCount<Self>) {
+    let mut guard = self.credentials_task.write();
+
+    if let Some(task) = guard.take() {
+      task.abort();
+    }
+    let refresh_interval = self
+      .config
+      .credential_provider
+      .as_ref()
+      .and_then(|provider| provider.refresh_interval());
+
+    if let Some(interval) = refresh_interval {
+      *guard = Some(spawn_credential_refresh(self.into(), interval));
+    }
+  }
+
+  #[cfg(feature = "credential-provider")]
+  pub fn abort_credential_refresh_task(&self) {
+    if let Some(task) = self.credentials_task.write().take() {
+      task.abort();
     }
   }
 }
