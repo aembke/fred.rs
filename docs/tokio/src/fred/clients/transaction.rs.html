@@ -345,6 +345,23 @@
 <a href="#345" id="345">345</a>
 <a href="#346" id="346">346</a>
 <a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a>
+<a href="#349" id="349">349</a>
+<a href="#350" id="350">350</a>
+<a href="#351" id="351">351</a>
+<a href="#352" id="352">352</a>
+<a href="#353" id="353">353</a>
+<a href="#354" id="354">354</a>
+<a href="#355" id="355">355</a>
+<a href="#356" id="356">356</a>
+<a href="#357" id="357">357</a>
+<a href="#358" id="358">358</a>
+<a href="#359" id="359">359</a>
+<a href="#360" id="360">360</a>
+<a href="#361" id="361">361</a>
+<a href="#362" id="362">362</a>
+<a href="#363" id="363">363</a>
+<a href="#364" id="364">364</a>
 </pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
   error::{RedisError, RedisErrorKind},
   interfaces,
@@ -357,38 +374,43 @@
     responders::ResponseKind,
     utils <span class="kw">as </span>protocol_utils,
   },
-  runtime::{oneshot_channel, Mutex, RefCount},
+  runtime::{oneshot_channel, AtomicBool, Mutex, RefCount},
   types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
   utils,
 };
 <span class="kw">use </span>std::{collections::VecDeque, fmt};
 
+<span class="kw">struct </span>State {
+  id:        u64,
+  commands:  Mutex&lt;VecDeque&lt;RedisCommand&gt;&gt;,
+  watched:   Mutex&lt;VecDeque&lt;RedisKey&gt;&gt;,
+  hash_slot: Mutex&lt;<span class="prelude-ty">Option</span>&lt;u16&gt;&gt;,
+  pipelined: AtomicBool,
+}
+
 <span class="doccomment">/// A cheaply cloneable transaction block.
 </span><span class="attr">#[derive(Clone)]
-#[cfg(feature = <span class="string">"transactions"</span>)]
 #[cfg_attr(docsrs, doc(cfg(feature = <span class="string">"transactions"</span>)))]
 </span><span class="kw">pub struct </span>Transaction {
-  id:        u64,
-  inner:     RefCount&lt;RedisClientInner&gt;,
-  commands:  RefCount&lt;Mutex&lt;VecDeque&lt;RedisCommand&gt;&gt;&gt;,
-  watched:   RefCount&lt;Mutex&lt;VecDeque&lt;RedisKey&gt;&gt;&gt;,
-  hash_slot: RefCount&lt;Mutex&lt;<span class="prelude-ty">Option</span>&lt;u16&gt;&gt;&gt;,
+  inner: RefCount&lt;RedisClientInner&gt;,
+  state: RefCount&lt;State&gt;,
 }
 
 <span class="kw">impl </span>fmt::Debug <span class="kw">for </span>Transaction {
   <span class="kw">fn </span>fmt(<span class="kw-2">&amp;</span><span class="self">self</span>, f: <span class="kw-2">&amp;mut </span>fmt::Formatter&lt;<span class="lifetime">'_</span>&gt;) -&gt; fmt::Result {
     f.debug_struct(<span class="string">"Transaction"</span>)
       .field(<span class="string">"client"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.inner.id)
-      .field(<span class="string">"id"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.id)
-      .field(<span class="string">"length"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.commands.lock().len())
-      .field(<span class="string">"hash_slot"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.hash_slot.lock())
+      .field(<span class="string">"id"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.state.id)
+      .field(<span class="string">"length"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.state.commands.lock().len())
+      .field(<span class="string">"hash_slot"</span>, <span class="kw-2">&amp;</span><span class="self">self</span>.state.hash_slot.lock())
+      .field(<span class="string">"pipelined"</span>, <span class="kw-2">&amp;</span>utils::read_bool_atomic(<span class="kw-2">&amp;</span><span class="self">self</span>.state.pipelined))
       .finish()
   }
 }
 
 <span class="kw">impl </span>PartialEq <span class="kw">for </span>Transaction {
   <span class="kw">fn </span>eq(<span class="kw-2">&amp;</span><span class="self">self</span>, other: <span class="kw-2">&amp;</span><span class="self">Self</span>) -&gt; bool {
-    <span class="self">self</span>.id == other.id
+    <span class="self">self</span>.state.id == other.state.id
   }
 }
 
@@ -420,7 +442,7 @@
       <span class="kw">let _ </span>= tx.send(<span class="prelude-val">Ok</span>(protocol_utils::queued_frame()));
     }
 
-    <span class="self">self</span>.commands.lock().push_back(command);
+    <span class="self">self</span>.state.commands.lock().push_back(command);
     <span class="prelude-val">Ok</span>(())
   }
 }
@@ -485,11 +507,14 @@
   <span class="doccomment">/// Create a new transaction.
   </span><span class="kw">pub</span>(<span class="kw">crate</span>) <span class="kw">fn </span>from_inner(inner: <span class="kw-2">&amp;</span>RefCount&lt;RedisClientInner&gt;) -&gt; <span class="self">Self </span>{
     Transaction {
-      inner:     inner.clone(),
-      commands:  RefCount::new(Mutex::new(VecDeque::new())),
-      watched:   RefCount::new(Mutex::new(VecDeque::new())),
-      hash_slot: RefCount::new(Mutex::new(<span class="prelude-val">None</span>)),
-      id:        utils::random_u64(u64::MAX),
+      inner: inner.clone(),
+      state: RefCount::new(State {
+        commands:  Mutex::new(VecDeque::new()),
+        watched:   Mutex::new(VecDeque::new()),
+        hash_slot: Mutex::new(<span class="prelude-val">None</span>),
+        pipelined: AtomicBool::new(<span class="bool-val">false</span>),
+        id:        utils::random_u64(u64::MAX),
+      }),
     }
   }
 
@@ -500,7 +525,7 @@
     }
 
     <span class="kw">if let </span><span class="prelude-val">Some</span>(slot) = command.cluster_hash() {
-      <span class="kw">if let </span><span class="prelude-val">Some</span>(old_slot) = utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.hash_slot) {
+      <span class="kw">if let </span><span class="prelude-val">Some</span>(old_slot) = utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.state.hash_slot) {
         <span class="kw">let </span>(old_server, server) = <span class="self">self</span>.inner.with_cluster_state(|state| {
           <span class="macro">debug!</span>(
             <span class="string">"{}: Checking transaction hash slots: {}, {}"</span>,
@@ -517,7 +542,7 @@
           ));
         }
       } <span class="kw">else </span>{
-        utils::set_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.hash_slot, <span class="prelude-val">Some</span>(slot));
+        utils::set_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.state.hash_slot, <span class="prelude-val">Some</span>(slot));
       }
     }
 
@@ -537,24 +562,35 @@
 
   <span class="doccomment">/// An ID identifying the underlying transaction state.
   </span><span class="kw">pub fn </span>id(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; u64 {
-    <span class="self">self</span>.id
+    <span class="self">self</span>.state.id
   }
 
   <span class="doccomment">/// Clear the internal command buffer and watched keys.
   </span><span class="kw">pub fn </span>reset(<span class="kw-2">&amp;</span><span class="self">self</span>) {
-    <span class="self">self</span>.commands.lock().clear();
-    <span class="self">self</span>.watched.lock().clear();
-    <span class="self">self</span>.hash_slot.lock().take();
+    <span class="self">self</span>.state.commands.lock().clear();
+    <span class="self">self</span>.state.watched.lock().clear();
+    <span class="self">self</span>.state.hash_slot.lock().take();
   }
 
   <span class="doccomment">/// Read the number of commands queued to run.
   </span><span class="kw">pub fn </span>len(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-    <span class="self">self</span>.commands.lock().len()
+    <span class="self">self</span>.state.commands.lock().len()
+  }
+
+  <span class="doccomment">/// Whether to pipeline commands in the transaction.
+  ///
+  /// Note: pipelined transactions should only be used with Redis version &gt;=2.6.5.
+  </span><span class="kw">pub fn </span>pipeline(<span class="kw-2">&amp;</span><span class="self">self</span>, val: bool) {
+    utils::set_bool_atomic(<span class="kw-2">&amp;</span><span class="self">self</span>.state.pipelined, val);
   }
 
   <span class="doccomment">/// Read the number of keys to `WATCH` before the starting the transaction.
+  </span><span class="attr">#[deprecated(
+    since = <span class="string">"9.2.0"</span>,
+    note = <span class="string">"Please use `WATCH` with clients from an `ExclusivePool` instead."
+  </span>)]
   </span><span class="kw">pub fn </span>watched_len(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; usize {
-    <span class="self">self</span>.watched.lock().len()
+    <span class="self">self</span>.state.watched.lock().len()
   }
 
   <span class="doccomment">/// Executes all previously queued commands in a transaction.
@@ -586,35 +622,48 @@
   {
     <span class="kw">let </span>commands = {
       <span class="self">self
-        </span>.commands
+        </span>.state
+        .commands
         .lock()
         .iter()
         .map(|cmd| cmd.duplicate(ResponseKind::Skip))
         .collect()
     };
-    <span class="kw">let </span>watched = { <span class="self">self</span>.watched.lock().iter().cloned().collect() };
-    <span class="kw">let </span>hash_slot = utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.hash_slot);
-    exec(<span class="kw-2">&amp;</span><span class="self">self</span>.inner, commands, watched, hash_slot, abort_on_error, <span class="self">self</span>.id)
-      .<span class="kw">await</span><span class="question-mark">?
-      </span>.convert()
+    <span class="kw">let </span>pipelined = utils::read_bool_atomic(<span class="kw-2">&amp;</span><span class="self">self</span>.state.pipelined);
+    <span class="kw">let </span>hash_slot = utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.state.hash_slot);
+
+    exec(
+      <span class="kw-2">&amp;</span><span class="self">self</span>.inner,
+      commands,
+      hash_slot,
+      abort_on_error,
+      pipelined,
+      <span class="self">self</span>.state.id,
+    )
+    .<span class="kw">await</span><span class="question-mark">?
+    </span>.convert()
   }
 
   <span class="doccomment">/// Send the `WATCH` command with the provided keys before starting the transaction.
+  </span><span class="attr">#[deprecated(
+    since = <span class="string">"9.2.0"</span>,
+    note = <span class="string">"Please use `WATCH` with clients from an `ExclusivePool` instead."
+  </span>)]
   </span><span class="kw">pub fn </span>watch_before&lt;K&gt;(<span class="kw-2">&amp;</span><span class="self">self</span>, keys: K)
   <span class="kw">where
     </span>K: Into&lt;MultipleKeys&gt;,
   {
-    <span class="self">self</span>.watched.lock().extend(keys.into().inner());
+    <span class="self">self</span>.state.watched.lock().extend(keys.into().inner());
   }
 
   <span class="doccomment">/// Read the hash slot against which this transaction will run, if known.  
   </span><span class="kw">pub fn </span>hash_slot(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;u16&gt; {
-    utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.hash_slot)
+    utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.state.hash_slot)
   }
 
   <span class="doccomment">/// Read the server ID against which this transaction will run, if known.
   </span><span class="kw">pub fn </span>cluster_node(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="prelude-ty">Option</span>&lt;Server&gt; {
-    utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.hash_slot).and_then(|slot| {
+    utils::read_mutex(<span class="kw-2">&amp;</span><span class="self">self</span>.state.hash_slot).and_then(|slot| {
       <span class="self">self
         </span>.inner
         .with_cluster_state(|state| <span class="prelude-val">Ok</span>(state.get_server(slot).cloned()))
@@ -627,9 +676,9 @@
 <span class="kw">async fn </span>exec(
   inner: <span class="kw-2">&amp;</span>RefCount&lt;RedisClientInner&gt;,
   commands: VecDeque&lt;RedisCommand&gt;,
-  watched: VecDeque&lt;RedisKey&gt;,
   hash_slot: <span class="prelude-ty">Option</span>&lt;u16&gt;,
   abort_on_error: bool,
+  pipelined: bool,
   id: u64,
 ) -&gt; <span class="prelude-ty">Result</span>&lt;RedisValue, RedisError&gt; {
   <span class="kw">if </span>commands.is_empty() {
@@ -657,33 +706,18 @@
       command
     })
     .collect();
-  <span class="comment">// collapse the watched keys into one command
-  </span><span class="kw">let </span>watched = <span class="kw">if </span>watched.is_empty() {
-    <span class="prelude-val">None
-  </span>} <span class="kw">else </span>{
-    <span class="kw">let </span>args: Vec&lt;RedisValue&gt; = watched.into_iter().map(|k| k.into()).collect();
-    <span class="kw">let </span><span class="kw-2">mut </span>watch_cmd = RedisCommand::new(RedisCommandKind::Watch, args);
-    watch_cmd.can_pipeline = <span class="bool-val">false</span>;
-    watch_cmd.skip_backpressure = <span class="bool-val">true</span>;
-    watch_cmd.transaction_id = <span class="prelude-val">Some</span>(id);
-    <span class="kw">if let </span><span class="prelude-val">Some</span>(hash_slot) = hash_slot.as_ref() {
-      watch_cmd.hasher = ClusterHash::Custom(<span class="kw-2">*</span>hash_slot);
-    }
-    <span class="prelude-val">Some</span>(watch_cmd)
-  };
 
   <span class="macro">_trace!</span>(
     inner,
-    <span class="string">"Sending transaction {} with {} commands ({} watched) to router."</span>,
+    <span class="string">"Sending transaction {} with {} commands to router."</span>,
     id,
     commands.len(),
-    watched.as_ref().map(|c| c.args().len()).unwrap_or(<span class="number">0</span>)
   );
   <span class="kw">let </span>command = RouterCommand::Transaction {
     id,
     tx,
     commands,
-    watched,
+    pipelined,
     abort_on_error,
   };
   <span class="kw">let </span>timeout_dur = trx_options.timeout.unwrap_or_else(|| inner.default_command_timeout());

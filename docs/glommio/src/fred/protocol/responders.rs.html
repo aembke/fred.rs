@@ -612,6 +612,11 @@
 <a href="#612" id="612">612</a>
 <a href="#613" id="613">613</a>
 <a href="#614" id="614">614</a>
+<a href="#615" id="615">615</a>
+<a href="#616" id="616">616</a>
+<a href="#617" id="617">617</a>
+<a href="#618" id="618">618</a>
+<a href="#619" id="619">619</a>
 </pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
   error::{RedisError, RedisErrorKind},
   interfaces::Resp3Frame,
@@ -781,6 +786,11 @@
       ResponseKind::Buffer { <span class="kw-2">ref </span>expected, .. } =&gt; <span class="kw-2">*</span>expected,
       ResponseKind::ValueScan(<span class="kw">_</span>) | ResponseKind::KeyScan(<span class="kw">_</span>) =&gt; <span class="number">1</span>,
     }
+  }
+
+  <span class="doccomment">/// Whether the responder is a `ResponseKind::Buffer`.
+  </span><span class="kw">pub fn </span>is_buffer(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; bool {
+    <span class="macro">matches!</span>(<span class="self">self</span>, ResponseKind::Buffer { .. })
   }
 }
 

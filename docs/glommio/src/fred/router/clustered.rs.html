@@ -755,6 +755,15 @@
 <a href="#755" id="755">755</a>
 <a href="#756" id="756">756</a>
 <a href="#757" id="757">757</a>
+<a href="#758" id="758">758</a>
+<a href="#759" id="759">759</a>
+<a href="#760" id="760">760</a>
+<a href="#761" id="761">761</a>
+<a href="#762" id="762">762</a>
+<a href="#763" id="763">763</a>
+<a href="#764" id="764">764</a>
+<a href="#765" id="765">765</a>
+<a href="#766" id="766">766</a>
 </pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
   error::{RedisError, RedisErrorKind},
   interfaces,
@@ -1059,9 +1068,33 @@
   </span>spawn(reader_ft)
 }
 
+<span class="doccomment">/// Parse a cluster redirection frame from the provided server, returning the new destination node info.
+</span><span class="kw">pub fn </span>parse_cluster_error_frame(
+  inner: <span class="kw-2">&amp;</span>RefCount&lt;RedisClientInner&gt;,
+  frame: <span class="kw-2">&amp;</span>Resp3Frame,
+  server: <span class="kw-2">&amp;</span>Server,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(ClusterErrorKind, u16, Server), RedisError&gt; {
+  <span class="kw">let </span>(kind, slot, server_str) = <span class="kw">match </span>frame.as_str() {
+    <span class="prelude-val">Some</span>(data) =&gt; protocol_utils::parse_cluster_error(data)<span class="question-mark">?</span>,
+    <span class="prelude-val">None </span>=&gt; <span class="kw">return </span><span class="prelude-val">Err</span>(RedisError::new(RedisErrorKind::Protocol, <span class="string">"Invalid cluster error."</span>)),
+  };
+  <span class="kw">let </span>server = <span class="kw">match </span>Server::from_parts(<span class="kw-2">&amp;</span>server_str, <span class="kw-2">&amp;</span>server.host) {
+    <span class="prelude-val">Some</span>(server) =&gt; server,
+    <span class="prelude-val">None </span>=&gt; {
+      <span class="macro">_warn!</span>(inner, <span class="string">"Invalid server field in cluster error: {}"</span>, server_str);
+      <span class="kw">return </span><span class="prelude-val">Err</span>(RedisError::new(
+        RedisErrorKind::Protocol,
+        <span class="string">"Invalid cluster redirection error."</span>,
+      ));
+    },
+  };
+
+  <span class="prelude-val">Ok</span>((kind, slot, server))
+}
+
 <span class="doccomment">/// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the
 /// command queue if appropriate.
-</span><span class="comment">// Cluster errors within a transaction can only be handled via the blocking router channel.
+</span><span class="comment">// Cluster errors within a non-pipelined transaction can only be handled via the blocking router channel.
 </span><span class="kw">fn </span>process_cluster_error(
   inner: <span class="kw-2">&amp;</span>RefCount&lt;RedisClientInner&gt;,
   server: <span class="kw-2">&amp;</span>Server,
@@ -1071,30 +1104,11 @@
   <span class="comment">// commands are not redirected to replica nodes
   </span>command.use_replica = <span class="bool-val">false</span>;
 
-  <span class="kw">let </span>(kind, slot, server_str) = <span class="kw">match </span>frame.as_str() {
-    <span class="prelude-val">Some</span>(data) =&gt; <span class="kw">match </span>protocol_utils::parse_cluster_error(data) {
-      <span class="prelude-val">Ok</span>(result) =&gt; result,
-      <span class="prelude-val">Err</span>(e) =&gt; {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        command.respond_to_caller(<span class="prelude-val">Err</span>(e));
-        <span class="kw">return</span>;
-      },
-    },
-    <span class="prelude-val">None </span>=&gt; {
+  <span class="kw">let </span>(kind, slot, server) = <span class="kw">match </span>parse_cluster_error_frame(inner, <span class="kw-2">&amp;</span>frame, server) {
+    <span class="prelude-val">Ok</span>(results) =&gt; results,
+    <span class="prelude-val">Err</span>(e) =&gt; {
       command.respond_to_router(inner, RouterResponse::Continue);
-      command.respond_to_caller(<span class="prelude-val">Err</span>(RedisError::new(RedisErrorKind::Protocol, <span class="string">"Invalid cluster error."</span>)));
-      <span class="kw">return</span>;
-    },
-  };
-  <span class="kw">let </span>server = <span class="kw">match </span>Server::from_parts(<span class="kw-2">&amp;</span>server_str, <span class="kw-2">&amp;</span>server.host) {
-    <span class="prelude-val">Some</span>(server) =&gt; server,
-    <span class="prelude-val">None </span>=&gt; {
-      <span class="macro">_warn!</span>(inner, <span class="string">"Invalid server field in cluster error: {}"</span>, server_str);
-      command.respond_to_router(inner, RouterResponse::Continue);
-      command.respond_to_caller(<span class="prelude-val">Err</span>(RedisError::new(
-        RedisErrorKind::Cluster,
-        <span class="string">"Invalid cluster redirection error."</span>,
-      )));
+      command.respond_to_caller(<span class="prelude-val">Err</span>(e));
       <span class="kw">return</span>;
     },
   };
@@ -1198,7 +1212,8 @@
   }
   responses::check_and_set_unblocked_flag(inner, <span class="kw-2">&amp;</span>command).<span class="kw">await</span>;
 
-  <span class="kw">if </span>frame.is_redirection() {
+  <span class="comment">// pipelined transactions defer cluster redirections until after `EXECABORT` is received
+  </span><span class="kw">if </span>frame.is_redirection() &amp;&amp; !command.in_pipelined_transaction() {
     <span class="macro">_debug!</span>(
       inner,
       <span class="string">"Recv MOVED or ASK error for `{}` from {}: {:?}"</span>,
@@ -1210,7 +1225,10 @@
     <span class="kw">return </span><span class="prelude-val">Ok</span>(());
   }
 
-  <span class="kw">if </span>command.transaction_id.is_some() {
+  <span class="comment">// non-pipelined transactions use ResponseKind::Skip, pipelined ones use a buffer. non-pipelined transactions
+  // need to retry commands in a special way so this logic forwards the result via the latest command's router
+  // response channel and exits early. pipelined transactions use the normal buffered response process below.
+  </span><span class="kw">if </span>command.in_non_pipelined_transaction() {
     <span class="kw">if let </span><span class="prelude-val">Some</span>(error) = protocol_utils::frame_to_error(<span class="kw-2">&amp;</span>frame) {
       <span class="attr">#[allow(unused_mut)]
       </span><span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">mut </span>tx) = command.take_router_tx() {

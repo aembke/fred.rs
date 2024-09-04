@@ -1804,6 +1804,8 @@
 <a href="#1804" id="1804">1804</a>
 <a href="#1805" id="1805">1805</a>
 <a href="#1806" id="1806">1806</a>
+<a href="#1807" id="1807">1807</a>
+<a href="#1808" id="1808">1808</a>
 </pre></div><pre class="rust"><code><span class="kw">pub use </span><span class="kw">crate</span>::protocol::types::Server;
 <span class="kw">use crate</span>::{
   error::{RedisError, RedisErrorKind},
@@ -1817,6 +1819,8 @@
 
 <span class="attr">#[cfg(feature = <span class="string">"mocks"</span>)]
 </span><span class="kw">use </span><span class="kw">crate</span>::mocks::Mocks;
+<span class="attr">#[cfg(feature = <span class="string">"credential-provider"</span>)]
+</span><span class="kw">use </span>async_trait::async_trait;
 <span class="attr">#[cfg(feature = <span class="string">"unix-sockets"</span>)]
 </span><span class="kw">use </span>std::path::PathBuf;
 <span class="attr">#[cfg(any(feature = <span class="string">"mocks"</span>, feature = <span class="string">"credential-provider"</span>))]

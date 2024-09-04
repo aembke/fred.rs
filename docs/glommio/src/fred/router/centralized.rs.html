@@ -221,6 +221,8 @@
 <a href="#221" id="221">221</a>
 <a href="#222" id="222">222</a>
 <a href="#223" id="223">223</a>
+<a href="#224" id="224">224</a>
+<a href="#225" id="225">225</a>
 </pre></div><pre class="rust"><code><span class="kw">use crate</span>::{
   error::RedisErrorKind,
   modules::inner::RedisClientInner,
@@ -363,7 +365,10 @@
   }
   responses::check_and_set_unblocked_flag(inner, <span class="kw-2">&amp;</span>command).<span class="kw">await</span>;
 
-  <span class="kw">if </span>command.transaction_id.is_some() {
+  <span class="comment">// non-pipelined transactions use ResponseKind::Skip, pipelined ones use a buffer. non-pipelined transactions
+  // need to retry commands in a special way so this logic forwards the result via the latest command's router
+  // response channel and exits early. pipelined transactions use the normal buffered response process below.
+  </span><span class="kw">if </span>command.in_non_pipelined_transaction() {
     <span class="kw">if let </span><span class="prelude-val">Some</span>(error) = protocol_utils::frame_to_error(<span class="kw-2">&amp;</span>frame) {
       <span class="attr">#[allow(unused_mut)]
       </span><span class="kw">if let </span><span class="prelude-val">Some</span>(<span class="kw-2">mut </span>tx) = command.take_router_tx() {
@@ -379,8 +384,7 @@
     }
   }
 
-  <span class="comment">// TODO clean this up
-  </span><span class="macro">_trace!</span>(inner, <span class="string">"Handling centralized response kind: {:?}"</span>, command.response);
+  <span class="macro">_trace!</span>(inner, <span class="string">"Handling centralized response kind: {:?}"</span>, command.response);
   <span class="kw">match </span>command.take_response() {
     ResponseKind::Skip | ResponseKind::Respond(<span class="prelude-val">None</span>) =&gt; {
       command.respond_to_router(inner, RouterResponse::Continue);
