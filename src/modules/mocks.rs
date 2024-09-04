@@ -328,10 +328,10 @@ mod tests {
     interfaces::{ClientLike, KeysInterface},
     mocks::{Buffer, Echo, Mocks, SimpleMap},
     prelude::Expiration,
+    runtime::JoinHandle,
     types::{RedisConfig, RedisValue, SetOptions},
   };
   use std::sync::Arc;
-  use tokio::task::JoinHandle;
 
   async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
     let config = RedisConfig {

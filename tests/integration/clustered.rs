@@ -52,6 +52,10 @@ mod other {
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_gracefully_quit);
 
+  #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
+  cluster_test!(other, should_fail_pipeline_transaction_error);
+  #[cfg(all(feature = "transactions", feature = "i-keys"))]
+  cluster_test!(other, should_pipeline_transaction);
   #[cfg(feature = "credential-provider")]
   cluster_test!(other, should_use_credential_provider);
   #[cfg(feature = "metrics")]

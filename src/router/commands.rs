@@ -534,11 +534,17 @@ async fn process_command(
     #[cfg(feature = "transactions")]
     RouterCommand::Transaction {
       commands,
-      watched,
+      pipelined,
       id,
       tx,
       abort_on_error,
-    } => transactions::run(inner, router, commands, watched, id, abort_on_error, tx).await,
+    } => {
+      if pipelined {
+        transactions::exec::pipelined(inner, router, commands, id, tx).await
+      } else {
+        transactions::exec::non_pipelined(inner, router, commands, id, abort_on_error, tx).await
+      }
+    },
     RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
     RouterCommand::Command(command) => process_normal_command(inner, router, command).await,
     RouterCommand::Connections { tx } => process_connections(inner, router, tx),
@@ -669,11 +675,9 @@ mod mocking {
       RouterCommand::Pipeline { mut commands } => {
         let mut results = Vec::with_capacity(commands.len());
         let response = commands.last_mut().map(|c| c.take_response());
-        let uses_all_results = match response {
-          Some(ResponseKind::Buffer { .. }) => true,
-          _ => false,
-        };
+        let uses_all_results = matches!(response, Some(ResponseKind::Buffer { .. }));
         let tx = response.and_then(|mut k| k.take_response_tx());
+
         for mut command in commands.into_iter() {
           let result = mocks
             .process_command(command.to_mocked())

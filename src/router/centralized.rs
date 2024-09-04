@@ -140,7 +140,10 @@ pub async fn process_response_frame(
   }
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
-  if command.transaction_id.is_some() {
+  // non-pipelined transactions use ResponseKind::Skip, pipelined ones use a buffer. non-pipelined transactions
+  // need to retry commands in a special way so this logic forwards the result via the latest command's router
+  // response channel and exits early. pipelined transactions use the normal buffered response process below.
+  if command.in_non_pipelined_transaction() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
       #[allow(unused_mut)]
       if let Some(mut tx) = command.take_router_tx() {
@@ -156,7 +159,6 @@ pub async fn process_response_frame(
     }
   }
 
-  // TODO clean this up
   _trace!(inner, "Handling centralized response kind: {:?}", command.response);
   match command.take_response() {
     ResponseKind::Skip | ResponseKind::Respond(None) => {

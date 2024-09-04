@@ -1823,6 +1823,14 @@ impl RedisCommand {
     }
   }
 
+  pub fn in_pipelined_transaction(&self) -> bool {
+    self.transaction_id.is_some() && self.response.is_buffer()
+  }
+
+  pub fn in_non_pipelined_transaction(&self) -> bool {
+    self.transaction_id.is_some() && !self.response.is_buffer()
+  }
+
   pub fn decr_check_redirections(&mut self) -> Result<(), RedisError> {
     if self.redirections_remaining == 0 {
       Err(RedisError::new(RedisErrorKind::Unknown, "Too many redirections."))
@@ -2091,8 +2099,8 @@ pub enum RouterCommand {
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
-    watched:        Option<RedisCommand>,
     abort_on_error: bool,
+    pipelined:      bool,
     tx:             ResponseSender,
   },
   /// Retry a command after a `MOVED` error.

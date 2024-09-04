@@ -302,9 +302,33 @@ pub fn spawn_reader_task(
   spawn(reader_ft)
 }
 
+/// Parse a cluster redirection frame from the provided server, returning the new destination node info.
+pub fn parse_cluster_error_frame(
+  inner: &RefCount<RedisClientInner>,
+  frame: &Resp3Frame,
+  server: &Server,
+) -> Result<(ClusterErrorKind, u16, Server), RedisError> {
+  let (kind, slot, server_str) = match frame.as_str() {
+    Some(data) => protocol_utils::parse_cluster_error(data)?,
+    None => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster error.")),
+  };
+  let server = match Server::from_parts(&server_str, &server.host) {
+    Some(server) => server,
+    None => {
+      _warn!(inner, "Invalid server field in cluster error: {}", server_str);
+      return Err(RedisError::new(
+        RedisErrorKind::Protocol,
+        "Invalid cluster redirection error.",
+      ));
+    },
+  };
+
+  Ok((kind, slot, server))
+}
+
 /// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the
 /// command queue if appropriate.
-// Cluster errors within a transaction can only be handled via the blocking router channel.
+// Cluster errors within a non-pipelined transaction can only be handled via the blocking router channel.
 fn process_cluster_error(
   inner: &RefCount<RedisClientInner>,
   server: &Server,
@@ -314,30 +338,11 @@ fn process_cluster_error(
   // commands are not redirected to replica nodes
   command.use_replica = false;
 
-  let (kind, slot, server_str) = match frame.as_str() {
-    Some(data) => match protocol_utils::parse_cluster_error(data) {
-      Ok(result) => result,
-      Err(e) => {
-        command.respond_to_router(inner, RouterResponse::Continue);
-        command.respond_to_caller(Err(e));
-        return;
-      },
-    },
-    None => {
+  let (kind, slot, server) = match parse_cluster_error_frame(inner, &frame, server) {
+    Ok(results) => results,
+    Err(e) => {
       command.respond_to_router(inner, RouterResponse::Continue);
-      command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster error.")));
-      return;
-    },
-  };
-  let server = match Server::from_parts(&server_str, &server.host) {
-    Some(server) => server,
-    None => {
-      _warn!(inner, "Invalid server field in cluster error: {}", server_str);
-      command.respond_to_router(inner, RouterResponse::Continue);
-      command.respond_to_caller(Err(RedisError::new(
-        RedisErrorKind::Cluster,
-        "Invalid cluster redirection error.",
-      )));
+      command.respond_to_caller(Err(e));
       return;
     },
   };
@@ -441,7 +446,8 @@ pub async fn process_response_frame(
   }
   responses::check_and_set_unblocked_flag(inner, &command).await;
 
-  if frame.is_redirection() {
+  // pipelined transactions defer cluster redirections until after `EXECABORT` is received
+  if frame.is_redirection() && !command.in_pipelined_transaction() {
     _debug!(
       inner,
       "Recv MOVED or ASK error for `{}` from {}: {:?}",
@@ -453,7 +459,10 @@ pub async fn process_response_frame(
     return Ok(());
   }
 
-  if command.transaction_id.is_some() {
+  // non-pipelined transactions use ResponseKind::Skip, pipelined ones use a buffer. non-pipelined transactions
+  // need to retry commands in a special way so this logic forwards the result via the latest command's router
+  // response channel and exits early. pipelined transactions use the normal buffered response process below.
+  if command.in_non_pipelined_transaction() {
     if let Some(error) = protocol_utils::frame_to_error(&frame) {
       #[allow(unused_mut)]
       if let Some(mut tx) = command.take_router_tx() {

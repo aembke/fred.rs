@@ -168,6 +168,11 @@ impl ResponseKind {
       ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) => 1,
     }
   }
+
+  /// Whether the responder is a `ResponseKind::Buffer`.
+  pub fn is_buffer(&self) -> bool {
+    matches!(self, ResponseKind::Buffer { .. })
+  }
 }
 
 #[cfg(feature = "metrics")]

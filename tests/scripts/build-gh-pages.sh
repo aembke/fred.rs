@@ -1,4 +1,4 @@
-#!/bin/bas.h
+#!/bin/bash
 
 rm -rf .doc
 mkdir -p .doc .doc/tokio .doc/glommio

@@ -29,7 +29,6 @@ use std::collections::HashSet;
 pub mod centralized;
 pub mod clustered;
 pub mod commands;
-pub mod reader;
 pub mod replicas;
 pub mod responses;
 pub mod sentinel;

@@ -50,6 +50,10 @@ mod other {
   centralized_test!(other, should_safely_change_protocols_repeatedly);
   centralized_test!(other, should_gracefully_quit);
 
+  #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
+  centralized_test!(other, should_fail_pipeline_transaction_error);
+  #[cfg(all(feature = "transactions", feature = "i-keys"))]
+  centralized_test!(other, should_pipeline_transaction);
   #[cfg(feature = "credential-provider")]
   centralized_test!(other, should_use_credential_provider);
   #[cfg(feature = "metrics")]

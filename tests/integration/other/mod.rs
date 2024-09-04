@@ -602,6 +602,41 @@ pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig
   Ok(())
 }
 
+#[cfg(all(feature = "transactions", feature = "i-keys"))]
+pub async fn should_pipeline_transaction(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.incr("foo{1}").await?;
+  client.incr("bar{1}").await?;
+
+  let trx = client.multi();
+  trx.pipeline(true);
+  trx.get("foo{1}").await?;
+  trx.incr("bar{1}").await?;
+  let (foo, bar): (i64, i64) = trx.exec(true).await?;
+  assert_eq!((foo, bar), (1, 2));
+
+  Ok(())
+}
+
+#[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
+pub async fn should_fail_pipeline_transaction_error(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.incr("foo{1}").await?;
+  client.incr("bar{1}").await?;
+
+  let trx = client.multi();
+  trx.pipeline(true);
+  trx.get("foo{1}").await?;
+  trx.hgetall("bar{1}").await?;
+  trx.get("foo{1}").await?;
+
+  if let Err(e) = trx.exec::<RedisValue>(false).await {
+    assert_eq!(*e.kind(), RedisErrorKind::InvalidArgument);
+  } else {
+    panic!("Expected error from transaction.");
+  }
+
+  Ok(())
+}
+
 #[cfg(all(feature = "i-keys", feature = "i-lists"))]
 pub async fn should_manually_connect_twice(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let client = client.clone_new();
