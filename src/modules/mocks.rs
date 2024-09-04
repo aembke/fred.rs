@@ -405,4 +405,20 @@ mod tests {
     ];
     assert_eq!(buffer.take(), expected);
   }
+
+  #[tokio::test]
+  async fn should_mock_pipelines() {
+    let (client, _) = create_mock_client(Arc::new(Echo)).await;
+
+    let pipeline = client.pipeline();
+    pipeline.get::<(), _>("foo").await.unwrap();
+    pipeline.get::<(), _>("bar").await.unwrap();
+
+    let all: Vec<Vec<String>> = pipeline.all().await.unwrap();
+    assert_eq!(all, vec![vec!["foo"], vec!["bar"]]);
+    let try_all = pipeline.try_all::<Vec<String>>().await;
+    assert_eq!(try_all, vec![Ok(vec!["foo".to_string()]), Ok(vec!["bar".to_string()])]);
+    let last: Vec<String> = pipeline.last().await.unwrap();
+    assert_eq!(last, vec!["bar"]);
+  }
 }

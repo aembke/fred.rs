@@ -641,7 +641,11 @@ pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError>
 #[allow(unused_mut)]
 mod mocking {
   use super::*;
-  use crate::{modules::mocks::Mocks, protocol::utils as protocol_utils};
+  use crate::{
+    modules::mocks::Mocks,
+    protocol::{responders::ResponseKind, utils as protocol_utils},
+  };
+  use redis_protocol::resp3::types::BytesFrame;
   use std::sync::Arc;
 
   /// Process any kind of router command.
@@ -662,12 +666,44 @@ mod mocking {
           },
         }
       },
-      RouterCommand::Pipeline { commands } => {
+      RouterCommand::Pipeline { mut commands } => {
+        let mut results = Vec::with_capacity(commands.len());
+        let response = commands.last_mut().map(|c| c.take_response());
+        let uses_all_results = match response {
+          Some(ResponseKind::Buffer { .. }) => true,
+          _ => false,
+        };
+        let tx = response.and_then(|mut k| k.take_response_tx());
         for mut command in commands.into_iter() {
-          let mocked = command.to_mocked();
-          let result = mocks.process_command(mocked).map(protocol_utils::mocked_value_to_frame);
+          let result = mocks
+            .process_command(command.to_mocked())
+            .map(protocol_utils::mocked_value_to_frame);
 
-          command.respond_to_caller(result);
+          results.push(result);
+        }
+        if let Some(mut tx) = tx {
+          let mut frames = Vec::with_capacity(results.len());
+
+          for frame in results.into_iter() {
+            match frame {
+              Ok(frame) => frames.push(frame),
+              Err(err) => {
+                frames.push(Resp3Frame::SimpleError {
+                  data:       err.details().into(),
+                  attributes: None,
+                });
+              },
+            }
+          }
+
+          if uses_all_results {
+            let _ = tx.send(Ok(BytesFrame::Array {
+              data:       frames,
+              attributes: None,
+            }));
+          } else {
+            let _ = tx.send(Ok(frames.pop().unwrap_or(BytesFrame::Null)));
+          }
         }
 
         Ok(())

@@ -2,6 +2,7 @@
 
 * Add initial support for the [Glommio](https://github.com/DataDog/glommio) runtime
 * Add `credential-provider` feature
+* Fix pipeline processing in mocks
 
 ## 9.1.2
 
