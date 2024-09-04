@@ -10,39 +10,43 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::{oneshot_channel, AtomicBool, Mutex, RefCount},
   types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
   utils,
 };
-use parking_lot::Mutex;
-use std::{collections::VecDeque, fmt, sync::Arc};
-use tokio::sync::oneshot::channel as oneshot_channel;
+use std::{collections::VecDeque, fmt};
+
+struct State {
+  id:        u64,
+  commands:  Mutex<VecDeque<RedisCommand>>,
+  watched:   Mutex<VecDeque<RedisKey>>,
+  hash_slot: Mutex<Option<u16>>,
+  pipelined: AtomicBool,
+}
 
 /// A cheaply cloneable transaction block.
 #[derive(Clone)]
-#[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
-  id:        u64,
-  inner:     Arc<RedisClientInner>,
-  commands:  Arc<Mutex<VecDeque<RedisCommand>>>,
-  watched:   Arc<Mutex<VecDeque<RedisKey>>>,
-  hash_slot: Arc<Mutex<Option<u16>>>,
+  inner: RefCount<RedisClientInner>,
+  state: RefCount<State>,
 }
 
 impl fmt::Debug for Transaction {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("Transaction")
       .field("client", &self.inner.id)
-      .field("id", &self.id)
-      .field("length", &self.commands.lock().len())
-      .field("hash_slot", &self.hash_slot.lock())
+      .field("id", &self.state.id)
+      .field("length", &self.state.commands.lock().len())
+      .field("hash_slot", &self.state.hash_slot.lock())
+      .field("pipelined", &utils::read_bool_atomic(&self.state.pipelined))
       .finish()
   }
 }
 
 impl PartialEq for Transaction {
   fn eq(&self, other: &Self) -> bool {
-    self.id == other.id
+    self.state.id == other.state.id
   }
 }
 
@@ -50,7 +54,7 @@ impl Eq for Transaction {}
 
 impl ClientLike for Transaction {
   #[doc(hidden)]
-  fn inner(&self) -> &Arc<RedisClientInner> {
+  fn inner(&self) -> &RefCount<RedisClientInner> {
     &self.inner
   }
 
@@ -64,7 +68,8 @@ impl ClientLike for Transaction {
     // check cluster slot mappings as commands are added
     self.update_hash_slot(&command)?;
 
-    if let Some(tx) = command.take_responder() {
+    #[allow(unused_mut)]
+    if let Some(mut tx) = command.take_responder() {
       trace!(
         "{}: Respond early to {} command in transaction.",
         &self.inner.id,
@@ -73,7 +78,7 @@ impl ClientLike for Transaction {
       let _ = tx.send(Ok(protocol_utils::queued_frame()));
     }
 
-    self.commands.lock().push_back(command);
+    self.state.commands.lock().push_back(command);
     Ok(())
   }
 }
@@ -136,13 +141,16 @@ impl RediSearchInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
-  pub(crate) fn from_inner(inner: &Arc<RedisClientInner>) -> Self {
+  pub(crate) fn from_inner(inner: &RefCount<RedisClientInner>) -> Self {
     Transaction {
-      inner:     inner.clone(),
-      commands:  Arc::new(Mutex::new(VecDeque::new())),
-      watched:   Arc::new(Mutex::new(VecDeque::new())),
-      hash_slot: Arc::new(Mutex::new(None)),
-      id:        utils::random_u64(u64::MAX),
+      inner: inner.clone(),
+      state: RefCount::new(State {
+        commands:  Mutex::new(VecDeque::new()),
+        watched:   Mutex::new(VecDeque::new()),
+        hash_slot: Mutex::new(None),
+        pipelined: AtomicBool::new(false),
+        id:        utils::random_u64(u64::MAX),
+      }),
     }
   }
 
@@ -153,7 +161,7 @@ impl Transaction {
     }
 
     if let Some(slot) = command.cluster_hash() {
-      if let Some(old_slot) = utils::read_mutex(&self.hash_slot) {
+      if let Some(old_slot) = utils::read_mutex(&self.state.hash_slot) {
         let (old_server, server) = self.inner.with_cluster_state(|state| {
           debug!(
             "{}: Checking transaction hash slots: {}, {}",
@@ -170,7 +178,7 @@ impl Transaction {
           ));
         }
       } else {
-        utils::set_mutex(&self.hash_slot, Some(slot));
+        utils::set_mutex(&self.state.hash_slot, Some(slot));
       }
     }
 
@@ -190,24 +198,35 @@ impl Transaction {
 
   /// An ID identifying the underlying transaction state.
   pub fn id(&self) -> u64 {
-    self.id
+    self.state.id
   }
 
   /// Clear the internal command buffer and watched keys.
   pub fn reset(&self) {
-    self.commands.lock().clear();
-    self.watched.lock().clear();
-    self.hash_slot.lock().take();
+    self.state.commands.lock().clear();
+    self.state.watched.lock().clear();
+    self.state.hash_slot.lock().take();
   }
 
   /// Read the number of commands queued to run.
   pub fn len(&self) -> usize {
-    self.commands.lock().len()
+    self.state.commands.lock().len()
+  }
+
+  /// Whether to pipeline commands in the transaction.
+  ///
+  /// Note: pipelined transactions should only be used with Redis version >=2.6.5.
+  pub fn pipeline(&self, val: bool) {
+    utils::set_bool_atomic(&self.state.pipelined, val);
   }
 
   /// Read the number of keys to `WATCH` before the starting the transaction.
+  #[deprecated(
+    since = "9.2.0",
+    note = "Please use `WATCH` with clients from an `ExclusivePool` instead."
+  )]
   pub fn watched_len(&self) -> usize {
-    self.watched.lock().len()
+    self.state.watched.lock().len()
   }
 
   /// Executes all previously queued commands in a transaction.
@@ -239,35 +258,48 @@ impl Transaction {
   {
     let commands = {
       self
+        .state
         .commands
         .lock()
         .iter()
         .map(|cmd| cmd.duplicate(ResponseKind::Skip))
         .collect()
     };
-    let watched = { self.watched.lock().iter().cloned().collect() };
-    let hash_slot = utils::read_mutex(&self.hash_slot);
-    exec(&self.inner, commands, watched, hash_slot, abort_on_error, self.id)
-      .await?
-      .convert()
+    let pipelined = utils::read_bool_atomic(&self.state.pipelined);
+    let hash_slot = utils::read_mutex(&self.state.hash_slot);
+
+    exec(
+      &self.inner,
+      commands,
+      hash_slot,
+      abort_on_error,
+      pipelined,
+      self.state.id,
+    )
+    .await?
+    .convert()
   }
 
   /// Send the `WATCH` command with the provided keys before starting the transaction.
+  #[deprecated(
+    since = "9.2.0",
+    note = "Please use `WATCH` with clients from an `ExclusivePool` instead."
+  )]
   pub fn watch_before<K>(&self, keys: K)
   where
     K: Into<MultipleKeys>,
   {
-    self.watched.lock().extend(keys.into().inner());
+    self.state.watched.lock().extend(keys.into().inner());
   }
 
   /// Read the hash slot against which this transaction will run, if known.  
   pub fn hash_slot(&self) -> Option<u16> {
-    utils::read_mutex(&self.hash_slot)
+    utils::read_mutex(&self.state.hash_slot)
   }
 
   /// Read the server ID against which this transaction will run, if known.
   pub fn cluster_node(&self) -> Option<Server> {
-    utils::read_mutex(&self.hash_slot).and_then(|slot| {
+    utils::read_mutex(&self.state.hash_slot).and_then(|slot| {
       self
         .inner
         .with_cluster_state(|state| Ok(state.get_server(slot).cloned()))
@@ -278,11 +310,11 @@ impl Transaction {
 }
 
 async fn exec(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   commands: VecDeque<RedisCommand>,
-  watched: VecDeque<RedisKey>,
   hash_slot: Option<u16>,
   abort_on_error: bool,
+  pipelined: bool,
   id: u64,
 ) -> Result<RedisValue, RedisError> {
   if commands.is_empty() {
@@ -310,33 +342,18 @@ async fn exec(
       command
     })
     .collect();
-  // collapse the watched keys into one command
-  let watched = if watched.is_empty() {
-    None
-  } else {
-    let args: Vec<RedisValue> = watched.into_iter().map(|k| k.into()).collect();
-    let mut watch_cmd = RedisCommand::new(RedisCommandKind::Watch, args);
-    watch_cmd.can_pipeline = false;
-    watch_cmd.skip_backpressure = true;
-    watch_cmd.transaction_id = Some(id);
-    if let Some(hash_slot) = hash_slot.as_ref() {
-      watch_cmd.hasher = ClusterHash::Custom(*hash_slot);
-    }
-    Some(watch_cmd)
-  };
 
   _trace!(
     inner,
-    "Sending transaction {} with {} commands ({} watched) to router.",
+    "Sending transaction {} with {} commands to router.",
     id,
     commands.len(),
-    watched.as_ref().map(|c| c.args().len()).unwrap_or(0)
   );
   let command = RouterCommand::Transaction {
     id,
     tx,
     commands,
-    watched,
+    pipelined,
     abort_on_error,
   };
   let timeout_dur = trx_options.timeout.unwrap_or_else(|| inner.default_command_timeout());

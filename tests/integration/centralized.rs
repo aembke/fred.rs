@@ -33,7 +33,6 @@ mod keys {
 
 #[cfg(all(feature = "transactions", feature = "i-keys"))]
 mod multi {
-
   centralized_test!(multi, should_run_get_set_trx);
   centralized_test_panic!(multi, should_run_error_get_set_trx);
 }
@@ -48,7 +47,15 @@ mod other {
   centralized_test!(other, pool_should_connect_correctly_via_wait_interface);
   centralized_test!(other, pool_should_fail_with_bad_host_via_wait_interface);
   centralized_test!(other, should_fail_on_centralized_connect);
+  centralized_test!(other, should_safely_change_protocols_repeatedly);
+  centralized_test!(other, should_gracefully_quit);
 
+  #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
+  centralized_test!(other, should_fail_pipeline_transaction_error);
+  #[cfg(all(feature = "transactions", feature = "i-keys"))]
+  centralized_test!(other, should_pipeline_transaction);
+  #[cfg(feature = "credential-provider")]
+  centralized_test!(other, should_use_credential_provider);
   #[cfg(feature = "metrics")]
   centralized_test!(other, should_track_size_stats);
   #[cfg(all(feature = "i-client", feature = "i-lists"))]
@@ -59,7 +66,6 @@ mod other {
   centralized_test!(other, should_error_when_blocked);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
   centralized_test!(other, should_smoke_test_from_redis_impl);
-  centralized_test!(other, should_safely_change_protocols_repeatedly);
   #[cfg(feature = "i-keys")]
   centralized_test!(other, should_pipeline_all);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
@@ -70,7 +76,6 @@ mod other {
   centralized_test!(other, should_pipeline_try_all);
   #[cfg(feature = "i-server")]
   centralized_test!(other, should_use_all_cluster_nodes_repeatedly);
-  centralized_test!(other, should_gracefully_quit);
   #[cfg(feature = "i-lists")]
   centralized_test!(other, should_support_options_with_pipeline);
   #[cfg(feature = "i-keys")]
@@ -138,14 +143,12 @@ mod pubsub {
 
 #[cfg(feature = "i-hyperloglog")]
 mod hyperloglog {
-
   centralized_test!(hyperloglog, should_pfadd_elements);
   centralized_test!(hyperloglog, should_pfcount_elements);
   centralized_test!(hyperloglog, should_pfmerge_elements);
 }
 
 mod scanning {
-
   #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_scan_keyspace);
   #[cfg(feature = "i-hashes")]
@@ -158,7 +161,6 @@ mod scanning {
 
 #[cfg(feature = "i-slowlog")]
 mod slowlog {
-
   centralized_test!(slowlog, should_read_slowlog_length);
   centralized_test!(slowlog, should_read_slowlog_entries);
   centralized_test!(slowlog, should_reset_slowlog);
@@ -166,7 +168,6 @@ mod slowlog {
 
 #[cfg(feature = "i-server")]
 mod server {
-
   centralized_test!(server, should_flushall);
   centralized_test!(server, should_read_server_info);
   centralized_test!(server, should_ping_server);
@@ -179,7 +180,6 @@ mod server {
 
 #[cfg(feature = "i-sets")]
 mod sets {
-
   centralized_test!(sets, should_sadd_elements);
   centralized_test!(sets, should_scard_elements);
   centralized_test!(sets, should_sdiff_elements);
@@ -199,7 +199,6 @@ mod sets {
 
 #[cfg(feature = "i-memory")]
 pub mod memory {
-
   centralized_test!(memory, should_run_memory_doctor);
   centralized_test!(memory, should_run_memory_malloc_stats);
   centralized_test!(memory, should_run_memory_purge);
@@ -209,7 +208,6 @@ pub mod memory {
 
 #[cfg(feature = "i-scripts")]
 pub mod lua {
-
   #[cfg(feature = "sha-1")]
   centralized_test!(lua, should_load_script);
   centralized_test!(lua, should_eval_echo_script);
@@ -243,7 +241,6 @@ pub mod lua {
 
 #[cfg(feature = "i-sorted-sets")]
 pub mod sorted_sets {
-
   centralized_test!(sorted_sets, should_bzpopmin);
   centralized_test!(sorted_sets, should_bzpopmax);
   centralized_test!(sorted_sets, should_zadd_values);
@@ -308,7 +305,6 @@ pub mod lists {
 
 #[cfg(feature = "i-geo")]
 pub mod geo {
-
   centralized_test!(geo, should_geoadd_values);
   centralized_test!(geo, should_geohash_values);
   centralized_test!(geo, should_geopos_values);

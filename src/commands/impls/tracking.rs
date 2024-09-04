@@ -6,11 +6,11 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
+  runtime::oneshot_channel,
   types::{ClusterHash, MultipleStrings, RedisValue, Toggle},
   utils,
 };
 use redis_protocol::redis_keyslot;
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub static PREFIX: &str = "PREFIX";
 pub static REDIRECT: &str = "REDIRECT";

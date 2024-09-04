@@ -17,8 +17,6 @@ async fn main() -> Result<(), RedisError> {
   let result: RedisValue = trx.get("foo").await?;
   assert!(result.is_queued());
 
-  // automatically send `WATCH ...` before `MULTI`
-  trx.watch_before(vec!["foo", "bar"]);
   let values: (Option<String>, (), String) = trx.exec(true).await?;
   println!("Transaction results: {:?}", values);
 

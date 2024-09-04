@@ -2,11 +2,12 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::types::{Server, SlotRange},
+  runtime::RefCount,
   types::RedisValue,
   utils,
 };
 use bytes_utils::Str;
-use std::{collections::HashMap, net::IpAddr, str::FromStr, sync::Arc};
+use std::{collections::HashMap, net::IpAddr, str::FromStr};
 
 #[cfg(any(
   feature = "enable-native-tls",
@@ -234,7 +235,11 @@ fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut [SlotRange], d
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 ))]
-pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut [SlotRange], default_host: &Str) {
+pub fn modify_cluster_slot_hostnames(
+  inner: &RefCount<RedisClientInner>,
+  ranges: &mut [SlotRange],
+  default_host: &Str,
+) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {
@@ -255,7 +260,7 @@ pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, ranges: &mut
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 )))]
-pub fn modify_cluster_slot_hostnames(inner: &Arc<RedisClientInner>, _: &mut Vec<SlotRange>, _: &Str) {
+pub fn modify_cluster_slot_hostnames(inner: &RefCount<RedisClientInner>, _: &mut Vec<SlotRange>, _: &Str) {
   _trace!(inner, "Skip modifying TLS hostnames.")
 }
 
@@ -445,7 +450,7 @@ mod tests {
     feature = "enable-rustls-ring"
   ))]
   fn should_modify_cluster_slot_hostnames_custom() {
-    let policy = TlsHostMapping::Custom(Arc::new(FakeHostMapper));
+    let policy = TlsHostMapping::Custom(RefCount::new(FakeHostMapper));
     let fake_data = fake_cluster_slots_without_metadata();
     let mut ranges = parse_cluster_slots(fake_data, &Str::from("default-host")).unwrap();
     replace_tls_server_names(&policy, &mut ranges, &Str::from("default-host"));

@@ -1,5 +1,9 @@
 version: '2'
 
+networks:
+  fred-tests:
+    driver: bridge
+
 services:
   debug:
     depends_on:

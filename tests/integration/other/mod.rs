@@ -10,6 +10,7 @@ use fred::{
     BackpressureConfig,
     Builder,
     ClientUnblockFlag,
+    ClusterDiscoveryPolicy,
     ClusterHash,
     Options,
     PerformanceConfig,
@@ -36,7 +37,9 @@ use tokio::time::sleep;
 
 #[cfg(feature = "subscriber-client")]
 use fred::clients::SubscriberClient;
-use fred::types::ClusterDiscoveryPolicy;
+use fred::prelude::Server;
+#[cfg(feature = "credential-provider")]
+use fred::types::CredentialProvider;
 #[cfg(feature = "replicas")]
 use fred::types::ReplicaConfig;
 #[cfg(feature = "dns")]
@@ -599,6 +602,41 @@ pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig
   Ok(())
 }
 
+#[cfg(all(feature = "transactions", feature = "i-keys"))]
+pub async fn should_pipeline_transaction(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.incr("foo{1}").await?;
+  client.incr("bar{1}").await?;
+
+  let trx = client.multi();
+  trx.pipeline(true);
+  trx.get("foo{1}").await?;
+  trx.incr("bar{1}").await?;
+  let (foo, bar): (i64, i64) = trx.exec(true).await?;
+  assert_eq!((foo, bar), (1, 2));
+
+  Ok(())
+}
+
+#[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
+pub async fn should_fail_pipeline_transaction_error(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  client.incr("foo{1}").await?;
+  client.incr("bar{1}").await?;
+
+  let trx = client.multi();
+  trx.pipeline(true);
+  trx.get("foo{1}").await?;
+  trx.hgetall("bar{1}").await?;
+  trx.get("foo{1}").await?;
+
+  if let Err(e) = trx.exec::<RedisValue>(false).await {
+    assert_eq!(*e.kind(), RedisErrorKind::InvalidArgument);
+  } else {
+    panic!("Expected error from transaction.");
+  }
+
+  Ok(())
+}
+
 #[cfg(all(feature = "i-keys", feature = "i-lists"))]
 pub async fn should_manually_connect_twice(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let client = client.clone_new();
@@ -796,4 +834,33 @@ pub async fn should_fail_on_centralized_connect(_: RedisClient, mut config: Redi
   }
 
   Err(RedisError::new(RedisErrorKind::Unknown, "Expected a config error."))
+}
+
+#[derive(Debug, Default)]
+#[cfg(feature = "credential-provider")]
+pub struct FakeCreds {}
+
+#[async_trait]
+#[cfg(feature = "credential-provider")]
+impl CredentialProvider for FakeCreds {
+  async fn fetch(&self, _: Option<&Server>) -> Result<(Option<String>, Option<String>), RedisError> {
+    use super::utils::{read_redis_password, read_redis_username};
+    Ok((Some(read_redis_username()), Some(read_redis_password())))
+  }
+}
+#[cfg(feature = "credential-provider")]
+pub async fn should_use_credential_provider(_client: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
+  let (perf, connection) = (_client.perf_config(), _client.connection_config().clone());
+  config.username = None;
+  config.password = None;
+  config.credential_provider = Some(Arc::new(FakeCreds::default()));
+  let client = Builder::from_config(config)
+    .set_connection_config(connection)
+    .set_performance_config(perf)
+    .build()?;
+
+  client.init().await?;
+  client.ping().await?;
+  client.quit().await?;
+  Ok(())
 }

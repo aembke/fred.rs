@@ -5,9 +5,11 @@ use crate::{
   types::{FromRedis, MultipleStrings, MultipleValues},
 };
 use bytes_utils::Str;
+use fred_macros::rm_send_if;
 use futures::Future;
 
-/// Functions that implement the [ACL](https://redis.io/commands#server) interface.
+/// Functions that implement the [ACL](https://redis.io/commandserver) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait AclInterface: ClientLike + Sized {
   /// Create an ACL user with the specified rules or modify the rules of an existing user.
   ///
@@ -43,7 +45,7 @@ pub trait AclInterface: ClientLike + Sized {
 
   /// The command shows the currently active ACL rules in the Redis server.
   ///
-  /// <https://redis.io/commands/acl-list>
+  /// <https://redis.io/commands/acl-list>\
   fn acl_list<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,

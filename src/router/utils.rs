@@ -10,23 +10,22 @@ use crate::{
     utils as protocol_utils,
   },
   router::{utils, Backpressure, Counters, Router, Written},
+  runtime::{oneshot_channel, sleep, RefCount},
   types::*,
   utils as client_utils,
 };
 use futures::TryStreamExt;
 use std::{
   cmp,
-  sync::Arc,
   time::{Duration, Instant},
 };
-use tokio::{self, sync::oneshot::channel as oneshot_channel, time::sleep};
 
 #[cfg(feature = "transactions")]
 use crate::protocol::command::ClusterErrorKind;
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   counters: &Counters,
   command: &RedisCommand,
 ) -> Result<Option<Backpressure>, RedisError> {
@@ -64,20 +63,20 @@ pub fn check_backpressure(
 }
 
 #[cfg(feature = "partial-tracing")]
-fn set_command_trace(inner: &Arc<RedisClientInner>, command: &mut RedisCommand) {
+fn set_command_trace(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) {
   if inner.should_trace() {
     crate::trace::set_network_span(inner, command, true);
   }
 }
 
 #[cfg(not(feature = "partial-tracing"))]
-fn set_command_trace(_inner: &Arc<RedisClientInner>, _: &mut RedisCommand) {}
+fn set_command_trace(_inner: &RefCount<RedisClientInner>, _: &mut RedisCommand) {}
 
 /// Prepare the command, updating flags in place.
 ///
 /// Returns the RESP frame and whether the socket should be flushed.
 pub fn prepare_command(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   counters: &Counters,
   command: &mut RedisCommand,
 ) -> Result<(ProtocolFrame, bool), RedisError> {
@@ -104,7 +103,7 @@ pub fn prepare_command(
 
 /// Write a command on the provided writer half of a socket.
 pub async fn write_command(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   writer: &mut RedisWriter,
   mut command: RedisCommand,
   force_flush: bool,
@@ -175,13 +174,14 @@ pub async fn write_command(
 
 /// Check the shared connection command buffer to see if the oldest command blocks the router task on a
 /// response (not pipelined).
-pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+pub fn check_blocked_router(inner: &RefCount<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
   let command = match buffer.pop() {
     Some(cmd) => cmd,
     None => return,
   };
   if command.has_router_channel() {
-    let tx = match command.take_router_tx() {
+    #[allow(unused_mut)]
+    let mut tx = match command.take_router_tx() {
       Some(tx) => tx,
       None => return,
     };
@@ -201,7 +201,11 @@ pub fn check_blocked_router(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer
 
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
 /// with the underlying error.
-pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
+pub fn check_final_write_attempt(
+  inner: &RefCount<RedisClientInner>,
+  buffer: &SharedBuffer,
+  error: &Option<RedisError>,
+) {
   buffer
     .drain()
     .into_iter()
@@ -227,7 +231,7 @@ pub fn check_final_write_attempt(inner: &Arc<RedisClientInner>, buffer: &SharedB
 }
 
 /// Read the next reconnection delay for the client.
-pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration, RedisError> {
+pub fn next_reconnection_delay(inner: &RefCount<RedisClientInner>) -> Result<Duration, RedisError> {
   inner
     .policy
     .write()
@@ -238,7 +242,7 @@ pub fn next_reconnection_delay(inner: &Arc<RedisClientInner>) -> Result<Duration
 }
 
 /// Attempt to reconnect and replay queued commands.
-pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
+pub async fn reconnect_once(inner: &RefCount<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   client_utils::set_client_state(&inner.state, ClientState::Connecting);
   if let Err(e) = Box::pin(router.connect()).await {
     _debug!(inner, "Failed reconnecting with error: {:?}", e);
@@ -268,7 +272,10 @@ pub async fn reconnect_once(inner: &Arc<RedisClientInner>, router: &mut Router) 
 /// Reconnect to the server(s) until the max reconnect policy attempts are reached.
 ///
 /// Errors from this function should end the connection task.
-pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
+pub async fn reconnect_with_policy(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+) -> Result<(), RedisError> {
   let mut delay = utils::next_reconnection_delay(inner)?;
 
   loop {
@@ -299,7 +306,7 @@ pub async fn reconnect_with_policy(inner: &Arc<RedisClientInner>, router: &mut R
 /// Attempt to follow a cluster redirect, reconnecting as needed until the max reconnections attempts is reached.
 #[cfg(feature = "transactions")]
 pub async fn cluster_redirect_with_policy(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   kind: ClusterErrorKind,
   slot: u16,
@@ -329,7 +336,7 @@ pub async fn cluster_redirect_with_policy(
 ///
 /// Errors from this function should end the connection task.
 pub async fn send_asking_with_policy(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   slot: u16,
@@ -407,7 +414,7 @@ pub async fn send_asking_with_policy(
 
 #[cfg(feature = "replicas")]
 async fn sync_cluster_replicas(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   reset: bool,
 ) -> Result<(), RedisError> {
@@ -425,7 +432,7 @@ async fn sync_cluster_replicas(
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 #[cfg(feature = "replicas")]
 pub async fn sync_replicas_with_policy(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   reset: bool,
 ) -> Result<(), RedisError> {
@@ -460,7 +467,7 @@ pub async fn sync_replicas_with_policy(
 }
 
 /// Wait for `inner.connection.cluster_cache_update_delay`.
-pub async fn delay_cluster_sync(inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn delay_cluster_sync(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
   if inner.config.server.is_clustered() && !inner.connection.cluster_cache_update_delay.is_zero() {
     inner
       .wait_with_interrupt(inner.connection.cluster_cache_update_delay)
@@ -473,7 +480,10 @@ pub async fn delay_cluster_sync(inner: &Arc<RedisClientInner>) -> Result<(), Red
 /// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
 ///
 /// Errors from this function should end the connection task.
-pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
+pub async fn sync_cluster_with_policy(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+) -> Result<(), RedisError> {
   let mut delay = Duration::from_millis(0);
 
   loop {
@@ -504,7 +514,7 @@ pub async fn sync_cluster_with_policy(inner: &Arc<RedisClientInner>, router: &mu
   Ok(())
 }
 
-pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
+pub fn defer_reconnect(inner: &RefCount<RedisClientInner>) {
   if inner.config.server.is_clustered() {
     let (tx, _) = oneshot_channel();
     let cmd = RouterCommand::SyncCluster { tx };
@@ -527,7 +537,7 @@ pub fn defer_reconnect(inner: &Arc<RedisClientInner>) {
 
 /// Attempt to read the next frame from the reader half of a connection.
 pub async fn next_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   conn: &mut SplitStreamKind,
   server: &Server,
   buffer: &SharedBuffer,
@@ -546,7 +556,7 @@ pub async fn next_frame(
     // complicated.
     //
     // The approach here implements a ~~hack~~ heuristic where we measure the time since first noticing a new
-    // frame in the shared buffer from the reader task perspective. This only works because we use `Stream::next`
+    // frame in the shared buffer from the reader task's perspective. This only works because we use `Stream::next`
     // which is noted to be cancellation-safe in the tokio::select! docs. With this implementation the worst case
     // error margin is an extra `interval`.
 

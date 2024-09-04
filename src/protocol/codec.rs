@@ -5,6 +5,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
+  runtime::{AtomicBool, RefCount},
   utils,
 };
 use bytes::BytesMut;
@@ -21,13 +22,12 @@ use redis_protocol::{
     types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, StreamedFrame},
   },
 };
-use std::sync::{atomic::AtomicBool, Arc};
 use tokio_util::codec::{Decoder, Encoder};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "metrics")]
-use parking_lot::RwLock;
+use crate::runtime::RwLock;
 
 #[cfg(not(feature = "network-logs"))]
 fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
@@ -192,16 +192,16 @@ fn resp2_decode_with_fallback(
 pub struct RedisCodec {
   pub name:            Str,
   pub server:          Server,
-  pub resp3:           Arc<AtomicBool>,
+  pub resp3:           RefCount<AtomicBool>,
   pub streaming_state: Option<StreamedFrame<Resp3Frame>>,
   #[cfg(feature = "metrics")]
-  pub req_size_stats:  Arc<RwLock<MovingStats>>,
+  pub req_size_stats:  RefCount<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
-  pub res_size_stats:  Arc<RwLock<MovingStats>>,
+  pub res_size_stats:  RefCount<RwLock<MovingStats>>,
 }
 
 impl RedisCodec {
-  pub fn new(inner: &Arc<RedisClientInner>, server: &Server) -> Self {
+  pub fn new(inner: &RefCount<RedisClientInner>, server: &Server) -> Self {
     RedisCodec {
       server:                                     server.clone(),
       name:                                       inner.id.clone(),

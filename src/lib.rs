@@ -11,6 +11,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::assigning_clones)]
+#![allow(clippy::manual_async_fn)]
 #![warn(clippy::large_types_passed_by_value)]
 #![warn(clippy::large_stack_frames)]
 #![warn(clippy::large_futures)]
@@ -70,6 +71,16 @@ pub use modules::mocks;
 pub mod monitor;
 /// The structs and enums used by the Redis client.
 pub mod types;
+
+#[cfg(feature = "glommio")]
+mod glommio;
+#[cfg(feature = "glommio")]
+pub(crate) use glommio::compat as runtime;
+
+#[cfg(not(feature = "glommio"))]
+mod _tokio;
+#[cfg(not(feature = "glommio"))]
+pub(crate) use _tokio as runtime;
 
 /// Various client utility functions.
 pub mod util {

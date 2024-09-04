@@ -2,6 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, types::Server, utils as protocol_utils, utils::pretty_error},
+  runtime::RefCount,
   trace,
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
   utils,
@@ -10,7 +11,7 @@ use redis_protocol::{
   resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame},
   types::PUBSUB_PUSH_PREFIX,
 };
-use std::{str, sync::Arc};
+use std::str;
 
 #[cfg(feature = "i-tracking")]
 use crate::types::Invalidation;
@@ -59,7 +60,7 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
 }
 
 #[cfg(feature = "i-tracking")]
-fn broadcast_pubsub_invalidation(inner: &Arc<RedisClientInner>, message: Message, server: &Server) {
+fn broadcast_pubsub_invalidation(inner: &RefCount<RedisClientInner>, message: Message, server: &Server) {
   if let Some(invalidation) = Invalidation::from_message(message, server) {
     inner.notifications.broadcast_invalidation(invalidation);
   } else {
@@ -71,7 +72,7 @@ fn broadcast_pubsub_invalidation(inner: &Arc<RedisClientInner>, message: Message
 }
 
 #[cfg(not(feature = "i-tracking"))]
-fn broadcast_pubsub_invalidation(_: &Arc<RedisClientInner>, _: Message, _: &Server) {}
+fn broadcast_pubsub_invalidation(_: &RefCount<RedisClientInner>, _: Message, _: &Server) {}
 
 #[cfg(feature = "i-tracking")]
 fn is_pubsub_invalidation(message: &Message) -> bool {
@@ -84,7 +85,7 @@ fn is_pubsub_invalidation(_: &Message) -> bool {
 }
 
 #[cfg(feature = "i-tracking")]
-fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) {
+fn broadcast_resp3_invalidation(inner: &RefCount<RedisClientInner>, server: &Server, frame: Resp3Frame) {
   if let Resp3Frame::Push { mut data, .. } = frame {
     if data.len() != 2 {
       return;
@@ -105,7 +106,7 @@ fn broadcast_resp3_invalidation(inner: &Arc<RedisClientInner>, server: &Server, 
 }
 
 #[cfg(not(feature = "i-tracking"))]
-fn broadcast_resp3_invalidation(_: &Arc<RedisClientInner>, _: &Server, _: Resp3Frame) {}
+fn broadcast_resp3_invalidation(_: &RefCount<RedisClientInner>, _: &Server, _: Resp3Frame) {}
 
 #[cfg(feature = "i-tracking")]
 fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
@@ -163,7 +164,11 @@ fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
 /// Check if the frame is part of a pubsub message, and if so route it to any listeners.
 ///
 /// If not then return it to the caller for further processing.
-pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, frame: Resp3Frame) -> Option<Resp3Frame> {
+pub fn check_pubsub_message(
+  inner: &RefCount<RedisClientInner>,
+  server: &Server,
+  frame: Resp3Frame,
+) -> Option<Resp3Frame> {
   if is_subscription_response(&frame) {
     _debug!(inner, "Dropping unused subscription response.");
     return None;
@@ -213,7 +218,7 @@ pub fn check_pubsub_message(inner: &Arc<RedisClientInner>, server: &Server, fram
 
 // TODO cleanup and rename
 // this is called by the reader task after a blocking command finishes in order to mark the connection as unblocked
-pub async fn check_and_set_unblocked_flag(inner: &Arc<RedisClientInner>, command: &RedisCommand) {
+pub async fn check_and_set_unblocked_flag(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
   if command.blocks_connection() {
     inner.backchannel.write().await.set_unblocked();
   }
@@ -235,7 +240,7 @@ fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
 }
 
 #[cfg(feature = "custom-reconnect-errors")]
-fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
+fn check_global_reconnect_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if let Resp3Frame::SimpleError { ref data, .. } = frame {
     for prefix in inner.connection.reconnect_errors.iter() {
       if data.starts_with(prefix.to_str()) {
@@ -253,7 +258,7 @@ fn check_global_reconnect_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Fra
 }
 
 #[cfg(not(feature = "custom-reconnect-errors"))]
-fn check_global_reconnect_errors(_: &Arc<RedisClientInner>, _: &Resp3Frame) -> Option<RedisError> {
+fn check_global_reconnect_errors(_: &RefCount<RedisClientInner>, _: &Resp3Frame) -> Option<RedisError> {
   None
 }
 
@@ -283,7 +288,7 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
 }
 
 /// Check for special errors configured by the caller to initiate a reconnection process.
-pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
+pub fn check_special_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
   if inner.connection.reconnect_on_auth_error {
     if let Some(auth_error) = parse_redis_auth_error(frame) {
       return Some(auth_error);
@@ -297,7 +302,7 @@ pub fn check_special_errors(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -
 }
 
 /// Handle an error in the reader task that should end the connection.
-pub fn broadcast_reader_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+pub fn broadcast_reader_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _warn!(inner, "Ending reader task from {} due to {:?}", server, error);
 
   if inner.should_reconnect() {
@@ -311,12 +316,12 @@ pub fn broadcast_reader_error(inner: &Arc<RedisClientInner>, server: &Server, er
 }
 
 #[cfg(not(feature = "replicas"))]
-pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   broadcast_reader_error(inner, server, error);
 }
 
 #[cfg(feature = "replicas")]
-pub fn broadcast_replica_error(inner: &Arc<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _warn!(inner, "Ending replica reader task from {} due to {:?}", server, error);
 
   if inner.should_reconnect() {

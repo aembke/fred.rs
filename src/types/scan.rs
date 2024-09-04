@@ -8,11 +8,12 @@ use crate::{
     responders::ResponseKind,
     types::{KeyScanInner, ValueScanInner},
   },
+  runtime::RefCount,
   types::{RedisKey, RedisMap, RedisValue},
   utils,
 };
 use bytes_utils::Str;
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
 
 /// The types of values supported by the [type](https://redis.io/commands/type) command.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -82,7 +83,7 @@ pub trait Scanner {
 /// The result of a SCAN operation.
 pub struct ScanResult {
   pub(crate) results:      Option<Vec<RedisKey>>,
-  pub(crate) inner:        Arc<RedisClientInner>,
+  pub(crate) inner:        RefCount<RedisClientInner>,
   pub(crate) scan_state:   KeyScanInner,
   pub(crate) can_continue: bool,
 }
@@ -129,7 +130,7 @@ impl Scanner for ScanResult {
 /// The result of a HSCAN operation.
 pub struct HScanResult {
   pub(crate) results:      Option<RedisMap>,
-  pub(crate) inner:        Arc<RedisClientInner>,
+  pub(crate) inner:        RefCount<RedisClientInner>,
   pub(crate) scan_state:   ValueScanInner,
   pub(crate) can_continue: bool,
 }
@@ -173,7 +174,7 @@ impl Scanner for HScanResult {
 /// The result of a SSCAN operation.
 pub struct SScanResult {
   pub(crate) results:      Option<Vec<RedisValue>>,
-  pub(crate) inner:        Arc<RedisClientInner>,
+  pub(crate) inner:        RefCount<RedisClientInner>,
   pub(crate) scan_state:   ValueScanInner,
   pub(crate) can_continue: bool,
 }
@@ -217,7 +218,7 @@ impl Scanner for SScanResult {
 /// The result of a ZSCAN operation.
 pub struct ZScanResult {
   pub(crate) results:      Option<Vec<(RedisValue, f64)>>,
-  pub(crate) inner:        Arc<RedisClientInner>,
+  pub(crate) inner:        RefCount<RedisClientInner>,
   pub(crate) scan_state:   ValueScanInner,
   pub(crate) can_continue: bool,
 }

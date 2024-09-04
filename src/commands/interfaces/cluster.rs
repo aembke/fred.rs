@@ -6,9 +6,11 @@ use crate::{
   types::{ClusterFailoverFlag, ClusterResetFlag, ClusterSetSlotState, FromRedis, MultipleHashSlots, RedisKey},
 };
 use bytes_utils::Str;
+use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [cluster](https://redis.io/commands#cluster) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait ClusterInterface: ClientLike + Sized {
   /// Read the cached cluster state used for routing commands to the correct cluster nodes.
   fn cached_cluster_state(&self) -> Option<ClusterRouting> {
@@ -262,7 +264,7 @@ pub trait ClusterInterface: ClientLike + Sized {
     async move { commands::cluster::cluster_set_config_epoch(self, epoch).await }
   }
 
-  /// CLUSTER SETSLOT is responsible of changing the state of a hash slot in the receiving node in different ways.
+  /// CLUSTER SETSLOT is responsible for changing the state of a hash slot in the receiving node in different ways.
   ///
   /// <https://redis.io/commands/cluster-setslot>
   fn cluster_setslot(&self, slot: u16, state: ClusterSetSlotState) -> impl Future<Output = RedisResult<()>> + Send {

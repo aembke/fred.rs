@@ -5,9 +5,9 @@ use crate::modules::inner::RedisClientInner;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use crate::protocol::command::RedisCommand;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-use redis_protocol::resp3::types::BytesFrame as Frame;
+use crate::runtime::RefCount;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-use std::sync::Arc;
+use redis_protocol::resp3::types::BytesFrame as Frame;
 
 /// Fake span for mocking tracing functions.
 #[cfg(not(feature = "full-tracing"))]
@@ -23,10 +23,10 @@ impl Span {
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn set_network_span(_inner: &Arc<RedisClientInner>, _command: &mut RedisCommand, _flush: bool) {}
+pub fn set_network_span(_inner: &RefCount<RedisClientInner>, _command: &mut RedisCommand, _flush: bool) {}
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Frame) -> Option<Span> {
+pub fn create_pubsub_span(_inner: &RefCount<RedisClientInner>, _frame: &Frame) -> Option<Span> {
   Some(Span {})
 }
 

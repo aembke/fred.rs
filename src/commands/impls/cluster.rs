@@ -5,12 +5,12 @@ use crate::{
     command::{RedisCommandKind, RouterCommand},
     utils as protocol_utils,
   },
+  runtime::oneshot_channel,
   types::*,
   utils,
 };
 use bytes_utils::Str;
 use std::convert::TryInto;
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 value_cmd!(cluster_bumpepoch, ClusterBumpEpoch);
 ok_cmd!(cluster_flushslots, ClusterFlushSlots);

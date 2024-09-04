@@ -14,10 +14,11 @@
 
 use crate::{
   error::{RedisError, RedisErrorKind},
+  runtime::Mutex,
   types::{RedisKey, RedisValue},
 };
 use bytes_utils::Str;
-use parking_lot::Mutex;
+use fred_macros::rm_send_if;
 use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,
@@ -42,6 +43,7 @@ pub struct MockCommand {
 
 /// An interface for intercepting and processing Redis commands in a mocking layer.
 #[allow(unused_variables)]
+#[rm_send_if(feature = "glommio")]
 pub trait Mocks: Debug + Send + Sync + 'static {
   /// Intercept and process a Redis command, returning any `RedisValue`.
   ///
@@ -326,10 +328,10 @@ mod tests {
     interfaces::{ClientLike, KeysInterface},
     mocks::{Buffer, Echo, Mocks, SimpleMap},
     prelude::Expiration,
+    runtime::JoinHandle,
     types::{RedisConfig, RedisValue, SetOptions},
   };
   use std::sync::Arc;
-  use tokio::task::JoinHandle;
 
   async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
     let config = RedisConfig {
@@ -402,5 +404,21 @@ mod tests {
       },
     ];
     assert_eq!(buffer.take(), expected);
+  }
+
+  #[tokio::test]
+  async fn should_mock_pipelines() {
+    let (client, _) = create_mock_client(Arc::new(Echo)).await;
+
+    let pipeline = client.pipeline();
+    pipeline.get::<(), _>("foo").await.unwrap();
+    pipeline.get::<(), _>("bar").await.unwrap();
+
+    let all: Vec<Vec<String>> = pipeline.all().await.unwrap();
+    assert_eq!(all, vec![vec!["foo"], vec!["bar"]]);
+    let try_all = pipeline.try_all::<Vec<String>>().await;
+    assert_eq!(try_all, vec![Ok(vec!["foo".to_string()]), Ok(vec!["bar".to_string()])]);
+    let last: Vec<String> = pipeline.last().await.unwrap();
+    assert_eq!(last, vec!["bar"]);
   }
 }

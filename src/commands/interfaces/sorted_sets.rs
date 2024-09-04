@@ -1,5 +1,3 @@
-use futures::Future;
-
 use crate::{
   commands,
   error::RedisError,
@@ -21,9 +19,12 @@ use crate::{
     ZSort,
   },
 };
+use fred_macros::rm_send_if;
+use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [sorted sets](https://redis.io/commands#sorted_set) interface.
+#[rm_send_if(feature = "glommio")]
 pub trait SortedSetsInterface: ClientLike + Sized {
   /// The blocking variant of [Self::zmpop].
   ///

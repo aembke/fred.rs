@@ -9,21 +9,21 @@ use crate::{
     types::ProtocolFrame,
     utils as protocol_utils,
   },
+  runtime::{spawn, unbounded_channel, RefCount, UnboundedSender},
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
 use futures::stream::{Stream, StreamExt};
-use redis_protocol::resp3::types::Resp3Frame;
-use std::sync::Arc;
-use tokio::{
-  io::{AsyncRead, AsyncWrite},
-  sync::mpsc::{unbounded_channel, UnboundedSender},
-};
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-#[cfg(feature = "blocking-encoding")]
+#[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
+use redis_protocol::resp3::types::Resp3Frame;
+#[cfg(not(feature = "glommio"))]
+use tokio_stream::wrappers::UnboundedReceiverStream;
+
+#[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
 async fn handle_monitor_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
 ) -> Option<Command> {
   let frame = match frame {
@@ -53,9 +53,9 @@ async fn handle_monitor_frame(
   }
 }
 
-#[cfg(not(feature = "blocking-encoding"))]
+#[cfg(any(not(feature = "blocking-encoding"), feature = "glommio"))]
 async fn handle_monitor_frame(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   frame: Result<ProtocolFrame, RedisError>,
 ) -> Option<Command> {
   let frame = match frame {
@@ -70,7 +70,7 @@ async fn handle_monitor_frame(
 }
 
 async fn send_monitor_command(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   mut connection: RedisTransport,
 ) -> Result<RedisTransport, RedisError> {
   _debug!(inner, "Sending MONITOR command.");
@@ -85,7 +85,7 @@ async fn send_monitor_command(
 }
 
 async fn forward_results<T>(
-  inner: &Arc<RedisClientInner>,
+  inner: &RefCount<RedisClientInner>,
   tx: UnboundedSender<Command>,
   mut framed: Framed<T, RedisCodec>,
 ) where
@@ -103,7 +103,11 @@ async fn forward_results<T>(
   }
 }
 
-async fn process_stream(inner: &Arc<RedisClientInner>, tx: UnboundedSender<Command>, connection: RedisTransport) {
+async fn process_stream(
+  inner: &RefCount<RedisClientInner>,
+  tx: UnboundedSender<Command>,
+  connection: RedisTransport,
+) {
   _debug!(inner, "Starting monitor stream processing...");
 
   match connection.transport {
@@ -144,9 +148,14 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
   // background task with a channel to process the frames so that the server can keep sending data even if the
   // stream consumer slows down processing the frames.
   let (tx, rx) = unbounded_channel();
-  tokio::spawn(async move {
+  #[cfg(feature = "glommio")]
+  let tx = tx.into();
+  spawn(async move {
     process_stream(&inner, tx, connection).await;
   });
 
-  Ok(UnboundedReceiverStream::new(rx))
+  #[cfg(feature = "glommio")]
+  return Ok(crate::runtime::rx_stream(rx));
+  #[cfg(not(feature = "glommio"))]
+  return Ok(UnboundedReceiverStream::new(rx));
 }

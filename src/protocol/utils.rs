@@ -7,6 +7,7 @@ use crate::{
     connection::OK,
     types::{ProtocolFrame, *},
   },
+  runtime::RefCount,
   types::*,
   utils,
 };
@@ -17,7 +18,7 @@ use redis_protocol::{
   resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
   types::{PUBSUB_PUSH_PREFIX, REDIS_CLUSTER_SLOTS},
 };
-use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str};
 
 #[cfg(any(feature = "i-lists", feature = "i-sorted-sets"))]
 use redis_protocol::resp3::types::FrameKind;
@@ -947,13 +948,17 @@ pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<Protoc
   }
 }
 
-pub fn encode_frame(inner: &Arc<RedisClientInner>, command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
-  #[cfg(feature = "blocking-encoding")]
+pub fn encode_frame(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
+  #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
   return command.to_frame_blocking(
     inner.is_resp3(),
     inner.with_perf_config(|c| c.blocking_encode_threshold),
   );
-  #[cfg(not(feature = "blocking-encoding"))]
+
+  #[cfg(any(
+    not(feature = "blocking-encoding"),
+    all(feature = "blocking-encoding", feature = "glommio")
+  ))]
   return command.to_frame(inner.is_resp3());
 }
 

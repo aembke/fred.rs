@@ -2,13 +2,15 @@ use crate::{
   commands,
   interfaces::ClientLike,
   prelude::RedisResult,
+  runtime::{spawn, BroadcastReceiver, JoinHandle},
   types::{Invalidation, MultipleStrings},
 };
+use fred_macros::rm_send_if;
 use futures::Future;
-use tokio::{sync::broadcast::Receiver as BroadcastReceiver, task::JoinHandle};
 
 /// A high level interface that supports [client side caching](https://redis.io/docs/manual/client-side-caching/) via the [client tracking](https://redis.io/commands/client-tracking/) interface.
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
+#[rm_send_if(feature = "glommio")]
 pub trait TrackingInterface: ClientLike + Sized {
   /// Send the [CLIENT TRACKING](https://redis.io/commands/client-tracking/) command to all connected servers, subscribing to [invalidation messages](Self::on_invalidation) on the same connection.
   ///
@@ -48,7 +50,7 @@ pub trait TrackingInterface: ClientLike + Sized {
   {
     let mut invalidation_rx = self.invalidation_rx();
 
-    tokio::spawn(async move {
+    spawn(async move {
       let mut result = Ok(());
 
       while let Ok(invalidation) = invalidation_rx.recv().await {

@@ -6,6 +6,7 @@ use crate::{
     connection::{self, CommandBuffer, Counters, RedisWriter},
     types::{ClusterRouting, Server},
   },
+  runtime::RefCount,
   trace,
   utils as client_utils,
 };
@@ -15,21 +16,19 @@ use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
-  sync::Arc,
   time::Duration,
 };
 
 #[cfg(feature = "transactions")]
+use crate::runtime::oneshot_channel;
+#[cfg(feature = "transactions")]
 use crate::{protocol::command::ClusterErrorKind, protocol::responders::ResponseKind};
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
-#[cfg(feature = "transactions")]
-use tokio::sync::oneshot::channel as oneshot_channel;
 
 pub mod centralized;
 pub mod clustered;
 pub mod commands;
-pub mod reader;
 pub mod replicas;
 pub mod responses;
 pub mod sentinel;
@@ -94,7 +93,7 @@ impl Backpressure {
   /// Apply the backpressure policy.
   pub async fn wait(
     self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     command: &mut RedisCommand,
   ) -> Result<Option<RouterReceiver>, RedisError> {
     match self {
@@ -160,7 +159,10 @@ impl Connections {
 
   /// Discover and return a mapping of replica nodes to their associated primary node.
   #[cfg(feature = "replicas")]
-  pub async fn replica_map(&mut self, inner: &Arc<RedisClientInner>) -> Result<HashMap<Server, Server>, RedisError> {
+  pub async fn replica_map(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Result<HashMap<Server, Server>, RedisError> {
     Ok(match self {
       Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
         if let Some(writer) = writer {
@@ -238,7 +240,7 @@ impl Connections {
   /// Initialize the underlying connection(s) and update the cached backchannel information.
   pub async fn initialize(
     &mut self,
-    inner: &Arc<RedisClientInner>,
+    inner: &RefCount<RedisClientInner>,
     buffer: &mut VecDeque<RedisCommand>,
   ) -> Result<(), RedisError> {
     let result = if inner.config.server.is_clustered() {
@@ -284,7 +286,7 @@ impl Connections {
   }
 
   /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
-  pub async fn disconnect(&mut self, inner: &Arc<RedisClientInner>, server: Option<&Server>) -> CommandBuffer {
+  pub async fn disconnect(&mut self, inner: &RefCount<RedisClientInner>, server: Option<&Server>) -> CommandBuffer {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer.take() {
@@ -318,7 +320,7 @@ impl Connections {
   }
 
   /// Disconnect and clear local state for all connections, returning all in-flight commands.
-  pub async fn disconnect_all(&mut self, inner: &Arc<RedisClientInner>) -> CommandBuffer {
+  pub async fn disconnect_all(&mut self, inner: &RefCount<RedisClientInner>) -> CommandBuffer {
     match self {
       Connections::Centralized { ref mut writer } => {
         if let Some(writer) = writer.take() {
@@ -380,7 +382,7 @@ impl Connections {
   }
 
   /// Flush the socket(s) associated with each server if they have pending frames.
-  pub async fn check_and_flush(&mut self, inner: &Arc<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn check_and_flush(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     _trace!(inner, "Checking and flushing sockets...");
 
     match self {
@@ -407,7 +409,12 @@ impl Connections {
   }
 
   /// Send a command to the server(s).
-  pub async fn write(&mut self, inner: &Arc<RedisClientInner>, command: RedisCommand, force_flush: bool) -> Written {
+  pub async fn write(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+    command: RedisCommand,
+    force_flush: bool,
+  ) -> Written {
     match self {
       Connections::Clustered {
         ref mut writers,
@@ -419,7 +426,7 @@ impl Connections {
   }
 
   /// Send a command to all servers in a cluster.
-  pub async fn write_all_cluster(&mut self, inner: &Arc<RedisClientInner>, command: RedisCommand) -> Written {
+  pub async fn write_all_cluster(&mut self, inner: &RefCount<RedisClientInner>, command: RedisCommand) -> Written {
     if let Connections::Clustered { ref mut writers, .. } = self {
       if let Err(error) = clustered::send_all_cluster_command(inner, writers, command).await {
         Written::Disconnected((None, None, error))
@@ -449,7 +456,11 @@ impl Connections {
   }
 
   /// Connect or reconnect to the provided `host:port`.
-  pub async fn add_connection(&mut self, inner: &Arc<RedisClientInner>, server: &Server) -> Result<(), RedisError> {
+  pub async fn add_connection(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+    server: &Server,
+  ) -> Result<(), RedisError> {
     if let Connections::Clustered { ref mut writers, .. } = self {
       let mut transport = connection::create(inner, server, None).await?;
       transport.setup(inner, None).await?;
@@ -497,7 +508,7 @@ pub struct Router {
   /// The connection map for each deployment type.
   pub connections: Connections,
   /// The inner client state associated with the router.
-  pub inner:       Arc<RedisClientInner>,
+  pub inner:       RefCount<RedisClientInner>,
   /// Storage for commands that should be deferred or retried later.
   pub buffer:      VecDeque<RedisCommand>,
   /// The replica routing interface.
@@ -507,7 +518,7 @@ pub struct Router {
 
 impl Router {
   /// Create a new `Router` without connecting to the server(s).
-  pub fn new(inner: &Arc<RedisClientInner>) -> Self {
+  pub fn new(inner: &RefCount<RedisClientInner>) -> Self {
     let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
     } else if inner.config.server.is_sentinel() {

@@ -1,6 +1,6 @@
-use crate::{modules::inner::RedisClientInner, protocol::command::RedisCommand};
+use crate::{modules::inner::RedisClientInner, protocol::command::RedisCommand, runtime::RefCount};
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{fmt, ops::Deref};
 pub use tracing::span::Span;
 use tracing::{event, field::Empty, Id as TraceId, Level};
 
@@ -42,7 +42,7 @@ impl fmt::Debug for CommandTraces {
   }
 }
 
-pub fn set_network_span(inner: &Arc<RedisClientInner>, command: &mut RedisCommand, flush: bool) {
+pub fn set_network_span(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand, flush: bool) {
   trace!("Setting network span from command {}", command.debug_id());
   let span = fspan!(command, inner.tracing_span_level(), "fred.rtt", "cmd.flush" = flush);
   span.in_scope(|| {});
@@ -54,7 +54,7 @@ pub fn record_response_size(span: &Span, frame: &Resp3Frame) {
   span.record("cmd.res", &frame.encode_len());
 }
 
-pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
+pub fn create_command_span(inner: &RefCount<RedisClientInner>) -> Span {
   span_lvl!(
     inner.tracing_span_level(),
     "fred.command",
@@ -67,28 +67,28 @@ pub fn create_command_span(inner: &Arc<RedisClientInner>) -> Span {
 }
 
 #[cfg(feature = "full-tracing")]
-pub fn create_args_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
+pub fn create_args_span(parent: Option<TraceId>, inner: &RefCount<RedisClientInner>) -> Span {
   span_lvl!(inner.full_tracing_span_level(), parent: parent, "fred.prepare", "cmd.args" = Empty)
 }
 
 #[cfg(not(feature = "full-tracing"))]
-pub fn create_args_span(_parent: Option<TraceId>, _inner: &Arc<RedisClientInner>) -> FakeSpan {
+pub fn create_args_span(_parent: Option<TraceId>, _inner: &RefCount<RedisClientInner>) -> FakeSpan {
   FakeSpan {}
 }
 
 #[cfg(feature = "full-tracing")]
-pub fn create_queued_span(parent: Option<TraceId>, inner: &Arc<RedisClientInner>) -> Span {
+pub fn create_queued_span(parent: Option<TraceId>, inner: &RefCount<RedisClientInner>) -> Span {
   let buf_len = inner.counters.read_cmd_buffer_len();
   span_lvl!(inner.full_tracing_span_level(), parent: parent, "fred.queued", buf_len)
 }
 
 #[cfg(not(feature = "full-tracing"))]
-pub fn create_queued_span(_parent: Option<TraceId>, _inner: &Arc<RedisClientInner>) -> FakeSpan {
+pub fn create_queued_span(_parent: Option<TraceId>, _inner: &RefCount<RedisClientInner>) -> FakeSpan {
   FakeSpan {}
 }
 
 #[cfg(feature = "full-tracing")]
-pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> Option<Span> {
+pub fn create_pubsub_span(inner: &RefCount<RedisClientInner>, frame: &Resp3Frame) -> Option<Span> {
   if inner.should_trace() {
     let span = span_lvl!(
       inner.full_tracing_span_level(),
@@ -107,7 +107,7 @@ pub fn create_pubsub_span(inner: &Arc<RedisClientInner>, frame: &Resp3Frame) -> 
 }
 
 #[cfg(not(feature = "full-tracing"))]
-pub fn create_pubsub_span(_inner: &Arc<RedisClientInner>, _frame: &Resp3Frame) -> Option<FakeSpan> {
+pub fn create_pubsub_span(_inner: &RefCount<RedisClientInner>, _frame: &Resp3Frame) -> Option<FakeSpan> {
   Some(FakeSpan {})
 }
 
