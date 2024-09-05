@@ -1,3 +1,7 @@
+## 9.2.1
+
+* Fix docs.rs documentation features
+
 ## 9.2.0
 
 * Add initial support for the [Glommio](https://github.com/DataDog/glommio) runtime
