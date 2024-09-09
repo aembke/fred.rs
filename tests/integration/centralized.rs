@@ -4,6 +4,7 @@ mod keys {
   centralized_test!(keys, should_set_and_get_a_value);
   centralized_test!(keys, should_set_and_del_a_value);
   centralized_test!(keys, should_set_with_get_argument);
+  centralized_test!(keys, should_setnx_value);
   centralized_test!(keys, should_incr_and_decr_a_value);
   centralized_test!(keys, should_incr_by_float);
   centralized_test!(keys, should_mset_a_non_empty_map);

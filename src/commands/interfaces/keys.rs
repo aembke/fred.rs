@@ -131,6 +131,25 @@ pub trait KeysInterface: ClientLike + Sized {
     }
   }
 
+  /// Sets `key` to `value` if `key` does not exist.
+  ///
+  /// Note: the command is regarded as deprecated since Redis 2.6.12.
+  ///
+  /// <https://redis.io/commands/setnx>
+  fn setnx<R, K, V>(&self, key: K, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    async move {
+      into!(key);
+      try_into!(value);
+      commands::keys::setnx(self, key, value).await?.convert()
+    }
+  }
+
   /// Read a value from the server.
   ///
   /// <https://redis.io/commands/get>
