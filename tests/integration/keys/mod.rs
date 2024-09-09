@@ -347,3 +347,19 @@ pub async fn should_pexpire_key(client: RedisClient, _: RedisConfig) -> Result<(
   assert_eq!(client.get::<Option<String>, _>("foo").await?, None);
   Ok(())
 }
+
+pub async fn should_setnx_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let value_set: i64 = client.setnx("foo", 123456).await?;
+  assert_eq!(value_set, 1);
+
+  let remote_value: i64 = client.get("foo").await?;
+  assert_eq!(remote_value, 123456);
+
+  let value_set: i64 = client.setnx("foo", 654321).await?;
+  assert_eq!(value_set, 0);
+
+  let remote_value: i64 = client.get("foo").await?;
+  assert_eq!(remote_value, 123456);
+
+  Ok(())
+}

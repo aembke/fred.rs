@@ -58,6 +58,10 @@ pub async fn set<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+pub async fn setnx<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
+  args_value_cmd(client, RedisCommandKind::Setnx, vec![key.into(), value]).await
+}
+
 pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   check_empty_keys(&keys)?;
 
