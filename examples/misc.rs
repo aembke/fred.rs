@@ -76,14 +76,14 @@ async fn main() -> Result<(), RedisError> {
 
   // apply custom options to a pipeline
   let pipeline = client.pipeline().with_options(&options);
-  pipeline.get("foo").await?;
-  pipeline.get("bar").await?;
+  let _: () = pipeline.get("foo").await?;
+  let _: () = pipeline.get("bar").await?;
   let (_, _): (Option<i64>, Option<i64>) = pipeline.all().await?;
 
   // reuse pipelines
   let pipeline = client.pipeline();
-  pipeline.incr("foo").await?;
-  pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
   assert_eq!(pipeline.last::<i64>().await?, 2);
   assert_eq!(pipeline.last::<i64>().await?, 4);
   assert_eq!(pipeline.last::<i64>().await?, 6);

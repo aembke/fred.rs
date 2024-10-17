@@ -22,8 +22,8 @@ async fn main() {
     client.init().await?;
 
     // initialize the stream first
-    client.del("foo").await?;
-    client.xgroup_create("foo", "group", "$", true).await?;
+    let _: () = client.del("foo").await?;
+    let _: () = client.xgroup_create("foo", "group", "$", true).await?;
 
     let mut count = 0;
     loop {

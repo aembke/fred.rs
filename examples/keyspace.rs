@@ -31,9 +31,9 @@ async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisEr
   for idx in 0 .. amount {
     let key: RedisKey = format!("foo-{}", idx).into();
 
-    client.set(&key, 1, None, None, false).await?;
-    client.incr(&key).await?;
-    client.del(&key).await?;
+    let _: () = client.set(&key, 1, None, None, false).await?;
+    let _: () = client.incr(&key).await?;
+    let _: () = client.del(&key).await?;
   }
 
   client.quit().await?;

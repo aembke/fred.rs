@@ -12,7 +12,7 @@ async fn create_fake_data(client: &RedisClient) -> Result<(), RedisError> {
 
 async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   let keys: Vec<_> = (0 .. 50).map(|i| format!("foo-{}", i)).collect();
-  client.del(keys).await?;
+  client.del::<(), _>(keys).await?;
   Ok(())
 }
 
@@ -69,7 +69,7 @@ async fn pool_scan_cluster_memory_example(pool: &RedisPool) -> Result<(), RedisE
       // pipeline the `MEMORY USAGE` calls
       let pipeline = pool.next().pipeline();
       for key in page.iter() {
-        pipeline.memory_usage(key, Some(0)).await?;
+        pipeline.memory_usage::<(), _>(key, Some(0)).await?;
       }
       let sizes: Vec<Option<u64>> = pipeline.all().await?;
       assert_eq!(page.len(), sizes.len());

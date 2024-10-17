@@ -15,7 +15,7 @@ async fn main() -> Result<(), RedisError> {
 
   let hash = fred_utils::sha1_hash(SCRIPT);
   if !client.script_exists::<bool, _>(&hash).await? {
-    client.script_load(SCRIPT).await?;
+    let _: () = client.script_load(SCRIPT).await?;
   }
 
   let results: RedisValue = client.evalsha(&hash, vec!["foo", "bar"], vec![1, 2]).await?;
@@ -37,7 +37,7 @@ async fn scripts() -> Result<(), RedisError> {
 
   let script = Script::from_lua(SCRIPT);
   script.load(&client).await?;
-  script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
+  let _result: Vec<RedisValue> = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
   // retry after calling SCRIPT LOAD, if needed
   let (key1, key2, arg1, arg2): (String, String, i64, i64) = script
     .evalsha_with_reload(&client, vec!["foo", "bar"], vec![1, 2])

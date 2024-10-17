@@ -26,7 +26,7 @@ async fn main() -> Result<(), RedisError> {
   });
 
   for idx in 0 .. 30 {
-    publisher_client.rpush("foo", idx).await?;
+    let _: () = publisher_client.rpush("foo", idx).await?;
     sleep(Duration::from_secs(1)).await;
   }
 

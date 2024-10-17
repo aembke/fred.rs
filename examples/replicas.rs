@@ -48,15 +48,15 @@ async fn main() -> Result<(), RedisError> {
 
       // send WAIT to the cluster node that received SET
       let pipeline = pool.next().pipeline();
-      pipeline.set(&key, idx, None, None, false).await?;
-      pipeline
+      let _: () = pipeline.set(&key, idx, None, None, false).await?;
+      let _: () = pipeline
         .with_options(&Options {
           cluster_hash: Some(cluster_hash),
           ..Default::default()
         })
         .wait(1, 10_000)
         .await?;
-      pipeline.all().await?;
+      let _: () = pipeline.all().await?;
 
       assert_eq!(pool.replicas().get::<i64, _>(&key).await?, idx);
       Ok::<_, RedisError>(())
@@ -80,7 +80,7 @@ async fn lazy_connection_example(client: &RedisClient) -> Result<(), RedisError>
   let old_connections: HashSet<_> = client.active_connections().await?.into_iter().collect();
 
   // if `lazy_connections: true` the client creates the connection here
-  client.replicas().get("foo").await?;
+  let _: () = client.replicas().get("foo").await?;
   let new_connections: HashSet<_> = client.active_connections().await?.into_iter().collect();
   let new_servers: Vec<_> = new_connections.difference(&old_connections).collect();
   // verify that 1 new connection was created, and that it's in the replica map as a replica of the expected primary
