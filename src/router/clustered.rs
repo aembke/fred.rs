@@ -287,6 +287,7 @@ pub fn spawn_reader_task(
     } else {
       responses::broadcast_reader_error(&inner, &server, last_error);
     }
+    utils::remove_cached_connection_id(&inner, &server).await;
 
     _debug!(inner, "Ending reader task from {}", server);
     Ok(())

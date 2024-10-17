@@ -76,6 +76,11 @@ impl Backchannel {
     self.connection_ids = connections.connection_ids();
   }
 
+  /// Remove the provided server from the connection ID map.
+  pub fn remove_connection_id(&mut self, server: &Server) {
+    self.connection_ids.get(server);
+  }
+
   /// Read the connection ID for the provided server.
   pub fn connection_id(&self, server: &Server) -> Option<i64> {
     self.connection_ids.get(server).cloned()
