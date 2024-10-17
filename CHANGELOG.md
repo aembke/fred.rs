@@ -1,3 +1,9 @@
+## 9.3.0
+
+* Add `SETNX` command
+* Change `active_connections` to preempt reconnections
+* Specialize `TryInto<Redisvalue> for Vec<u8>` to use `RedisValue::Bytes`
+
 ## 9.2.1
 
 * Fix docs.rs documentation features
