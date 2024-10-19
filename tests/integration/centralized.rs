@@ -28,6 +28,9 @@ mod keys {
   centralized_test_panic!(keys, should_error_renamenx_does_not_exist);
   centralized_test!(keys, should_rename);
   centralized_test!(keys, should_renamenx);
+  centralized_test!(keys, should_expire_time_value);
+  centralized_test!(keys, should_pexpire_time_value);
+  centralized_test!(keys, should_check_type_of_key);
 
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }

@@ -2,7 +2,7 @@
 . ./tests/scripts/utils.sh
 
 if [ -z "$REDIS_VERSION" ]; then
-  export REDIS_VERSION=7.2.4
+  export REDIS_VERSION=7.4.0
 fi
 if [ -z "$VALKEY_VERSION" ]; then
   export VALKEY_VERSION=7.2.5
