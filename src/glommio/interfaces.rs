@@ -126,19 +126,7 @@ pub trait ClientLike: Clone + Sized {
 
   /// Read the set of active connections managed by the client.
   fn active_connections(&self) -> impl Future<Output = Result<Vec<Server>, RedisError>> {
-    async {
-      Ok(
-        self
-          .inner()
-          .backchannel
-          .read()
-          .await
-          .connection_ids
-          .keys()
-          .cloned()
-          .collect(),
-      )
-    }
+    async { Ok(self.inner().active_connections()) }
   }
 
   /// Read the server version, if known.

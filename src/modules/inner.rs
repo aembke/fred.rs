@@ -42,6 +42,7 @@ use crate::{
 };
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 pub type CommandSender = UnboundedSender<RouterCommand>;
 pub type CommandReceiver = UnboundedReceiver<RouterCommand>;
@@ -215,15 +216,17 @@ impl ClientCounters {
 
 /// Cached state related to the server(s).
 pub struct ServerState {
-  pub kind:     ServerKind,
+  pub kind:        ServerKind,
+  pub connections: HashSet<Server>,
   #[cfg(feature = "replicas")]
-  pub replicas: HashMap<Server, Server>,
+  pub replicas:    HashMap<Server, Server>,
 }
 
 impl ServerState {
   pub fn new(config: &RedisConfig) -> Self {
     ServerState {
       kind:                                  ServerKind::new(config),
+      connections:                           HashSet::new(),
       #[cfg(feature = "replicas")]
       replicas:                              HashMap::new(),
     }
@@ -537,6 +540,18 @@ impl RedisClientInner {
       connection,
       id,
     })
+  }
+
+  pub fn add_connection(&self, server: &Server) {
+    self.server_state.write().connections.insert(server.clone());
+  }
+
+  pub fn remove_connection(&self, server: &Server) {
+    self.server_state.write().connections.remove(server);
+  }
+
+  pub fn active_connections(&self) -> Vec<Server> {
+    self.server_state.read().connections.iter().cloned().collect()
   }
 
   pub fn is_pipelined(&self) -> bool {

@@ -1141,7 +1141,8 @@ pub async fn create(
   }
 }
 
-/// Split a connection, spawn a reader task, and link the reader and writer halves.
+/// Split a connection, spawn a reader task, register the connection on `inner`, and link the reader and writer
+/// halves.
 pub fn split<F>(
   inner: &RefCount<RedisClientInner>,
   transport: RedisTransport,
@@ -1178,6 +1179,7 @@ where
     is_replica,
   ));
   writer.reader = Some(reader);
+  inner.add_connection(&server);
 
   Ok((server, writer))
 }
