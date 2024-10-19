@@ -1,5 +1,8 @@
+#[cfg(feature = "i-tracking")]
+use crate::types::{MultipleStrings, Toggle};
 use crate::{
   commands,
+  error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{
     ClientKillFilter,
@@ -11,11 +14,6 @@ use crate::{
     RedisValue,
     Server,
   },
-};
-#[cfg(feature = "i-tracking")]
-use crate::{
-  error::RedisError,
-  types::{MultipleStrings, Toggle},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
