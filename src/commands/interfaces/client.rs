@@ -165,15 +165,17 @@ pub trait ClientInterface: ClientLike + Sized {
   /// Returns message.
   ///
   /// https://redis.io/docs/latest/commands/echo/
-  fn echo<R>(
-        &self,
-        message: &str,
-    ) -> impl Future<Output = RedisResult<R>> + Send
-    where
-        R: FromRedis,
-    {
-        async move { commands::client::echo(self, message).await?.convert() }
+  fn echo<R, M>(&self, message: M) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    M: TryInto<RedisValue> + Send,
+    M::Error: Into<RedisError> + Send,
+  {
+    async move {
+      try_into!(message);
+      commands::client::echo(self, message).await?.convert()
     }
+  }
 
   /// This command enables the tracking feature of the Redis server that is used for server assisted client side
   /// caching.

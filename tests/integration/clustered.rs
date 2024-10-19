@@ -399,3 +399,8 @@ mod timeseries {
   cluster_test!(timeseries, should_madd_and_mrange);
   cluster_test!(timeseries, should_madd_and_mrevrange);
 }
+
+#[cfg(feature = "i-client")]
+mod client {
+  cluster_test!(client, should_echo_message);
+}

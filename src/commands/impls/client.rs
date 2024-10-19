@@ -131,14 +131,6 @@ pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockF
   result
 }
 
-pub async fn echo<C: ClientLike>(
-  client: &C,
-  message: &str,
-) -> Result<RedisValue, RedisError> {
-    let frame = utils::request_response(client, move || {
-        Ok((RedisCommandKind::Echo, vec![message.into()]))
-    })
-    .await?;
-
-  protocol_utils::frame_to_results(frame)
+pub async fn echo<C: ClientLike>(client: &C, message: RedisValue) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::Echo, message).await
 }
