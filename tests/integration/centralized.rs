@@ -406,3 +406,8 @@ mod redisearch {
   centralized_test!(redisearch, should_index_and_search_hash);
   centralized_test!(redisearch, should_index_and_aggregate_timestamps);
 }
+
+#[cfg(feature = "i-client")]
+mod client {
+  centralized_test!(client, should_echo_message);
+}
