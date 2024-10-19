@@ -864,3 +864,17 @@ pub async fn should_use_credential_provider(_client: RedisClient, mut config: Re
   client.quit().await?;
   Ok(())
 }
+
+#[cfg(feature = "i-pubsub")]
+pub async fn should_exit_event_task_with_error(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let task = client.on_message(|_| Err(RedisError::new_canceled()));
+  client.subscribe("foo").await?;
+
+  let publisher = client.clone_new();
+  publisher.init().await?;
+  publisher.publish("foo", "bar").await?;
+
+  let result = task.await.unwrap();
+  assert_eq!(result, Err(RedisError::new_canceled()));
+  Ok(())
+}

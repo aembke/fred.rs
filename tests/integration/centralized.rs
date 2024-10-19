@@ -51,6 +51,8 @@ mod other {
   centralized_test!(other, should_safely_change_protocols_repeatedly);
   centralized_test!(other, should_gracefully_quit);
 
+  #[cfg(feature = "i-pubsub")]
+  centralized_test!(other, should_exit_event_task_with_error);
   #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
   centralized_test!(other, should_fail_pipeline_transaction_error);
   #[cfg(all(feature = "transactions", feature = "i-keys"))]
