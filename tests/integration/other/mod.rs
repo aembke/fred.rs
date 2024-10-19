@@ -242,15 +242,14 @@ pub async fn should_safely_change_protocols_repeatedly(
     }
   });
 
-  // switch protocols every half second
-  for idx in 0 .. 15 {
+  for idx in 0 .. 20 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
       RespVersion::RESP3
     };
     client.hello(version, None, None).await?;
-    sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(100)).await;
   }
   let _ = mem::replace(&mut *done.write(), true);
 
@@ -862,5 +861,19 @@ pub async fn should_use_credential_provider(_client: RedisClient, mut config: Re
   client.init().await?;
   client.ping().await?;
   client.quit().await?;
+  Ok(())
+}
+
+#[cfg(feature = "i-pubsub")]
+pub async fn should_exit_event_task_with_error(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let task = client.on_message(|_| Err(RedisError::new_canceled()));
+  client.subscribe("foo").await?;
+
+  let publisher = client.clone_new();
+  publisher.init().await?;
+  publisher.publish("foo", "bar").await?;
+
+  let result = task.await.unwrap();
+  assert_eq!(result, Err(RedisError::new_canceled()));
   Ok(())
 }

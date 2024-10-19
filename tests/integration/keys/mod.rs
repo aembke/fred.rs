@@ -347,3 +347,47 @@ pub async fn should_pexpire_key(client: RedisClient, _: RedisConfig) -> Result<(
   assert_eq!(client.get::<Option<String>, _>("foo").await?, None);
   Ok(())
 }
+
+pub async fn should_setnx_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let value_set: i64 = client.setnx("foo", 123456).await?;
+  assert_eq!(value_set, 1);
+
+  let remote_value: i64 = client.get("foo").await?;
+  assert_eq!(remote_value, 123456);
+
+  let value_set: i64 = client.setnx("foo", 654321).await?;
+  assert_eq!(value_set, 0);
+
+  let remote_value: i64 = client.get("foo").await?;
+  assert_eq!(remote_value, 123456);
+
+  Ok(())
+}
+
+pub async fn should_expire_time_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let _: () = client.set("foo", "bar", Some(Expiration::EX(60)), None, false).await?;
+  let expiration: i64 = client.expire_time("foo").await?;
+  assert!(expiration > 0);
+
+  Ok(())
+}
+
+pub async fn should_pexpire_time_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let _: () = client.set("foo", "bar", Some(Expiration::EX(60)), None, false).await?;
+  let expiration: i64 = client.pexpire_time("foo").await?;
+  assert!(expiration > 0);
+
+  Ok(())
+}
+
+#[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
+pub async fn should_check_type_of_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let _: () = client.set("foo1", "bar", None, None, false).await?;
+  let _: () = client.hset("foo2", ("a", "b")).await?;
+  let _: () = client.sadd("foo3", "c").await?;
+
+  assert_eq!(client.r#type::<String, _>("foo1").await?, "string");
+  assert_eq!(client.r#type::<String, _>("foo2").await?, "hash");
+  assert_eq!(client.r#type::<String, _>("foo3").await?, "set");
+  Ok(())
+}

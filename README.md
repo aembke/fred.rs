@@ -116,6 +116,10 @@ begin with `i-` and control which public interfaces are built.
 | `i-redisearch`  |         | Enable a [RediSearch](https://github.com/RediSearch/RediSearch) interface.                                                |
 | `i-redis-stack` |         | Enable the [Redis Stack](https://github.com/redis-stack) interfaces (`i-redis-json`, `i-time-series`, etc).               |
 
+If a specific high level command function is not supported callers can use the `custom` function as a workaround until
+the higher level interface is added. See the [custom](https://github.com/aembke/fred.rs/blob/main/examples/custom.rs)
+example for more info.
+
 ## Debugging Features
 
 | Name           | Default | Description                                                     |

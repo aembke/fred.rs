@@ -58,6 +58,10 @@ pub async fn set<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+pub async fn setnx<C: ClientLike>(client: &C, key: RedisKey, value: RedisValue) -> Result<RedisValue, RedisError> {
+  args_value_cmd(client, RedisCommandKind::Setnx, vec![key.into(), value]).await
+}
+
 pub async fn del<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
   check_empty_keys(&keys)?;
 
@@ -142,6 +146,14 @@ pub async fn expire_at<C: ClientLike>(client: &C, key: RedisKey, timestamp: i64)
   .await?;
 
   protocol_utils::frame_to_results(frame)
+}
+
+pub async fn expire_time<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::ExpireTime, key.into()).await
+}
+
+pub async fn pexpire_time<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::PexpireTime, key.into()).await
 }
 
 pub async fn pexpire<C: ClientLike>(
@@ -407,6 +419,10 @@ pub async fn watch<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<(), 
 }
 
 ok_cmd!(unwatch, Unwatch);
+
+pub async fn r#type<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::Type, key.into()).await
+}
 
 pub async fn lcs<C: ClientLike>(
   client: &C,

@@ -15,7 +15,7 @@ async fn main() -> Result<(), RedisError> {
   let foo: Option<String> = client.get("foo").await?;
   println!("Foo: {:?}", foo);
 
-  client
+  let _: () = client
     .set("foo", "bar", Some(Expiration::EX(1)), Some(SetOptions::NX), false)
     .await?;
 

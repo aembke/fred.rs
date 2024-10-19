@@ -21,18 +21,18 @@ async fn main() -> Result<(), RedisError> {
   let (first, second): (i64, i64) = pipeline.all().await?;
   assert_eq!((first, second), (1, 2));
 
-  client.del("foo").await?;
+  let _: () = client.del("foo").await?;
   // or send the pipeline and only return the last result
   let pipeline = client.pipeline();
-  pipeline.incr("foo").await?;
-  pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
   assert_eq!(pipeline.last::<i64>().await?, 2);
 
-  client.del("foo").await?;
+  let _: () = client.del("foo").await?;
   // or handle each command result individually
   let pipeline = client.pipeline();
-  pipeline.incr("foo").await?;
-  pipeline.hgetall("foo").await?; // this will result in a `WRONGTYPE` error
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.hgetall("foo").await?; // this will result in a `WRONGTYPE` error
   let results = pipeline.try_all::<i64>().await;
   assert_eq!(results[0].clone().unwrap(), 1);
   assert!(results[1].is_err());

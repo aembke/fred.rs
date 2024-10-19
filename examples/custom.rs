@@ -12,7 +12,7 @@ use std::convert::TryInto;
 async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
   client.init().await?;
-  client.lpush("foo", vec![1, 2, 3]).await?;
+  let _: () = client.lpush("foo", vec![1, 2, 3]).await?;
 
   let result: Vec<String> = client.custom(cmd!("LRANGE"), vec!["foo", "0", "3"]).await?;
   println!("LRANGE Values: {:?}", result);

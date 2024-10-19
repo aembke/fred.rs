@@ -7,6 +7,8 @@ use crate::{
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::{convert::TryInto, str};
 
+pub static FIELDS: &str = "FIELDS";
+
 fn frame_is_queued(frame: &Resp3Frame) -> bool {
   match frame {
     Resp3Frame::SimpleString { ref data, .. } | Resp3Frame::BlobString { ref data, .. } => {
@@ -188,4 +190,191 @@ pub async fn hstrlen<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) 
 
 pub async fn hvals<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
   one_arg_values_cmd(client, RedisCommandKind::HVals, key.into()).await
+}
+
+pub async fn httl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 3);
+    args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HTtl, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hexpire<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  seconds: i64,
+  options: Option<ExpireOptions>,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 4);
+    args.extend([key.into(), seconds.into()]);
+    if let Some(options) = options {
+      args.push(options.to_str().into());
+    }
+    args.extend([static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HExpire, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hexpire_at<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  time: i64,
+  options: Option<ExpireOptions>,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 4);
+    args.extend([key.into(), time.into()]);
+    if let Some(options) = options {
+      args.push(options.to_str().into());
+    }
+    args.extend([static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HExpireAt, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hexpire_time<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 3);
+    args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HExpireTime, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hpttl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 3);
+    args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HPTtl, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hpexpire<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  milliseconds: i64,
+  options: Option<ExpireOptions>,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 4);
+    args.extend([key.into(), milliseconds.into()]);
+    if let Some(options) = options {
+      args.push(options.to_str().into());
+    }
+    args.extend([static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HPExpire, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hpexpire_at<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  time: i64,
+  options: Option<ExpireOptions>,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 4);
+    args.extend([key.into(), time.into()]);
+    if let Some(options) = options {
+      args.push(options.to_str().into());
+    }
+    args.extend([static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HPExpireAt, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hpexpire_time<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 3);
+    args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HPExpireTime, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hpersist<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 3);
+    args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HPersist, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
 }

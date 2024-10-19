@@ -24,7 +24,7 @@ async fn main() -> Result<(), RedisError> {
   client.init().await?;
 
   for idx in 0 .. 50 {
-    client.set("foo", idx, Some(Expiration::EX(10)), None, false).await?;
+    let _: () = client.set("foo", idx, Some(Expiration::EX(10)), None, false).await?;
   }
   client.quit().await?;
 
