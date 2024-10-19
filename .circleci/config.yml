@@ -129,106 +129,106 @@ commands:
       - save-cargo-deps-cache
 
 jobs:
-  test-default-nil-types-7_2:
+  test-default-nil-types-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_default_nil_types_features
-  test-default-7_2:
+  test-default-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_default_features
-  test-unix-socket-7_2:
+  test-unix-socket-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_unix_socket
-  test-redis-stack-7_2:
+  test-redis-stack-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_redis_stack
-  test-no-features-7_2:
+  test-no-features-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_no_features
-  test-all-features-7_2:
+  test-all-features-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_all_features
-  test-cluster-tls-features-7_2:
+  test-cluster-tls-features-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
       FRED_CI_TLS: true
     steps:
       - test_tls_cluster
-  test-cluster-rustls-features-7_2:
+  test-cluster-rustls-features-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster
-  test-cluster-rustls-ring-features-7_2:
+  test-cluster-rustls-ring-features-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
       FRED_CI_TLS: true
     steps:
       - test_rustls_cluster_ring
-  test-sentinel-7_2:
+  test-sentinel-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
     steps:
       - test_sentinel
-  test-valkey-7_2:
+  test-valkey-7:
     machine:
       image: ubuntu-2204:2022.10.2
       docker_layer_caching: true
     resource_class: medium
     environment:
-      REDIS_VERSION: 7.2.4
+      REDIS_VERSION: 7.4.0
       VALKEY_VERSION: 7.2.5
     steps:
       - test_valkey
@@ -308,18 +308,18 @@ workflows:
   version: 2
   build:
     jobs:
-      - test-default-7_2
-      - test-all-features-7_2
-      - test-no-features-7_2
-      - test-default-nil-types-7_2
-      - test-redis-stack-7_2
-      - test-sentinel-7_2
-      - test-unix-socket-7_2
-      - test-valkey-7_2
+      - test-default-7
+      - test-all-features-7
+      - test-no-features-7
+      - test-default-nil-types-7
+      - test-redis-stack-7
+      - test-sentinel-7
+      - test-unix-socket-7
+      - test-valkey-7
       - test-misc
-      - test-cluster-tls-features-7_2
-      - test-cluster-rustls-features-7_2
-      - test-cluster-rustls-ring-features-7_2
+      - test-cluster-tls-features-7
+      - test-cluster-rustls-features-7
+      - test-cluster-rustls-ring-features-7
       - clippy-lint
       - cargo-fmt
       - check-all-interface-features

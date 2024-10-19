@@ -24,7 +24,7 @@ use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, futu
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::ClusterDiscoveryPolicy;
+use fred::types::{ClusterDiscoveryPolicy, InfoKind};
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
@@ -500,6 +500,26 @@ where
   flushall_between_tests(&client).await.expect("Failed to flushall");
   func(_client, config.clone()).await.expect("Failed to run test");
   let _ = client.quit().await;
+}
+
+/// Check whether the server is Valkey.
+pub async fn check_valkey(client: &RedisClient) -> bool {
+  let info: String = match client.info(Some(InfoKind::Server)).await {
+    Ok(val) => val,
+    Err(e) => {
+      warn!("Failed to check valkey server: {:?}", e);
+      return false;
+    },
+  };
+
+  for line in info.lines() {
+    let parts: Vec<_> = line.split(":").collect();
+    if parts.len() == 2 && parts[0] == "server_name" && parts[1] == "valkey" {
+      return true;
+    }
+  }
+
+  false
 }
 
 macro_rules! centralized_test_panic(

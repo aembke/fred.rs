@@ -1,3 +1,4 @@
+use crate::integration::utils;
 use fred::{
   clients::RedisClient,
   error::RedisError,
@@ -199,6 +200,10 @@ pub async fn should_get_values(client: RedisClient, _: RedisConfig) -> Result<()
 }
 
 pub async fn should_do_hash_expirations(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  if utils::check_valkey(&client).await {
+    return Ok(());
+  }
+
   let _: () = client.hset("foo", [("a", "b"), ("c", "d")]).await?;
   assert_eq!(client.httl::<i64, _, _>("foo", "a").await?, -1);
   assert_eq!(client.hexpire_time::<i64, _, _>("foo", "a").await?, -1);
@@ -226,6 +231,10 @@ pub async fn should_do_hash_expirations(client: RedisClient, _: RedisConfig) -> 
 }
 
 pub async fn should_do_hash_pexpirations(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  if utils::check_valkey(&client).await {
+    return Ok(());
+  }
+
   let _: () = client.hset("foo", [("a", "b"), ("c", "d")]).await?;
   assert_eq!(client.hpttl::<i64, _, _>("foo", "a").await?, -1);
   assert_eq!(client.hpexpire_time::<i64, _, _>("foo", "a").await?, -1);
