@@ -1,6 +1,6 @@
 ## 9.3.0
 
-* Add `SETNX`, `TYPE`, `EXPIRETIME`, and `PEXPIRETIME` commands
+* Add `SETNX`, `ECHO`, `TYPE`, `EXPIRETIME`, and `PEXPIRETIME` commands
 * Add hashmap expiration commands (`HTTL`, `HEXPIRE`, etc)
 * Change `active_connections` to preempt reconnections
 
