@@ -30,6 +30,7 @@ mod keys {
   centralized_test!(keys, should_renamenx);
   centralized_test!(keys, should_expire_time_value);
   centralized_test!(keys, should_pexpire_time_value);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
   centralized_test!(keys, should_check_type_of_key);
 
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);

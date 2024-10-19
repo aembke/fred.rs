@@ -380,6 +380,7 @@ pub async fn should_pexpire_time_value(client: RedisClient, _: RedisConfig) -> R
   Ok(())
 }
 
+#[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
 pub async fn should_check_type_of_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _: () = client.set("foo1", "bar", None, None, false).await?;
   let _: () = client.hset("foo2", ("a", "b")).await?;

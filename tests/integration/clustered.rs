@@ -30,6 +30,7 @@ mod keys {
   cluster_test!(keys, should_renamenx);
   cluster_test!(keys, should_expire_time_value);
   cluster_test!(keys, should_pexpire_time_value);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
   cluster_test!(keys, should_check_type_of_key);
 
   cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
