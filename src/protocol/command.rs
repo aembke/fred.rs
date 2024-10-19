@@ -228,7 +228,6 @@ pub enum RedisCommandKind {
   HStrLen,
   HVals,
   HRandField,
-
   HTtl,
   HExpire,
   HExpireAt,
@@ -237,7 +236,7 @@ pub enum RedisCommandKind {
   HPExpire,
   HPExpireAt,
   HPExpireTime,
-
+  HPersist,
   Incr,
   IncrBy,
   IncrByFloat,
@@ -708,6 +707,7 @@ impl RedisCommandKind {
       RedisCommandKind::HExpire => "HEXPIRE",
       RedisCommandKind::HExpireAt => "HEXPIREAT",
       RedisCommandKind::HExpireTime => "HEXPIRETIME",
+      RedisCommandKind::HPersist => "HPERSIST",
       RedisCommandKind::HPTtl => "HPTTL",
       RedisCommandKind::HPExpire => "HPEXPIRE",
       RedisCommandKind::HPExpireAt => "HPEXPIREAT",
@@ -1093,6 +1093,7 @@ impl RedisCommandKind {
       RedisCommandKind::HExpire => "HEXPIRE",
       RedisCommandKind::HExpireAt => "HEXPIREAT",
       RedisCommandKind::HExpireTime => "HEXPIRETIME",
+      RedisCommandKind::HPersist => "HPERSIST",
       RedisCommandKind::HPTtl => "HPTTL",
       RedisCommandKind::HPExpire => "HPEXPIRE",
       RedisCommandKind::HPExpireAt => "HPEXPIREAT",

@@ -269,7 +269,7 @@ pub async fn hexpire_time<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HExpireAt, args))
+    Ok((RedisCommandKind::HExpireTime, args))
   })
   .await?;
 
@@ -354,6 +354,25 @@ pub async fn hpexpire_time<C: ClientLike>(
     }
 
     Ok((RedisCommandKind::HPExpireTime, args))
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
+pub async fn hpersist<C: ClientLike>(
+  client: &C,
+  key: RedisKey,
+  fields: MultipleKeys,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let mut args = Vec::with_capacity(fields.len() + 3);
+    args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
+    for field in fields.inner().into_iter() {
+      args.push(field.into());
+    }
+
+    Ok((RedisCommandKind::HPersist, args))
   })
   .await?;
 

@@ -398,4 +398,20 @@ pub trait HashesInterface: ClientLike + Sized {
       commands::hashes::hpexpire_time(self, key, fields).await?.convert()
     }
   }
+
+  /// Remove the existing expiration on a hash key's field(s), turning the field(s) from volatile (a field with
+  /// expiration set) to persistent (a field that will never expire as no TTL (time to live) is associated).
+  ///
+  /// <https://redis.io/docs/latest/commands/hpersist/>
+  fn hpersist<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hpersist(self, key, fields).await?.convert()
+    }
+  }
 }

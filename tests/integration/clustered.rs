@@ -135,6 +135,8 @@ mod hashes {
   cluster_test!(hashes, should_get_random_field);
   cluster_test!(hashes, should_get_strlen);
   cluster_test!(hashes, should_get_values);
+  cluster_test!(hashes, should_do_hash_expirations);
+  cluster_test!(hashes, should_do_hash_pexpirations);
 }
 
 #[cfg(feature = "i-pubsub")]

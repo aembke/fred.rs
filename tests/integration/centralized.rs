@@ -132,6 +132,8 @@ mod hashes {
   centralized_test!(hashes, should_get_random_field);
   centralized_test!(hashes, should_get_strlen);
   centralized_test!(hashes, should_get_values);
+  centralized_test!(hashes, should_do_hash_expirations);
+  centralized_test!(hashes, should_do_hash_pexpirations);
 }
 
 #[cfg(feature = "i-pubsub")]

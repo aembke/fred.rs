@@ -242,15 +242,14 @@ pub async fn should_safely_change_protocols_repeatedly(
     }
   });
 
-  // switch protocols every half second
-  for idx in 0 .. 15 {
+  for idx in 0 .. 20 {
     let version = if idx % 2 == 0 {
       RespVersion::RESP2
     } else {
       RespVersion::RESP3
     };
     client.hello(version, None, None).await?;
-    sleep(Duration::from_millis(500)).await;
+    sleep(Duration::from_millis(100)).await;
   }
   let _ = mem::replace(&mut *done.write(), true);
 
