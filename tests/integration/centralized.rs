@@ -185,6 +185,7 @@ mod server {
   centralized_test!(server, should_read_db_size);
   centralized_test!(server, should_start_bgsave);
   centralized_test!(server, should_do_bgrewriteaof);
+  centralized_test!(server, should_select_index_command);
 }
 
 #[cfg(feature = "i-sets")]

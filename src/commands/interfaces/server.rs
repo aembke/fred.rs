@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, Server},
+  types::{FromRedis, RedisValue, Server},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -43,8 +43,15 @@ pub trait ServerInterface: ClientLike {
   /// Select the database this client should use.
   ///
   /// <https://redis.io/commands/select>
-  fn select(&self, db: u8) -> impl Future<Output = RedisResult<()>> + Send {
-    async move { commands::server::select(self, db).await?.convert() }
+  fn select<I>(&self, index: I) -> impl Future<Output = RedisResult<()>> + Send
+  where
+    I: TryInto<RedisValue> + Send,
+    I::Error: Into<RedisError> + Send,
+  {
+    async move {
+      try_into!(index);
+      commands::server::select(self, index).await?.convert()
+    }
   }
 
   /// This command will start a coordinated failover between the currently-connected-to master and one of its
