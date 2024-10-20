@@ -4,6 +4,7 @@ mod keys {
   centralized_test!(keys, should_set_and_get_a_value);
   centralized_test!(keys, should_set_and_del_a_value);
   centralized_test!(keys, should_set_with_get_argument);
+  centralized_test!(keys, should_setnx_value);
   centralized_test!(keys, should_incr_and_decr_a_value);
   centralized_test!(keys, should_incr_by_float);
   centralized_test!(keys, should_mset_a_non_empty_map);
@@ -27,6 +28,10 @@ mod keys {
   centralized_test_panic!(keys, should_error_renamenx_does_not_exist);
   centralized_test!(keys, should_rename);
   centralized_test!(keys, should_renamenx);
+  centralized_test!(keys, should_expire_time_value);
+  centralized_test!(keys, should_pexpire_time_value);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
+  centralized_test!(keys, should_check_type_of_key);
 
   centralized_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
@@ -50,6 +55,8 @@ mod other {
   centralized_test!(other, should_safely_change_protocols_repeatedly);
   centralized_test!(other, should_gracefully_quit);
 
+  #[cfg(feature = "i-pubsub")]
+  centralized_test!(other, should_exit_event_task_with_error);
   #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
   centralized_test!(other, should_fail_pipeline_transaction_error);
   #[cfg(all(feature = "transactions", feature = "i-keys"))]
@@ -126,6 +133,8 @@ mod hashes {
   centralized_test!(hashes, should_get_random_field);
   centralized_test!(hashes, should_get_strlen);
   centralized_test!(hashes, should_get_values);
+  centralized_test!(hashes, should_do_hash_expirations);
+  centralized_test!(hashes, should_do_hash_pexpirations);
 }
 
 #[cfg(feature = "i-pubsub")]
@@ -405,4 +414,9 @@ mod redisearch {
   centralized_test!(redisearch, should_index_and_info_basic_hash);
   centralized_test!(redisearch, should_index_and_search_hash);
   centralized_test!(redisearch, should_index_and_aggregate_timestamps);
+}
+
+#[cfg(feature = "i-client")]
+mod client {
+  centralized_test!(client, should_echo_message);
 }

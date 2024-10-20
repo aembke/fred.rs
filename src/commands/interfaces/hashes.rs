@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue},
+  types::{ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -240,6 +240,178 @@ pub trait HashesInterface: ClientLike + Sized {
     async move {
       into!(key);
       commands::hashes::hvals(self, key).await?.convert()
+    }
+  }
+
+  /// Returns the remaining TTL (time to live) of a hash key's field(s) that have a set expiration.
+  ///
+  /// <https://redis.io/docs/latest/commands/httl/>
+  fn httl<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::httl(self, key, fields).await?.convert()
+    }
+  }
+
+  /// Set an expiration (TTL or time to live) on one or more fields of a given hash key.
+  ///
+  /// <https://redis.io/docs/latest/commands/hexpire/>
+  fn hexpire<R, K, F>(
+    &self,
+    key: K,
+    seconds: i64,
+    options: Option<ExpireOptions>,
+    fields: F,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hexpire(self, key, seconds, options, fields)
+        .await?
+        .convert()
+    }
+  }
+
+  /// HEXPIREAT has the same effect and semantics as HEXPIRE, but instead of specifying the number of seconds for the
+  /// TTL (time to live), it takes an absolute Unix timestamp in seconds since Unix epoch.
+  ///
+  /// <https://redis.io/docs/latest/commands/hexpireat/>
+  fn hexpire_at<R, K, F>(
+    &self,
+    key: K,
+    time: i64,
+    options: Option<ExpireOptions>,
+    fields: F,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hexpire_at(self, key, time, options, fields)
+        .await?
+        .convert()
+    }
+  }
+
+  /// Returns the absolute Unix timestamp in seconds since Unix epoch at which the given key's field(s) will expire.
+  ///
+  /// <https://redis.io/docs/latest/commands/hexpiretime/>
+  fn hexpire_time<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hexpire_time(self, key, fields).await?.convert()
+    }
+  }
+
+  /// Like HTTL, this command returns the remaining TTL (time to live) of a field that has an expiration set, but in
+  /// milliseconds instead of seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/hpttl/>
+  fn hpttl<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hpttl(self, key, fields).await?.convert()
+    }
+  }
+
+  /// This command works like HEXPIRE, but the expiration of a field is specified in milliseconds instead of seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/hpexpire/>
+  fn hpexpire<R, K, F>(
+    &self,
+    key: K,
+    milliseconds: i64,
+    options: Option<ExpireOptions>,
+    fields: F,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hpexpire(self, key, milliseconds, options, fields)
+        .await?
+        .convert()
+    }
+  }
+
+  /// HPEXPIREAT has the same effect and semantics as HEXPIREAT, but the Unix time at which the field will expire is
+  /// specified in milliseconds since Unix epoch instead of seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/hpexpireat/>
+  fn hpexpire_at<R, K, F>(
+    &self,
+    key: K,
+    time: i64,
+    options: Option<ExpireOptions>,
+    fields: F,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hpexpire_at(self, key, time, options, fields)
+        .await?
+        .convert()
+    }
+  }
+
+  /// HPEXPIRETIME has the same semantics as HEXPIRETIME, but returns the absolute Unix expiration timestamp in
+  /// milliseconds since Unix epoch instead of seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/hpexpiretime/>
+  fn hpexpire_time<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hpexpire_time(self, key, fields).await?.convert()
+    }
+  }
+
+  /// Remove the existing expiration on a hash key's field(s), turning the field(s) from volatile (a field with
+  /// expiration set) to persistent (a field that will never expire as no TTL (time to live) is associated).
+  ///
+  /// <https://redis.io/docs/latest/commands/hpersist/>
+  fn hpersist<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    F: Into<MultipleKeys> + Send,
+  {
+    async move {
+      into!(key, fields);
+      commands::hashes::hpersist(self, key, fields).await?.convert()
     }
   }
 }

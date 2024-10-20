@@ -28,6 +28,10 @@ mod keys {
   cluster_test_panic!(keys, should_error_renamenx_does_not_exist);
   cluster_test!(keys, should_rename);
   cluster_test!(keys, should_renamenx);
+  cluster_test!(keys, should_expire_time_value);
+  cluster_test!(keys, should_pexpire_time_value);
+  #[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
+  cluster_test!(keys, should_check_type_of_key);
 
   cluster_test!(keys, should_get_keys_from_pool_in_a_stream);
 }
@@ -52,6 +56,8 @@ mod other {
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_gracefully_quit);
 
+  #[cfg(feature = "i-pubsub")]
+  cluster_test!(other, should_exit_event_task_with_error);
   #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
   cluster_test!(other, should_fail_pipeline_transaction_error);
   #[cfg(all(feature = "transactions", feature = "i-keys"))]
@@ -130,6 +136,8 @@ mod hashes {
   cluster_test!(hashes, should_get_random_field);
   cluster_test!(hashes, should_get_strlen);
   cluster_test!(hashes, should_get_values);
+  cluster_test!(hashes, should_do_hash_expirations);
+  cluster_test!(hashes, should_do_hash_pexpirations);
 }
 
 #[cfg(feature = "i-pubsub")]
@@ -390,4 +398,9 @@ mod timeseries {
   cluster_test!(timeseries, should_create_and_delete_rules);
   cluster_test!(timeseries, should_madd_and_mrange);
   cluster_test!(timeseries, should_madd_and_mrevrange);
+}
+
+#[cfg(feature = "i-client")]
+mod client {
+  cluster_test!(client, should_echo_message);
 }

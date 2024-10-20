@@ -199,6 +199,10 @@ pub fn check_blocked_router(inner: &RefCount<RedisClientInner>, buffer: &SharedB
   }
 }
 
+pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, server: &Server) {
+  inner.backchannel.write().await.remove_connection_id(server);
+}
+
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
 /// with the underlying error.
 pub fn check_final_write_attempt(

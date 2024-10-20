@@ -22,7 +22,7 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
 
   // enable client tracking on all connections. it's usually a good idea to do this in an `on_reconnect` block.
   client.start_tracking(None, false, false, false, false).await?;
-  client.get("foo").await?;
+  client.get::<(), _>("foo").await?;
 
   // send `CLIENT CACHING yes|no` before subsequent commands. the preceding `CLIENT CACHING yes|no` command will be
   // sent when the command is retried as well.
@@ -73,7 +73,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
     .into_iter()
     .next()
     .expect("Failed to read subscriber connection ID");
-  client
+  let _: () = client
     .client_tracking("on", Some(connection_id), None, false, false, false, false)
     .await?;
 
@@ -82,8 +82,8 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 
   let pipeline = client.pipeline();
   // it's recommended to pipeline `CLIENT CACHING yes|no` if the client is used across multiple tasks
-  pipeline.client_caching(true).await?;
-  pipeline.incr("foo").await?;
+  let _: () = pipeline.client_caching(true).await?;
+  let _: () = pipeline.incr("foo").await?;
   println!("Foo: {}", pipeline.last::<i64>().await?);
 
   Ok(())

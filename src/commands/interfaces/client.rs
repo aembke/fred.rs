@@ -1,5 +1,8 @@
+#[cfg(feature = "i-tracking")]
+use crate::types::{MultipleStrings, Toggle};
 use crate::{
   commands,
+  error::RedisError,
   interfaces::{ClientLike, RedisResult},
   types::{
     ClientKillFilter,
@@ -11,11 +14,6 @@ use crate::{
     RedisValue,
     Server,
   },
-};
-#[cfg(feature = "i-tracking")]
-use crate::{
-  error::RedisError,
-  types::{MultipleStrings, Toggle},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -160,6 +158,21 @@ pub trait ClientInterface: ClientLike + Sized {
   /// A convenience function to unblock any blocked connection on this client.
   fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> impl Future<Output = RedisResult<()>> + Send {
     async move { commands::client::unblock_self(self, flag).await }
+  }
+
+  /// Returns message.
+  ///
+  /// https://redis.io/docs/latest/commands/echo/
+  fn echo<R, M>(&self, message: M) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    M: TryInto<RedisValue> + Send,
+    M::Error: Into<RedisError> + Send,
+  {
+    async move {
+      try_into!(message);
+      commands::client::echo(self, message).await?.convert()
+    }
   }
 
   /// This command enables the tracking feature of the Redis server that is used for server assisted client side

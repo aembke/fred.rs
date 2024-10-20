@@ -1,3 +1,9 @@
+#[cfg(feature = "i-scripts")]
+use crate::types::Function;
+#[cfg(feature = "i-geo")]
+use crate::types::{GeoPosition, GeoRadiusInfo};
+#[cfg(feature = "i-streams")]
+use crate::types::{XReadResponse, XReadValue};
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces::{ClientLike, Resp3Frame},
@@ -9,6 +15,8 @@ use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
 use redis_protocol::resp2::types::NULL;
+#[cfg(feature = "serde-json")]
+use serde_json::Value;
 use std::{
   borrow::Cow,
   collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -20,15 +28,6 @@ use std::{
   ops::{Deref, DerefMut},
   str,
 };
-
-#[cfg(feature = "i-scripts")]
-use crate::types::Function;
-#[cfg(feature = "i-geo")]
-use crate::types::{GeoPosition, GeoRadiusInfo};
-#[cfg(feature = "i-streams")]
-use crate::types::{XReadResponse, XReadValue};
-#[cfg(feature = "serde-json")]
-use serde_json::Value;
 
 static TRUE_STR: Str = utils::static_str("true");
 static FALSE_STR: Str = utils::static_str("false");
@@ -1700,5 +1699,20 @@ mod tests {
   fn redis_map_from_iter() {
     let map = [("hello", "world")].into_iter().collect::<RedisMap>();
     assert_eq!(map.inner[&RedisKey::from("hello")], RedisValue::from("world"));
+  }
+
+  // requires specialization of TryFrom<Vec<u8>> for RedisValue
+  #[test]
+  #[ignore]
+  fn redis_bytes_from_vec_u8() {
+    let input: Vec<u8> = vec![0, 1, 2];
+    let output: RedisValue = input.clone().try_into().unwrap();
+    assert_eq!(output, RedisValue::Bytes(Bytes::from(input)));
+    let input: Vec<u32> = vec![0, 1, 2, 3];
+    let output: RedisValue = input.clone().try_into().unwrap();
+    assert_eq!(
+      output,
+      RedisValue::Array(input.into_iter().map(|v| RedisValue::Integer(v as i64)).collect())
+    );
   }
 }

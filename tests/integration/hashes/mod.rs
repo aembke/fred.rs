@@ -1,10 +1,14 @@
+use crate::integration::utils;
 use fred::{
   clients::RedisClient,
   error::RedisError,
   interfaces::*,
   types::{RedisConfig, RedisValue},
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+  collections::{HashMap, HashSet},
+  time::{SystemTime, UNIX_EPOCH},
+};
 
 fn assert_contains<T: Eq + PartialEq>(values: Vec<T>, item: &T) {
   for value in values.iter() {
@@ -191,6 +195,68 @@ pub async fn should_get_values(client: RedisClient, _: RedisConfig) -> Result<()
 
   let values: RedisValue = client.hvals("foo").await?;
   assert_diff_len(vec!["1", "2"], values, 0);
+
+  Ok(())
+}
+
+pub async fn should_do_hash_expirations(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  if utils::check_valkey(&client).await {
+    return Ok(());
+  }
+
+  let _: () = client.hset("foo", [("a", "b"), ("c", "d")]).await?;
+  assert_eq!(client.httl::<i64, _, _>("foo", "a").await?, -1);
+  assert_eq!(client.hexpire_time::<i64, _, _>("foo", "a").await?, -1);
+
+  let result: i64 = client.hexpire("foo", 60, None, "a").await?;
+  assert_eq!(result, 1);
+  let result: i64 = client.httl("foo", "a").await?;
+  assert!(result > 0);
+  let result: i64 = client.hexpire_time("foo", "a").await?;
+  assert!(result > 0);
+
+  let result: i64 = client.hpersist("foo", "a").await?;
+  assert_eq!(result, 1);
+  assert_eq!(client.httl::<i64, _, _>("foo", "a").await?, -1);
+
+  let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 60;
+  let result: i64 = client.hexpire_at("foo", time as i64, None, "a").await?;
+  assert_eq!(result, 1);
+  let result: i64 = client.httl("foo", "a").await?;
+  assert!(result > 0);
+  let result: i64 = client.hexpire_time("foo", "a").await?;
+  assert!(result > 0);
+
+  Ok(())
+}
+
+pub async fn should_do_hash_pexpirations(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  if utils::check_valkey(&client).await {
+    return Ok(());
+  }
+
+  let _: () = client.hset("foo", [("a", "b"), ("c", "d")]).await?;
+  assert_eq!(client.hpttl::<i64, _, _>("foo", "a").await?, -1);
+  assert_eq!(client.hpexpire_time::<i64, _, _>("foo", "a").await?, -1);
+
+  let result: i64 = client.hpexpire("foo", 60_000, None, "a").await?;
+  assert_eq!(result, 1);
+  let result: i64 = client.hpttl("foo", "a").await?;
+  assert!(result > 0);
+  let result: i64 = client.hpexpire_time("foo", "a").await?;
+  assert!(result > 0);
+
+  let result: i64 = client.hpersist("foo", "a").await?;
+  assert_eq!(result, 1);
+  assert_eq!(client.hpttl::<i64, _, _>("foo", "a").await?, -1);
+
+  let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() + 60_000;
+  let result: i64 = client.hpexpire_at("foo", time as i64, None, "a").await?;
+  assert_eq!(result, 1);
+  let result: i64 = client.hpttl("foo", "a").await?;
+  assert!(result > 0);
+  let result: i64 = client.hpexpire_time("foo", "a").await?;
+  assert!(result > 0);
 
   Ok(())
 }

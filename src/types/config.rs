@@ -670,8 +670,8 @@ pub struct RedisConfig {
   /// The protocol version to use when communicating with the server(s).
   ///
   /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
-  /// >=6.0.0.** If the `HELLO` command fails this will prevent the client from connecting. Callers should set this
-  /// to RESP2 and use `HELLO` manually to fall back to RESP2 if needed.
+  /// 6.0.0 or above.** If the `HELLO` command fails this will prevent the client from connecting. Callers should set
+  /// this to RESP2 and use `HELLO` manually to fall back to RESP2 if needed.
   ///
   /// Note: upgrading an existing codebase from RESP2 to RESP3 may require changing certain type signatures. RESP3
   /// has a slightly different type system than RESP2.

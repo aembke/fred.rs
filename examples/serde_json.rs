@@ -22,7 +22,7 @@ async fn main() -> Result<(), RedisError> {
     "foo": "a",
     "bar": "b"
   });
-  client.set("wibble", value.to_string(), None, None, false).await?;
+  let _: () = client.set("wibble", value.to_string(), None, None, false).await?;
 
   // converting back to a json `Value` will also try to parse nested json strings. if a value looks like json, but
   // cannot be parsed as json, then it will be returned as a string.
@@ -36,7 +36,7 @@ async fn main() -> Result<(), RedisError> {
   };
 
   let serialized = serde_json::to_string(&person)?;
-  client.set("foo", serialized, None, None, false).await?;
+  let _: () = client.set("foo", serialized, None, None, false).await?;
   // deserialize as a json value
   let person_json: Value = client.get("foo").await?;
   let deserialized: Person = serde_json::from_value(person_json)?;

@@ -78,6 +78,21 @@ pub trait KeysInterface: ClientLike + Sized {
     }
   }
 
+  /// Returns the string representation of the type of the value stored at key. The different types that can be
+  /// returned are: string, list, set, zset, hash and stream.
+  ///
+  /// <https://redis.io/docs/latest/commands/type/>
+  fn r#type<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+  {
+    async move {
+      into!(key);
+      commands::keys::r#type(self, key).await?.convert()
+    }
+  }
+
   /// Create a key associated with a value that is obtained by deserializing the provided serialized value
   ///
   /// <https://redis.io/commands/restore>
@@ -128,6 +143,25 @@ pub trait KeysInterface: ClientLike + Sized {
       commands::keys::set(self, key, value, expire, options, get)
         .await?
         .convert()
+    }
+  }
+
+  /// Sets `key` to `value` if `key` does not exist.
+  ///
+  /// Note: the command is regarded as deprecated since Redis 2.6.12.
+  ///
+  /// <https://redis.io/commands/setnx>
+  fn setnx<R, K, V>(&self, key: K, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+    V: TryInto<RedisValue> + Send,
+    V::Error: Into<RedisError> + Send,
+  {
+    async move {
+      into!(key);
+      try_into!(value);
+      commands::keys::setnx(self, key, value).await?.convert()
     }
   }
 
@@ -516,6 +550,20 @@ pub trait KeysInterface: ClientLike + Sized {
     }
   }
 
+  /// Returns the absolute Unix timestamp (since January 1, 1970) in seconds at which the given key will expire.
+  ///
+  /// <https://redis.io/docs/latest/commands/expiretime/>
+  fn expire_time<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+  {
+    async move {
+      into!(key);
+      commands::keys::expire_time(self, key).await?.convert()
+    }
+  }
+
   /// This command works exactly like EXPIRE but the time to live of the key is specified in milliseconds instead of
   /// seconds.
   ///
@@ -557,6 +605,21 @@ pub trait KeysInterface: ClientLike + Sized {
       commands::keys::pexpire_at(self, key, timestamp, options)
         .await?
         .convert()
+    }
+  }
+
+  /// PEXPIRETIME has the same semantic as EXPIRETIME, but returns the absolute Unix expiration timestamp in
+  /// milliseconds instead of seconds.
+  ///
+  /// <https://redis.io/docs/latest/commands/pexpiretime/>
+  fn pexpire_time<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    K: Into<RedisKey> + Send,
+  {
+    async move {
+      into!(key);
+      commands::keys::pexpire_time(self, key).await?.convert()
     }
   }
 

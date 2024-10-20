@@ -43,6 +43,10 @@ impl<T> AsyncRwLock<T> {
   pub async fn write(&self) -> glommio::sync::RwLockWriteGuard<T> {
     self.inner.write().await.unwrap()
   }
+
+  pub async fn read(&self) -> glommio::sync::RwLockReadGuard<T> {
+    self.inner.read().await.unwrap()
+  }
 }
 
 #[derive(Debug)]

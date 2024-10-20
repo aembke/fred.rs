@@ -130,3 +130,7 @@ pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockF
   inner.backchannel.write().await.set_unblocked();
   result
 }
+
+pub async fn echo<C: ClientLike>(client: &C, message: RedisValue) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::Echo, message).await
+}
