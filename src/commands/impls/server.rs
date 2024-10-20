@@ -142,7 +142,7 @@ pub async fn ping<C: ClientLike>(client: &C, message: Option<String>) -> Result<
 }
 
 pub async fn select<C: ClientLike>(client: &C, db: u8) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(client, || Ok((RedisCommandKind::Select, vec![(db as i64).into()]))).await?;
+  let frame = utils::request_response(client, || Ok((RedisCommandKind::Select, vec![db.into()]))).await?;
   protocol_utils::frame_to_results(frame)
 }
 

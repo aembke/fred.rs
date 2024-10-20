@@ -70,3 +70,8 @@ pub async fn should_do_bgrewriteaof(client: RedisClient, _: RedisConfig) -> Resu
   sleep(Duration::from_millis(1000)).await;
   Ok(())
 }
+
+pub async fn should_select_index_command(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  assert_eq!(client.select(0).await, Ok(()));
+  Ok(())
+}
