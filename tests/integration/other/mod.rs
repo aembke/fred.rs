@@ -110,7 +110,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
   let unblock_client = client.clone();
   tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
-    let _: () = unblock_client.ping().await.expect("Failed to ping");
+    let _: () = unblock_client.ping(None).await.expect("Failed to ping");
   });
 
   let result = client.blpop::<(), _>("foo", 60.0).await;
@@ -151,7 +151,7 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
   tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
 
-    let result = error_client.ping::<()>().await;
+    let result = error_client.ping::<()>(None).await;
     assert!(result.is_err());
     assert_eq!(*result.unwrap_err().kind(), RedisErrorKind::InvalidCommand);
 
@@ -237,7 +237,7 @@ pub async fn should_safely_change_protocols_repeatedly(
       if *other_done.read() {
         return Ok::<_, RedisError>(());
       }
-      other.ping().await?;
+      other.ping(None).await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
@@ -466,9 +466,9 @@ pub async fn should_ping_with_subscriber_client(client: RedisClient, config: Red
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  let _: () = client.ping().await?;
+  let _: () = client.ping(None).await?;
   let _: () = client.subscribe("foo").await?;
-  let _: () = client.ping().await?;
+  let _: () = client.ping(None).await?;
   let _ = client.quit().await?;
   Ok(())
 }
@@ -547,7 +547,7 @@ pub async fn should_gracefully_quit(client: RedisClient, _: RedisConfig) -> Resu
   let connection = client.connect();
   client.wait_for_connect().await?;
 
-  client.ping().await?;
+  client.ping(None).await?;
   client.quit().await?;
   let _ = connection.await;
 
@@ -664,7 +664,7 @@ pub async fn pool_should_connect_correctly_via_init_interface(
   let pool = Builder::from_config(config).build_pool(5)?;
   let task = pool.init().await?;
 
-  pool.ping().await?;
+  pool.ping(None).await?;
   pool.quit().await?;
   task.await??;
   Ok(())
@@ -689,7 +689,7 @@ pub async fn pool_should_connect_correctly_via_wait_interface(
   let task = pool.connect();
   pool.wait_for_connect().await?;
 
-  pool.ping().await?;
+  pool.ping(None).await?;
   pool.quit().await?;
   task.await??;
   Ok(())
@@ -716,7 +716,7 @@ pub async fn should_connect_correctly_via_init_interface(
   let client = Builder::from_config(config).build()?;
   let task = client.init().await?;
 
-  client.ping().await?;
+  client.ping(None).await?;
   client.quit().await?;
   task.await??;
   Ok(())
@@ -741,7 +741,7 @@ pub async fn should_connect_correctly_via_wait_interface(
   let task = client.connect();
   client.wait_for_connect().await?;
 
-  client.ping().await?;
+  client.ping(None).await?;
   client.quit().await?;
   task.await??;
   Ok(())

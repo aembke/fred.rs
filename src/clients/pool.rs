@@ -329,7 +329,7 @@ impl HeartbeatInterface for RedisPool {
       loop {
         sleep(interval).await;
 
-        if let Err(error) = try_join_all(self.inner.clients.iter().map(|c| c.ping::<()>())).await {
+        if let Err(error) = try_join_all(self.inner.clients.iter().map(|c| c.ping::<()>(None))).await {
           if break_on_error {
             return Err(error);
           }

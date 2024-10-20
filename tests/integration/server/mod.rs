@@ -23,9 +23,11 @@ pub async fn should_read_server_info(client: RedisClient, _: RedisConfig) -> Res
   Ok(())
 }
 
-pub async fn should_ping_server(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.ping().await?;
-
+pub async fn should_ping_pong_command(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let res: String = client.ping(None).await?;
+  assert_eq!(res, "PONG");
+  let res: String = client.ping(Some("hello world!")).await?;
+  assert_eq!(res, "hello world!");
   Ok(())
 }
 
