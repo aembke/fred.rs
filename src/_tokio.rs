@@ -315,11 +315,11 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  fn ping<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn ping<R>(&self, message: Option<&str>) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {
-    async move { commands::server::ping(self).await?.convert() }
+    async move { commands::server::ping(self, message).await?.convert() }
   }
 
   /// Read info about the server.

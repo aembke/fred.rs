@@ -179,12 +179,12 @@ mod slowlog {
 mod server {
   centralized_test!(server, should_flushall);
   centralized_test!(server, should_read_server_info);
-  centralized_test!(server, should_ping_server);
   centralized_test!(server, should_run_custom_command);
   centralized_test!(server, should_read_last_save);
   centralized_test!(server, should_read_db_size);
   centralized_test!(server, should_start_bgsave);
   centralized_test!(server, should_do_bgrewriteaof);
+  centralized_test!(server, should_ping_pong_command);
 }
 
 #[cfg(feature = "i-sets")]

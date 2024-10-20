@@ -144,9 +144,9 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
   sleep(Duration::from_secs(1)).await;
 
   // make sure the response buffer is flushed correctly by this point
-  assert_eq!(subscriber.ping::<String>().await?, "PONG");
-  assert_eq!(subscriber.ping::<String>().await?, "PONG");
-  assert_eq!(subscriber.ping::<String>().await?, "PONG");
+  assert_eq!(subscriber.ping::<String>(None).await?, "PONG");
+  assert_eq!(subscriber.ping::<String>(None).await?, "PONG");
+  assert_eq!(subscriber.ping::<String>(None).await?, "PONG");
 
   subscriber.quit().await?;
   let _ = connection.await?;
