@@ -13,6 +13,9 @@ use futures::Future;
 pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::time::Duration;
 
+pub(crate) use crate::runtime::spawn_event_listener;
+pub use crate::runtime::ClientLike;
+
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
 
@@ -91,16 +94,6 @@ pub(crate) fn send_to_router(inner: &RefCount<RedisClientInner>, command: Router
     Ok(())
   }
 }
-
-#[cfg(not(feature = "glommio"))]
-pub use crate::_tokio::ClientLike;
-#[cfg(feature = "glommio")]
-pub use crate::glommio::interfaces::ClientLike;
-
-#[cfg(not(feature = "glommio"))]
-pub use crate::_tokio::spawn_event_listener;
-#[cfg(feature = "glommio")]
-pub use crate::glommio::interfaces::spawn_event_listener;
 
 /// Functions that provide a connection heartbeat interface.
 #[rm_send_if(feature = "glommio")]

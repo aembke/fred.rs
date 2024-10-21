@@ -58,31 +58,30 @@ See the build features for more information.
 
 ## Client Features
 
-| Name                      | Default | Description                                                                                                                                                                                                                                                         |
-|---------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `transactions`            | x       | Enable a [Transaction](https://redis.io/docs/interact/transactions/) interface.                                                                                                                                                                                     |
-| `enable-native-tls`       |         | Enable TLS support via [native-tls](https://crates.io/crates/native-tls).                                                                                                                                                                                           |
-| `enable-rustls`           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls) with the default crypto backend features.                                                                                                                                                          |
-| `enable-rustls-ring`      |         | Enable TLS support via [rustls](https://crates.io/crates/rustls) and the ring crypto backend.                                                                                                                                                                       |
-| `vendored-openssl`        |         | Enable the `native-tls/vendored` feature.                                                                                                                                                                                                                           |
-| `metrics`                 |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                                                                                                                 |
-| `full-tracing`            |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data.                                                                                                                                                                                  |
-| `partial-tracing`         |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency.                                                                                                                                           |
-| `blocking-encoding`       |         | Use a blocking task for encoding or decoding frames. This can be useful for clients that send or receive large payloads, but requires a multi-thread Tokio runtime.                                                                                                 |
-| `custom-reconnect-errors` |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.                                                                                                                                              |
-| `monitor`                 |         | Enable an interface for running the `MONITOR` command.                                                                                                                                                                                                              |
-| `sentinel-client`         |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                                                                                                                      |
-| `sentinel-auth`           |         | Enable an interface for using different authentication credentials to sentinel nodes.                                                                                                                                                                               |
-| `subscriber-client`       |         | Enable a subscriber client interface that manages channel subscription state for callers.                                                                                                                                                                           |
-| `serde-json`              |         | Enable an interface to automatically convert Redis types to JSON via `serde-json`.                                                                                                                                                                                  |
-| `mocks`                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                                                                                                                       |
-| `dns`                     |         | Enable an interface that allows callers to override the DNS lookup logic.                                                                                                                                                                                           |
-| `replicas`                |         | Enable an interface that routes commands to replica nodes.                                                                                                                                                                                                          |
-| `default-nil-types`       |         | Enable a looser parsing interface for `nil` values.                                                                                                                                                                                                                 |
-| `sha-1`                   |         | Enable an interface for hashing Lua scripts.                                                                                                                                                                                                                        |
-| `unix-sockets`            |         | Enable Unix socket support.                                                                                                                                                                                                                                         |
-| `glommio`                 |         | Enable experimental [Glommio](https://github.com/DataDog/glommio) support. See the [Glommio Runtime](https://github.com/aembke/fred.rs/blob/main/src/glommio/README.md) docs for more information. When enabled the client will no longer work with Tokio runtimes. |
-| `credential-provider`     |         | Enable an interface that can dynamically load auth credentials at runtime.                                                                                                                                                                                          |
+| Name                      | Default | Description                                                                                                                                                         |
+|---------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `transactions`            | x       | Enable a [Transaction](https://redis.io/docs/interact/transactions/) interface.                                                                                     |
+| `enable-native-tls`       |         | Enable TLS support via [native-tls](https://crates.io/crates/native-tls).                                                                                           |
+| `enable-rustls`           |         | Enable TLS support via [rustls](https://crates.io/crates/rustls) with the default crypto backend features.                                                          |
+| `enable-rustls-ring`      |         | Enable TLS support via [rustls](https://crates.io/crates/rustls) and the ring crypto backend.                                                                       |
+| `vendored-openssl`        |         | Enable the `native-tls/vendored` feature.                                                                                                                           |
+| `metrics`                 |         | Enable the metrics interface to track overall latency, network latency, and request/response sizes.                                                                 |
+| `full-tracing`            |         | Enable full [tracing](./src/trace/README.md) support. This can emit a lot of data.                                                                                  |
+| `partial-tracing`         |         | Enable partial [tracing](./src/trace/README.md) support, only emitting traces for top level commands and network latency.                                           |
+| `blocking-encoding`       |         | Use a blocking task for encoding or decoding frames. This can be useful for clients that send or receive large payloads, but requires a multi-thread Tokio runtime. |
+| `custom-reconnect-errors` |         | Enable an interface for callers to customize the types of errors that should automatically trigger reconnection logic.                                              |
+| `monitor`                 |         | Enable an interface for running the `MONITOR` command.                                                                                                              |
+| `sentinel-client`         |         | Enable an interface for communicating directly with Sentinel nodes. This is not necessary to use normal Redis clients behind a sentinel layer.                      |
+| `sentinel-auth`           |         | Enable an interface for using different authentication credentials to sentinel nodes.                                                                               |
+| `subscriber-client`       |         | Enable a subscriber client interface that manages channel subscription state for callers.                                                                           |
+| `serde-json`              |         | Enable an interface to automatically convert Redis types to JSON via `serde-json`.                                                                                  |
+| `mocks`                   |         | Enable a mocking layer interface that can be used to intercept and process commands in tests.                                                                       |
+| `dns`                     |         | Enable an interface that allows callers to override the DNS lookup logic.                                                                                           |
+| `replicas`                |         | Enable an interface that routes commands to replica nodes.                                                                                                          |
+| `default-nil-types`       |         | Enable a looser parsing interface for `nil` values.                                                                                                                 |
+| `sha-1`                   |         | Enable an interface for hashing Lua scripts.                                                                                                                        |
+| `unix-sockets`            |         | Enable Unix socket support.                                                                                                                                         |
+| `credential-provider`     |         | Enable an interface that can dynamically load auth credentials at runtime.                                                                                          |
 
 ## Interface Features
 
@@ -119,6 +118,19 @@ begin with `i-` and control which public interfaces are built.
 If a specific high level command function is not supported callers can use the `custom` function as a workaround until
 the higher level interface is added. See the [custom](https://github.com/aembke/fred.rs/blob/main/examples/custom.rs)
 example for more info.
+
+## Runtime Features
+
+By default `fred` uses the Tokio runtime and IO interfaces. The following features enable support for other runtimes,
+but only one runtime feature can be enabled at a time.
+
+See the [runtime documentation](src/runtime/README.md) for more information.
+
+| Name      | Default | Description                                                   |
+|-----------|---------|---------------------------------------------------------------|
+| `glommio` |         | Enable [Glommio](https://github.com/DataDog/glommio) support. |
+| `monoio`  |         | Enable [Monoio](https://github.com/bytedance/monoio) support. |
+| `smol`    |         | Enable [smol](https://github.com/smol-rs/smol) support.       |
 
 ## Debugging Features
 

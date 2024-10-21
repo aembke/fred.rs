@@ -72,15 +72,7 @@ pub mod monitor;
 /// The structs and enums used by the Redis client.
 pub mod types;
 
-#[cfg(feature = "glommio")]
-mod glommio;
-#[cfg(feature = "glommio")]
-pub(crate) use glommio::compat as runtime;
-
-#[cfg(not(feature = "glommio"))]
-mod _tokio;
-#[cfg(not(feature = "glommio"))]
-pub(crate) use _tokio as runtime;
+mod runtime;
 
 /// Various client utility functions.
 pub mod util {
