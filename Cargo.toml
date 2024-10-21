@@ -64,6 +64,12 @@ credential-provider = []
 
 # Enable experimental support for the Glommio runtime.
 glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]
+# Enable experimental support for the Monoio runtime.
+monoio = ["dep:monoio", "monoio-codec", "fred-macros/enabled", "oneshot", "futures-lite", "local-sync"]
+monoio-native-tls = ["dep:monoio-native-tls"]
+monoio-rustls = ["dep:monoio-rustls"]
+# [WIP] Enable experimental support for the Smol runtime.
+smol = []
 
 # Enables rustls with the rustls/aws_lc_rs crypto backend
 enable-rustls = [
@@ -208,6 +214,7 @@ monoio = { version = "0.2.4", optional = true, features = ["bytes"] }
 monoio-codec = { version = "0.3.4", optional = true }
 monoio-native-tls = { version = "0.4.0", optional = true }
 monoio-rustls = { version = "0.4.0", optional = true }
+local-sync = { version = "0.1.1", optional = true }
 # Smol Dependencies
 
 [dev-dependencies]

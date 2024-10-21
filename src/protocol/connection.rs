@@ -9,16 +9,14 @@ use crate::{
   },
   runtime::{AtomicBool, AtomicUsize, JoinHandle, RefCount},
   types::InfoKind,
-  utils as client_utils,
-  utils,
+  utils as client_utils, utils,
 };
 use bytes_utils::Str;
 use crossbeam_queue::SegQueue;
 use futures::{
   sink::SinkExt,
   stream::{SplitSink, SplitStream, StreamExt},
-  Sink,
-  Stream,
+  Sink, Stream,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, RespVersion};
 use semver::Version;
@@ -38,7 +36,7 @@ use socket2::SockRef;
 #[cfg(feature = "glommio")]
 use glommio::net::TcpStream as BaseTcpStream;
 #[cfg(feature = "glommio")]
-pub type TcpStream = crate::glommio::io_compat::TokioIO<BaseTcpStream>;
+pub type TcpStream = crate::runtime::glommio::io_compat::TokioIO<BaseTcpStream>;
 
 #[cfg(not(feature = "glommio"))]
 use tokio::net::TcpStream;
@@ -78,14 +76,14 @@ pub type CommandBuffer = Vec<RedisCommand>;
 /// A shared buffer across tasks.
 #[derive(Clone, Debug)]
 pub struct SharedBuffer {
-  inner:   RefCount<SegQueue<RedisCommand>>,
+  inner: RefCount<SegQueue<RedisCommand>>,
   blocked: RefCount<AtomicBool>,
 }
 
 impl SharedBuffer {
   pub fn new() -> Self {
     SharedBuffer {
-      inner:   RefCount::new(SegQueue::new()),
+      inner: RefCount::new(SegQueue::new()),
       blocked: RefCount::new(AtomicBool::new(false)),
     }
   }
@@ -171,7 +169,7 @@ async fn tcp_connect_any(
     }
 
     #[cfg(feature = "glommio")]
-    let socket = crate::glommio::io_compat::TokioIO(socket);
+    let socket = crate::runtime::glommio::io_compat::TokioIO(socket);
     return Ok((socket, *addr));
   }
 
@@ -401,16 +399,16 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
 #[derive(Clone, Debug)]
 pub struct Counters {
   pub cmd_buffer_len: RefCount<AtomicUsize>,
-  pub in_flight:      RefCount<AtomicUsize>,
-  pub feed_count:     RefCount<AtomicUsize>,
+  pub in_flight: RefCount<AtomicUsize>,
+  pub feed_count: RefCount<AtomicUsize>,
 }
 
 impl Counters {
   pub fn new(cmd_buffer_len: &RefCount<AtomicUsize>) -> Self {
     Counters {
       cmd_buffer_len: cmd_buffer_len.clone(),
-      in_flight:      RefCount::new(AtomicUsize::new(0)),
-      feed_count:     RefCount::new(AtomicUsize::new(0)),
+      in_flight: RefCount::new(AtomicUsize::new(0)),
+      feed_count: RefCount::new(AtomicUsize::new(0)),
     }
   }
 
@@ -443,19 +441,19 @@ impl Counters {
 
 pub struct RedisTransport {
   /// An identifier for the connection, usually `<host>|<ip>:<port>`.
-  pub server:       Server,
+  pub server: Server,
   /// The parsed `SocketAddr` for the connection.
-  pub addr:         Option<SocketAddr>,
+  pub addr: Option<SocketAddr>,
   /// The hostname used to initialize the connection.
   pub default_host: Str,
   /// The network connection.
-  pub transport:    ConnectionKind,
+  pub transport: ConnectionKind,
   /// The connection/client ID from the CLIENT ID command.
-  pub id:           Option<i64>,
+  pub id: Option<i64>,
   /// The server version.
-  pub version:      Option<Version>,
+  pub version: Option<Version>,
   /// Counters for the connection state.
-  pub counters:     Counters,
+  pub counters: Counters,
 }
 
 impl RedisTransport {
@@ -943,11 +941,11 @@ impl RedisTransport {
 }
 
 pub struct RedisReader {
-  pub stream:   Option<SplitStreamKind>,
-  pub server:   Server,
-  pub buffer:   SharedBuffer,
+  pub stream: Option<SplitStreamKind>,
+  pub server: Server,
+  pub buffer: SharedBuffer,
   pub counters: Counters,
-  pub task:     Option<JoinHandle<Result<(), RedisError>>>,
+  pub task: Option<JoinHandle<Result<(), RedisError>>>,
 }
 
 impl RedisReader {
@@ -978,15 +976,15 @@ impl RedisReader {
 }
 
 pub struct RedisWriter {
-  pub sink:         SplitSinkKind,
-  pub server:       Server,
+  pub sink: SplitSinkKind,
+  pub server: Server,
   pub default_host: Str,
-  pub addr:         Option<SocketAddr>,
-  pub buffer:       SharedBuffer,
-  pub version:      Option<Version>,
-  pub id:           Option<i64>,
-  pub counters:     Counters,
-  pub reader:       Option<RedisReader>,
+  pub addr: Option<SocketAddr>,
+  pub buffer: SharedBuffer,
+  pub version: Option<Version>,
+  pub id: Option<i64>,
+  pub counters: Counters,
+  pub reader: Option<RedisReader>,
 }
 
 impl fmt::Debug for RedisWriter {
