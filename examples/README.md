@@ -27,6 +27,6 @@ Examples
 * [Misc](./misc.rs) - Miscellaneous or advanced features.
 * [Replicas](./replicas.rs) - Interact with cluster replica nodes via a `RedisPool`.
 * [Glommio](./glommio.rs) - Use the [Glommio](https://github.com/DataDog/glommio) runtime.
-  See [the source docs](../src/glommio/README.md) for more information.
+  See [the source docs](../src/runtime/glommio/README.md) for more information.
 
 Or see the [tests](../tests/integration) for more examples.
