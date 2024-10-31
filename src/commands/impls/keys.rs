@@ -262,11 +262,10 @@ pub async fn getrange<C: ClientLike>(
   end: usize,
 ) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::GetRange, vec![
-      key.into(),
-      start.try_into()?,
-      end.try_into()?,
-    ]))
+    Ok((
+      RedisCommandKind::GetRange,
+      vec![key.into(), start.try_into()?, end.try_into()?],
+    ))
   })
   .await?;
 
@@ -296,10 +295,11 @@ pub async fn rename<C: ClientLike>(
   source: RedisKey,
   destination: RedisKey,
 ) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::Rename, vec![
-    source.into(),
-    destination.into(),
-  ])
+  args_values_cmd(
+    client,
+    RedisCommandKind::Rename,
+    vec![source.into(), destination.into()],
+  )
   .await
 }
 
@@ -308,10 +308,11 @@ pub async fn renamenx<C: ClientLike>(
   source: RedisKey,
   destination: RedisKey,
 ) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::Renamenx, vec![
-    source.into(),
-    destination.into(),
-  ])
+  args_values_cmd(
+    client,
+    RedisCommandKind::Renamenx,
+    vec![source.into(), destination.into()],
+  )
   .await
 }
 
@@ -400,7 +401,7 @@ pub async fn copy<C: ClientLike>(
 
     if let Some(db) = db {
       args.push(static_val!(DB));
-      args.push(db.into());
+      args.push((db as i64).into());
     }
     if replace {
       args.push(static_val!(REPLACE));

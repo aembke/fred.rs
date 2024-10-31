@@ -11,7 +11,7 @@ name = "fred"
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 rust-version = "1.75"
-version = "9.3.0"
+version = "9.4.0"
 
 [package.metadata.docs.rs]
 # do not show the glommio version of the docs
@@ -45,6 +45,7 @@ test = true
 [features]
 default = ["transactions", "i-std"]
 
+specialize-into-bytes = []
 blocking-encoding = ["tokio/rt-multi-thread"]
 custom-reconnect-errors = []
 default-nil-types = []

@@ -776,7 +776,7 @@ impl RedisTransport {
     };
 
     _trace!(inner, "Selecting database {} after connecting.", db);
-    let command = RedisCommand::new(RedisCommandKind::Select, vec![db.into()]);
+    let command = RedisCommand::new(RedisCommandKind::Select, vec![(db as i64).into()]);
     let response = self.request_response(command, inner.is_resp3()).await?;
 
     if let Some(error) = protocol_utils::frame_to_error(&response) {

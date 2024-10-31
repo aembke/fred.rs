@@ -21,4 +21,5 @@ pub use glommio::interfaces::ClientLike;
 #[cfg(not(feature = "glommio"))]
 pub(crate) use _tokio::spawn_event_listener;
 #[cfg(feature = "glommio")]
+#[doc(hidden)]
 pub(crate) use glommio::interfaces::spawn_event_listener;
