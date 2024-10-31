@@ -111,11 +111,11 @@ pub fn split(inner: &RefCount<RedisClientInner>) -> Result<Vec<RedisClient>, Red
 pub async fn force_reconnection(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
   let (tx, rx) = oneshot_channel();
   let command = RouterCommand::Reconnect {
-    server: None,
-    force: true,
-    tx: Some(tx),
+    server:                               None,
+    force:                                true,
+    tx:                                   Some(tx),
     #[cfg(feature = "replicas")]
-    replica: false,
+    replica:                              false,
   };
   interfaces::send_to_router(inner, command)?;
 

@@ -15,7 +15,9 @@ pub(crate) mod compat {
   use futures::Future;
   use glommio::TaskQueueHandle;
   pub use glommio::{
-    channels::local_channel::new_unbounded as unbounded_channel, task::JoinHandle as GlommioJoinHandle, timer::sleep,
+    channels::local_channel::new_unbounded as unbounded_channel,
+    task::JoinHandle as GlommioJoinHandle,
+    timer::sleep,
   };
   pub use oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
   use std::{
@@ -43,7 +45,7 @@ pub(crate) mod compat {
   /// A wrapper type around [JoinHandle](glommio::task::JoinHandle) with an interface similar to Tokio's
   /// [JoinHandle](tokio::task::JoinHandle)
   pub struct JoinHandle<T> {
-    pub(crate) inner: GlommioJoinHandle<T>,
+    pub(crate) inner:    GlommioJoinHandle<T>,
     pub(crate) finished: Rc<Cell<bool>>,
   }
 
