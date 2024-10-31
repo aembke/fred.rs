@@ -35,6 +35,21 @@ fn values_args(key: RedisKey, pattern: Str, count: Option<u32>) -> Vec<RedisValu
   args
 }
 
+fn create_scan_args(args: &mut Vec<RedisValue>, pattern: Str, count: Option<u32>, r#type: Option<ScanType>) {
+  args.push(static_val!(STARTING_CURSOR));
+  args.push(static_val!(MATCH));
+  args.push(pattern.into());
+
+  if let Some(count) = count {
+    args.push(static_val!(COUNT));
+    args.push(count.into());
+  }
+  if let Some(r#type) = r#type {
+    args.push(static_val!(TYPE));
+    args.push(r#type.to_str().into());
+  }
+}
+
 pub fn scan_cluster(
   inner: &RefCount<RedisClientInner>,
   pattern: Str,
@@ -55,22 +70,51 @@ pub fn scan_cluster(
   };
 
   let mut args = Vec::with_capacity(7);
-  args.push(static_val!(STARTING_CURSOR));
-  args.push(static_val!(MATCH));
-  args.push(pattern.into());
-
-  if let Some(count) = count {
-    args.push(static_val!(COUNT));
-    args.push(count.into());
-  }
-  if let Some(r#type) = r#type {
-    args.push(static_val!(TYPE));
-    args.push(r#type.to_str().into());
-  }
-
+  create_scan_args(&mut args, pattern, count, r#type);
   for slot in hash_slots.into_iter() {
     _trace!(inner, "Scan cluster hash slot server: {}", slot);
     let response = ResponseKind::KeyScan(KeyScanInner {
+      hash_slot:  Some(slot),
+      args:       args.clone(),
+      cursor_idx: 0,
+      tx:         tx.clone(),
+      server:     None,
+    });
+    let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
+
+    if let Err(e) = interfaces::default_send_command(inner, command) {
+      let _ = tx.send(Err(e));
+      break;
+    }
+  }
+
+  rx_stream(rx)
+}
+
+pub fn scan_cluster_buffered(
+  inner: &RefCount<RedisClientInner>,
+  pattern: Str,
+  count: Option<u32>,
+  r#type: Option<ScanType>,
+) -> impl Stream<Item = Result<RedisKey, RedisError>> {
+  let (tx, rx) = unbounded_channel();
+  #[cfg(feature = "glommio")]
+  let tx: UnboundedSender<_> = tx.into();
+
+  let hash_slots = inner.with_cluster_state(|state| Ok(state.unique_hash_slots()));
+  let hash_slots = match hash_slots {
+    Ok(slots) => slots,
+    Err(e) => {
+      let _ = tx.send(Err(e));
+      return rx_stream(rx);
+    },
+  };
+
+  let mut args = Vec::with_capacity(7);
+  create_scan_args(&mut args, pattern, count, r#type);
+  for slot in hash_slots.into_iter() {
+    _trace!(inner, "Scan cluster buffered hash slot server: {}", slot);
+    let response = ResponseKind::KeyScanBuffered(KeyScanBufferedInner {
       hash_slot:  Some(slot),
       args:       args.clone(),
       cursor_idx: 0,
@@ -110,20 +154,47 @@ pub fn scan(
   };
 
   let mut args = Vec::with_capacity(7);
-  args.push(static_val!(STARTING_CURSOR));
-  args.push(static_val!(MATCH));
-  args.push(pattern.into());
-
-  if let Some(count) = count {
-    args.push(static_val!(COUNT));
-    args.push(count.into());
-  }
-  if let Some(r#type) = r#type {
-    args.push(static_val!(TYPE));
-    args.push(r#type.to_str().into());
-  }
-
+  create_scan_args(&mut args, pattern, count, r#type);
   let response = ResponseKind::KeyScan(KeyScanInner {
+    hash_slot,
+    args,
+    server,
+    cursor_idx: 0,
+    tx: tx.clone(),
+  });
+  let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
+
+  if let Err(e) = interfaces::default_send_command(inner, command) {
+    let _ = tx.send(Err(e));
+  }
+
+  rx_stream(rx)
+}
+
+pub fn scan_buffered(
+  inner: &RefCount<RedisClientInner>,
+  pattern: Str,
+  count: Option<u32>,
+  r#type: Option<ScanType>,
+  server: Option<Server>,
+) -> impl Stream<Item = Result<RedisKey, RedisError>> {
+  let (tx, rx) = unbounded_channel();
+  #[cfg(feature = "glommio")]
+  let tx: UnboundedSender<_> = tx.into();
+
+  let hash_slot = if inner.config.server.is_clustered() {
+    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
+      Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
+    } else {
+      None
+    }
+  } else {
+    None
+  };
+
+  let mut args = Vec::with_capacity(7);
+  create_scan_args(&mut args, pattern, count, r#type);
+  let response = ResponseKind::KeyScanBuffered(KeyScanBufferedInner {
     hash_slot,
     args,
     server,

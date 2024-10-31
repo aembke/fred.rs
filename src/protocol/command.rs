@@ -2064,6 +2064,7 @@ impl RedisCommand {
   pub fn scan_hash_slot(&self) -> Option<u16> {
     match self.response {
       ResponseKind::KeyScan(ref inner) => inner.hash_slot,
+      ResponseKind::KeyScanBuffered(ref inner) => inner.hash_slot,
       _ => None,
     }
   }
