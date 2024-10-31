@@ -216,7 +216,6 @@ monoio-codec = { version = "0.3.4", optional = true }
 monoio-native-tls = { version = "0.4.0", optional = true }
 monoio-rustls = { version = "0.4.0", optional = true }
 local-sync = { version = "0.1.1", optional = true }
-# Smol Dependencies
 
 [dev-dependencies]
 axum = { version = "0.7", features = ["macros"] }

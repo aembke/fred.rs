@@ -5,7 +5,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind, ResponseSender, RouterResponse},
-    types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
+    types::{KeyScanBufferedInner, KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
   runtime::{AtomicUsize, Mutex, RefCount},
@@ -18,7 +18,6 @@ use std::{fmt, fmt::Formatter, iter::repeat, mem, ops::DerefMut};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
-use crate::protocol::{command::RouterCommand, types::KeyScanBufferedInner};
 #[cfg(feature = "metrics")]
 use crate::runtime::RwLock;
 #[cfg(feature = "metrics")]
@@ -622,7 +621,9 @@ pub fn respond_key_scan_buffered(
   if can_continue {
     let mut command = RedisCommand::new(RedisCommandKind::Scan, Vec::new());
     command.response = ResponseKind::KeyScanBuffered(scanner);
-    interfaces::send_to_router(inner, RouterCommand::Command(command))?;
+    if let Err(e) = interfaces::default_send_command(inner, command) {
+      let _ = scan_stream.send(Err(e));
+    };
   }
   Ok(())
 }

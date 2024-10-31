@@ -146,3 +146,44 @@ pub async fn should_scan_cluster(client: RedisClient, _: RedisConfig) -> Result<
   assert_eq!(count, 2000);
   Ok(())
 }
+
+#[cfg(feature = "i-keys")]
+pub async fn should_scan_buffered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let mut expected = Vec::with_capacity(100);
+  for idx in 0 .. 100 {
+    // write everything to the same cluster node
+    let key: RedisKey = format!("foo-{{1}}-{}", idx).into();
+    expected.push(key.clone());
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+  expected.sort();
+
+  let mut keys: Vec<RedisKey> = client
+    .scan_buffered("foo-{1}*", Some(20), None)
+    .collect::<Result<Vec<RedisKey>, RedisError>>()
+    .await?;
+  keys.sort();
+
+  assert_eq!(keys, expected);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_scan_cluster_buffered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let mut expected = Vec::with_capacity(100);
+  for idx in 0 .. 100 {
+    let key: RedisKey = format!("foo-{}", idx).into();
+    expected.push(key.clone());
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+  expected.sort();
+
+  let mut keys: Vec<RedisKey> = client
+    .scan_cluster_buffered("foo*", Some(20), None)
+    .collect::<Result<Vec<RedisKey>, RedisError>>()
+    .await?;
+  keys.sort();
+
+  assert_eq!(keys, expected);
+  Ok(())
+}

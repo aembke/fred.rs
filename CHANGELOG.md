@@ -1,3 +1,8 @@
+## 9.4.0
+
+* Add `scan_buffered` and `scan_cluster_buffered` interfaces
+* Add `specialize-into-bytes` feature flag
+
 ## 9.3.0
 
 * Add `SETNX`, `ECHO`, `TYPE`, `EXPIRETIME`, and `PEXPIRETIME` commands

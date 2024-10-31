@@ -5,10 +5,12 @@ use fred::{
   types::RedisConfig,
 };
 
+use fred::prelude::RedisKey;
 #[cfg(feature = "i-keys")]
 use fred::types::{Builder, ReconnectPolicy};
 #[cfg(feature = "i-keys")]
 use futures::future::try_join_all;
+use futures::StreamExt;
 
 async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
   let pool = RedisPool::new(config.clone(), None, None, None, count)?;

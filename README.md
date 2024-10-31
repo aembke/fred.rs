@@ -83,6 +83,7 @@ See the build features for more information.
 | `unix-sockets`            |         | Enable Unix socket support.                                                                                                                                                                             |
 | `credential-provider`     |         | Enable an interface that can dynamically load auth credentials at runtime.                                                                                                                              |
 | `specialize-into-bytes`   |         | Specialize `TryFrom<Vec<u8> for RedisValue>` to use `RedisValue::Bytes`, disabling `From<u8> for RedisValue`. This is a temporary feature flag that will be made the default in the next major version. |
+| `glommio`                 |         | Enable experimental [Glommio](https://github.com/DataDog/glommio) support.                                                                                                                              |
 
 ## Interface Features
 
@@ -119,19 +120,6 @@ begin with `i-` and control which public interfaces are built.
 If a specific high level command function is not supported callers can use the `custom` function as a workaround until
 the higher level interface is added. See the [custom](https://github.com/aembke/fred.rs/blob/main/examples/custom.rs)
 example for more info.
-
-## Runtime Features
-
-By default `fred` uses the Tokio runtime and IO interfaces. The following features enable support for other runtimes,
-but only one runtime feature can be enabled at a time.
-
-See the [runtime documentation](src/runtime/README.md) for more information.
-
-| Name      | Default | Description                                                   |
-|-----------|---------|---------------------------------------------------------------|
-| `glommio` |         | Enable [Glommio](https://github.com/DataDog/glommio) support. |
-| `monoio`  |         | Enable [Monoio](https://github.com/bytedance/monoio) support. |
-| `smol`    |         | Enable [smol](https://github.com/smol-rs/smol) support.       |
 
 ## Debugging Features
 
