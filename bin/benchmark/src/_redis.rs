@@ -2,7 +2,7 @@ use crate::{utils, Argv};
 use bb8_redis::{
   bb8::{self, Pool, PooledConnection},
   redis::{cmd, AsyncCommands, ErrorKind as RedisErrorKind, RedisError},
-  RedisConnectionManager, RedisMultiplexedConnectionManager,
+  RedisConnectionManager,
 };
 use futures::TryStreamExt;
 use indicatif::ProgressBar;
@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
-async fn incr_key(pool: &Pool<RedisMultiplexedConnectionManager>, key: &str) -> i64 {
+async fn incr_key(pool: &Pool<RedisConnectionManager>, key: &str) -> i64 {
   let mut conn = pool.get().await.map_err(utils::crash).unwrap();
   cmd("INCR")
     .arg(key)
@@ -24,7 +24,7 @@ async fn incr_key(pool: &Pool<RedisMultiplexedConnectionManager>, key: &str) -> 
     .unwrap()
 }
 
-async fn del_key(pool: &Pool<RedisMultiplexedConnectionManager>, key: &str) -> i64 {
+async fn del_key(pool: &Pool<RedisConnectionManager>, key: &str) -> i64 {
   let mut conn = pool.get().await.map_err(utils::crash).unwrap();
   cmd("DEL")
     .arg(key)
@@ -36,7 +36,7 @@ async fn del_key(pool: &Pool<RedisMultiplexedConnectionManager>, key: &str) -> i
 
 fn spawn_client_task(
   bar: &Option<ProgressBar>,
-  pool: &Pool<RedisMultiplexedConnectionManager>,
+  pool: &Pool<RedisConnectionManager>,
   counter: &Arc<AtomicUsize>,
   argv: &Arc<Argv>,
 ) -> JoinHandle<()> {
@@ -66,7 +66,7 @@ fn spawn_client_task(
 }
 
 // TODO support clustered deployments
-async fn init(argv: &Arc<Argv>) -> Pool<RedisMultiplexedConnectionManager> {
+async fn init(argv: &Arc<Argv>) -> Pool<RedisConnectionManager> {
   let (username, password) = utils::read_auth_env();
   let url = if let Some(password) = password {
     let username = username.map(|s| format!("{s}:")).unwrap_or("".into());
@@ -76,7 +76,7 @@ async fn init(argv: &Arc<Argv>) -> Pool<RedisMultiplexedConnectionManager> {
   };
   debug!("Redis conn: {}", url);
 
-  let manager = RedisMultiplexedConnectionManager::new(url).expect("Failed to create redis connection manager");
+  let manager = RedisConnectionManager::new(url).expect("Failed to create redis connection manager");
   let pool = bb8::Pool::builder()
     .max_size(argv.pool as u32)
     .build(manager)
@@ -85,7 +85,7 @@ async fn init(argv: &Arc<Argv>) -> Pool<RedisMultiplexedConnectionManager> {
 
   // try to warm up the pool first
   let mut warmup_ft = Vec::with_capacity(argv.pool + 1);
-  for _ in 0..argv.pool + 1 {
+  for _ in 0 .. argv.pool + 1 {
     warmup_ft.push(async { incr_key(&pool, "foo").await });
   }
   futures::future::join_all(warmup_ft).await;
@@ -105,7 +105,7 @@ pub async fn run(argv: Arc<Argv>, counter: Arc<AtomicUsize>, bar: Option<Progres
 
   info!("Starting commands...");
   let started = SystemTime::now();
-  for _ in 0..argv.tasks {
+  for _ in 0 .. argv.tasks {
     tasks.push(spawn_client_task(&bar, &pool, &counter, &argv));
   }
   futures::future::join_all(tasks).await;
