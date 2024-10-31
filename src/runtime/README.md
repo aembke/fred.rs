@@ -55,9 +55,4 @@ This approach also allows the `tokio-native-tls` and `tokio-rustls` modules to w
 
 # Monoio
 
-TODO docs link
-
-When building with `--features monoio` the [monoio-codec](https://github.com/monoio-rs/monoio-codec) crate will be used
-to convert from monoio's `AsyncReadRent + AsyncWriteRent` interface to the existing `Framed` interface.
-
-TODO tls https://github.com/monoio-rs/monoio-tls
+Work In Progress
