@@ -24,9 +24,9 @@ tracing-subscriber = "0.3.16"
 tracing = "0.1.37"
 
 [dependencies.fred]
-#path = "../.."
-path = "/fred"
-features = ["network-logs", "debug-ids", "replicas", "i-all"]
+path = "../.."
+#path = "/fred"
+features = ["network-logs", "debug-ids", "replicas", "i-all", "sentinel-auth"]
 
 [features]
 stdout-tracing = ["fred/partial-tracing"]

@@ -29,15 +29,17 @@ use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 
 #[derive(Debug)]
 struct Argv {
-  pub cluster:  bool,
+  pub cluster: bool,
   pub replicas: bool,
-  pub host:     String,
-  pub port:     u16,
-  pub pool:     usize,
+  pub host: String,
+  pub port: u16,
+  pub pool: usize,
   pub interval: u64,
-  pub wait:     u64,
-  pub auth:     String,
-  pub tracing:  bool,
+  pub wait: u64,
+  pub auth: String,
+  pub tracing: bool,
+  pub sentinel: Option<String>,
+  pub sentinel_auth: Option<String>,
 }
 
 fn parse_argv() -> Argv {
@@ -68,6 +70,8 @@ fn parse_argv() -> Argv {
     .map(|v| v.parse::<u64>().expect("Invalid wait"))
     .unwrap_or(0);
   let auth = matches.value_of("auth").map(|v| v.to_owned()).unwrap_or("".into());
+  let sentinel = matches.value_of("sentinel").map(|v| v.to_owned());
+  let sentinel_auth = matches.value_of("sentinel-auth").map(|v| v.to_owned());
 
   Argv {
     cluster,
@@ -79,6 +83,8 @@ fn parse_argv() -> Argv {
     wait,
     replicas,
     tracing,
+    sentinel,
+    sentinel_auth,
   }
 }
 
@@ -155,7 +161,16 @@ async fn main() -> Result<(), RedisError> {
     server: if argv.cluster {
       ServerConfig::new_clustered(vec![(&argv.host, argv.port)])
     } else {
-      ServerConfig::new_centralized(&argv.host, argv.port)
+      if let Some(sentinel) = argv.sentinel.as_ref() {
+        ServerConfig::Sentinel {
+          service_name: sentinel.to_string(),
+          hosts: vec![Server::new(&argv.host, argv.port)],
+          password: argv.sentinel_auth.clone(),
+          username: None,
+        }
+      } else {
+        ServerConfig::new_centralized(&argv.host, argv.port)
+      }
     },
     password: if argv.auth.is_empty() {
       None
@@ -168,12 +183,12 @@ async fn main() -> Result<(), RedisError> {
     .with_connection_config(|config| {
       config.max_command_attempts = 3;
       config.unresponsive = UnresponsiveConfig {
-        interval:    Duration::from_secs(1),
+        interval: Duration::from_secs(1),
         max_timeout: Some(Duration::from_secs(5)),
       };
       config.connection_timeout = Duration::from_secs(3);
       config.internal_command_timeout = Duration::from_secs(2);
-      config.cluster_cache_update_delay = Duration::from_secs(20);
+      //config.cluster_cache_update_delay = Duration::from_secs(20);
       if argv.replicas {
         config.replica = ReplicaConfig {
           lazy_connections: true,
