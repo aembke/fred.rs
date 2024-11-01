@@ -381,7 +381,7 @@ fn send_value_scan_result(
       let state = ValueScanResult::ZScan(ZScanResult {
         can_continue,
         inner: inner.clone(),
-        scan_state: scanner,
+        scan_state: Some(scanner),
         results: Some(results),
       });
 
@@ -395,7 +395,7 @@ fn send_value_scan_result(
       let state = ValueScanResult::SScan(SScanResult {
         can_continue,
         inner: inner.clone(),
-        scan_state: scanner,
+        scan_state: Some(scanner),
         results: Some(result),
       });
 
@@ -410,7 +410,7 @@ fn send_value_scan_result(
       let state = ValueScanResult::HScan(HScanResult {
         can_continue,
         inner: inner.clone(),
-        scan_state: scanner,
+        scan_state: Some(scanner),
         results: Some(results),
       });
 
@@ -572,7 +572,7 @@ pub fn respond_key_scan(
   command.respond_to_router(inner, RouterResponse::Continue);
 
   let scan_result = ScanResult {
-    scan_state: scanner,
+    scan_state: Some(scanner),
     inner: inner.clone(),
     results: Some(keys),
     can_continue,
