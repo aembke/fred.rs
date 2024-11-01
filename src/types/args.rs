@@ -1392,6 +1392,7 @@ impl Hash for RedisValue {
 }
 
 #[cfg(not(feature = "specialize-into-bytes"))]
+#[cfg_attr(docsrs, doc(cfg(not(feature = "specialize-into-bytes"))))]
 impl From<u8> for RedisValue {
   fn from(d: u8) -> Self {
     RedisValue::Integer(d as i64)
@@ -1592,6 +1593,7 @@ where
 }
 
 #[cfg(feature = "specialize-into-bytes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "specialize-into-bytes")))]
 impl TryFrom<Vec<u8>> for RedisValue {
   type Error = RedisError;
 
