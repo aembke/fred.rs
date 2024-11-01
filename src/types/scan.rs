@@ -160,7 +160,7 @@ fn next_hscan_page(inner: &RefCount<RedisClientInner>, state: &mut Option<ValueS
   if let Some(state) = state.take() {
     let response = ResponseKind::ValueScan(state);
     let cmd: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
-    let _ = interfaces::default_send_command(&inner, cmd);
+    let _ = interfaces::default_send_command(inner, cmd);
   }
 }
 
