@@ -1,10 +1,11 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   interfaces::Resp3Frame,
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind, ResponseSender, RouterResponse},
-    types::{KeyScanInner, Server, ValueScanInner, ValueScanResult},
+    types::{KeyScanBufferedInner, KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
   runtime::{AtomicUsize, Mutex, RefCount},
@@ -56,6 +57,8 @@ pub enum ResponseKind {
   ValueScan(ValueScanInner),
   /// Handle the response as a page of keys from a SCAN command.
   KeyScan(KeyScanInner),
+  /// Handle the response as a buffered key SCAN command.
+  KeyScanBuffered(KeyScanBufferedInner),
 }
 
 impl fmt::Debug for ResponseKind {
@@ -66,6 +69,7 @@ impl fmt::Debug for ResponseKind {
       ResponseKind::Respond(_) => "Respond",
       ResponseKind::KeyScan(_) => "KeyScan",
       ResponseKind::ValueScan(_) => "ValueScan",
+      ResponseKind::KeyScanBuffered(_) => "KeyScanBuffered",
     })
   }
 }
@@ -94,7 +98,7 @@ impl ResponseKind {
         expected:    *expected,
         error_early: *error_early,
       },
-      ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) => return None,
+      ResponseKind::KeyScan(_) | ResponseKind::ValueScan(_) | ResponseKind::KeyScanBuffered(_) => return None,
     })
   }
 
@@ -165,7 +169,7 @@ impl ResponseKind {
     match self {
       ResponseKind::Skip | ResponseKind::Respond(_) => 1,
       ResponseKind::Buffer { ref expected, .. } => *expected,
-      ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) => 1,
+      ResponseKind::ValueScan(_) | ResponseKind::KeyScan(_) | ResponseKind::KeyScanBuffered(_) => 1,
     }
   }
 
@@ -377,7 +381,7 @@ fn send_value_scan_result(
       let state = ValueScanResult::ZScan(ZScanResult {
         can_continue,
         inner: inner.clone(),
-        scan_state: scanner,
+        scan_state: Some(scanner),
         results: Some(results),
       });
 
@@ -391,7 +395,7 @@ fn send_value_scan_result(
       let state = ValueScanResult::SScan(SScanResult {
         can_continue,
         inner: inner.clone(),
-        scan_state: scanner,
+        scan_state: Some(scanner),
         results: Some(result),
       });
 
@@ -406,7 +410,7 @@ fn send_value_scan_result(
       let state = ValueScanResult::HScan(HScanResult {
         can_continue,
         inner: inner.clone(),
-        scan_state: scanner,
+        scan_state: Some(scanner),
         results: Some(results),
       });
 
@@ -568,7 +572,7 @@ pub fn respond_key_scan(
   command.respond_to_router(inner, RouterResponse::Continue);
 
   let scan_result = ScanResult {
-    scan_state: scanner,
+    scan_state: Some(scanner),
     inner: inner.clone(),
     results: Some(keys),
     can_continue,
@@ -577,6 +581,50 @@ pub fn respond_key_scan(
     _debug!(inner, "Error sending SCAN page.");
   }
 
+  Ok(())
+}
+
+pub fn respond_key_scan_buffered(
+  inner: &RefCount<RedisClientInner>,
+  server: &Server,
+  command: RedisCommand,
+  mut scanner: KeyScanBufferedInner,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
+  _trace!(
+    inner,
+    "Handling `KeyScanBuffered` response from {} for {}",
+    server,
+    command.kind.to_str_debug()
+  );
+
+  let (next_cursor, keys) = match parse_key_scan_frame(frame) {
+    Ok(result) => result,
+    Err(e) => {
+      scanner.send_error(e);
+      command.respond_to_router(inner, RouterResponse::Continue);
+      return Ok(());
+    },
+  };
+  let scan_stream = scanner.tx.clone();
+  let can_continue = next_cursor != LAST_CURSOR;
+  scanner.update_cursor(next_cursor);
+  command.respond_to_router(inner, RouterResponse::Continue);
+
+  for key in keys.into_iter() {
+    if let Err(_) = scan_stream.send(Ok(key)) {
+      _debug!(inner, "Error sending SCAN key.");
+      break;
+    }
+  }
+
+  if can_continue {
+    let mut command = RedisCommand::new(RedisCommandKind::Scan, Vec::new());
+    command.response = ResponseKind::KeyScanBuffered(scanner);
+    if let Err(e) = interfaces::default_send_command(inner, command) {
+      let _ = scan_stream.send(Err(e));
+    };
+  }
   Ok(())
 }
 

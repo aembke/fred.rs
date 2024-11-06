@@ -345,7 +345,32 @@ pub struct KeyScanInner {
   pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
 }
 
+pub struct KeyScanBufferedInner {
+  /// The hash slot for the command.
+  pub hash_slot:  Option<u16>,
+  /// An optional server override.
+  pub server:     Option<Server>,
+  /// The index of the cursor in `args`.
+  pub cursor_idx: usize,
+  /// The arguments sent in each scan command.
+  pub args:       Vec<RedisValue>,
+  /// The sender half of the results channel.
+  pub tx:         UnboundedSender<Result<RedisKey, RedisError>>,
+}
+
 impl KeyScanInner {
+  /// Update the cursor in place in the arguments.
+  pub fn update_cursor(&mut self, cursor: Str) {
+    self.args[self.cursor_idx] = cursor.into();
+  }
+
+  /// Send an error on the response stream.
+  pub fn send_error(&self, error: RedisError) {
+    let _ = self.tx.send(Err(error));
+  }
+}
+
+impl KeyScanBufferedInner {
   /// Update the cursor in place in the arguments.
   pub fn update_cursor(&mut self, cursor: Str) {
     self.args[self.cursor_idx] = cursor.into();

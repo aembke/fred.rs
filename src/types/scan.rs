@@ -70,10 +70,12 @@ pub trait Scanner {
   /// Move on to the next page of results from the SCAN operation. If no more results are available this may close the
   /// stream.
   ///
-  /// **This must be called to continue scanning the keyspace.** Results are not automatically scanned in the
-  /// background since this could cause the  buffer backing the stream to grow too large very quickly. This
-  /// interface provides a mechanism for throttling the throughput of the SCAN call. If this struct is dropped
-  /// without calling this function the stream will close without an error.
+  /// If callers do not call this function the scanning will continue when this struct is dropped. Results are not
+  /// automatically scanned in the background since this could cause the buffer backing the stream to grow too large
+  /// very quickly. This interface provides a mechanism for throttling the throughput of the SCAN call. Callers can
+  /// use [scan_buffered](crate::clients::RedisClient::scan_buffered) or
+  /// [scan_cluster_buffered](crate::clients::RedisClient::scan_cluster_buffered) to automatically continue scanning
+  /// in the background.
   ///
   /// If this function returns an error the scan call cannot continue as the client has been closed, or some other
   /// fatal error has occurred. If this happens the error will appear in the stream from the original SCAN call.
@@ -84,15 +86,38 @@ pub trait Scanner {
 pub struct ScanResult {
   pub(crate) results:      Option<Vec<RedisKey>>,
   pub(crate) inner:        RefCount<RedisClientInner>,
-  pub(crate) scan_state:   KeyScanInner,
+  pub(crate) scan_state:   Option<KeyScanInner>,
   pub(crate) can_continue: bool,
+}
+
+fn next_key_page(inner: &RefCount<RedisClientInner>, state: &mut Option<KeyScanInner>) {
+  if let Some(state) = state.take() {
+    let cluster_node = state.server.clone();
+    let response = ResponseKind::KeyScan(state);
+    let mut cmd: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
+    cmd.cluster_node = cluster_node;
+
+    let _ = interfaces::default_send_command(inner, cmd);
+  }
+}
+
+impl Drop for ScanResult {
+  fn drop(&mut self) {
+    if self.can_continue {
+      next_key_page(&self.inner, &mut self.scan_state);
+    }
+  }
 }
 
 impl Scanner for ScanResult {
   type Page = Vec<RedisKey>;
 
   fn cursor(&self) -> Option<Cow<str>> {
-    self.scan_state.args[self.scan_state.cursor_idx].as_str()
+    if let Some(ref state) = self.scan_state {
+      state.args[state.cursor_idx].as_str()
+    } else {
+      None
+    }
   }
 
   fn has_more(&self) -> bool {
@@ -113,17 +138,15 @@ impl Scanner for ScanResult {
     }
   }
 
+  /// TODO remove Result wrapper in next major version
   fn next(self) -> Result<(), RedisError> {
     if !self.can_continue {
       return Ok(());
     }
 
-    let cluster_node = self.scan_state.server.clone();
-    let response = ResponseKind::KeyScan(self.scan_state);
-    let mut cmd: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
-    cmd.cluster_node = cluster_node;
-
-    interfaces::default_send_command(&self.inner, cmd)
+    let mut _self = self;
+    next_key_page(&_self.inner, &mut _self.scan_state);
+    Ok(())
   }
 }
 
@@ -131,15 +154,35 @@ impl Scanner for ScanResult {
 pub struct HScanResult {
   pub(crate) results:      Option<RedisMap>,
   pub(crate) inner:        RefCount<RedisClientInner>,
-  pub(crate) scan_state:   ValueScanInner,
+  pub(crate) scan_state:   Option<ValueScanInner>,
   pub(crate) can_continue: bool,
+}
+
+fn next_hscan_page(inner: &RefCount<RedisClientInner>, state: &mut Option<ValueScanInner>) {
+  if let Some(state) = state.take() {
+    let response = ResponseKind::ValueScan(state);
+    let cmd: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
+    let _ = interfaces::default_send_command(inner, cmd);
+  }
+}
+
+impl Drop for HScanResult {
+  fn drop(&mut self) {
+    if self.can_continue {
+      next_hscan_page(&self.inner, &mut self.scan_state);
+    }
+  }
 }
 
 impl Scanner for HScanResult {
   type Page = RedisMap;
 
   fn cursor(&self) -> Option<Cow<str>> {
-    self.scan_state.args[self.scan_state.cursor_idx].as_str()
+    if let Some(ref state) = self.scan_state {
+      state.args[state.cursor_idx].as_str()
+    } else {
+      None
+    }
   }
 
   fn has_more(&self) -> bool {
@@ -165,9 +208,9 @@ impl Scanner for HScanResult {
       return Ok(());
     }
 
-    let response = ResponseKind::ValueScan(self.scan_state);
-    let cmd: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
-    interfaces::default_send_command(&self.inner, cmd)
+    let mut _self = self;
+    next_hscan_page(&_self.inner, &mut _self.scan_state);
+    Ok(())
   }
 }
 
@@ -175,15 +218,35 @@ impl Scanner for HScanResult {
 pub struct SScanResult {
   pub(crate) results:      Option<Vec<RedisValue>>,
   pub(crate) inner:        RefCount<RedisClientInner>,
-  pub(crate) scan_state:   ValueScanInner,
+  pub(crate) scan_state:   Option<ValueScanInner>,
   pub(crate) can_continue: bool,
+}
+
+fn next_sscan_page(inner: &RefCount<RedisClientInner>, state: &mut Option<ValueScanInner>) {
+  if let Some(state) = state.take() {
+    let response = ResponseKind::ValueScan(state);
+    let cmd: RedisCommand = (RedisCommandKind::Sscan, Vec::new(), response).into();
+    let _ = interfaces::default_send_command(inner, cmd);
+  }
+}
+
+impl Drop for SScanResult {
+  fn drop(&mut self) {
+    if self.can_continue {
+      next_sscan_page(&self.inner, &mut self.scan_state);
+    }
+  }
 }
 
 impl Scanner for SScanResult {
   type Page = Vec<RedisValue>;
 
   fn cursor(&self) -> Option<Cow<str>> {
-    self.scan_state.args[self.scan_state.cursor_idx].as_str()
+    if let Some(ref state) = self.scan_state {
+      state.args[state.cursor_idx].as_str()
+    } else {
+      None
+    }
   }
 
   fn results(&self) -> &Option<Self::Page> {
@@ -209,9 +272,9 @@ impl Scanner for SScanResult {
       return Ok(());
     }
 
-    let response = ResponseKind::ValueScan(self.scan_state);
-    let cmd: RedisCommand = (RedisCommandKind::Sscan, Vec::new(), response).into();
-    interfaces::default_send_command(&self.inner, cmd)
+    let mut _self = self;
+    next_sscan_page(&_self.inner, &mut _self.scan_state);
+    Ok(())
   }
 }
 
@@ -219,15 +282,35 @@ impl Scanner for SScanResult {
 pub struct ZScanResult {
   pub(crate) results:      Option<Vec<(RedisValue, f64)>>,
   pub(crate) inner:        RefCount<RedisClientInner>,
-  pub(crate) scan_state:   ValueScanInner,
+  pub(crate) scan_state:   Option<ValueScanInner>,
   pub(crate) can_continue: bool,
+}
+
+fn next_zscan_page(inner: &RefCount<RedisClientInner>, state: &mut Option<ValueScanInner>) {
+  if let Some(state) = state.take() {
+    let response = ResponseKind::ValueScan(state);
+    let cmd: RedisCommand = (RedisCommandKind::Zscan, Vec::new(), response).into();
+    let _ = interfaces::default_send_command(inner, cmd);
+  }
+}
+
+impl Drop for ZScanResult {
+  fn drop(&mut self) {
+    if self.can_continue {
+      next_zscan_page(&self.inner, &mut self.scan_state);
+    }
+  }
 }
 
 impl Scanner for ZScanResult {
   type Page = Vec<(RedisValue, f64)>;
 
   fn cursor(&self) -> Option<Cow<str>> {
-    self.scan_state.args[self.scan_state.cursor_idx].as_str()
+    if let Some(ref state) = self.scan_state {
+      state.args[state.cursor_idx].as_str()
+    } else {
+      None
+    }
   }
 
   fn has_more(&self) -> bool {
@@ -253,8 +336,8 @@ impl Scanner for ZScanResult {
       return Ok(());
     }
 
-    let response = ResponseKind::ValueScan(self.scan_state);
-    let cmd: RedisCommand = (RedisCommandKind::Zscan, Vec::new(), response).into();
-    interfaces::default_send_command(&self.inner, cmd)
+    let mut _self = self;
+    next_zscan_page(&_self.inner, &mut _self.scan_state);
+    Ok(())
   }
 }

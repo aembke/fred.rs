@@ -173,6 +173,12 @@ mod scanning {
   cluster_test!(scanning, should_zscan_sorted_set);
   #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_scan_cluster);
+  #[cfg(feature = "i-keys")]
+  cluster_test!(scanning, should_scan_buffered);
+  #[cfg(feature = "i-keys")]
+  cluster_test!(scanning, should_scan_cluster_buffered);
+  #[cfg(feature = "i-keys")]
+  cluster_test!(scanning, should_continue_scanning_on_page_drop);
 }
 
 #[cfg(feature = "i-slowlog")]

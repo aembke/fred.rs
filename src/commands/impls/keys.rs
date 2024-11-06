@@ -400,7 +400,7 @@ pub async fn copy<C: ClientLike>(
 
     if let Some(db) = db {
       args.push(static_val!(DB));
-      args.push(db.into());
+      args.push((db as i64).into());
     }
     if replace {
       args.push(static_val!(REPLACE));

@@ -7,6 +7,16 @@ args:
       long: cluster
       help: Whether to use a clustered deployment.
       takes_value: false
+  - sentinel:
+      long: sentinel
+      help: The name of the sentinel service-name
+      value_name: "STRING"
+      takes_value: true
+  - sentinel-auth:
+      long: sentinel-auth
+      help: The key to use when authenticating to sentinel nodes
+      value_name: "STRING"
+      takes_value: true
   - tracing:
       long: tracing
       help: Whether to enable tracing.

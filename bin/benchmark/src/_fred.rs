@@ -8,6 +8,7 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
+use fred::types::ClusterDiscoveryPolicy;
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
@@ -42,7 +43,8 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
       }
     } else if argv.cluster {
       ServerConfig::Clustered {
-        hosts: vec![Server::new(&argv.host, argv.port)],
+        hosts:  vec![Server::new(&argv.host, argv.port)],
+        policy: ClusterDiscoveryPolicy::ConfigEndpoint,
       }
     } else {
       ServerConfig::new_centralized(&argv.host, argv.port)
@@ -122,7 +124,7 @@ pub async fn run(argv: Arc<Argv>, counter: Arc<AtomicUsize>, bar: Option<Progres
 
   info!("Starting commands...");
   let started = SystemTime::now();
-  for _ in 0..argv.tasks {
+  for _ in 0 .. argv.tasks {
     tasks.push(spawn_client_task(&bar, pool.next(), &counter, &argv));
   }
   if let Err(e) = futures::future::try_join_all(tasks).await {

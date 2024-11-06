@@ -1391,6 +1391,8 @@ impl Hash for RedisValue {
   }
 }
 
+#[cfg(not(feature = "specialize-into-bytes"))]
+#[cfg_attr(docsrs, doc(cfg(not(feature = "specialize-into-bytes"))))]
 impl From<u8> for RedisValue {
   fn from(d: u8) -> Self {
     RedisValue::Integer(d as i64)
@@ -1590,6 +1592,16 @@ where
   }
 }
 
+#[cfg(feature = "specialize-into-bytes")]
+#[cfg_attr(docsrs, doc(cfg(feature = "specialize-into-bytes")))]
+impl TryFrom<Vec<u8>> for RedisValue {
+  type Error = RedisError;
+
+  fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+    Ok(RedisValue::Bytes(value.into()))
+  }
+}
+
 impl<T> TryFrom<Vec<T>> for RedisValue
 where
   T: TryInto<RedisValue>,
@@ -1703,7 +1715,7 @@ mod tests {
 
   // requires specialization of TryFrom<Vec<u8>> for RedisValue
   #[test]
-  #[ignore]
+  #[cfg(feature = "specialize-into-bytes")]
   fn redis_bytes_from_vec_u8() {
     let input: Vec<u8> = vec![0, 1, 2];
     let output: RedisValue = input.clone().try_into().unwrap();

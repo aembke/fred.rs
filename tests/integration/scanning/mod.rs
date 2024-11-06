@@ -1,6 +1,10 @@
 #![allow(dead_code)]
-use fred::{prelude::*, types::Scanner};
-use futures::TryStreamExt;
+use fred::{
+  prelude::*,
+  types::{ScanResult, Scanner},
+};
+use futures::{Stream, TryStreamExt};
+// tokio_stream has a more flexible version of `collect`
 use tokio_stream::StreamExt;
 
 const SCAN_KEYS: i64 = 100;
@@ -144,5 +148,75 @@ pub async fn should_scan_cluster(client: RedisClient, _: RedisConfig) -> Result<
   }
 
   assert_eq!(count, 2000);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_scan_buffered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let mut expected = Vec::with_capacity(100);
+  for idx in 0 .. 100 {
+    // write everything to the same cluster node
+    let key: RedisKey = format!("foo-{{1}}-{}", idx).into();
+    expected.push(key.clone());
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+  expected.sort();
+
+  let mut keys: Vec<RedisKey> = client
+    .scan_buffered("foo-{1}*", Some(20), None)
+    .collect::<Result<Vec<RedisKey>, RedisError>>()
+    .await?;
+  keys.sort();
+
+  assert_eq!(keys, expected);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_scan_cluster_buffered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  let mut expected = Vec::with_capacity(100);
+  for idx in 0 .. 100 {
+    let key: RedisKey = format!("foo-{}", idx).into();
+    expected.push(key.clone());
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+  expected.sort();
+
+  let mut keys: Vec<RedisKey> = client
+    .scan_cluster_buffered("foo*", Some(20), None)
+    .collect::<Result<Vec<RedisKey>, RedisError>>()
+    .await?;
+  keys.sort();
+
+  assert_eq!(keys, expected);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+fn scan_all(client: &RedisClient, page_size: Option<u32>) -> impl Stream<Item = Result<ScanResult, RedisError>> {
+  use futures::StreamExt;
+
+  if client.is_clustered() {
+    client.scan_cluster("*", page_size, None).boxed()
+  } else {
+    client.scan("*", page_size, None).boxed()
+  }
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_continue_scanning_on_page_drop(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0 .. 100 {
+    let key: RedisKey = format!("foo-{}", idx).into();
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+
+  let mut count = 0;
+  let mut scanner = scan_all(&client, Some(10));
+  while let Some(Ok(mut page)) = scanner.next().await {
+    let keys = page.take_results().unwrap();
+    count += keys.len();
+  }
+  assert_eq!(count, 100);
+
   Ok(())
 }

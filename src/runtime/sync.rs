@@ -1,10 +1,11 @@
 use std::{
-  cell::{Ref, RefCell, RefMut},
+  cell::{Cell, Ref, RefCell, RefMut},
   fmt,
   mem,
   sync::atomic::Ordering,
 };
 
+/// A !Send flavor of `ArcSwap` with an interface similar to std::sync::atomic types.
 pub struct RefSwap<T> {
   inner: RefCell<T>,
 }
@@ -29,87 +30,55 @@ impl<T> RefSwap<T> {
   }
 }
 
-pub struct AsyncRwLock<T> {
-  inner: glommio::sync::RwLock<T>,
-}
-
-impl<T> AsyncRwLock<T> {
-  pub fn new(val: T) -> Self {
-    AsyncRwLock {
-      inner: glommio::sync::RwLock::new(val),
-    }
-  }
-
-  pub async fn write(&self) -> glommio::sync::RwLockWriteGuard<T> {
-    self.inner.write().await.unwrap()
-  }
-
-  pub async fn read(&self) -> glommio::sync::RwLockReadGuard<T> {
-    self.inner.read().await.unwrap()
-  }
-}
-
+/// A !Send flavor of `AtomicUsize`, with the same interface.
 #[derive(Debug)]
 pub struct AtomicUsize {
-  inner: RefCell<usize>,
+  inner: Cell<usize>,
 }
 
 impl AtomicUsize {
   pub fn new(val: usize) -> Self {
-    AtomicUsize {
-      inner: RefCell::new(val),
-    }
+    AtomicUsize { inner: Cell::new(val) }
   }
 
   pub fn fetch_add(&self, val: usize, _: Ordering) -> usize {
-    let mut guard = self.inner.borrow_mut();
-
-    let new = guard.saturating_add(val);
-    *guard = new;
-    new
+    let tmp = self.inner.get().saturating_add(val);
+    self.inner.replace(tmp);
+    tmp
   }
 
   pub fn fetch_sub(&self, val: usize, _: Ordering) -> usize {
-    let mut guard = self.inner.borrow_mut();
-
-    let new = guard.saturating_sub(val);
-    *guard = new;
-    new
+    let tmp = self.inner.get().saturating_sub(val);
+    self.inner.replace(tmp);
+    tmp
   }
 
   pub fn load(&self, _: Ordering) -> usize {
-    *self.inner.borrow()
+    self.inner.get()
   }
 
   pub fn swap(&self, val: usize, _: Ordering) -> usize {
-    let mut guard = self.inner.borrow_mut();
-    let old = *guard;
-    *guard = val;
-    old
+    self.inner.replace(val)
   }
 }
 
+/// A !Send flavor of `AtomicBool`, with the same interface.
 #[derive(Debug)]
 pub struct AtomicBool {
-  inner: RefCell<bool>,
+  inner: Cell<bool>,
 }
 
 impl AtomicBool {
   pub fn new(val: bool) -> Self {
-    AtomicBool {
-      inner: RefCell::new(val),
-    }
+    AtomicBool { inner: Cell::new(val) }
   }
 
   pub fn load(&self, _: Ordering) -> bool {
-    *self.inner.borrow()
+    self.inner.get()
   }
 
   pub fn swap(&self, val: bool, _: Ordering) -> bool {
-    let mut guard = self.inner.borrow_mut();
-    let old = *guard;
-    *guard = val;
-    old
+    self.inner.replace(val)
   }
 }
 

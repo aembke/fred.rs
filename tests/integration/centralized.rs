@@ -159,13 +159,17 @@ mod hyperloglog {
 
 mod scanning {
   #[cfg(feature = "i-keys")]
-  cluster_test!(scanning, should_scan_keyspace);
+  centralized_test!(scanning, should_scan_keyspace);
   #[cfg(feature = "i-hashes")]
-  cluster_test!(scanning, should_hscan_hash);
+  centralized_test!(scanning, should_hscan_hash);
   #[cfg(feature = "i-sets")]
-  cluster_test!(scanning, should_sscan_set);
+  centralized_test!(scanning, should_sscan_set);
   #[cfg(feature = "i-sorted-sets")]
-  cluster_test!(scanning, should_zscan_sorted_set);
+  centralized_test!(scanning, should_zscan_sorted_set);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(scanning, should_scan_buffered);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(scanning, should_continue_scanning_on_page_drop);
 }
 
 #[cfg(feature = "i-slowlog")]

@@ -29,12 +29,8 @@ pub async fn acl_setuser<C: ClientLike>(client: &C, username: Str, rules: Multip
   protocol_utils::expect_ok(&response)
 }
 
-pub async fn acl_getuser<C: ClientLike>(client: &C, username: Str) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::AclGetUser, vec![username.into()]))
-  })
-  .await?;
-  protocol_utils::frame_to_results(frame)
+pub async fn acl_getuser<C: ClientLike>(client: &C, username: RedisValue) -> Result<RedisValue, RedisError> {
+  one_arg_value_cmd(client, RedisCommandKind::AclGetUser, username).await
 }
 
 pub async fn acl_deluser<C: ClientLike>(client: &C, usernames: MultipleKeys) -> Result<RedisValue, RedisError> {
