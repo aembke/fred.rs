@@ -70,10 +70,12 @@ pub trait Scanner {
   /// Move on to the next page of results from the SCAN operation. If no more results are available this may close the
   /// stream.
   ///
-  /// **This must be called to continue scanning the keyspace.** Results are not automatically scanned in the
-  /// background since this could cause the  buffer backing the stream to grow too large very quickly. This
-  /// interface provides a mechanism for throttling the throughput of the SCAN call. If this struct is dropped
-  /// without calling this function the stream will close without an error.
+  /// If callers do not call this function the scanning will continue when this struct is dropped. Results are not
+  /// automatically scanned in the background since this could cause the buffer backing the stream to grow too large
+  /// very quickly. This interface provides a mechanism for throttling the throughput of the SCAN call. Callers can
+  /// use [scan_buffered](crate::clients::RedisClient::scan_buffered) or
+  /// [scan_cluster_buffered](crate::clients::RedisClient::scan_cluster_buffered) to automatically continue scanning
+  /// in the background.
   ///
   /// If this function returns an error the scan call cannot continue as the client has been closed, or some other
   /// fatal error has occurred. If this happens the error will appear in the stream from the original SCAN call.

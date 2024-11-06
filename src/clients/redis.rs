@@ -191,6 +191,9 @@ impl RedisClient {
   ///
   /// The scan operation can be canceled by dropping the returned stream.
   ///
+  /// See [scan_buffered](Self::scan_buffered) or [scan_cluster_buffered](Self::scan_cluster_buffered) for
+  /// alternatives that automatically continue scanning in the background.
+  ///
   /// <https://redis.io/commands/scan>
   pub fn scan<P>(
     &self,
@@ -235,6 +238,9 @@ impl RedisClient {
   ///
   /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if
   /// [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
+  ///
+  /// See [scan_buffered](Self::scan_buffered) or [scan_cluster_buffered](Self::scan_cluster_buffered) for
+  /// alternatives that automatically continue scanning in the background.
   pub fn scan_cluster<P>(
     &self,
     pattern: P,
