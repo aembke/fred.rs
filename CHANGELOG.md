@@ -1,8 +1,8 @@
 ## 9.4.0
 
+* Change scanning functions to automatically continue when the current page is dropped
 * Add `scan_buffered` and `scan_cluster_buffered` interfaces
 * Add `specialize-into-bytes` feature flag
-* Change scanning functions to automatically continue when the current page is dropped
 
 ## 9.3.0
 

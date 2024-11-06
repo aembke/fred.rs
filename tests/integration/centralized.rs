@@ -168,6 +168,8 @@ mod scanning {
   centralized_test!(scanning, should_zscan_sorted_set);
   #[cfg(feature = "i-keys")]
   centralized_test!(scanning, should_scan_buffered);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(scanning, should_continue_scanning_on_page_drop);
 }
 
 #[cfg(feature = "i-slowlog")]

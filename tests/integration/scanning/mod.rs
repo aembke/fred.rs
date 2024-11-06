@@ -1,6 +1,10 @@
 #![allow(dead_code)]
-use fred::{prelude::*, types::Scanner};
-use futures::TryStreamExt;
+use fred::{
+  prelude::*,
+  types::{ScanResult, Scanner},
+};
+use futures::{Stream, TryStreamExt};
+// tokio_stream has a more flexible version of `collect`
 use tokio_stream::StreamExt;
 
 const SCAN_KEYS: i64 = 100;
@@ -185,5 +189,34 @@ pub async fn should_scan_cluster_buffered(client: RedisClient, _: RedisConfig) -
   keys.sort();
 
   assert_eq!(keys, expected);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+fn scan_all(client: &RedisClient, page_size: Option<u32>) -> impl Stream<Item = Result<ScanResult, RedisError>> {
+  use futures::StreamExt;
+
+  if client.is_clustered() {
+    client.scan_cluster("*", page_size, None).boxed()
+  } else {
+    client.scan("*", page_size, None).boxed()
+  }
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_continue_scanning_on_page_drop(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0 .. 100 {
+    let key: RedisKey = format!("foo-{}", idx).into();
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+
+  let mut count = 0;
+  let mut scanner = scan_all(&client, Some(10));
+  while let Some(Ok(mut page)) = scanner.next().await {
+    let keys = page.take_results().unwrap();
+    count += keys.len();
+  }
+  assert_eq!(count, 100);
+
   Ok(())
 }
