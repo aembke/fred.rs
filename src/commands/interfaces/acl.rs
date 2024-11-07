@@ -2,7 +2,7 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, MultipleStrings, MultipleValues},
+  types::{FromRedis, MultipleStrings, MultipleValues, RedisValue},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -66,13 +66,14 @@ pub trait AclInterface: ClientLike + Sized {
   /// The command returns all the rules defined for an existing ACL user.
   ///
   /// <https://redis.io/commands/acl-getuser>
-  fn acl_getuser<R, S>(&self, username: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn acl_getuser<R, U>(&self, username: U) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
-    S: Into<Str> + Send,
+    U: TryInto<RedisValue> + Send,
+    U::Error: Into<RedisError> + Send,
   {
     async move {
-      into!(username);
+      try_into!(username);
       commands::acl::acl_getuser(self, username).await?.convert()
     }
   }

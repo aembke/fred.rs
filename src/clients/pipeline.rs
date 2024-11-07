@@ -14,14 +14,7 @@ use crate::{
 use std::{collections::VecDeque, fmt, fmt::Formatter};
 
 fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
-  let guard = buffer.lock();
-  let mut out = VecDeque::with_capacity(guard.len());
-
-  for command in guard.iter() {
-    out.push_back(command.duplicate(ResponseKind::Skip));
-  }
-
-  out
+  buffer.lock().iter().map(|c| c.duplicate(ResponseKind::Skip)).collect()
 }
 
 fn prepare_all_commands(

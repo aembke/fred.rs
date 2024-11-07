@@ -508,6 +508,9 @@ pub async fn process_response_frame(
     ),
     ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
     ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
+    ResponseKind::KeyScanBuffered(scanner) => {
+      responders::respond_key_scan_buffered(inner, server, command, scanner, frame)
+    },
   }
 }
 

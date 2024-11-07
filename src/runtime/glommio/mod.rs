@@ -5,13 +5,11 @@ pub(crate) mod broadcast;
 pub(crate) mod interfaces;
 pub(crate) mod io_compat;
 pub(crate) mod mpsc;
-pub(crate) mod sync;
 
 pub(crate) mod compat {
   pub use super::{
     broadcast::{BroadcastReceiver, BroadcastSender},
     mpsc::{rx_stream, UnboundedReceiver, UnboundedSender},
-    sync::*,
   };
   use crate::error::RedisError;
   use futures::Future;
@@ -23,7 +21,7 @@ pub(crate) mod compat {
   };
   pub use oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
   use std::{
-    cell::RefCell,
+    cell::Cell,
     pin::Pin,
     rc::Rc,
     task::{Context, Poll},
@@ -48,11 +46,11 @@ pub(crate) mod compat {
   /// [JoinHandle](tokio::task::JoinHandle)
   pub struct JoinHandle<T> {
     pub(crate) inner:    GlommioJoinHandle<T>,
-    pub(crate) finished: Rc<RefCell<bool>>,
+    pub(crate) finished: Rc<Cell<bool>>,
   }
 
   pub fn spawn<T: 'static>(ft: impl Future<Output = T> + 'static) -> JoinHandle<T> {
-    let finished = Rc::new(RefCell::new(false));
+    let finished = Rc::new(Cell::new(false));
     let _finished = finished.clone();
     let inner = glommio::spawn_local(async move {
       let result = ft.await;
@@ -65,7 +63,7 @@ pub(crate) mod compat {
   }
 
   pub fn spawn_into<T: 'static>(ft: impl Future<Output = T> + 'static, tq: TaskQueueHandle) -> JoinHandle<T> {
-    let finished = Rc::new(RefCell::new(false));
+    let finished = Rc::new(Cell::new(false));
     let _finished = finished.clone();
     let inner = glommio::spawn_local_into(
       async move {
@@ -81,6 +79,7 @@ pub(crate) mod compat {
     JoinHandle { inner, finished }
   }
 
+  // map from futures_lite::Future to std::future::Future
   impl<T> Future for JoinHandle<T> {
     type Output = Result<T, RedisError>;
 
@@ -107,12 +106,32 @@ pub(crate) mod compat {
     }
 
     pub fn is_finished(&self) -> bool {
-      *self.finished.as_ref().borrow()
+      self.finished.get()
     }
 
     pub fn abort(&self) {
       self.inner.cancel();
       self.set_finished();
+    }
+  }
+
+  pub struct AsyncRwLock<T> {
+    inner: glommio::sync::RwLock<T>,
+  }
+
+  impl<T> AsyncRwLock<T> {
+    pub fn new(val: T) -> Self {
+      AsyncRwLock {
+        inner: glommio::sync::RwLock::new(val),
+      }
+    }
+
+    pub async fn write(&self) -> glommio::sync::RwLockWriteGuard<T> {
+      self.inner.write().await.unwrap()
+    }
+
+    pub async fn read(&self) -> glommio::sync::RwLockReadGuard<T> {
+      self.inner.read().await.unwrap()
     }
   }
 }

@@ -1756,8 +1756,8 @@ impl RedisCommand {
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
       router_tx: RefCount::new(Mutex::new(None)),
-      attempts_remaining: 0,
-      redirections_remaining: 0,
+      attempts_remaining: 1,
+      redirections_remaining: 1,
       can_pipeline: true,
       skip_backpressure: false,
       transaction_id: None,
@@ -1787,8 +1787,8 @@ impl RedisCommand {
       timeout_dur:                                None,
       response:                                   ResponseKind::Respond(None),
       router_tx:                                  RefCount::new(Mutex::new(None)),
-      attempts_remaining:                         0,
-      redirections_remaining:                     0,
+      attempts_remaining:                         1,
+      redirections_remaining:                     1,
       can_pipeline:                               true,
       skip_backpressure:                          false,
       transaction_id:                             None,
@@ -1878,6 +1878,7 @@ impl RedisCommand {
     match self.response {
       ResponseKind::ValueScan(ref inner) => &inner.args,
       ResponseKind::KeyScan(ref inner) => &inner.args,
+      ResponseKind::KeyScanBuffered(ref inner) => &inner.args,
       _ => &self.arguments,
     }
   }
@@ -1914,6 +1915,7 @@ impl RedisCommand {
     match self.response {
       ResponseKind::ValueScan(ref mut inner) => inner.args.drain(..).collect(),
       ResponseKind::KeyScan(ref mut inner) => inner.args.drain(..).collect(),
+      ResponseKind::KeyScanBuffered(ref mut inner) => inner.args.drain(..).collect(),
       _ => self.arguments.drain(..).collect(),
     }
   }
@@ -2034,9 +2036,29 @@ impl RedisCommand {
 
   /// Respond to the caller, taking the response channel in the process.
   pub fn respond_to_caller(&mut self, result: Result<Resp3Frame, RedisError>) {
-    #[allow(unused_mut)]
-    if let Some(mut tx) = self.take_responder() {
-      let _ = tx.send(result);
+    match self.response {
+      ResponseKind::KeyScanBuffered(ref inner) => {
+        if let Err(error) = result {
+          let _ = inner.tx.send(Err(error));
+        }
+      },
+      ResponseKind::KeyScan(ref inner) => {
+        if let Err(error) = result {
+          let _ = inner.tx.send(Err(error));
+        }
+      },
+      ResponseKind::ValueScan(ref inner) => {
+        if let Err(error) = result {
+          let _ = inner.tx.send(Err(error));
+        }
+      },
+      _ =>
+      {
+        #[allow(unused_mut)]
+        if let Some(mut tx) = self.take_responder() {
+          let _ = tx.send(result);
+        }
+      },
     }
   }
 
@@ -2064,6 +2086,7 @@ impl RedisCommand {
   pub fn scan_hash_slot(&self) -> Option<u16> {
     match self.response {
       ResponseKind::KeyScan(ref inner) => inner.hash_slot,
+      ResponseKind::KeyScanBuffered(ref inner) => inner.hash_slot,
       _ => None,
     }
   }

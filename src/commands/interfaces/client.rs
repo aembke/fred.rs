@@ -162,7 +162,7 @@ pub trait ClientInterface: ClientLike + Sized {
 
   /// Returns message.
   ///
-  /// https://redis.io/docs/latest/commands/echo/
+  /// <https://redis.io/docs/latest/commands/echo>
   fn echo<R, M>(&self, message: M) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,

@@ -203,30 +203,33 @@ fn main() {
 
   let sch = Builder::new_multi_thread().enable_all().build().unwrap();
   sch.block_on(async move {
-    setup_tracing(argv.tracing);
-    let counter = Arc::new(AtomicUsize::new(0));
-    let bar = if argv.quiet {
-      None
-    } else {
-      Some(ProgressBar::new(argv.count as u64))
-    };
+    tokio::spawn(async move {
+      setup_tracing(argv.tracing);
+      let counter = Arc::new(AtomicUsize::new(0));
+      let bar = if argv.quiet {
+        None
+      } else {
+        Some(ProgressBar::new(argv.count as u64))
+      };
 
-    let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
-    let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
-    if let Some(bar) = bar {
-      bar.finish();
-    }
+      let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
+      let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
+      if let Some(bar) = bar {
+        bar.finish();
+      }
 
-    if argv.quiet {
-      println!("{}", (argv.count as f64 / duration_sec) as u64);
-    } else {
-      println!(
-        "Performed {} operations in: {:?}. Throughput: {} req/sec",
-        argv.count,
-        duration,
-        (argv.count as f64 / duration_sec) as u64
-      );
-    }
-    global::shutdown_tracer_provider();
+      if argv.quiet {
+        println!("{}", (argv.count as f64 / duration_sec) as u64);
+      } else {
+        println!(
+          "Performed {} operations in: {:?}. Throughput: {} req/sec",
+          argv.count,
+          duration,
+          (argv.count as f64 / duration_sec) as u64
+        );
+      }
+      global::shutdown_tracer_provider();
+    })
+    .await;
   });
 }

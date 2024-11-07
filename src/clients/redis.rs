@@ -191,6 +191,9 @@ impl RedisClient {
   ///
   /// The scan operation can be canceled by dropping the returned stream.
   ///
+  /// See [scan_buffered](Self::scan_buffered) or [scan_cluster_buffered](Self::scan_cluster_buffered) for
+  /// alternatives that automatically continue scanning in the background.
+  ///
   /// <https://redis.io/commands/scan>
   pub fn scan<P>(
     &self,
@@ -204,6 +207,28 @@ impl RedisClient {
     commands::scan::scan(&self.inner, pattern.into(), count, r#type, None)
   }
 
+  /// Scan the keys in the keyspace, buffering all results in memory as quickly as the server returns them.
+  ///
+  /// This function should be used with care as it can result in the caller buffering the entire keyspace in memory if
+  /// results are not processed quickly. Additionally, since results are paged in the background the cursor is not
+  /// exposed to the caller with each page of results.
+  ///
+  /// See [scan](Self::scan) or [scan_cluster](Self::scan_cluster) for alternatives that allow callers to control the
+  /// rate at which pages are scanned.
+  ///
+  /// <https://redis.io/commands/scan>
+  pub fn scan_buffered<P>(
+    &self,
+    pattern: P,
+    count: Option<u32>,
+    r#type: Option<ScanType>,
+  ) -> impl Stream<Item = Result<RedisKey, RedisError>>
+  where
+    P: Into<Str>,
+  {
+    commands::scan::scan_buffered(&self.inner, pattern.into(), count, r#type, None)
+  }
+
   /// Run the `SCAN` command on each primary/main node in a cluster concurrently.
   ///
   /// In order for this function to work reliably the cluster state must not change while scanning. If nodes are added
@@ -213,6 +238,9 @@ impl RedisClient {
   ///
   /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if
   /// [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
+  ///
+  /// See [scan_buffered](Self::scan_buffered) or [scan_cluster_buffered](Self::scan_cluster_buffered) for
+  /// alternatives that automatically continue scanning in the background.
   pub fn scan_cluster<P>(
     &self,
     pattern: P,
@@ -223,6 +251,29 @@ impl RedisClient {
     P: Into<Str>,
   {
     commands::scan::scan_cluster(&self.inner, pattern.into(), count, r#type)
+  }
+
+  /// Scan the keys in the keyspace concurrently across all nodes in the cluster, buffering all results in memory as
+  /// quickly as the server returns them.
+  ///
+  /// This function should be used with care as it can result in the caller buffering the entire keyspace in memory if
+  /// results are not processed quickly. Additionally, since results are paged in the background the cursor is not
+  /// exposed to the caller with each page of results.
+  ///
+  /// See [scan](Self::scan) or [scan_cluster](Self::scan_cluster) for alternatives that allow callers to control the
+  /// rate at which pages are scanned.
+  ///
+  /// <https://redis.io/commands/scan>
+  pub fn scan_cluster_buffered<P>(
+    &self,
+    pattern: P,
+    count: Option<u32>,
+    r#type: Option<ScanType>,
+  ) -> impl Stream<Item = Result<RedisKey, RedisError>>
+  where
+    P: Into<Str>,
+  {
+    commands::scan::scan_cluster_buffered(&self.inner, pattern.into(), count, r#type)
   }
 
   /// Incrementally iterate over pages of the hash map stored at `key`, returning `count` results per page, if

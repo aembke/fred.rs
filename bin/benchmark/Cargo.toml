@@ -23,12 +23,12 @@ tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 rand = "0.8"
 indicatif = "=0.17.1"
-bb8-redis = { version = "0.14", optional = true }
+bb8-redis = { version = "0.17.0", optional = true }
 
 [dependencies.fred]
 #path = "../.."
 path = "/fred"
-features = ["replicas", "unix-sockets"]
+features = ["replicas", "unix-sockets", "i-all"]
 default-features = false
 
 [features]

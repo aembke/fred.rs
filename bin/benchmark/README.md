@@ -5,8 +5,8 @@ Redis includes a [benchmarking tool](https://redis.io/docs/management/optimizati
 measure the throughput of a client/connection pool. This module attempts to reproduce the same process with Tokio and
 Fred.
 
-The general strategy involves using an atomic global counter and spawning `-c` Tokio tasks that share`-P` clients
-in order to send `-n` total `INCR` commands to the server as quickly as possible.
+The general strategy involves using an atomic global counter and spawning `-c` Tokio tasks that share `-P` clients in
+order to send `-n` total `INCR` commands to the server as quickly as possible.
 
 Each of the `-c` Tokio tasks use a different random key so commands are uniformly distributed across a cluster or
 replica set.
@@ -106,21 +106,21 @@ With `auto_pipeline` **disabled**:
 
 ```
 $ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar no-pipeline
-Performed 10000000 operations in: 31.496934107s. Throughput: 317500 req/sec
+Performed 10000000 operations in: 27.038434665s. Throughput: 369849 req/sec
 ```
 
 With `auto_pipeline` **enabled**:
 
 ```
 $ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar pipeline
-Performed 10000000 operations in: 4.125544401s. Throughput: 2424242 req/sec
+Performed 10000000 operations in: 3.728232639s. Throughput: 2682403 req/sec
 ```
 
 With `auto_pipeline` **enabled** and using `GET` with replica nodes instead of `INCR` with primary nodes:
 
 ```
 $ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar --replicas pipeline
-Performed 10000000 operations in: 3.356416674s. Throughput: 2979737 req/sec
+erformed 10000000 operations in: 3.234255482s. Throughput: 3092145 req/sec
 ```
 
 Maybe Relevant Specs:
@@ -134,7 +134,7 @@ The `USE_REDIS_RS` environment variable can be toggled to [switch the benchmark 
 use `redis-rs` instead of `fred`. There's also an `info` level log line that can confirm this at runtime.
 
 The `redis-rs` variant uses the same general strategy, but with [bb8-redis](https://crates.io/crates/bb8-redis) (
-specifically `Pool<RedisMultiplexedConnectionManager>`) instead of `fred::clients::RedisPool`. All the other components
+specifically `Pool<RedisConnectionManager>`) instead of `fred::clients::RedisPool`. All the other components
 in the benchmark logic are the same.
 
 ### Examples
@@ -151,13 +151,13 @@ These examples use the following parameters:
 ```
 # fred without `auto_pipeline` 
 $ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 no-pipeline
-Performed 10000000 operations in: 62.79547495s. Throughput: 159248 req/sec
+Performed 10000000 operations in: 52.156700826s. Throughput: 191732 req/sec
 
 # redis-rs via bb8-redis
 $ USE_REDIS_RS=1 ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000
-Performed 10000000 operations in: 62.583055519s. Throughput: 159787 req/sec
+Performed 10000000 operations in: 102.953612933s. Throughput: 97131 req/sec
 
 # fred with `auto_pipeline`
 $ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 pipeline
-Performed 10000000 operations in: 5.882182708s. Throughput: 1700102 req/sec
+Performed 10000000 operations in: 5.74236423s. Throughput: 1741553 req/sec
 ```
