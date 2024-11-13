@@ -8,11 +8,11 @@ services:
   debug:
     depends_on:
       - redis-cluster-tls-6
-      # - redis-main
+      - redis-main
       # - redis-stack-main
       - redis-cluster-6
       - redis-sentinel-3
-      - valkey-main
+      # - valkey-main
       #- valkey-cluster-6
     container_name: "debug"
     build:

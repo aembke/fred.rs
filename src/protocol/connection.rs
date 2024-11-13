@@ -1037,6 +1037,7 @@ impl RedisWriter {
     should_flush: bool,
     no_incr: bool,
   ) -> Result<(), RedisError> {
+    // note: the logic here is also implemented in router::utils::write_command
     if should_flush {
       trace!("Writing and flushing {}", self.server);
       if let Err(e) = self.sink.send(frame).await {

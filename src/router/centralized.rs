@@ -5,35 +5,17 @@ use crate::{
   protocol::{
     command::{RedisCommand, RouterResponse},
     connection,
-    connection::{Counters, RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{Counters, SharedBuffer, SplitStreamKind},
     responders::{self, ResponseKind},
     types::Server,
     utils as protocol_utils,
   },
-  router::{responses, utils, Connections, Written},
+  router::{responses, utils, Connections},
   runtime::{spawn, JoinHandle, RefCount},
   types::ServerConfig,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::collections::VecDeque;
-
-pub async fn write(
-  inner: &RefCount<RedisClientInner>,
-  writer: &mut Option<RedisWriter>,
-  command: RedisCommand,
-  force_flush: bool,
-) -> Written {
-  if let Some(writer) = writer.as_mut() {
-    utils::write_command(inner, writer, command, force_flush).await
-  } else {
-    _debug!(inner, "Failed to read connection for {}", command.kind.to_str_debug());
-    Written::Disconnected((
-      None,
-      Some(command),
-      RedisError::new(RedisErrorKind::IO, "Missing connection."),
-    ))
-  }
-}
 
 /// Spawn a task to read response frames from the reader half of the socket.
 #[allow(unused_assignments)]
@@ -187,10 +169,10 @@ pub async fn process_response_frame(
       tx,
       frame,
     ),
-    ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
-    ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
+    ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame).await,
+    ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame).await,
     ResponseKind::KeyScanBuffered(scanner) => {
-      responders::respond_key_scan_buffered(inner, server, command, scanner, frame)
+      responders::respond_key_scan_buffered(inner, server, command, scanner, frame).await
     },
   }
 }

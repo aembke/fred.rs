@@ -8,15 +8,12 @@ use crate::{
     responders::ResponseKind,
     types::*,
   },
-  runtime::{rx_stream, unbounded_channel, RefCount},
+  runtime::{channel, RefCount},
   types::*,
   utils,
 };
 use bytes_utils::Str;
 use futures::stream::{Stream, TryStreamExt};
-
-#[cfg(feature = "glommio")]
-use crate::runtime::UnboundedSender;
 
 static STARTING_CURSOR: &str = "0";
 
@@ -50,22 +47,23 @@ fn create_scan_args(args: &mut Vec<RedisValue>, pattern: Str, count: Option<u32>
   }
 }
 
+// TODO change all of the scanning functions to return a Future<Stream<...>> in the next major version to avoid the
+// task spawning here.
+
 pub fn scan_cluster(
   inner: &RefCount<RedisClientInner>,
   pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
-  let (tx, rx) = unbounded_channel();
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
+  let (tx, rx) = channel(0);
 
   let hash_slots = inner.with_cluster_state(|state| Ok(state.unique_hash_slots()));
   let hash_slots = match hash_slots {
     Ok(slots) => slots,
     Err(e) => {
       let _ = tx.send(Err(e));
-      return rx_stream(rx);
+      return rx.into_stream();
     },
   };
 
@@ -82,13 +80,13 @@ pub fn scan_cluster(
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-    if let Err(e) = interfaces::default_send_command(inner, command) {
+    if let Err(e) = interfaces::default_send_command(&inner, command) {
       let _ = tx.send(Err(e));
       break;
     }
   }
 
-  rx_stream(rx)
+  rx.into_stream()
 }
 
 pub fn scan_cluster_buffered(
@@ -97,16 +95,14 @@ pub fn scan_cluster_buffered(
   count: Option<u32>,
   r#type: Option<ScanType>,
 ) -> impl Stream<Item = Result<RedisKey, RedisError>> {
-  let (tx, rx) = unbounded_channel();
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
+  let (tx, rx) = channel(0);
 
   let hash_slots = inner.with_cluster_state(|state| Ok(state.unique_hash_slots()));
   let hash_slots = match hash_slots {
     Ok(slots) => slots,
     Err(e) => {
       let _ = tx.send(Err(e));
-      return rx_stream(rx);
+      return rx.into_stream();
     },
   };
 
@@ -123,13 +119,13 @@ pub fn scan_cluster_buffered(
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-    if let Err(e) = interfaces::default_send_command(inner, command) {
+    if let Err(e) = interfaces::default_send_command(&inner, command) {
       let _ = tx.send(Err(e));
       break;
     }
   }
 
-  rx_stream(rx)
+  rx.into_stream()
 }
 
 pub fn scan(
@@ -139,12 +135,10 @@ pub fn scan(
   r#type: Option<ScanType>,
   server: Option<Server>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
-  let (tx, rx) = unbounded_channel();
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
+  let (tx, rx) = channel(0);
 
   let hash_slot = if inner.config.server.is_clustered() {
-    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
+    if utils::clustered_scan_pattern_has_hash_tag(&inner, &pattern) {
       Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
     } else {
       None
@@ -164,11 +158,11 @@ pub fn scan(
   });
   let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(inner, command) {
+  if let Err(e) = interfaces::default_send_command(&inner, command) {
     let _ = tx.send(Err(e));
   }
 
-  rx_stream(rx)
+  rx.into_stream()
 }
 
 pub fn scan_buffered(
@@ -178,12 +172,10 @@ pub fn scan_buffered(
   r#type: Option<ScanType>,
   server: Option<Server>,
 ) -> impl Stream<Item = Result<RedisKey, RedisError>> {
-  let (tx, rx) = unbounded_channel();
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
+  let (tx, rx) = channel(0);
 
   let hash_slot = if inner.config.server.is_clustered() {
-    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
+    if utils::clustered_scan_pattern_has_hash_tag(&inner, &pattern) {
       Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
     } else {
       None
@@ -203,11 +195,11 @@ pub fn scan_buffered(
   });
   let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(inner, command) {
+  if let Err(e) = interfaces::default_send_command(&inner, command) {
     let _ = tx.send(Err(e));
   }
 
-  rx_stream(rx)
+  rx.into_stream()
 }
 
 pub fn hscan(
@@ -216,23 +208,20 @@ pub fn hscan(
   pattern: Str,
   count: Option<u32>,
 ) -> impl Stream<Item = Result<HScanResult, RedisError>> {
-  let (tx, rx) = unbounded_channel();
+  let (tx, rx) = channel(0);
   let args = values_args(key, pattern, count);
 
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
   let response = ResponseKind::ValueScan(ValueScanInner {
     tx: tx.clone(),
     cursor_idx: 1,
     args,
   });
   let command: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
-
-  if let Err(e) = interfaces::default_send_command(inner, command) {
+  if let Err(e) = interfaces::default_send_command(&inner, command) {
     let _ = tx.send(Err(e));
   }
 
-  rx_stream(rx).try_filter_map(|result| async move {
+  rx.into_stream().try_filter_map(|result| async move {
     match result {
       ValueScanResult::HScan(res) => Ok(Some(res)),
       _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected HSCAN result.")),
@@ -246,11 +235,9 @@ pub fn sscan(
   pattern: Str,
   count: Option<u32>,
 ) -> impl Stream<Item = Result<SScanResult, RedisError>> {
-  let (tx, rx) = unbounded_channel();
+  let (tx, rx) = channel(0);
   let args = values_args(key, pattern, count);
 
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
   let response = ResponseKind::ValueScan(ValueScanInner {
     tx: tx.clone(),
     cursor_idx: 1,
@@ -258,11 +245,11 @@ pub fn sscan(
   });
   let command: RedisCommand = (RedisCommandKind::Sscan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(inner, command) {
+  if let Err(e) = interfaces::default_send_command(&inner, command) {
     let _ = tx.send(Err(e));
   }
 
-  rx_stream(rx).try_filter_map(|result| async move {
+  rx.into_stream().try_filter_map(|result| async move {
     match result {
       ValueScanResult::SScan(res) => Ok(Some(res)),
       _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected SSCAN result.")),
@@ -276,11 +263,10 @@ pub fn zscan(
   pattern: Str,
   count: Option<u32>,
 ) -> impl Stream<Item = Result<ZScanResult, RedisError>> {
-  let (tx, rx) = unbounded_channel();
+  let inner = inner.clone();
+  let (tx, rx) = channel(0);
   let args = values_args(key, pattern, count);
 
-  #[cfg(feature = "glommio")]
-  let tx: UnboundedSender<_> = tx.into();
   let response = ResponseKind::ValueScan(ValueScanInner {
     tx: tx.clone(),
     cursor_idx: 1,
@@ -288,11 +274,11 @@ pub fn zscan(
   });
   let command: RedisCommand = (RedisCommandKind::Zscan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(inner, command) {
+  if let Err(e) = interfaces::default_send_command(&inner, command) {
     let _ = tx.send(Err(e));
   }
 
-  rx_stream(rx).try_filter_map(|result| async move {
+  rx.into_stream().try_filter_map(|result| async move {
     match result {
       ValueScanResult::ZScan(res) => Ok(Some(res)),
       _ => Err(RedisError::new(RedisErrorKind::Protocol, "Expected ZSCAN result.")),

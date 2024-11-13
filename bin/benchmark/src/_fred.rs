@@ -68,14 +68,14 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
       config.backpressure.max_in_flight_commands = 100_000_000;
     })
     .with_connection_config(|config| {
+      config.bounded_channel_capacity = argv.bounded;
       config.internal_command_timeout = Duration::from_secs(5);
     })
     .set_policy(ReconnectPolicy::new_constant(0, 500))
     .build_pool(argv.pool)?;
 
   info!("Connecting to {}:{}...", argv.host, argv.port);
-  pool.connect();
-  pool.wait_for_connect().await?;
+  pool.init().await?;
   info!("Connected to {}:{}.", argv.host, argv.port);
   pool.flushall_cluster().await?;
 

@@ -487,7 +487,15 @@ pub struct ConnectionConfig {
   /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
   ///
   /// Default: `0` (unlimited)
+  #[deprecated(since = "9.5.0", note = "Use bounded_channel_capacity instead.")]
   pub max_command_buffer_len:       usize,
+  /// Use a bounded channel to communicate with the routing task.
+  ///
+  /// This value generally represents the max number of commands the client will queue in memory. Exceeding this
+  /// limit can result in `RedisError::Backpressure` errors.
+  ///
+  /// Default: `0` (unlimited, use an unbounded channel).
+  pub bounded_channel_capacity:     usize,
   /// Disable the `CLUSTER INFO` health check when initializing cluster connections.
   ///
   /// Default: `false`
@@ -522,12 +530,14 @@ pub struct ConnectionConfig {
 
 impl Default for ConnectionConfig {
   fn default() -> Self {
+    #[allow(deprecated)]
     ConnectionConfig {
       connection_timeout: Duration::from_millis(10_000),
       internal_command_timeout: Duration::from_millis(10_000),
       max_redirections: 5,
       max_command_attempts: 3,
       max_command_buffer_len: 0,
+      bounded_channel_capacity: 0,
       auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
       reconnect_on_auth_error: false,

@@ -408,23 +408,6 @@ impl Connections {
     }
   }
 
-  /// Send a command to the server(s).
-  pub async fn write(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    command: RedisCommand,
-    force_flush: bool,
-  ) -> Written {
-    match self {
-      Connections::Clustered {
-        ref mut writers,
-        ref mut cache,
-      } => clustered::write(inner, writers, cache, command, force_flush).await,
-      Connections::Centralized { ref mut writer } => centralized::write(inner, writer, command, force_flush).await,
-      Connections::Sentinel { ref mut writer, .. } => centralized::write(inner, writer, command, force_flush).await,
-    }
-  }
-
   /// Send a command to all servers in a cluster.
   pub async fn write_all_cluster(&mut self, inner: &RefCount<RedisClientInner>, command: RedisCommand) -> Written {
     if let Connections::Clustered { ref mut writers, .. } = self {
@@ -566,7 +549,101 @@ impl Router {
     if send_all_cluster_nodes {
       self.connections.write_all_cluster(&self.inner, command).await
     } else {
-      self.connections.write(&self.inner, command, force_flush).await
+      // note: the logic in these branches used to be abstracted into separate `write` functions in the centralized
+      // and clustered modules. the added async/await overhead of that function call reduced throughput by ~10%, so
+      // this logic was inlined here instead. it's ugly but significantly faster.
+      match self.connections {
+        Connections::Clustered {
+          ref mut writers,
+          ref mut cache,
+        } => {
+          let has_custom_server = command.cluster_node.is_some();
+          let server = match clustered::route_command(&self.inner, &cache, &command) {
+            Some(server) => server,
+            None => {
+              return if has_custom_server {
+                debug!(
+                  "{}: Respond to caller with error from missing cluster node override ({:?})",
+                  self.inner.id, command.cluster_node
+                );
+                command.finish(
+                  &self.inner,
+                  Err(RedisError::new(
+                    RedisErrorKind::Cluster,
+                    "Missing cluster node override.",
+                  )),
+                );
+
+                Written::Ignore
+              } else {
+                // these errors usually mean the cluster is partially down or misconfigured
+                warn!(
+                  "{}: Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
+                  self.inner.id,
+                  command.cluster_hash()
+                );
+                Written::NotFound(command)
+              };
+            },
+          };
+
+          if let Some(writer) = writers.get_mut(server) {
+            debug!(
+              "{}: Writing command `{}` to {}",
+              self.inner.id,
+              command.kind.to_str_debug(),
+              server
+            );
+            utils::write_command(&self.inner, writer, command, force_flush).await
+          } else {
+            // a reconnect message should already be queued from the reader task
+            debug!(
+              "{}: Failed to read connection {} for {}",
+              self.inner.id,
+              server,
+              command.kind.to_str_debug()
+            );
+
+            Written::Disconnected((
+              Some(server.clone()),
+              Some(command),
+              RedisError::new(RedisErrorKind::IO, "Missing connection."),
+            ))
+          }
+        },
+        Connections::Centralized { ref mut writer } => {
+          if let Some(writer) = writer.as_mut() {
+            utils::write_command(&self.inner, writer, command, force_flush).await
+          } else {
+            debug!(
+              "{}: Failed to read connection for {}",
+              self.inner.id,
+              command.kind.to_str_debug()
+            );
+            Written::Disconnected((
+              None,
+              Some(command),
+              RedisError::new(RedisErrorKind::IO, "Missing connection."),
+            ))
+          }
+        },
+        Connections::Sentinel { ref mut writer, .. } => {
+          if let Some(writer) = writer.as_mut() {
+            utils::write_command(&self.inner, writer, command, force_flush).await
+          } else {
+            debug!(
+              "{}: Failed to read connection for {}",
+              self.inner.id,
+              command.kind.to_str_debug()
+            );
+            Written::Disconnected((
+              None,
+              Some(command),
+              RedisError::new(RedisErrorKind::IO, "Missing connection."),
+            ))
+          }
+        },
+      }
     }
   }
 

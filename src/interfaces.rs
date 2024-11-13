@@ -1,3 +1,5 @@
+pub(crate) use crate::runtime::spawn_event_listener;
+pub use crate::runtime::ClientLike;
 use crate::{
   commands,
   error::{RedisError, RedisErrorKind},
@@ -12,9 +14,6 @@ use fred_macros::rm_send_if;
 use futures::Future;
 pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::time::Duration;
-
-pub(crate) use crate::runtime::spawn_event_listener;
-pub use crate::runtime::ClientLike;
 
 /// Type alias for `Result<T, RedisError>`.
 pub type RedisResult<T> = Result<T, RedisError>;
@@ -51,6 +50,7 @@ pub(crate) fn send_to_router(inner: &RefCount<RedisClientInner>, command: Router
   }
 
   let new_len = inner.counters.incr_cmd_buffer_len();
+  #[allow(deprecated)]
   let should_apply_backpressure = inner.connection.max_command_buffer_len > 0
     && new_len > inner.connection.max_command_buffer_len
     && !command.should_skip_backpressure();

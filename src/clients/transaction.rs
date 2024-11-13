@@ -64,6 +64,7 @@ impl ClientLike for Transaction {
     C: Into<RedisCommand>,
   {
     let mut command: RedisCommand = command.into();
+
     self.disallow_all_cluster_commands(&command)?;
     // check cluster slot mappings as commands are added
     self.update_hash_slot(&command)?;

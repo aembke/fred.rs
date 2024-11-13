@@ -7,7 +7,7 @@ docker-compose -f tests/docker/compose/cluster-tls.yml \
   -f tests/docker/compose/cluster.yml \
   -f tests/docker/compose/sentinel.yml \
   -f tests/docker/compose/redis-stack.yml \
-  -f tests/docker/compose/valkey-centralized.yml \
+  -f tests/docker/compose/centralized.yml \
   -f tests/docker/compose/valkey-cluster.yml \
-  -f tests/docker/compose/base.yml run -u $(id -u ${USER}):$(id -g ${USER}) --rm debug
+  -f tests/docker/compose/base.yml run --rm debug
 
