@@ -26,25 +26,132 @@ use crate::{
   utils,
 };
 use arc_swap::ArcSwapAny;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use std::{future::Future, sync::Arc};
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::mpsc::{
+  channel as bounded_channel,
+  error::{TryRecvError, TrySendError},
+  unbounded_channel,
+  Receiver as BoundedReceiver,
+  Sender as BoundedSender,
+  UnboundedReceiver,
+  UnboundedSender,
+};
 pub use tokio::{
   spawn,
   sync::{
-    broadcast::{self, error::SendError as BroadcastSendError},
-    mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    broadcast::{
+      self,
+      error::SendError as BroadcastSendError,
+      Receiver as BroadcastReceiver,
+      Sender as BroadcastSender,
+    },
     oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender},
     RwLock as AsyncRwLock,
   },
   task::JoinHandle,
   time::sleep,
 };
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+
+enum SenderKind<T: Send + 'static> {
+  Bounded(BoundedSender<T>),
+  Unbounded(UnboundedSender<T>),
+}
+
+impl<T: Send + 'static> Clone for SenderKind<T> {
+  fn clone(&self) -> Self {
+    match self {
+      SenderKind::Bounded(tx) => SenderKind::Bounded(tx.clone()),
+      SenderKind::Unbounded(tx) => SenderKind::Unbounded(tx.clone()),
+    }
+  }
+}
+
+pub struct Sender<T: Send + 'static> {
+  tx: SenderKind<T>,
+}
+
+impl<T: Send + 'static> Clone for Sender<T> {
+  fn clone(&self) -> Self {
+    Sender { tx: self.tx.clone() }
+  }
+}
+
+impl<T: Send + 'static> Sender<T> {
+  pub async fn send(&self, val: T) -> Result<(), T> {
+    match self.tx {
+      SenderKind::Bounded(ref tx) => tx.send(val).await.map_err(|e| e.0),
+      SenderKind::Unbounded(ref tx) => tx.send(val).map_err(|e| e.0),
+    }
+  }
+
+  pub fn try_send(&self, val: T) -> Result<(), TrySendError<T>> {
+    match self.tx {
+      SenderKind::Bounded(ref tx) => tx.try_send(val),
+      SenderKind::Unbounded(ref tx) => tx.send(val).map_err(|e| TrySendError::Closed(e.0)),
+    }
+  }
+}
+
+enum ReceiverKind<T: Send + 'static> {
+  Bounded(BoundedReceiver<T>),
+  Unbounded(UnboundedReceiver<T>),
+}
+
+pub struct Receiver<T: Send + 'static> {
+  rx: ReceiverKind<T>,
+}
+
+impl<T: Send + 'static> Receiver<T> {
+  pub async fn recv(&mut self) -> Option<T> {
+    match self.rx {
+      ReceiverKind::Bounded(ref mut tx) => tx.recv().await,
+      ReceiverKind::Unbounded(ref mut tx) => tx.recv().await,
+    }
+  }
+
+  pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
+    match self.rx {
+      ReceiverKind::Bounded(ref mut tx) => tx.try_recv(),
+      ReceiverKind::Unbounded(ref mut tx) => tx.try_recv(),
+    }
+  }
+
+  pub fn into_stream(self) -> impl Stream<Item = T> + 'static {
+    match self.rx {
+      ReceiverKind::Bounded(tx) => ReceiverStream::new(tx).boxed(),
+      ReceiverKind::Unbounded(tx) => UnboundedReceiverStream::new(tx).boxed(),
+    }
+  }
+}
+
+pub fn channel<T: Send + 'static>(size: usize) -> (Sender<T>, Receiver<T>) {
+  if size == 0 {
+    let (tx, rx) = unbounded_channel();
+    (
+      Sender {
+        tx: SenderKind::Unbounded(tx),
+      },
+      Receiver {
+        rx: ReceiverKind::Unbounded(rx),
+      },
+    )
+  } else {
+    let (tx, rx) = bounded_channel(size);
+    (
+      Sender {
+        tx: SenderKind::Bounded(tx),
+      },
+      Receiver {
+        rx: ReceiverKind::Bounded(rx),
+      },
+    )
+  }
+}
 
 #[cfg(any(feature = "dns", feature = "trust-dns-resolver"))]
 use crate::protocol::types::Resolve;
-
 #[cfg(feature = "i-server")]
 use crate::types::ShutdownFlags;
 
@@ -58,8 +165,6 @@ pub type AtomicUsize = std::sync::atomic::AtomicUsize;
 pub type Mutex<T> = parking_lot::Mutex<T>;
 pub type RwLock<T> = parking_lot::RwLock<T>;
 pub type RefSwap<T> = ArcSwapAny<T>;
-pub type BroadcastSender<T> = Sender<T>;
-pub type BroadcastReceiver<T> = Receiver<T>;
 
 pub fn broadcast_send<T: Clone, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, func: F) {
   if let Err(BroadcastSendError(val)) = tx.send(msg.clone()) {
@@ -69,10 +174,6 @@ pub fn broadcast_send<T: Clone, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, fun
 
 pub fn broadcast_channel<T: Clone>(capacity: usize) -> (BroadcastSender<T>, BroadcastReceiver<T>) {
   broadcast::channel(capacity)
-}
-
-pub fn rx_stream<T>(rx: UnboundedReceiver<T>) -> impl Stream<Item = T> {
-  UnboundedReceiverStream::new(rx)
 }
 
 /// Any Redis client that implements any part of the Redis interface.

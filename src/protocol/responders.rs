@@ -366,7 +366,7 @@ fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), R
 }
 
 /// Send the output to the caller of a command that scans values.
-fn send_value_scan_result(
+async fn send_value_scan_result(
   inner: &RefCount<RedisClientInner>,
   scanner: ValueScanInner,
   command: &RedisCommand,
@@ -385,7 +385,7 @@ fn send_value_scan_result(
         results: Some(results),
       });
 
-      if let Err(_) = tx.send(Ok(state)) {
+      if let Err(_) = tx.send(Ok(state)).await {
         _warn!(inner, "Failed to send ZSCAN result to caller");
       }
     },
@@ -399,7 +399,7 @@ fn send_value_scan_result(
         results: Some(result),
       });
 
-      if let Err(_) = tx.send(Ok(state)) {
+      if let Err(_) = tx.send(Ok(state)).await {
         _warn!(inner, "Failed to send SSCAN result to caller");
       }
     },
@@ -414,7 +414,7 @@ fn send_value_scan_result(
         results: Some(results),
       });
 
-      if let Err(_) = tx.send(Ok(state)) {
+      if let Err(_) = tx.send(Ok(state)).await {
         _warn!(inner, "Failed to send HSCAN result to caller");
       }
     },
@@ -545,7 +545,7 @@ pub fn respond_buffer(
 }
 
 /// Respond to the caller of a key scanning operation.
-pub fn respond_key_scan(
+pub async fn respond_key_scan(
   inner: &RefCount<RedisClientInner>,
   server: &Server,
   command: RedisCommand,
@@ -577,14 +577,14 @@ pub fn respond_key_scan(
     results: Some(keys),
     can_continue,
   };
-  if let Err(_) = scan_stream.send(Ok(scan_result)) {
+  if let Err(_) = scan_stream.send(Ok(scan_result)).await {
     _debug!(inner, "Error sending SCAN page.");
   }
 
   Ok(())
 }
 
-pub fn respond_key_scan_buffered(
+pub async fn respond_key_scan_buffered(
   inner: &RefCount<RedisClientInner>,
   server: &Server,
   command: RedisCommand,
@@ -612,7 +612,7 @@ pub fn respond_key_scan_buffered(
   command.respond_to_router(inner, RouterResponse::Continue);
 
   for key in keys.into_iter() {
-    if let Err(_) = scan_stream.send(Ok(key)) {
+    if let Err(_) = scan_stream.send(Ok(key)).await {
       _debug!(inner, "Error sending SCAN key.");
       break;
     }
@@ -629,7 +629,7 @@ pub fn respond_key_scan_buffered(
 }
 
 /// Respond to the caller of a value scanning operation.
-pub fn respond_value_scan(
+pub async fn respond_value_scan(
   inner: &RefCount<RedisClientInner>,
   server: &Server,
   command: RedisCommand,
@@ -657,8 +657,8 @@ pub fn respond_value_scan(
   command.respond_to_router(inner, RouterResponse::Continue);
 
   _trace!(inner, "Sending value scan result with {} values", values.len());
-  if let Err(e) = send_value_scan_result(inner, scanner, &command, values, can_continue) {
-    if let Err(_) = scan_stream.send(Err(e)) {
+  if let Err(e) = send_value_scan_result(inner, scanner, &command, values, can_continue).await {
+    if let Err(_) = scan_stream.send(Err(e)).await {
       _warn!(inner, "Error sending scan result.");
     }
   }

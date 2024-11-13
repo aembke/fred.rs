@@ -16,6 +16,12 @@ args:
       long: replicas
       help: Whether to use `GET` with replica nodes instead of `INCR` with primary nodes.
       takes_value: false
+  - bounded:
+      long: bounded
+      help: The size of the bounded mpsc channel used to route commands.
+      takes_value: true
+      value_name: "NUMBER"
+      default_value: "0"
   - quiet:
       short: q
       long: quiet

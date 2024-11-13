@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   prelude::RedisResult,
   protocol::{cluster, utils::server_to_parts},
-  runtime::{RefCount, UnboundedSender},
+  runtime::{RefCount, Sender},
   types::*,
   utils,
 };
@@ -342,7 +342,7 @@ pub struct KeyScanInner {
   /// The arguments sent in each scan command.
   pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
+  pub tx:         Sender<Result<ScanResult, RedisError>>,
 }
 
 pub struct KeyScanBufferedInner {
@@ -355,7 +355,7 @@ pub struct KeyScanBufferedInner {
   /// The arguments sent in each scan command.
   pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<RedisKey, RedisError>>,
+  pub tx:         Sender<Result<RedisKey, RedisError>>,
 }
 
 impl KeyScanInner {
@@ -394,7 +394,7 @@ pub struct ValueScanInner {
   /// The arguments sent in each scan command.
   pub args:       Vec<RedisValue>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
+  pub tx:         Sender<Result<ValueScanResult, RedisError>>,
 }
 
 impl ValueScanInner {

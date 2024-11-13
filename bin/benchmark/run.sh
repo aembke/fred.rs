@@ -2,6 +2,12 @@
 
 [[ -z "${USE_REDIS_RS}" ]] && FEATURES="assert-expected" || FEATURES="assert-expected redis-rs"
 
+if [[ ! -z "${REDIS_MANAGER}" ]]; then
+  FEATURES="$FEATURES redis-manager"
+fi
+
+# echo 0 | sudo tee /proc/sys/kernel/kptr_restrict
+# echo "-1" | sudo tee /proc/sys/kernel/perf_event_paranoid
 echo $FEATURES
 
 docker-compose -f ../../tests/docker/compose/cluster.yml \

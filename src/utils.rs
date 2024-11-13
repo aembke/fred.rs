@@ -9,9 +9,9 @@ use crate::{
   },
   runtime::{
     broadcast_channel,
+    channel,
     oneshot_channel,
     sleep,
-    unbounded_channel,
     AtomicBool,
     AtomicUsize,
     BroadcastSender,
@@ -330,7 +330,7 @@ pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
     _trace!(inner, "Resetting command channel before connecting.");
     // another connection task is running. this will let the command channel drain, then it'll drop everything on
     // the old connection/router interface.
-    let (tx, rx) = unbounded_channel();
+    let (tx, rx) = channel(inner.connection.bounded_channel_capacity);
     #[cfg(feature = "glommio")]
     let tx = tx.into();
 
@@ -867,7 +867,7 @@ fn close_router_channel(inner: &RefCount<RedisClientInner>, command_tx: RefCount
 
   let command = RedisCommand::new(RedisCommandKind::Quit, vec![]);
   inner.counters.incr_cmd_buffer_len();
-  if let Err(_) = command_tx.send(command.into()) {
+  if let Err(_) = command_tx.try_send(command.into()) {
     inner.counters.decr_cmd_buffer_len();
     _warn!(inner, "Failed to send QUIT when dropping old command channel.");
   }

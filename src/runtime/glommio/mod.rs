@@ -9,16 +9,12 @@ pub(crate) mod mpsc;
 pub(crate) mod compat {
   pub use super::{
     broadcast::{BroadcastReceiver, BroadcastSender},
-    mpsc::{rx_stream, UnboundedReceiver, UnboundedSender},
+    mpsc::{channel, Receiver, Sender},
   };
   use crate::error::RedisError;
   use futures::Future;
   use glommio::TaskQueueHandle;
-  pub use glommio::{
-    channels::local_channel::new_unbounded as unbounded_channel,
-    task::JoinHandle as GlommioJoinHandle,
-    timer::sleep,
-  };
+  pub use glommio::{task::JoinHandle as GlommioJoinHandle, timer::sleep};
   pub use oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender};
   use std::{
     cell::Cell,

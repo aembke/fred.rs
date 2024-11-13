@@ -62,65 +62,6 @@ pub fn route_command<'a>(
   }
 }
 
-/// Write a command to the cluster according to the [cluster hashing](https://redis.io/docs/reference/cluster-spec/) interface.
-pub async fn write(
-  inner: &RefCount<RedisClientInner>,
-  writers: &mut HashMap<Server, RedisWriter>,
-  state: &ClusterRouting,
-  command: RedisCommand,
-  force_flush: bool,
-) -> Written {
-  let has_custom_server = command.cluster_node.is_some();
-  let server = match route_command(inner, state, &command) {
-    Some(server) => server,
-    None => {
-      return if has_custom_server {
-        _debug!(
-          inner,
-          "Respond to caller with error from missing cluster node override ({:?})",
-          command.cluster_node
-        );
-        command.finish(
-          inner,
-          Err(RedisError::new(
-            RedisErrorKind::Cluster,
-            "Missing cluster node override.",
-          )),
-        );
-
-        Written::Ignore
-      } else {
-        // these errors usually mean the cluster is partially down or misconfigured
-        _warn!(
-          inner,
-          "Possible cluster misconfiguration. Missing hash slot owner for {:?}.",
-          command.cluster_hash()
-        );
-        Written::NotFound(command)
-      };
-    },
-  };
-
-  if let Some(writer) = writers.get_mut(server) {
-    _debug!(inner, "Writing command `{}` to {}", command.kind.to_str_debug(), server);
-    utils::write_command(inner, writer, command, force_flush).await
-  } else {
-    // a reconnect message should already be queued from the reader task
-    _debug!(
-      inner,
-      "Failed to read connection {} for {}",
-      server,
-      command.kind.to_str_debug()
-    );
-
-    Written::Disconnected((
-      Some(server.clone()),
-      Some(command),
-      RedisError::new(RedisErrorKind::IO, "Missing connection."),
-    ))
-  }
-}
-
 /// Send a command to all cluster nodes.
 ///
 /// Note: if any of the commands fail to send the entire command is interrupted.
@@ -506,10 +447,10 @@ pub async fn process_response_frame(
       tx,
       frame,
     ),
-    ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame),
-    ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame),
+    ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame).await,
+    ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame).await,
     ResponseKind::KeyScanBuffered(scanner) => {
-      responders::respond_key_scan_buffered(inner, server, command, scanner, frame)
+      responders::respond_key_scan_buffered(inner, server, command, scanner, frame).await
     },
   }
 }

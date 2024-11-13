@@ -14,7 +14,7 @@ use crate::{
   types::*,
   utils as client_utils,
 };
-use futures::TryStreamExt;
+use futures::{SinkExt, TryStreamExt};
 use std::{
   cmp,
   time::{Duration, Instant},
@@ -165,11 +165,27 @@ pub async fn write_command(
 
   let no_incr = command.has_no_responses();
   writer.push_command(inner, command);
-  if let Err(err) = writer.write_frame(frame, should_flush, no_incr).await {
-    Written::Disconnected((Some(writer.server.clone()), None, err))
+  // copy the logic from RedisWriter::write_frame to avoid another async/await point
+  if should_flush {
+    trace!("Writing and flushing {}", writer.server);
+    if let Err(e) = writer.sink.send(frame).await {
+      debug!("{}: Error sending frame to socket: {:?}", writer.server, e);
+      return Written::Disconnected((Some(writer.server.clone()), None, e));
+    }
+    writer.counters.reset_feed_count();
   } else {
-    Written::Sent((writer.server.clone(), should_flush))
+    trace!("Writing without flushing {}", writer.server);
+    if let Err(e) = writer.sink.feed(frame).await {
+      debug!("{}: Error feeding frame to socket: {:?}", writer.server, e);
+      return Written::Disconnected((Some(writer.server.clone()), None, e));
+    }
+    writer.counters.incr_feed_count();
+  };
+  if !no_incr {
+    writer.counters.incr_in_flight();
   }
+
+  Written::Sent((writer.server.clone(), should_flush))
 }
 
 /// Check the shared connection command buffer to see if the oldest command blocks the router task on a
@@ -559,10 +575,10 @@ pub async fn next_frame(
     // a `Mutex<VecDeque>` container which made this scenario easier to implement, but with crossbeam types it's more
     // complicated.
     //
-    // The approach here implements a ~~hack~~ heuristic where we measure the time since first noticing a new
-    // frame in the shared buffer from the reader task's perspective. This only works because we use `Stream::next`
-    // which is noted to be cancellation-safe in the tokio::select! docs. With this implementation the worst case
-    // error margin is an extra `interval`.
+    // The approach here implements a heuristic where we measure the time since first noticing a new frame in the
+    // shared buffer from the reader task's perspective. This only works because we use `Stream::next` which is noted
+    // to be cancellation-safe in the tokio::select! docs. With this implementation the worst case error margin is
+    // an extra `interval`.
 
     let mut last_frame_sent: Option<Instant> = None;
     'outer: loop {

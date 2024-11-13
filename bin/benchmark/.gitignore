@@ -3,3 +3,6 @@ target
 Cargo.lock
 perf*
 server.log
+callgrind*
+flamegraph*
+output.svg

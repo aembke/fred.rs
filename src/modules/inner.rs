@@ -10,18 +10,18 @@ use crate::{
   runtime::{
     broadcast_channel,
     broadcast_send,
+    channel,
     sleep,
-    unbounded_channel,
     AsyncRwLock,
     AtomicBool,
     AtomicUsize,
     BroadcastSender,
     Mutex,
+    Receiver,
     RefCount,
     RefSwap,
     RwLock,
-    UnboundedReceiver,
-    UnboundedSender,
+    Sender,
   },
   types::*,
   utils,
@@ -29,7 +29,7 @@ use crate::{
 use bytes_utils::Str;
 use futures::future::{select, Either};
 use semver::Version;
-use std::{ops::DerefMut, time::Duration};
+use std::{collections::HashSet, ops::DerefMut, time::Duration};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
@@ -42,10 +42,9 @@ use crate::{
 };
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
-use std::collections::HashSet;
 
-pub type CommandSender = UnboundedSender<RouterCommand>;
-pub type CommandReceiver = UnboundedReceiver<RouterCommand>;
+pub type CommandSender = Sender<RouterCommand>;
+pub type CommandReceiver = Receiver<RouterCommand>;
 
 #[cfg(feature = "i-tracking")]
 use crate::types::Invalidation;
@@ -494,7 +493,7 @@ impl RedisClientInner {
   ) -> RefCount<RedisClientInner> {
     let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
-    let (command_tx, command_rx) = unbounded_channel();
+    let (command_tx, command_rx) = channel(connection.bounded_channel_capacity);
     let notifications = RefCount::new(Notifications::new(&id, perf.broadcast_channel_capacity));
     let (config, policy) = (RefCount::new(config), RwLock::new(policy));
     let performance = RefSwap::new(RefCount::new(perf));
@@ -814,17 +813,67 @@ impl RedisClientInner {
   }
 
   #[cfg(not(feature = "glommio"))]
-  pub fn send_command(&self, command: RouterCommand) -> Result<(), RouterCommand> {
-    self.command_tx.load().send(command).map_err(|e| e.0)
+  pub fn send_command(self: &RefCount<Self>, command: RouterCommand) -> Result<(), RouterCommand> {
+    use tokio::sync::mpsc::error::TrySendError;
+
+    // TODO figure out what to do about using ArcSwap with an async version of `send` here.
+    if let Err(v) = self.command_tx.load().try_send(command) {
+      match v {
+        TrySendError::Closed(c) => Err(c),
+        TrySendError::Full(c) => match c {
+          RouterCommand::Command(cmd) => {
+            cmd.finish(self, Err(RedisError::new_backpressure()));
+            Ok(())
+          },
+          RouterCommand::Pipeline { mut commands, .. } => {
+            if let Some(cmd) = commands.pop() {
+              cmd.finish(self, Err(RedisError::new_backpressure()));
+            }
+            Ok(())
+          },
+          #[cfg(feature = "transactions")]
+          RouterCommand::Transaction { tx, .. } => {
+            let _ = tx.send(Err(RedisError::new_backpressure()));
+            Ok(())
+          },
+          _ => Err(c),
+        },
+      }
+    } else {
+      Ok(())
+    }
   }
 
   #[cfg(feature = "glommio")]
-  pub fn send_command(&self, command: RouterCommand) -> Result<(), RouterCommand> {
-    self.command_tx.load().try_send(command).map_err(|e| match e {
-      glommio::GlommioError::Closed(glommio::ResourceType::Channel(v)) => v,
-      glommio::GlommioError::WouldBlock(glommio::ResourceType::Channel(v)) => v,
-      _ => unreachable!(),
-    })
+  pub fn send_command(self: &RefCount<Self>, command: RouterCommand) -> Result<(), RouterCommand> {
+    use glommio::{GlommioError, ResourceType};
+
+    if let Err(e) = self.command_tx.load().try_send(command) {
+      match e {
+        GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
+        GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
+          RouterCommand::Command(cmd) => {
+            cmd.finish(self, Err(RedisError::new_backpressure()));
+            Ok(())
+          },
+          RouterCommand::Pipeline { mut commands, .. } => {
+            if let Some(cmd) = commands.pop() {
+              cmd.finish(self, Err(RedisError::new_backpressure()));
+            }
+            Ok(())
+          },
+          #[cfg(feature = "transactions")]
+          RouterCommand::Transaction { tx, .. } => {
+            let _ = tx.send(Err(RedisError::new_backpressure()));
+            Ok(())
+          },
+          _ => Err(v),
+        },
+        _ => unreachable!(),
+      }
+    } else {
+      Ok(())
+    }
   }
 
   #[cfg(not(feature = "credential-provider"))]
