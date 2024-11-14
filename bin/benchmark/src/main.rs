@@ -203,37 +203,54 @@ fn main() {
 
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
+  thread::spawn(move || {
+    let sch = Builder::new_multi_thread().enable_all().build().unwrap();
+    sch.block_on(async move {
+      tokio::spawn(async move {
+        #[cfg(feature = "metrics")]
+        let monitor = tokio_metrics::RuntimeMonitor::new(&tokio::runtime::Handle::current());
 
-  let sch = Builder::new_multi_thread().enable_all().build().unwrap();
-  sch.block_on(async move {
-    tokio::spawn(async move {
-      setup_tracing(argv.tracing);
-      let counter = Arc::new(AtomicUsize::new(0));
-      let bar = if argv.quiet {
-        None
-      } else {
-        Some(ProgressBar::new(argv.count as u64))
-      };
+        setup_tracing(argv.tracing);
+        let counter = Arc::new(AtomicUsize::new(0));
+        let bar = if argv.quiet {
+          None
+        } else {
+          Some(ProgressBar::new(argv.count as u64))
+        };
 
-      let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
-      let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
-      if let Some(bar) = bar {
-        bar.finish();
-      }
+        #[cfg(feature = "metrics")]
+        let monitor_jh = tokio::spawn(async move {
+          for interval in monitor.intervals() {
+            println!("{:?}", interval);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+          }
+        });
 
-      if argv.quiet {
-        println!("{}", (argv.count as f64 / duration_sec) as u64);
-      } else {
-        println!(
-          "Performed {} operations in: {:?}. Throughput: {} req/sec",
-          argv.count,
-          duration,
-          (argv.count as f64 / duration_sec) as u64
-        );
-      }
-      #[cfg(feature = "tracing-deps")]
-      global::shutdown_tracer_provider();
-    })
-    .await;
-  });
+        let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
+        let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
+        if let Some(bar) = bar {
+          bar.finish();
+        }
+
+        #[cfg(feature = "metrics")]
+        monitor_jh.abort();
+
+        if argv.quiet {
+          println!("{}", (argv.count as f64 / duration_sec) as u64);
+        } else {
+          println!(
+            "Performed {} operations in: {:?}. Throughput: {} req/sec",
+            argv.count,
+            duration,
+            (argv.count as f64 / duration_sec) as u64
+          );
+        }
+        #[cfg(feature = "tracing-deps")]
+        global::shutdown_tracer_provider();
+      })
+      .await;
+    });
+  })
+  .join()
+  .unwrap();
 }
