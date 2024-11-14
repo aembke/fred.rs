@@ -69,7 +69,7 @@ pub async fn should_hset_and_hdel(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_hexists(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hset("foo", ("a", 1)).await?;
+  let _: () = client.hset("foo", ("a", 1)).await?;
   let a: bool = client.hexists("foo", "a").await?;
   assert!(a);
   let b: bool = client.hexists("foo", "b").await?;
@@ -79,7 +79,7 @@ pub async fn should_hexists(client: RedisClient, _: RedisConfig) -> Result<(), R
 }
 
 pub async fn should_hgetall(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
+  let _: () = client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
   let values: HashMap<String, i64> = client.hgetall("foo").await?;
 
   assert_eq!(values.len(), 3);
@@ -111,7 +111,7 @@ pub async fn should_hincryby_float(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_get_keys(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
+  let _: () = client.hset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let keys = client.hkeys("foo").await?;
   assert_diff_len(vec!["a", "b", "c"], keys, 0);
@@ -120,7 +120,7 @@ pub async fn should_get_keys(client: RedisClient, _: RedisConfig) -> Result<(), 
 }
 
 pub async fn should_hmset(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
+  let _: () = client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let a: i64 = client.hget("foo", "a").await?;
   assert_eq!(a, 1);
@@ -133,7 +133,7 @@ pub async fn should_hmset(client: RedisClient, _: RedisConfig) -> Result<(), Red
 }
 
 pub async fn should_hmget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
+  let _: () = client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let result: Vec<i64> = client.hmget("foo", vec!["a", "b"]).await?;
   assert_eq!(result, vec![1, 2]);
@@ -142,7 +142,7 @@ pub async fn should_hmget(client: RedisClient, _: RedisConfig) -> Result<(), Red
 }
 
 pub async fn should_hsetnx(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hset("foo", ("a", 1)).await?;
+  let _: () = client.hset("foo", ("a", 1)).await?;
   let result: bool = client.hsetnx("foo", "a", 2).await?;
   assert!(!result);
   let result: i64 = client.hget("foo", "a").await?;
@@ -156,7 +156,7 @@ pub async fn should_hsetnx(client: RedisClient, _: RedisConfig) -> Result<(), Re
 }
 
 pub async fn should_get_random_field(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
+  let _: () = client.hmset("foo", vec![("a", 1), ("b", 2), ("c", 3)]).await?;
 
   let field: String = client.hrandfield("foo", None).await?;
   assert_contains(vec!["a", "b", "c"], &field.as_str());
@@ -182,7 +182,7 @@ pub async fn should_get_random_field(client: RedisClient, _: RedisConfig) -> Res
 
 pub async fn should_get_strlen(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let expected = "abcdefhijklmnopqrstuvwxyz";
-  client.hset("foo", ("a", expected)).await?;
+  let _: () = client.hset("foo", ("a", expected)).await?;
 
   let len: usize = client.hstrlen("foo", "a").await?;
   assert_eq!(len, expected.len());
@@ -191,7 +191,7 @@ pub async fn should_get_strlen(client: RedisClient, _: RedisConfig) -> Result<()
 }
 
 pub async fn should_get_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.hmset("foo", vec![("a", "1"), ("b", "2")]).await?;
+  let _: () = client.hmset("foo", vec![("a", "1"), ("b", "2")]).await?;
 
   let values: RedisValue = client.hvals("foo").await?;
   assert_diff_len(vec!["1", "2"], values, 0);
@@ -199,6 +199,7 @@ pub async fn should_get_values(client: RedisClient, _: RedisConfig) -> Result<()
   Ok(())
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn should_do_hash_expirations(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   if utils::check_valkey(&client).await {
     return Ok(());
@@ -230,6 +231,7 @@ pub async fn should_do_hash_expirations(client: RedisClient, _: RedisConfig) -> 
   Ok(())
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn should_do_hash_pexpirations(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   if utils::check_valkey(&client).await {
     return Ok(());

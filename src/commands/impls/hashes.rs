@@ -192,6 +192,7 @@ pub async fn hvals<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValu
   one_arg_values_cmd(client, RedisCommandKind::HVals, key.into()).await
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn httl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
@@ -207,6 +208,7 @@ pub async fn httl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hexpire<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -232,6 +234,7 @@ pub async fn hexpire<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hexpire_at<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -257,6 +260,7 @@ pub async fn hexpire_at<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hexpire_time<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -276,6 +280,7 @@ pub async fn hexpire_time<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hpttl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
@@ -291,6 +296,7 @@ pub async fn hpttl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKey
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hpexpire<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -316,6 +322,7 @@ pub async fn hpexpire<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hpexpire_at<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -341,6 +348,7 @@ pub async fn hpexpire_at<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hpexpire_time<C: ClientLike>(
   client: &C,
   key: RedisKey,
@@ -360,6 +368,7 @@ pub async fn hpexpire_time<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
+#[cfg(feature = "i-hexpire")]
 pub async fn hpersist<C: ClientLike>(
   client: &C,
   key: RedisKey,

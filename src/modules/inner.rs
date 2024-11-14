@@ -1,10 +1,9 @@
 use crate::{
   error::*,
-  interfaces,
   modules::backchannel::Backchannel,
   protocol::{
-    command::{ResponseSender, RouterCommand},
-    connection::RedisTransport,
+    command::RouterCommand,
+    connection::ExclusiveConnection,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
   runtime::{
@@ -23,6 +22,7 @@ use crate::{
     RwLock,
     Sender,
   },
+  trace,
   types::*,
   utils,
 };
@@ -377,7 +377,6 @@ impl ServerKind {
   }
 }
 
-// TODO make a config option for other defaults and extend this
 fn create_resolver(id: &Str) -> RefCount<dyn Resolve> {
   RefCount::new(DefaultResolver::new(id))
 }
@@ -451,7 +450,7 @@ pub struct RedisClientInner {
   /// The DNS resolver to use when establishing new connections.
   pub resolver:      AsyncRwLock<RefCount<dyn Resolve>>,
   /// A backchannel that can be used to control the router connections even while the connections are blocked.
-  pub backchannel:   RefCount<AsyncRwLock<Backchannel>>,
+  pub backchannel:   RefCount<Backchannel>,
   /// Server state cache for various deployment types.
   pub server_state:  RwLock<ServerState>,
 
@@ -493,13 +492,13 @@ impl RedisClientInner {
   ) -> RefCount<RedisClientInner> {
     let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
-    let (command_tx, command_rx) = channel(connection.bounded_channel_capacity);
+    let (command_tx, command_rx) = channel(connection.max_command_buffer_len);
     let notifications = RefCount::new(Notifications::new(&id, perf.broadcast_channel_capacity));
     let (config, policy) = (RefCount::new(config), RwLock::new(policy));
     let performance = RefSwap::new(RefCount::new(perf));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
     let command_rx = RwLock::new(Some(command_rx));
-    let backchannel = RefCount::new(AsyncRwLock::new(Backchannel::default()));
+    let backchannel = RefCount::new(Backchannel::default());
     let server_state = RwLock::new(ServerState::new(&config));
     let resp3 = if config.version == RespVersion::RESP3 {
       RefCount::new(AtomicBool::new(true))
@@ -507,8 +506,6 @@ impl RedisClientInner {
       RefCount::new(AtomicBool::new(false))
     };
     let connection = RefCount::new(connection);
-    #[cfg(feature = "glommio")]
-    let command_tx = command_tx.into();
     let command_tx = RefSwap::new(RefCount::new(command_tx));
 
     RefCount::new(RedisClientInner {
@@ -553,10 +550,6 @@ impl RedisClientInner {
     self.server_state.read().connections.iter().cloned().collect()
   }
 
-  pub fn is_pipelined(&self) -> bool {
-    self.performance.load().as_ref().auto_pipeline
-  }
-
   #[cfg(feature = "replicas")]
   pub fn ignore_replica_reconnect_errors(&self) -> bool {
     self.connection.replica.ignore_reconnection_errors
@@ -581,6 +574,10 @@ impl RedisClientInner {
   pub fn reset_server_state(&self) {
     #[cfg(feature = "replicas")]
     self.server_state.write().replicas.clear()
+  }
+
+  pub fn has_unresponsive_duration(&self) -> bool {
+    self.connection.unresponsive.max_timeout.is_some()
   }
 
   pub fn shared_resp3(&self) -> RefCount<AtomicBool> {
@@ -723,7 +720,7 @@ impl RedisClientInner {
   }
 
   pub async fn set_blocked_server(&self, server: &Server) {
-    self.backchannel.write().await.set_blocked(server);
+    self.backchannel.blocked.lock().replace(server.clone());
   }
 
   pub fn should_reconnect(&self) -> bool {
@@ -733,9 +730,6 @@ impl RedisClientInner {
       .as_ref()
       .map(|policy| policy.should_reconnect())
       .unwrap_or(false);
-
-    // do not attempt a reconnection if the client is intentionally disconnecting. the QUIT and SHUTDOWN commands set
-    // this flag.
     let is_disconnecting = utils::read_locked(&self.state) == ClientState::Disconnecting;
 
     debug!(
@@ -743,44 +737,6 @@ impl RedisClientInner {
       self.id, has_policy, is_disconnecting,
     );
     has_policy && !is_disconnecting
-  }
-
-  pub fn send_reconnect(
-    self: &RefCount<RedisClientInner>,
-    server: Option<Server>,
-    force: bool,
-    tx: Option<ResponseSender>,
-  ) {
-    debug!("{}: Sending reconnect message to router for {:?}", self.id, server);
-
-    let cmd = RouterCommand::Reconnect {
-      server,
-      force,
-      tx,
-      #[cfg(feature = "replicas")]
-      replica: false,
-    };
-    if let Err(_) = interfaces::send_to_router(self, cmd) {
-      warn!("{}: Error sending reconnect command to router.", self.id);
-    }
-  }
-
-  #[cfg(feature = "replicas")]
-  pub fn send_replica_reconnect(self: &RefCount<RedisClientInner>, server: &Server) {
-    debug!(
-      "{}: Sending replica reconnect message to router for {:?}",
-      self.id, server
-    );
-
-    let cmd = RouterCommand::Reconnect {
-      server:  Some(server.clone()),
-      force:   false,
-      tx:      None,
-      replica: true,
-    };
-    if let Err(_) = interfaces::send_to_router(self, cmd) {
-      warn!("{}: Error sending reconnect command to router.", self.id);
-    }
   }
 
   pub fn reset_reconnection_attempts(&self) {
@@ -793,8 +749,8 @@ impl RedisClientInner {
     self.config.server.is_clustered() && error.is_cluster()
   }
 
-  pub async fn update_backchannel(&self, transport: RedisTransport) {
-    self.backchannel.write().await.transport = Some(transport);
+  pub async fn update_backchannel(&self, transport: ExclusiveConnection) {
+    self.backchannel.transport.write().await.replace(transport);
   }
 
   pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
@@ -816,18 +772,18 @@ impl RedisClientInner {
   pub fn send_command(self: &RefCount<Self>, command: RouterCommand) -> Result<(), RouterCommand> {
     use tokio::sync::mpsc::error::TrySendError;
 
-    // TODO figure out what to do about using ArcSwap with an async version of `send` here.
     if let Err(v) = self.command_tx.load().try_send(command) {
       match v {
         TrySendError::Closed(c) => Err(c),
         TrySendError::Full(c) => match c {
-          RouterCommand::Command(cmd) => {
-            cmd.finish(self, Err(RedisError::new_backpressure()));
+          RouterCommand::Command(mut cmd) => {
+            trace::backpressure_event(&cmd, None);
+            cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
-            if let Some(cmd) = commands.pop() {
-              cmd.finish(self, Err(RedisError::new_backpressure()));
+            if let Some(mut cmd) = commands.pop() {
+              cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             }
             Ok(())
           },
@@ -852,13 +808,13 @@ impl RedisClientInner {
       match e {
         GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
         GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
-          RouterCommand::Command(cmd) => {
-            cmd.finish(self, Err(RedisError::new_backpressure()));
+          RouterCommand::Command(mut cmd) => {
+            cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
-            if let Some(cmd) = commands.pop() {
-              cmd.finish(self, Err(RedisError::new_backpressure()));
+            if let Some(mut cmd) = commands.pop() {
+              cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             }
             Ok(())
           },

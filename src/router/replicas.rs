@@ -1,19 +1,13 @@
-#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::types::TlsHostMapping;
-#[cfg(feature = "replicas")]
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::RedisError,
   modules::inner::RedisClientInner,
-  protocol::{
-    command::RedisCommand,
-    connection,
-    connection::{CommandBuffer, RedisWriter},
-  },
-  router::{centralized, clustered, utils, Written},
+  protocol::{command::RedisCommand, connection, connection::RedisConnection},
   runtime::RefCount,
   types::Server,
 };
-#[cfg(feature = "replicas")]
+use futures::future::join_all;
 use std::{
   collections::{HashMap, VecDeque},
   fmt,
@@ -21,7 +15,6 @@ use std::{
 };
 
 /// An interface used to filter the list of available replica nodes.
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[async_trait]
 pub trait ReplicaFilter: Send + Sync + 'static {
@@ -33,7 +26,11 @@ pub trait ReplicaFilter: Send + Sync + 'static {
 }
 
 /// Configuration options for replica node connections.
-#[cfg(feature = "replicas")]
+///
+/// When connecting to a replica the client will use the parameters specified in the
+/// [ReconnectPolicy](crate::types::ReconnectPolicy).
+///
+/// Currently only clustered replicas are supported.
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone)]
 pub struct ReplicaConfig {
@@ -47,51 +44,42 @@ pub struct ReplicaConfig {
   pub filter:                     Option<RefCount<dyn ReplicaFilter>>,
   /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
   ///
+  /// This implies `primary_fallback: true`.
+  ///
   /// Default: `true`
   pub ignore_reconnection_errors: bool,
-  /// The number of times a command can fail with a replica connection error before being sent to a primary node.
-  ///
-  /// Default: `0` (unlimited)
-  pub connection_error_count:     u32,
   /// Whether the client should use the associated primary node if no replica exists that can serve a command.
   ///
   /// Default: `true`
   pub primary_fallback:           bool,
 }
 
-#[cfg(feature = "replicas")]
 impl fmt::Debug for ReplicaConfig {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("ReplicaConfig")
       .field("lazy_connections", &self.lazy_connections)
       .field("ignore_reconnection_errors", &self.ignore_reconnection_errors)
-      .field("connection_error_count", &self.connection_error_count)
       .field("primary_fallback", &self.primary_fallback)
       .finish()
   }
 }
 
-#[cfg(feature = "replicas")]
 impl PartialEq for ReplicaConfig {
   fn eq(&self, other: &Self) -> bool {
     self.lazy_connections == other.lazy_connections
       && self.ignore_reconnection_errors == other.ignore_reconnection_errors
-      && self.connection_error_count == other.connection_error_count
       && self.primary_fallback == other.primary_fallback
   }
 }
 
-#[cfg(feature = "replicas")]
 impl Eq for ReplicaConfig {}
 
-#[cfg(feature = "replicas")]
 impl Default for ReplicaConfig {
   fn default() -> Self {
     ReplicaConfig {
       lazy_connections:           true,
       filter:                     None,
       ignore_reconnection_errors: true,
-      connection_error_count:     0,
       primary_fallback:           true,
     }
   }
@@ -100,14 +88,12 @@ impl Default for ReplicaConfig {
 /// A container for round-robin routing among replica nodes.
 // This implementation optimizes for next() at the cost of add() and remove()
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub struct ReplicaRouter {
   counter: usize,
   servers: Vec<Server>,
 }
 
-#[cfg(feature = "replicas")]
 impl ReplicaRouter {
   /// Read the server that should receive the next command.
   pub fn next(&mut self) -> Option<&Server> {
@@ -139,7 +125,6 @@ impl ReplicaRouter {
 }
 
 /// A container for round-robin routing to replica servers.
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaSet {
@@ -147,8 +132,6 @@ pub struct ReplicaSet {
   servers: HashMap<Server, ReplicaRouter>,
 }
 
-#[cfg(feature = "replicas")]
-#[allow(dead_code)]
 impl ReplicaSet {
   /// Create a new empty replica set.
   pub fn new() -> ReplicaSet {
@@ -220,18 +203,6 @@ impl ReplicaSet {
     out
   }
 
-  /// Read the set of all known replica nodes for all primary nodes.
-  pub fn all_replicas(&self) -> Vec<Server> {
-    let mut out = Vec::with_capacity(self.servers.len());
-    for (_, replicas) in self.servers.iter() {
-      for replica in replicas.iter() {
-        out.push(replica.clone());
-      }
-    }
-
-    out
-  }
-
   /// Clear the routing table.
   pub fn clear(&mut self) {
     self.servers.clear();
@@ -241,9 +212,9 @@ impl ReplicaSet {
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
 pub struct Replicas {
-  pub(crate) writers: HashMap<Server, RedisWriter>,
-  routing:            ReplicaSet,
-  buffer:             VecDeque<RedisCommand>,
+  pub connections: HashMap<Server, RedisConnection>,
+  pub routing:     ReplicaSet,
+  pub buffer:      VecDeque<RedisCommand>,
 }
 
 #[cfg(feature = "replicas")]
@@ -251,16 +222,16 @@ pub struct Replicas {
 impl Replicas {
   pub fn new() -> Replicas {
     Replicas {
-      writers: HashMap::new(),
-      routing: ReplicaSet::new(),
-      buffer:  VecDeque::new(),
+      connections: HashMap::new(),
+      routing:     ReplicaSet::new(),
+      buffer:      VecDeque::new(),
     }
   }
 
   /// Sync the connection map in place based on the cached routing table.
   pub async fn sync_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
-    for (_, writer) in self.writers.drain() {
-      let commands = writer.graceful_close().await;
+    for (_, mut writer) in self.connections.drain() {
+      let commands = writer.close().await;
       self.buffer.extend(commands);
     }
 
@@ -301,14 +272,10 @@ impl Replicas {
       let mut transport = connection::create(inner, &replica, None).await?;
       transport.setup(inner, None).await?;
 
-      let (_, writer) = if inner.config.server.is_clustered() {
+      if inner.config.server.is_clustered() {
         transport.readonly(inner, None).await?;
-        connection::split(inner, transport, true, clustered::spawn_reader_task)?
-      } else {
-        connection::split(inner, transport, true, centralized::spawn_reader_task)?
       };
-
-      self.writers.insert(replica.clone(), writer);
+      self.connections.insert(replica.clone(), transport.into_pipelined(true));
     }
 
     self.routing.add(primary, replica);
@@ -317,9 +284,8 @@ impl Replicas {
 
   /// Drop the socket associated with the provided server.
   pub async fn drop_writer(&mut self, replica: &Server) {
-    if let Some(writer) = self.writers.remove(replica) {
-      let commands = writer.graceful_close().await;
-      self.buffer.extend(commands);
+    if let Some(mut writer) = self.connections.remove(replica) {
+      self.buffer.extend(writer.close().await);
     }
   }
 
@@ -351,8 +317,8 @@ impl Replicas {
   }
 
   /// Check and flush all the sockets managed by the replica routing state.
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
-    for (_, writer) in self.writers.iter_mut() {
+  pub async fn flush(&mut self) -> Result<(), RedisError> {
+    for (_, writer) in self.connections.iter_mut() {
       writer.flush().await?;
     }
 
@@ -360,19 +326,20 @@ impl Replicas {
   }
 
   /// Whether a working connection exists to any replica for the provided primary node.
-  pub fn has_replica_connection(&self, primary: &Server) -> bool {
+  pub async fn has_replica_connection(&mut self, primary: &Server) -> bool {
     for replica in self.routing.replicas(primary) {
-      if self.has_connection(replica) {
-        return true;
+      if let Some(replica) = self.connections.get_mut(replica) {
+        if replica.peek_reader_errors().await.is_some() {
+          continue;
+        } else {
+          return true;
+        }
+      } else {
+        continue;
       }
     }
 
     false
-  }
-
-  /// Whether a connection exists to the provided replica node.
-  pub fn has_connection(&self, replica: &Server) -> bool {
-    self.writers.get(replica).map(|w| w.is_working()).unwrap_or(false)
   }
 
   /// Return a map of `replica` -> `primary` server identifiers.
@@ -382,156 +349,51 @@ impl Replicas {
 
   /// Check the active connections and drop any without a working reader task.
   pub async fn drop_broken_connections(&mut self) {
-    let mut new_writers = HashMap::with_capacity(self.writers.len());
-    for (server, writer) in self.writers.drain() {
-      if writer.is_working() {
-        new_writers.insert(server, writer);
-      } else {
-        let commands = writer.graceful_close().await;
-        self.buffer.extend(commands);
+    let mut new_writers = HashMap::with_capacity(self.connections.len());
+    for (server, mut writer) in self.connections.drain() {
+      if writer.peek_reader_errors().await.is_some() {
+        self.buffer.extend(writer.close().await);
         self.routing.remove_replica(&server);
+      } else {
+        new_writers.insert(server, writer);
       }
     }
 
-    self.writers = new_writers;
+    self.connections = new_writers;
   }
 
   /// Read the set of all active connections.
-  pub fn active_connections(&self) -> Vec<Server> {
-    self
-      .writers
-      .iter()
-      .filter_map(|(server, writer)| {
-        if writer.is_working() {
-          Some(server.clone())
-        } else {
-          None
-        }
-      })
-      .collect()
-  }
-
-  /// Send a command to one of the replicas associated with the provided primary server.
-  pub async fn write(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    primary: &Server,
-    mut command: RedisCommand,
-    force_flush: bool,
-  ) -> Written {
-    let replica = match command.cluster_node {
-      Some(ref server) => server.clone(),
-      None => match self.routing.next_replica(primary) {
-        Some(replica) => replica.clone(),
-        None => {
-          // we do not know of any replica node associated with the primary node
-          return if inner.connection.replica.primary_fallback {
-            Written::Fallback(command)
-          } else {
-            command.finish(
-              inner,
-              Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")),
-            );
-            Written::Ignore
-          };
-        },
-      },
-    };
-
-    _trace!(
-      inner,
-      "Found replica {} (primary: {}) for {} ({})",
-      replica,
-      primary,
-      command.kind.to_str_debug(),
-      command.debug_id()
-    );
-
-    let writer = match self.writers.get_mut(&replica) {
-      Some(writer) => writer,
-      None => {
-        // these errors indicate that we know a replica node should exist, but we are not connected or cannot
-        // connect to it. in this case we want to hide the error, trigger a reconnect, and retry the command later.
-        if inner.connection.replica.lazy_connections {
-          _debug!(inner, "Lazily adding {} replica connection", replica);
-          if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {
-            // we tried connecting once but failed.
-            self.routing.remove_replica(&replica);
-            // since we didn't get to actually send the command
-            command.attempts_remaining += 1;
-            return Written::Disconnected((Some(replica.clone()), Some(command), e));
-          }
-
-          match self.writers.get_mut(&replica) {
-            Some(writer) => writer,
-            None => {
-              self.routing.remove_replica(&replica);
-              // the connection should be here if self.add_connection succeeded
-              return Written::Disconnected((
-                Some(replica.clone()),
-                Some(command),
-                RedisError::new(RedisErrorKind::Replica, "Missing connection."),
-              ));
-            },
-          }
-        } else {
-          // we don't have a connection to the replica and we're not configured to lazily create new ones
-          return Written::NotFound(command);
-        }
-      },
-    };
-    let (frame, should_flush) = match utils::prepare_command(inner, &writer.counters, &mut command) {
-      Ok((frame, should_flush)) => (frame, should_flush || force_flush),
-      Err(e) => {
-        _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
-        // do not retry commands that trigger frame encoding errors
-        command.finish(inner, Err(e));
-        return Written::Ignore;
-      },
-    };
-
-    let blocks_connection = command.blocks_connection();
-    _debug!(
-      inner,
-      "Sending {} ({}) to replica {}",
-      command.kind.to_str_debug(),
-      command.debug_id(),
-      replica
-    );
-    command.write_attempts += 1;
-
-    if !writer.is_working() {
-      let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
-
-      _debug!(
-        inner,
-        "Error sending replica command {}: {:?}",
-        command.kind.to_str_debug(),
-        error
-      );
-      self.routing.remove_replica(&writer.server);
-      return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
-    }
-
-    writer.push_command(inner, command);
-    if let Err(err) = writer.write_frame(frame, should_flush, false).await {
-      self.routing.remove_replica(&writer.server);
-      Written::Disconnected((Some(writer.server.clone()), None, err))
-    } else {
-      if blocks_connection {
-        inner.backchannel.write().await.set_blocked(&writer.server);
+  pub async fn active_connections(&mut self) -> Vec<Server> {
+    join_all(self.connections.iter_mut().map(|(server, conn)| async move {
+      if conn.peek_reader_errors().await.is_some() {
+        None
+      } else {
+        Some(server.clone())
       }
-      Written::Sent((writer.server.clone(), should_flush))
-    }
+    }))
+    .await
+    .into_iter()
+    .flatten()
+    .collect()
   }
 
   /// Take the commands stored for retry later.
-  pub fn take_retry_buffer(&mut self) -> CommandBuffer {
+  pub fn take_retry_buffer(&mut self) -> VecDeque<RedisCommand> {
     self.buffer.drain(..).collect()
+  }
+
+  pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+    // let inner = inner.clone();
+    let _ = join_all(self.connections.iter_mut().map(|(_, conn)| conn.drain(inner)))
+      .await
+      .into_iter()
+      .collect::<Result<Vec<()>, RedisError>>()?;
+
+    Ok(())
   }
 }
 
-#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Server, replica: &mut Server) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
@@ -548,8 +410,5 @@ pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Serve
   replica.set_tls_server_name(policy, &primary.host);
 }
 
-#[cfg(all(
-  feature = "replicas",
-  not(any(feature = "enable-native-tls", feature = "enable-rustls"))
-))]
+#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
 pub fn map_replica_tls_names(_: &RefCount<RedisClientInner>, _: &Server, _: &mut Server) {}

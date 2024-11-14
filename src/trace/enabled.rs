@@ -51,7 +51,7 @@ pub fn set_network_span(inner: &RefCount<RedisClientInner>, command: &mut RedisC
 
 pub fn record_response_size(span: &Span, frame: &Resp3Frame) {
   #[allow(clippy::needless_borrows_for_generic_args)]
-  span.record("cmd.res", &frame.encode_len());
+  span.record("cmd.res", &frame.encode_len(true));
 }
 
 pub fn create_command_span(inner: &RefCount<RedisClientInner>) -> Span {
@@ -96,7 +96,7 @@ pub fn create_pubsub_span(inner: &RefCount<RedisClientInner>, frame: &Resp3Frame
       "fred.pubsub",
       module = "fred",
       "client.id" = &inner.id.deref(),
-      "cmd.res" = &frame.encode_len(),
+      "cmd.res" = &frame.encode_len(true),
       "msg.channel" = Empty
     );
 

@@ -15,11 +15,11 @@ async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), 
   pool.init().await?;
 
   for client in pool.clients().iter() {
-    client.ping().await?;
+    let _: () = client.ping().await?;
   }
 
-  pool.ping().await?;
-  pool.quit().await?;
+  let _: () = pool.ping().await?;
+  let _: () = pool.quit().await?;
   Ok(())
 }
 
@@ -53,10 +53,10 @@ pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig
 
   for _ in 0 .. 10 {
     let client = pool.acquire().await;
-    client.incr("foo").await?;
+    let _: () = client.incr("foo").await?;
   }
   assert_eq!(client.get::<i64, _>("foo").await?, 10);
-  client.del("foo").await?;
+  let _: () = client.del("foo").await?;
 
   let mut fts = Vec::with_capacity(10);
   for _ in 0 .. 10 {
@@ -86,7 +86,7 @@ pub async fn should_watch_and_trx_exclusive_pool(client: RedisClient, config: Re
     .build_exclusive_pool(5)?;
   pool.init().await?;
 
-  client.set("foo{1}", 1, None, None, false).await?;
+  let _: () = client.set("foo{1}", 1, None, None, false).await?;
 
   let results: Option<(i64, i64, i64)> = {
     let client = pool.acquire().await;
@@ -94,9 +94,9 @@ pub async fn should_watch_and_trx_exclusive_pool(client: RedisClient, config: Re
     client.watch("foo").await?;
     if let Some(1) = client.get::<Option<i64>, _>("foo{1}").await? {
       let trx = client.multi();
-      trx.incr("foo{1}").await?;
-      trx.incr("bar{1}").await?;
-      trx.incr("baz{1}").await?;
+      let _: () = trx.incr("foo{1}").await?;
+      let _: () = trx.incr("bar{1}").await?;
+      let _: () = trx.incr("baz{1}").await?;
       Some(trx.exec(true).await?)
     } else {
       None

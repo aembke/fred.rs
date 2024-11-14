@@ -16,36 +16,23 @@ use crate::{
 };
 use bytes_utils::Str;
 
-pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
-  let (tx, rx) = oneshot_channel();
-  let command = RouterCommand::Connections { tx };
-  interfaces::send_to_router(client.inner(), command)?;
-
-  rx.await.map_err(|e| e.into())
-}
-
 pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
 
   let (tx, rx) = oneshot_channel();
-  let mut command: RedisCommand = if inner.config.server.is_clustered() {
-    let response = ResponseKind::new_buffer(tx);
-    (RedisCommandKind::Quit, vec![], response).into()
-  } else {
-    let response = ResponseKind::Respond(Some(tx));
-    (RedisCommandKind::Quit, vec![], response).into()
-  };
+  let response = ResponseKind::Respond(Some(tx));
+  let mut command: RedisCommand = (RedisCommandKind::Quit, vec![], response).into();
+
   utils::set_client_state(&inner.state, ClientState::Disconnecting);
   inner.notifications.broadcast_close();
-
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
   let _ = utils::timeout(rx, timeout_dur).await??;
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
-  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
+  inner.backchannel.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }
@@ -76,7 +63,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
-  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
+  inner.backchannel.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }
@@ -135,7 +122,7 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   }
 
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(tx);
+  let response = ResponseKind::Respond(Some(tx));
   let mut command: RedisCommand = (RedisCommandKind::_FlushAllCluster, vec![], response).into();
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
@@ -186,7 +173,7 @@ pub async fn hello<C: ClientLike>(
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
     let mut command: RedisCommand = RedisCommandKind::_HelloAllCluster(version).into();
-    command.response = ResponseKind::new_buffer(tx);
+    command.response = ResponseKind::Respond(Some(tx));
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
@@ -208,7 +195,7 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_buffer(tx);
+    let response = ResponseKind::Respond(Some(tx));
     let mut command: RedisCommand = (RedisCommandKind::_AuthAllCluster, args, response).into();
 
     let timeout_dur = utils::prepare_command(client, &mut command);

@@ -18,11 +18,13 @@ use url::ParseError;
 /// An enum representing the type of error from Redis.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum RedisErrorKind {
-  /// A fatal client configuration error. These errors will shutdown a client and break out of any reconnection
+  /// A fatal client configuration error. These errors will shut down a client and break out of any reconnection
   /// attempts.
   Config,
   /// An authentication error.
   Auth,
+  /// An error finding a server that should receive a command.
+  Routing,
   /// An IO error with the underlying connection.
   IO,
   /// An invalid command, such as trying to perform a `set` command on a client after calling `subscribe`.
@@ -77,6 +79,7 @@ impl RedisErrorKind {
     match *self {
       RedisErrorKind::Auth => "Authentication Error",
       RedisErrorKind::IO => "IO Error",
+      RedisErrorKind::Routing => "Routing Error",
       RedisErrorKind::InvalidArgument => "Invalid Argument",
       RedisErrorKind::InvalidCommand => "Invalid Command",
       RedisErrorKind::Url => "Url Error",
@@ -103,6 +106,7 @@ impl RedisErrorKind {
 }
 
 /// An error from Redis.
+#[derive(Debug)]
 pub struct RedisError {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
@@ -123,12 +127,6 @@ impl PartialEq for RedisError {
 }
 
 impl Eq for RedisError {}
-
-impl fmt::Debug for RedisError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "Redis Error - kind: {:?}, details: {}", self.kind, self.details)
-  }
-}
 
 impl fmt::Display for RedisError {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -416,6 +414,16 @@ impl RedisError {
   /// Whether the error is a `NotFound` error.
   pub fn is_not_found(&self) -> bool {
     matches!(self.kind, RedisErrorKind::NotFound)
+  }
+
+  /// Whether the error is a MOVED redirection.
+  pub fn is_moved(&self) -> bool {
+    self.is_cluster() && self.details.starts_with("MOVED")
+  }
+
+  /// Whether the error is an ASK redirection.
+  pub fn is_ask(&self) -> bool {
+    self.is_cluster() && self.details.starts_with("ASK")
   }
 }
 

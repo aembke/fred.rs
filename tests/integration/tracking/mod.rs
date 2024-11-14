@@ -32,12 +32,12 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
   });
 
   client.start_tracking(None, false, false, false, false).await?;
-  client.get("foo{1}").await?;
-  client.incr("foo{1}").await?;
+  let _: () = client.get("foo{1}").await?;
+  let _: () = client.incr("foo{1}").await?;
 
-  client.mget(vec!["bar{1}", "baz{1}"]).await?;
-  client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
-  client.flushall(false).await?;
+  let _: () = client.mget(vec!["bar{1}", "baz{1}"]).await?;
+  let _: () = client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
+  let _: () = client.flushall(false).await?;
 
   sleep(Duration::from_secs(1)).await;
   if invalidated.load(Ordering::Acquire) {
@@ -79,7 +79,7 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
     .next()
     .expect("Failed to read subscriber connection ID");
 
-  client
+  let _: () = client
     .client_tracking("on", Some(subscriber_id), None, false, false, false, false)
     .await?;
 
@@ -87,14 +87,14 @@ pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: Red
   // in resp2 this might take some changes to the pubsub parser if it doesn't work with an array as the message type
 
   // check pubsub messages with one key
-  client.get("foo{1}").await?;
-  client.incr("foo{1}").await?;
+  let _: () = client.get("foo{1}").await?;
+  let _: () = client.incr("foo{1}").await?;
 
   // check pubsub messages with an array of keys
-  client.mget(vec!["bar{1}", "baz{1}"]).await?;
-  client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
+  let _: () = client.mget(vec!["bar{1}", "baz{1}"]).await?;
+  let _: () = client.mset(vec![("bar{1}", 1), ("baz{1}", 1)]).await?;
   // check pubsub messages with a null key
-  client.flushall(false).await?;
+  let _: () = client.flushall(false).await?;
 
   sleep(Duration::from_secs(1)).await;
   if invalidated.load(Ordering::Acquire) {

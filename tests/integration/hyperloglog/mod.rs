@@ -28,7 +28,7 @@ pub async fn should_pfmerge_elements(client: RedisClient, _: RedisConfig) -> Res
   let result: i64 = client.pfadd("bar{1}", vec!["c", "d", "e"]).await?;
   assert_eq!(result, 1);
 
-  client.pfmerge("baz{1}", vec!["foo{1}", "bar{1}"]).await?;
+  let _: () = client.pfmerge("baz{1}", vec!["foo{1}", "bar{1}"]).await?;
   let result: i64 = client.pfcount("baz{1}").await?;
   assert_eq!(result, 5);
 

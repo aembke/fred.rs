@@ -42,12 +42,12 @@ pub async fn should_xinfo_consumers(client: RedisClient, _: RedisConfig) -> Resu
   assert!(result.is_err());
 
   create_fake_group_and_stream(&client, "foo{1}").await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
   let consumers: Vec<HashMap<String, String>> = client.xinfo_consumers("foo{1}", "group1").await?;
   assert_eq!(consumers.len(), 1);
   assert_eq!(consumers[0].get("name"), Some(&"consumer1".to_owned()));
 
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
   let consumers: Vec<HashMap<String, String>> = client.xinfo_consumers("foo{1}", "group1").await?;
   assert_eq!(consumers.len(), 2);
   assert_eq!(consumers[0].get("name"), Some(&"consumer1".to_owned()));
@@ -65,7 +65,7 @@ pub async fn should_xinfo_groups(client: RedisClient, _: RedisConfig) -> Result<
   assert_eq!(result.len(), 1);
   assert_eq!(result[0].get("name"), Some(&"group1".into()));
 
-  client.xgroup_create("foo{1}", "group2", "$", true).await?;
+  let _: () = client.xgroup_create("foo{1}", "group2", "$", true).await?;
   let result: Vec<HashMap<String, RedisValue>> = client.xinfo_groups("foo{1}").await?;
   assert_eq!(result.len(), 2);
   assert_eq!(result[0].get("name"), Some(&"group1".into()));
@@ -108,7 +108,7 @@ pub async fn should_xadd_manual_id_to_a_stream(client: RedisClient, _: RedisConf
 }
 
 pub async fn should_xadd_with_cap_to_a_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client
+  let _: () = client
     .xadd("foo{1}", false, ("MAXLEN", "=", 1), "*", ("a", "b"))
     .await?;
 
@@ -122,7 +122,7 @@ pub async fn should_xadd_nomkstream_to_a_stream(client: RedisClient, _: RedisCon
   assert!(result.is_none());
 
   create_fake_group_and_stream(&client, "foo{1}").await?;
-  client.xadd("foo{1}", true, None, "*", ("a", "b")).await?;
+  let _: () = client.xadd("foo{1}", true, None, "*", ("a", "b")).await?;
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 1);
   Ok(())
@@ -137,7 +137,7 @@ pub async fn should_xtrim_a_stream_approx_cap(client: RedisClient, _: RedisConfi
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 3 - deleted);
 
-  client.custom(cmd!("DEL"), vec!["foo{1}"]).await?;
+  let _: () = client.custom(cmd!("DEL"), vec!["foo{1}"]).await?;
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
   let deleted: usize = client
@@ -159,7 +159,7 @@ pub async fn should_xtrim_a_stream_eq_cap(client: RedisClient, _: RedisConfig) -
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 1);
 
-  client.custom(cmd!("DEL"), vec!["foo{1}"]).await?;
+  let _: () = client.custom(cmd!("DEL"), vec!["foo{1}"]).await?;
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
   let deleted: usize = client.xtrim("foo{1}", (XCapKind::MaxLen, XCapTrim::Exact, 1)).await?;
@@ -334,7 +334,7 @@ pub async fn should_xread_with_blocking(client: RedisClient, _: RedisConfig) -> 
     add_client.wait_for_connect().await?;
     sleep(Duration::from_millis(500)).await;
 
-    add_client
+    let _: () = add_client
       .xadd("foo{1}", false, None, expected_id, ("count", 100))
       .await?;
     add_client.quit().await?;
@@ -354,14 +354,14 @@ pub async fn should_xread_with_blocking(client: RedisClient, _: RedisConfig) -> 
 pub async fn should_xgroup_create_no_mkstream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let result: Result<RedisValue, RedisError> = client.xgroup_create("foo{1}", "group1", "$", false).await;
   assert!(result.is_err());
-  client.xadd("foo{1}", false, None, "*", ("count", 1)).await?;
-  client.xgroup_create("foo{1}", "group1", "$", false).await?;
+  let _: () = client.xadd("foo{1}", false, None, "*", ("count", 1)).await?;
+  let _: () = client.xgroup_create("foo{1}", "group1", "$", false).await?;
 
   Ok(())
 }
 
 pub async fn should_xgroup_create_mkstream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.xgroup_create("foo{1}", "group1", "$", true).await?;
+  let _: () = client.xgroup_create("foo{1}", "group1", "$", true).await?;
   let len: usize = client.xlen("foo{1}").await?;
   assert_eq!(len, 0);
 
@@ -403,7 +403,7 @@ pub async fn should_xgroup_destroy(client: RedisClient, _: RedisConfig) -> Resul
 
 pub async fn should_xgroup_setid(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
-  client.xgroup_setid("foo{1}", "group1", "12345-0").await?;
+  let _: () = client.xgroup_setid("foo{1}", "group1", "12345-0").await?;
 
   Ok(())
 }
@@ -411,7 +411,7 @@ pub async fn should_xgroup_setid(client: RedisClient, _: RedisConfig) -> Result<
 pub async fn should_xreadgroup_one_stream(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
@@ -431,8 +431,8 @@ pub async fn should_xreadgroup_multiple_stream(client: RedisClient, _: RedisConf
   create_fake_group_and_stream(&client, "bar{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
   let _ = add_stream_entries(&client, "bar{1}", 1).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
-  client.xgroup_createconsumer("bar{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("bar{1}", "group1", "consumer1").await?;
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map(
@@ -460,7 +460,7 @@ pub async fn should_xreadgroup_multiple_stream(client: RedisClient, _: RedisConf
 
 pub async fn should_xreadgroup_block(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
 
   let add_client = client.clone_new();
   tokio::spawn(async move {
@@ -468,7 +468,7 @@ pub async fn should_xreadgroup_block(client: RedisClient, _: RedisConfig) -> Res
     add_client.wait_for_connect().await?;
     sleep(Duration::from_secs(1)).await;
 
-    add_client.xadd("foo{1}", false, None, "*", ("count", 100)).await?;
+    let _: () = add_client.xadd("foo{1}", false, None, "*", ("count", 100)).await?;
     add_client.quit().await?;
     Ok::<_, RedisError>(())
   });
@@ -489,7 +489,7 @@ pub async fn should_xreadgroup_block(client: RedisClient, _: RedisConfig) -> Res
 pub async fn should_xack_one_id(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 1).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
@@ -506,7 +506,7 @@ pub async fn should_xack_one_id(client: RedisClient, _: RedisConfig) -> Result<(
 pub async fn should_xack_multiple_ids(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
@@ -523,8 +523,8 @@ pub async fn should_xack_multiple_ids(client: RedisClient, _: RedisConfig) -> Re
 pub async fn should_xclaim_one_id(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(1), None, false, "foo{1}", ">")
@@ -569,8 +569,8 @@ pub async fn should_xclaim_one_id(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_xclaim_multiple_ids(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
@@ -621,8 +621,8 @@ pub async fn should_xclaim_multiple_ids(client: RedisClient, _: RedisConfig) -> 
 pub async fn should_xclaim_with_justid(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
@@ -666,8 +666,8 @@ pub async fn should_xclaim_with_justid(client: RedisClient, _: RedisConfig) -> R
 pub async fn should_xautoclaim_default(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
-  client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer1").await?;
+  let _: () = client.xgroup_createconsumer("foo{1}", "group1", "consumer2").await?;
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")

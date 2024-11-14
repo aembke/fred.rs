@@ -133,7 +133,9 @@ mod hashes {
   centralized_test!(hashes, should_get_random_field);
   centralized_test!(hashes, should_get_strlen);
   centralized_test!(hashes, should_get_values);
+  #[cfg(feature = "i-hexpire")]
   centralized_test!(hashes, should_do_hash_expirations);
+  #[cfg(feature = "i-hexpire")]
   centralized_test!(hashes, should_do_hash_pexpirations);
 }
 
@@ -184,7 +186,6 @@ mod server {
   centralized_test!(server, should_flushall);
   centralized_test!(server, should_read_server_info);
   centralized_test!(server, should_ping_server);
-  centralized_test!(server, should_run_custom_command);
   centralized_test!(server, should_read_last_save);
   centralized_test!(server, should_read_db_size);
   centralized_test!(server, should_start_bgsave);

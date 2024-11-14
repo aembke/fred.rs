@@ -4,7 +4,7 @@ author: Alec Embke
 about: A benchmarking module based on the `redis-benchmark` tool included with Redis.
 args:
   - tracing:
-      short: t
+      short: T
       long: tracing
       help: Whether to enable tracing via a local Jeager instance. See tests/docker-compose.yml to start up a local Jaeger instance.
       takes_value: false
@@ -79,8 +79,3 @@ args:
       value_name: "STRING"
       help: The password/key to use. `REDIS_USERNAME` and `REDIS_PASSWORD` can also be used.
       takes_value: true
-subcommands:
-  - pipeline:
-      about: Run the test with pipelining.
-  - no-pipeline:
-      about: Run the test without pipelining [Default].

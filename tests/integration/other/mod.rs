@@ -72,9 +72,9 @@ pub fn incr_atomic(size: &Arc<AtomicUsize>) -> usize {
 #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
 pub async fn should_smoke_test_from_redis_impl(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let nested_values: RedisMap = vec![("a", 1), ("b", 2)].try_into()?;
-  client.set("foo", "123", None, None, false).await?;
-  client.set("baz", "456", None, None, false).await?;
-  client.hset("bar", &nested_values).await?;
+  let _: () = client.set("foo", "123", None, None, false).await?;
+  let _: () = client.set("baz", "456", None, None, false).await?;
+  let _: () = client.hset("bar", &nested_values).await?;
 
   let foo: usize = client.get("foo").await?;
   assert_eq!(foo, 123);
@@ -187,7 +187,7 @@ pub async fn should_track_size_stats(client: RedisClient, _config: RedisConfig) 
   let _ = client.take_res_size_metrics();
   let _ = client.take_req_size_metrics();
 
-  let _ = client
+  let _: () = client
     .set("foo", "abcdefghijklmnopqrstuvxyz", None, None, false)
     .await?;
   let req_stats = client.take_req_size_metrics();
@@ -210,7 +210,7 @@ pub async fn should_run_flushall_cluster(client: RedisClient, _: RedisConfig) ->
   let count: i64 = 200;
 
   for idx in 0 .. count {
-    client
+    let _: () = client
       .custom(cmd!("SET"), vec![format!("foo-{}", idx), idx.to_string()])
       .await?;
   }
@@ -237,7 +237,7 @@ pub async fn should_safely_change_protocols_repeatedly(
       if *other_done.read() {
         return Ok::<_, RedisError>(());
       }
-      other.ping().await?;
+      let _: () = other.ping().await?;
       sleep(Duration::from_millis(10)).await;
     }
   });
@@ -262,14 +262,7 @@ pub async fn should_safely_change_protocols_repeatedly(
 #[cfg(feature = "i-keys")]
 pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Block;
-  let perf = PerformanceConfig {
-    auto_pipeline: true,
-    backpressure: BackpressureConfig {
-      max_in_flight_commands: 100_000_000,
-      ..Default::default()
-    },
-    ..Default::default()
-  };
+  let perf = PerformanceConfig::default();
   let pool = RedisPool::new(config, Some(perf), None, None, 28)?;
   pool.connect();
   pool.wait_for_connect().await?;
@@ -363,8 +356,8 @@ pub async fn should_pipeline_last(client: RedisClient, _: RedisConfig) -> Result
 pub async fn should_pipeline_try_all(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let pipeline = client.pipeline();
 
-  pipeline.incr("foo").await?;
-  pipeline.hgetall("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.hgetall("foo").await?;
   let results = pipeline.try_all::<i64>().await;
 
   assert_eq!(results[0].clone().unwrap(), 1);
@@ -534,7 +527,7 @@ pub async fn should_use_cluster_replica_without_redirection(
 
   let client = RedisClient::new(config, None, Some(connection), policy);
   let _ = client.connect();
-  let _ = client.wait_for_connect().await?;
+  client.wait_for_connect().await?;
 
   let _: () = client.replicas().get("foo").await?;
   let _: () = client.incr("foo").await?;
@@ -547,8 +540,8 @@ pub async fn should_gracefully_quit(client: RedisClient, _: RedisConfig) -> Resu
   let connection = client.connect();
   client.wait_for_connect().await?;
 
-  client.ping().await?;
-  client.quit().await?;
+  let _: () = client.ping().await?;
+  let _: () = client.quit().await?;
   let _ = connection.await;
 
   Ok(())
@@ -564,7 +557,7 @@ pub async fn should_support_options_with_pipeline(client: RedisClient, _: RedisC
   };
 
   let pipeline = client.pipeline().with_options(&options);
-  pipeline.blpop("foo", 2.0).await?;
+  let _: () = pipeline.blpop("foo", 2.0).await?;
   let results = pipeline.try_all::<RedisValue>().await;
   assert_eq!(results[0].clone().unwrap_err().kind(), &RedisErrorKind::Timeout);
 
@@ -574,8 +567,8 @@ pub async fn should_support_options_with_pipeline(client: RedisClient, _: RedisC
 #[cfg(feature = "i-keys")]
 pub async fn should_reuse_pipeline(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let pipeline = client.pipeline();
-  pipeline.incr("foo").await?;
-  pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
+  let _: () = pipeline.incr("foo").await?;
   assert_eq!(pipeline.last::<i64>().await?, 2);
   assert_eq!(pipeline.last::<i64>().await?, 4);
   Ok(())
@@ -590,9 +583,9 @@ pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig
   };
   let trx = client.multi().with_options(&options);
 
-  trx.get("foo{1}").await?;
-  trx.set("foo{1}", "bar", None, None, false).await?;
-  trx.get("foo{1}").await?;
+  let _: () = trx.get("foo{1}").await?;
+  let _: () = trx.set("foo{1}", "bar", None, None, false).await?;
+  let _: () = trx.get("foo{1}").await?;
   let (first, second, third): (Option<RedisValue>, bool, String) = trx.exec(true).await?;
 
   assert_eq!(first, None);
@@ -603,13 +596,12 @@ pub async fn should_support_options_with_trx(client: RedisClient, _: RedisConfig
 
 #[cfg(all(feature = "transactions", feature = "i-keys"))]
 pub async fn should_pipeline_transaction(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.incr("foo{1}").await?;
-  client.incr("bar{1}").await?;
+  let _: () = client.incr("foo{1}").await?;
+  let _: () = client.incr("bar{1}").await?;
 
   let trx = client.multi();
-  trx.pipeline(true);
-  trx.get("foo{1}").await?;
-  trx.incr("bar{1}").await?;
+  let _: () = trx.get("foo{1}").await?;
+  let _: () = trx.incr("bar{1}").await?;
   let (foo, bar): (i64, i64) = trx.exec(true).await?;
   assert_eq!((foo, bar), (1, 2));
 
@@ -618,14 +610,13 @@ pub async fn should_pipeline_transaction(client: RedisClient, _: RedisConfig) ->
 
 #[cfg(all(feature = "transactions", feature = "i-keys", feature = "i-hashes"))]
 pub async fn should_fail_pipeline_transaction_error(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.incr("foo{1}").await?;
-  client.incr("bar{1}").await?;
+  let _: () = client.incr("foo{1}").await?;
+  let _: () = client.incr("bar{1}").await?;
 
   let trx = client.multi();
-  trx.pipeline(true);
-  trx.get("foo{1}").await?;
-  trx.hgetall("bar{1}").await?;
-  trx.get("foo{1}").await?;
+  let _: () = trx.get("foo{1}").await?;
+  let _: () = trx.hgetall("bar{1}").await?;
+  let _: () = trx.get("foo{1}").await?;
 
   if let Err(e) = trx.exec::<RedisValue>(false).await {
     assert_eq!(*e.kind(), RedisErrorKind::InvalidArgument);
@@ -664,8 +655,8 @@ pub async fn pool_should_connect_correctly_via_init_interface(
   let pool = Builder::from_config(config).build_pool(5)?;
   let task = pool.init().await?;
 
-  pool.ping().await?;
-  pool.quit().await?;
+  let _: () = pool.ping().await?;
+  let _: () = pool.quit().await?;
   task.await??;
   Ok(())
 }
@@ -689,8 +680,8 @@ pub async fn pool_should_connect_correctly_via_wait_interface(
   let task = pool.connect();
   pool.wait_for_connect().await?;
 
-  pool.ping().await?;
-  pool.quit().await?;
+  let _: () = pool.ping().await?;
+  let _: () = pool.quit().await?;
   task.await??;
   Ok(())
 }
@@ -716,8 +707,8 @@ pub async fn should_connect_correctly_via_init_interface(
   let client = Builder::from_config(config).build()?;
   let task = client.init().await?;
 
-  client.ping().await?;
-  client.quit().await?;
+  let _: () = client.ping().await?;
+  let _: () = client.quit().await?;
   task.await??;
   Ok(())
 }
@@ -741,8 +732,8 @@ pub async fn should_connect_correctly_via_wait_interface(
   let task = client.connect();
   client.wait_for_connect().await?;
 
-  client.ping().await?;
-  client.quit().await?;
+  let _: () = client.ping().await?;
+  let _: () = client.quit().await?;
   task.await??;
   Ok(())
 }
@@ -859,19 +850,19 @@ pub async fn should_use_credential_provider(_client: RedisClient, mut config: Re
     .build()?;
 
   client.init().await?;
-  client.ping().await?;
-  client.quit().await?;
+  let _: () = client.ping().await?;
+  let _: () = client.quit().await?;
   Ok(())
 }
 
 #[cfg(feature = "i-pubsub")]
 pub async fn should_exit_event_task_with_error(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let task = client.on_message(|_| Err(RedisError::new_canceled()));
-  client.subscribe("foo").await?;
+  let _: () = client.subscribe("foo").await?;
 
   let publisher = client.clone_new();
   publisher.init().await?;
-  publisher.publish("foo", "bar").await?;
+  let _: () = publisher.publish("foo", "bar").await?;
 
   let result = task.await.unwrap();
   assert_eq!(result, Err(RedisError::new_canceled()));

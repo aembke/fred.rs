@@ -11,7 +11,6 @@ use crate::{
     broadcast_channel,
     channel,
     oneshot_channel,
-    sleep,
     AtomicBool,
     AtomicUsize,
     BroadcastSender,
@@ -24,12 +23,7 @@ use crate::{
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
-use futures::{
-  future::{select, Either},
-  pin_mut,
-  Future,
-  TryFutureExt,
-};
+use futures::{Future, TryFutureExt};
 use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{collections::HashMap, convert::TryInto, f64, sync::atomic::Ordering, time::Duration};
@@ -308,15 +302,10 @@ where
   Fut: Future<Output = Result<T, E>>,
 {
   if !timeout.is_zero() {
-    let sleep_ft = sleep(timeout);
-    pin_mut!(sleep_ft);
-    pin_mut!(ft);
-
-    trace!("Using timeout: {:?}", timeout);
-    match select(ft, sleep_ft).await {
-      Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
-      Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
-    }
+    tokio::time::timeout(timeout, ft)
+      .await
+      .map_err(|_| RedisError::new(RedisErrorKind::Timeout, "Request timed out."))
+      .and_then(|r| r.map_err(|e| e.into()))
   } else {
     ft.await.map_err(|e| e.into())
   }
@@ -330,7 +319,7 @@ pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
     _trace!(inner, "Resetting command channel before connecting.");
     // another connection task is running. this will let the command channel drain, then it'll drop everything on
     // the old connection/router interface.
-    let (tx, rx) = channel(inner.connection.bounded_channel_capacity);
+    let (tx, rx) = channel(inner.connection.max_command_buffer_len);
     #[cfg(feature = "glommio")]
     let tx = tx.into();
 
@@ -341,12 +330,12 @@ pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
 }
 
 /// Whether the router should check and interrupt the blocked command.
-async fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> bool {
+fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> bool {
   if command.kind.closes_connection() {
     return false;
   }
   if matches!(inner.config.blocking, Blocking::Error | Blocking::Interrupt) {
-    inner.backchannel.write().await.is_blocked()
+    inner.backchannel.is_blocked()
   } else {
     false
   }
@@ -358,12 +347,11 @@ pub async fn interrupt_blocked_connection(
   flag: ClientUnblockFlag,
 ) -> Result<(), RedisError> {
   let connection_id = {
-    let backchannel = inner.backchannel.write().await;
-    let server = match backchannel.blocked_server() {
+    let server = match inner.backchannel.blocked_server() {
       Some(server) => server,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),
     };
-    let id = match backchannel.connection_id(&server) {
+    let id = match inner.backchannel.connection_id(&server) {
       Some(id) => id,
       None => {
         return Err(RedisError::new(
@@ -388,7 +376,7 @@ pub async fn interrupt_blocked_connection(
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should
 /// be unblocked automatically.
 async fn check_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
-  if should_enforce_blocking_policy(inner, command).await {
+  if should_enforce_blocking_policy(inner, command) {
     _debug!(
       inner,
       "Checking to enforce blocking policy for {}",
@@ -436,13 +424,21 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  timeout(rx, timeout_dur)
-    .and_then(|r| async { r })
-    .map_err(move |error| {
+  if timeout_dur.is_zero() {
+    rx.map_err(move |error| {
       set_bool_atomic(&timed_out, true);
-      error
+      RedisError::from(error)
     })
-    .await
+    .await?
+  } else {
+    timeout(rx, timeout_dur)
+      .and_then(|r| async { r })
+      .map_err(move |error| {
+        set_bool_atomic(&timed_out, true);
+        error
+      })
+      .await
+  }
 }
 
 /// Send a command to the server, with tracing.
@@ -495,18 +491,19 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  timeout(rx, timeout_dur)
-    .and_then(|r| async { r })
-    .map_err(move |error| {
-      set_bool_atomic(&timed_out, true);
-      error
-    })
-    .and_then(|frame| async move {
-      trace::record_response_size(&end_cmd_span, &frame);
-      Ok::<_, RedisError>(frame)
-    })
-    .instrument(cmd_span)
-    .await
+  let ft = async { rx.instrument(cmd_span).await.map_err(|e| e.into()).and_then(|r| r) };
+  let result = if timeout_dur.is_zero() {
+    ft.await
+  } else {
+    timeout(ft, timeout_dur).await
+  };
+
+  if let Ok(ref frame) = result {
+    trace::record_response_size(&end_cmd_span, frame);
+  } else {
+    set_bool_atomic(&timed_out, true);
+  }
+  result
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
@@ -527,9 +524,8 @@ pub async fn backchannel_request_response(
   command: RedisCommand,
   use_blocked: bool,
 ) -> Result<Resp3Frame, RedisError> {
-  let mut backchannel = inner.backchannel.write().await;
-  let server = backchannel.find_server(inner, &command, use_blocked)?;
-  backchannel.request_response(inner, &server, command).await
+  let server = inner.backchannel.find_server(inner, &command, use_blocked).await?;
+  inner.backchannel.request_response(inner, &server, command).await
 }
 
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.
@@ -854,10 +850,6 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
       None
     }
   })
-}
-
-pub async fn clear_backchannel_state(inner: &RefCount<RedisClientInner>) {
-  inner.backchannel.write().await.clear_router_state(inner).await;
 }
 
 /// Send QUIT to the servers and clean up the old router task's state.

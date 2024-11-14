@@ -63,12 +63,8 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
   };
 
   let pool = RedisBuilder::from_config(config)
-    .with_performance_config(|config| {
-      config.auto_pipeline = argv.pipeline;
-      config.backpressure.max_in_flight_commands = 100_000_000;
-    })
     .with_connection_config(|config| {
-      config.bounded_channel_capacity = argv.bounded;
+      config.max_command_buffer_len = argv.bounded;
       config.internal_command_timeout = Duration::from_secs(5);
     })
     .set_policy(ReconnectPolicy::new_constant(0, 500))
@@ -113,6 +109,7 @@ fn spawn_client_task(
         bar.inc(1);
       }
     }
+    debug!("Ending client task");
   })
 }
 

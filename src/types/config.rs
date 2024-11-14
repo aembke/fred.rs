@@ -106,13 +106,13 @@ pub enum ReconnectPolicy {
     delay:        u32,
     jitter:       u32,
   },
-  /// Backoff reconnection attempts exponentially, multiplying the last delay by `mult` each time.
+  /// Backoff reconnection attempts exponentially, multiplying the last delay by `base` each time.
   Exponential {
     attempts:     u32,
     max_attempts: u32,
     min_delay:    u32,
     max_delay:    u32,
-    mult:         u32,
+    base:         u32,
     jitter:       u32,
   },
 }
@@ -151,12 +151,12 @@ impl ReconnectPolicy {
   }
 
   /// Create a new reconnect policy with an exponential backoff.
-  pub fn new_exponential(max_attempts: u32, min_delay: u32, max_delay: u32, mult: u32) -> ReconnectPolicy {
+  pub fn new_exponential(max_attempts: u32, min_delay: u32, max_delay: u32, base: u32) -> ReconnectPolicy {
     ReconnectPolicy::Exponential {
       max_delay,
       max_attempts,
       min_delay,
-      mult,
+      base,
       attempts: 0,
       jitter: DEFAULT_JITTER_MS,
     }
@@ -196,10 +196,19 @@ impl ReconnectPolicy {
 
   /// Read the number of reconnection attempts.
   pub fn attempts(&self) -> u32 {
-    match *self {
+    match self {
       ReconnectPolicy::Constant { ref attempts, .. } => *attempts,
       ReconnectPolicy::Linear { ref attempts, .. } => *attempts,
       ReconnectPolicy::Exponential { ref attempts, .. } => *attempts,
+    }
+  }
+
+  /// Read the max number of reconnection attempts.
+  pub fn max_attempts(&self) -> u32 {
+    match self {
+      ReconnectPolicy::Constant { ref max_attempts, .. } => *max_attempts,
+      ReconnectPolicy::Linear { ref max_attempts, .. } => *max_attempts,
+      ReconnectPolicy::Exponential { ref max_attempts, .. } => *max_attempts,
     }
   }
 
@@ -260,14 +269,14 @@ impl ReconnectPolicy {
         min_delay,
         max_delay,
         max_attempts,
-        mult,
+        base,
         jitter,
       } => {
         *attempts = match utils::incr_with_max(*attempts, max_attempts) {
           Some(a) => a,
           None => return None,
         };
-        let delay = (mult as u64)
+        let delay = (base as u64)
           .saturating_pow(*attempts - 1)
           .saturating_mul(min_delay as u64);
 
@@ -345,10 +354,6 @@ pub struct BackpressureConfig {
   ///
   /// Default: `false`
   pub disable_auto_backpressure: bool,
-  /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
-  ///
-  /// Default: 10_000
-  pub max_in_flight_commands:    u64,
   /// The backpressure policy to apply when the max number of in-flight commands is reached.
   ///
   /// Default: [Drain](crate::types::BackpressurePolicy::Drain).
@@ -359,7 +364,6 @@ impl Default for BackpressureConfig {
   fn default() -> Self {
     BackpressureConfig {
       disable_auto_backpressure: false,
-      max_in_flight_commands:    10_000,
       policy:                    BackpressurePolicy::default(),
     }
   }
@@ -482,20 +486,14 @@ pub struct ConnectionConfig {
   pub auto_client_setname:          bool,
   /// Limit the size of the internal in-memory command queue.
   ///
-  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error.
+  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error. Setting this value to
+  /// anything > 0 will indicate that the client should use a bounded MPSC channel to communicate with the routing
+  /// task.
   ///
   /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
   ///
   /// Default: `0` (unlimited)
-  #[deprecated(since = "9.5.0", note = "Use bounded_channel_capacity instead.")]
   pub max_command_buffer_len:       usize,
-  /// Use a bounded channel to communicate with the routing task.
-  ///
-  /// This value generally represents the max number of commands the client will queue in memory. Exceeding this
-  /// limit can result in `RedisError::Backpressure` errors.
-  ///
-  /// Default: `0` (unlimited, use an unbounded channel).
-  pub bounded_channel_capacity:     usize,
   /// Disable the `CLUSTER INFO` health check when initializing cluster connections.
   ///
   /// Default: `false`
@@ -537,7 +535,6 @@ impl Default for ConnectionConfig {
       max_redirections: 5,
       max_command_attempts: 3,
       max_command_buffer_len: 0,
-      bounded_channel_capacity: 0,
       auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
       reconnect_on_auth_error: false,
@@ -563,13 +560,6 @@ impl Default for ConnectionConfig {
 /// Configuration options that can affect the performance of the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PerformanceConfig {
-  /// Whether the client should automatically pipeline commands across tasks when possible.
-  ///
-  /// The [Pipeline](crate::clients::Pipeline) interface can be used to pipeline commands within one task,
-  /// whereas this flag can automatically pipeline commands across tasks.
-  ///
-  /// Default: `true`
-  pub auto_pipeline:              bool,
   /// Configuration options for backpressure features in the client.
   pub backpressure:               BackpressureConfig,
   /// An optional timeout to apply to all commands.
@@ -602,7 +592,6 @@ pub struct PerformanceConfig {
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      auto_pipeline: true,
       backpressure: BackpressureConfig::default(),
       default_command_timeout: Duration::from_millis(0),
       max_feed_count: 200,

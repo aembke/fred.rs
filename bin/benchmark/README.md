@@ -63,8 +63,10 @@ Callers may have to also change `run.sh` to enable additional features in docker
 ## Usage
 
 ```
+A benchmarking module based on the `redis-benchmark` tool included with Redis.
+
 USAGE:
-    fred_benchmark [FLAGS] [OPTIONS] [SUBCOMMAND]
+    fred_benchmark [FLAGS] [OPTIONS]
 
 FLAGS:
         --cluster     Whether to assume a clustered deployment.
@@ -72,23 +74,19 @@ FLAGS:
     -q, --quiet       Only print the final req/sec measurement.
         --replicas    Whether to use `GET` with replica nodes instead of `INCR` with primary nodes.
     -t, --tls         Enable TLS via whichever build flag is provided.
-    -t, --tracing     Whether to enable tracing via a local Jeager instance. See tests/docker-compose.yml to
-                      start up a local Jaeger instance.
+    -T, --tracing     Whether to enable tracing via a local Jeager instance. See tests/docker-compose.yml to start up a
+                      local Jaeger instance.
     -V, --version     Prints version information
 
 OPTIONS:
     -a, --auth <STRING>           The password/key to use. `REDIS_USERNAME` and `REDIS_PASSWORD` can also be used.
+        --bounded <NUMBER>        The size of the bounded mpsc channel used to route commands. [default: 0]
     -c, --concurrency <NUMBER>    The number of Tokio tasks used to run commands. [default: 100]
     -n, --commands <NUMBER>       The number of commands to run. [default: 100000]
     -h, --host <STRING>           The hostname of the redis server. [default: 127.0.0.1]
     -P, --pool <NUMBER>           The number of clients in the redis connection pool. [default: 1]
     -p, --port <NUMBER>           The port for the redis server. [default: 6379]
     -u, --unix-sock <PATH>        The path to a unix socket.
-
-SUBCOMMANDS:
-    help           Prints this message or the help of the given subcommand(s)
-    no-pipeline    Run the test without pipelining [Default].
-    pipeline       Run the test with pipelining.
 ```
 
 ## Examples
@@ -102,62 +100,19 @@ All the examples below use the following parameters:
 * 10_000 Tokio tasks
 * 15 clients in the connection pool
 
-With `auto_pipeline` **disabled**:
-
 ```
-$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar no-pipeline
-Performed 10000000 operations in: 27.038434665s. Throughput: 369849 req/sec
+$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar
+Performed 10000000 operations in: 3.337158005s. Throughput: 2996703 req/sec
 ```
 
-With `auto_pipeline` **enabled**:
+Using `GET` with replica nodes instead of `INCR` with primary nodes:
 
 ```
-$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar pipeline
-Performed 10000000 operations in: 3.728232639s. Throughput: 2682403 req/sec
+$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar --replicas
+Performed 10000000 operations in: 1.865807963s. Throughput: 5361930 req/sec
 ```
 
-With `auto_pipeline` **enabled** and using `GET` with replica nodes instead of `INCR` with primary nodes:
-
-```
-$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar --replicas pipeline
-erformed 10000000 operations in: 3.234255482s. Throughput: 3092145 req/sec
-```
-
-Maybe Relevant Specs:
+Relevant Specs:
 
 * 32 CPUs
 * 64 GB memory
-
-## `redis-rs` Comparison
-
-The `USE_REDIS_RS` environment variable can be toggled to [switch the benchmark logic](./src/_redis.rs) to
-use `redis-rs` instead of `fred`. There's also an `info` level log line that can confirm this at runtime.
-
-The `redis-rs` variant uses the same general strategy, but with [bb8-redis](https://crates.io/crates/bb8-redis) (
-specifically `Pool<RedisConnectionManager>`) instead of `fred::clients::RedisPool`. All the other components
-in the benchmark logic are the same.
-
-### Examples
-
-These examples use the following parameters:
-
-* Centralized deployment via local docker
-* No tracing features enabled
-* No TLS
-* 10_000_000 INCR commands with `assert-expected` enabled
-* 10_000 Tokio tasks
-* 15 clients in the connection pool
-
-```
-# fred without `auto_pipeline` 
-$ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 no-pipeline
-Performed 10000000 operations in: 52.156700826s. Throughput: 191732 req/sec
-
-# redis-rs via bb8-redis
-$ USE_REDIS_RS=1 ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000
-Performed 10000000 operations in: 102.953612933s. Throughput: 97131 req/sec
-
-# fred with `auto_pipeline`
-$ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 pipeline
-Performed 10000000 operations in: 5.74236423s. Throughput: 1741553 req/sec
-```

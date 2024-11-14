@@ -1,7 +1,9 @@
+#[cfg(feature = "i-tracking")]
+use crate::types::Invalidation;
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, types::Server, utils as protocol_utils, utils::pretty_error},
+  protocol::{types::Server, utils as protocol_utils, utils::pretty_error},
   runtime::RefCount,
   trace,
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
@@ -12,9 +14,6 @@ use redis_protocol::{
   types::PUBSUB_PUSH_PREFIX,
 };
 use std::str;
-
-#[cfg(feature = "i-tracking")]
-use crate::types::Invalidation;
 
 const KEYSPACE_PREFIX: &str = "__keyspace@";
 const KEYEVENT_PREFIX: &str = "__keyevent@";
@@ -216,14 +215,6 @@ pub fn check_pubsub_message(
   None
 }
 
-// TODO cleanup and rename
-// this is called by the reader task after a blocking command finishes in order to mark the connection as unblocked
-pub async fn check_and_set_unblocked_flag(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
-  if command.blocks_connection() {
-    inner.backchannel.write().await.set_unblocked();
-  }
-}
-
 /// Parse the response frame to see if it's an auth error.
 fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
   if matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
@@ -301,13 +292,25 @@ pub fn check_special_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Fra
   check_global_reconnect_errors(inner, frame)
 }
 
+/// Check for special errors, pubsub messages, or other special response frames.
+///
+/// The frame is returned to the caller for further processing if necessary.
+pub fn preprocess_frame(
+  inner: &RefCount<RedisClientInner>,
+  server: &Server,
+  frame: Resp3Frame,
+) -> Result<Option<Resp3Frame>, RedisError> {
+  if let Some(error) = check_special_errors(inner, &frame) {
+    Err(error)
+  } else {
+    Ok(check_pubsub_message(inner, server, frame))
+  }
+}
+
 /// Handle an error in the reader task that should end the connection.
 pub fn broadcast_reader_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _warn!(inner, "Ending reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
-    inner.send_reconnect(Some(server.clone()), false, None);
-  }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications
@@ -315,18 +318,10 @@ pub fn broadcast_reader_error(inner: &RefCount<RedisClientInner>, server: &Serve
   }
 }
 
-#[cfg(not(feature = "replicas"))]
-pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
-  broadcast_reader_error(inner, server, error);
-}
-
 #[cfg(feature = "replicas")]
 pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _warn!(inner, "Ending replica reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
-    inner.send_replica_reconnect(server);
-  }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications

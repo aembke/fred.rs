@@ -13,6 +13,8 @@ use std::convert::TryInto;
 pub trait KeysInterface: ClientLike + Sized {
   /// Marks the given keys to be watched for conditional execution of a transaction.
   ///
+  /// This should usually be used with an [ExclusivePool](crate::clients::ExclusivePool).
+  ///
   /// <https://redis.io/commands/watch>
   fn watch<K>(&self, keys: K) -> impl Future<Output = RedisResult<()>> + Send
   where

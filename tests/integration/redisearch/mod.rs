@@ -22,7 +22,7 @@ use std::{collections::HashMap, time::Duration};
 pub async fn should_list_indexes(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
-  client
+  let _: () = client
     .ft_create("foo", FtCreateOptions::default(), vec![SearchSchema {
       field_name: "bar".into(),
       alias:      Some("baz".into()),
@@ -41,7 +41,7 @@ pub async fn should_list_indexes(client: RedisClient, _: RedisConfig) -> Result<
 pub async fn should_index_and_info_basic_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
-  client
+  let _: () = client
     .ft_create(
       "foo_idx",
       FtCreateOptions {
@@ -64,7 +64,7 @@ pub async fn should_index_and_info_basic_hash(client: RedisClient, _: RedisConfi
     )
     .await?;
 
-  client.hset("foo", ("bar", "abc123")).await?;
+  let _: () = client.hset("foo", ("bar", "abc123")).await?;
   tokio::time::sleep(Duration::from_millis(100)).await;
 
   let mut info: HashMap<String, RedisValue> = client.ft_info("foo_idx").await?;
@@ -76,7 +76,7 @@ pub async fn should_index_and_info_basic_hash(client: RedisClient, _: RedisConfi
 pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
-  client
+  let _: () = client
     .ft_create(
       "foo_idx",
       FtCreateOptions {
@@ -100,9 +100,9 @@ pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -
     )
     .await?;
 
-  client.hset("record:1", ("bar", "abc 123")).await?;
-  client.hset("record:2", ("bar", "abc 345")).await?;
-  client.hset("record:3", ("bar", "def 678")).await?;
+  let _: () = client.hset("record:1", ("bar", "abc 123")).await?;
+  let _: () = client.hset("record:2", ("bar", "abc 345")).await?;
+  let _: () = client.hset("record:3", ("bar", "def 678")).await?;
   tokio::time::sleep(Duration::from_millis(100)).await;
 
   if client.protocol_version() == RespVersion::RESP3 {
@@ -184,7 +184,7 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
   // https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/aggregations/
-  client
+  let _: () = client
     .ft_create(
       "timestamp_idx",
       FtCreateOptions {
@@ -206,7 +206,7 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
 
   for idx in 0 .. 100 {
     let rand: u64 = thread_rng().gen_range(0 .. 10000);
-    client
+    let _: () = client
       .hset(format!("record:{}", idx), [
         ("timestamp", idx),
         ("user_id", idx + 1000),

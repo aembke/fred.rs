@@ -136,7 +136,9 @@ mod hashes {
   cluster_test!(hashes, should_get_random_field);
   cluster_test!(hashes, should_get_strlen);
   cluster_test!(hashes, should_get_values);
+  #[cfg(feature = "i-hexpire")]
   cluster_test!(hashes, should_do_hash_expirations);
+  #[cfg(feature = "i-hexpire")]
   cluster_test!(hashes, should_do_hash_pexpirations);
 }
 
@@ -193,7 +195,6 @@ mod server {
   cluster_test!(server, should_flushall);
   cluster_test!(server, should_read_server_info);
   cluster_test!(server, should_ping_server);
-  cluster_test!(server, should_run_custom_command);
   cluster_test!(server, should_read_last_save);
   cluster_test!(server, should_read_db_size);
   cluster_test!(server, should_start_bgsave);

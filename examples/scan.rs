@@ -16,28 +16,45 @@ async fn delete_fake_data(client: &RedisClient) -> Result<(), RedisError> {
   Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default();
-  client.init().await?;
-  create_fake_data(&client).await?;
-
+/// Scan the server, throttling the pagination process so the client only holds one page of keys in memory at a time.
+async fn scan_throttled(client: &RedisClient) -> Result<(), RedisError> {
   // scan all keys in the keyspace, returning 10 keys per page
   let mut scan_stream = client.scan("foo*", Some(10), None);
   while let Some(mut page) = scan_stream.try_next().await? {
     if let Some(keys) = page.take_results() {
-      // create a client from the scan result, reusing the existing connection(s)
-      let client = page.create_client();
-
       for key in keys.into_iter() {
         let value: RedisValue = client.get(&key).await?;
         println!("Scanned {} -> {:?}", key.as_str_lossy(), value);
       }
     }
 
-    // **important:** move on to the next page now that we're done reading the values
+    // callers can call `page.next()` to control when the next page is fetched from the server. if this is not called
+    // then the next page will be fetched when `page` is dropped.
     let _ = page.next();
   }
+  Ok(())
+}
+
+/// Scan the server as quickly as possible, buffering pending keys in memory on the client.
+async fn scan_buffered(client: &RedisClient) -> Result<(), RedisError> {
+  client
+    .scan_buffered("foo*", Some(10), None)
+    .try_for_each_concurrent(10, |key| async move {
+      let value: RedisValue = client.get(&key).await?;
+      println!("Scanned {} -> {:?}", key.as_str_lossy(), value);
+      Ok(())
+    })
+    .await
+}
+
+#[tokio::main]
+async fn main() -> Result<(), RedisError> {
+  let client = RedisClient::default();
+  client.init().await?;
+  create_fake_data(&client).await?;
+
+  scan_buffered(&client).await?;
+  scan_throttled(&client).await?;
 
   delete_fake_data(&client).await?;
   client.quit().await?;
@@ -57,9 +74,9 @@ async fn main() -> Result<(), RedisError> {
 /// The best option depends on several factors, but `scan_cluster` is often the easiest approach for most use
 /// cases.
 async fn pool_scan_cluster_memory_example(pool: &RedisPool) -> Result<(), RedisError> {
-  // the majority of the client traffic in this scenario comes from the MEMORY USAGE call on each key, so we'll use a
-  // pool to round-robin these commands among multiple clients. a clustered client with `auto_pipeline: true` can scan
-  // all nodes in the cluster concurrently, so we use a single client rather than a pool to issue the SCAN calls.
+  // The majority of the client traffic in this scenario comes from the MEMORY USAGE call on each key, so we'll use a
+  // pool to round-robin these commands among multiple clients. A single client can scan all nodes in the cluster
+  // concurrently, so we use a single client rather than a pool to issue the SCAN calls.
   let mut total_size = 0;
   // if the pattern contains a hash tag then callers can use `scan` instead of `scan_cluster`
   let mut scanner = pool.next().scan_cluster("*", Some(100), None);

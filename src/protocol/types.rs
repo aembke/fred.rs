@@ -28,8 +28,8 @@ use std::{
 ))]
 use std::{net::IpAddr, str::FromStr};
 
-/// Any kind of RESP frame.
-#[derive(Debug)]
+/// Any kind of owned RESP frame.
+#[derive(Debug, Clone)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
   Resp3(Resp3Frame),
@@ -366,7 +366,7 @@ impl KeyScanInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+    let _ = self.tx.try_send(Err(error));
   }
 }
 
@@ -378,7 +378,7 @@ impl KeyScanBufferedInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+    let _ = self.tx.try_send(Err(error));
   }
 }
 
@@ -405,7 +405,7 @@ impl ValueScanInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+    let _ = self.tx.try_send(Err(error));
   }
 
   pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {

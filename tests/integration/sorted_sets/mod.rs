@@ -24,14 +24,14 @@ async fn create_lex_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, Re
     .map(|c| (0.0, c.to_string()))
     .collect();
 
-  client.zadd(key, None, None, false, false, values.clone()).await?;
+  let _: () = client.zadd(key, None, None, false, false, values.clone()).await?;
   Ok(values.into_iter().map(|(f, v)| (f, v.into())).collect())
 }
 
 async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<(f64, RedisValue)>, RedisError> {
   let values: Vec<(f64, RedisValue)> = (0 .. COUNT).map(|idx| (idx as f64, idx.to_string().into())).collect();
 
-  client.zadd(key, None, None, false, false, values.clone()).await?;
+  let _: () = client.zadd(key, None, None, false, false, values.clone()).await?;
   Ok(values)
 }
 
@@ -221,7 +221,7 @@ pub async fn should_zdiff_values(client: RedisClient, _: RedisConfig) -> Result<
   let _expected: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
   assert_eq!(result, _expected);
 
-  client
+  let _: () = client
     .zadd(
       "bar{1}",
       None,
@@ -254,7 +254,7 @@ pub async fn should_zdiffstore_values(client: RedisClient, _: RedisConfig) -> Re
   let result: i64 = client.zdiffstore("baz{1}", vec!["foo{1}", "bar{1}"]).await?;
   assert_eq!(result, COUNT);
 
-  client
+  let _: () = client
     .zadd(
       "bar{1}",
       None,
@@ -294,7 +294,7 @@ pub async fn should_zinter_values(client: RedisClient, _: RedisConfig) -> Result
   let result: Vec<RedisValue> = client.zinter(vec!["foo{1}", "bar{1}"], None, None, false).await?;
   assert!(result.is_empty());
 
-  client
+  let _: () = client
     .zadd(
       "bar{1}",
       None,
@@ -332,7 +332,7 @@ pub async fn should_zinterstore_values(client: RedisClient, _: RedisConfig) -> R
     .await?;
   assert_eq!(result, 0);
 
-  client
+  let _: () = client
     .zadd(
       "bar{1}",
       None,
@@ -696,7 +696,7 @@ pub async fn should_zunion_values(client: RedisClient, _: RedisConfig) -> Result
   let _expected: Vec<RedisValue> = expected.iter().map(|(_, v)| v.clone()).collect();
   assert_eq!(result.into_array(), _expected);
 
-  client
+  let _: () = client
     .zadd(
       "bar{1}",
       None,
@@ -738,7 +738,7 @@ pub async fn should_zunionstore_values(client: RedisClient, _: RedisConfig) -> R
     .await?;
   assert_eq!(result, COUNT);
 
-  client
+  let _: () = client
     .zadd(
       "bar{1}",
       None,
@@ -758,7 +758,7 @@ pub async fn should_zunionstore_values(client: RedisClient, _: RedisConfig) -> R
 
 pub async fn should_zmscore_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   for idx in 0 .. COUNT {
-    client.zadd("foo", None, None, false, false, (idx as f64, idx)).await?;
+    let _: () = client.zadd("foo", None, None, false, false, (idx as f64, idx)).await?;
   }
 
   let result: Vec<f64> = client.zmscore("foo", vec![0, 1]).await?;
@@ -770,7 +770,7 @@ pub async fn should_zmscore_values(client: RedisClient, _: RedisConfig) -> Resul
 }
 
 pub async fn should_zrangebyscore_neg_infinity(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client
+  let _: () = client
     .zadd("foo", None, None, false, false, vec![
       (-10.0, "a"),
       (-5.0, "b"),

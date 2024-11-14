@@ -41,8 +41,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
   ///
   /// Note: despite being async this function will return cached information from the client if possible.
+  // TODO make this sync in the next major version
   fn connection_ids(&self) -> impl Future<Output = HashMap<Server, i64>> + Send {
-    async move { self.inner().backchannel.write().await.connection_ids.clone() }
+    async move { self.inner().backchannel.connection_ids.lock().clone() }
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable
@@ -215,7 +216,6 @@ pub trait ClientInterface: ClientLike + Sized {
   /// caching feature.
   ///
   /// <https://redis.io/commands/client-trackinginfo/>
-
   #[cfg(feature = "i-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
   fn client_trackinginfo<R>(&self) -> impl Future<Output = RedisResult<R>> + Send

@@ -231,8 +231,9 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   }
 
   /// Whether the client will automatically pipeline commands.
+  #[deprecated(since = "9.5.0", note = "All clients are automatically pipelined across tasks.")]
   fn is_pipelined(&self) -> bool {
-    self.inner().is_pipelined()
+    true
   }
 
   /// Whether the client is connected to a cluster.
@@ -302,7 +303,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     utils::reset_router_task(&inner);
 
     tokio::spawn(async move {
-      utils::clear_backchannel_state(&inner).await;
+      inner.backchannel.clear_router_state(&inner).await;
       let result = router_commands::start(&inner).await;
       // a canceled error means we intentionally closed the client
       _trace!(inner, "Ending connection task with {:?}", result);
@@ -383,7 +384,8 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// socket, not when the connection has been fully closed. Some time after this future resolves the future
   /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
   ///
-  /// This function will also close all error, pubsub message, and reconnection event streams.
+  /// This function will wait for pending commands to finish, and will also close all error, pubsub message, and
+  /// reconnection event streams.
   fn quit(&self) -> impl Future<Output = RedisResult<()>> + Send {
     async move { commands::server::quit(self).await }
   }

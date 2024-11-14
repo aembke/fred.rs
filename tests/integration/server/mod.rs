@@ -3,11 +3,11 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 pub async fn should_flushall(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.custom(cmd!("SET"), vec!["foo{1}", "bar"]).await?;
+  let _: () = client.custom(cmd!("SET"), vec!["foo{1}", "bar"]).await?;
   if client.is_clustered() {
     client.flushall_cluster().await?;
   } else {
-    client.flushall(false).await?;
+    let _: () = client.flushall(false).await?;
   };
 
   let result: Option<String> = client.custom(cmd!("GET"), vec!["foo{1}"]).await?;
@@ -24,13 +24,7 @@ pub async fn should_read_server_info(client: RedisClient, _: RedisConfig) -> Res
 }
 
 pub async fn should_ping_server(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.ping().await?;
-
-  Ok(())
-}
-
-pub async fn should_run_custom_command(_client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  // TODO find a good third party module to test
+  let _: () = client.ping().await?;
 
   Ok(())
 }
@@ -44,7 +38,7 @@ pub async fn should_read_last_save(client: RedisClient, _: RedisConfig) -> Resul
 
 pub async fn should_read_db_size(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   for idx in 0 .. 50 {
-    client
+    let _: () = client
       .custom(cmd!("SET"), vec![format!("foo-{}", idx), idx.to_string()])
       .await?;
   }
@@ -67,7 +61,7 @@ pub async fn should_start_bgsave(client: RedisClient, _: RedisConfig) -> Result<
 }
 
 pub async fn should_do_bgrewriteaof(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.bgrewriteaof().await?;
+  let _: () = client.bgrewriteaof().await?;
   // not much we can assert here aside from the command not failing
 
   // need to ensure this finishes before it runs again or it'll return an error

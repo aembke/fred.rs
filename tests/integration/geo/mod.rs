@@ -22,7 +22,7 @@ async fn create_fake_data(client: &RedisClient, key: &str) -> Result<Vec<GeoPosi
     (15.087269, 37.502669, "Catania").try_into()?,
   ];
 
-  client.geoadd(key, None, false, values.clone()).await?;
+  let _: () = client.geoadd(key, None, false, values.clone()).await?;
   Ok(values.into_iter().map(|p| p.coordinates).collect())
 }
 
@@ -204,7 +204,7 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
 pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let _ = create_fake_data(&client, "foo").await?;
   let agrigento: GeoValue = (13.583333, 37.316667, "Agrigento").try_into()?;
-  client.geoadd("foo", None, false, agrigento).await?;
+  let _: () = client.geoadd("foo", None, false, agrigento).await?;
 
   let result = client
     .georadiusbymember::<RedisValue, _, _>(
@@ -247,7 +247,7 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
     (12.758489, 38.788135, "edge1").try_into()?,
     (17.241510, 38.788135, "edge2").try_into()?,
   ];
-  client.geoadd("foo", None, false, values).await?;
+  let _: () = client.geoadd("foo", None, false, values).await?;
 
   let lonlat: GeoPosition = (15.0, 37.0).into();
   let result = client

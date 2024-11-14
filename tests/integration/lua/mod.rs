@@ -81,7 +81,7 @@ pub async fn should_evalsha_get_script(client: RedisClient, _: RedisConfig) -> R
   let result: Option<String> = client.evalsha(&script_hash, vec!["foo"], ()).await?;
   assert!(result.is_none());
 
-  client.set("foo", "bar", None, None, false).await?;
+  let _: () = client.set("foo", "bar", None, None, false).await?;
   let result: String = client.evalsha(&script_hash, vec!["foo"], ()).await?;
   assert_eq!(result, "bar");
 
@@ -108,7 +108,7 @@ pub async fn should_eval_get_script(client: RedisClient, _: RedisConfig) -> Resu
   let result: Option<String> = client.evalsha(&hash, vec!["foo"], ()).await?;
   assert!(result.is_none());
 
-  client.set("foo", "bar", None, None, false).await?;
+  let _: () = client.set("foo", "bar", None, None, false).await?;
   let result: String = client.eval(GET_SCRIPT, vec!["foo"], ()).await?;
   assert_eq!(result, "bar");
 
@@ -129,7 +129,7 @@ pub async fn should_function_load_scripts(client: RedisClient, _: RedisConfig) -
   assert_eq!(echo, "echolib");
   let getset: String = client.function_load(true, getset_fn).await?;
   assert_eq!(getset, "getsetlib");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
 
   Ok(())
 }
@@ -138,11 +138,11 @@ pub async fn should_function_dump_and_restore(client: RedisClient, _: RedisConfi
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
 
   let fns: Bytes = client.function_dump().await?;
-  client.function_flush_cluster(false).await?;
-  client.function_restore_cluster(fns, FnPolicy::default()).await?;
+  let _: () = client.function_flush_cluster(false).await?;
+  let _: () = client.function_restore_cluster(fns, FnPolicy::default()).await?;
 
   let mut fns: Vec<HashMap<String, RedisValue>> = client.function_list(Some("echolib"), false).await?;
   assert_eq!(fns.len(), 1);
@@ -156,11 +156,11 @@ pub async fn should_function_flush(client: RedisClient, _: RedisConfig) -> Resul
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
   let fns: RedisValue = client.function_list(Some("echolib"), false).await?;
   assert!(!fns.is_null());
 
-  client.function_flush_cluster(false).await?;
+  let _: () = client.function_flush_cluster(false).await?;
   let fns: RedisValue = client.function_list(Some("echolib"), false).await?;
   assert!(fns.is_null() || fns.array_len() == Some(0));
 
@@ -171,11 +171,11 @@ pub async fn should_function_delete(client: RedisClient, _: RedisConfig) -> Resu
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
   let fns: RedisValue = client.function_list(Some("echolib"), false).await?;
   assert!(!fns.is_null());
 
-  client.function_delete_cluster("echolib").await?;
+  let _: () = client.function_delete_cluster("echolib").await?;
   let fns: RedisValue = client.function_list(Some("echolib"), false).await?;
   assert!(fns.is_null() || fns.array_len() == Some(0));
 
@@ -186,9 +186,9 @@ pub async fn should_function_list(client: RedisClient, _: RedisConfig) -> Result
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
   let getset_fn = include_str!("../../scripts/lua/getset.lua");
-  client.function_load_cluster(true, getset_fn).await?;
+  let _: () = client.function_load_cluster(true, getset_fn).await?;
 
   let mut fns: Vec<HashMap<String, RedisValue>> = client.function_list(Some("echolib"), false).await?;
   assert_eq!(fns.len(), 1);
@@ -202,9 +202,9 @@ pub async fn should_function_list_multiple(client: RedisClient, _: RedisConfig) 
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
   let getset_fn = include_str!("../../scripts/lua/getset.lua");
-  client.function_load_cluster(true, getset_fn).await?;
+  let _: () = client.function_load_cluster(true, getset_fn).await?;
 
   let fns: Vec<HashMap<String, RedisValue>> = client.function_list(None::<String>, false).await?;
 
@@ -232,9 +232,9 @@ pub async fn should_function_fcall_getset(client: RedisClient, _: RedisConfig) -
   check_redis_7!(client);
 
   let getset_fn = include_str!("../../scripts/lua/getset.lua");
-  client.function_load_cluster(true, getset_fn).await?;
+  let _: () = client.function_load_cluster(true, getset_fn).await?;
 
-  client.set("foo{1}", "bar", None, None, false).await?;
+  let _: () = client.set("foo{1}", "bar", None, None, false).await?;
   let old: String = client.fcall("getset", vec!["foo{1}"], vec!["baz"]).await?;
   assert_eq!(old, "bar");
   let new: String = client.get("foo{1}").await?;
@@ -247,7 +247,7 @@ pub async fn should_function_fcall_echo(client: RedisClient, _: RedisConfig) -> 
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
 
   let result: Vec<String> = client
     .fcall("echo", vec!["key1{1}", "key2{1}"], vec!["arg1", "arg2"])
@@ -261,7 +261,7 @@ pub async fn should_function_fcall_ro_echo(client: RedisClient, _: RedisConfig) 
   check_redis_7!(client);
 
   let echo_fn = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_fn).await?;
+  let _: () = client.function_load_cluster(true, echo_fn).await?;
 
   let result: Vec<String> = client
     .fcall_ro("echo", vec!["key1{1}", "key2{1}"], vec!["arg1", "arg2"])
@@ -317,7 +317,7 @@ pub async fn should_create_function_from_code(client: RedisClient, _: RedisConfi
 pub async fn should_create_function_from_name(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   check_redis_7!(client);
   let echo_lib = include_str!("../../scripts/lua/echo.lua");
-  client.function_load_cluster(true, echo_lib).await?;
+  let _: () = client.function_load_cluster(true, echo_lib).await?;
 
   let lib = Library::from_name(&client, "echolib").await?;
   let func = lib.functions().get("echo").expect("Failed to read echo function");

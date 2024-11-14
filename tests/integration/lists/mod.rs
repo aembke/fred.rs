@@ -11,7 +11,7 @@ const COUNT: i64 = 10;
 async fn create_count_data(client: &RedisClient, key: &str) -> Result<Vec<RedisValue>, RedisError> {
   let mut values = Vec::with_capacity(COUNT as usize);
   for idx in 0 .. COUNT {
-    client.rpush(key, idx).await?;
+    let _: () = client.rpush(key, idx).await?;
     values.push(idx.to_string().into());
   }
 
@@ -145,7 +145,7 @@ pub async fn should_linsert_values(client: RedisClient, _: RedisConfig) -> Resul
   let result: usize = client.llen("foo").await?;
   assert_eq!(result, 0);
 
-  client.lpush("foo", 0).await?;
+  let _: () = client.lpush("foo", 0).await?;
   let mut expected: Vec<RedisValue> = vec!["0".into()];
   for idx in 1 .. COUNT {
     let result: i64 = client.linsert("foo", ListLocation::After, idx - 1, idx).await?;
@@ -219,7 +219,7 @@ pub async fn should_lpushx_values(client: RedisClient, _: RedisConfig) -> Result
   let result: i64 = client.lpushx("foo", 0).await?;
   assert_eq!(result, 0);
 
-  client.lpush("foo", 0).await?;
+  let _: () = client.lpush("foo", 0).await?;
   for idx in 0 .. COUNT {
     let result: i64 = client.lpushx("foo", idx).await?;
     assert_eq!(result, idx + 2);
@@ -273,7 +273,7 @@ pub async fn should_lset_values(client: RedisClient, _: RedisConfig) -> Result<(
   expected.reverse();
 
   for idx in 0 .. COUNT {
-    client.lset("foo", idx, COUNT - (idx + 1)).await?;
+    let _: () = client.lset("foo", idx, COUNT - (idx + 1)).await?;
   }
   let result: Vec<RedisValue> = client.lrange("foo", 0, COUNT).await?;
   assert_eq!(result, expected);
@@ -285,16 +285,16 @@ pub async fn should_lset_values(client: RedisClient, _: RedisConfig) -> Result<(
 pub async fn should_ltrim_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let expected = create_count_data(&client, "foo").await?;
 
-  client.ltrim("foo", 0, COUNT).await?;
+  let _: () = client.ltrim("foo", 0, COUNT).await?;
   let result: Vec<RedisValue> = client.lrange("foo", 0, COUNT).await?;
   assert_eq!(result, expected);
 
   for idx in 0 .. COUNT {
-    client.ltrim("foo", 0, idx).await?;
+    let _: () = client.ltrim("foo", 0, idx).await?;
     let result: Vec<RedisValue> = client.lrange("foo", 0, COUNT).await?;
     assert_eq!(result, expected[0 .. (idx + 1) as usize]);
 
-    client.del("foo").await?;
+    let _: () = client.del("foo").await?;
     let _ = create_count_data(&client, "foo").await?;
   }
 
@@ -362,7 +362,7 @@ pub async fn should_rpushx_values(client: RedisClient, _: RedisConfig) -> Result
   let result: i64 = client.rpushx("foo", 0).await?;
   assert_eq!(result, 0);
 
-  client.rpush("foo", 0).await?;
+  let _: () = client.rpush("foo", 0).await?;
   for idx in 0 .. COUNT {
     let result: i64 = client.rpushx("foo", idx).await?;
     assert_eq!(result, idx + 2);
@@ -376,7 +376,7 @@ pub async fn should_rpushx_values(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_sort_int_list(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
+  let _: () = client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
 
   let sorted: Vec<i64> = client.sort("foo", None, None, (), None, false, None).await?;
   assert_eq!(sorted, vec![1, 2, 3, 4, 5]);
@@ -384,7 +384,7 @@ pub async fn should_sort_int_list(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_sort_alpha_list(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.lpush("foo", vec!["a", "b", "c", "d", "e"]).await?;
+  let _: () = client.lpush("foo", vec!["a", "b", "c", "d", "e"]).await?;
 
   let sorted: Vec<String> = client
     .sort("foo", None, None, (), Some(SortOrder::Desc), true, None)
@@ -394,7 +394,7 @@ pub async fn should_sort_alpha_list(client: RedisClient, _: RedisConfig) -> Resu
 }
 
 pub async fn should_sort_int_list_with_limit(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
+  let _: () = client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
 
   let sorted: Vec<i64> = client.sort("foo", None, Some((2, 2)), (), None, false, None).await?;
   assert_eq!(sorted, vec![3, 4]);
@@ -406,10 +406,10 @@ pub async fn should_sort_int_list_with_patterns(client: RedisClient, _: RedisCon
   let vals: Vec<i64> = (1 .. 6).collect();
   let key: RedisKey = "foo".into();
 
-  client.lpush(&key, vals.clone()).await?;
+  let _: () = client.lpush(&key, vals.clone()).await?;
   for val in vals.iter() {
     // reverse the weights
-    client
+    let _: () = client
       .set(
         format!("{}_weight_{}", key.as_str().unwrap(), val),
         7 - *val,
@@ -420,7 +420,7 @@ pub async fn should_sort_int_list_with_patterns(client: RedisClient, _: RedisCon
       .await?;
   }
   for val in vals.iter() {
-    client
+    let _: () = client
       .set(
         format!("{}_val_{}", key.as_str().unwrap(), val),
         *val * 2,
@@ -449,7 +449,7 @@ pub async fn should_sort_int_list_with_patterns(client: RedisClient, _: RedisCon
 
 #[cfg(feature = "replicas")]
 pub async fn should_sort_ro_int_list(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
+  let _: () = client.lpush("foo", vec![1, 2, 3, 4, 5]).await?;
   // wait for replicas to recv the command
   tokio::time::sleep(Duration::from_millis(500)).await;
 

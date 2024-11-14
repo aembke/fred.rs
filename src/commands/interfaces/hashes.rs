@@ -2,11 +2,14 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue},
+  types::{FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
 use std::convert::TryInto;
+
+#[cfg(feature = "i-hexpire")]
+use crate::types::ExpireOptions;
 
 /// Functions that implement the [hashes](https://redis.io/commands#hashes) interface.
 #[rm_send_if(feature = "glommio")]
@@ -246,6 +249,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// Returns the remaining TTL (time to live) of a hash key's field(s) that have a set expiration.
   ///
   /// <https://redis.io/docs/latest/commands/httl/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn httl<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
@@ -261,6 +266,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// Set an expiration (TTL or time to live) on one or more fields of a given hash key.
   ///
   /// <https://redis.io/docs/latest/commands/hexpire/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hexpire<R, K, F>(
     &self,
     key: K,
@@ -285,6 +292,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// TTL (time to live), it takes an absolute Unix timestamp in seconds since Unix epoch.
   ///
   /// <https://redis.io/docs/latest/commands/hexpireat/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hexpire_at<R, K, F>(
     &self,
     key: K,
@@ -308,6 +317,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// Returns the absolute Unix timestamp in seconds since Unix epoch at which the given key's field(s) will expire.
   ///
   /// <https://redis.io/docs/latest/commands/hexpiretime/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hexpire_time<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
@@ -324,6 +335,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// milliseconds instead of seconds.
   ///
   /// <https://redis.io/docs/latest/commands/hpttl/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hpttl<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
@@ -339,6 +352,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// This command works like HEXPIRE, but the expiration of a field is specified in milliseconds instead of seconds.
   ///
   /// <https://redis.io/docs/latest/commands/hpexpire/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hpexpire<R, K, F>(
     &self,
     key: K,
@@ -363,6 +378,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// specified in milliseconds since Unix epoch instead of seconds.
   ///
   /// <https://redis.io/docs/latest/commands/hpexpireat/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hpexpire_at<R, K, F>(
     &self,
     key: K,
@@ -387,6 +404,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// milliseconds since Unix epoch instead of seconds.
   ///
   /// <https://redis.io/docs/latest/commands/hpexpiretime/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hpexpire_time<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
@@ -403,6 +422,8 @@ pub trait HashesInterface: ClientLike + Sized {
   /// expiration set) to persistent (a field that will never expire as no TTL (time to live) is associated).
   ///
   /// <https://redis.io/docs/latest/commands/hpersist/>
+  #[cfg(feature = "i-hexpire")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "i-hexpire")))]
   fn hpersist<R, K, F>(&self, key: K, fields: F) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,

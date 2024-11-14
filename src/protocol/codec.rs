@@ -34,9 +34,7 @@ fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
 #[cfg(not(feature = "network-logs"))]
 fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 #[cfg(feature = "network-logs")]
-pub use crate::protocol::debug::log_resp2_frame;
-#[cfg(feature = "network-logs")]
-pub use crate::protocol::debug::log_resp3_frame;
+pub use crate::protocol::debug::*;
 
 #[cfg(feature = "metrics")]
 fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
@@ -52,8 +50,7 @@ fn sample_stats(_: &RedisCodec, _: bool, _: i64) {}
 
 fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
   let offset = dst.len();
-
-  let res = resp2_encode(dst, &item)?;
+  let res = resp2_encode(dst, &item, true)?;
   let len = res.saturating_sub(offset);
 
   trace!(
@@ -93,8 +90,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
 
 fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
   let offset = dst.len();
-
-  let res = resp3_encode(dst, &item)?;
+  let res = resp3_encode(dst, &item, true)?;
   let len = res.saturating_sub(offset);
 
   trace!(

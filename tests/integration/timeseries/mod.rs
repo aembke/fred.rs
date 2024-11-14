@@ -37,15 +37,15 @@ pub async fn should_ts_add_get_and_range(client: RedisClient, _: RedisConfig) ->
 }
 
 pub async fn should_create_alter_and_del_timeseries(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
-  client.ts_alter("foo{1}", None, None, None, ("b", "c")).await?;
+  let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_alter("foo{1}", None, None, None, ("b", "c")).await?;
 
   Ok(())
 }
 
 pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
-  client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
 
   let values = vec![
     ("foo{1}", 1, 1.1),
@@ -138,29 +138,29 @@ pub async fn should_incr_and_decr(client: RedisClient, _: RedisConfig) -> Result
 }
 
 pub async fn should_create_and_delete_rules(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client
+  let _: () = client
     .ts_create("temp:TLV", None, None, None, None, [
       ("type", "temp"),
       ("location", "TLV"),
     ])
     .await?;
-  client
+  let _: () = client
     .ts_create("dailyAvgTemp:TLV", None, None, None, None, [
       ("type", "temp"),
       ("location", "TLV"),
     ])
     .await?;
-  client
+  let _: () = client
     .ts_createrule("temp:TLV", "dailyAvgTemp:TLV", (Aggregator::TWA, 86400000), None)
     .await?;
-  client.ts_deleterule("temp:TLV", "dailyAvgTemp:TLV").await?;
+  let _: () = client.ts_deleterule("temp:TLV", "dailyAvgTemp:TLV").await?;
 
   Ok(())
 }
 
 pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
-  client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
 
   let values = vec![
     ("foo{1}", 1, 1.1),
@@ -294,8 +294,8 @@ pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Resu
 }
 
 pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
-  client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
+  let _: () = client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
 
   let values = vec![
     ("foo{1}", 1, 1.1),
