@@ -102,6 +102,7 @@ pub fn prepare_command(
 }
 
 /// Write a command on the provided writer half of a socket.
+#[inline(always)]
 pub async fn write_command(
   inner: &RefCount<RedisClientInner>,
   writer: &mut RedisWriter,
@@ -164,7 +165,10 @@ pub async fn write_command(
   }
 
   let no_incr = command.has_no_responses();
-  writer.push_command(inner, command);
+  if let Err(command) = writer.push_command(inner, command) {
+    command.finish(inner, Err(RedisError::new_backpressure()));
+    return Written::Ignore;
+  }
   // copy the logic from RedisWriter::write_frame to avoid another async/await point
   if should_flush {
     trace!("Writing and flushing {}", writer.server);
@@ -211,7 +215,7 @@ pub fn check_blocked_router(inner: &RefCount<RedisClientInner>, buffer: &SharedB
   } else {
     // this is safe to rearrange since the connection has closed and we can't guarantee command ordering when
     // connections close while an entire pipeline is in flight
-    buffer.push(command);
+    buffer.force_push(command);
   }
 }
 
@@ -246,7 +250,7 @@ pub fn check_final_write_attempt(
       }
     })
     .for_each(|command| {
-      buffer.push(command);
+      buffer.force_push(command);
     });
 }
 

@@ -1,5 +1,9 @@
 #![allow(warnings)]
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
+
 #[macro_use]
 extern crate clap;
 
@@ -197,6 +201,9 @@ pub fn setup_tracing(enable: bool) {
 }
 
 fn main() {
+  #[cfg(feature = "dhat-heap")]
+  let _profiler = dhat::Profiler::new_heap();
+
   pretty_env_logger::init();
   #[cfg(feature = "console")]
   console_subscriber::init();

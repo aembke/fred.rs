@@ -13,7 +13,7 @@ use crate::{
   utils,
 };
 use bytes_utils::Str;
-use crossbeam_queue::SegQueue;
+use crossbeam_queue::{ArrayQueue, SegQueue};
 use futures::{
   sink::SinkExt,
   stream::{SplitSink, SplitStream, StreamExt},
@@ -75,31 +75,66 @@ pub const CONNECTION_CLOSE_TIMEOUT_MS: u64 = 5_000;
 
 pub type CommandBuffer = Vec<RedisCommand>;
 
+#[derive(Debug)]
+pub enum BufferKind {
+  Unbounded(SegQueue<RedisCommand>),
+  Bounded(ArrayQueue<RedisCommand>),
+}
+
 /// A shared buffer across tasks.
 #[derive(Clone, Debug)]
 pub struct SharedBuffer {
-  inner:   RefCount<SegQueue<RedisCommand>>,
+  inner:   RefCount<BufferKind>,
   blocked: RefCount<AtomicBool>,
 }
 
 impl SharedBuffer {
-  pub fn new() -> Self {
+  pub fn new(size: usize) -> Self {
+    let kind = if size == 0 {
+      BufferKind::Unbounded(SegQueue::new())
+    } else {
+      BufferKind::Bounded(ArrayQueue::new(size))
+    };
+
     SharedBuffer {
-      inner:   RefCount::new(SegQueue::new()),
+      inner:   RefCount::new(kind),
       blocked: RefCount::new(AtomicBool::new(false)),
     }
   }
 
-  pub fn push(&self, cmd: RedisCommand) {
-    self.inner.push(cmd);
+  pub fn push(&self, cmd: RedisCommand) -> Result<(), RedisCommand> {
+    match self.inner.as_ref() {
+      BufferKind::Unbounded(ref queue) => {
+        queue.push(cmd);
+        Ok(())
+      },
+      BufferKind::Bounded(ref queue) => queue.push(cmd),
+    }
+  }
+
+  pub fn force_push(&self, cmd: RedisCommand) {
+    match self.inner.as_ref() {
+      BufferKind::Unbounded(ref queue) => {
+        queue.push(cmd);
+      },
+      BufferKind::Bounded(ref queue) => {
+        queue.force_push(cmd);
+      },
+    };
   }
 
   pub fn pop(&self) -> Option<RedisCommand> {
-    self.inner.pop()
+    match self.inner.as_ref() {
+      BufferKind::Unbounded(ref queue) => queue.pop(),
+      BufferKind::Bounded(ref queue) => queue.pop(),
+    }
   }
 
   pub fn len(&self) -> usize {
-    self.inner.len()
+    match self.inner.as_ref() {
+      BufferKind::Unbounded(ref queue) => queue.len(),
+      BufferKind::Bounded(ref queue) => queue.len(),
+    }
   }
 
   pub fn set_blocked(&self) {
@@ -116,10 +151,21 @@ impl SharedBuffer {
 
   pub fn drain(&self) -> Vec<RedisCommand> {
     utils::set_bool_atomic(&self.blocked, false);
-    let mut out = Vec::with_capacity(self.inner.len());
-    while let Some(cmd) = self.inner.pop() {
-      out.push(cmd);
+    let mut out = Vec::with_capacity(self.len());
+
+    match self.inner.as_ref() {
+      BufferKind::Unbounded(ref queue) => {
+        while let Some(cmd) = queue.pop() {
+          out.push(cmd);
+        }
+      },
+      BufferKind::Bounded(ref queue) => {
+        while let Some(cmd) = queue.pop() {
+          out.push(cmd);
+        }
+      },
     }
+
     out
   }
 }
@@ -914,8 +960,8 @@ impl RedisTransport {
   }
 
   /// Split the transport into reader/writer halves.
-  pub fn split(self) -> (RedisWriter, RedisReader) {
-    let buffer = SharedBuffer::new();
+  pub fn split(self, buffer_size: usize) -> (RedisWriter, RedisReader) {
+    let buffer = SharedBuffer::new(buffer_size);
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
     let (sink, stream) = self.transport.split();
     let (id, version, counters) = (self.id, self.version, self.counters);
@@ -1063,7 +1109,7 @@ impl RedisWriter {
   }
 
   /// Put a command at the back of the command queue.
-  pub fn push_command(&self, inner: &RefCount<RedisClientInner>, mut cmd: RedisCommand) {
+  pub fn push_command(&self, inner: &RefCount<RedisClientInner>, mut cmd: RedisCommand) -> Result<(), RedisCommand> {
     if cmd.has_no_responses() {
       _trace!(
         inner,
@@ -1073,13 +1119,14 @@ impl RedisWriter {
 
       cmd.respond_to_router(inner, RouterResponse::Continue);
       cmd.respond_to_caller(Ok(Resp3Frame::Null));
-      return;
-    }
+      Ok(())
+    } else {
+      if cmd.blocks_connection() {
+        self.buffer.set_blocked();
+      }
 
-    if cmd.blocks_connection() {
-      self.buffer.set_blocked();
+      self.buffer.push(cmd)
     }
-    self.buffer.push(cmd);
   }
 
   /// Force close the connection.
@@ -1161,7 +1208,7 @@ where
   ) -> JoinHandle<Result<(), RedisError>>,
 {
   let server = transport.server.clone();
-  let (mut writer, mut reader) = transport.split();
+  let (mut writer, mut reader) = transport.split(inner.connection.bounded_channel_capacity);
   let reader_stream = match reader.stream.take() {
     Some(stream) => stream,
     None => {
@@ -1212,7 +1259,10 @@ pub async fn request_response(
     return Err(RedisError::new(RedisErrorKind::IO, "Connection closed."));
   }
 
-  writer.push_command(inner, command);
-  writer.write_frame(frame, true, false).await?;
-  utils::timeout(async { rx.await? }, timeout_dur).await
+  if let Err(_) = writer.push_command(inner, command) {
+    Err(RedisError::new_backpressure())
+  } else {
+    writer.write_frame(frame, true, false).await?;
+    utils::timeout(async { rx.await? }, timeout_dur).await
+  }
 }

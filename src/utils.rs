@@ -436,13 +436,21 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  timeout(rx, timeout_dur)
-    .and_then(|r| async { r })
-    .map_err(move |error| {
+  if timeout_dur.is_zero() {
+    rx.map_err(move |error| {
       set_bool_atomic(&timed_out, true);
-      error
+      RedisError::from(error)
     })
-    .await
+    .await?
+  } else {
+    timeout(rx, timeout_dur)
+      .and_then(|r| async { r })
+      .map_err(move |error| {
+        set_bool_atomic(&timed_out, true);
+        error
+      })
+      .await
+  }
 }
 
 /// Send a command to the server, with tracing.
@@ -495,18 +503,18 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
-  timeout(rx, timeout_dur)
-    .and_then(|r| async { r })
-    .map_err(move |error| {
-      set_bool_atomic(&timed_out, true);
-      error
-    })
-    .and_then(|frame| async move {
-      trace::record_response_size(&end_cmd_span, &frame);
-      Ok::<_, RedisError>(frame)
-    })
-    .instrument(cmd_span)
-    .await
+  let result = if timeout_dur.is_zero() {
+    rx.map_err(RedisError::from).instrument(cmd_span).await
+  } else {
+    timeout(rx, timeout_dur).and_then(|r| r).instrument(cmd_span).await
+  };
+
+  if let Ok(ref frame) = result {
+    trace::record_response_size(&end_cmd_span, &frame);
+  } else {
+    set_bool_atomic(&timed_out, true);
+  }
+  result
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]

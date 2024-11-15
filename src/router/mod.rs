@@ -539,6 +539,7 @@ impl Router {
   }
 
   /// Attempt to send the command to the server.
+  #[inline(always)]
   pub async fn write(&mut self, command: RedisCommand, force_flush: bool) -> Written {
     let send_all_cluster_nodes =
       self.inner.config.server.is_clustered() && (command.is_all_cluster_nodes() || command.kind.closes_connection());
@@ -550,8 +551,8 @@ impl Router {
       self.connections.write_all_cluster(&self.inner, command).await
     } else {
       // note: the logic in these branches used to be abstracted into separate `write` functions in the centralized
-      // and clustered modules. the added async/await overhead of that function call reduced throughput by ~10%, so
-      // this logic was inlined here instead. it's ugly but significantly faster.
+      // and clustered modules. this was much easier to read, but the added async/await overhead of that function call
+      // reduced throughput by ~10%, so this logic was inlined here instead. it's ugly but significantly faster.
       match self.connections {
         Connections::Clustered {
           ref mut writers,
@@ -744,7 +745,11 @@ impl Router {
     }
 
     let no_incr = command.has_no_responses();
-    writer.push_command(&self.inner, command);
+    if let Err(command) = writer.push_command(&self.inner, command) {
+      command.finish(&self.inner, Err(RedisError::new_backpressure()));
+      return Written::Ignore;
+    }
+
     if let Err(err) = writer.write_frame(frame, true, no_incr).await {
       Written::Disconnected((Some(writer.server.clone()), None, err))
     } else {

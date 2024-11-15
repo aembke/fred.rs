@@ -513,7 +513,10 @@ impl Replicas {
       return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
     }
 
-    writer.push_command(inner, command);
+    if let Err(command) = writer.push_command(inner, command) {
+      command.finish(inner, Err(RedisError::new_backpressure()));
+      return Written::Ignore;
+    }
     if let Err(err) = writer.write_frame(frame, should_flush, false).await {
       self.routing.remove_replica(&writer.server);
       Written::Disconnected((Some(writer.server.clone()), None, err))

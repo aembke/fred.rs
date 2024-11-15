@@ -7,7 +7,6 @@ use bb8_redis::{
 };
 use futures::TryStreamExt;
 use indicatif::ProgressBar;
-use opentelemetry::trace::FutureExt;
 use redis::aio::ConnectionManager;
 #[cfg(feature = "redis-manager")]
 use redis::{
@@ -189,6 +188,7 @@ async fn init(argv: &Arc<Argv>) -> ConnectionManager {
   let client = RedisClient::open(url).expect("Failed to create redis client");
   let config = ConnectionManagerConfig::new()
     .set_connection_timeout(Duration::from_secs(5))
+    .set_response_timeout(Duration::from_secs(5))
     .set_number_of_retries(1000)
     .set_exponent_base(2);
 
