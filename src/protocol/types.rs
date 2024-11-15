@@ -11,7 +11,10 @@ use crate::{
 use async_trait::async_trait;
 use bytes_utils::Str;
 use rand::Rng;
-use redis_protocol::{resp2::types::BytesFrame as Resp2Frame, resp3::types::BytesFrame as Resp3Frame};
+use redis_protocol::{
+  resp2::types::{BorrowedFrame as Resp2BorrowedFrame, BytesFrame as Resp2Frame},
+  resp3::types::{BorrowedFrame as Resp3BorrowedFrame, BytesFrame as Resp3Frame},
+};
 use std::{
   cmp::Ordering,
   collections::{BTreeMap, BTreeSet, HashMap},
@@ -61,6 +64,25 @@ impl From<Resp2Frame> for ProtocolFrame {
 impl From<Resp3Frame> for ProtocolFrame {
   fn from(frame: Resp3Frame) -> Self {
     ProtocolFrame::Resp3(frame)
+  }
+}
+
+/// Any kind of borrowed RESP frame.
+#[derive(Debug)]
+pub enum BorrowedProtocolFrame<'a> {
+  Resp2(Resp2BorrowedFrame<'a>),
+  Resp3(Resp3BorrowedFrame<'a>),
+}
+
+impl<'a> From<Resp2BorrowedFrame<'a>> for BorrowedProtocolFrame<'a> {
+  fn from(frame: Resp2BorrowedFrame<'a>) -> Self {
+    BorrowedProtocolFrame::Resp2(frame)
+  }
+}
+
+impl<'a> From<Resp3BorrowedFrame<'a>> for BorrowedProtocolFrame<'a> {
+  fn from(frame: Resp3BorrowedFrame<'a>) -> Self {
+    BorrowedProtocolFrame::Resp3(frame)
   }
 }
 

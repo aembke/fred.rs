@@ -14,8 +14,8 @@ use crate::{
 use bytes::Bytes;
 use bytes_utils::Str;
 use redis_protocol::{
-  resp2::types::{BytesFrame as Resp2Frame, Resp2Frame as _Resp2Frame},
-  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
+  resp2::types::{BorrowedFrame as Resp2BorrowedFrame, BytesFrame as Resp2Frame, Resp2Frame as _Resp2Frame},
+  resp3::types::{BorrowedFrame as Resp3BorrowedFrame, BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
   types::{PUBSUB_PUSH_PREFIX, REDIS_CLUSTER_SLOTS},
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str};
@@ -742,9 +742,9 @@ pub fn value_to_zset_result(value: RedisValue) -> Result<Vec<(RedisValue, f64)>,
 #[cfg(any(feature = "blocking-encoding", feature = "partial-tracing", feature = "full-tracing"))]
 fn i64_size(i: i64) -> usize {
   if i < 0 {
-    1 + redis_protocol::digits_in_number(-i as usize)
+    1 + redis_protocol::digits_in_usize(-i as usize)
   } else {
-    redis_protocol::digits_in_number(i as usize)
+    redis_protocol::digits_in_usize(i as usize)
   }
 }
 
@@ -854,13 +854,15 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
   })
 }
 
-pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3Frame, RedisError> {
+pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3BorrowedFrame, RedisError> {
   let args = command.args();
 
   match command.kind {
     RedisCommandKind::_Custom(ref kind) => {
       let parts: Vec<&str> = kind.cmd.trim().split(' ').collect();
       let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
+      // TODO what to do about this? can't allocate a new continuous array for both the command parts and the
+      // arguments
 
       for part in parts.into_iter() {
         bulk_strings.push(Resp3Frame::BlobString {
@@ -940,7 +942,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
 }
 
 /// Serialize the command as a protocol frame.
-pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<BorrowedProtocolFrame, RedisError> {
   if is_resp3 || command.kind.is_hello() {
     command_to_resp3_frame(command).map(|c| c.into())
   } else {

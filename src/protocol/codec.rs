@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
-    types::{ProtocolFrame, Server},
+    types::{BorrowedProtocolFrame, ProtocolFrame, Server},
     utils as protocol_utils,
   },
   runtime::{AtomicBool, RefCount},
@@ -13,13 +13,18 @@ use bytes_utils::Str;
 use redis_protocol::{
   resp2::{
     decode::decode_bytes_mut as resp2_decode,
-    encode::extend_encode as resp2_encode,
-    types::BytesFrame as Resp2Frame,
+    encode::{extend_encode as resp2_encode, extend_encode_borrowed as resp2_encode_borrowed},
+    types::{BorrowedFrame as Resp2BorrowedFrame, BytesFrame as Resp2Frame},
   },
   resp3::{
     decode::streaming::decode_bytes_mut as resp3_decode,
-    encode::complete::extend_encode as resp3_encode,
-    types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, StreamedFrame},
+    encode::complete::{extend_encode as resp3_encode, extend_encode_borrowed as resp3_encode_borrowed},
+    types::{
+      BorrowedFrame as Resp3BorrowedFrame,
+      BytesFrame as Resp3Frame,
+      Resp3Frame as _Resp3Frame,
+      StreamedFrame,
+    },
   },
 };
 use tokio_util::codec::{Decoder, Encoder};
@@ -34,9 +39,7 @@ fn log_resp2_frame(_: &str, _: &Resp2Frame, _: bool) {}
 #[cfg(not(feature = "network-logs"))]
 fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 #[cfg(feature = "network-logs")]
-pub use crate::protocol::debug::log_resp2_frame;
-#[cfg(feature = "network-logs")]
-pub use crate::protocol::debug::log_resp3_frame;
+pub use crate::protocol::debug::*;
 
 #[cfg(feature = "metrics")]
 fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
@@ -50,10 +53,31 @@ fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
 #[cfg(not(feature = "metrics"))]
 fn sample_stats(_: &RedisCodec, _: bool, _: i64) {}
 
+fn resp2_encode_borrowed_frame(
+  codec: &RedisCodec,
+  item: Resp2BorrowedFrame,
+  dst: &mut BytesMut,
+) -> Result<(), RedisError> {
+  let offset = dst.len();
+  let res = resp2_encode_borrowed(dst, &item, true)?;
+  let len = res.saturating_sub(offset);
+
+  trace!(
+    "{}: Encoded {} bytes to {}. Buffer len: {} (RESP2)",
+    codec.name,
+    len,
+    codec.server,
+    res
+  );
+  log_resp2_borrowed_frame(&codec.name, &item, true);
+  sample_stats(codec, false, len as i64);
+
+  Ok(())
+}
+
 fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
   let offset = dst.len();
-
-  let res = resp2_encode(dst, &item)?;
+  let res = resp2_encode(dst, &item, true)?;
   let len = res.saturating_sub(offset);
 
   trace!(
@@ -91,10 +115,31 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
   }
 }
 
+fn resp3_encode_borrowed_frame(
+  codec: &RedisCodec,
+  item: Resp3BorrowedFrame,
+  dst: &mut BytesMut,
+) -> Result<(), RedisError> {
+  let offset = dst.len();
+  let res = resp3_encode_borrowed(dst, &item, true)?;
+  let len = res.saturating_sub(offset);
+
+  trace!(
+    "{}: Encoded {} bytes to {}. Buffer len: {} (RESP3)",
+    codec.name,
+    len,
+    codec.server,
+    res
+  );
+  log_resp3_borrowed_frame(&codec.name, &item, true);
+  sample_stats(codec, false, len as i64);
+
+  Ok(())
+}
+
 fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), RedisError> {
   let offset = dst.len();
-
-  let res = resp3_encode(dst, &item)?;
+  let res = resp3_encode(dst, &item, true)?;
   let len = res.saturating_sub(offset);
 
   trace!(
@@ -219,13 +264,13 @@ impl RedisCodec {
   }
 }
 
-impl Encoder<ProtocolFrame> for RedisCodec {
+impl<'a> Encoder<BorrowedProtocolFrame<'a>> for RedisCodec {
   type Error = RedisError;
 
-  fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
+  fn encode(&mut self, item: BorrowedProtocolFrame<'a>, dst: &mut BytesMut) -> Result<(), Self::Error> {
     match item {
-      ProtocolFrame::Resp2(frame) => resp2_encode_frame(self, frame, dst),
-      ProtocolFrame::Resp3(frame) => resp3_encode_frame(self, frame, dst),
+      BorrowedProtocolFrame::Resp2(frame) => resp2_encode_borrowed_frame(self, frame, dst),
+      BorrowedProtocolFrame::Resp3(frame) => resp3_encode_borrowed_frame(self, frame, dst),
     }
   }
 }

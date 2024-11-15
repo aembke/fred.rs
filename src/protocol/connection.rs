@@ -16,13 +16,14 @@ use bytes_utils::Str;
 use crossbeam_queue::{ArrayQueue, SegQueue};
 use futures::{
   sink::SinkExt,
-  stream::{SplitSink, SplitStream, StreamExt},
+  stream::{Peekable, SplitSink, SplitStream, StreamExt},
   Sink,
   Stream,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, RespVersion};
 use semver::Version;
 use std::{
+  collections::VecDeque,
   fmt,
   net::SocketAddr,
   pin::Pin,
@@ -53,6 +54,7 @@ use crate::prelude::ServerConfig;
   feature = "enable-rustls-ring"
 ))]
 use crate::protocol::tls::TlsConnector;
+use crate::protocol::types::BorrowedProtocolFrame;
 #[cfg(feature = "replicas")]
 use crate::runtime::oneshot_channel;
 #[cfg(feature = "replicas")]
@@ -170,7 +172,7 @@ impl SharedBuffer {
   }
 }
 
-pub type SplitRedisSink<T> = SplitSink<Framed<T, RedisCodec>, ProtocolFrame>;
+pub type SplitRedisSink<'a, T> = SplitSink<Framed<T, RedisCodec>, BorrowedProtocolFrame<'a>>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
 
 /// Connect to each socket addr and return the first successful connection.
@@ -237,26 +239,29 @@ pub enum ConnectionKind {
 
 impl ConnectionKind {
   /// Split the connection.
-  pub fn split(self) -> (SplitSinkKind, SplitStreamKind) {
+  pub fn split<'a>(self) -> (SplitSinkKind<'a>, SplitStreamKind) {
     match self {
       ConnectionKind::Tcp(conn) => {
         let (sink, stream) = conn.split();
-        (SplitSinkKind::Tcp(sink), SplitStreamKind::Tcp(stream))
+        (SplitSinkKind::Tcp(sink), SplitStreamKind::Tcp(stream.peekable()))
       },
       #[cfg(feature = "unix-sockets")]
       ConnectionKind::Unix(conn) => {
         let (sink, stream) = conn.split();
-        (SplitSinkKind::Unix(sink), SplitStreamKind::Unix(stream))
+        (SplitSinkKind::Unix(sink), SplitStreamKind::Unix(stream.peekable()))
       },
       #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
       ConnectionKind::Rustls(conn) => {
         let (sink, stream) = conn.split();
-        (SplitSinkKind::Rustls(sink), SplitStreamKind::Rustls(stream))
+        (SplitSinkKind::Rustls(sink), SplitStreamKind::Rustls(stream.peekable()))
       },
       #[cfg(feature = "enable-native-tls")]
       ConnectionKind::NativeTls(conn) => {
         let (sink, stream) = conn.split();
-        (SplitSinkKind::NativeTls(sink), SplitStreamKind::NativeTls(stream))
+        (
+          SplitSinkKind::NativeTls(sink),
+          SplitStreamKind::NativeTls(stream.peekable()),
+        )
       },
     }
   }
@@ -290,7 +295,7 @@ impl Stream for ConnectionKind {
   }
 }
 
-impl Sink<ProtocolFrame> for ConnectionKind {
+impl<'a> Sink<BorrowedProtocolFrame<'a>> for ConnectionKind {
   type Error = RedisError;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -305,7 +310,7 @@ impl Sink<ProtocolFrame> for ConnectionKind {
     }
   }
 
-  fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
+  fn start_send(self: Pin<&mut Self>, item: BorrowedProtocolFrame<'a>) -> Result<(), Self::Error> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "unix-sockets")]
@@ -343,13 +348,13 @@ impl Sink<ProtocolFrame> for ConnectionKind {
 }
 
 pub enum SplitStreamKind {
-  Tcp(SplitRedisStream<TcpStream>),
+  Tcp(Peekable<SplitRedisStream<TcpStream>>),
   #[cfg(feature = "unix-sockets")]
-  Unix(SplitRedisStream<UnixStream>),
+  Unix(Peekable<SplitRedisStream<UnixStream>>),
   #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
-  Rustls(SplitRedisStream<RustlsStream<TcpStream>>),
+  Rustls(Peekable<SplitRedisStream<RustlsStream<TcpStream>>>),
   #[cfg(feature = "enable-native-tls")]
-  NativeTls(SplitRedisStream<NativeTlsStream<TcpStream>>),
+  NativeTls(Peekable<SplitRedisStream<NativeTlsStream<TcpStream>>>),
 }
 
 impl Stream for SplitStreamKind {
@@ -380,17 +385,17 @@ impl Stream for SplitStreamKind {
   }
 }
 
-pub enum SplitSinkKind {
-  Tcp(SplitRedisSink<TcpStream>),
+pub enum SplitSinkKind<'a> {
+  Tcp(SplitRedisSink<'a, TcpStream>),
   #[cfg(feature = "unix-sockets")]
-  Unix(SplitRedisSink<UnixStream>),
+  Unix(SplitRedisSink<'a, UnixStream>),
   #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
-  Rustls(SplitRedisSink<RustlsStream<TcpStream>>),
+  Rustls(SplitRedisSink<'a, RustlsStream<TcpStream>>),
   #[cfg(feature = "enable-native-tls")]
-  NativeTls(SplitRedisSink<NativeTlsStream<TcpStream>>),
+  NativeTls(SplitRedisSink<'a, NativeTlsStream<TcpStream>>),
 }
 
-impl Sink<ProtocolFrame> for SplitSinkKind {
+impl<'a> Sink<BorrowedProtocolFrame<'a>> for SplitSinkKind<'a> {
   type Error = RedisError;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -405,7 +410,7 @@ impl Sink<ProtocolFrame> for SplitSinkKind {
     }
   }
 
-  fn start_send(self: Pin<&mut Self>, item: ProtocolFrame) -> Result<(), Self::Error> {
+  fn start_send(self: Pin<&mut Self>, item: BorrowedProtocolFrame<'a>) -> Result<(), Self::Error> {
     match self.get_mut() {
       SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "unix-sockets")]
@@ -1020,6 +1025,66 @@ impl RedisReader {
       self.task = None;
     }
     self.stream = None;
+  }
+}
+
+pub struct SplitConnection<'a> {
+  pub sink:         SplitSinkKind<'a>,
+  pub stream:       SplitStreamKind,
+  pub default_host: Str,
+  pub addr:         Option<SocketAddr>,
+  pub buffer:       VecDeque<RedisCommand>,
+  pub version:      Option<Version>,
+  pub id:           Option<i64>,
+  pub counters:     Counters,
+}
+
+impl<'a> SplitConnection<'a> {
+  /// Check if the reader half is healthy, returning any errors.
+  pub async fn check_read_errors(&mut self) -> Option<RedisError> {
+    let result = std::future::poll_fn(|cx| match self.stream {
+      SplitStreamKind::Tcp(ref mut t) => match Pin::new(t).poll_peek(cx) {
+        Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
+        _ => Poll::Ready(None::<Result<(), RedisError>>),
+      },
+      #[cfg(feature = "unix-sockets")]
+      SplitStreamKind::Unix(ref mut t) => match Pin::new(t).poll_peek(cx) {
+        Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
+        _ => Poll::Ready(None),
+      },
+      #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
+      SplitStreamKind::Rustls(ref mut t) => match Pin::new(t).poll_peek(cx) {
+        Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
+        _ => Poll::Ready(None),
+      },
+      #[cfg(feature = "enable-native-tls")]
+      SplitStreamKind::NativeTls(ref mut t) => match Pin::new(t).poll_peek(cx) {
+        Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
+        _ => Poll::Ready(None),
+      },
+    });
+
+    if let Some(Err(e)) = result.await {
+      Some(e)
+    } else {
+      None
+    }
+  }
+
+  /// Write a frame to the socket.
+  #[inline(always)]
+  pub async fn write<F: Into<BorrowedProtocolFrame<'a>>>(&mut self, frame: F, flush: bool) -> Result<(), RedisError> {
+    if flush {
+      self.sink.send(frame.into()).await
+    } else {
+      self.sink.feed(frame.into()).await
+    }
+  }
+
+  /// Read the next frame from the reader half in a cancellation-safe way.
+  #[inline(always)]
+  pub async fn read(&mut self) -> Option<Resp3Frame> {
+    unimplemented!()
   }
 }
 

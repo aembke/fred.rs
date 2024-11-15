@@ -178,7 +178,7 @@ native-tls = { version = "0.2", optional = true }
 nom = { version = "7.1", optional = true }
 parking_lot = "0.12"
 rand = "0.8"
-redis-protocol = { path = "../../../../redis-protocol.rs", features = ["resp2", "resp3", "bytes"] }
+redis-protocol = { version = "6.0.0", features = ["resp2", "resp3", "bytes"] }
 rustls = { version = "0.23", optional = true, default-features = false }
 rustls-native-certs = { version = "0.7", optional = true }
 semver = "1.0"

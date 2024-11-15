@@ -217,6 +217,7 @@ impl Transaction {
   /// Whether to pipeline commands in the transaction.
   ///
   /// Note: pipelined transactions should only be used with Redis version >=2.6.5.
+  #[deprecated(since = "9.5.0", note = "All transactions are now pipelined.")]
   pub fn pipeline(&self, val: bool) {
     utils::set_bool_atomic(&self.state.pipelined, val);
   }
