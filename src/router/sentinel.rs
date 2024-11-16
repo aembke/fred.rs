@@ -1,11 +1,10 @@
 #![allow(dead_code)]
-
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, RedisTransport, RedisWriter},
+    connection::{self, RedisTransport, SplitConnection},
     utils as protocol_utils,
   },
   router::{centralized, Connections},
@@ -308,7 +307,7 @@ async fn update_sentinel_backchannel(
 /// * Split and store the primary node transport on `writer`.
 async fn update_cached_client_state(
   inner: &RefCount<RedisClientInner>,
-  writer: &mut Option<RedisWriter>,
+  writer: &mut Option<SplitConnection>,
   mut sentinel: RedisTransport,
   transport: RedisTransport,
 ) -> Result<(), RedisError> {
@@ -320,8 +319,7 @@ async fn update_cached_client_state(
     .update_sentinel_nodes(&transport.server, sentinels);
   let _ = update_sentinel_backchannel(inner, &transport).await;
 
-  let (_, _writer) = connection::split(inner, transport, false, centralized::spawn_reader_task)?;
-  *writer = Some(_writer);
+  *writer = Some(transport.split(false));
   Ok(())
 }
 

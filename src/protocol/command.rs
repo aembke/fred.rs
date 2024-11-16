@@ -5,7 +5,7 @@ use crate::{
   protocol::{
     hashers::ClusterHash,
     responders::ResponseKind,
-    types::{ProtocolFrame, Server},
+    types::{EncodedFrame, ProtocolFrame, Server},
     utils as protocol_utils,
   },
   runtime::{oneshot_channel, AtomicBool, Mutex, OneshotReceiver, OneshotSender, RefCount},
@@ -27,7 +27,6 @@ use std::{
 
 #[cfg(feature = "mocks")]
 use crate::modules::mocks::MockCommand;
-use crate::protocol::types::EncodedFrame;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 
@@ -40,47 +39,8 @@ pub fn command_counter() -> usize {
     .saturating_add(1)
 }
 
-/// A command interface for communication between connection reader tasks and the router.
-///
-/// Use of this interface assumes that a command was **not** pipelined. The reader task may instead
-/// choose to communicate with the router via the shared command queue if no channel exists on
-/// which to send this command.
-#[derive(Debug)]
-pub enum RouterResponse {
-  /// Continue with the next command.
-  Continue,
-  /// Retry the command immediately against the provided server, but with an `ASKING` prefix.
-  ///
-  /// Typically used with transactions to retry the entire transaction against a different node.
-  ///
-  /// Reader tasks will attempt to use the router channel first when handling cluster errors, but
-  /// may fall back to communication via the command channel in the context of pipelined commands.
-  Ask((u16, Server, RedisCommand)),
-  /// Retry the command immediately against the provided server, updating the cached routing table first.
-  ///
-  /// Reader tasks will attempt to use the router channel first when handling cluster errors, but
-  /// may fall back to communication via the command channel in the context of pipelined commands.
-  Moved((u16, Server, RedisCommand)),
-  /// Indicate to the router that the provided transaction command failed with the associated error.
-  ///
-  /// The router is responsible for responding to the caller with the error, if needed. Transaction commands are
-  /// never pipelined.
-  TransactionError((RedisError, RedisCommand)),
-  /// Indicates to the router that the transaction finished with the associated result.
-  TransactionResult(Resp3Frame),
-  /// Indicates that the connection closed while the command was in-flight.
-  ///
-  /// This is only used for non-pipelined commands where the router task is blocked on a response before
-  /// checking the next command.
-  ConnectionClosed((RedisError, RedisCommand)),
-}
-
 /// A channel for communication between connection reader tasks and futures returned to the caller.
 pub type ResponseSender = OneshotSender<Result<Resp3Frame, RedisError>>;
-/// A sender channel for communication between connection reader tasks and the router.
-pub type RouterSender = OneshotSender<RouterResponse>;
-/// A receiver channel for communication between connection reader tasks and the router.
-pub type RouterReceiver = OneshotReceiver<RouterResponse>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterErrorKind {
@@ -1573,8 +1533,6 @@ pub struct RedisCommand {
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
   pub arguments:              Vec<RedisValue>,
-  /// A oneshot sender used to communicate with the router.
-  pub router_tx:              RefCount<Mutex<Option<RouterSender>>>,
   /// The number of times the command has been written to a socket.
   pub write_attempts:         u32,
   /// The number of write attempts remaining.
@@ -1659,7 +1617,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
       timeout_dur: None,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
-      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1691,7 +1648,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
       timed_out: RefCount::new(AtomicBool::new(false)),
       timeout_dur: None,
       hasher: ClusterHash::default(),
-      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1723,7 +1679,6 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
       timed_out: RefCount::new(AtomicBool::new(false)),
       timeout_dur: None,
       hasher: ClusterHash::default(),
-      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
@@ -1756,7 +1711,6 @@ impl RedisCommand {
       timeout_dur: None,
       response: ResponseKind::Respond(None),
       hasher: ClusterHash::default(),
-      router_tx: RefCount::new(Mutex::new(None)),
       attempts_remaining: 1,
       redirections_remaining: 1,
       can_pipeline: true,
@@ -1787,7 +1741,6 @@ impl RedisCommand {
       timed_out:                                  RefCount::new(AtomicBool::new(false)),
       timeout_dur:                                None,
       response:                                   ResponseKind::Respond(None),
-      router_tx:                                  RefCount::new(Mutex::new(None)),
       attempts_remaining:                         1,
       redirections_remaining:                     1,
       can_pipeline:                               true,
@@ -1857,12 +1810,8 @@ impl RedisCommand {
     }
   }
 
-  pub fn in_pipelined_transaction(&self) -> bool {
-    self.transaction_id.is_some() && self.response.is_buffer()
-  }
-
-  pub fn in_non_pipelined_transaction(&self) -> bool {
-    self.transaction_id.is_some() && !self.response.is_buffer()
+  pub fn in_transaction(&self) -> bool {
+    self.transaction_id.is_some()
   }
 
   pub fn decr_check_redirections(&mut self) -> Result<(), RedisError> {
@@ -1926,34 +1875,6 @@ impl RedisCommand {
     mem::replace(&mut self.response, ResponseKind::Skip)
   }
 
-  /// Create a channel on which to block the router, returning the receiver.
-  pub fn create_router_channel(&self) -> OneshotReceiver<RouterResponse> {
-    let (tx, rx) = oneshot_channel();
-    let mut guard = self.router_tx.lock();
-    *guard = Some(tx);
-    rx
-  }
-
-  /// Send a message to unblock the router loop, if necessary.
-  pub fn respond_to_router(&self, inner: &RefCount<RedisClientInner>, cmd: RouterResponse) {
-    #[allow(unused_mut)]
-    if let Some(mut tx) = self.router_tx.lock().take() {
-      if tx.send(cmd).is_err() {
-        _debug!(inner, "Failed to unblock router loop.");
-      }
-    }
-  }
-
-  /// Take the router sender from the command.
-  pub fn take_router_tx(&self) -> Option<RouterSender> {
-    self.router_tx.lock().take()
-  }
-
-  /// Whether the command has a channel to the router.
-  pub fn has_router_channel(&self) -> bool {
-    self.router_tx.lock().is_some()
-  }
-
   /// Clone the command, supporting commands with shared response state.
   ///
   /// Note: this will **not** clone the router channel.
@@ -1969,7 +1890,6 @@ impl RedisCommand {
       timeout_dur: self.timeout_dur,
       can_pipeline: self.can_pipeline,
       skip_backpressure: self.skip_backpressure,
-      router_tx: self.router_tx.clone(),
       cluster_node: self.cluster_node.clone(),
       fail_fast: self.fail_fast,
       response,
@@ -2063,12 +1983,6 @@ impl RedisCommand {
     }
   }
 
-  /// Finish the command, responding to both the caller and router.
-  pub fn finish(mut self, inner: &RefCount<RedisClientInner>, result: Result<Resp3Frame, RedisError>) {
-    self.respond_to_caller(result);
-    self.respond_to_router(inner, RouterResponse::Continue);
-  }
-
   /// Read the first key in the arguments according to the `FirstKey` cluster hash policy.
   pub fn first_key(&self) -> Option<&[u8]> {
     ClusterHash::FirstKey.find_key(self.args())
@@ -2099,7 +2013,7 @@ impl RedisCommand {
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
-  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, RedisError> {
+  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<EncodedFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(self.args());
 
     if cmd_size >= blocking_threshold {
@@ -2137,45 +2051,15 @@ pub enum RouterCommand {
   /// Send a pipelined series of commands to the server.
   Pipeline { commands: Vec<RedisCommand> },
   /// Send a transaction to the server.
-  // Notes:
-  // * The inner command buffer will not contain the trailing `EXEC` command.
-  // * Transactions are never pipelined in order to handle ASK responses.
-  // * IDs must be unique w/r/t other transactions buffered in memory.
-  //
-  // There is one special failure mode that must be considered:
-  // 1. The client sends `MULTI` and we receive an `OK` response.
-  // 2. The caller sends `GET foo{1}` and we receive a `QUEUED` response.
-  // 3. The caller sends `GET bar{1}` and we receive an `ASK` response.
-  //
-  // According to the cluster spec the client should retry the entire transaction against the node in the `ASK`
-  // response, but with an `ASKING` command before `MULTI`. However, the future returned to the caller from `GET
-  // foo{1}` will have already finished at this point. To account for this the client will never pipeline
-  // transactions against a cluster, and may clone commands before sending them in order to replay them later with
-  // a different cluster node mapping.
+  // The inner command buffer will not contain the trailing `EXEC` command.
   #[cfg(feature = "transactions")]
   Transaction {
     id:             u64,
     commands:       Vec<RedisCommand>,
     abort_on_error: bool,
-    pipelined:      bool,
     tx:             ResponseSender,
   },
-  /// Retry a command after a `MOVED` error.
-  // This will trigger a call to `CLUSTER SLOTS` before the command is retried.
-  Moved {
-    slot:    u16,
-    server:  Server,
-    command: RedisCommand,
-  },
-  /// Retry a command after an `ASK` error.
-  // This is typically used instead of `RouterResponse::Ask` when a command was pipelined.
-  Ask {
-    slot:    u16,
-    server:  Server,
-    command: RedisCommand,
-  },
   /// Initiate a reconnection to the provided server, or all servers.
-  // The client may not perform a reconnection if a healthy connection exists to `server`, unless `force` is `true`.
   Reconnect {
     server:  Option<Server>,
     force:   bool,
@@ -2185,8 +2069,6 @@ pub enum RouterCommand {
   },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster { tx: OneshotSender<Result<(), RedisError>> },
-  /// Read the set of active connections managed by the client.
-  Connections { tx: OneshotSender<Vec<Server>> },
   /// Force sync the replica routing table with the server(s).
   #[cfg(feature = "replicas")]
   SyncReplicas {
@@ -2200,10 +2082,7 @@ impl RouterCommand {
   pub fn should_skip_backpressure(&self) -> bool {
     matches!(
       *self,
-      RouterCommand::Moved { .. }
-        | RouterCommand::Ask { .. }
-        | RouterCommand::SyncCluster { .. }
-        | RouterCommand::Connections { .. }
+      RouterCommand::SyncCluster { .. } | RouterCommand::Reconnect { .. }
     )
   }
 
@@ -2283,20 +2162,6 @@ impl fmt::Debug for RouterCommand {
     let mut formatter = f.debug_struct("RouterCommand");
 
     match self {
-      RouterCommand::Ask { server, slot, command } => {
-        formatter
-          .field("kind", &"Ask")
-          .field("server", &server)
-          .field("slot", &slot)
-          .field("command", &command.kind.to_str_debug());
-      },
-      RouterCommand::Moved { server, slot, command } => {
-        formatter
-          .field("kind", &"Moved")
-          .field("server", &server)
-          .field("slot", &slot)
-          .field("command", &command.kind.to_str_debug());
-      },
       #[cfg(not(feature = "replicas"))]
       RouterCommand::Reconnect { server, force, .. } => {
         formatter
@@ -2323,9 +2188,6 @@ impl fmt::Debug for RouterCommand {
       },
       RouterCommand::Pipeline { .. } => {
         formatter.field("kind", &"Pipeline");
-      },
-      RouterCommand::Connections { .. } => {
-        formatter.field("kind", &"Connections");
       },
       RouterCommand::Command(command) => {
         formatter

@@ -377,7 +377,6 @@ impl ServerKind {
   }
 }
 
-// TODO make a config option for other defaults and extend this
 fn create_resolver(id: &Str) -> RefCount<dyn Resolve> {
   RefCount::new(DefaultResolver::new(id))
 }
@@ -507,8 +506,6 @@ impl RedisClientInner {
       RefCount::new(AtomicBool::new(false))
     };
     let connection = RefCount::new(connection);
-    #[cfg(feature = "glommio")]
-    let command_tx = command_tx.into();
     let command_tx = RefSwap::new(RefCount::new(command_tx));
 
     RefCount::new(RedisClientInner {
@@ -733,9 +730,6 @@ impl RedisClientInner {
       .as_ref()
       .map(|policy| policy.should_reconnect())
       .unwrap_or(false);
-
-    // do not attempt a reconnection if the client is intentionally disconnecting. the QUIT and SHUTDOWN commands set
-    // this flag.
     let is_disconnecting = utils::read_locked(&self.state) == ClientState::Disconnecting;
 
     debug!(
@@ -816,18 +810,17 @@ impl RedisClientInner {
   pub fn send_command(self: &RefCount<Self>, command: RouterCommand) -> Result<(), RouterCommand> {
     use tokio::sync::mpsc::error::TrySendError;
 
-    // TODO figure out what to do about using ArcSwap with an async version of `send` here.
     if let Err(v) = self.command_tx.load().try_send(command) {
       match v {
         TrySendError::Closed(c) => Err(c),
         TrySendError::Full(c) => match c {
-          RouterCommand::Command(cmd) => {
-            cmd.finish(self, Err(RedisError::new_backpressure()));
+          RouterCommand::Command(mut cmd) => {
+            cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
-            if let Some(cmd) = commands.pop() {
-              cmd.finish(self, Err(RedisError::new_backpressure()));
+            if let Some(mut cmd) = commands.pop() {
+              cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             }
             Ok(())
           },
@@ -853,12 +846,12 @@ impl RedisClientInner {
         GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
         GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
           RouterCommand::Command(cmd) => {
-            cmd.finish(self, Err(RedisError::new_backpressure()));
+            cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
             if let Some(cmd) = commands.pop() {
-              cmd.finish(self, Err(RedisError::new_backpressure()));
+              cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             }
             Ok(())
           },

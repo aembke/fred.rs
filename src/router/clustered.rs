@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
-    connection::{self, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitStreamKind},
+    connection::{self, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitConnection, SplitStreamKind},
     responders,
     responders::ResponseKind,
     types::{ClusterRouting, Server, SlotRange},
@@ -65,75 +65,21 @@ pub fn route_command<'a>(
 /// Send a command to all cluster nodes.
 ///
 /// Note: if any of the commands fail to send the entire command is interrupted.
-// There's probably a much cleaner way to express this. Most of the complexity here comes from the need to
-// pre-allocate and assign response locations in the buffer ahead of time. This is done to avoid any race conditions.
 pub async fn send_all_cluster_command(
   inner: &RefCount<RedisClientInner>,
-  writers: &mut HashMap<Server, RedisWriter>,
+  writers: &mut HashMap<Server, SplitConnection>,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
-  let num_nodes = writers.len();
-  if let ResponseKind::Buffer {
-    ref mut frames,
-    ref mut expected,
-    ..
-  } = command.response
-  {
-    *expected = num_nodes;
-
-    _trace!(
-      inner,
-      "Allocating {} null responses in buffer for {}.",
-      num_nodes,
-      command.kind.to_str_debug(),
-    );
-    let mut guard = frames.lock();
-    // pre-allocate responses
-    *guard = repeat(Resp3Frame::Null).take(num_nodes).collect();
-  }
-  let mut responder = match command.response.duplicate() {
-    Some(resp) => resp,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Invalid command response type.",
-      ))
-    },
-  };
-
-  for (idx, (server, writer)) in writers.iter_mut().enumerate() {
-    _debug!(
-      inner,
-      "Sending all cluster command to {} with index {}, ID: {}",
-      server,
-      idx,
-      command.debug_id()
-    );
-    let mut cmd_responder = responder.duplicate().unwrap_or(ResponseKind::Skip);
-    cmd_responder.set_expected_index(idx);
-    let mut cmd = command.duplicate(cmd_responder);
-    cmd.skip_backpressure = true;
-
-    if let Written::Disconnected((server, _, err)) = utils::write_command(inner, writer, cmd, true).await {
-      _debug!(
-        inner,
-        "Exit all nodes command early ({}/{}: {:?}) from error: {:?}",
-        idx + 1,
-        num_nodes,
-        server,
-        err
-      );
-      responder.respond_with_error(err);
-      break;
-    }
-  }
-
-  Ok(())
+  // create the command
+  // write it to all connections
+  // join read from all of them
+  // respond to the caller
+  unimplemented!()
 }
 
 pub fn parse_cluster_changes(
   cluster_state: &ClusterRouting,
-  writers: &HashMap<Server, RedisWriter>,
+  writers: &HashMap<Server, SplitConnection>,
 ) -> ClusterChange {
   let mut old_servers = BTreeSet::new();
   let mut new_servers = BTreeSet::new();
@@ -171,80 +117,6 @@ pub fn broadcast_cluster_change(inner: &RefCount<RedisClientInner>, changes: &Cl
   inner.notifications.broadcast_cluster_change(changes);
 }
 
-/// Spawn a task to read response frames from the reader half of the socket.
-#[allow(unused_assignments)]
-pub fn spawn_reader_task(
-  inner: &RefCount<RedisClientInner>,
-  mut reader: SplitStreamKind,
-  server: &Server,
-  buffer: &SharedBuffer,
-  counters: &Counters,
-  is_replica: bool,
-) -> JoinHandle<Result<(), RedisError>> {
-  let (inner, server) = (inner.clone(), server.clone());
-  let (buffer, counters) = (buffer.clone(), counters.clone());
-  #[cfg(feature = "glommio")]
-  let tq = inner.connection.connection_task_queue;
-
-  let reader_ft = async move {
-    let mut last_error = None;
-
-    loop {
-      let frame = match utils::next_frame(&inner, &mut reader, &server, &buffer).await {
-        Ok(Some(frame)) => frame.into_resp3(),
-        Ok(None) => {
-          last_error = None;
-          break;
-        },
-        Err(e) => {
-          last_error = Some(e);
-          break;
-        },
-      };
-
-      if let Some(error) = responses::check_special_errors(&inner, &frame) {
-        last_error = Some(error);
-        break;
-      }
-      if let Some(frame) = responses::check_pubsub_message(&inner, &server, frame) {
-        if let Err(e) = process_response_frame(&inner, &server, &buffer, &counters, frame).await {
-          _debug!(
-            inner,
-            "Error processing clustered response frame from {}: {:?}",
-            server,
-            e
-          );
-          last_error = Some(e);
-          break;
-        }
-      }
-    }
-
-    // see the centralized variant of this function for more information.
-    utils::check_blocked_router(&inner, &buffer, &last_error);
-    utils::check_final_write_attempt(&inner, &buffer, &last_error);
-    if is_replica {
-      responses::broadcast_replica_error(&inner, &server, last_error);
-    } else {
-      responses::broadcast_reader_error(&inner, &server, last_error);
-    }
-    utils::remove_cached_connection_id(&inner, &server).await;
-    inner.remove_connection(&server);
-
-    _debug!(inner, "Ending reader task from {}", server);
-    Ok(())
-  };
-
-  #[cfg(feature = "glommio")]
-  if let Some(tq) = tq {
-    crate::runtime::spawn_into(reader_ft, tq)
-  } else {
-    spawn(reader_ft)
-  }
-  #[cfg(not(feature = "glommio"))]
-  spawn(reader_ft)
-}
-
 /// Parse a cluster redirection frame from the provided server, returning the new destination node info.
 pub fn parse_cluster_error_frame(
   inner: &RefCount<RedisClientInner>,
@@ -269,9 +141,6 @@ pub fn parse_cluster_error_frame(
   Ok((kind, slot, server))
 }
 
-/// Send a MOVED or ASK command to the router, using the router channel if possible and falling back on the
-/// command queue if appropriate.
-// Cluster errors within a non-pipelined transaction can only be handled via the blocking router channel.
 fn process_cluster_error(
   inner: &RefCount<RedisClientInner>,
   server: &Server,
@@ -281,77 +150,22 @@ fn process_cluster_error(
   // commands are not redirected to replica nodes
   command.use_replica = false;
 
+  // overwrite the command's cluster node
+  // send to command_tx
+
   let (kind, slot, server) = match parse_cluster_error_frame(inner, &frame, server) {
     Ok(results) => results,
     Err(e) => {
-      command.respond_to_router(inner, RouterResponse::Continue);
       command.respond_to_caller(Err(e));
       return;
     },
   };
 
-  #[allow(unused_mut)]
-  if let Some(mut tx) = command.take_router_tx() {
-    let response = match kind {
-      ClusterErrorKind::Ask => RouterResponse::Ask((slot, server, command)),
-      ClusterErrorKind::Moved => RouterResponse::Moved((slot, server, command)),
-    };
-
-    _debug!(inner, "Sending cluster error to router channel.");
-    if let Err(response) = tx.send(response) {
-      #[cfg(feature = "glommio")]
-      let response = response.into_inner();
-
-      // if it could not be sent on the router tx then send it on the command channel
-      let command = match response {
-        RouterResponse::Ask((slot, server, command)) => {
-          if command.transaction_id.is_some() {
-            _debug!(
-              inner,
-              "Failed sending ASK cluster error to router in transaction: {}",
-              command.kind.to_str_debug()
-            );
-            // do not send the command to the command queue
-            return;
-          } else {
-            RouterCommand::Ask { slot, server, command }
-          }
-        },
-        RouterResponse::Moved((slot, server, command)) => {
-          if command.transaction_id.is_some() {
-            _debug!(
-              inner,
-              "Failed sending MOVED cluster error to router in transaction: {}",
-              command.kind.to_str_debug()
-            );
-            // do not send the command to the command queue
-            return;
-          } else {
-            RouterCommand::Moved { slot, server, command }
-          }
-        },
-        _ => {
-          _error!(inner, "Invalid cluster error router response type.");
-          return;
-        },
-      };
-
-      _debug!(inner, "Sending cluster error to command queue.");
-      if let Err(e) = interfaces::send_to_router(inner, command) {
-        _warn!(inner, "Cannot send MOVED to router channel: {:?}", e);
-      }
-    }
-  } else {
-    let command = match kind {
-      ClusterErrorKind::Ask => RouterCommand::Ask { slot, server, command },
-      ClusterErrorKind::Moved => RouterCommand::Moved { slot, server, command },
-    };
-
-    _debug!(inner, "Sending cluster error to command queue.");
-    if let Err(e) = interfaces::send_to_router(inner, command) {
-      _warn!(inner, "Cannot send ASKED to router channel: {:?}", e);
-    }
-  }
+  // overwrite the command's cluster node
+  // send to command_tx
+  // handle writing transactions differently to avoid special logic here - instead write all commands, then read them
+  // all into a buffer on the write path
+  unimplemented!()
 }
 
 /// Process the response frame in the context of the last command.
@@ -359,19 +173,17 @@ fn process_cluster_error(
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 pub async fn process_response_frame(
   inner: &RefCount<RedisClientInner>,
-  server: &Server,
-  buffer: &SharedBuffer,
-  counters: &Counters,
+  conn: &mut SplitConnection,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
-  _trace!(inner, "Parsing response frame from {}", server);
-  let mut command = match buffer.pop() {
+  _trace!(inner, "Parsing response frame from {}", conn.server);
+  let mut command = match conn.buffer.pop_back() {
     Some(command) => command,
     None => {
       _debug!(
         inner,
         "Missing last command from {}. Dropping {:?}.",
-        server,
+        conn.server,
         frame.kind()
       );
       return Ok(());
@@ -383,51 +195,16 @@ pub async fn process_response_frame(
     command.kind.to_str_debug(),
     command.debug_id()
   );
-  counters.decr_in_flight();
+  conn.counters.decr_in_flight();
   if command.blocks_connection() {
-    buffer.set_unblocked();
+    conn.blocked = false;
   }
-  responses::check_and_set_unblocked_flag(inner, &command).await;
-
-  // pipelined transactions defer cluster redirections until after `EXECABORT` is received
-  if frame.is_redirection() && !command.in_pipelined_transaction() {
-    _debug!(
-      inner,
-      "Recv MOVED or ASK error for `{}` from {}: {:?}",
-      command.kind.to_str_debug(),
-      server,
-      frame.as_str()
-    );
-    process_cluster_error(inner, server, command, frame);
-    return Ok(());
-  }
-
-  // non-pipelined transactions use ResponseKind::Skip, pipelined ones use a buffer. non-pipelined transactions
-  // need to retry commands in a special way so this logic forwards the result via the latest command's router
-  // response channel and exits early. pipelined transactions use the normal buffered response process below.
-  if command.in_non_pipelined_transaction() {
-    if let Some(error) = protocol_utils::frame_to_error(&frame) {
-      #[allow(unused_mut)]
-      if let Some(mut tx) = command.take_router_tx() {
-        let _ = tx.send(RouterResponse::TransactionError((error, command)));
-      }
-      return Ok(());
-    } else if command.kind.ends_transaction() {
-      command.respond_to_router(inner, RouterResponse::TransactionResult(frame));
-      return Ok(());
-    } else {
-      command.respond_to_router(inner, RouterResponse::Continue);
-      return Ok(());
-    }
-  }
+  responses::check_and_set_unblocked(inner, &command).await;
 
   _trace!(inner, "Handling clustered response kind: {:?}", command.response);
   match command.take_response() {
-    ResponseKind::Skip | ResponseKind::Respond(None) => {
-      command.respond_to_router(inner, RouterResponse::Continue);
-      Ok(())
-    },
-    ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, server, command, tx, frame),
+    ResponseKind::Skip | ResponseKind::Respond(None) => Ok(()),
+    ResponseKind::Respond(Some(tx)) => responders::respond_to_caller(inner, &conn.server, command, tx, frame),
     ResponseKind::Buffer {
       received,
       expected,
@@ -437,7 +214,7 @@ pub async fn process_response_frame(
       error_early,
     } => responders::respond_buffer(
       inner,
-      server,
+      &conn.server,
       command,
       received,
       expected,
@@ -447,10 +224,14 @@ pub async fn process_response_frame(
       tx,
       frame,
     ),
-    ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, server, command, scanner, frame).await,
-    ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, server, command, scanner, frame).await,
+    ResponseKind::KeyScan(scanner) => {
+      responders::respond_key_scan(inner, &conn.server, command, scanner, frame).await
+    },
+    ResponseKind::ValueScan(scanner) => {
+      responders::respond_value_scan(inner, &conn.server, command, scanner, frame).await
+    },
     ResponseKind::KeyScanBuffered(scanner) => {
-      responders::respond_key_scan_buffered(inner, server, command, scanner, frame).await
+      responders::respond_key_scan_buffered(inner, &conn.server, command, scanner, frame).await
     },
   }
 }
@@ -600,16 +381,16 @@ pub async fn cluster_slots_backchannel(
   Ok(new_cache)
 }
 
-/// Check each connection and remove it from the writer map if it's not [working](RedisWriter::is_working).
-pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisWriter>) -> VecDeque<RedisCommand> {
+/// Check each connection and remove it from the writer map if it's not working.
+pub async fn drop_broken_connections(writers: &mut HashMap<Server, SplitConnection>) -> VecDeque<RedisCommand> {
   let mut new_writers = HashMap::with_capacity(writers.len());
   let mut buffer = VecDeque::new();
 
-  for (server, writer) in writers.drain() {
-    if writer.is_working() {
-      new_writers.insert(server, writer);
+  for (server, mut writer) in writers.drain() {
+    if writer.has_reader_errors() {
+      buffer.extend(writer.close().await);
     } else {
-      buffer.extend(writer.graceful_close().await);
+      new_writers.insert(server, writer);
     }
   }
 
@@ -620,7 +401,7 @@ pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisWriter>)
 /// Run `CLUSTER SLOTS`, update the cached routing table, and modify the connection map.
 pub async fn sync(
   inner: &RefCount<RedisClientInner>,
-  connections: &mut Connections,
+  connections: &mut HashMap<Server, SplitConnection>,
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Synchronizing cluster state.");
@@ -671,10 +452,9 @@ pub async fn sync(
         _debug!(inner, "Connecting to cluster node {}", server);
         let mut transport = connection::create(&_inner, &server, None).await?;
         transport.setup(&_inner, None).await?;
-
-        let (server, writer) = connection::split(&_inner, transport, false, spawn_reader_task)?;
+        let connection = transport.split(false);
         inner.notifications.broadcast_reconnect(server.clone());
-        _new_writers.lock().insert(server, writer);
+        _new_writers.lock().insert(server, connection);
         Ok::<_, RedisError>(())
       });
     }

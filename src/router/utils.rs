@@ -1,10 +1,12 @@
+#[cfg(feature = "transactions")]
+use crate::protocol::command::ClusterErrorKind;
 use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{RedisCommand, RouterCommand, RouterResponse},
-    connection::{RedisWriter, SharedBuffer, SplitStreamKind},
+    command::{RedisCommand, RouterCommand},
+    connection::{SplitConnection, SplitStreamKind},
     responders::ResponseKind,
     types::*,
     utils as protocol_utils,
@@ -17,11 +19,9 @@ use crate::{
 use futures::{SinkExt, TryStreamExt};
 use std::{
   cmp,
+  collections::VecDeque,
   time::{Duration, Instant},
 };
-
-#[cfg(feature = "transactions")]
-use crate::protocol::command::ClusterErrorKind;
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
 pub fn check_backpressure(
@@ -75,11 +75,11 @@ fn set_command_trace(_inner: &RefCount<RedisClientInner>, _: &mut RedisCommand) 
 /// Prepare the command, updating flags in place.
 ///
 /// Returns the RESP frame and whether the socket should be flushed.
-pub fn prepare_command(
+pub fn prepare_command<'a>(
   inner: &RefCount<RedisClientInner>,
   counters: &Counters,
-  command: &mut RedisCommand,
-) -> Result<(ProtocolFrame, bool), RedisError> {
+  command: &'a mut RedisCommand,
+) -> Result<(EncodedFrame<'a>, bool), RedisError> {
   let frame = protocol_utils::encode_frame(inner, command)?;
 
   // flush the socket under any of the following conditions:
@@ -105,118 +105,29 @@ pub fn prepare_command(
 #[inline(always)]
 pub async fn write_command(
   inner: &RefCount<RedisClientInner>,
-  writer: &mut RedisWriter,
+  conn: &mut SplitConnection,
   mut command: RedisCommand,
   force_flush: bool,
 ) -> Written {
   _trace!(
     inner,
-    "Writing {} ({}). Timed out: {}, Force flush: {}",
+    "Writing {} ({}) to {}. Timed out: {}, Force flush: {}",
     command.kind.to_str_debug(),
     command.debug_id(),
+    conn.server,
     client_utils::read_bool_atomic(&command.timed_out),
     force_flush
   );
-  if client_utils::read_bool_atomic(&command.timed_out) {
-    _debug!(
-      inner,
-      "Ignore writing timed out command: {}",
-      command.kind.to_str_debug()
-    );
-    return Written::Ignore;
-  }
-
-  match check_backpressure(inner, &writer.counters, &command) {
-    Ok(Some(backpressure)) => {
-      _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
-      return Written::Backpressure((command, backpressure));
-    },
-    Err(e) => {
-      // return manual backpressure errors directly to the caller
-      command.finish(inner, Err(e));
-      return Written::Ignore;
-    },
-    _ => {},
-  };
-
-  let (frame, should_flush) = match prepare_command(inner, &writer.counters, &mut command) {
-    Ok((frame, should_flush)) => (frame, should_flush || force_flush),
-    Err(e) => {
-      _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
-      // do not retry commands that trigger frame encoding errors
-      command.finish(inner, Err(e));
-      return Written::Ignore;
-    },
-  };
-
-  _trace!(
-    inner,
-    "Sending command {} ({}) to {}",
-    command.kind.to_str_debug(),
-    command.debug_id(),
-    writer.server
-  );
-  command.write_attempts += 1;
-
-  if !writer.is_working() {
-    let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
-    _debug!(inner, "Error sending command: {:?}", error);
-    return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
-  }
-
-  let no_incr = command.has_no_responses();
-  if let Err(command) = writer.push_command(inner, command) {
-    command.finish(inner, Err(RedisError::new_backpressure()));
-    return Written::Ignore;
-  }
-  // copy the logic from RedisWriter::write_frame to avoid another async/await point
-  if should_flush {
-    trace!("Writing and flushing {}", writer.server);
-    if let Err(e) = writer.sink.send(frame).await {
-      debug!("{}: Error sending frame to socket: {:?}", writer.server, e);
-      return Written::Disconnected((Some(writer.server.clone()), None, e));
-    }
-    writer.counters.reset_feed_count();
-  } else {
-    trace!("Writing without flushing {}", writer.server);
-    if let Err(e) = writer.sink.feed(frame).await {
-      debug!("{}: Error feeding frame to socket: {:?}", writer.server, e);
-      return Written::Disconnected((Some(writer.server.clone()), None, e));
-    }
-    writer.counters.incr_feed_count();
-  };
-  if !no_incr {
-    writer.counters.incr_in_flight();
-  }
-
-  Written::Sent((writer.server.clone(), should_flush))
-}
-
-/// Check the shared connection command buffer to see if the oldest command blocks the router task on a
-/// response (not pipelined).
-pub fn check_blocked_router(inner: &RefCount<RedisClientInner>, buffer: &SharedBuffer, error: &Option<RedisError>) {
-  let command = match buffer.pop() {
-    Some(cmd) => cmd,
-    None => return,
-  };
-  if command.has_router_channel() {
-    #[allow(unused_mut)]
-    let mut tx = match command.take_router_tx() {
-      Some(tx) => tx,
-      None => return,
-    };
-    let error = error
-      .clone()
-      .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed"));
-
-    if let Err(_) = tx.send(RouterResponse::ConnectionClosed((error, command))) {
-      _warn!(inner, "Failed to send router connection closed error.");
-    }
-  } else {
-    // this is safe to rearrange since the connection has closed and we can't guarantee command ordering when
-    // connections close while an entire pipeline is in flight
-    buffer.force_push(command);
-  }
+  // check timed out flag
+  // check backpressure
+  // prepare command
+  // incr write attempts
+  // peek errors on the reader half
+  // push command to in-flight queue
+  // write the command
+  // conditionally flush
+  // return Written::Sent
+  unimplemented!()
 }
 
 pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, server: &Server) {
@@ -227,31 +138,25 @@ pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, ser
 /// with the underlying error.
 pub fn check_final_write_attempt(
   inner: &RefCount<RedisClientInner>,
-  buffer: &SharedBuffer,
+  mut buffer: VecDeque<RedisCommand>,
   error: &Option<RedisError>,
-) {
+) -> VecDeque<RedisCommand> {
   buffer
-    .drain()
     .into_iter()
-    .filter_map(|command| {
+    .filter_map(|mut command| {
       if command.should_finish_with_error(inner) {
-        command.finish(
-          inner,
-          Err(
-            error
-              .clone()
-              .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed")),
-          ),
-        );
+        command.respond_to_caller(Err(
+          error
+            .clone()
+            .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed")),
+        ));
 
         None
       } else {
         Some(command)
       }
     })
-    .for_each(|command| {
-      buffer.force_push(command);
-    });
+    .collect()
 }
 
 /// Read the next reconnection delay for the client.

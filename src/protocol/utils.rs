@@ -156,7 +156,7 @@ pub fn parse_shard_pubsub_frame(server: &Server, frame: &Resp3Frame) -> Option<M
           || (data[0].as_str().map(|s| s == "smessage").unwrap_or(false));
 
         if has_either_prefix {
-          let channel = match frame_to_str(&data[data.len() - 2]) {
+          let channel = match frame_to_str(data[data.len() - 2].clone()) {
             Some(channel) => channel,
             None => return None,
           };
@@ -231,8 +231,7 @@ pub fn parse_message_fields(frame: Resp3Frame) -> Result<(Str, RedisValue), Redi
   let channel = frames
     .pop()
     .ok_or(RedisError::new(RedisErrorKind::Protocol, "Invalid pubsub channel."))?;
-  let channel =
-    frame_to_str(&channel).ok_or(RedisError::new(RedisErrorKind::Protocol, "Failed to parse channel."))?;
+  let channel = frame_to_str(channel).ok_or(RedisError::new(RedisErrorKind::Protocol, "Failed to parse channel."))?;
   let value = frame_to_results(value)?;
 
   Ok((channel, value))
@@ -307,26 +306,26 @@ pub fn string_or_bytes(data: Bytes) -> RedisValue {
   }
 }
 
-pub fn frame_to_bytes(frame: &Resp3Frame) -> Option<Bytes> {
+pub fn frame_to_bytes(frame: Resp3Frame) -> Option<Bytes> {
   match frame {
-    Resp3Frame::BigNumber { data, .. } => Some(data.clone()),
-    Resp3Frame::VerbatimString { data, .. } => Some(data.clone()),
-    Resp3Frame::BlobString { data, .. } => Some(data.clone()),
-    Resp3Frame::SimpleString { data, .. } => Some(data.clone()),
-    Resp3Frame::BlobError { data, .. } => Some(data.clone()),
-    Resp3Frame::SimpleError { data, .. } => Some(data.inner().clone()),
+    Resp3Frame::BigNumber { data, .. } => Some(data),
+    Resp3Frame::VerbatimString { data, .. } => Some(data),
+    Resp3Frame::BlobString { data, .. } => Some(data),
+    Resp3Frame::SimpleString { data, .. } => Some(data),
+    Resp3Frame::BlobError { data, .. } => Some(data),
+    Resp3Frame::SimpleError { data, .. } => Some(data.into_inner()),
     _ => None,
   }
 }
 
-pub fn frame_to_str(frame: &Resp3Frame) -> Option<Str> {
+pub fn frame_to_str(frame: Resp3Frame) -> Option<Str> {
   match frame {
-    Resp3Frame::BigNumber { data, .. } => Str::from_inner(data.clone()).ok(),
-    Resp3Frame::VerbatimString { data, .. } => Str::from_inner(data.clone()).ok(),
-    Resp3Frame::BlobString { data, .. } => Str::from_inner(data.clone()).ok(),
-    Resp3Frame::SimpleString { data, .. } => Str::from_inner(data.clone()).ok(),
-    Resp3Frame::BlobError { data, .. } => Str::from_inner(data.clone()).ok(),
-    Resp3Frame::SimpleError { data, .. } => Some(data.clone()),
+    Resp3Frame::BigNumber { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::VerbatimString { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::BlobString { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::SimpleString { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::BlobError { data, .. } => Str::from_inner(data).ok(),
+    Resp3Frame::SimpleError { data, .. } => Some(data),
     _ => None,
   }
 }
@@ -413,7 +412,7 @@ pub fn frame_to_results(frame: Resp3Frame) -> Result<RedisValue, RedisError> {
   Ok(value)
 }
 
-/// Flatten a single nested layer of arrays or sets into one array.
+/// Flatten a single nested layer of arrays or sets into an array.
 #[cfg(feature = "i-hashes")]
 pub fn flatten_frame(frame: Resp3Frame) -> Resp3Frame {
   match frame {
@@ -867,9 +866,6 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<EncodedFrame, Re
     RedisCommandKind::_Custom(ref kind) => {
       let parts: Vec<&str> = kind.cmd.trim().split(' ').collect();
       let mut bulk_strings = Vec::with_capacity(parts.len() + args.len());
-      // TODO what to do about this? can't allocate a new continuous array for both the command parts and the
-      // arguments
-
       for part in parts.into_iter() {
         bulk_strings.push(Resp3Frame::BlobString {
           data:       part.as_bytes().to_vec().into(),

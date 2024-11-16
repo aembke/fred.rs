@@ -216,9 +216,8 @@ pub fn check_pubsub_message(
   None
 }
 
-// TODO cleanup and rename
-// this is called by the reader task after a blocking command finishes in order to mark the connection as unblocked
-pub async fn check_and_set_unblocked_flag(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
+#[inline(always)]
+pub async fn check_and_set_unblocked(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
   if command.blocks_connection() {
     inner.backchannel.write().await.set_unblocked();
   }

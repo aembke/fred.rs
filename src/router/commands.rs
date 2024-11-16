@@ -1,14 +1,7 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
-  protocol::command::{
-    RedisCommand,
-    RedisCommandKind,
-    ResponseSender,
-    RouterCommand,
-    RouterReceiver,
-    RouterResponse,
-  },
+  protocol::command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
   router::{utils, Backpressure, Router, Written},
   runtime::{OneshotSender, RefCount},
   types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
@@ -20,77 +13,6 @@ use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use crate::router::transactions;
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
-
-/// Wait for the response from the reader task, handling cluster redirections if needed.
-///
-/// The command is returned if it failed to write but could be immediately retried.
-///
-/// Errors from this function should end the connection task.
-async fn handle_router_response(
-  inner: &RefCount<RedisClientInner>,
-  router: &mut Router,
-  rx: RouterReceiver,
-) -> Result<Option<RedisCommand>, RedisError> {
-  _debug!(inner, "Waiting on router channel.");
-  let response = match rx.await {
-    Ok(response) => response,
-    Err(e) => {
-      _warn!(inner, "Dropped router response channel with error: {:?}", e);
-      return Ok(None);
-    },
-  };
-
-  _debug!(inner, "Recv router response.");
-  match response {
-    RouterResponse::Continue => Ok(None),
-    RouterResponse::Ask((slot, server, mut command)) => {
-      if let Err(e) = command.decr_check_redirections() {
-        command.respond_to_caller(Err(e));
-        Ok(None)
-      } else {
-        utils::send_asking_with_policy(inner, router, &server, slot).await?;
-        command.hasher = ClusterHash::Custom(slot);
-        command.use_replica = false;
-        command.attempts_remaining += 1;
-        Ok(Some(command))
-      }
-    },
-    RouterResponse::Moved((slot, server, mut command)) => {
-      // check if slot belongs to server, if not then run sync cluster
-      if !router.cluster_node_owns_slot(slot, &server) {
-        utils::sync_cluster_with_policy(inner, router).await?;
-      }
-
-      if let Err(e) = command.decr_check_redirections() {
-        command.finish(inner, Err(e));
-        Ok(None)
-      } else {
-        command.hasher = ClusterHash::Custom(slot);
-        command.use_replica = false;
-        command.attempts_remaining += 1;
-        Ok(Some(command))
-      }
-    },
-    RouterResponse::ConnectionClosed((error, command)) => {
-      let command = if command.should_finish_with_error(inner) {
-        command.finish(inner, Err(error.clone()));
-        None
-      } else {
-        Some(command)
-      };
-
-      utils::reconnect_with_policy(inner, router).await?;
-      Ok(command)
-    },
-    RouterResponse::TransactionError(_) | RouterResponse::TransactionResult(_) => {
-      _error!(inner, "Unexpected transaction response. This is a bug.");
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Invalid transaction response.",
-      ))
-    },
-  }
-}
 
 // In the past this logic was abstracted across several more composable async functions, but this was reworked in
 // 9.5.0 to use this ugly macro interface. Rust imposes a non-trivial amount of overhead (often in the form of
@@ -353,7 +275,7 @@ async fn process_pipeline(
   Ok(())
 }
 
-/// Send ASKING to the provided server, then retry the provided command.
+/// Send `ASKING` to the provided server, then retry the provided command.
 async fn process_ask(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
@@ -536,27 +458,17 @@ async fn process_commands(
 
     _trace!(inner, "Recv command: {:?}", command);
     let result = match command {
-      RouterCommand::Ask { server, slot, command } => process_ask(inner, router, server, slot, command).await,
-      RouterCommand::Moved { server, slot, command } => process_moved(inner, router, server, slot, command).await,
       RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
       #[cfg(feature = "transactions")]
       RouterCommand::Transaction {
         commands,
-        pipelined,
         id,
         tx,
         abort_on_error,
-      } => {
-        if pipelined {
-          transactions::exec::pipelined(inner, router, commands, id, tx).await
-        } else {
-          transactions::exec::non_pipelined(inner, router, commands, id, abort_on_error, tx).await
-        }
-      },
+      } => transactions::exec::pipelined(inner, router, commands, id, tx).await,
       RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
       #[allow(unused_mut)]
       RouterCommand::Command(mut command) => write_command_t!(inner, router, command, false),
-      RouterCommand::Connections { tx } => process_connections(inner, router, tx),
       #[cfg(feature = "replicas")]
       RouterCommand::SyncReplicas { tx, reset } => process_sync_replicas(inner, router, tx, reset).await,
       #[cfg(not(feature = "replicas"))]

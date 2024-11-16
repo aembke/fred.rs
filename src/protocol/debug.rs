@@ -148,6 +148,7 @@ impl<'a> From<&'a Resp3BorrowedFrame<'a>> for DebugFrame {
   }
 }
 
+// TODO clean this up
 pub fn log_resp2_frame(name: &str, frame: &Resp2Frame, encode: bool) {
   let prefix = if encode { "Encoded" } else { "Decoded" };
   trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))

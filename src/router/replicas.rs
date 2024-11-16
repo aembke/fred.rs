@@ -1,3 +1,4 @@
+use crate::protocol::connection::SplitConnection;
 #[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
 use crate::types::TlsHostMapping;
 #[cfg(feature = "replicas")]
@@ -240,8 +241,8 @@ impl ReplicaSet {
 
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
-pub struct Replicas {
-  pub(crate) writers: HashMap<Server, RedisWriter>,
+pub struct Replicas<'a> {
+  pub(crate) writers: HashMap<Server, SplitConnection<'a>>,
   routing:            ReplicaSet,
   buffer:             VecDeque<RedisCommand>,
 }
@@ -260,7 +261,7 @@ impl Replicas {
   /// Sync the connection map in place based on the cached routing table.
   pub async fn sync_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     for (_, writer) in self.writers.drain() {
-      let commands = writer.graceful_close().await;
+      let commands = writer.close().await;
       self.buffer.extend(commands);
     }
 
@@ -301,14 +302,10 @@ impl Replicas {
       let mut transport = connection::create(inner, &replica, None).await?;
       transport.setup(inner, None).await?;
 
-      let (_, writer) = if inner.config.server.is_clustered() {
+      if inner.config.server.is_clustered() {
         transport.readonly(inner, None).await?;
-        connection::split(inner, transport, true, clustered::spawn_reader_task)?
-      } else {
-        connection::split(inner, transport, true, centralized::spawn_reader_task)?
       };
-
-      self.writers.insert(replica.clone(), writer);
+      self.writers.insert(replica.clone(), transport.split(true));
     }
 
     self.routing.add(primary, replica);
@@ -318,7 +315,7 @@ impl Replicas {
   /// Drop the socket associated with the provided server.
   pub async fn drop_writer(&mut self, replica: &Server) {
     if let Some(writer) = self.writers.remove(replica) {
-      let commands = writer.graceful_close().await;
+      let commands = writer.close().await;
       self.buffer.extend(commands);
     }
   }
@@ -383,13 +380,12 @@ impl Replicas {
   /// Check the active connections and drop any without a working reader task.
   pub async fn drop_broken_connections(&mut self) {
     let mut new_writers = HashMap::with_capacity(self.writers.len());
-    for (server, writer) in self.writers.drain() {
-      if writer.is_working() {
-        new_writers.insert(server, writer);
-      } else {
-        let commands = writer.graceful_close().await;
-        self.buffer.extend(commands);
+    for (server, mut writer) in self.writers.drain() {
+      if writer.has_reader_errors().await.is_some() {
+        self.buffer.extend(writer.close().await);
         self.routing.remove_replica(&server);
+      } else {
+        new_writers.insert(server, writer);
       }
     }
 
@@ -397,15 +393,15 @@ impl Replicas {
   }
 
   /// Read the set of all active connections.
-  pub fn active_connections(&self) -> Vec<Server> {
+  pub fn active_connections(&mut self) -> Vec<Server> {
     self
       .writers
-      .iter()
+      .iter_mut()
       .filter_map(|(server, writer)| {
-        if writer.is_working() {
-          Some(server.clone())
-        } else {
+        if writer.has_reader_errors() {
           None
+        } else {
+          Some(server.clone())
         }
       })
       .collect()
@@ -428,10 +424,7 @@ impl Replicas {
           return if inner.connection.replica.primary_fallback {
             Written::Fallback(command)
           } else {
-            command.finish(
-              inner,
-              Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")),
-            );
+            command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")));
             Written::Ignore
           };
         },
@@ -529,7 +522,7 @@ impl Replicas {
   }
 
   /// Take the commands stored for retry later.
-  pub fn take_retry_buffer(&mut self) -> CommandBuffer {
+  pub fn take_retry_buffer(&mut self) -> VecDeque<RedisCommand> {
     self.buffer.drain(..).collect()
   }
 }
