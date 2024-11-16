@@ -523,7 +523,8 @@ pub fn value_to_outgoing_resp2_frame(value: &RedisValue) -> Result<Resp2Frame, R
   let frame = match value {
     RedisValue::Double(ref f) => Resp2Frame::BulkString(f.to_string().into()),
     RedisValue::Boolean(ref b) => Resp2Frame::BulkString(b.to_string().into()),
-    RedisValue::Integer(ref i) => Resp2Frame::BulkString(i.to_string().into()),
+    // the `int_as_bulkstring` flag in redis-protocol converts this to a bulk string
+    RedisValue::Integer(ref i) => Resp2Frame::Integer(*i),
     RedisValue::String(ref s) => Resp2Frame::BulkString(s.inner().clone()),
     RedisValue::Bytes(ref b) => Resp2Frame::BulkString(b.clone()),
     RedisValue::Queued => Resp2Frame::BulkString(Bytes::from_static(QUEUED.as_bytes())),
@@ -549,8 +550,9 @@ pub fn value_to_outgoing_resp3_frame(value: &RedisValue) -> Result<Resp3Frame, R
       data:       b.to_string().into(),
       attributes: None,
     },
-    RedisValue::Integer(ref i) => Resp3Frame::BlobString {
-      data:       i.to_string().into(),
+    // the `int_as_blobstring` flag in redis-protocol converts this to a blob string
+    RedisValue::Integer(ref i) => Resp3Frame::Number {
+      data:       *i,
       attributes: None,
     },
     RedisValue::String(ref s) => Resp3Frame::BlobString {
@@ -774,7 +776,7 @@ pub fn args_size(args: &[RedisValue]) -> usize {
   args.iter().fold(0, |c, arg| c + arg_size(arg))
 }
 
-fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp3Frame, RedisError> {
+fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<EncodedFrame, RedisError> {
   let args = command.args();
 
   let (auth, setname) = if args.len() == 3 {
@@ -847,14 +849,18 @@ fn serialize_hello(command: &RedisCommand, version: &RespVersion) -> Result<Resp
     (None, None)
   };
 
-  Ok(Resp3Frame::Hello {
-    version: version.clone(),
-    auth,
-    setname,
-  })
+  Ok(EncodedFrame::Owned(
+    Resp3Frame::Hello {
+      version: version.clone(),
+      auth,
+      setname,
+    }
+    .into(),
+  ))
 }
 
-pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3BorrowedFrame, RedisError> {
+// TODO find a way to optimize these functions to use borrowed frame types
+pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<EncodedFrame, RedisError> {
   let args = command.args();
 
   match command.kind {
@@ -874,10 +880,13 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3BorrowedFra
         bulk_strings.push(value_to_outgoing_resp3_frame(value)?);
       }
 
-      Ok(Resp3Frame::Array {
-        data:       bulk_strings,
-        attributes: None,
-      })
+      Ok(EncodedFrame::Owned(
+        Resp3Frame::Array {
+          data:       bulk_strings,
+          attributes: None,
+        }
+        .into(),
+      ))
     },
     RedisCommandKind::_HelloAllCluster(ref version) | RedisCommandKind::_Hello(ref version) => {
       serialize_hello(command, version)
@@ -900,15 +909,18 @@ pub fn command_to_resp3_frame(command: &RedisCommand) -> Result<Resp3BorrowedFra
         bulk_strings.push(value_to_outgoing_resp3_frame(value)?);
       }
 
-      Ok(Resp3Frame::Array {
-        data:       bulk_strings,
-        attributes: None,
-      })
+      Ok(EncodedFrame::Owned(
+        Resp3Frame::Array {
+          data:       bulk_strings,
+          attributes: None,
+        }
+        .into(),
+      ))
     },
   }
 }
 
-pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, RedisError> {
+pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<EncodedFrame, RedisError> {
   let args = command.args();
 
   match command.kind {
@@ -923,7 +935,7 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
       }
 
-      Ok(Resp2Frame::Array(bulk_strings))
+      Ok(EncodedFrame::Owned(Resp2Frame::Array(bulk_strings).into()))
     },
     _ => {
       let mut bulk_strings = Vec::with_capacity(args.len() + 2);
@@ -936,13 +948,13 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<Resp2Frame, Redi
         bulk_strings.push(value_to_outgoing_resp2_frame(value)?);
       }
 
-      Ok(Resp2Frame::Array(bulk_strings))
+      Ok(EncodedFrame::Owned(Resp2Frame::Array(bulk_strings).into()))
     },
   }
 }
 
 /// Serialize the command as a protocol frame.
-pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<BorrowedProtocolFrame, RedisError> {
+pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<EncodedFrame, RedisError> {
   if is_resp3 || command.kind.is_hello() {
     command_to_resp3_frame(command).map(|c| c.into())
   } else {
@@ -950,7 +962,10 @@ pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<Borrow
   }
 }
 
-pub fn encode_frame(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> Result<ProtocolFrame, RedisError> {
+pub fn encode_frame<'a>(
+  inner: &RefCount<RedisClientInner>,
+  command: &'a RedisCommand,
+) -> Result<EncodedFrame<'a>, RedisError> {
   #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
   return command.to_frame_blocking(
     inner.is_resp3(),
@@ -961,7 +976,7 @@ pub fn encode_frame(inner: &RefCount<RedisClientInner>, command: &RedisCommand) 
     not(feature = "blocking-encoding"),
     all(feature = "blocking-encoding", feature = "glommio")
   ))]
-  return command.to_frame(inner.is_resp3());
+  command.to_frame(inner.is_resp3())
 }
 
 #[cfg(test)]

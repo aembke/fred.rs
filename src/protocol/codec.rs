@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
-    types::{BorrowedProtocolFrame, ProtocolFrame, Server},
+    types::{BorrowedProtocolFrame, EncodedFrame, ProtocolFrame, Server},
     utils as protocol_utils,
   },
   runtime::{AtomicBool, RefCount},
@@ -264,13 +264,15 @@ impl RedisCodec {
   }
 }
 
-impl<'a> Encoder<BorrowedProtocolFrame<'a>> for RedisCodec {
+impl<'a> Encoder<EncodedFrame<'a>> for RedisCodec {
   type Error = RedisError;
 
-  fn encode(&mut self, item: BorrowedProtocolFrame<'a>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+  fn encode(&mut self, item: EncodedFrame<'a>, dst: &mut BytesMut) -> Result<(), Self::Error> {
     match item {
-      BorrowedProtocolFrame::Resp2(frame) => resp2_encode_borrowed_frame(self, frame, dst),
-      BorrowedProtocolFrame::Resp3(frame) => resp3_encode_borrowed_frame(self, frame, dst),
+      EncodedFrame::Borrowed(BorrowedProtocolFrame::Resp2(frame)) => resp2_encode_borrowed_frame(self, frame, dst),
+      EncodedFrame::Borrowed(BorrowedProtocolFrame::Resp3(frame)) => resp3_encode_borrowed_frame(self, frame, dst),
+      EncodedFrame::Owned(ProtocolFrame::Resp2(frame)) => resp2_encode_frame(self, frame, dst),
+      EncodedFrame::Owned(ProtocolFrame::Resp3(frame)) => resp3_encode_frame(self, frame, dst),
     }
   }
 }

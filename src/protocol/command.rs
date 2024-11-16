@@ -27,6 +27,7 @@ use std::{
 
 #[cfg(feature = "mocks")]
 use crate::modules::mocks::MockCommand;
+use crate::protocol::types::EncodedFrame;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
 
@@ -2092,7 +2093,7 @@ impl RedisCommand {
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
-  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+  pub fn to_frame(&self, is_resp3: bool) -> Result<EncodedFrame, RedisError> {
     protocol_utils::command_to_frame(self, is_resp3)
   }
 

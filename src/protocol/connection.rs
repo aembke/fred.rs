@@ -7,6 +7,7 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
+  runtime,
   runtime::{AtomicBool, AtomicUsize, JoinHandle, RefCount},
   types::InfoKind,
   utils as client_utils,
@@ -54,11 +55,12 @@ use crate::prelude::ServerConfig;
   feature = "enable-rustls-ring"
 ))]
 use crate::protocol::tls::TlsConnector;
-use crate::protocol::types::BorrowedProtocolFrame;
+use crate::protocol::types::{BorrowedProtocolFrame, EncodedFrame};
 #[cfg(feature = "replicas")]
 use crate::runtime::oneshot_channel;
 #[cfg(feature = "replicas")]
 use crate::{protocol::responders::ResponseKind, types::RedisValue};
+use std::future::Future;
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
@@ -74,6 +76,7 @@ use tokio_rustls::client::TlsStream as RustlsStream;
 pub const OK: &str = "OK";
 /// The timeout duration used when dropping the split sink and waiting on the split stream to close.
 pub const CONNECTION_CLOSE_TIMEOUT_MS: u64 = 5_000;
+pub const INITIAL_BUFFER_SIZE: usize = 64;
 
 pub type CommandBuffer = Vec<RedisCommand>;
 
@@ -172,7 +175,7 @@ impl SharedBuffer {
   }
 }
 
-pub type SplitRedisSink<'a, T> = SplitSink<Framed<T, RedisCodec>, BorrowedProtocolFrame<'a>>;
+pub type SplitRedisSink<'a, T> = SplitSink<Framed<T, RedisCodec>, EncodedFrame<'a>>;
 pub type SplitRedisStream<T> = SplitStream<Framed<T, RedisCodec>>;
 
 /// Connect to each socket addr and return the first successful connection.
@@ -295,7 +298,7 @@ impl Stream for ConnectionKind {
   }
 }
 
-impl<'a> Sink<BorrowedProtocolFrame<'a>> for ConnectionKind {
+impl<'a> Sink<EncodedFrame<'a>> for ConnectionKind {
   type Error = RedisError;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -310,7 +313,7 @@ impl<'a> Sink<BorrowedProtocolFrame<'a>> for ConnectionKind {
     }
   }
 
-  fn start_send(self: Pin<&mut Self>, item: BorrowedProtocolFrame<'a>) -> Result<(), Self::Error> {
+  fn start_send(self: Pin<&mut Self>, item: EncodedFrame<'a>) -> Result<(), Self::Error> {
     match self.get_mut() {
       ConnectionKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "unix-sockets")]
@@ -395,7 +398,7 @@ pub enum SplitSinkKind<'a> {
   NativeTls(SplitRedisSink<'a, NativeTlsStream<TcpStream>>),
 }
 
-impl<'a> Sink<BorrowedProtocolFrame<'a>> for SplitSinkKind<'a> {
+impl<'a> Sink<EncodedFrame<'a>> for SplitSinkKind<'a> {
   type Error = RedisError;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -410,7 +413,7 @@ impl<'a> Sink<BorrowedProtocolFrame<'a>> for SplitSinkKind<'a> {
     }
   }
 
-  fn start_send(self: Pin<&mut Self>, item: BorrowedProtocolFrame<'a>) -> Result<(), Self::Error> {
+  fn start_send(self: Pin<&mut Self>, item: EncodedFrame<'a>) -> Result<(), Self::Error> {
     match self.get_mut() {
       SplitSinkKind::Tcp(ref mut conn) => Pin::new(conn).start_send(item),
       #[cfg(feature = "unix-sockets")]
@@ -965,70 +968,30 @@ impl RedisTransport {
   }
 
   /// Split the transport into reader/writer halves.
-  pub fn split(self, buffer_size: usize) -> (RedisWriter, RedisReader) {
-    let buffer = SharedBuffer::new(buffer_size);
+  pub fn split(self, replica: bool) -> SplitConnection {
+    let buffer = VecDeque::with_capacity(INITIAL_BUFFER_SIZE);
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
-    let (sink, stream) = self.transport.split();
     let (id, version, counters) = (self.id, self.version, self.counters);
+    let (sink, stream) = self.transport.split();
 
-    let writer = RedisWriter {
-      sink,
-      id,
-      version,
-      default_host,
-      counters: counters.clone(),
-      server: server.clone(),
-      addr,
-      buffer: buffer.clone(),
-      reader: None,
-    };
-    let reader = RedisReader {
-      stream: Some(stream),
-      task: None,
+    SplitConnection {
       server,
+      sink,
+      stream,
+      default_host,
+      addr,
       buffer,
+      version,
       counters,
-    };
-    (writer, reader)
-  }
-}
-
-pub struct RedisReader {
-  pub stream:   Option<SplitStreamKind>,
-  pub server:   Server,
-  pub buffer:   SharedBuffer,
-  pub counters: Counters,
-  pub task:     Option<JoinHandle<Result<(), RedisError>>>,
-}
-
-impl RedisReader {
-  pub async fn wait(&mut self) -> Result<(), RedisError> {
-    if let Some(ref mut task) = self.task {
-      task.await?
-    } else {
-      Ok(())
+      id,
+      replica,
+      blocked: false,
     }
-  }
-
-  pub fn is_connected(&self) -> bool {
-    self.task.is_some() || self.stream.is_some()
-  }
-
-  pub fn is_running(&self) -> bool {
-    self.task.is_some()
-  }
-
-  pub fn stop(&mut self, abort: bool) {
-    if abort && self.task.is_some() {
-      self.task.take().unwrap().abort();
-    } else {
-      self.task = None;
-    }
-    self.stream = None;
   }
 }
 
 pub struct SplitConnection<'a> {
+  pub server:       Server,
   pub sink:         SplitSinkKind<'a>,
   pub stream:       SplitStreamKind,
   pub default_host: Str,
@@ -1037,11 +1000,25 @@ pub struct SplitConnection<'a> {
   pub version:      Option<Version>,
   pub id:           Option<i64>,
   pub counters:     Counters,
+  pub blocked:      bool,
+  #[cfg(feature = "replicas")]
+  pub replica:      bool,
+}
+
+impl<'a> fmt::Debug for SplitConnection<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("SplitConnection")
+      .field("server", &self.server)
+      .field("id", &self.id)
+      .field("default_host", &self.default_host)
+      .field("version", &self.version)
+      .finish()
+  }
 }
 
 impl<'a> SplitConnection<'a> {
   /// Check if the reader half is healthy, returning any errors.
-  pub async fn check_read_errors(&mut self) -> Option<RedisError> {
+  pub async fn has_reader_errors(&mut self) -> Option<RedisError> {
     let result = std::future::poll_fn(|cx| match self.stream {
       SplitStreamKind::Tcp(ref mut t) => match Pin::new(t).poll_peek(cx) {
         Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
@@ -1072,157 +1049,144 @@ impl<'a> SplitConnection<'a> {
   }
 
   /// Write a frame to the socket.
+  ///
+  /// The caller is responsible for pushing frames into the in-flight buffer.
   #[inline(always)]
-  pub async fn write<F: Into<BorrowedProtocolFrame<'a>>>(&mut self, frame: F, flush: bool) -> Result<(), RedisError> {
-    if flush {
+  pub async fn write<F: Into<EncodedFrame<'a>>>(
+    &mut self,
+    frame: F,
+    flush: bool,
+    no_incr: bool,
+  ) -> Result<(), RedisError> {
+    let result = if flush {
+      self.counters.reset_feed_count();
       self.sink.send(frame.into()).await
     } else {
+      self.counters.incr_feed_count();
       self.sink.feed(frame.into()).await
+    };
+
+    if result.is_ok() & !no_incr {
+      self.counters.incr_in_flight();
+    }
+    result
+  }
+
+  /// Put a command at the back of the in-flight command buffer.
+  pub fn push_command(&mut self, mut cmd: RedisCommand) {
+    if cmd.has_no_responses() {
+      cmd.respond_to_caller(Ok(Resp3Frame::Null));
+    } else {
+      if cmd.blocks_connection() {
+        self.blocked = true;
+      }
+      self.buffer.push_back(cmd);
     }
   }
 
   /// Read the next frame from the reader half in a cancellation-safe way.
+  ///
+  /// The caller is responsible for decrementing any in-flight counters.
   #[inline(always)]
-  pub async fn read(&mut self) -> Option<Resp3Frame> {
-    unimplemented!()
+  pub async fn read(&mut self) -> Result<Option<Resp3Frame>, RedisError> {
+    match self.stream.next().await {
+      Some(result) => result.map(|f| Some(f.into_resp3())),
+      None => Ok(None),
+    }
   }
-}
 
-pub struct RedisWriter {
-  pub sink:         SplitSinkKind,
-  pub server:       Server,
-  pub default_host: Str,
-  pub addr:         Option<SocketAddr>,
-  pub buffer:       SharedBuffer,
-  pub version:      Option<Version>,
-  pub id:           Option<i64>,
-  pub counters:     Counters,
-  pub reader:       Option<RedisReader>,
-}
+  /// Read frames until detecting a non-pubsub frame.
+  pub async fn read_skip_pubsub(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Result<Option<Resp3Frame>, RedisError> {
+    loop {
+      // TODO unresponsive checks
+      let frame = match self.read().await? {
+        Some(f) => f,
+        None => return Ok(None),
+      };
+      let is_pubsub =
+        frame.is_normal_pubsub_message() || frame.is_pattern_pubsub_message() || frame.is_shard_pubsub_message();
+      if is_pubsub {
+        route_pubsub_frame(inner, &self.server, frame)?;
+        continue;
+      }
 
-impl fmt::Debug for RedisWriter {
-  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("Connection")
-      .field("server", &self.server)
-      .field("id", &self.id)
-      .field("default_host", &self.default_host)
-      .field("version", &self.version)
-      .finish()
+      return Ok(Some(frame));
+    }
   }
-}
 
-impl RedisWriter {
   /// Flush the sink and reset the feed counter.
   pub async fn flush(&mut self) -> Result<(), RedisError> {
     trace!("Flushing socket to {}", self.server);
     self.sink.flush().await?;
-    trace!("Flushed socket to {}", self.server);
     self.counters.reset_feed_count();
     Ok(())
   }
 
-  #[cfg(feature = "replicas")]
-  pub async fn discover_replicas(&mut self, inner: &RefCount<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
-    let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
-    let role = request_response(inner, self, command, None)
-      .await
-      .and_then(protocol_utils::frame_to_results)?;
-
-    protocol_utils::parse_master_role_replicas(role)
-  }
-
-  /// Check if the reader task is still running or awaiting frames.
-  pub fn is_working(&self) -> bool {
-    self
-      .reader
-      .as_ref()
-      .and_then(|reader| reader.task.as_ref())
-      .map(|task| !task.is_finished())
-      .unwrap_or(false)
-  }
-
-  /// Send a command to the server without waiting on the response.
-  pub async fn write_frame(
-    &mut self,
-    frame: ProtocolFrame,
-    should_flush: bool,
-    no_incr: bool,
-  ) -> Result<(), RedisError> {
-    // note: the logic here is also implemented in router::utils::write_command
-    if should_flush {
-      trace!("Writing and flushing {}", self.server);
-      if let Err(e) = self.sink.send(frame).await {
-        // the more useful error appears on the reader half but we'll log this just in case
-        debug!("{}: Error sending frame to socket: {:?}", self.server, e);
-        return Err(e);
-      }
-      self.counters.reset_feed_count();
-    } else {
-      trace!("Writing without flushing {}", self.server);
-      if let Err(e) = self.sink.feed(frame).await {
-        // the more useful error appears on the reader half but we'll log this just in case
-        debug!("{}: Error feeding frame to socket: {:?}", self.server, e);
-        return Err(e);
-      }
-      self.counters.incr_feed_count();
-    };
-    if !no_incr {
-      self.counters.incr_in_flight();
-    }
-
-    Ok(())
-  }
-
-  /// Put a command at the back of the command queue.
-  pub fn push_command(&self, inner: &RefCount<RedisClientInner>, mut cmd: RedisCommand) -> Result<(), RedisCommand> {
-    if cmd.has_no_responses() {
-      _trace!(
-        inner,
-        "Skip adding `{}` command to response buffer (no expected responses).",
-        cmd.kind.to_str_debug()
-      );
-
-      cmd.respond_to_router(inner, RouterResponse::Continue);
-      cmd.respond_to_caller(Ok(Resp3Frame::Null));
-      Ok(())
-    } else {
-      if cmd.blocks_connection() {
-        self.buffer.set_blocked();
-      }
-
-      self.buffer.push(cmd)
-    }
-  }
-
-  /// Force close the connection.
+  /// Close the connection.
   ///
   /// Returns the in-flight commands that had not received a response.
-  pub fn force_close(self, abort_reader: bool) -> CommandBuffer {
-    if abort_reader && self.reader.is_some() {
-      self.reader.unwrap().stop(true);
+  pub async fn close(mut self) -> VecDeque<RedisCommand> {
+    let _ = utils::timeout(self.sink.close(), Duration::from_millis(CONNECTION_CLOSE_TIMEOUT_MS)).await;
+    self.buffer
+  }
+}
+
+pub fn route_pubsub_frame(
+  inner: &RefCount<RedisClientInner>,
+  server: &Server,
+  frame: Resp3Frame,
+) -> Result<(), RedisError> {
+  unimplemented!()
+}
+
+pub async fn request_response(
+  inner: &RefCount<RedisClientInner>,
+  conn: &mut SplitConnection,
+  command: RedisCommand,
+  timeout: Option<Duration>,
+) -> Result<Resp3Frame, RedisError> {
+  let timeout_dur = timeout
+    .or(command.timeout_dur)
+    .unwrap_or_else(|| inner.default_command_timeout());
+
+  _trace!(
+    inner,
+    "Sending {} ({}) to {}",
+    command.kind.to_str_debug(),
+    command.debug_id(),
+    conn.server
+  );
+  let frame = protocol_utils::encode_frame(inner, &command)?;
+
+  let ft = async move {
+    conn.write(frame, true, true).await?;
+    match conn.read_skip_pubsub(inner).await {
+      Ok(Some(f)) => Ok(f),
+      Ok(None) => Err(RedisError::new(RedisErrorKind::Unknown, "Missing response.")),
+      Err(e) => Err(e),
     }
-    self.buffer.drain()
+  };
+  if timeout_dur.is_zero() {
+    ft.await
+  } else {
+    utils::timeout(ft, timeout_dur).await
   }
+}
 
-  /// Gracefully close the connection and wait for the reader task to finish.
-  ///
-  /// Returns the in-flight commands that had not received a response.
-  pub async fn graceful_close(mut self) -> CommandBuffer {
-    let _ = utils::timeout(
-      async {
-        let _ = self.sink.close().await;
-        if let Some(mut reader) = self.reader {
-          let _ = reader.wait().await;
-        }
+#[cfg(feature = "replicas")]
+pub async fn discover_replicas(
+  inner: &RefCount<RedisClientInner>,
+  conn: &mut SplitConnection,
+) -> Result<Vec<Server>, RedisError> {
+  let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
+  let role = request_response(inner, conn, command, None)
+    .await
+    .and_then(protocol_utils::frame_to_results)?;
 
-        Ok::<_, RedisError>(())
-      },
-      Duration::from_millis(CONNECTION_CLOSE_TIMEOUT_MS),
-    )
-    .await;
-
-    self.buffer.drain()
-  }
+  protocol_utils::parse_master_role_replicas(role)
 }
 
 /// Create a connection to the specified `host` and `port` with the provided timeout, in ms.
@@ -1251,83 +1215,5 @@ pub async fn create(
       ServerConfig::Unix { ref path } => utils::timeout(RedisTransport::new_unix(inner, path), timeout).await,
       _ => utils::timeout(RedisTransport::new_tcp(inner, server), timeout).await,
     }
-  }
-}
-
-/// Split a connection, spawn a reader task, register the connection on `inner`, and link the reader and writer
-/// halves.
-pub fn split<F>(
-  inner: &RefCount<RedisClientInner>,
-  transport: RedisTransport,
-  is_replica: bool,
-  func: F,
-) -> Result<(Server, RedisWriter), RedisError>
-where
-  F: FnOnce(
-    &RefCount<RedisClientInner>,
-    SplitStreamKind,
-    &Server,
-    &SharedBuffer,
-    &Counters,
-    bool,
-  ) -> JoinHandle<Result<(), RedisError>>,
-{
-  let server = transport.server.clone();
-  let (mut writer, mut reader) = transport.split(inner.connection.bounded_channel_capacity);
-  let reader_stream = match reader.stream.take() {
-    Some(stream) => stream,
-    None => {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Missing clustered connection reader stream.",
-      ))
-    },
-  };
-  reader.task = Some(func(
-    inner,
-    reader_stream,
-    &writer.server,
-    &writer.buffer,
-    &writer.counters,
-    is_replica,
-  ));
-  writer.reader = Some(reader);
-  inner.add_connection(&server);
-
-  Ok((server, writer))
-}
-
-/// Send a command to the server and wait for a response.
-#[cfg(feature = "replicas")]
-pub async fn request_response(
-  inner: &RefCount<RedisClientInner>,
-  writer: &mut RedisWriter,
-  mut command: RedisCommand,
-  timeout: Option<Duration>,
-) -> Result<Resp3Frame, RedisError> {
-  let (tx, rx) = oneshot_channel();
-  command.response = ResponseKind::Respond(Some(tx));
-  let timeout_dur = timeout
-    .or(command.timeout_dur)
-    .unwrap_or_else(|| inner.default_command_timeout());
-
-  _trace!(
-    inner,
-    "Sending {} ({}) to {}",
-    command.kind.to_str_debug(),
-    command.debug_id(),
-    writer.server
-  );
-  let frame = protocol_utils::encode_frame(inner, &command)?;
-
-  if !writer.is_working() {
-    return Err(RedisError::new(RedisErrorKind::IO, "Connection closed."));
-  }
-
-  if let Err(_) = writer.push_command(inner, command) {
-    Err(RedisError::new_backpressure())
-  } else {
-    writer.write_frame(frame, true, false).await?;
-    utils::timeout(async { rx.await? }, timeout_dur).await
   }
 }

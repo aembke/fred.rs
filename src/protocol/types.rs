@@ -31,7 +31,7 @@ use std::{
 ))]
 use std::{net::IpAddr, str::FromStr};
 
-/// Any kind of RESP frame.
+/// Any kind of owned RESP frame.
 #[derive(Debug)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
@@ -83,6 +83,25 @@ impl<'a> From<Resp2BorrowedFrame<'a>> for BorrowedProtocolFrame<'a> {
 impl<'a> From<Resp3BorrowedFrame<'a>> for BorrowedProtocolFrame<'a> {
   fn from(frame: Resp3BorrowedFrame<'a>) -> Self {
     BorrowedProtocolFrame::Resp3(frame)
+  }
+}
+
+/// An intermediate frame type used to represent all possible frame types.
+#[derive(Debug)]
+pub enum EncodedFrame<'a> {
+  Owned(ProtocolFrame),
+  Borrowed(BorrowedProtocolFrame<'a>),
+}
+
+impl<'a, T: Into<BorrowedProtocolFrame<'a>>> From<T> for EncodedFrame<'a> {
+  fn from(frame: T) -> Self {
+    EncodedFrame::Borrowed(frame.into())
+  }
+}
+
+impl<'a, T: Into<ProtocolFrame>> From<T> for EncodedFrame<'a> {
+  fn from(frame: T) -> Self {
+    EncodedFrame::Owned(frame.into())
   }
 }
 
