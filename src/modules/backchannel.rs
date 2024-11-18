@@ -1,7 +1,7 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, connection, connection::RedisTransport, types::Server},
+  protocol::{command::RedisCommand, connection, connection::ExclusiveConnection, types::Server},
   router::Connections,
   runtime::RefCount,
   utils,
@@ -36,7 +36,7 @@ async fn check_and_create_transport(
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
-  pub transport:      Option<RedisTransport>,
+  pub transport:      Option<ExclusiveConnection>,
   /// An identifier for the blocked connection, if any.
   pub blocked:        Option<Server>,
   /// A map of server IDs to connection IDs, as managed by the router.

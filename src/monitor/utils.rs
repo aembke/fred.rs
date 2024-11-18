@@ -5,7 +5,7 @@ use crate::{
   protocol::{
     codec::RedisCodec,
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, ConnectionKind, RedisTransport},
+    connection::{self, ConnectionKind, ExclusiveConnection},
     types::ProtocolFrame,
     utils as protocol_utils,
   },
@@ -69,8 +69,8 @@ async fn handle_monitor_frame(
 
 async fn send_monitor_command(
   inner: &RefCount<RedisClientInner>,
-  mut connection: RedisTransport,
-) -> Result<RedisTransport, RedisError> {
+  mut connection: ExclusiveConnection,
+) -> Result<ExclusiveConnection, RedisError> {
   _debug!(inner, "Sending MONITOR command.");
 
   let command = RedisCommand::new(RedisCommandKind::Monitor, vec![]);
@@ -101,7 +101,7 @@ async fn forward_results<T>(
   }
 }
 
-async fn process_stream(inner: &RefCount<RedisClientInner>, tx: Sender<Command>, connection: RedisTransport) {
+async fn process_stream(inner: &RefCount<RedisClientInner>, tx: Sender<Command>, connection: ExclusiveConnection) {
   _debug!(inner, "Starting monitor stream processing...");
 
   match connection.transport {

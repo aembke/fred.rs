@@ -4,7 +4,7 @@ use crate::{
   modules::backchannel::Backchannel,
   protocol::{
     command::{ResponseSender, RouterCommand},
-    connection::RedisTransport,
+    connection::ExclusiveConnection,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },
   runtime::{
@@ -787,7 +787,7 @@ impl RedisClientInner {
     self.config.server.is_clustered() && error.is_cluster()
   }
 
-  pub async fn update_backchannel(&self, transport: RedisTransport) {
+  pub async fn update_backchannel(&self, transport: ExclusiveConnection) {
     self.backchannel.write().await.transport = Some(transport);
   }
 

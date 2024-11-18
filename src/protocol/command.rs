@@ -2007,13 +2007,13 @@ impl RedisCommand {
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
-  pub fn to_frame(&self, is_resp3: bool) -> Result<EncodedFrame, RedisError> {
+  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
     protocol_utils::command_to_frame(self, is_resp3)
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
-  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<EncodedFrame, RedisError> {
+  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, RedisError> {
     let cmd_size = protocol_utils::args_size(self.args());
 
     if cmd_size >= blocking_threshold {

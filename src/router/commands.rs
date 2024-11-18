@@ -429,23 +429,6 @@ async fn process_sync_cluster(
   result
 }
 
-/// Read the set of active connections managed by the client.
-#[allow(unused_mut)]
-fn process_connections(
-  inner: &RefCount<RedisClientInner>,
-  router: &Router,
-  mut tx: OneshotSender<Vec<Server>>,
-) -> Result<(), RedisError> {
-  #[allow(unused_mut)]
-  let mut connections = router.connections.active_connections();
-  #[cfg(feature = "replicas")]
-  connections.extend(router.replicas.writers.keys().cloned());
-
-  _debug!(inner, "Active connections: {:?}", connections);
-  let _ = tx.send(connections);
-  Ok(())
-}
-
 /// Start processing commands from the client front end.
 async fn process_commands(
   inner: &RefCount<RedisClientInner>,

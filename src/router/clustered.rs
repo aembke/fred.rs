@@ -3,8 +3,8 @@ use crate::{
   interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand, RouterResponse},
-    connection::{self, Counters, RedisTransport, RedisWriter, SharedBuffer, SplitConnection, SplitStreamKind},
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand},
+    connection::{self, Counters, ExclusiveConnection, RedisConnection},
     responders,
     responders::ResponseKind,
     types::{ClusterRouting, Server, SlotRange},
@@ -67,7 +67,7 @@ pub fn route_command<'a>(
 /// Note: if any of the commands fail to send the entire command is interrupted.
 pub async fn send_all_cluster_command(
   inner: &RefCount<RedisClientInner>,
-  writers: &mut HashMap<Server, SplitConnection>,
+  writers: &mut HashMap<Server, RedisConnection>,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
   // create the command
@@ -79,7 +79,7 @@ pub async fn send_all_cluster_command(
 
 pub fn parse_cluster_changes(
   cluster_state: &ClusterRouting,
-  writers: &HashMap<Server, SplitConnection>,
+  writers: &HashMap<Server, RedisConnection>,
 ) -> ClusterChange {
   let mut old_servers = BTreeSet::new();
   let mut new_servers = BTreeSet::new();
@@ -173,7 +173,7 @@ fn process_cluster_error(
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 pub async fn process_response_frame(
   inner: &RefCount<RedisClientInner>,
-  conn: &mut SplitConnection,
+  conn: &mut RedisConnection,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Parsing response frame from {}", conn.server);
@@ -240,7 +240,7 @@ pub async fn process_response_frame(
 pub async fn connect_any(
   inner: &RefCount<RedisClientInner>,
   old_cache: Option<&[SlotRange]>,
-) -> Result<RedisTransport, RedisError> {
+) -> Result<ExclusiveConnection, RedisError> {
   let mut all_servers: BTreeSet<Server> = if let Some(old_cache) = old_cache {
     old_cache.iter().map(|slot_range| slot_range.primary.clone()).collect()
   } else {
@@ -382,7 +382,7 @@ pub async fn cluster_slots_backchannel(
 }
 
 /// Check each connection and remove it from the writer map if it's not working.
-pub async fn drop_broken_connections(writers: &mut HashMap<Server, SplitConnection>) -> VecDeque<RedisCommand> {
+pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisConnection>) -> VecDeque<RedisCommand> {
   let mut new_writers = HashMap::with_capacity(writers.len());
   let mut buffer = VecDeque::new();
 
@@ -401,7 +401,7 @@ pub async fn drop_broken_connections(writers: &mut HashMap<Server, SplitConnecti
 /// Run `CLUSTER SLOTS`, update the cached routing table, and modify the connection map.
 pub async fn sync(
   inner: &RefCount<RedisClientInner>,
-  connections: &mut HashMap<Server, SplitConnection>,
+  connections: &mut HashMap<Server, RedisConnection>,
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Synchronizing cluster state.");
@@ -452,7 +452,7 @@ pub async fn sync(
         _debug!(inner, "Connecting to cluster node {}", server);
         let mut transport = connection::create(&_inner, &server, None).await?;
         transport.setup(&_inner, None).await?;
-        let connection = transport.split(false);
+        let connection = transport.into_pipelined(false);
         inner.notifications.broadcast_reconnect(server.clone());
         _new_writers.lock().insert(server, connection);
         Ok::<_, RedisError>(())

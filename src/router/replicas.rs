@@ -1,15 +1,10 @@
-use crate::protocol::connection::SplitConnection;
 #[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
 use crate::types::TlsHostMapping;
 #[cfg(feature = "replicas")]
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{
-    command::RedisCommand,
-    connection,
-    connection::{CommandBuffer, RedisWriter},
-  },
+  protocol::{command::RedisCommand, connection, connection::RedisConnection},
   router::{centralized, clustered, utils, Written},
   runtime::RefCount,
   types::Server,
@@ -241,8 +236,8 @@ impl ReplicaSet {
 
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
-pub struct Replicas<'a> {
-  pub(crate) writers: HashMap<Server, SplitConnection<'a>>,
+pub struct Replicas {
+  pub(crate) writers: HashMap<Server, RedisConnection>,
   routing:            ReplicaSet,
   buffer:             VecDeque<RedisCommand>,
 }
@@ -305,7 +300,7 @@ impl Replicas {
       if inner.config.server.is_clustered() {
         transport.readonly(inner, None).await?;
       };
-      self.writers.insert(replica.clone(), transport.split(true));
+      self.writers.insert(replica.clone(), transport.into_pipelined(true));
     }
 
     self.routing.add(primary, replica);
@@ -468,7 +463,7 @@ impl Replicas {
             },
           }
         } else {
-          // we don't have a connection to the replica and we're not configured to lazily create new ones
+          // we don't have a connection to the replica, and we're not configured to lazily create new ones
           return Written::NotFound(command);
         }
       },
@@ -478,7 +473,7 @@ impl Replicas {
       Err(e) => {
         _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
         // do not retry commands that trigger frame encoding errors
-        command.finish(inner, Err(e));
+        command.respond_to_caller(Err(e));
         return Written::Ignore;
       },
     };
@@ -506,10 +501,7 @@ impl Replicas {
       return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
     }
 
-    if let Err(command) = writer.push_command(inner, command) {
-      command.finish(inner, Err(RedisError::new_backpressure()));
-      return Written::Ignore;
-    }
+    writer.push_command(command);
     if let Err(err) = writer.write_frame(frame, should_flush, false).await {
       self.routing.remove_replica(&writer.server);
       Written::Disconnected((Some(writer.server.clone()), None, err))

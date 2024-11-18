@@ -5,7 +5,7 @@ use crate::{
   protocol::{
     command::RedisCommand,
     connection,
-    connection::{Counters, SplitConnection, SplitStreamKind},
+    connection::{Counters, RedisConnection},
     responders::{self, ResponseKind},
     types::Server,
     utils as protocol_utils,
@@ -24,7 +24,7 @@ use std::collections::VecDeque;
 #[inline(always)]
 pub async fn process_response_frame(
   inner: &RefCount<RedisClientInner>,
-  conn: &mut SplitConnection,
+  conn: &mut RedisConnection,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Parsing response frame from {}", conn.server);

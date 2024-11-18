@@ -4,7 +4,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind},
-    connection::{self, RedisTransport, SplitConnection},
+    connection::{self, ExclusiveConnection, RedisConnection},
     utils as protocol_utils,
   },
   router::{centralized, Connections},
@@ -150,7 +150,7 @@ async fn read_sentinel_credentials(
 /// Read the set of sentinel nodes via `SENTINEL sentinels`.
 async fn read_sentinels(
   inner: &RefCount<RedisClientInner>,
-  sentinel: &mut RedisTransport,
+  sentinel: &mut ExclusiveConnection,
 ) -> Result<Vec<Server>, RedisError> {
   let service_name = read_service_name(inner)?;
 
@@ -171,7 +171,7 @@ async fn read_sentinels(
 }
 
 /// Connect to any of the sentinel nodes provided on the associated `RedisConfig`.
-async fn connect_to_sentinel(inner: &RefCount<RedisClientInner>) -> Result<RedisTransport, RedisError> {
+async fn connect_to_sentinel(inner: &RefCount<RedisClientInner>) -> Result<ExclusiveConnection, RedisError> {
   let hosts = read_sentinel_hosts(inner)?;
 
   for server in hosts.into_iter() {
@@ -210,8 +210,8 @@ fn read_service_name(inner: &RefCount<RedisClientInner>) -> Result<String, Redis
 /// get-master-addr-by-name` command, then return a connection to that node.
 async fn discover_primary_node(
   inner: &RefCount<RedisClientInner>,
-  sentinel: &mut RedisTransport,
-) -> Result<RedisTransport, RedisError> {
+  sentinel: &mut ExclusiveConnection,
+) -> Result<ExclusiveConnection, RedisError> {
   let service_name = read_service_name(inner)?;
   let command = RedisCommand::new(RedisCommandKind::Sentinel, vec![
     static_val!(GET_MASTER_ADDR_BY_NAME),
@@ -250,7 +250,7 @@ async fn discover_primary_node(
 /// Verify that the Redis server is a primary node and not a replica.
 async fn check_primary_node_role(
   inner: &RefCount<RedisClientInner>,
-  transport: &mut RedisTransport,
+  transport: &mut ExclusiveConnection,
 ) -> Result<(), RedisError> {
   let command = RedisCommand::new(RedisCommandKind::Role, Vec::new());
   _debug!(inner, "Checking role for redis server at {}", transport.server);
@@ -285,7 +285,7 @@ async fn check_primary_node_role(
 /// needed.
 async fn update_sentinel_backchannel(
   inner: &RefCount<RedisClientInner>,
-  transport: &RedisTransport,
+  transport: &ExclusiveConnection,
 ) -> Result<(), RedisError> {
   let mut backchannel = inner.backchannel.write().await;
   backchannel.check_and_disconnect(inner, Some(&transport.server)).await;
@@ -307,9 +307,9 @@ async fn update_sentinel_backchannel(
 /// * Split and store the primary node transport on `writer`.
 async fn update_cached_client_state(
   inner: &RefCount<RedisClientInner>,
-  writer: &mut Option<SplitConnection>,
-  mut sentinel: RedisTransport,
-  transport: RedisTransport,
+  writer: &mut Option<RedisConnection>,
+  mut sentinel: ExclusiveConnection,
+  transport: ExclusiveConnection,
 ) -> Result<(), RedisError> {
   let sentinels = read_sentinels(inner, &mut sentinel).await?;
   inner
@@ -319,7 +319,7 @@ async fn update_cached_client_state(
     .update_sentinel_nodes(&transport.server, sentinels);
   let _ = update_sentinel_backchannel(inner, &transport).await;
 
-  *writer = Some(transport.split(false));
+  *writer = Some(transport.into_pipelined(false));
   Ok(())
 }
 

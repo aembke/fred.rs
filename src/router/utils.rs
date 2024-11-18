@@ -6,7 +6,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RouterCommand},
-    connection::{SplitConnection, SplitStreamKind},
+    connection::RedisConnection,
     responders::ResponseKind,
     types::*,
     utils as protocol_utils,
@@ -75,11 +75,11 @@ fn set_command_trace(_inner: &RefCount<RedisClientInner>, _: &mut RedisCommand) 
 /// Prepare the command, updating flags in place.
 ///
 /// Returns the RESP frame and whether the socket should be flushed.
-pub fn prepare_command<'a>(
+pub fn prepare_command(
   inner: &RefCount<RedisClientInner>,
   counters: &Counters,
-  command: &'a mut RedisCommand,
-) -> Result<(EncodedFrame<'a>, bool), RedisError> {
+  command: &mut RedisCommand,
+) -> Result<(ProtocolFrame, bool), RedisError> {
   let frame = protocol_utils::encode_frame(inner, command)?;
 
   // flush the socket under any of the following conditions:
@@ -105,29 +105,63 @@ pub fn prepare_command<'a>(
 #[inline(always)]
 pub async fn write_command(
   inner: &RefCount<RedisClientInner>,
-  conn: &mut SplitConnection,
+  conn: &mut RedisConnection,
   mut command: RedisCommand,
   force_flush: bool,
 ) -> Written {
+  if client_utils::read_bool_atomic(&command.timed_out) {
+    _debug!(
+      inner,
+      "Ignore writing timed out command: {}",
+      command.kind.to_str_debug()
+    );
+    return Written::Ignore;
+  }
+  match check_backpressure(inner, &conn.counters, &command) {
+    Ok(Some(backpressure)) => {
+      _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
+      return Written::Backpressure((command, backpressure));
+    },
+    Err(e) => {
+      // return manual backpressure errors directly to the caller
+      command.respond_to_caller(Err(e));
+      return Written::Ignore;
+    },
+    _ => {},
+  };
+  let (frame, should_flush) = match prepare_command(inner, &conn.counters, &mut command) {
+    Ok((frame, should_flush)) => (frame, should_flush || force_flush),
+    Err(e) => {
+      _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
+      // do not retry commands that trigger frame encoding errors
+      command.respond_to_caller(Err(e));
+      return Written::Ignore;
+    },
+  };
+
   _trace!(
     inner,
-    "Writing {} ({}) to {}. Timed out: {}, Force flush: {}",
+    "Sending command {} ({}) to {}",
     command.kind.to_str_debug(),
     command.debug_id(),
-    conn.server,
-    client_utils::read_bool_atomic(&command.timed_out),
-    force_flush
+    conn.server
   );
-  // check timed out flag
-  // check backpressure
-  // prepare command
-  // incr write attempts
-  // peek errors on the reader half
-  // push command to in-flight queue
-  // write the command
-  // conditionally flush
-  // return Written::Sent
-  unimplemented!()
+  command.write_attempts += 1;
+
+  if conn.has_reader_errors().await.is_some() {
+    let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
+    _debug!(inner, "Error sending command: {:?}", error);
+    return Written::Disconnected((Some(conn.server.clone()), Some(command), error));
+  }
+
+  let no_incr = command.has_no_responses();
+  conn.push_command(command);
+  if let Err(e) = conn.write(frame, should_flush, no_incr).await {
+    debug!("{}: Error sending frame to socket: {:?}", conn.server, e);
+    Written::Disconnected((Some(conn.server.clone()), None, e))
+  } else {
+    Written::Sent((conn.server.clone(), should_flush))
+  }
 }
 
 pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, server: &Server) {
@@ -443,33 +477,12 @@ pub async fn sync_cluster_with_policy(
   Ok(())
 }
 
-pub fn defer_reconnect(inner: &RefCount<RedisClientInner>) {
-  if inner.config.server.is_clustered() {
-    let (tx, _) = oneshot_channel();
-    let cmd = RouterCommand::SyncCluster { tx };
-    if let Err(_) = interfaces::send_to_router(inner, cmd) {
-      _warn!(inner, "Failed to send deferred cluster sync.")
-    }
-  } else {
-    let cmd = RouterCommand::Reconnect {
-      server:                               None,
-      tx:                                   None,
-      force:                                false,
-      #[cfg(feature = "replicas")]
-      replica:                              false,
-    };
-    if let Err(_) = interfaces::send_to_router(inner, cmd) {
-      _warn!(inner, "Failed to send deferred cluster sync.")
-    }
-  }
-}
-
 /// Attempt to read the next frame from the reader half of a connection.
 pub async fn next_frame(
   inner: &RefCount<RedisClientInner>,
-  conn: &mut SplitStreamKind,
+  conn: &mut RedisConnection,
   server: &Server,
-  buffer: &SharedBuffer,
+  buffer: &Vec<RedisCommand>,
 ) -> Result<Option<ProtocolFrame>, RedisError> {
   if let Some(ref max_resp_latency) = inner.connection.unresponsive.max_timeout {
     // These shenanigans were implemented in an attempt to strike a balance between a few recent changes.
