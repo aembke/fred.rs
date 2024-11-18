@@ -170,7 +170,6 @@ arc-swap = "1.7"
 async-trait = { version = "0.1" }
 bytes = "1.6"
 bytes-utils = "0.1.3"
-crossbeam-queue = "0.3"
 float-cmp = "0.9"
 futures = { version = "0.3", features = ["std"] }
 log = "0.4"

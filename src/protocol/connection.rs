@@ -7,17 +7,16 @@ use crate::{
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime,
-  runtime::{AtomicBool, AtomicUsize, JoinHandle, RefCount},
+  router::{centralized, clustered},
+  runtime::{AtomicUsize, RefCount},
   types::InfoKind,
   utils as client_utils,
   utils,
 };
 use bytes_utils::Str;
-use crossbeam_queue::{ArrayQueue, SegQueue};
 use futures::{
   sink::SinkExt,
-  stream::{Peekable, SplitSink, SplitStream, StreamExt},
+  stream::{Peekable, StreamExt},
   Sink,
   Stream,
 };
@@ -26,12 +25,11 @@ use semver::Version;
 use std::{
   collections::VecDeque,
   fmt,
-  future::Future,
   net::SocketAddr,
   pin::Pin,
   str,
   task::{Context, Poll},
-  time::Duration,
+  time::{Duration, Instant},
 };
 use tokio_util::codec::Framed;
 
@@ -57,9 +55,7 @@ use crate::prelude::ServerConfig;
 ))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
-use crate::runtime::oneshot_channel;
-#[cfg(feature = "replicas")]
-use crate::{protocol::responders::ResponseKind, types::RedisValue};
+use crate::types::RedisValue;
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
@@ -130,13 +126,13 @@ async fn tcp_connect_any(
 }
 
 pub enum ConnectionKind {
-  Tcp(Framed<TcpStream, RedisCodec>),
+  Tcp(Peekable<Framed<TcpStream, RedisCodec>>),
   #[cfg(feature = "unix-sockets")]
-  Unix(Framed<UnixStream, RedisCodec>),
+  Unix(Peekable<Framed<UnixStream, RedisCodec>>),
   #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
-  Rustls(Framed<RustlsStream<TcpStream>, RedisCodec>),
+  Rustls(Peekable<Framed<RustlsStream<TcpStream>, RedisCodec>>),
   #[cfg(feature = "enable-native-tls")]
-  NativeTls(Framed<NativeTlsStream<TcpStream>, RedisCodec>),
+  NativeTls(Peekable<Framed<NativeTlsStream<TcpStream>, RedisCodec>>),
 }
 
 impl Stream for ConnectionKind {
@@ -296,7 +292,7 @@ impl ExclusiveConnection {
       .resolve(server.host.clone(), server.port)
       .await?;
     let (socket, addr) = tcp_connect_any(inner, server, &addrs).await?;
-    let transport = ConnectionKind::Tcp(Framed::new(socket, codec));
+    let transport = ConnectionKind::Tcp(Framed::new(socket, codec).peekable());
 
     Ok(ExclusiveConnection {
       server: server.clone(),
@@ -360,7 +356,7 @@ impl ExclusiveConnection {
 
     _debug!(inner, "native-tls handshake with server name/host: {}", tls_server_name);
     let socket = connector.clone().connect(&tls_server_name, socket).await?;
-    let transport = ConnectionKind::NativeTls(Framed::new(socket, codec));
+    let transport = ConnectionKind::NativeTls(Framed::new(socket, codec).peekable());
 
     Ok(ExclusiveConnection {
       server: server.clone(),
@@ -413,7 +409,7 @@ impl ExclusiveConnection {
 
     _debug!(inner, "rustls handshake with server name/host: {:?}", tls_server_name);
     let socket = connector.clone().connect(server_name.to_owned(), socket).await?;
-    let transport = ConnectionKind::Rustls(Framed::new(socket, codec));
+    let transport = ConnectionKind::Rustls(Framed::new(socket, codec).peekable());
 
     Ok(ExclusiveConnection {
       server: server.clone(),
@@ -760,6 +756,7 @@ impl ExclusiveConnection {
       counters,
       id,
       replica,
+      last_write: None,
       transport: self.transport,
       blocked: false,
     }
@@ -779,6 +776,7 @@ pub struct RedisConnection {
   pub version:      Option<Version>,
   pub id:           Option<i64>,
   pub counters:     Counters,
+  pub last_write:   Option<Instant>,
   pub blocked:      bool,
   #[cfg(feature = "replicas")]
   pub replica:      bool,
@@ -797,7 +795,7 @@ impl fmt::Debug for RedisConnection {
 
 impl RedisConnection {
   /// Check if the reader half is healthy, returning any errors.
-  pub async fn has_reader_errors(&mut self) -> Option<RedisError> {
+  pub async fn peek_reader_errors(&mut self) -> Option<RedisError> {
     let result = std::future::poll_fn(|cx| match self.transport {
       ConnectionKind::Tcp(ref mut t) => match Pin::new(t).poll_peek(cx) {
         Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
@@ -836,7 +834,12 @@ impl RedisConnection {
     frame: F,
     flush: bool,
     no_incr: bool,
+    check_unresponsive: bool,
   ) -> Result<(), RedisError> {
+    if check_unresponsive {
+      self.last_write = Some(Instant::now());
+    }
+
     let result = if flush {
       self.counters.reset_feed_count();
       self.transport.send(frame.into()).await
@@ -874,13 +877,33 @@ impl RedisConnection {
     }
   }
 
+  /// Read frames until the in-flight buffer is empty.
+  pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+    let is_clustered = inner.config.server.is_clustered();
+    while !self.buffer.is_empty() {
+      let frame = match self.read_skip_pubsub(&inner).await? {
+        Some(f) => f,
+        None => return Ok(()),
+      };
+
+      if is_clustered {
+        clustered::process_response_frame(&inner, self, frame).await?;
+      } else {
+        centralized::process_response_frame(&inner, self, frame).await?;
+      }
+    }
+
+    Ok(())
+  }
+
   /// Read frames until detecting a non-pubsub frame.
+  ///
+  /// This function is not cancellation-safe.
   pub async fn read_skip_pubsub(
     &mut self,
     inner: &RefCount<RedisClientInner>,
   ) -> Result<Option<Resp3Frame>, RedisError> {
     loop {
-      // TODO unresponsive checks
       let frame = match self.read().await? {
         Some(f) => f,
         None => return Ok(None),
@@ -922,9 +945,13 @@ pub fn route_pubsub_frame(
   server: &Server,
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
+  // TODO
   unimplemented!()
 }
 
+/// Send a command and wait on the response.
+///
+/// The connection's in-flight command queue must be empty or drained before calling this.
 pub async fn request_response(
   inner: &RefCount<RedisClientInner>,
   conn: &mut RedisConnection,
@@ -944,8 +971,9 @@ pub async fn request_response(
   );
   let frame = protocol_utils::encode_frame(inner, &command)?;
 
-  let ft = async move {
-    conn.write(frame, true, true).await?;
+  let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
+  let ft = async {
+    conn.write(frame, true, true, check_unresponsive).await?;
     match conn.read_skip_pubsub(inner).await {
       Ok(Some(f)) => Ok(f),
       Ok(None) => Err(RedisError::new(RedisErrorKind::Unknown, "Missing response.")),
@@ -964,6 +992,8 @@ pub async fn discover_replicas(
   inner: &RefCount<RedisClientInner>,
   conn: &mut RedisConnection,
 ) -> Result<Vec<Server>, RedisError> {
+  utils::timeout(conn.drain(inner), inner.internal_command_timeout()).await?;
+
   let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
   let role = request_response(inner, conn, command, None)
     .await

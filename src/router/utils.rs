@@ -2,21 +2,13 @@
 use crate::protocol::command::ClusterErrorKind;
 use crate::{
   error::{RedisError, RedisErrorKind},
-  interfaces,
   modules::inner::RedisClientInner,
-  protocol::{
-    command::{RedisCommand, RouterCommand},
-    connection::RedisConnection,
-    responders::ResponseKind,
-    types::*,
-    utils as protocol_utils,
-  },
-  router::{utils, Backpressure, Counters, Router, Written},
-  runtime::{oneshot_channel, sleep, RefCount},
+  protocol::{command::RedisCommand, connection, connection::RedisConnection, types::*, utils as protocol_utils},
+  router::{utils, Backpressure, Counters, Router, WriteResult},
+  runtime::RefCount,
   types::*,
   utils as client_utils,
 };
-use futures::{SinkExt, TryStreamExt};
 use std::{
   cmp,
   collections::VecDeque,
@@ -90,42 +82,38 @@ pub fn prepare_command(
   // * the command does some form of authentication
   // * the command goes to multiple sockets at once
   // * the command blocks the router command loop
-  let should_flush = counters.should_send(inner)
-    || command.kind.should_flush()
-    || command.is_all_cluster_nodes()
-    || command.has_router_channel();
-
+  let should_flush = counters.should_send(inner) || command.kind.should_flush() || command.is_all_cluster_nodes();
   command.network_start = Some(Instant::now());
   set_command_trace(inner, command);
 
   Ok((frame, should_flush))
 }
 
-/// Write a command on the provided writer half of a socket.
+/// Write a command to the connection.
 #[inline(always)]
 pub async fn write_command(
   inner: &RefCount<RedisClientInner>,
   conn: &mut RedisConnection,
   mut command: RedisCommand,
   force_flush: bool,
-) -> Written {
+) -> WriteResult {
   if client_utils::read_bool_atomic(&command.timed_out) {
     _debug!(
       inner,
       "Ignore writing timed out command: {}",
       command.kind.to_str_debug()
     );
-    return Written::Ignore;
+    return WriteResult::Ignore;
   }
   match check_backpressure(inner, &conn.counters, &command) {
     Ok(Some(backpressure)) => {
       _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
-      return Written::Backpressure((command, backpressure));
+      return WriteResult::Backpressure((command, backpressure));
     },
     Err(e) => {
       // return manual backpressure errors directly to the caller
       command.respond_to_caller(Err(e));
-      return Written::Ignore;
+      return WriteResult::Ignore;
     },
     _ => {},
   };
@@ -135,7 +123,7 @@ pub async fn write_command(
       _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
       // do not retry commands that trigger frame encoding errors
       command.respond_to_caller(Err(e));
-      return Written::Ignore;
+      return WriteResult::Ignore;
     },
   };
 
@@ -148,19 +136,23 @@ pub async fn write_command(
   );
   command.write_attempts += 1;
 
-  if conn.has_reader_errors().await.is_some() {
-    let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
-    _debug!(inner, "Error sending command: {:?}", error);
-    return Written::Disconnected((Some(conn.server.clone()), Some(command), error));
-  }
+  // TODO is this still necessary in the write path?
+  // if let Some(error) = conn.peek_reader_errors().await {
+  // _debug!(inner, "Error sending command: {:?}", error);
+  // return WriteResult::Disconnected((Some(conn.server.clone()), Some(command), error));
+  // }
+  //
 
   let no_incr = command.has_no_responses();
+  let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
   conn.push_command(command);
-  if let Err(e) = conn.write(frame, should_flush, no_incr).await {
+  let write_result = conn.write(frame, should_flush, no_incr, check_unresponsive).await;
+
+  if let Err(e) = write_result {
     debug!("{}: Error sending frame to socket: {:?}", conn.server, e);
-    Written::Disconnected((Some(conn.server.clone()), None, e))
+    WriteResult::Disconnected((Some(conn.server.clone()), None, e))
   } else {
-    Written::Sent((conn.server.clone(), should_flush))
+    WriteResult::Sent((conn.server.clone(), should_flush))
   }
 }
 
@@ -172,7 +164,7 @@ pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, ser
 /// with the underlying error.
 pub fn check_final_write_attempt(
   inner: &RefCount<RedisClientInner>,
-  mut buffer: VecDeque<RedisCommand>,
+  buffer: VecDeque<RedisCommand>,
   error: &Option<RedisError>,
 ) -> VecDeque<RedisCommand> {
   buffer
@@ -312,30 +304,43 @@ pub async fn send_asking_with_policy(
       inner.wait_with_interrupt(delay).await?;
     }
 
-    if !router.connections.has_server_connection(server) {
-      if let Err(e) = router.sync_cluster().await {
-        _debug!(inner, "Error syncing cluster before ASKING: {:?}", e);
-        delay = utils::next_reconnection_delay(inner)?;
+    let conn = match router.connections.get_connection_mut(server) {
+      Some(conn) => conn,
+      None => {
+        if let Err(e) = router.sync_cluster().await {
+          _debug!(inner, "Error syncing cluster before ASKING: {:?}", e);
+          delay = utils::next_reconnection_delay(inner)?;
+        }
         continue;
+      },
+    };
+    if let Err(err) = conn.drain(inner).await {
+      _debug!(inner, "Error draining connection before ASKING: {:?}", err);
+      if let Err(err) = router.sync_cluster().await {
+        _debug!(inner, "Error syncing cluster before ASKING: {:?}", err);
+        delay = utils::next_reconnection_delay(inner)?;
       }
+      continue;
     }
 
-    let mut command = RedisCommand::new_asking(slot);
-    let (tx, rx) = oneshot_channel();
-    command.skip_backpressure = true;
-    command.response = ResponseKind::Respond(Some(tx));
-
-    let result = match router.write_direct(command, server).await {
-      Written::Error((error, _)) => Err(error),
-      Written::Disconnected((_, _, error)) => Err(error),
-      Written::NotFound(_) => Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
-      _ => Ok(()),
+    let command = RedisCommand::new_asking(slot);
+    let timeout = Some(inner.internal_command_timeout());
+    let result = match connection::request_response(inner, conn, command, timeout).await {
+      Ok(frame) => protocol_utils::frame_to_results(frame),
+      Err(err) => {
+        _debug!(inner, "Error sending ASKING: {:?}", err);
+        if let Err(err) = router.sync_cluster().await {
+          _debug!(inner, "Error syncing cluster: {:?}", err);
+          delay = utils::next_reconnection_delay(inner)?;
+        }
+        continue;
+      },
     };
 
     if let Err(error) = result {
       if error.should_not_reconnect() {
-        break;
-      } else if let Err(_) = reconnect_once(inner, router).await {
+        return Err(error);
+      } else if let Err(_) = router.sync_cluster().await {
         delay = utils::next_reconnection_delay(inner)?;
         continue;
       } else {
@@ -343,31 +348,7 @@ pub async fn send_asking_with_policy(
         continue;
       }
     } else {
-      match client_utils::timeout(rx, inner.internal_command_timeout()).await {
-        Ok(Err(e)) => {
-          // error writing the command
-          _debug!(inner, "Reconnect once after error from ASKING: {:?}", e);
-          if let Err(_) = reconnect_once(inner, router).await {
-            delay = utils::next_reconnection_delay(inner)?;
-            continue;
-          } else {
-            delay = Duration::from_millis(0);
-            continue;
-          }
-        },
-        Err(e) => {
-          // command was dropped due to connection closing
-          _debug!(inner, "Reconnect once after rx error from ASKING: {:?}", e);
-          if let Err(_) = reconnect_once(inner, router).await {
-            delay = utils::next_reconnection_delay(inner)?;
-            continue;
-          } else {
-            delay = Duration::from_millis(0);
-            continue;
-          }
-        },
-        _ => break,
-      }
+      break;
     }
   }
 
@@ -477,69 +458,28 @@ pub async fn sync_cluster_with_policy(
   Ok(())
 }
 
-/// Attempt to read the next frame from the reader half of a connection.
-pub async fn next_frame(
-  inner: &RefCount<RedisClientInner>,
-  conn: &mut RedisConnection,
-  server: &Server,
-  buffer: &Vec<RedisCommand>,
-) -> Result<Option<ProtocolFrame>, RedisError> {
-  if let Some(ref max_resp_latency) = inner.connection.unresponsive.max_timeout {
-    // These shenanigans were implemented in an attempt to strike a balance between a few recent changes.
-    //
-    // The entire request-response path can be lock-free if we use crossbeam-queue types under the shared buffer
-    // between socket halves, but these types do not support `peek` or `push_front`. Unfortunately this really limits
-    // or prevents most forms of conditional `pop_front` use cases. There are 3-4 places in the code where this
-    // matters, and this is one of them.
-    //
-    // The `UnresponsiveConfig` interface implements a heuristic where callers can express that a connection should be
-    // considered unresponsive if a command waits too long for a response. Before switching to crossbeam types we used
-    // a `Mutex<VecDeque>` container which made this scenario easier to implement, but with crossbeam types it's more
-    // complicated.
-    //
-    // The approach here implements a heuristic where we measure the time since first noticing a new frame in the
-    // shared buffer from the reader task's perspective. This only works because we use `Stream::next` which is noted
-    // to be cancellation-safe in the tokio::select! docs. With this implementation the worst case error margin is
-    // an extra `interval`.
-
-    let mut last_frame_sent: Option<Instant> = None;
-    'outer: loop {
-      tokio::select! {
-        // prefer polling the connection first
-        biased;
-        frame = conn.try_next() => return frame,
-
-        // repeatedly check the duration since we first noticed a pending frame
-        _ = sleep(inner.connection.unresponsive.interval) => {
-          _trace!(inner, "Checking unresponsive connection to {}", server);
-
-          // continue early if the buffer is empty or we're waiting on a blocking command. this isn't ideal, but
-          // this strategy just doesn't work well with blocking commands.
-          let buffer_len = buffer.len();
-          if buffer_len == 0 || buffer.is_blocked() {
-            last_frame_sent = None;
-            continue 'outer;
-          } else if buffer_len > 0 && last_frame_sent.is_none() {
-            _trace!(inner, "Observed new request frame in unresponsive loop");
-            last_frame_sent = Some(Instant::now());
+macro_rules! next_frame {
+  ($inner:expr, $conn:expr) => {{
+    if let Some(duration) = $inner.connection.unresponsive.max_timeout {
+      if $conn.buffer.is_empty() {
+        $conn.read().await
+      } else {
+        if let Some(ref last_written) = $conn.last_write {
+          if last_written.elapsed() > duration {
+            // check for frames waiting a response across multiple calls to poll_read
+            $inner.notifications.broadcast_unresponsive($conn.server.clone());
+            Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."));
+          } else {
+            client_utils::timeout($conn.read(), duration).await
           }
-
-          if let Some(ref last_frame_sent) = last_frame_sent {
-            let latency = Instant::now().saturating_duration_since(*last_frame_sent);
-            if latency > *max_resp_latency {
-              _warn!(inner, "Unresponsive connection to {} after {:?}", server, latency);
-              inner.notifications.broadcast_unresponsive(server.clone());
-              return Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
-            }
-          }
-        },
+        } else {
+          $conn.read().await
+        }
       }
+    } else {
+      $conn.read().await
     }
-  } else {
-    _trace!(inner, "Skip waiting on interrupt rx.");
-    conn.try_next().await
-  }
+  }};
 }
 
-#[cfg(test)]
-mod tests {}
+pub(crate) use next_frame;

@@ -5,10 +5,10 @@ use crate::{
   protocol::{
     hashers::ClusterHash,
     responders::ResponseKind,
-    types::{EncodedFrame, ProtocolFrame, Server},
+    types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
-  runtime::{oneshot_channel, AtomicBool, Mutex, OneshotReceiver, OneshotSender, RefCount},
+  runtime::{AtomicBool, OneshotSender, RefCount},
   trace,
   types::{CustomCommand, RedisValue},
   utils as client_utils,
@@ -1486,6 +1486,18 @@ impl RedisCommandKind {
         | RedisCommandKind::Fcall
         | RedisCommandKind::FcallRO
         | RedisCommandKind::_Custom(_)
+    )
+  }
+
+  pub fn is_pubsub(&self) -> bool {
+    matches!(
+      *self,
+      RedisCommandKind::Subscribe
+        | RedisCommandKind::Unsubscribe
+        | RedisCommandKind::Psubscribe
+        | RedisCommandKind::Punsubscribe
+        | RedisCommandKind::Ssubscribe
+        | RedisCommandKind::Sunsubscribe
     )
   }
 

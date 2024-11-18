@@ -5,15 +5,12 @@ use crate::{
   protocol::{
     command::RedisCommand,
     connection,
-    connection::{Counters, RedisConnection},
+    connection::RedisConnection,
     responders::{self, ResponseKind},
-    types::Server,
-    utils as protocol_utils,
   },
-  router::{responses, utils as router_utils, Connections},
-  runtime::{spawn, JoinHandle, RefCount},
+  router::{responses, Connections},
+  runtime::RefCount,
   types::ServerConfig,
-  utils,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::collections::VecDeque;
@@ -95,10 +92,27 @@ pub async fn initialize_connection(
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Initializing centralized connection.");
-  todo!();
-  // drop old connection, drain in-flight buffer
-  // add in-flight buffer to router retry queue
-  // connect to the server, set up the connection
-  // split the connection, set on router
-  // broadcast reconnect
+  buffer.extend(connections.disconnect_all(inner).await);
+
+  match connections {
+    Connections::Centralized { writer, .. } => {
+      let server = match inner.config.server {
+        ServerConfig::Centralized { ref server } => server.clone(),
+        #[cfg(feature = "unix-sockets")]
+        ServerConfig::Unix { ref path } => path.as_path().into(),
+        _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
+      };
+      let mut transport = connection::create(inner, &server, None).await?;
+      transport.setup(inner, None).await?;
+      let connection = transport.into_pipelined(false);
+      inner.notifications.broadcast_reconnect(server);
+
+      *writer = Some(connection);
+      Ok(())
+    },
+    _ => Err(RedisError::new(
+      RedisErrorKind::Config,
+      "Expected centralized connection.",
+    )),
+  }
 }

@@ -1,26 +1,22 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
-  interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand},
-    connection::{self, Counters, ExclusiveConnection, RedisConnection},
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind},
+    connection::{self, ExclusiveConnection, RedisConnection},
     responders,
     responders::ResponseKind,
-    types::{ClusterRouting, Server, SlotRange},
+    types::{ClusterRouting, ProtocolFrame, Server, SlotRange},
     utils as protocol_utils,
   },
-  router::{responses, types::ClusterChange, utils, Connections, Written},
-  runtime::{spawn, JoinHandle, Mutex, RefCount},
+  router::{responses, types::ClusterChange, Connections},
+  runtime::{Mutex, RefCount},
   types::{ClusterDiscoveryPolicy, ClusterStateChange},
   utils as client_utils,
 };
-use futures::future::try_join_all;
+use futures::future::{join_all, try_join_all};
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame};
-use std::{
-  collections::{BTreeSet, HashMap, VecDeque},
-  iter::repeat,
-};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 /// Find the cluster node that should receive the command.
 pub fn route_command<'a>(
@@ -62,19 +58,144 @@ pub fn route_command<'a>(
   }
 }
 
+async fn write_all_nodes(
+  inner: &RefCount<RedisClientInner>,
+  writers: &mut HashMap<Server, RedisConnection>,
+  frame: &ProtocolFrame,
+) -> Vec<Result<Server, RedisError>> {
+  let num_nodes = writers.len();
+  let mut write_ft = Vec::with_capacity(num_nodes);
+  for (idx, (server, conn)) in writers.iter_mut().enumerate() {
+    let frame = frame.clone();
+    write_ft.push(async move {
+      _debug!(inner, "Writing command to {} ({}/{})", server, idx + 1, num_nodes);
+
+      if let Some(err) = conn.peek_reader_errors().await {
+        _debug!(inner, "Error sending command: {:?}", err);
+        return Err(err);
+      }
+
+      if let Err(err) = conn.write(frame, true, true, false).await {
+        debug!("{}: Error sending frame to socket: {:?}", conn.server, err);
+        Err(err)
+      } else {
+        Ok(server.clone())
+      }
+    });
+  }
+
+  join_all(write_ft).await
+}
+
+async fn read_all_nodes(
+  inner: &RefCount<RedisClientInner>,
+  writers: &mut HashMap<Server, RedisConnection>,
+  filter: &HashSet<Server>,
+) -> Vec<Result<Option<Server>, RedisError>> {
+  let mut read_ft = Vec::with_capacity(filter.len());
+  for server in filter.iter() {
+    read_ft.push(async move {
+      let conn = match writers.get_mut(&server) {
+        Some(conn) => conn,
+        None => return Ok(None),
+      };
+
+      if let Some(_) = conn.read_skip_pubsub(inner).await? {
+        _trace!(inner, "Read all cluster nodes response from {}", server);
+      }
+      Ok(Some(server.clone()))
+    });
+  }
+
+  join_all(read_ft).await
+}
+
 /// Send a command to all cluster nodes.
 ///
-/// Note: if any of the commands fail to send the entire command is interrupted.
+/// The caller must drain the in-flight buffers before calling this.
 pub async fn send_all_cluster_command(
   inner: &RefCount<RedisClientInner>,
   writers: &mut HashMap<Server, RedisConnection>,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
-  // create the command
-  // write it to all connections
-  // join read from all of them
-  // respond to the caller
-  unimplemented!()
+  let mut out = Ok(());
+  let mut disconnect = Vec::new();
+  // write to all the cluster nodes, keeping track of which ones failed, then try to read from the ones that
+  // succeeded. at the end disconnect from all the nodes that failed writes or reads and return the last error.
+  command.response = ResponseKind::Skip;
+  let frame = protocol_utils::encode_frame(inner, &command)?;
+  let all_nodes: HashSet<_> = writers.keys().cloned().collect();
+
+  let results = write_all_nodes(inner, writers, &frame).await;
+  let write_success: HashSet<_> = results
+    .into_iter()
+    .filter_map(|r| match r {
+      Ok(server) => Some(server),
+      Err(e) => {
+        out = Err(e);
+        None
+      },
+    })
+    .collect();
+  let write_failed: Vec<_> = {
+    all_nodes
+      .difference(&write_success)
+      .into_iter()
+      .map(|server| {
+        disconnect.push(server.clone());
+        server
+      })
+      .collect()
+  };
+  _debug!(inner, "Failed sending command to {:?}", write_failed);
+
+  // try to read from all nodes concurrently, keeping track of which ones failed
+  let results = read_all_nodes(inner, writers, &write_success).await;
+  let read_success: HashSet<_> = results
+    .into_iter()
+    .filter_map(|result| match result {
+      Ok(Some(server)) => Some(server),
+      Ok(None) => None,
+      Err(e) => {
+        out = Err(e);
+        None
+      },
+    })
+    .collect();
+  let read_failed: Vec<_> = {
+    all_nodes
+      .difference(&read_success)
+      .into_iter()
+      .map(|server| {
+        disconnect.push(server.clone());
+        server
+      })
+      .collect()
+  };
+  _debug!(inner, "Failed reading responses from {:?}", read_failed);
+
+  // disconnect from all the connections that failed writing or reading
+  for server in disconnect.into_iter() {
+    let conn = match writers.remove(&server) {
+      Some(conn) => conn,
+      None => continue,
+    };
+
+    // the retry buffer is empty since the caller must drain the connection beforehand in this context
+    let result = client_utils::timeout(
+      async move {
+        let _ = conn.close().await;
+        Ok(())
+      },
+      inner.connection.internal_command_timeout,
+    )
+    .await;
+    if let Err(err) = result {
+      _warn!(inner, "Error disconnecting {:?}", err);
+    }
+  }
+
+  out
 }
 
 pub fn parse_cluster_changes(
@@ -139,33 +260,6 @@ pub fn parse_cluster_error_frame(
   };
 
   Ok((kind, slot, server))
-}
-
-fn process_cluster_error(
-  inner: &RefCount<RedisClientInner>,
-  server: &Server,
-  mut command: RedisCommand,
-  frame: Resp3Frame,
-) {
-  // commands are not redirected to replica nodes
-  command.use_replica = false;
-
-  // overwrite the command's cluster node
-  // send to command_tx
-
-  let (kind, slot, server) = match parse_cluster_error_frame(inner, &frame, server) {
-    Ok(results) => results,
-    Err(e) => {
-      command.respond_to_caller(Err(e));
-      return;
-    },
-  };
-
-  // overwrite the command's cluster node
-  // send to command_tx
-  // handle writing transactions differently to avoid special logic here - instead write all commands, then read them
-  // all into a buffer on the write path
-  unimplemented!()
 }
 
 /// Process the response frame in the context of the last command.
@@ -387,7 +481,7 @@ pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisConnecti
   let mut buffer = VecDeque::new();
 
   for (server, mut writer) in writers.drain() {
-    if writer.has_reader_errors() {
+    if writer.peek_reader_errors().await.is_some() {
       buffer.extend(writer.close().await);
     } else {
       new_writers.insert(server, writer);
@@ -402,76 +496,71 @@ pub async fn drop_broken_connections(writers: &mut HashMap<Server, RedisConnecti
 pub async fn sync(
   inner: &RefCount<RedisClientInner>,
   connections: &mut HashMap<Server, RedisConnection>,
+  cache: &mut ClusterRouting,
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Synchronizing cluster state.");
 
-  if let Connections::Clustered { cache, writers } = connections {
-    // force disconnect after a connection unexpectedly closes or goes unresponsive
-    let force_disconnect = writers.is_empty()
-      || writers
-        .values()
-        .find_map(|t| if t.is_working() { None } else { Some(true) })
-        .unwrap_or(false);
+  // force disconnect if connections is empty or any readers have pending errors
+  let force_disconnect = connections.is_empty()
+    || join_all(connections.values_mut().map(|c| c.peek_reader_errors()))
+      .await
+      .into_iter()
+      .filter(|err| err.is_some())
+      .collect::<Vec<_>>()
+      .is_empty();
 
-    let state = cluster_slots_backchannel(inner, Some(&*cache), force_disconnect).await?;
-    _debug!(inner, "Cluster routing state: {:?}", state.pretty());
-    // update the cached routing table
-    inner
-      .server_state
-      .write()
-      .kind
-      .update_cluster_state(Some(state.clone()));
-    *cache = state.clone();
+  let state = cluster_slots_backchannel(inner, Some(&*cache), force_disconnect).await?;
+  _debug!(inner, "Cluster routing state: {:?}", state.pretty());
+  // update the cached routing table
+  inner
+    .server_state
+    .write()
+    .kind
+    .update_cluster_state(Some(state.clone()));
+  *cache = state.clone();
 
-    buffer.extend(drop_broken_connections(writers).await);
-    // detect changes to the cluster topology
-    let changes = parse_cluster_changes(&state, writers);
-    _debug!(inner, "Changing cluster connections: {:?}", changes);
-    broadcast_cluster_change(inner, &changes);
+  buffer.extend(drop_broken_connections(connections).await);
+  // detect changes to the cluster topology
+  let changes = parse_cluster_changes(&state, connections);
+  _debug!(inner, "Changing cluster connections: {:?}", changes);
+  broadcast_cluster_change(inner, &changes);
 
-    // drop connections that are no longer used
-    for removed_server in changes.remove.into_iter() {
-      _debug!(inner, "Disconnecting from cluster node {}", removed_server);
-      let writer = match writers.remove(&removed_server) {
-        Some(writer) => writer,
-        None => continue,
-      };
+  // drop connections that are no longer used
+  for removed_server in changes.remove.into_iter() {
+    _debug!(inner, "Disconnecting from cluster node {}", removed_server);
+    let writer = match connections.remove(&removed_server) {
+      Some(writer) => writer,
+      None => continue,
+    };
 
-      let commands = writer.graceful_close().await;
-      buffer.extend(commands);
-    }
-
-    let mut connections_ft = Vec::with_capacity(changes.add.len());
-    let new_writers = RefCount::new(Mutex::new(HashMap::with_capacity(changes.add.len())));
-    // connect to each of the new nodes
-    for server in changes.add.into_iter() {
-      let _inner = inner.clone();
-      let _new_writers = new_writers.clone();
-      connections_ft.push(async move {
-        _debug!(inner, "Connecting to cluster node {}", server);
-        let mut transport = connection::create(&_inner, &server, None).await?;
-        transport.setup(&_inner, None).await?;
-        let connection = transport.into_pipelined(false);
-        inner.notifications.broadcast_reconnect(server.clone());
-        _new_writers.lock().insert(server, connection);
-        Ok::<_, RedisError>(())
-      });
-    }
-
-    let _ = try_join_all(connections_ft).await?;
-    for (server, writer) in new_writers.lock().drain() {
-      writers.insert(server, writer);
-    }
-
-    _debug!(inner, "Finish synchronizing cluster connections.");
-  } else {
-    return Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected clustered connections.",
-    ));
+    let commands = writer.close().await;
+    buffer.extend(commands);
   }
 
+  let mut connections_ft = Vec::with_capacity(changes.add.len());
+  let new_writers = RefCount::new(Mutex::new(HashMap::with_capacity(changes.add.len())));
+  // connect to each of the new nodes
+  for server in changes.add.into_iter() {
+    let _inner = inner.clone();
+    let _new_writers = new_writers.clone();
+    connections_ft.push(async move {
+      _debug!(inner, "Connecting to cluster node {}", server);
+      let mut transport = connection::create(&_inner, &server, None).await?;
+      transport.setup(&_inner, None).await?;
+      let connection = transport.into_pipelined(false);
+      inner.notifications.broadcast_reconnect(server.clone());
+      _new_writers.lock().insert(server, connection);
+      Ok::<_, RedisError>(())
+    });
+  }
+
+  let _ = try_join_all(connections_ft).await?;
+  for (server, writer) in new_writers.lock().drain() {
+    connections.insert(server, writer);
+  }
+
+  _debug!(inner, "Finish synchronizing cluster connections.");
   if let Some(version) = connections.server_version() {
     inner.server_state.write().kind.set_server_version(version);
   }
@@ -485,8 +574,13 @@ pub async fn initialize_connections(
   connections: &mut Connections,
   buffer: &mut VecDeque<RedisCommand>,
 ) -> Result<(), RedisError> {
-  let commands = connections.disconnect_all(inner).await;
-  _trace!(inner, "Adding {} commands to retry buffer.", commands.len());
-  buffer.extend(commands);
-  sync(inner, connections, buffer).await
+  buffer.extend(connections.disconnect_all(inner).await);
+
+  match connections {
+    Connections::Clustered {
+      ref mut writers,
+      ref mut cache,
+    } => sync(inner, writers, cache, buffer).await,
+    _ => Err(RedisError::new(RedisErrorKind::Config, "Expected clustered config.")),
+  }
 }

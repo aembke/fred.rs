@@ -14,8 +14,8 @@ use crate::{
 use bytes::Bytes;
 use bytes_utils::Str;
 use redis_protocol::{
-  resp2::types::{BorrowedFrame as Resp2BorrowedFrame, BytesFrame as Resp2Frame, Resp2Frame as _Resp2Frame},
-  resp3::types::{BorrowedFrame as Resp3BorrowedFrame, BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
+  resp2::types::{BytesFrame as Resp2Frame, Resp2Frame as _Resp2Frame},
+  resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame},
   types::{PUBSUB_PUSH_PREFIX, REDIS_CLUSTER_SLOTS},
 };
 use std::{borrow::Cow, collections::HashMap, convert::TryInto, ops::Deref, str};

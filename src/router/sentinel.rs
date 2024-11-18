@@ -7,7 +7,7 @@ use crate::{
     connection::{self, ExclusiveConnection, RedisConnection},
     utils as protocol_utils,
   },
-  router::{centralized, Connections},
+  router::connections::Connections,
   runtime::RefCount,
   types::{RedisValue, Server, ServerConfig},
   utils,

@@ -1,39 +1,35 @@
-use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{
-    command::RedisCommand,
-    connection::{self, Counters, RedisConnection},
-    types::{ClusterRouting, Server},
-  },
-  runtime::RefCount,
-  trace,
-  utils as client_utils,
-};
-use futures::future::try_join_all;
-use semver::Version;
-use std::{
-  collections::{HashMap, VecDeque},
-  fmt,
-  fmt::Formatter,
-  time::Duration,
-};
-
-#[cfg(feature = "transactions")]
-use crate::runtime::oneshot_channel;
-#[cfg(feature = "transactions")]
-use crate::{protocol::command::ClusterErrorKind, protocol::responders::ResponseKind};
-#[cfg(feature = "replicas")]
-use std::collections::HashSet;
-
 pub mod centralized;
 pub mod clustered;
 pub mod commands;
+pub mod connections;
 pub mod replicas;
 pub mod responses;
 pub mod sentinel;
 pub mod types;
 pub mod utils;
+
+use crate::{
+  error::{RedisError, RedisErrorKind},
+  modules::inner::RedisClientInner,
+  protocol::{
+    command::RedisCommand,
+    connection::{self, Counters},
+    types::Server,
+    utils as protocol_utils,
+  },
+  router::{connections::Connections, utils::next_frame},
+  runtime::RefCount,
+  trace,
+  types::Resp3Frame,
+  utils as client_utils,
+};
+use futures::future::{select_all, try_join_all};
+use std::{collections::VecDeque, fmt, fmt::Formatter, time::Duration};
+
+#[cfg(feature = "transactions")]
+use crate::protocol::command::ClusterErrorKind;
+#[cfg(feature = "replicas")]
+use std::collections::HashSet;
 
 #[cfg(feature = "transactions")]
 pub mod transactions;
@@ -42,7 +38,7 @@ pub mod transactions;
 use crate::router::replicas::Replicas;
 
 /// The result of an attempt to send a command to the server.
-pub enum Written {
+pub enum WriteResult {
   /// Apply backpressure to the command before retrying.
   Backpressure((RedisCommand, Backpressure)),
   /// Indicates that the command was sent to the associated server and whether the socket was flushed.
@@ -62,18 +58,18 @@ pub enum Written {
   Fallback(RedisCommand),
 }
 
-impl fmt::Display for Written {
+impl fmt::Display for WriteResult {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "{}", match self {
-      Written::Backpressure(_) => "Backpressure",
-      Written::Sent(_) => "Sent",
-      Written::SentAll => "SentAll",
-      Written::Disconnected(_) => "Disconnected",
-      Written::Ignore => "Ignore",
-      Written::NotFound(_) => "NotFound",
-      Written::Error(_) => "Error",
+      WriteResult::Backpressure(_) => "Backpressure",
+      WriteResult::Sent(_) => "Sent",
+      WriteResult::SentAll => "SentAll",
+      WriteResult::Disconnected(_) => "Disconnected",
+      WriteResult::Ignore => "Ignore",
+      WriteResult::NotFound(_) => "NotFound",
+      WriteResult::Error(_) => "Error",
       #[cfg(feature = "replicas")]
-      Written::Fallback(_) => "Fallback",
+      WriteResult::Fallback(_) => "Fallback",
     })
   }
 }
@@ -102,344 +98,6 @@ impl Backpressure {
         Ok(())
       },
       _ => Ok(()),
-    }
-  }
-}
-
-/// Connection maps for the supported deployment types.
-pub enum Connections {
-  Centralized {
-    /// The connection to the primary server.
-    writer: Option<RedisConnection>,
-  },
-  Clustered {
-    /// The cached cluster routing table used for mapping keys to server IDs.
-    cache:   ClusterRouting,
-    /// A map of server IDs and connections.
-    writers: HashMap<Server, RedisConnection>,
-  },
-  Sentinel {
-    /// The connection to the primary server.
-    writer: Option<RedisConnection>,
-  },
-}
-
-impl Connections {
-  pub fn new_centralized() -> Self {
-    Connections::Centralized { writer: None }
-  }
-
-  pub fn new_sentinel() -> Self {
-    Connections::Sentinel { writer: None }
-  }
-
-  pub fn new_clustered() -> Self {
-    Connections::Clustered {
-      cache:   ClusterRouting::new(),
-      writers: HashMap::new(),
-    }
-  }
-
-  /// Discover and return a mapping of replica nodes to their associated primary node.
-  #[cfg(feature = "replicas")]
-  pub async fn replica_map(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Result<HashMap<Server, Server>, RedisError> {
-    Ok(match self {
-      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer {
-          writer
-            .discover_replicas(inner)
-            .await?
-            .into_iter()
-            .map(|replica| (replica, writer.server.clone()))
-            .collect()
-        } else {
-          HashMap::new()
-        }
-      },
-      Connections::Clustered { ref writers, .. } => {
-        let mut out = HashMap::with_capacity(writers.len());
-
-        for primary in writers.keys() {
-          let replicas = inner
-            .with_cluster_state(|state| Ok(state.replicas(primary)))
-            .ok()
-            .unwrap_or_default();
-
-          for replica in replicas.into_iter() {
-            out.insert(replica, primary.clone());
-          }
-        }
-        out
-      },
-    })
-  }
-
-  /// Whether the connection map has a connection to the provided server`.
-  pub async fn has_server_connection(&mut self, server: &Server) -> bool {
-    match self {
-      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer.as_mut() {
-          if writer.server == *server {
-            writer.has_reader_errors().await.is_none()
-          } else {
-            false
-          }
-        } else {
-          false
-        }
-      },
-      Connections::Clustered { ref mut writers, .. } => {
-        for (_, writer) in writers.iter_mut() {
-          if writer.server == *server {
-            return writer.has_reader_errors().await.is_none();
-          }
-        }
-
-        false
-      },
-    }
-  }
-
-  /// Get the connection writer half for the provided server.
-  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut RedisConnection> {
-    match self {
-      Connections::Centralized { ref mut writer } => {
-        writer
-          .as_mut()
-          .and_then(|writer| if writer.server == *server { Some(writer) } else { None })
-      },
-      Connections::Sentinel { ref mut writer } => {
-        writer
-          .as_mut()
-          .and_then(|writer| if writer.server == *server { Some(writer) } else { None })
-      },
-      Connections::Clustered { ref mut writers, .. } => writers.get_mut(server),
-    }
-  }
-
-  /// Initialize the underlying connection(s) and update the cached backchannel information.
-  pub async fn initialize(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    buffer: &mut VecDeque<RedisCommand>,
-  ) -> Result<(), RedisError> {
-    let result = if inner.config.server.is_clustered() {
-      Box::pin(clustered::initialize_connections(inner, self, buffer)).await
-    } else if inner.config.server.is_centralized() || inner.config.server.is_unix_socket() {
-      Box::pin(centralized::initialize_connection(inner, self, buffer)).await
-    } else if inner.config.server.is_sentinel() {
-      Box::pin(sentinel::initialize_connection(inner, self, buffer)).await
-    } else {
-      return Err(RedisError::new(RedisErrorKind::Config, "Invalid client configuration."));
-    };
-
-    if result.is_ok() {
-      if let Some(version) = self.server_version() {
-        inner.server_state.write().kind.set_server_version(version);
-      }
-
-      let mut backchannel = inner.backchannel.write().await;
-      backchannel.connection_ids = self.connection_ids();
-    }
-    result
-  }
-
-  /// Read the counters associated with a connection to a server.
-  pub fn counters(&self, server: Option<&Server>) -> Option<&Counters> {
-    match self {
-      Connections::Centralized { ref writer } => writer.as_ref().map(|w| &w.counters),
-      Connections::Sentinel { ref writer, .. } => writer.as_ref().map(|w| &w.counters),
-      Connections::Clustered { ref writers, .. } => {
-        server.and_then(|server| writers.get(server).map(|w| &w.counters))
-      },
-    }
-  }
-
-  /// Read the server version, if known.
-  pub fn server_version(&self) -> Option<Version> {
-    match self {
-      Connections::Centralized { ref writer } => writer.as_ref().and_then(|w| w.version.clone()),
-      Connections::Clustered { ref writers, .. } => writers.iter().find_map(|(_, w)| w.version.clone()),
-      Connections::Sentinel { ref writer, .. } => writer.as_ref().and_then(|w| w.version.clone()),
-    }
-  }
-
-  /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
-  pub async fn disconnect(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    server: Option<&Server>,
-  ) -> VecDeque<RedisCommand> {
-    match self {
-      Connections::Centralized { ref mut writer } => {
-        if let Some(writer) = writer.take() {
-          _debug!(inner, "Disconnecting from {}", writer.server);
-          writer.close().await
-        } else {
-          VecDeque::new()
-        }
-      },
-      Connections::Clustered { ref mut writers, .. } => {
-        let mut out = VecDeque::new();
-
-        if let Some(server) = server {
-          if let Some(writer) = writers.remove(server) {
-            _debug!(inner, "Disconnecting from {}", writer.server);
-            let commands = writer.close().await;
-            out.extend(commands);
-          }
-        }
-        out.into_iter().collect()
-      },
-      Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer.take() {
-          _debug!(inner, "Disconnecting from {}", writer.server);
-          writer.close().await
-        } else {
-          VecDeque::new()
-        }
-      },
-    }
-  }
-
-  /// Disconnect and clear local state for all connections, returning all in-flight commands.
-  pub async fn disconnect_all(&mut self, inner: &RefCount<RedisClientInner>) -> VecDeque<RedisCommand> {
-    match self {
-      Connections::Centralized { ref mut writer } => {
-        if let Some(writer) = writer.take() {
-          _debug!(inner, "Disconnecting from {}", writer.server);
-          writer.close().await
-        } else {
-          VecDeque::new()
-        }
-      },
-      Connections::Clustered { ref mut writers, .. } => {
-        let mut out = VecDeque::new();
-        for (_, writer) in writers.drain() {
-          _debug!(inner, "Disconnecting from {}", writer.server);
-          let commands = writer.close().await;
-          out.extend(commands.into_iter());
-        }
-        out.into_iter().collect()
-      },
-      Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer.take() {
-          _debug!(inner, "Disconnecting from {}", writer.server);
-          writer.close().await
-        } else {
-          VecDeque::new()
-        }
-      },
-    }
-  }
-
-  /// Read a map of connection IDs (via `CLIENT ID`) for each inner connections.
-  pub fn connection_ids(&self) -> HashMap<Server, i64> {
-    let mut out = HashMap::new();
-
-    match self {
-      Connections::Centralized { writer } => {
-        if let Some(writer) = writer {
-          if let Some(id) = writer.id {
-            out.insert(writer.server.clone(), id);
-          }
-        }
-      },
-      Connections::Sentinel { writer, .. } => {
-        if let Some(writer) = writer {
-          if let Some(id) = writer.id {
-            out.insert(writer.server.clone(), id);
-          }
-        }
-      },
-      Connections::Clustered { writers, .. } => {
-        for (server, writer) in writers.iter() {
-          if let Some(id) = writer.id {
-            out.insert(server.clone(), id);
-          }
-        }
-      },
-    }
-
-    out
-  }
-
-  /// Flush the socket(s) associated with each server if they have pending frames.
-  pub async fn check_and_flush(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
-    _trace!(inner, "Checking and flushing sockets...");
-
-    match self {
-      Connections::Centralized { ref mut writer } => {
-        if let Some(writer) = writer {
-          writer.flush().await
-        } else {
-          Ok(())
-        }
-      },
-      Connections::Sentinel { ref mut writer, .. } => {
-        if let Some(writer) = writer {
-          writer.flush().await
-        } else {
-          Ok(())
-        }
-      },
-      Connections::Clustered { ref mut writers, .. } => {
-        try_join_all(writers.values_mut().map(|writer| writer.flush()))
-          .await
-          .map(|_| ())
-      },
-    }
-  }
-
-  /// Send a command to all servers in a cluster.
-  pub async fn write_all_cluster(&mut self, inner: &RefCount<RedisClientInner>, command: RedisCommand) -> Written {
-    if let Connections::Clustered { ref mut writers, .. } = self {
-      if let Err(error) = clustered::send_all_cluster_command(inner, writers, command).await {
-        Written::Disconnected((None, None, error))
-      } else {
-        Written::SentAll
-      }
-    } else {
-      Written::Error((
-        RedisError::new(RedisErrorKind::Config, "Expected clustered configuration."),
-        None,
-      ))
-    }
-  }
-
-  /// Check if the provided `server` node owns the provided `slot`.
-  pub fn check_cluster_owner(&self, slot: u16, server: &Server) -> bool {
-    match self {
-      Connections::Clustered { ref cache, .. } => cache
-        .get_server(slot)
-        .map(|owner| {
-          trace!("Comparing cached cluster owner for {}: {} == {}", slot, owner, server);
-          owner == server
-        })
-        .unwrap_or(false),
-      _ => false,
-    }
-  }
-
-  /// Connect or reconnect to the provided `host:port`.
-  pub async fn add_connection(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<(), RedisError> {
-    if let Connections::Clustered { ref mut writers, .. } = self {
-      let mut transport = connection::create(inner, server, None).await?;
-      transport.setup(inner, None).await?;
-      writers.insert(server.clone(), transport.into_pipelined(false));
-      Ok(())
-    } else {
-      Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Expected clustered configuration.",
-      ))
     }
   }
 }
@@ -488,7 +146,7 @@ impl Router {
 
   /// Attempt to send the command to the server.
   #[inline(always)]
-  pub async fn write(&mut self, mut command: RedisCommand, force_flush: bool) -> Written {
+  pub async fn write(&mut self, mut command: RedisCommand, force_flush: bool) -> WriteResult {
     let send_all_cluster_nodes =
       self.inner.config.server.is_clustered() && (command.is_all_cluster_nodes() || command.kind.closes_connection());
 
@@ -496,6 +154,7 @@ impl Router {
       self.inner.counters.incr_redelivery_count();
     }
     if send_all_cluster_nodes {
+      self.drain().await?;
       self.connections.write_all_cluster(&self.inner, command).await
     } else {
       // note: the logic in these branches used to be abstracted into separate `write` functions in the centralized
@@ -520,7 +179,7 @@ impl Router {
                   "Missing cluster node override.",
                 )));
 
-                Written::Ignore
+                WriteResult::Ignore
               } else {
                 // these errors usually mean the cluster is partially down or misconfigured
                 warn!(
@@ -528,7 +187,7 @@ impl Router {
                   self.inner.id,
                   command.cluster_hash()
                 );
-                Written::NotFound(command)
+                WriteResult::NotFound(command)
               };
             },
           };
@@ -550,7 +209,7 @@ impl Router {
               command.kind.to_str_debug()
             );
 
-            Written::Disconnected((
+            WriteResult::Disconnected((
               Some(server.clone()),
               Some(command),
               RedisError::new(RedisErrorKind::IO, "Missing connection."),
@@ -566,7 +225,7 @@ impl Router {
               self.inner.id,
               command.kind.to_str_debug()
             );
-            Written::Disconnected((
+            WriteResult::Disconnected((
               None,
               Some(command),
               RedisError::new(RedisErrorKind::IO, "Missing connection."),
@@ -582,7 +241,7 @@ impl Router {
               self.inner.id,
               command.kind.to_str_debug()
             );
-            Written::Disconnected((
+            WriteResult::Disconnected((
               None,
               Some(command),
               RedisError::new(RedisErrorKind::IO, "Missing connection."),
@@ -595,7 +254,7 @@ impl Router {
 
   /// Write a command to a replica node if possible, falling back to a primary node if configured.
   #[cfg(feature = "replicas")]
-  pub async fn write_replica(&mut self, mut command: RedisCommand, force_flush: bool) -> Written {
+  pub async fn write_replica(&mut self, mut command: RedisCommand, force_flush: bool) -> WriteResult {
     if !command.use_replica {
       return self.write(command, force_flush).await;
     }
@@ -619,14 +278,14 @@ impl Router {
             "Missing primary node connection.",
           )));
 
-          Written::Ignore
+          WriteResult::Ignore
         }
       },
     };
 
     let result = self.replicas.write(&self.inner, &primary, command, force_flush).await;
     match result {
-      Written::Fallback(mut command) => {
+      WriteResult::Fallback(mut command) => {
         debug!(
           "{}: Fall back to primary node for {} ({}) after replica error",
           self.inner.id,
@@ -643,12 +302,12 @@ impl Router {
 
   /// Write a command to a replica node if possible, falling back to a primary node if configured.
   #[cfg(not(feature = "replicas"))]
-  pub async fn write_replica(&mut self, command: RedisCommand, force_flush: bool) -> Written {
+  pub async fn write_replica(&mut self, command: RedisCommand, force_flush: bool) -> WriteResult {
     self.write(command, force_flush).await
   }
 
   /// Attempt to write the command to a specific server without backpressure.
-  pub async fn write_direct(&mut self, mut command: RedisCommand, server: &Server) -> Written {
+  pub async fn write_direct(&mut self, mut command: RedisCommand, server: &Server) -> WriteResult {
     debug!(
       "{}: Direct write `{}` command to {}, ID: {}",
       self.inner.id,
@@ -661,7 +320,7 @@ impl Router {
       Some(writer) => writer,
       None => {
         trace!("{}: Missing connection to {}", self.inner.id, server);
-        return Written::NotFound(command);
+        return WriteResult::NotFound(command);
       },
     };
     let frame = match utils::prepare_command(&self.inner, &writer.counters, &mut command) {
@@ -674,27 +333,29 @@ impl Router {
         );
         // do not retry commands that trigger frame encoding errors
         command.respond_to_caller(Err(e));
-        return Written::Ignore;
+        return WriteResult::Ignore;
       },
     };
     let blocks_connection = command.blocks_connection();
     command.write_attempts += 1;
 
-    if !writer.is_working() {
-      let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
+    if let Some(error) = writer.peek_reader_errors().await {
       debug!("{}: Error sending command: {:?}", self.inner.id, error);
-      return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
+      return WriteResult::Disconnected((Some(writer.server.clone()), Some(command), error));
     }
 
     let no_incr = command.has_no_responses();
+    let check_unresponsive = !command.kind.is_pubsub() && self.inner.has_unresponsive_duration();
     writer.push_command(command);
-    if let Err(err) = writer.write_frame(frame, true, no_incr).await {
-      Written::Disconnected((Some(writer.server.clone()), None, err))
+    let write_result = writer.write(frame, true, no_incr, check_unresponsive).await;
+
+    if let Err(err) = write_result {
+      WriteResult::Disconnected((Some(writer.server.clone()), None, err))
     } else {
       if blocks_connection {
         self.inner.backchannel.write().await.set_blocked(&writer.server);
       }
-      Written::Sent((writer.server.clone(), true))
+      WriteResult::Sent((writer.server.clone(), true))
     }
   }
 
@@ -778,15 +439,32 @@ impl Router {
   ///
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
-    let result = clustered::sync(&self.inner, &mut self.connections, &mut self.retry_buffer).await;
+    match self.connections {
+      Connections::Clustered {
+        ref mut writers,
+        ref mut cache,
+      } => {
+        let result = clustered::sync(&self.inner, writers, cache, &mut self.retry_buffer).await;
 
-    if result.is_ok() {
-      #[cfg(feature = "replicas")]
-      self.refresh_replica_routing().await?;
-      self.retry_buffer().await;
+        if result.is_ok() {
+          #[cfg(feature = "replicas")]
+          self.refresh_replica_routing().await?;
+
+          // surface errors from the retry process, otherwise return the reconnection result
+          match self.retry_buffer().await {
+            WriteResult::Disconnected((_, _, error)) => {
+              return Err(error);
+            },
+            WriteResult::Error((error, _)) => {
+              return Err(error);
+            },
+            _ => {},
+          }
+        }
+        result
+      },
+      _ => Ok(()),
     }
-
-    result
   }
 
   /// Rebuild the cached replica routing table based on the primary node connections.
@@ -833,14 +511,14 @@ impl Router {
   }
 
   /// Attempt to replay all queued commands on the internal buffer without backpressure.
-  // TODO change the interface here to return an error so the caller can reconnect
-  pub async fn retry_buffer(&mut self) {
-    let mut failed_commands: VecDeque<_> = VecDeque::new();
-    let mut commands: VecDeque<_> = self.retry_buffer.drain(..).collect();
+  pub async fn retry_buffer(&mut self) -> WriteResult {
     #[cfg(feature = "replicas")]
-    commands.extend(self.replicas.take_retry_buffer());
+    {
+      let commands = self.replicas.take_retry_buffer();
+      self.retry_buffer.extend(commands);
+    }
 
-    while let Some(mut command) = commands.pop_front() {
+    while let Some(mut command) = self.retry_buffer.pop_front() {
       if client_utils::read_bool_atomic(&command.timed_out) {
         debug!(
           "{}: Ignore retrying timed out command: {}",
@@ -854,7 +532,7 @@ impl Router {
         command.respond_to_caller(Err(e));
         continue;
       }
-      command.skip_backpressure = true;
+
       trace!(
         "{}: Retry `{}` ({}) command, attempts left: {}",
         self.inner.id,
@@ -862,7 +540,7 @@ impl Router {
         command.debug_id(),
         command.attempts_remaining,
       );
-
+      command.skip_backpressure = true;
       let result = if command.use_replica {
         self.write_replica(command, true).await
       } else {
@@ -870,9 +548,10 @@ impl Router {
       };
 
       match result {
-        Written::Disconnected((server, command, error)) => {
+        WriteResult::Disconnected((server, command, error)) => {
+          // disconnect and return the error to the caller
           if let Some(command) = command {
-            failed_commands.push_back(command);
+            self.retry_buffer.push_front(command);
           }
 
           debug!(
@@ -880,35 +559,58 @@ impl Router {
             &self.inner.id, error
           );
           self.connections.disconnect(&self.inner, server.as_ref()).await;
-          utils::defer_reconnect(&self.inner);
-          break;
+          return WriteResult::Disconnected((server, None, error));
         },
-        Written::NotFound(command) => {
-          failed_commands.push_back(command);
+        WriteResult::NotFound(command) => {
+          // disconnect all, re-queue the command for later, and return an error to the caller
+          if let Some(command) = command {
+            self.retry_buffer.push_front(command);
+          }
 
           warn!(
             "{}: Disconnect and re-sync cluster state after routing error while retrying commands.",
             self.inner.id
           );
           self.disconnect_all().await;
-          utils::defer_reconnect(&self.inner);
-          break;
+          return WriteResult::Disconnected((
+            None,
+            None,
+            RedisError::new(RedisErrorKind::NotFound, "Failed to route command when retrying."),
+          ));
         },
-        Written::Error((error, command)) => {
-          warn!("{}: Error replaying command: {:?}", self.inner.id, error);
-          if let Some(mut command) = command {
-            command.respond_to_caller(Err(error));
+        WriteResult::Error((error, command)) => {
+          // return the error to the caller
+          if let Some(command) = command {
+            self.retry_buffer.push_front(command);
           }
-          self.disconnect_all().await;
-          utils::defer_reconnect(&self.inner);
-          break;
+
+          error!("{}: Fatal error retrying command: {:?}", self.inner.id, error);
+          return WriteResult::Error((error, None));
         },
-        _ => {},
-      }
+        #[cfg(feature = "replicas")]
+        WriteResult::Fallback(mut command) => {
+          // try to fall back to a primary node or return an error to the caller
+          if self.inner.connection.replica.primary_fallback {
+            command.use_replica = false;
+            self.retry_buffer.push_front(command);
+            continue;
+          } else {
+            error!(
+              "{}: Failed to send command to replica and client is not configured to allow fallback to a primary \
+               node.",
+              self.inner.id
+            );
+            command.respond_to_caller(Err(RedisError::new(
+              RedisErrorKind::Unknown,
+              "Could not send command to replica node.",
+            )));
+          }
+        },
+        _ => continue,
+      };
     }
 
-    failed_commands.extend(commands);
-    self.buffer_commands(failed_commands);
+    WriteResult::SentAll
   }
 
   /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.
@@ -969,20 +671,17 @@ impl Router {
           .update_connection_ids(&self.connections);
       }
 
-      // can't use request_response since there may be pipelined commands ahead of this
-      let (tx, rx) = oneshot_channel();
-      let mut command = RedisCommand::new_asking(slot);
-      command.response = ResponseKind::Respond(Some(tx));
-      command.skip_backpressure = true;
-
-      match self.write_direct(command, server).await {
-        Written::Error((error, _)) => return Err(error),
-        Written::Disconnected((_, _, error)) => return Err(error),
-        Written::NotFound(_) => return Err(RedisError::new(RedisErrorKind::Cluster, "Connection not found.")),
-        _ => {},
+      let conn = match self.connections.get_connection_mut(server) {
+        Some(conn) => conn,
+        None => return Err(RedisError::new(RedisErrorKind::IO, "Missing connection.")),
       };
+      conn.drain(&self.inner).await?;
 
-      let _ = client_utils::timeout(rx, self.inner.internal_command_timeout()).await??;
+      let command = RedisCommand::new_asking(slot);
+      let timeout = Some(self.inner.internal_command_timeout());
+      let _ = connection::request_response(&self.inner, conn, command, timeout)
+        .await
+        .and_then(protocol_utils::frame_to_results)?;
     }
 
     Ok(())
@@ -992,25 +691,7 @@ impl Router {
   #[cfg(feature = "replicas")]
   pub async fn drain_replicas(&mut self) -> Result<(), RedisError> {
     let inner = self.inner.clone();
-    let is_clustered = self.inner.config.server.is_clustered();
-
-    try_join_all(self.replicas.writers.iter_mut().map(|(server, conn)| async move {
-      while !conn.buffer.is_empty() {
-        let frame = match conn.read_skip_pubsub(&inner).await? {
-          Some(f) => f,
-          None => return Ok(()),
-        };
-
-        if is_clustered {
-          clustered::process_response_frame(&inner, conn, frame).await?;
-        } else {
-          centralized::process_response_frame(&inner, conn, frame).await?;
-        }
-      }
-
-      Ok(())
-    }))
-    .await?;
+    try_join_all(self.replicas.writers.iter_mut().map(|(_, conn)| conn.drain(&inner))).await?;
 
     Ok(())
   }
@@ -1018,41 +699,49 @@ impl Router {
   /// Wait and read frames until there are no in-flight frames on primary connections.
   pub async fn drain(&mut self) -> Result<(), RedisError> {
     let inner = self.inner.clone();
+    _debug!(inner, "Draining all connections...");
 
     match self.connections {
       Connections::Clustered { ref mut writers, .. } => {
-        try_join_all(writers.iter_mut().map(|(server, conn)| async {
-          while !conn.buffer.is_empty() {
-            let frame = match conn.read_skip_pubsub(&inner).await? {
-              Some(f) => f,
-              None => return Ok(()),
-            };
-
-            clustered::process_response_frame(&inner, conn, frame).await?;
-          }
-
-          Ok(())
-        }))
-        .await?;
+        try_join_all(writers.iter_mut().map(|(_, conn)| conn.drain(&inner))).await?;
 
         Ok(())
       },
-      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
-        let conn = match writer {
-          Some(ref mut conn) => conn,
-          None => return Ok(()),
-        };
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => match writer {
+        Some(ref mut conn) => conn.drain(&inner).await,
+        None => Ok(()),
+      },
+    }
+  }
 
-        while !conn.buffer.is_empty() {
-          let frame = match conn.read_skip_pubsub(&inner).await? {
-            Some(f) => f,
-            None => return Ok(()),
-          };
-
-          centralized::process_response_frame(&inner, conn, frame).await?;
+  /// Try to read from all sockets concurrently, returning the first result that completes.
+  pub async fn select_read(&mut self) -> Option<(&Server, Result<Resp3Frame, RedisError>)> {
+    match self.connections {
+      Connections::Clustered { ref mut writers, .. } => {
+        if writers.is_empty() {
+          return None;
         }
 
-        Ok(())
+        select_all(writers.iter_mut().map(|(_, conn)| async move {
+          match next_frame!(&self.inner, conn) {
+            Ok(Some(frame)) => Some((&conn.server, Ok(frame))),
+            Ok(None) => None,
+            Err(e) => Some((&conn.server, Err(e))),
+          }
+        }))
+        .await
+        .0
+      },
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
+        if let Some(conn) = writer {
+          match next_frame!(&self.inner, conn) {
+            Ok(Some(frame)) => Some((&conn.server, Ok(frame))),
+            Ok(None) => None,
+            Err(e) => Some((&conn.server, Err(e))),
+          }
+        } else {
+          None
+        }
       },
     }
   }

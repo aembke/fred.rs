@@ -580,6 +580,10 @@ impl RedisClientInner {
     self.server_state.write().replicas.clear()
   }
 
+  pub fn has_unresponsive_duration(&self) -> bool {
+    self.connection.unresponsive.max_timeout.is_some()
+  }
+
   pub fn shared_resp3(&self) -> RefCount<AtomicBool> {
     self.resp3.clone()
   }

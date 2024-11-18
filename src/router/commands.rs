@@ -2,8 +2,9 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
   protocol::command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
-  router::{utils, Backpressure, Router, Written},
+  router::{utils, Backpressure, Router, WriteResult},
   runtime::{OneshotSender, RefCount},
+  trace,
   types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
@@ -15,10 +16,10 @@ use crate::router::transactions;
 use tracing_futures::Instrument;
 
 // In the past this logic was abstracted across several more composable async functions, but this was reworked in
-// 9.5.0 to use this ugly macro interface. Rust imposes a non-trivial amount of overhead (often in the form of
-// __memmove_avx_unaligned_erms() calls) whenever crossing an await point, and each of these async functions added
-// another expensive indirection. Refactoring the old logic into one giant macro improved writer throughput by almost
-// 80%.
+// 9.5.0 to use this macro interface. On my machine the compiler was imposing a non-trivial amount of overhead (often
+// in the form of __memmove_avx_unaligned_erms() calls) whenever crossing an await point, and each of these async
+// functions added one or more memcpy calls. Refactoring the old logic into one giant macro improved writer
+// throughput by almost 80%, but it's a lot harder to read.
 macro_rules! write_one_command {
   ($inner:ident, $router:ident, $command:ident, $force_pipeline:ident) => {{
     _trace!($inner, "Writing command: {:?}", $command);
@@ -31,32 +32,34 @@ macro_rules! write_one_command {
         None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
       };
       if let Err(e) = command.decr_check_attempted() {
-        command.finish($inner, Err(e));
+        command.respond_to_caller(Err(e));
         break;
       }
 
-      // apply backpressure first if needed. as a part of that check we may decide to block on the next command.
-      let router_rx = match _backpressure {
-        Some(backpressure) => match backpressure.wait($inner, &mut command).await {
-          Ok(Some(rx)) => Some(rx),
-          Ok(None) => {
-            if command.should_auto_pipeline($inner, $force_pipeline) {
-              None
-            } else {
-              Some(command.create_router_channel())
-            }
-          },
-          Err(e) => {
-            command.respond_to_caller(Err(e));
-            return Ok(());
-          },
+      // apply backpressure first if needed
+      match _backpressure {
+        Some(Backpressure::Wait(duration)) => {
+          _debug!($inner, "Backpressure policy (wait): {:?}", duration);
+          trace::backpressure_event(&command, Some(duration.as_millis()));
+          $inner.wait_with_interrupt(duration).await?;
         },
-        None => {
-          if command.should_auto_pipeline($inner, $force_pipeline) {
-            None
-          } else {
-            Some(command.create_router_channel())
+        Some(Backpressure::Block) => {
+          if let Err(error) = $router.drain().await {
+            _debug!($inner, "Handle disconnect due to {:?}", error);
+            // TODO improve this to only disconnect from the connection that failed to drain
+            $router.disconnect_all().await;
+            if command.should_finish_with_error($inner) {
+              command.respond_to_caller(Err(error.clone()));
+              return Ok(());
+            } else {
+              $router.buffer_command(command);
+              return Err(error);
+            }
           }
+        },
+        Some(Backpressure::Error(error)) => {
+          command.respond_to_caller(Err(error));
+          return Ok(());
         },
       };
       let closes_connection = command.kind.closes_connection();
@@ -70,7 +73,7 @@ macro_rules! write_one_command {
       };
 
       match result {
-        Written::Backpressure((mut command, backpressure)) => {
+        WriteResult::Backpressure((mut command, backpressure)) => {
           _debug!($inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
           // backpressure doesn't count as a write attempt
           command.attempts_remaining += 1;
@@ -79,77 +82,49 @@ macro_rules! write_one_command {
 
           continue;
         },
-        Written::Disconnected((server, command, error)) => {
+        WriteResult::Disconnected((server, command, error)) => {
           _debug!($inner, "Handle disconnect for {:?} due to {:?}", server, error);
           let commands = $router.connections.disconnect($inner, server.as_ref()).await;
           $router.buffer_commands(commands);
           if let Some(command) = command {
             if command.should_finish_with_error($inner) {
-              command.finish($inner, Err(error));
+              command.respond_to_caller(Err(error));
             } else {
               $router.buffer_command(command);
             }
           }
 
-          utils::defer_reconnect($inner);
-          break;
+          utils::reconnect_with_policy($inner, $router).await?;
+          return Ok(());
         },
-        Written::NotFound(mut command) => {
-          if let Err(e) = command.decr_check_redirections() {
-            command.finish($inner, Err(e));
-            utils::defer_reconnect($inner);
-            break;
-          }
-
-          _debug!($inner, "Perform cluster sync after missing hash slot lookup.");
-          if let Err(error) = $router.sync_cluster().await {
-            // try to sync the cluster once, and failing that buffer the command.
-            _warn!($inner, "Failed to sync cluster after NotFound: {:?}", error);
-            utils::defer_reconnect($inner);
-            $router.buffer_command(command);
-            utils::delay_cluster_sync($inner).await?;
+        WriteResult::NotFound(mut command) => {
+          if let Err(err) = command.decr_check_redirections() {
+            command.respond_to_caller(Err(err));
+            utils::reconnect_with_policy($inner, $router).await?;
             break;
           } else {
+            utils::reconnect_with_policy($inner, $router).await?;
             _command = Some(command);
             _backpressure = None;
             continue;
           }
         },
-        Written::Ignore => {
+        WriteResult::Ignore => {
           _trace!($inner, "Ignore `Written` response.");
           break;
         },
-        Written::SentAll => {
+        WriteResult::SentAll => {
           _trace!($inner, "Sent command to all servers.");
           let _ = $router.check_and_flush().await;
 
-          if let Some(router_rx) = router_rx {
-            if let Some(command) = handle_router_response($inner, $router, router_rx).await? {
-              // commands that are sent to all nodes are not retried after a connection closing
-              _warn!(
-                $inner,
-                "Responding with canceled error after all nodes command failure."
-              );
-              command.finish($inner, Err(RedisError::new_canceled()));
-              break;
-            } else {
-              if closes_connection {
-                _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
-                return Err(RedisError::new_canceled());
-              }
-
-              break;
-            }
+          if closes_connection {
+            _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
+            return Err(RedisError::new_canceled());
           } else {
-            if closes_connection {
-              _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
-              return Err(RedisError::new_canceled());
-            }
-
             break;
           }
         },
-        Written::Sent((server, flushed)) => {
+        WriteResult::Sent((server, flushed)) => {
           _trace!($inner, "Sent command to {}. Flushed: {}", server, flushed);
           if is_blocking {
             $inner.backchannel.write().await.set_blocked(&server);
@@ -168,50 +143,34 @@ macro_rules! write_one_command {
             }
           }
 
-          if let Some(router_rx) = router_rx {
-            if let Some(command) = handle_router_response($inner, $router, router_rx).await? {
-              _command = Some(command);
-              _backpressure = None;
-              continue;
-            } else {
-              if closes_connection {
-                _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
-                return Err(RedisError::new_canceled());
-              }
-
-              break;
-            }
+          if closes_connection {
+            _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
+            return Err(RedisError::new_canceled());
           } else {
-            if closes_connection {
-              _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
-              return Err(RedisError::new_canceled());
-            }
-
             break;
           }
         },
-        Written::Error((error, command)) => {
+        WriteResult::Error((error, command)) => {
           _debug!($inner, "Fatal error writing command: {:?}", error);
           if let Some(command) = command {
-            command.finish($inner, Err(error.clone()));
+            command.respond_to_caller(Err(error.clone()));
           }
           $inner.notifications.broadcast_error(error.clone());
 
-          utils::defer_reconnect($inner);
           return Err(error);
         },
         #[cfg(feature = "replicas")]
-        Written::Fallback(command) => {
+        WriteResult::Fallback(command) => {
           _error!(
             $inner,
             "Unexpected replica response to {} ({})",
             command.kind.to_str_debug(),
             command.debug_id()
           );
-          command.finish(
-            $inner,
-            Err(RedisError::new(RedisErrorKind::Replica, "Unexpected replica response.")),
-          );
+          command.respond_to_caller(Err(RedisError::new(
+            RedisErrorKind::Replica,
+            "Unexpected replica response.",
+          )));
           break;
         },
       }
@@ -265,11 +224,7 @@ async fn process_pipeline(
     };
     command.skip_backpressure = true;
 
-    if let Err(e) = write_command_t!(inner, router, command, force_pipeline) {
-      // if the command cannot be written it will be queued to run later.
-      // if a connection is dropped due to an error the reader will send a command to reconnect and retry later.
-      _debug!(inner, "Error writing command in pipeline: {:?}", e);
-    }
+    write_command_t!(inner, router, command, force_pipeline)?;
   }
 
   Ok(())
@@ -367,7 +322,7 @@ async fn process_reconnect(
   _debug!(inner, "Maybe reconnecting to {:?} (force: {})", server, force);
 
   if let Some(server) = server {
-    let has_connection = router.connections.has_server_connection(&server);
+    let has_connection = router.connections.has_server_connection(&server).await;
     _debug!(inner, "Has working connection: {}", has_connection);
 
     if has_connection && !force {

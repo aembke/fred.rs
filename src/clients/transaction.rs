@@ -355,7 +355,6 @@ async fn exec(
     id,
     tx,
     commands,
-    pipelined,
     abort_on_error,
   };
   let timeout_dur = trx_options.timeout.unwrap_or_else(|| inner.default_command_timeout());

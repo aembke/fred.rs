@@ -3,7 +3,7 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{
     command::{RedisCommand, RedisCommandKind, ResponseSender},
-    connection::SplitConnection,
+    connection::RedisConnection,
   },
   router::{utils, Router},
   runtime::RefCount,
@@ -11,7 +11,7 @@ use crate::{
 };
 
 /// Send DISCARD to the provided server.
-async fn discard(inner: &RefCount<RedisClientInner>, conn: &mut SplitConnection) -> Result<(), RedisError> {
+async fn discard(inner: &RefCount<RedisClientInner>, conn: &mut RedisConnection) -> Result<(), RedisError> {
   let command = RedisCommand::new(RedisCommandKind::Discard, vec![]);
   // write it, read non pubsub, assert ok
   unimplemented!()

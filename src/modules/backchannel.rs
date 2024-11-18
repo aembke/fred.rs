@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::ExclusiveConnection, types::Server},
-  router::Connections,
+  router::connections::Connections,
   runtime::RefCount,
   utils,
 };

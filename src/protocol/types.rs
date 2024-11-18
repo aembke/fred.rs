@@ -11,10 +11,7 @@ use crate::{
 use async_trait::async_trait;
 use bytes_utils::Str;
 use rand::Rng;
-use redis_protocol::{
-  resp2::types::{BorrowedFrame as Resp2BorrowedFrame, BytesFrame as Resp2Frame},
-  resp3::types::{BorrowedFrame as Resp3BorrowedFrame, BytesFrame as Resp3Frame},
-};
+use redis_protocol::{resp2::types::BytesFrame as Resp2Frame, resp3::types::BytesFrame as Resp3Frame};
 use std::{
   cmp::Ordering,
   collections::{BTreeMap, BTreeSet, HashMap},
@@ -32,7 +29,7 @@ use std::{
 use std::{net::IpAddr, str::FromStr};
 
 /// Any kind of owned RESP frame.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
   Resp3(Resp3Frame),

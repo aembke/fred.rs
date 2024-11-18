@@ -14,7 +14,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use redis_protocol::resp3::types::{FrameKind, Resp3Frame as _Resp3Frame};
-use std::{fmt, fmt::Formatter, iter::repeat, mem, ops::DerefMut};
+use std::{fmt, fmt::Formatter, mem, ops::DerefMut};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
@@ -519,7 +519,7 @@ pub fn respond_buffer(
     _trace!(
       inner,
       "({}) Waiting on {} more responses",
-      command.debug_id()
+      command.debug_id(),
       expected - received,
     );
     // this response type is shared across connections so we do not return the command to be re-queued

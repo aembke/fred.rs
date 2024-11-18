@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{
-    types::{BorrowedProtocolFrame, EncodedFrame, ProtocolFrame, Server},
+    types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
   runtime::{AtomicBool, RefCount},
@@ -13,18 +13,13 @@ use bytes_utils::Str;
 use redis_protocol::{
   resp2::{
     decode::decode_bytes_mut as resp2_decode,
-    encode::{extend_encode as resp2_encode, extend_encode_borrowed as resp2_encode_borrowed},
-    types::{BorrowedFrame as Resp2BorrowedFrame, BytesFrame as Resp2Frame},
+    encode::extend_encode as resp2_encode,
+    types::BytesFrame as Resp2Frame,
   },
   resp3::{
     decode::streaming::decode_bytes_mut as resp3_decode,
-    encode::complete::{extend_encode as resp3_encode, extend_encode_borrowed as resp3_encode_borrowed},
-    types::{
-      BorrowedFrame as Resp3BorrowedFrame,
-      BytesFrame as Resp3Frame,
-      Resp3Frame as _Resp3Frame,
-      StreamedFrame,
-    },
+    encode::complete::extend_encode as resp3_encode,
+    types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, StreamedFrame},
   },
 };
 use tokio_util::codec::{Decoder, Encoder};

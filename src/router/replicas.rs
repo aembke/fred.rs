@@ -5,10 +5,12 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::{centralized, clustered, utils, Written},
+  router::{utils, WriteResult},
   runtime::RefCount,
   types::Server,
 };
+use futures::future::join_all;
+use std::convert::identity;
 #[cfg(feature = "replicas")]
 use std::{
   collections::{HashMap, VecDeque},
@@ -352,9 +354,9 @@ impl Replicas {
   }
 
   /// Whether a working connection exists to any replica for the provided primary node.
-  pub fn has_replica_connection(&self, primary: &Server) -> bool {
+  pub async fn has_replica_connection(&mut self, primary: &Server) -> bool {
     for replica in self.routing.replicas(primary) {
-      if self.has_connection(replica) {
+      if self.has_connection(&replica).await {
         return true;
       }
     }
@@ -363,8 +365,13 @@ impl Replicas {
   }
 
   /// Whether a connection exists to the provided replica node.
-  pub fn has_connection(&self, replica: &Server) -> bool {
-    self.writers.get(replica).map(|w| w.is_working()).unwrap_or(false)
+  #[inline(always)]
+  pub async fn has_connection(&mut self, replica: &Server) -> bool {
+    if let Some(replica) = self.writers.get_mut(replica) {
+      replica.peek_reader_errors().await.is_none()
+    } else {
+      false
+    }
   }
 
   /// Return a map of `replica` -> `primary` server identifiers.
@@ -376,7 +383,7 @@ impl Replicas {
   pub async fn drop_broken_connections(&mut self) {
     let mut new_writers = HashMap::with_capacity(self.writers.len());
     for (server, mut writer) in self.writers.drain() {
-      if writer.has_reader_errors().await.is_some() {
+      if writer.peek_reader_errors().await.is_some() {
         self.buffer.extend(writer.close().await);
         self.routing.remove_replica(&server);
       } else {
@@ -388,18 +395,18 @@ impl Replicas {
   }
 
   /// Read the set of all active connections.
-  pub fn active_connections(&mut self) -> Vec<Server> {
-    self
-      .writers
-      .iter_mut()
-      .filter_map(|(server, writer)| {
-        if writer.has_reader_errors() {
-          None
-        } else {
-          Some(server.clone())
-        }
-      })
-      .collect()
+  pub async fn active_connections(&mut self) -> Vec<Server> {
+    join_all(self.writers.iter_mut().map(|(server, conn)| async move {
+      if conn.peek_reader_errors().await.is_some() {
+        None
+      } else {
+        Some(server.clone())
+      }
+    }))
+    .await
+    .into_iter()
+    .filter_map(identity)
+    .collect()
   }
 
   /// Send a command to one of the replicas associated with the provided primary server.
@@ -409,7 +416,7 @@ impl Replicas {
     primary: &Server,
     mut command: RedisCommand,
     force_flush: bool,
-  ) -> Written {
+  ) -> WriteResult {
     let replica = match command.cluster_node {
       Some(ref server) => server.clone(),
       None => match self.routing.next_replica(primary) {
@@ -417,10 +424,10 @@ impl Replicas {
         None => {
           // we do not know of any replica node associated with the primary node
           return if inner.connection.replica.primary_fallback {
-            Written::Fallback(command)
+            WriteResult::Fallback(command)
           } else {
             command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")));
-            Written::Ignore
+            WriteResult::Ignore
           };
         },
       },
@@ -447,7 +454,7 @@ impl Replicas {
             self.routing.remove_replica(&replica);
             // since we didn't get to actually send the command
             command.attempts_remaining += 1;
-            return Written::Disconnected((Some(replica.clone()), Some(command), e));
+            return WriteResult::Disconnected((Some(replica.clone()), Some(command), e));
           }
 
           match self.writers.get_mut(&replica) {
@@ -455,7 +462,7 @@ impl Replicas {
             None => {
               self.routing.remove_replica(&replica);
               // the connection should be here if self.add_connection succeeded
-              return Written::Disconnected((
+              return WriteResult::Disconnected((
                 Some(replica.clone()),
                 Some(command),
                 RedisError::new(RedisErrorKind::Replica, "Missing connection."),
@@ -464,7 +471,7 @@ impl Replicas {
           }
         } else {
           // we don't have a connection to the replica, and we're not configured to lazily create new ones
-          return Written::NotFound(command);
+          return WriteResult::NotFound(command);
         }
       },
     };
@@ -474,7 +481,7 @@ impl Replicas {
         _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
         // do not retry commands that trigger frame encoding errors
         command.respond_to_caller(Err(e));
-        return Written::Ignore;
+        return WriteResult::Ignore;
       },
     };
 
@@ -488,28 +495,30 @@ impl Replicas {
     );
     command.write_attempts += 1;
 
-    if !writer.is_working() {
-      let error = RedisError::new(RedisErrorKind::IO, "Connection closed.");
+    // TODO is this still necessary in the write path?
+    // if let Some(error) = writer.peek_reader_errors().await {
+    // _debug!(
+    // inner,
+    // "Error sending replica command {}: {:?}",
+    // command.kind.to_str_debug(),
+    // error
+    // );
+    // self.routing.remove_replica(&writer.server);
+    // return WriteResult::Disconnected((Some(writer.server.clone()), Some(command), error));
+    // }
 
-      _debug!(
-        inner,
-        "Error sending replica command {}: {:?}",
-        command.kind.to_str_debug(),
-        error
-      );
-      self.routing.remove_replica(&writer.server);
-      return Written::Disconnected((Some(writer.server.clone()), Some(command), error));
-    }
-
+    let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
     writer.push_command(command);
-    if let Err(err) = writer.write_frame(frame, should_flush, false).await {
+    let write_result = writer.write(frame, should_flush, false, check_unresponsive).await;
+
+    if let Err(err) = write_result {
       self.routing.remove_replica(&writer.server);
-      Written::Disconnected((Some(writer.server.clone()), None, err))
+      WriteResult::Disconnected((Some(writer.server.clone()), None, err))
     } else {
       if blocks_connection {
         inner.backchannel.write().await.set_blocked(&writer.server);
       }
-      Written::Sent((writer.server.clone(), should_flush))
+      WriteResult::Sent((writer.server.clone(), should_flush))
     }
   }
 

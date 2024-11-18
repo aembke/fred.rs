@@ -12,7 +12,7 @@ use crate::{
   runtime::{channel, spawn, RefCount, Sender},
   types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
 };
-use futures::stream::{Stream, StreamExt};
+use futures::stream::{Peekable, Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
@@ -85,7 +85,7 @@ async fn send_monitor_command(
 async fn forward_results<T>(
   inner: &RefCount<RedisClientInner>,
   tx: Sender<Command>,
-  mut framed: Framed<T, RedisCodec>,
+  mut framed: Peekable<Framed<T, RedisCodec>>,
 ) where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
