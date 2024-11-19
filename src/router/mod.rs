@@ -11,12 +11,7 @@ pub mod utils;
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{
-    command::RedisCommand,
-    connection::{self, Counters},
-    types::Server,
-    utils as protocol_utils,
-  },
+  protocol::{command::RedisCommand, connection::Counters, types::Server},
   router::{connections::Connections, utils::next_frame},
   runtime::RefCount,
   trace,
@@ -26,8 +21,6 @@ use crate::{
 use futures::future::{select_all, try_join_all};
 use std::{collections::VecDeque, fmt, fmt::Formatter, time::Duration};
 
-#[cfg(feature = "transactions")]
-use crate::protocol::command::ClusterErrorKind;
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
 
@@ -154,8 +147,11 @@ impl Router {
       self.inner.counters.incr_redelivery_count();
     }
     if send_all_cluster_nodes {
-      self.drain().await?;
-      self.connections.write_all_cluster(&self.inner, command).await
+      if let Err(err) = self.drain().await {
+        WriteResult::Disconnected((None, Some(command), err))
+      } else {
+        self.connections.write_all_cluster(&self.inner, command).await
+      }
     } else {
       // note: the logic in these branches used to be abstracted into separate `write` functions in the centralized
       // and clustered modules. this was much easier to read, but the added async/await overhead of that function call
@@ -304,59 +300,6 @@ impl Router {
   #[cfg(not(feature = "replicas"))]
   pub async fn write_replica(&mut self, command: RedisCommand, force_flush: bool) -> WriteResult {
     self.write(command, force_flush).await
-  }
-
-  /// Attempt to write the command to a specific server without backpressure.
-  pub async fn write_direct(&mut self, mut command: RedisCommand, server: &Server) -> WriteResult {
-    debug!(
-      "{}: Direct write `{}` command to {}, ID: {}",
-      self.inner.id,
-      command.kind.to_str_debug(),
-      server,
-      command.debug_id()
-    );
-
-    let writer = match self.connections.get_connection_mut(server) {
-      Some(writer) => writer,
-      None => {
-        trace!("{}: Missing connection to {}", self.inner.id, server);
-        return WriteResult::NotFound(command);
-      },
-    };
-    let frame = match utils::prepare_command(&self.inner, &writer.counters, &mut command) {
-      Ok((frame, _)) => frame,
-      Err(e) => {
-        warn!(
-          "{}: Frame encoding error for {}",
-          self.inner.id,
-          command.kind.to_str_debug()
-        );
-        // do not retry commands that trigger frame encoding errors
-        command.respond_to_caller(Err(e));
-        return WriteResult::Ignore;
-      },
-    };
-    let blocks_connection = command.blocks_connection();
-    command.write_attempts += 1;
-
-    if let Some(error) = writer.peek_reader_errors().await {
-      debug!("{}: Error sending command: {:?}", self.inner.id, error);
-      return WriteResult::Disconnected((Some(writer.server.clone()), Some(command), error));
-    }
-
-    let no_incr = command.has_no_responses();
-    let check_unresponsive = !command.kind.is_pubsub() && self.inner.has_unresponsive_duration();
-    writer.push_command(command);
-    let write_result = writer.write(frame, true, no_incr, check_unresponsive).await;
-
-    if let Err(err) = write_result {
-      WriteResult::Disconnected((Some(writer.server.clone()), None, err))
-    } else {
-      if blocks_connection {
-        self.inner.backchannel.write().await.set_blocked(&writer.server);
-      }
-      WriteResult::Sent((writer.server.clone(), true))
-    }
   }
 
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
@@ -563,9 +506,7 @@ impl Router {
         },
         WriteResult::NotFound(command) => {
           // disconnect all, re-queue the command for later, and return an error to the caller
-          if let Some(command) = command {
-            self.retry_buffer.push_front(command);
-          }
+          self.retry_buffer.push_front(command);
 
           warn!(
             "{}: Disconnect and re-sync cluster state after routing error while retrying commands.",
@@ -627,66 +568,6 @@ impl Router {
     self.connections.check_and_flush(&self.inner).await
   }
 
-  /// Returns whether the provided `server` owns the provided `slot`.
-  pub fn cluster_node_owns_slot(&self, slot: u16, server: &Server) -> bool {
-    match self.connections {
-      Connections::Clustered { ref cache, .. } => cache.get_server(slot).map(|node| node == server).unwrap_or(false),
-      _ => false,
-    }
-  }
-
-  /// Modify connection state according to the cluster redirection error.
-  ///
-  /// * Synchronizes the cached cluster state in response to MOVED
-  /// * Connects and sends `ASKING` to the provided server in response to ASKED
-  #[cfg(feature = "transactions")]
-  pub async fn cluster_redirection(
-    &mut self,
-    kind: &ClusterErrorKind,
-    slot: u16,
-    server: &Server,
-  ) -> Result<(), RedisError> {
-    debug!(
-      "{}: Handling cluster redirect {:?} {} {}",
-      &self.inner.id, kind, slot, server
-    );
-
-    if *kind == ClusterErrorKind::Moved {
-      let should_sync = self
-        .inner
-        .with_cluster_state(|state| Ok(state.get_server(slot).map(|owner| server != owner).unwrap_or(true)))
-        .unwrap_or(true);
-
-      if should_sync {
-        self.sync_cluster().await?;
-      }
-    } else if *kind == ClusterErrorKind::Ask {
-      if !self.connections.has_server_connection(server) {
-        self.connections.add_connection(&self.inner, server).await?;
-        self
-          .inner
-          .backchannel
-          .write()
-          .await
-          .update_connection_ids(&self.connections);
-      }
-
-      let conn = match self.connections.get_connection_mut(server) {
-        Some(conn) => conn,
-        None => return Err(RedisError::new(RedisErrorKind::IO, "Missing connection.")),
-      };
-      conn.drain(&self.inner).await?;
-
-      let command = RedisCommand::new_asking(slot);
-      let timeout = Some(self.inner.internal_command_timeout());
-      let _ = connection::request_response(&self.inner, conn, command, timeout)
-        .await
-        .and_then(protocol_utils::frame_to_results)?;
-    }
-
-    Ok(())
-  }
-
   /// Wait and read frames until there are no in-flight frames on replica connections.
   #[cfg(feature = "replicas")]
   pub async fn drain_replicas(&mut self) -> Result<(), RedisError> {
@@ -699,7 +580,7 @@ impl Router {
   /// Wait and read frames until there are no in-flight frames on primary connections.
   pub async fn drain(&mut self) -> Result<(), RedisError> {
     let inner = self.inner.clone();
-    _debug!(inner, "Draining all connections...");
+    _trace!(inner, "Draining all connections...");
 
     match self.connections {
       Connections::Clustered { ref mut writers, .. } => {
@@ -714,20 +595,35 @@ impl Router {
     }
   }
 
+  pub async fn has_healthy_centralized_connection(&mut self) -> bool {
+    match self.connections {
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
+        if let Some(writer) = writer {
+          writer.peek_reader_errors().await.is_none()
+        } else {
+          false
+        }
+      },
+      _ => false,
+    }
+  }
+
   /// Try to read from all sockets concurrently, returning the first result that completes.
-  pub async fn select_read(&mut self) -> Option<(&Server, Result<Resp3Frame, RedisError>)> {
+  pub async fn select_read(&mut self) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
     match self.connections {
       Connections::Clustered { ref mut writers, .. } => {
         if writers.is_empty() {
           return None;
         }
 
-        select_all(writers.iter_mut().map(|(_, conn)| async move {
-          match next_frame!(&self.inner, conn) {
-            Ok(Some(frame)) => Some((&conn.server, Ok(frame))),
-            Ok(None) => None,
-            Err(e) => Some((&conn.server, Err(e))),
-          }
+        select_all(writers.iter_mut().map(|(_, conn)| {
+          Box::pin(async {
+            match next_frame!(&self.inner, conn) {
+              Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
+              Ok(None) => None,
+              Err(e) => Some((conn.server.clone(), Err(e))),
+            }
+          })
         }))
         .await
         .0
@@ -735,14 +631,24 @@ impl Router {
       Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
         if let Some(conn) = writer {
           match next_frame!(&self.inner, conn) {
-            Ok(Some(frame)) => Some((&conn.server, Ok(frame))),
+            Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
             Ok(None) => None,
-            Err(e) => Some((&conn.server, Err(e))),
+            Err(e) => Some((conn.server.clone(), Err(e))),
           }
         } else {
           None
         }
       },
     }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn is_replica(&self, server: &Server) -> bool {
+    self.replicas.writers.contains_key(server)
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub fn is_replica(&self, _: &Server) -> bool {
+    false
   }
 }

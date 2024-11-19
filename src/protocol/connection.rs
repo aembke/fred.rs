@@ -54,6 +54,7 @@ use crate::prelude::ServerConfig;
   feature = "enable-rustls-ring"
 ))]
 use crate::protocol::tls::TlsConnector;
+use crate::router::responses;
 #[cfg(feature = "replicas")]
 use crate::types::RedisValue;
 #[cfg(feature = "unix-sockets")]
@@ -314,7 +315,7 @@ impl ExclusiveConnection {
     let default_host = server.host.clone();
     let codec = RedisCodec::new(inner, &server);
     let socket = UnixStream::connect(path).await?;
-    let transport = ConnectionKind::Unix(Framed::new(socket, codec));
+    let transport = ConnectionKind::Unix(Framed::new(socket, codec).peekable());
 
     Ok(ExclusiveConnection {
       addr: None,
@@ -742,7 +743,7 @@ impl ExclusiveConnection {
   }
 
   /// Convert the connection into one that can be shared and pipelined across tasks.
-  pub fn into_pipelined(self, replica: bool) -> RedisConnection {
+  pub fn into_pipelined(self, _replica: bool) -> RedisConnection {
     let buffer = VecDeque::with_capacity(INITIAL_BUFFER_SIZE);
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
     let (id, version, counters) = (self.id, self.version, self.counters);
@@ -755,10 +756,11 @@ impl ExclusiveConnection {
       version,
       counters,
       id,
-      replica,
       last_write: None,
       transport: self.transport,
       blocked: false,
+      #[cfg(feature = "replicas")]
+      replica: _replica,
     }
   }
 }
@@ -886,11 +888,25 @@ impl RedisConnection {
         None => return Ok(()),
       };
 
+      // TODO check for special errors, pubsub, etc
+      // need to merge this with router.drain and reader logic
       if is_clustered {
         clustered::process_response_frame(&inner, self, frame).await?;
       } else {
         centralized::process_response_frame(&inner, self, frame).await?;
       }
+    }
+
+    Ok(())
+  }
+
+  /// Read frames until the in-flight buffer is empty, dropping any non-pubsub frames.
+  pub async fn skip_results(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+    while !self.buffer.is_empty() {
+      match self.read_skip_pubsub(&inner).await? {
+        Some(f) => f,
+        None => return Ok(()),
+      };
     }
 
     Ok(())
@@ -908,14 +924,12 @@ impl RedisConnection {
         Some(f) => f,
         None => return Ok(None),
       };
-      let is_pubsub =
-        frame.is_normal_pubsub_message() || frame.is_pattern_pubsub_message() || frame.is_shard_pubsub_message();
-      if is_pubsub {
-        route_pubsub_frame(inner, &self.server, frame)?;
+
+      if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
+        return Ok(Some(frame));
+      } else {
         continue;
       }
-
-      return Ok(Some(frame));
     }
   }
 
@@ -938,15 +952,6 @@ impl RedisConnection {
     .await;
     self.buffer
   }
-}
-
-pub fn route_pubsub_frame(
-  inner: &RefCount<RedisClientInner>,
-  server: &Server,
-  frame: Resp3Frame,
-) -> Result<(), RedisError> {
-  // TODO
-  unimplemented!()
 }
 
 /// Send a command and wait on the response.

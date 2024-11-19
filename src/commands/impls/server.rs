@@ -16,14 +16,6 @@ use crate::{
 };
 use bytes_utils::Str;
 
-pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
-  let (tx, rx) = oneshot_channel();
-  let command = RouterCommand::Connections { tx };
-  interfaces::send_to_router(client.inner(), command)?;
-
-  rx.await.map_err(|e| e.into())
-}
-
 pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");

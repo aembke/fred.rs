@@ -5,10 +5,11 @@ use crate::{
     command::RedisCommand,
     connection,
     connection::{Counters, RedisConnection},
+    types::ClusterRouting,
   },
   router::{centralized, clustered, sentinel, WriteResult},
   runtime::RefCount,
-  types::{ClusterRouting, Server},
+  types::Server,
 };
 use futures::future::try_join_all;
 use semver::Version;

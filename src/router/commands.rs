@@ -2,16 +2,26 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
   protocol::command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
-  router::{utils, Backpressure, Router, WriteResult},
+  router::{
+    centralized,
+    clustered,
+    responses,
+    utils,
+    utils::reconnect_with_policy,
+    Backpressure,
+    Router,
+    WriteResult,
+  },
   runtime::{OneshotSender, RefCount},
   trace,
-  types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
+  types::{Blocking, ClientState, ClientUnblockFlag, Server},
   utils as client_utils,
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
+use crate::types::ClusterHash;
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -21,7 +31,7 @@ use tracing_futures::Instrument;
 // functions added one or more memcpy calls. Refactoring the old logic into one giant macro improved writer
 // throughput by almost 80%, but it's a lot harder to read.
 macro_rules! write_one_command {
-  ($inner:ident, $router:ident, $command:ident, $force_pipeline:ident) => {{
+  ($inner:ident, $router:ident, $command:ident) => {{
     _trace!($inner, "Writing command: {:?}", $command);
 
     let mut _command: Option<RedisCommand> = Some($command);
@@ -61,6 +71,7 @@ macro_rules! write_one_command {
           command.respond_to_caller(Err(error));
           return Ok(());
         },
+        _ => {},
       };
       let closes_connection = command.kind.closes_connection();
       let is_blocking = command.blocks_connection();
@@ -86,7 +97,7 @@ macro_rules! write_one_command {
           _debug!($inner, "Handle disconnect for {:?} due to {:?}", server, error);
           let commands = $router.connections.disconnect($inner, server.as_ref()).await;
           $router.buffer_commands(commands);
-          if let Some(command) = command {
+          if let Some(mut command) = command {
             if command.should_finish_with_error($inner) {
               command.respond_to_caller(Err(error));
             } else {
@@ -152,7 +163,7 @@ macro_rules! write_one_command {
         },
         WriteResult::Error((error, command)) => {
           _debug!($inner, "Fatal error writing command: {:?}", error);
-          if let Some(command) = command {
+          if let Some(mut command) = command {
             command.respond_to_caller(Err(error.clone()));
           }
           $inner.notifications.broadcast_error(error.clone());
@@ -182,23 +193,23 @@ macro_rules! write_one_command {
 
 #[cfg(feature = "full-tracing")]
 macro_rules! write_command_t {
-  ($inner:ident, $router:ident, $command:ident, $force_pipeline:ident) => {
+  ($inner:ident, $router:ident, $command:ident) => {
     if $inner.should_trace() {
       $command.take_queued_span();
       let span = fspan!($command, $inner.full_tracing_span_level(), "fred.write");
-      async move { write_one_command!($inner, $router, $command, $force_pipeline) }
+      async move { write_one_command!($inner, $router, $command) }
         .instrument(span)
         .await
     } else {
-      write_one_command!($inner, $router, $command, $force_pipeline)
+      write_one_command!($inner, $router, $command)
     }
   };
 }
 
 #[cfg(not(feature = "full-tracing"))]
 macro_rules! write_command_t {
-  ($inner:ident, $router:ident, $command:ident, $force_pipeline:ident) => {
-    write_one_command!($inner, $router, $command, $force_pipeline)
+  ($inner:ident, $router:ident, $command:ident) => {
+    write_one_command!($inner, $router, $command)
   };
 }
 
@@ -215,16 +226,14 @@ async fn process_pipeline(
     // frames, but error redirections are returned in-order and the client is expected to follow them. this makes it
     // very difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
     // never pipeline `ssubscribe`, even if the caller asks.
-    let force_pipeline = if command.kind == RedisCommandKind::Ssubscribe {
+    if command.kind == RedisCommandKind::Ssubscribe {
       command.can_pipeline = false;
-      false
     } else {
       command.can_pipeline = true;
-      !command.is_all_cluster_nodes()
     };
     command.skip_backpressure = true;
 
-    write_command_t!(inner, router, command, force_pipeline)?;
+    write_command_t!(inner, router, command)?;
   }
 
   Ok(())
@@ -245,12 +254,14 @@ async fn process_ask(
     command.respond_to_caller(Err(e));
     return Ok(());
   }
-  if let Err(e) = utils::send_asking_with_policy(inner, router, &server, slot).await {
+  let attempts_remaining = command.attempts_remaining;
+  let asking_result = utils::send_asking_with_policy(inner, router, &server, slot, attempts_remaining).await;
+  if let Err(e) = asking_result {
     command.respond_to_caller(Err(e.clone()));
     return Err(e);
   }
 
-  if let Err(error) = write_command_t!(inner, router, command, false) {
+  if let Err(error) = write_command_t!(inner, router, command) {
     _debug!(inner, "Error sending command after ASKING: {:?}", error);
     Err(error)
   } else {
@@ -280,7 +291,7 @@ async fn process_moved(
     return Ok(());
   }
 
-  if let Err(error) = write_command_t!(inner, router, command, false) {
+  if let Err(error) = write_command_t!(inner, router, command) {
     _debug!(inner, "Error sending command after MOVED: {:?}", error);
     Err(error)
   } else {
@@ -335,7 +346,7 @@ async fn process_reconnect(
     }
   }
 
-  if !force && router.has_healthy_centralized_connection() {
+  if !force && router.has_healthy_centralized_connection().await {
     _debug!(inner, "Skip reconnecting to centralized host");
     if let Some(mut tx) = tx {
       let _ = tx.send(Ok(Resp3Frame::Null));
@@ -385,58 +396,107 @@ async fn process_sync_cluster(
 }
 
 /// Start processing commands from the client front end.
-async fn process_commands(
+async fn process_command(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  command: RouterCommand,
+) -> Result<(), RedisError> {
+  inner.counters.decr_cmd_buffer_len();
+
+  _trace!(inner, "Recv command: {:?}", command);
+  match command {
+    RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
+    #[cfg(feature = "transactions")]
+    RouterCommand::Transaction {
+      commands,
+      id,
+      tx,
+      abort_on_error,
+    } => transactions::send(inner, router, commands, id, abort_on_error, tx).await,
+    RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
+    #[allow(unused_mut)]
+    RouterCommand::Command(mut command) => write_command_t!(inner, router, command),
+    #[cfg(feature = "replicas")]
+    RouterCommand::SyncReplicas { tx, reset } => process_sync_replicas(inner, router, tx, reset).await,
+    #[cfg(not(feature = "replicas"))]
+    RouterCommand::Reconnect { server, force, tx } => process_reconnect(inner, router, server, force, tx).await,
+    #[cfg(feature = "replicas")]
+    RouterCommand::Reconnect {
+      server,
+      force,
+      tx,
+      replica,
+    } => process_replica_reconnect(inner, router, server, force, tx, replica).await,
+    RouterCommand::Ask { server, slot, command } => process_ask(inner, router, server, slot, command).await,
+    RouterCommand::Moved { command, server, slot } => process_moved(inner, router, server, slot, command).await,
+  }
+}
+
+async fn reset_connection(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  server: Server,
+  error: RedisError,
+) -> Result<(), RedisError> {
+  _debug!(inner, "Resetting connection to {} with error: {:?}", server, error);
+  let commands = router.connections.disconnect(inner, Some(&server)).await;
+  let commands = utils::check_final_write_attempt(inner, commands, Some(&error));
+  router.buffer_commands(commands);
+
+  if router.is_replica(&server) {
+    responses::broadcast_replica_error(&inner, &server, Some(error));
+  } else {
+    responses::broadcast_reader_error(&inner, &server, Some(error));
+  }
+  utils::remove_cached_connection_id(&inner, &server).await;
+  inner.remove_connection(&server);
+  reconnect_with_policy(inner, router).await
+}
+
+/// Try to read frames from any socket, otherwise try to write the next command.
+async fn read_or_write(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   rx: &mut CommandReceiver,
 ) -> Result<(), RedisError> {
-  _debug!(inner, "Starting command processing stream...");
-  while let Some(command) = rx.recv().await {
-    inner.counters.decr_cmd_buffer_len();
+  tokio::select! {
+    biased;
+    Some((server, result)) = router.select_read() => {
+      _trace!(inner, "Recv read result from {}", server);
+      match result {
+        Ok(frame) => {
+          if let Some(error) = responses::check_special_errors(&inner, &frame) {
+            reset_connection(inner, router, server, error).await
+          } else {
+            if let Some(frame) = responses::check_pubsub_message(inner, &server, frame) {
+              let conn = match router.connections.get_connection_mut(&server) {
+                Some(conn) => conn,
+                None => return Err(RedisError::new(
+                  RedisErrorKind::Unknown,
+                  "Missing expected connection."
+                ))
+              };
 
-    _trace!(inner, "Recv command: {:?}", command);
-    let result = match command {
-      RouterCommand::SyncCluster { tx } => process_sync_cluster(inner, router, tx).await,
-      #[cfg(feature = "transactions")]
-      RouterCommand::Transaction {
-        commands,
-        id,
-        tx,
-        abort_on_error,
-      } => transactions::exec::pipelined(inner, router, commands, id, tx).await,
-      RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
-      #[allow(unused_mut)]
-      RouterCommand::Command(mut command) => write_command_t!(inner, router, command, false),
-      #[cfg(feature = "replicas")]
-      RouterCommand::SyncReplicas { tx, reset } => process_sync_replicas(inner, router, tx, reset).await,
-      #[cfg(not(feature = "replicas"))]
-      RouterCommand::Reconnect { server, force, tx } => process_reconnect(inner, router, server, force, tx).await,
-      #[cfg(feature = "replicas")]
-      RouterCommand::Reconnect {
-        server,
-        force,
-        tx,
-        replica,
-      } => process_replica_reconnect(inner, router, server, force, tx, replica).await,
-    };
-
-    if let Err(e) = result {
-      // errors on this interface end the client connection task
-      if e.is_canceled() {
-        break;
-      } else {
-        _error!(inner, "Disconnecting after error processing command: {:?}", e);
-        let _ = router.disconnect_all().await;
-        router.clear_retry_buffer();
-        return Err(e);
+              if inner.config.server.is_clustered() {
+                clustered::process_response_frame(inner, conn, frame).await
+              }else{
+                centralized::process_response_frame(inner, conn, frame).await
+              }
+            } else {
+              Ok(())
+            }
+          }
+        },
+        Err(err) => {
+          _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
+          reset_connection(inner, router, server, err).await
+        }
       }
+    },
+    Some(command) = rx.recv() => {
+      process_command(inner, router, command).await
     }
   }
-
-  _debug!(inner, "Disconnecting after command stream closes.");
-  let _ = router.disconnect_all().await;
-  router.clear_retry_buffer();
-  Ok(())
 }
 
 /// Start the command processing stream, initiating new connections in the process.
@@ -482,7 +542,19 @@ pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError>
     #[cfg(feature = "credential-provider")]
     inner.reset_credential_refresh_task();
 
-    let result = Box::pin(process_commands(inner, &mut router, &mut rx)).await;
+    let mut result = Ok(());
+    loop {
+      if let Err(err) = read_or_write(inner, &mut router, &mut rx).await {
+        _debug!(inner, "Error processing command: {:?}", err);
+        let _ = router.disconnect_all().await;
+        router.clear_retry_buffer();
+
+        if !err.is_canceled() {
+          result = Err(err);
+        }
+        break;
+      }
+    }
     inner.store_command_rx(rx, false);
     #[cfg(feature = "credential-provider")]
     inner.abort_credential_refresh_task();

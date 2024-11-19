@@ -417,6 +417,16 @@ impl RedisError {
   pub fn is_not_found(&self) -> bool {
     matches!(self.kind, RedisErrorKind::NotFound)
   }
+
+  /// Whether the error is a MOVED redirection.
+  pub fn is_moved(&self) -> bool {
+    self.is_cluster() && self.details.starts_with("MOVED")
+  }
+
+  /// Whether the error is an ASK redirection.
+  pub fn is_ask(&self) -> bool {
+    self.is_cluster() && self.details.starts_with("ASK")
+  }
 }
 
 impl Error for RedisError {

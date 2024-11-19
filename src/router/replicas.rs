@@ -9,8 +9,6 @@ use crate::{
   runtime::RefCount,
   types::Server,
 };
-use futures::future::join_all;
-use std::convert::identity;
 #[cfg(feature = "replicas")]
 use std::{
   collections::{HashMap, VecDeque},

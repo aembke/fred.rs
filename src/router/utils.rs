@@ -1,9 +1,7 @@
-#[cfg(feature = "transactions")]
-use crate::protocol::command::ClusterErrorKind;
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, connection, connection::RedisConnection, types::*, utils as protocol_utils},
+  protocol::{command::RedisCommand, connection::RedisConnection, types::*, utils as protocol_utils},
   router::{utils, Backpressure, Counters, Router, WriteResult},
   runtime::RefCount,
   types::*,
@@ -165,7 +163,7 @@ pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, ser
 pub fn check_final_write_attempt(
   inner: &RefCount<RedisClientInner>,
   buffer: VecDeque<RedisCommand>,
-  error: &Option<RedisError>,
+  error: Option<&RedisError>,
 ) -> VecDeque<RedisCommand> {
   buffer
     .into_iter()
@@ -173,7 +171,7 @@ pub fn check_final_write_attempt(
       if command.should_finish_with_error(inner) {
         command.respond_to_caller(Err(
           error
-            .clone()
+            .map(|e| e.clone())
             .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed")),
         ));
 
@@ -258,96 +256,68 @@ pub async fn reconnect_with_policy(
   Ok(())
 }
 
-/// Attempt to follow a cluster redirect, reconnecting as needed until the max reconnections attempts is reached.
-#[cfg(feature = "transactions")]
-pub async fn cluster_redirect_with_policy(
-  inner: &RefCount<RedisClientInner>,
-  router: &mut Router,
-  kind: ClusterErrorKind,
-  slot: u16,
-  server: &Server,
-) -> Result<(), RedisError> {
-  let mut delay = inner.connection.cluster_cache_update_delay;
-
-  loop {
-    if !delay.is_zero() {
-      _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      inner.wait_with_interrupt(delay).await?;
-    }
-
-    if let Err(e) = router.cluster_redirection(&kind, slot, server).await {
-      delay = next_reconnection_delay(inner).map_err(|_| e)?;
-
-      continue;
-    } else {
-      break;
-    }
-  }
-
-  Ok(())
-}
-
-/// Repeatedly try to send `ASKING` to the provided server, reconnecting as needed.f
-///
-/// Errors from this function should end the connection task.
+/// Send `ASKING` to the provided server, reconnecting as needed.
 pub async fn send_asking_with_policy(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   slot: u16,
+  mut attempts_remaining: u32,
 ) -> Result<(), RedisError> {
-  let mut delay = inner.connection.cluster_cache_update_delay;
-
   loop {
-    if !delay.is_zero() {
-      _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      inner.wait_with_interrupt(delay).await?;
-    }
+    let mut command = RedisCommand::new_asking(slot);
+    command.cluster_node = Some(server.clone());
 
-    let conn = match router.connections.get_connection_mut(server) {
-      Some(conn) => conn,
-      None => {
-        if let Err(e) = router.sync_cluster().await {
-          _debug!(inner, "Error syncing cluster before ASKING: {:?}", e);
-          delay = utils::next_reconnection_delay(inner)?;
+    if attempts_remaining == 0 {
+      return Err(RedisError::new(RedisErrorKind::Unknown, "Max attempts reached."));
+    }
+    attempts_remaining -= 1;
+
+    match router.write(command, true).await {
+      WriteResult::Disconnected((_, _, err)) => {
+        if attempts_remaining == 0 {
+          return Err(err);
         }
-        continue;
+
+        if let Err(err) = reconnect_with_policy(inner, router).await {
+          return Err(err);
+        } else {
+          continue;
+        }
       },
+      WriteResult::NotFound(_) => {
+        if attempts_remaining == 0 {
+          return Err(RedisError::new(
+            RedisErrorKind::Unknown,
+            "Failed to route ASKING command.",
+          ));
+        }
+
+        if let Err(err) = reconnect_with_policy(inner, router).await {
+          return Err(err);
+        } else {
+          continue;
+        }
+      },
+      WriteResult::Error((err, _)) => {
+        return Err(err);
+      },
+      _ => {},
     };
-    if let Err(err) = conn.drain(inner).await {
-      _debug!(inner, "Error draining connection before ASKING: {:?}", err);
-      if let Err(err) = router.sync_cluster().await {
-        _debug!(inner, "Error syncing cluster before ASKING: {:?}", err);
-        delay = utils::next_reconnection_delay(inner)?;
+
+    if let Err(err) = router.drain().await {
+      if attempts_remaining == 0 {
+        return Err(err);
       }
-      continue;
-    }
 
-    let command = RedisCommand::new_asking(slot);
-    let timeout = Some(inner.internal_command_timeout());
-    let result = match connection::request_response(inner, conn, command, timeout).await {
-      Ok(frame) => protocol_utils::frame_to_results(frame),
-      Err(err) => {
-        _debug!(inner, "Error sending ASKING: {:?}", err);
-        if let Err(err) = router.sync_cluster().await {
-          _debug!(inner, "Error syncing cluster: {:?}", err);
-          delay = utils::next_reconnection_delay(inner)?;
-        }
-        continue;
-      },
-    };
-
-    if let Err(error) = result {
-      if error.should_not_reconnect() {
-        return Err(error);
-      } else if let Err(_) = router.sync_cluster().await {
-        delay = utils::next_reconnection_delay(inner)?;
-        continue;
+      _debug!(inner, "Failed to read ASKING response: {:?}", err);
+      if let Err(err) = reconnect_with_policy(inner, router).await {
+        return Err(err);
       } else {
-        delay = Duration::from_millis(0);
         continue;
       }
     } else {
+      // ASKING always responds with OK so we don't need to read the frame
       break;
     }
   }
@@ -468,7 +438,7 @@ macro_rules! next_frame {
           if last_written.elapsed() > duration {
             // check for frames waiting a response across multiple calls to poll_read
             $inner.notifications.broadcast_unresponsive($conn.server.clone());
-            Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."));
+            Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
           } else {
             client_utils::timeout($conn.read(), duration).await
           }

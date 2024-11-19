@@ -185,7 +185,7 @@ fn sample_latency(latency_stats: &RwLock<MovingStats>, sent: Instant) {
 
 /// Sample overall and network latency values for a command.
 #[cfg(feature = "metrics")]
-fn sample_command_latencies(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) {
+pub fn sample_command_latencies(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) {
   if let Some(sent) = command.network_start.take() {
     sample_latency(&inner.network_latency_stats, sent);
   }
@@ -193,7 +193,7 @@ fn sample_command_latencies(inner: &RefCount<RedisClientInner>, command: &mut Re
 }
 
 #[cfg(not(feature = "metrics"))]
-fn sample_command_latencies(_: &RefCount<RedisClientInner>, _: &mut RedisCommand) {}
+pub fn sample_command_latencies(_: &RefCount<RedisClientInner>, _: &mut RedisCommand) {}
 
 /// Update the client's protocol version codec version after receiving a non-error response to HELLO.
 fn update_protocol_version(inner: &RefCount<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {

@@ -10,7 +10,7 @@ use crate::{
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  runtime::{oneshot_channel, AtomicBool, Mutex, RefCount},
+  runtime::{oneshot_channel, Mutex, RefCount},
   types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
   utils,
 };
@@ -21,7 +21,6 @@ struct State {
   commands:  Mutex<VecDeque<RedisCommand>>,
   watched:   Mutex<VecDeque<RedisKey>>,
   hash_slot: Mutex<Option<u16>>,
-  pipelined: AtomicBool,
 }
 
 /// A cheaply cloneable transaction block.
@@ -39,7 +38,6 @@ impl fmt::Debug for Transaction {
       .field("id", &self.state.id)
       .field("length", &self.state.commands.lock().len())
       .field("hash_slot", &self.state.hash_slot.lock())
-      .field("pipelined", &utils::read_bool_atomic(&self.state.pipelined))
       .finish()
   }
 }
@@ -149,7 +147,6 @@ impl Transaction {
         commands:  Mutex::new(VecDeque::new()),
         watched:   Mutex::new(VecDeque::new()),
         hash_slot: Mutex::new(None),
-        pipelined: AtomicBool::new(false),
         id:        utils::random_u64(u64::MAX),
       }),
     }
@@ -218,9 +215,7 @@ impl Transaction {
   ///
   /// Note: pipelined transactions should only be used with Redis version >=2.6.5.
   #[deprecated(since = "9.5.0", note = "All transactions are now pipelined.")]
-  pub fn pipeline(&self, val: bool) {
-    utils::set_bool_atomic(&self.state.pipelined, val);
-  }
+  pub fn pipeline(&self, _: bool) {}
 
   /// Read the number of keys to `WATCH` before the starting the transaction.
   #[deprecated(
@@ -267,19 +262,11 @@ impl Transaction {
         .map(|cmd| cmd.duplicate(ResponseKind::Skip))
         .collect()
     };
-    let pipelined = utils::read_bool_atomic(&self.state.pipelined);
     let hash_slot = utils::read_mutex(&self.state.hash_slot);
 
-    exec(
-      &self.inner,
-      commands,
-      hash_slot,
-      abort_on_error,
-      pipelined,
-      self.state.id,
-    )
-    .await?
-    .convert()
+    exec(&self.inner, commands, hash_slot, abort_on_error, self.state.id)
+      .await?
+      .convert()
   }
 
   /// Send the `WATCH` command with the provided keys before starting the transaction.
@@ -316,7 +303,6 @@ async fn exec(
   commands: VecDeque<RedisCommand>,
   hash_slot: Option<u16>,
   abort_on_error: bool,
-  pipelined: bool,
   id: u64,
 ) -> Result<RedisValue, RedisError> {
   if commands.is_empty() {
@@ -334,7 +320,7 @@ async fn exec(
     .map(|mut command| {
       command.inherit_options(inner);
       command.response = ResponseKind::Skip;
-      command.can_pipeline = false;
+      command.can_pipeline = true;
       command.skip_backpressure = true;
       command.transaction_id = Some(id);
       command.use_replica = false;

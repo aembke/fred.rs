@@ -849,12 +849,12 @@ impl RedisClientInner {
       match e {
         GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
         GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
-          RouterCommand::Command(cmd) => {
+          RouterCommand::Command(mut cmd) => {
             cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
-            if let Some(cmd) = commands.pop() {
+            if let Some(mut cmd) = commands.pop() {
               cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             }
             Ok(())

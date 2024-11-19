@@ -92,22 +92,15 @@ async fn read_all_nodes(
   writers: &mut HashMap<Server, RedisConnection>,
   filter: &HashSet<Server>,
 ) -> Vec<Result<Option<Server>, RedisError>> {
-  let mut read_ft = Vec::with_capacity(filter.len());
-  for server in filter.iter() {
-    read_ft.push(async move {
-      let conn = match writers.get_mut(&server) {
-        Some(conn) => conn,
-        None => return Ok(None),
-      };
-
-      if let Some(_) = conn.read_skip_pubsub(inner).await? {
-        _trace!(inner, "Read all cluster nodes response from {}", server);
-      }
+  join_all(writers.iter_mut().map(|(server, conn)| async {
+    if filter.contains(server) {
+      conn.read_skip_pubsub(inner).await?;
       Ok(Some(server.clone()))
-    });
-  }
-
-  join_all(read_ft).await
+    } else {
+      Ok(None)
+    }
+  }))
+  .await
 }
 
 /// Send a command to all cluster nodes.
@@ -185,7 +178,7 @@ pub async fn send_all_cluster_command(
     let result = client_utils::timeout(
       async move {
         let _ = conn.close().await;
-        Ok(())
+        Ok::<(), RedisError>(())
       },
       inner.connection.internal_command_timeout,
     )
@@ -271,7 +264,7 @@ pub async fn process_response_frame(
   frame: Resp3Frame,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Parsing response frame from {}", conn.server);
-  let mut command = match conn.buffer.pop_back() {
+  let mut command = match conn.buffer.pop_front() {
     Some(command) => command,
     None => {
       _debug!(
@@ -556,12 +549,14 @@ pub async fn sync(
   }
 
   let _ = try_join_all(connections_ft).await?;
+  let mut server_version = None;
   for (server, writer) in new_writers.lock().drain() {
+    server_version = writer.version.clone();
     connections.insert(server, writer);
   }
 
   _debug!(inner, "Finish synchronizing cluster connections.");
-  if let Some(version) = connections.server_version() {
+  if let Some(version) = server_version {
     inner.server_state.write().kind.set_server_version(version);
   }
   Ok(())

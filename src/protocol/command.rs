@@ -2079,6 +2079,18 @@ pub enum RouterCommand {
     #[cfg(feature = "replicas")]
     replica: bool,
   },
+  /// Retry a command after a `MOVED` error.
+  Moved {
+    slot:    u16,
+    server:  Server,
+    command: RedisCommand,
+  },
+  /// Retry a command after an `ASK` error.
+  Ask {
+    slot:    u16,
+    server:  Server,
+    command: RedisCommand,
+  },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   SyncCluster { tx: OneshotSender<Result<(), RedisError>> },
   /// Force sync the replica routing table with the server(s).
@@ -2200,6 +2212,12 @@ impl fmt::Debug for RouterCommand {
       },
       RouterCommand::Pipeline { .. } => {
         formatter.field("kind", &"Pipeline");
+      },
+      RouterCommand::Ask { .. } => {
+        formatter.field("kind", &"Ask");
+      },
+      RouterCommand::Moved { .. } => {
+        formatter.field("kind", &"Moved");
       },
       RouterCommand::Command(command) => {
         formatter
