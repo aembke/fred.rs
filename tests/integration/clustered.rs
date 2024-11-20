@@ -195,6 +195,8 @@ mod server {
   cluster_test!(server, should_flushall);
   cluster_test!(server, should_read_server_info);
   cluster_test!(server, should_ping_server);
+  cluster_test!(server, should_ping_pong_command);
+  cluster_test!(server, should_run_custom_command);
   cluster_test!(server, should_read_last_save);
   cluster_test!(server, should_read_db_size);
   cluster_test!(server, should_start_bgsave);

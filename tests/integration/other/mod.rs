@@ -110,7 +110,7 @@ pub async fn should_automatically_unblock(_: RedisClient, mut config: RedisConfi
   let unblock_client = client.clone();
   tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
-    let _: () = unblock_client.ping().await.expect("Failed to ping");
+    let _: () = unblock_client.ping(None).await.expect("Failed to ping");
   });
 
   let result = client.blpop::<(), _>("foo", 60.0).await;
@@ -151,7 +151,7 @@ pub async fn should_error_when_blocked(_: RedisClient, mut config: RedisConfig) 
   tokio::spawn(async move {
     sleep(Duration::from_secs(1)).await;
 
-    let result = error_client.ping::<()>().await;
+    let result = error_client.ping::<()>(None).await;
     assert!(result.is_err());
     assert_eq!(*result.unwrap_err().kind(), RedisErrorKind::InvalidCommand);
 
@@ -459,9 +459,9 @@ pub async fn should_ping_with_subscriber_client(client: RedisClient, config: Red
   let _ = client.connect();
   let _ = client.wait_for_connect().await?;
 
-  let _: () = client.ping().await?;
+  let _: () = client.ping(None).await?;
   let _: () = client.subscribe("foo").await?;
-  let _: () = client.ping().await?;
+  let _: () = client.ping(None).await?;
   let _ = client.quit().await?;
   Ok(())
 }

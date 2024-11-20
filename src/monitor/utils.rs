@@ -106,7 +106,7 @@ async fn process_stream(inner: &RefCount<RedisClientInner>, tx: Sender<Command>,
 
   match connection.transport {
     ConnectionKind::Tcp(framed) => forward_results(inner, tx, framed).await,
-    #[cfg(feature = "enable-rustls")]
+    #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
     ConnectionKind::Rustls(framed) => forward_results(inner, tx, framed).await,
     #[cfg(feature = "enable-native-tls")]
     ConnectionKind::NativeTls(framed) => forward_results(inner, tx, framed).await,
