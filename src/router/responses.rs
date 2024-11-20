@@ -1,7 +1,10 @@
+#[cfg(feature = "i-tracking")]
+use crate::types::Invalidation;
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, types::Server, utils as protocol_utils, utils::pretty_error},
+  router::{commands, Router},
   runtime::RefCount,
   trace,
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
@@ -12,9 +15,6 @@ use redis_protocol::{
   types::PUBSUB_PUSH_PREFIX,
 };
 use std::str;
-
-#[cfg(feature = "i-tracking")]
-use crate::types::Invalidation;
 
 const KEYSPACE_PREFIX: &str = "__keyspace@";
 const KEYEVENT_PREFIX: &str = "__keyevent@";
@@ -298,6 +298,24 @@ pub fn check_special_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Fra
   }
 
   check_global_reconnect_errors(inner, frame)
+}
+
+/// Check for special errors, pubsub messages, or other special response frames.
+///
+/// The frame is returned to the caller for further processing if necessary.
+pub async fn preprocess_frame(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  server: &Server,
+  frame: Resp3Frame,
+) -> Result<Option<Resp3Frame>, RedisError> {
+  if let Some(error) = check_special_errors(inner, &frame) {
+    Box::pin(commands::reset_connection(inner, router, server, error))
+      .await
+      .map(|_| None)
+  } else {
+    Ok(check_pubsub_message(inner, server, frame))
+  }
 }
 
 /// Handle an error in the reader task that should end the connection.

@@ -263,7 +263,6 @@ pub async fn should_safely_change_protocols_repeatedly(
 pub async fn should_test_high_concurrency_pool(_: RedisClient, mut config: RedisConfig) -> Result<(), RedisError> {
   config.blocking = Blocking::Block;
   let perf = PerformanceConfig {
-    auto_pipeline: true,
     backpressure: BackpressureConfig {
       max_in_flight_commands: 100_000_000,
       ..Default::default()
@@ -607,7 +606,6 @@ pub async fn should_pipeline_transaction(client: RedisClient, _: RedisConfig) ->
   client.incr("bar{1}").await?;
 
   let trx = client.multi();
-  trx.pipeline(true);
   trx.get("foo{1}").await?;
   trx.incr("bar{1}").await?;
   let (foo, bar): (i64, i64) = trx.exec(true).await?;
@@ -622,7 +620,6 @@ pub async fn should_fail_pipeline_transaction_error(client: RedisClient, _: Redi
   client.incr("bar{1}").await?;
 
   let trx = client.multi();
-  trx.pipeline(true);
   trx.get("foo{1}").await?;
   trx.hgetall("bar{1}").await?;
   trx.get("foo{1}").await?;

@@ -14,14 +14,14 @@ use crate::{
   },
   runtime::{OneshotSender, RefCount},
   trace,
-  types::{Blocking, ClientState, ClientUnblockFlag, Server},
+  types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 
+use crate::protocol::connection::RedisConnection;
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
-use crate::types::ClusterHash;
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -32,162 +32,166 @@ use tracing_futures::Instrument;
 // throughput by almost 80%, but it's a lot harder to read.
 macro_rules! write_one_command {
   ($inner:ident, $router:ident, $command:ident) => {{
-    _trace!($inner, "Writing command: {:?}", $command);
+    Box::pin(async {
+      _trace!($inner, "Writing command: {:?}", $command);
 
-    let mut _command: Option<RedisCommand> = Some($command);
-    let mut _backpressure: Option<Backpressure> = None;
-    loop {
-      let mut command = match _command.take() {
-        Some(command) => command,
-        None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
-      };
-      if let Err(e) = command.decr_check_attempted() {
-        command.respond_to_caller(Err(e));
-        break;
-      }
+      let mut _command: Option<RedisCommand> = Some($command);
+      let mut _backpressure: Option<Backpressure> = None;
+      loop {
+        let mut command = match _command.take() {
+          Some(command) => command,
+          None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing command.")),
+        };
+        if let Err(e) = command.decr_check_attempted() {
+          command.respond_to_caller(Err(e));
+          break;
+        }
 
-      // apply backpressure first if needed
-      match _backpressure {
-        Some(Backpressure::Wait(duration)) => {
-          _debug!($inner, "Backpressure policy (wait): {:?}", duration);
-          trace::backpressure_event(&command, Some(duration.as_millis()));
-          $inner.wait_with_interrupt(duration).await?;
-        },
-        Some(Backpressure::Block) => {
-          if let Err(error) = $router.drain().await {
-            _debug!($inner, "Handle disconnect due to {:?}", error);
-            // TODO improve this to only disconnect from the connection that failed to drain
-            $router.disconnect_all().await;
-            if command.should_finish_with_error($inner) {
-              command.respond_to_caller(Err(error.clone()));
-              return Ok(());
-            } else {
-              $router.buffer_command(command);
-              return Err(error);
+        // apply backpressure first if needed
+        match _backpressure {
+          Some(Backpressure::Wait(duration)) => {
+            _debug!($inner, "Backpressure policy (wait): {:?}", duration);
+            trace::backpressure_event(&command, Some(duration.as_millis()));
+            $inner.wait_with_interrupt(duration).await?;
+          },
+          Some(Backpressure::Block) => {
+            if let Err(error) = $router.drain().await {
+              _debug!($inner, "Handle disconnect due to {:?}", error);
+              // TODO improve this to only disconnect from the connection that failed to drain
+              $router.disconnect_all().await;
+              if command.should_finish_with_error($inner) {
+                command.respond_to_caller(Err(error.clone()));
+                return Ok(());
+              } else {
+                $router.buffer_command(command);
+                return Err(error);
+              }
             }
-          }
-        },
-        Some(Backpressure::Error(error)) => {
-          command.respond_to_caller(Err(error));
-          return Ok(());
-        },
-        _ => {},
-      };
-      let closes_connection = command.kind.closes_connection();
-      let is_blocking = command.blocks_connection();
-      let use_replica = command.use_replica;
+          },
+          Some(Backpressure::Error(error)) => {
+            command.respond_to_caller(Err(error));
+            return Ok(());
+          },
+          _ => {},
+        };
+        let closes_connection = command.kind.closes_connection();
+        let is_blocking = command.blocks_connection();
+        let use_replica = command.use_replica;
 
-      let result = if use_replica {
-        $router.write_replica(command, false).await
-      } else {
-        $router.write(command, false).await
-      };
+        let result = if use_replica {
+          $router.write_replica(command, false).await
+        } else {
+          $router.write(command, false).await
+        };
 
-      match result {
-        WriteResult::Backpressure((mut command, backpressure)) => {
-          _debug!($inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
-          // backpressure doesn't count as a write attempt
-          command.attempts_remaining += 1;
-          _command = Some(command);
-          _backpressure = Some(backpressure);
-
-          continue;
-        },
-        WriteResult::Disconnected((server, command, error)) => {
-          _debug!($inner, "Handle disconnect for {:?} due to {:?}", server, error);
-          let commands = $router.connections.disconnect($inner, server.as_ref()).await;
-          $router.buffer_commands(commands);
-          if let Some(mut command) = command {
-            if command.should_finish_with_error($inner) {
-              command.respond_to_caller(Err(error));
-            } else {
-              $router.buffer_command(command);
-            }
-          }
-
-          utils::reconnect_with_policy($inner, $router).await?;
-          return Ok(());
-        },
-        WriteResult::NotFound(mut command) => {
-          if let Err(err) = command.decr_check_redirections() {
-            command.respond_to_caller(Err(err));
-            utils::reconnect_with_policy($inner, $router).await?;
-            break;
-          } else {
-            utils::reconnect_with_policy($inner, $router).await?;
+        match result {
+          WriteResult::Backpressure((mut command, backpressure)) => {
+            _debug!($inner, "Recv backpressure again for {}.", command.kind.to_str_debug());
+            // backpressure doesn't count as a write attempt
+            command.attempts_remaining += 1;
             _command = Some(command);
-            _backpressure = None;
+            _backpressure = Some(backpressure);
+
             continue;
-          }
-        },
-        WriteResult::Ignore => {
-          _trace!($inner, "Ignore `Written` response.");
-          break;
-        },
-        WriteResult::SentAll => {
-          _trace!($inner, "Sent command to all servers.");
-          let _ = $router.check_and_flush().await;
-
-          if closes_connection {
-            _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
-            return Err(RedisError::new_canceled());
-          } else {
-            break;
-          }
-        },
-        WriteResult::Sent((server, flushed)) => {
-          _trace!($inner, "Sent command to {}. Flushed: {}", server, flushed);
-          if is_blocking {
-            $inner.backchannel.write().await.set_blocked(&server);
-          }
-          if !flushed {
-            let _ = $router.check_and_flush().await;
-          }
-
-          let should_interrupt =
-            is_blocking && $inner.counters.read_cmd_buffer_len() > 0 && $inner.config.blocking == Blocking::Interrupt;
-          if should_interrupt {
-            // if there's other commands in the queue then interrupt the command that was just sent
-            _debug!($inner, "Interrupt after write.");
-            if let Err(e) = client_utils::interrupt_blocked_connection($inner, ClientUnblockFlag::Error).await {
-              _warn!($inner, "Failed to unblock connection: {:?}", e);
+          },
+          WriteResult::Disconnected((server, command, error)) => {
+            _debug!($inner, "Handle disconnect for {:?} due to {:?}", server, error);
+            let commands = $router.connections.disconnect($inner, server.as_ref()).await;
+            $router.buffer_commands(commands);
+            if let Some(mut command) = command {
+              if command.should_finish_with_error($inner) {
+                command.respond_to_caller(Err(error));
+              } else {
+                $router.buffer_command(command);
+              }
             }
-          }
 
-          if closes_connection {
-            _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
-            return Err(RedisError::new_canceled());
-          } else {
+            utils::reconnect_with_policy($inner, $router).await?;
+            return Ok(());
+          },
+          WriteResult::NotFound(mut command) => {
+            if let Err(err) = command.decr_check_redirections() {
+              command.respond_to_caller(Err(err));
+              utils::reconnect_with_policy($inner, $router).await?;
+              break;
+            } else {
+              utils::reconnect_with_policy($inner, $router).await?;
+              _command = Some(command);
+              _backpressure = None;
+              continue;
+            }
+          },
+          WriteResult::Ignore => {
+            _trace!($inner, "Ignore `Written` response.");
             break;
-          }
-        },
-        WriteResult::Error((error, command)) => {
-          _debug!($inner, "Fatal error writing command: {:?}", error);
-          if let Some(mut command) = command {
-            command.respond_to_caller(Err(error.clone()));
-          }
-          $inner.notifications.broadcast_error(error.clone());
+          },
+          WriteResult::SentAll => {
+            _trace!($inner, "Sent command to all servers.");
+            let _ = $router.check_and_flush().await;
 
-          return Err(error);
-        },
-        #[cfg(feature = "replicas")]
-        WriteResult::Fallback(command) => {
-          _error!(
-            $inner,
-            "Unexpected replica response to {} ({})",
-            command.kind.to_str_debug(),
-            command.debug_id()
-          );
-          command.respond_to_caller(Err(RedisError::new(
-            RedisErrorKind::Replica,
-            "Unexpected replica response.",
-          )));
-          break;
-        },
+            if closes_connection {
+              _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
+              return Err(RedisError::new_canceled());
+            } else {
+              break;
+            }
+          },
+          WriteResult::Sent((server, flushed)) => {
+            _trace!($inner, "Sent command to {}. Flushed: {}", server, flushed);
+            if is_blocking {
+              $inner.backchannel.write().await.set_blocked(&server);
+            }
+            // TODO can this be removed?
+            if !flushed {
+              let _ = $router.check_and_flush().await;
+            }
+
+            let should_interrupt = is_blocking
+              && $inner.counters.read_cmd_buffer_len() > 0
+              && $inner.config.blocking == Blocking::Interrupt;
+            if should_interrupt {
+              // if there's other commands in the queue then interrupt the command that was just sent
+              _debug!($inner, "Interrupt after write.");
+              if let Err(e) = client_utils::interrupt_blocked_connection($inner, ClientUnblockFlag::Error).await {
+                _warn!($inner, "Failed to unblock connection: {:?}", e);
+              }
+            }
+
+            if closes_connection {
+              _trace!($inner, "Ending command loop after QUIT or SHUTDOWN.");
+              return Err(RedisError::new_canceled());
+            } else {
+              break;
+            }
+          },
+          WriteResult::Error((error, command)) => {
+            _debug!($inner, "Fatal error writing command: {:?}", error);
+            if let Some(mut command) = command {
+              command.respond_to_caller(Err(error.clone()));
+            }
+            $inner.notifications.broadcast_error(error.clone());
+
+            return Err(error);
+          },
+          #[cfg(feature = "replicas")]
+          WriteResult::Fallback(mut command) => {
+            _error!(
+              $inner,
+              "Unexpected replica response to {} ({})",
+              command.kind.to_str_debug(),
+              command.debug_id()
+            );
+            command.respond_to_caller(Err(RedisError::new(
+              RedisErrorKind::Replica,
+              "Unexpected replica response.",
+            )));
+            break;
+          },
+        }
       }
-    }
 
-    Ok::<_, RedisError>(())
+      Ok::<_, RedisError>(())
+    })
   }};
 }
 
@@ -197,11 +201,9 @@ macro_rules! write_command_t {
     if $inner.should_trace() {
       $command.take_queued_span();
       let span = fspan!($command, $inner.full_tracing_span_level(), "fred.write");
-      async move { write_one_command!($inner, $router, $command) }
-        .instrument(span)
-        .await
+      write_one_command!($inner, $router, $command).instrument(span).await
     } else {
-      write_one_command!($inner, $router, $command)
+      write_one_command!($inner, $router, $command).await
     }
   };
 }
@@ -209,7 +211,7 @@ macro_rules! write_command_t {
 #[cfg(not(feature = "full-tracing"))]
 macro_rules! write_command_t {
   ($inner:ident, $router:ident, $command:ident) => {
-    write_one_command!($inner, $router, $command)
+    write_one_command!($inner, $router, $command).await
   };
 }
 
@@ -226,11 +228,7 @@ async fn process_pipeline(
     // frames, but error redirections are returned in-order and the client is expected to follow them. this makes it
     // very difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
     // never pipeline `ssubscribe`, even if the caller asks.
-    if command.kind == RedisCommandKind::Ssubscribe {
-      command.can_pipeline = false;
-    } else {
-      command.can_pipeline = true;
-    };
+    command.can_pipeline = command.kind != RedisCommandKind::Ssubscribe;
     command.skip_backpressure = true;
 
     write_command_t!(inner, router, command)?;
@@ -255,7 +253,14 @@ async fn process_ask(
     return Ok(());
   }
   let attempts_remaining = command.attempts_remaining;
-  let asking_result = utils::send_asking_with_policy(inner, router, &server, slot, attempts_remaining).await;
+  let asking_result = Box::pin(utils::send_asking_with_policy(
+    inner,
+    router,
+    &server,
+    slot,
+    attempts_remaining,
+  ))
+  .await;
   if let Err(e) = asking_result {
     command.respond_to_caller(Err(e.clone()));
     return Err(e);
@@ -317,7 +322,7 @@ async fn process_replica_reconnect(
 
     Ok(())
   } else {
-    process_reconnect(inner, router, server, force, tx).await
+    Box::pin(process_reconnect(inner, router, server, force, tx)).await
   }
 }
 
@@ -355,7 +360,7 @@ async fn process_reconnect(
   }
 
   _debug!(inner, "Starting reconnection loop...");
-  if let Err(e) = utils::reconnect_with_policy(inner, router).await {
+  if let Err(e) = Box::pin(utils::reconnect_with_policy(inner, router)).await {
     if let Some(mut tx) = tx {
       let _ = tx.send(Err(e.clone()));
     }
@@ -412,7 +417,7 @@ async fn process_command(
       id,
       tx,
       abort_on_error,
-    } => transactions::send(inner, router, commands, id, abort_on_error, tx).await,
+    } => Box::pin(transactions::send(inner, router, commands, id, abort_on_error, tx)).await,
     RouterCommand::Pipeline { commands } => process_pipeline(inner, router, commands).await,
     #[allow(unused_mut)]
     RouterCommand::Command(mut command) => write_command_t!(inner, router, command),
@@ -432,25 +437,41 @@ async fn process_command(
   }
 }
 
-async fn reset_connection(
+/// Reset the connection and broadcast errors to callers.
+///
+/// Any errors returned should interrupt the router task.
+pub async fn reset_connection(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
-  server: Server,
+  server: &Server,
   error: RedisError,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Resetting connection to {} with error: {:?}", server, error);
-  let commands = router.connections.disconnect(inner, Some(&server)).await;
+  let commands = router.connections.disconnect(inner, Some(server)).await;
   let commands = utils::check_final_write_attempt(inner, commands, Some(&error));
   router.buffer_commands(commands);
 
-  if router.is_replica(&server) {
-    responses::broadcast_replica_error(&inner, &server, Some(error));
+  if router.is_replica(server) {
+    responses::broadcast_replica_error(inner, server, Some(error));
   } else {
-    responses::broadcast_reader_error(&inner, &server, Some(error));
+    responses::broadcast_reader_error(inner, server, Some(error));
   }
-  utils::remove_cached_connection_id(&inner, &server).await;
-  inner.remove_connection(&server);
-  reconnect_with_policy(inner, router).await
+  utils::remove_cached_connection_id(inner, server).await;
+  inner.remove_connection(server);
+  Box::pin(reconnect_with_policy(inner, router)).await
+}
+
+#[cfg(feature = "replicas")]
+fn get_connection_mut<'a>(router: &'a mut Router, server: &Server) -> Option<&'a mut RedisConnection> {
+  router
+    .connections
+    .get_connection_mut(server)
+    .or_else(|| router.replicas.writers.get_mut(server))
+}
+
+#[cfg(not(feature = "replicas"))]
+fn get_connection_mut<'a>(router: &'a mut Router, server: &Server) -> Option<&'a mut RedisConnection> {
+  router.connections.get_connection_mut(server)
 }
 
 /// Try to read frames from any socket, otherwise try to write the next command.
@@ -461,35 +482,39 @@ async fn read_or_write(
 ) -> Result<(), RedisError> {
   tokio::select! {
     biased;
-    Some((server, result)) = router.select_read() => {
+    Some((server, result)) = router.select_read(inner) => {
       _trace!(inner, "Recv read result from {}", server);
       match result {
         Ok(frame) => {
-          if let Some(error) = responses::check_special_errors(&inner, &frame) {
-            reset_connection(inner, router, server, error).await
-          } else {
-            if let Some(frame) = responses::check_pubsub_message(inner, &server, frame) {
-              let conn = match router.connections.get_connection_mut(&server) {
-                Some(conn) => conn,
-                None => return Err(RedisError::new(
-                  RedisErrorKind::Unknown,
-                  "Missing expected connection."
-                ))
-              };
-
-              if inner.config.server.is_clustered() {
-                clustered::process_response_frame(inner, conn, frame).await
-              }else{
-                centralized::process_response_frame(inner, conn, frame).await
-              }
-            } else {
-              Ok(())
+          let frame = match responses::preprocess_frame(inner, router, &server, frame).await {
+            Ok(frame) => frame,
+            Err(err) => {
+              _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
+              return reset_connection(inner, router, &server, err).await;
             }
+          };
+
+          if let Some(frame) = frame {
+            let conn = match get_connection_mut(router, &server) {
+              Some(conn) => conn,
+              None => return Err(RedisError::new(
+                RedisErrorKind::Unknown,
+                "Missing expected connection."
+              ))
+            };
+
+            if inner.config.server.is_clustered() {
+              clustered::process_response_frame(inner, conn, frame).await
+            }else{
+              centralized::process_response_frame(inner, conn, frame).await
+            }
+          }else{
+            Ok(())
           }
         },
         Err(err) => {
           _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
-          reset_connection(inner, router, server, err).await
+          reset_connection(inner, router, &server, err).await
         }
       }
     },
@@ -532,7 +557,7 @@ pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError>
       Ok(())
     }
   } else {
-    utils::reconnect_with_policy(inner, &mut router).await
+    Box::pin(utils::reconnect_with_policy(inner, &mut router)).await
   };
 
   if let Err(error) = result {

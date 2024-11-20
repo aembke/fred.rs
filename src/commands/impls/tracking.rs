@@ -86,7 +86,7 @@ pub async fn start_tracking<C: ClientLike>(
     } else {
       // send the tracking command to all nodes when not in bcast mode
       let (tx, rx) = oneshot_channel();
-      let response = ResponseKind::new_buffer(tx);
+      let response = ResponseKind::Respond(Some(tx));
       let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
       client.send_command(command)?;
 
@@ -114,7 +114,7 @@ pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> 
   if client.is_clustered() {
     // turn off tracking on all connections
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_buffer(tx);
+    let response = ResponseKind::Respond(Some(tx));
     let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
     client.send_command(command)?;
 

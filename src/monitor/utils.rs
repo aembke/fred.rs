@@ -118,10 +118,6 @@ async fn process_stream(inner: &RefCount<RedisClientInner>, tx: Sender<Command>,
 }
 
 pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
-  let perf = PerformanceConfig {
-    auto_pipeline: false,
-    ..Default::default()
-  };
   let connection = ConnectionConfig::default();
   let server = match config.server {
     ServerConfig::Centralized { ref server } => server.clone(),
@@ -133,7 +129,7 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
     },
   };
 
-  let inner = RedisClientInner::new(config, perf, connection, None);
+  let inner = RedisClientInner::new(config, PerformanceConfig::default(), connection, None);
   let mut connection = connection::create(&inner, &server, None).await?;
   connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;

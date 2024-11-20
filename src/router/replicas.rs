@@ -1,23 +1,23 @@
-#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::types::TlsHostMapping;
-#[cfg(feature = "replicas")]
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::{utils, WriteResult},
+  router::{utils, utils::next_frame, WriteResult},
   runtime::RefCount,
-  types::Server,
+  types::{Resp3Frame, Server},
+  utils as client_utils,
 };
-#[cfg(feature = "replicas")]
+use futures::future::{join_all, select_all};
 use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
+  future::pending,
 };
 
 /// An interface used to filter the list of available replica nodes.
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[async_trait]
 pub trait ReplicaFilter: Send + Sync + 'static {
@@ -29,7 +29,6 @@ pub trait ReplicaFilter: Send + Sync + 'static {
 }
 
 /// Configuration options for replica node connections.
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone)]
 pub struct ReplicaConfig {
@@ -55,7 +54,6 @@ pub struct ReplicaConfig {
   pub primary_fallback:           bool,
 }
 
-#[cfg(feature = "replicas")]
 impl fmt::Debug for ReplicaConfig {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     f.debug_struct("ReplicaConfig")
@@ -67,7 +65,6 @@ impl fmt::Debug for ReplicaConfig {
   }
 }
 
-#[cfg(feature = "replicas")]
 impl PartialEq for ReplicaConfig {
   fn eq(&self, other: &Self) -> bool {
     self.lazy_connections == other.lazy_connections
@@ -77,10 +74,8 @@ impl PartialEq for ReplicaConfig {
   }
 }
 
-#[cfg(feature = "replicas")]
 impl Eq for ReplicaConfig {}
 
-#[cfg(feature = "replicas")]
 impl Default for ReplicaConfig {
   fn default() -> Self {
     ReplicaConfig {
@@ -96,14 +91,12 @@ impl Default for ReplicaConfig {
 /// A container for round-robin routing among replica nodes.
 // This implementation optimizes for next() at the cost of add() and remove()
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub struct ReplicaRouter {
   counter: usize,
   servers: Vec<Server>,
 }
 
-#[cfg(feature = "replicas")]
 impl ReplicaRouter {
   /// Read the server that should receive the next command.
   pub fn next(&mut self) -> Option<&Server> {
@@ -135,7 +128,6 @@ impl ReplicaRouter {
 }
 
 /// A container for round-robin routing to replica servers.
-#[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct ReplicaSet {
@@ -143,8 +135,6 @@ pub struct ReplicaSet {
   servers: HashMap<Server, ReplicaRouter>,
 }
 
-#[cfg(feature = "replicas")]
-#[allow(dead_code)]
 impl ReplicaSet {
   /// Create a new empty replica set.
   pub fn new() -> ReplicaSet {
@@ -210,18 +200,6 @@ impl ReplicaSet {
     for (primary, replicas) in self.servers.iter() {
       for replica in replicas.iter() {
         out.insert(replica.clone(), primary.clone());
-      }
-    }
-
-    out
-  }
-
-  /// Read the set of all known replica nodes for all primary nodes.
-  pub fn all_replicas(&self) -> Vec<Server> {
-    let mut out = Vec::with_capacity(self.servers.len());
-    for (_, replicas) in self.servers.iter() {
-      for replica in replicas.iter() {
-        out.push(replica.clone());
       }
     }
 
@@ -354,22 +332,18 @@ impl Replicas {
   /// Whether a working connection exists to any replica for the provided primary node.
   pub async fn has_replica_connection(&mut self, primary: &Server) -> bool {
     for replica in self.routing.replicas(primary) {
-      if self.has_connection(&replica).await {
-        return true;
+      if let Some(replica) = self.writers.get_mut(replica) {
+        if replica.peek_reader_errors().await.is_some() {
+          continue;
+        } else {
+          return true;
+        }
+      } else {
+        continue;
       }
     }
 
     false
-  }
-
-  /// Whether a connection exists to the provided replica node.
-  #[inline(always)]
-  pub async fn has_connection(&mut self, replica: &Server) -> bool {
-    if let Some(replica) = self.writers.get_mut(replica) {
-      replica.peek_reader_errors().await.is_none()
-    } else {
-      false
-    }
   }
 
   /// Return a map of `replica` -> `primary` server identifiers.
@@ -403,7 +377,7 @@ impl Replicas {
     }))
     .await
     .into_iter()
-    .filter_map(identity)
+    .flatten()
     .collect()
   }
 
@@ -524,9 +498,43 @@ impl Replicas {
   pub fn take_retry_buffer(&mut self) -> VecDeque<RedisCommand> {
     self.buffer.drain(..).collect()
   }
+
+  pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+    // let inner = inner.clone();
+    let _ = join_all(self.writers.iter_mut().map(|(_, conn)| conn.drain(inner)))
+      .await
+      .into_iter()
+      .collect::<Result<Vec<()>, RedisError>>()?;
+
+    Ok(())
+  }
+
+  /// Try to read from all sockets concurrently, returning the first result that completes.
+  pub async fn select_read(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
+    if self.writers.is_empty() {
+      // this is used in the context of select!, so we want to wait rather than break early.
+      pending::<()>().await;
+      return None;
+    }
+
+    select_all(self.writers.iter_mut().map(|(_, conn)| {
+      Box::pin(async {
+        match next_frame!(inner, conn) {
+          Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
+          Ok(None) => None,
+          Err(e) => Some((conn.server.clone(), Err(e))),
+        }
+      })
+    }))
+    .await
+    .0
+  }
 }
 
-#[cfg(all(feature = "replicas", any(feature = "enable-native-tls", feature = "enable-rustls")))]
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Server, replica: &mut Server) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
@@ -543,8 +551,5 @@ pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Serve
   replica.set_tls_server_name(policy, &primary.host);
 }
 
-#[cfg(all(
-  feature = "replicas",
-  not(any(feature = "enable-native-tls", feature = "enable-rustls"))
-))]
+#[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
 pub fn map_replica_tls_names(_: &RefCount<RedisClientInner>, _: &Server, _: &mut Server) {}

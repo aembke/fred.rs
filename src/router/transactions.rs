@@ -35,6 +35,7 @@ async fn exec(
   let mut command = RedisCommand::new(RedisCommandKind::Exec, vec![]);
   let (frame, _) = utils::prepare_command(inner, &conn.counters, &mut command)?;
   conn.write(frame, true, true, false).await?;
+  conn.flush().await?;
   let mut responses = Vec::with_capacity(expected + 1);
 
   for _ in 0 .. (expected + 1) {
@@ -241,7 +242,7 @@ pub async fn send(
               max_redirections_error(tx);
               return Ok(());
             } else {
-              utils::reconnect_with_policy(inner, router).await?;
+              Box::pin(utils::reconnect_with_policy(inner, router)).await?;
               continue;
             }
           } else if err.is_ask() {

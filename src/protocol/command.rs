@@ -1775,10 +1775,10 @@ impl RedisCommand {
   }
 
   /// Whether to pipeline the command.
+  #[allow(dead_code)]
   pub fn should_auto_pipeline(&self, inner: &RefCount<RedisClientInner>, force: bool) -> bool {
     let should_pipeline = force
-      || (inner.is_pipelined()
-      && self.can_pipeline
+      || (self.can_pipeline
       && self.kind.can_pipeline()
       && !self.blocks_connection()
       && !self.is_all_cluster_nodes()
@@ -1972,17 +1972,17 @@ impl RedisCommand {
     match self.response {
       ResponseKind::KeyScanBuffered(ref inner) => {
         if let Err(error) = result {
-          let _ = inner.tx.send(Err(error));
+          let _ = inner.tx.try_send(Err(error));
         }
       },
       ResponseKind::KeyScan(ref inner) => {
         if let Err(error) = result {
-          let _ = inner.tx.send(Err(error));
+          let _ = inner.tx.try_send(Err(error));
         }
       },
       ResponseKind::ValueScan(ref inner) => {
         if let Err(error) = result {
-          let _ = inner.tx.send(Err(error));
+          let _ = inner.tx.try_send(Err(error));
         }
       },
       _ =>

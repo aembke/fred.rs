@@ -12,7 +12,6 @@ async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized()
     .with_performance_config(|config| {
       config.max_feed_count = 100;
-      config.auto_pipeline = true;
       // change the buffer size behind the event interface functions (`on_message`, etc.)
       config.broadcast_channel_capacity = 48;
       // allow up to 25000 in-flight commands per connection

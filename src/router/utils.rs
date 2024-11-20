@@ -7,10 +7,16 @@ use crate::{
   types::*,
   utils as client_utils,
 };
+use bytes::Bytes;
 use std::{
   cmp,
   collections::VecDeque,
   time::{Duration, Instant},
+};
+
+static OK_FRAME: Resp3Frame = Resp3Frame::SimpleString {
+  data:       Bytes::from_static(b"OK"),
+  attributes: None,
 };
 
 /// Check the connection state and command flags to determine the backpressure policy to apply, if any.
@@ -143,13 +149,21 @@ pub async fn write_command(
 
   let no_incr = command.has_no_responses();
   let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
+  let respond_early = if command.kind.closes_connection() {
+    command.take_responder()
+  } else {
+    None
+  };
+
   conn.push_command(command);
   let write_result = conn.write(frame, should_flush, no_incr, check_unresponsive).await;
-
   if let Err(e) = write_result {
     debug!("{}: Error sending frame to socket: {:?}", conn.server, e);
     WriteResult::Disconnected((Some(conn.server.clone()), None, e))
   } else {
+    if let Some(tx) = respond_early {
+      let _ = tx.send(Ok(OK_FRAME.clone()));
+    }
     WriteResult::Sent((conn.server.clone(), should_flush))
   }
 }
@@ -171,7 +185,7 @@ pub fn check_final_write_attempt(
       if command.should_finish_with_error(inner) {
         command.respond_to_caller(Err(
           error
-            .map(|e| e.clone())
+            .cloned()
             .unwrap_or(RedisError::new(RedisErrorKind::IO, "Connection Closed")),
         ));
 
@@ -213,7 +227,7 @@ pub async fn reconnect_once(inner: &RefCount<RedisClientInner>, router: &mut Rou
       }
     }
     // try to flush any previously in-flight commands
-    router.retry_buffer().await;
+    Box::pin(router.retry_buffer()).await;
 
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
@@ -237,7 +251,7 @@ pub async fn reconnect_with_policy(
       inner.wait_with_interrupt(delay).await?;
     }
 
-    if let Err(e) = reconnect_once(inner, router).await {
+    if let Err(e) = Box::pin(reconnect_once(inner, router)).await {
       if e.should_not_reconnect() {
         return Err(e);
       }
@@ -279,7 +293,7 @@ pub async fn send_asking_with_policy(
           return Err(err);
         }
 
-        if let Err(err) = reconnect_with_policy(inner, router).await {
+        if let Err(err) = Box::pin(reconnect_with_policy(inner, router)).await {
           return Err(err);
         } else {
           continue;
@@ -293,7 +307,7 @@ pub async fn send_asking_with_policy(
           ));
         }
 
-        if let Err(err) = reconnect_with_policy(inner, router).await {
+        if let Err(err) = Box::pin(reconnect_with_policy(inner, router)).await {
           return Err(err);
         } else {
           continue;
@@ -311,7 +325,7 @@ pub async fn send_asking_with_policy(
       }
 
       _debug!(inner, "Failed to read ASKING response: {:?}", err);
-      if let Err(err) = reconnect_with_policy(inner, router).await {
+      if let Err(err) = Box::pin(reconnect_with_policy(inner, router)).await {
         return Err(err);
       } else {
         continue;

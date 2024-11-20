@@ -2,6 +2,7 @@ pub mod centralized;
 pub mod clustered;
 pub mod commands;
 pub mod connections;
+#[cfg(feature = "replicas")]
 pub mod replicas;
 pub mod responses;
 pub mod sentinel;
@@ -14,21 +15,20 @@ use crate::{
   protocol::{command::RedisCommand, connection::Counters, types::Server},
   router::{connections::Connections, utils::next_frame},
   runtime::RefCount,
-  trace,
   types::Resp3Frame,
   utils as client_utils,
 };
-use futures::future::{select_all, try_join_all};
-use std::{collections::VecDeque, fmt, fmt::Formatter, time::Duration};
+use futures::future::{join_all, select, select_all, try_join, Either};
+use std::{collections::VecDeque, fmt, fmt::Formatter, future::pending, time::Duration};
+use tokio::pin;
 
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
 
 #[cfg(feature = "transactions")]
 pub mod transactions;
-
 #[cfg(feature = "replicas")]
-use crate::router::replicas::Replicas;
+use replicas::Replicas;
 
 /// The result of an attempt to send a command to the server.
 pub enum WriteResult {
@@ -76,23 +76,43 @@ pub enum Backpressure {
   Error(RedisError),
 }
 
-impl Backpressure {
-  pub fn should_wait(&self) -> bool {
-    matches!(self, Backpressure::Wait(_))
-  }
+macro_rules! read_primary_nodes {
+  ($router:expr, $inner:expr) => {{
+    match $router.connections {
+      Connections::Clustered { ref mut writers, .. } => {
+        if writers.is_empty() {
+          // this is used in the context of select!, so we want to wait rather than break early.
+          pending::<()>().await;
+          return None;
+        }
 
-  /// Apply the `wait` backpressure policy.
-  pub async fn wait(self, inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) -> Result<(), RedisError> {
-    match self {
-      Backpressure::Wait(duration) => {
-        _debug!(inner, "Backpressure policy (wait): {:?}", duration);
-        trace::backpressure_event(command, Some(duration.as_millis()));
-        inner.wait_with_interrupt(duration).await?;
-        Ok(())
+        select_all(writers.iter_mut().map(|(_, conn)| {
+          Box::pin(async {
+            match next_frame!($inner, conn) {
+              Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
+              Ok(None) => None,
+              Err(e) => Some((conn.server.clone(), Err(e))),
+            }
+          })
+        }))
+        .await
+        .0
       },
-      _ => Ok(()),
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
+        if let Some(conn) = writer {
+          match next_frame!($inner, conn) {
+            Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
+            Ok(None) => None,
+            Err(e) => Some((conn.server.clone(), Err(e))),
+          }
+        } else {
+          // this is used in the context of select!, so we want to wait rather than break early.
+          pending::<()>().await;
+          None
+        }
+      },
     }
-  }
+  }};
 }
 
 /// A struct for routing commands to the server(s).
@@ -162,7 +182,7 @@ impl Router {
           ref mut cache,
         } => {
           let has_custom_server = command.cluster_node.is_some();
-          let server = match clustered::route_command(&self.inner, &cache, &command) {
+          let server = match clustered::route_command(&self.inner, cache, &command) {
             Some(server) => server,
             None => {
               return if has_custom_server {
@@ -394,7 +414,7 @@ impl Router {
           self.refresh_replica_routing().await?;
 
           // surface errors from the retry process, otherwise return the reconnection result
-          match self.retry_buffer().await {
+          match Box::pin(self.retry_buffer()).await {
             WriteResult::Disconnected((_, _, error)) => {
               return Err(error);
             },
@@ -415,7 +435,7 @@ impl Router {
   pub async fn sync_replicas(&mut self) -> Result<(), RedisError> {
     debug!("{}: Syncing replicas...", self.inner.id);
     self.replicas.drop_broken_connections().await;
-    let old_connections = self.replicas.active_connections();
+    let old_connections = self.replicas.active_connections().await;
     let new_replica_map = self.connections.replica_map(&self.inner).await?;
 
     let old_connections_idx: HashSet<_> = old_connections.iter().collect();
@@ -485,7 +505,7 @@ impl Router {
       );
       command.skip_backpressure = true;
       let result = if command.use_replica {
-        self.write_replica(command, true).await
+        Box::pin(self.write_replica(command, true)).await
       } else {
         self.write(command, true).await
       };
@@ -568,31 +588,33 @@ impl Router {
     self.connections.check_and_flush(&self.inner).await
   }
 
-  /// Wait and read frames until there are no in-flight frames on replica connections.
-  #[cfg(feature = "replicas")]
-  pub async fn drain_replicas(&mut self) -> Result<(), RedisError> {
-    let inner = self.inner.clone();
-    try_join_all(self.replicas.writers.iter_mut().map(|(_, conn)| conn.drain(&inner))).await?;
-
-    Ok(())
-  }
-
   /// Wait and read frames until there are no in-flight frames on primary connections.
   pub async fn drain(&mut self) -> Result<(), RedisError> {
     let inner = self.inner.clone();
     _trace!(inner, "Draining all connections...");
 
-    match self.connections {
-      Connections::Clustered { ref mut writers, .. } => {
-        try_join_all(writers.iter_mut().map(|(_, conn)| conn.drain(&inner))).await?;
+    let primary_ft = async {
+      match self.connections {
+        Connections::Clustered { ref mut writers, .. } => {
+          // drain all connections even if one of them breaks out early with an error
+          let _ = join_all(writers.iter_mut().map(|(_, conn)| conn.drain(&inner)))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<()>, RedisError>>()?;
 
-        Ok(())
-      },
-      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => match writer {
-        Some(ref mut conn) => conn.drain(&inner).await,
-        None => Ok(()),
-      },
-    }
+          Ok(())
+        },
+        Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => match writer {
+          Some(ref mut conn) => conn.drain(&inner).await,
+          None => Ok(()),
+        },
+      }
+    };
+
+    #[cfg(feature = "replicas")]
+    return try_join(primary_ft, self.replicas.drain(&inner)).await.map(|_| ());
+    #[cfg(not(feature = "replicas"))]
+    primary_ft.await
   }
 
   pub async fn has_healthy_centralized_connection(&mut self) -> bool {
@@ -609,37 +631,29 @@ impl Router {
   }
 
   /// Try to read from all sockets concurrently, returning the first result that completes.
-  pub async fn select_read(&mut self) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
-    match self.connections {
-      Connections::Clustered { ref mut writers, .. } => {
-        if writers.is_empty() {
-          return None;
-        }
+  #[cfg(feature = "replicas")]
+  pub async fn select_read(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
+    let primary_ft = async { read_primary_nodes!(self, inner) };
+    pin!(primary_ft);
+    let replica_ft = self.replicas.select_read(inner);
+    pin!(replica_ft);
 
-        select_all(writers.iter_mut().map(|(_, conn)| {
-          Box::pin(async {
-            match next_frame!(&self.inner, conn) {
-              Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
-              Ok(None) => None,
-              Err(e) => Some((conn.server.clone(), Err(e))),
-            }
-          })
-        }))
-        .await
-        .0
-      },
-      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
-        if let Some(conn) = writer {
-          match next_frame!(&self.inner, conn) {
-            Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
-            Ok(None) => None,
-            Err(e) => Some((conn.server.clone(), Err(e))),
-          }
-        } else {
-          None
-        }
-      },
+    match select(primary_ft, replica_ft).await {
+      Either::Left((l, _)) => l,
+      Either::Right((r, _)) => r,
     }
+  }
+
+  /// Try to read from all sockets concurrently, returning the first result that completes.
+  #[cfg(not(feature = "replicas"))]
+  pub async fn select_read(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
+    read_primary_nodes!(self, inner)
   }
 
   #[cfg(feature = "replicas")]

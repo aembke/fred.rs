@@ -62,7 +62,7 @@ pub fn scan_cluster(
   let hash_slots = match hash_slots {
     Ok(slots) => slots,
     Err(e) => {
-      let _ = tx.send(Err(e));
+      let _ = tx.try_send(Err(e));
       return rx.into_stream();
     },
   };
@@ -80,8 +80,8 @@ pub fn scan_cluster(
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-    if let Err(e) = interfaces::default_send_command(&inner, command) {
-      let _ = tx.send(Err(e));
+    if let Err(e) = interfaces::default_send_command(inner, command) {
+      let _ = tx.try_send(Err(e));
       break;
     }
   }
@@ -101,7 +101,7 @@ pub fn scan_cluster_buffered(
   let hash_slots = match hash_slots {
     Ok(slots) => slots,
     Err(e) => {
-      let _ = tx.send(Err(e));
+      let _ = tx.try_send(Err(e));
       return rx.into_stream();
     },
   };
@@ -119,8 +119,8 @@ pub fn scan_cluster_buffered(
     });
     let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-    if let Err(e) = interfaces::default_send_command(&inner, command) {
-      let _ = tx.send(Err(e));
+    if let Err(e) = interfaces::default_send_command(inner, command) {
+      let _ = tx.try_send(Err(e));
       break;
     }
   }
@@ -138,7 +138,7 @@ pub fn scan(
   let (tx, rx) = channel(0);
 
   let hash_slot = if inner.config.server.is_clustered() {
-    if utils::clustered_scan_pattern_has_hash_tag(&inner, &pattern) {
+    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
       Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
     } else {
       None
@@ -158,8 +158,8 @@ pub fn scan(
   });
   let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(&inner, command) {
-    let _ = tx.send(Err(e));
+  if let Err(e) = interfaces::default_send_command(inner, command) {
+    let _ = tx.try_send(Err(e));
   }
 
   rx.into_stream()
@@ -175,7 +175,7 @@ pub fn scan_buffered(
   let (tx, rx) = channel(0);
 
   let hash_slot = if inner.config.server.is_clustered() {
-    if utils::clustered_scan_pattern_has_hash_tag(&inner, &pattern) {
+    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
       Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
     } else {
       None
@@ -195,8 +195,8 @@ pub fn scan_buffered(
   });
   let command: RedisCommand = (RedisCommandKind::Scan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(&inner, command) {
-    let _ = tx.send(Err(e));
+  if let Err(e) = interfaces::default_send_command(inner, command) {
+    let _ = tx.try_send(Err(e));
   }
 
   rx.into_stream()
@@ -217,8 +217,8 @@ pub fn hscan(
     args,
   });
   let command: RedisCommand = (RedisCommandKind::Hscan, Vec::new(), response).into();
-  if let Err(e) = interfaces::default_send_command(&inner, command) {
-    let _ = tx.send(Err(e));
+  if let Err(e) = interfaces::default_send_command(inner, command) {
+    let _ = tx.try_send(Err(e));
   }
 
   rx.into_stream().try_filter_map(|result| async move {
@@ -245,8 +245,8 @@ pub fn sscan(
   });
   let command: RedisCommand = (RedisCommandKind::Sscan, Vec::new(), response).into();
 
-  if let Err(e) = interfaces::default_send_command(&inner, command) {
-    let _ = tx.send(Err(e));
+  if let Err(e) = interfaces::default_send_command(inner, command) {
+    let _ = tx.try_send(Err(e));
   }
 
   rx.into_stream().try_filter_map(|result| async move {
@@ -275,7 +275,7 @@ pub fn zscan(
   let command: RedisCommand = (RedisCommandKind::Zscan, Vec::new(), response).into();
 
   if let Err(e) = interfaces::default_send_command(&inner, command) {
-    let _ = tx.send(Err(e));
+    let _ = tx.try_send(Err(e));
   }
 
   rx.into_stream().try_filter_map(|result| async move {

@@ -330,7 +330,7 @@ pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
     _trace!(inner, "Resetting command channel before connecting.");
     // another connection task is running. this will let the command channel drain, then it'll drop everything on
     // the old connection/router interface.
-    let (tx, rx) = channel(inner.connection.bounded_channel_capacity);
+    let (tx, rx) = channel(inner.connection.max_command_buffer_len);
     #[cfg(feature = "glommio")]
     let tx = tx.into();
 
@@ -503,14 +503,15 @@ where
   check_blocking_policy(inner, &command).await?;
   client.send_command(command)?;
 
+  let ft = async { rx.instrument(cmd_span).await.map_err(|e| e.into()).and_then(|r| r) };
   let result = if timeout_dur.is_zero() {
-    rx.map_err(RedisError::from).instrument(cmd_span).await
+    ft.await
   } else {
-    timeout(rx, timeout_dur).and_then(|r| r).instrument(cmd_span).await
+    timeout(ft, timeout_dur).await
   };
 
   if let Ok(ref frame) = result {
-    trace::record_response_size(&end_cmd_span, &frame);
+    trace::record_response_size(&end_cmd_span, frame);
   } else {
     set_bool_atomic(&timed_out, true);
   }

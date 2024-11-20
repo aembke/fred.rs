@@ -20,11 +20,20 @@ use fred::{
   },
 };
 use redis_protocol::resp3::types::RespVersion;
-use std::{convert::TryInto, default::Default, env, fmt, fmt::Formatter, fs, future::Future, time::Duration};
+use std::{
+  convert::TryInto,
+  default::Default,
+  env,
+  fmt,
+  fmt::{Debug, Formatter},
+  fs,
+  future::Future,
+  time::Duration,
+};
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::{ClusterDiscoveryPolicy, InfoKind};
+use fred::types::{ClusterDiscoveryPolicy, ConnectHandle, InfoKind};
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
@@ -303,7 +312,7 @@ fn create_server_config(cluster: bool) -> ServerConfig {
   }
 }
 
-fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_normal_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   let config = RedisConfig {
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
@@ -313,7 +322,6 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
     ..Default::default()
   };
   let perf = PerformanceConfig {
-    auto_pipeline: pipeline,
     default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
@@ -326,26 +334,26 @@ fn create_normal_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (Re
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 )))]
-fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
-  create_normal_redis_config(cluster, pipeline, resp3)
+fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+  create_normal_redis_config(cluster, resp3)
 }
 
 #[cfg(all(
   feature = "enable-native-tls",
   any(feature = "enable-rustls", feature = "enable-rustls-ring")
 ))]
-fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   // if both are enabled then don't use either since all the tests assume one or the other
-  create_normal_redis_config(cluster, pipeline, resp3)
+  create_normal_redis_config(cluster, resp3)
 }
 
 #[cfg(all(
   any(feature = "enable-rustls", feature = "enable-rustls-ring"),
   not(feature = "enable-native-tls")
 ))]
-fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   if !read_ci_tls_env() {
-    return create_normal_redis_config(cluster, pipeline, resp3);
+    return create_normal_redis_config(cluster, resp3);
   }
 
   debug!("Creating rustls test config...");
@@ -362,7 +370,6 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
     ..Default::default()
   };
   let perf = PerformanceConfig {
-    auto_pipeline: pipeline,
     default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
@@ -374,9 +381,9 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
   feature = "enable-native-tls",
   not(any(feature = "enable-rustls", feature = "enable-rustls-ring"))
 ))]
-fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
   if !read_ci_tls_env() {
-    return create_normal_redis_config(cluster, pipeline, resp3);
+    return create_normal_redis_config(cluster, resp3);
   }
 
   debug!("Creating native-tls test config...");
@@ -393,7 +400,6 @@ fn create_redis_config(cluster: bool, pipeline: bool, resp3: bool) -> (RedisConf
     ..Default::default()
   };
   let perf = PerformanceConfig {
-    auto_pipeline: pipeline,
     default_command_timeout: Duration::from_secs(20),
     ..Default::default()
   };
@@ -409,7 +415,14 @@ async fn flushall_between_tests(client: &RedisClient) -> Result<(), RedisError> 
   }
 }
 
-pub async fn run_sentinel<F, Fut>(func: F, pipeline: bool, resp3: bool)
+async fn check_panic(client: &RedisClient, jh: ConnectHandle, err: RedisError) {
+  println!("Checking panic after: {:?}", err);
+  let _ = client.quit().await;
+  jh.await.unwrap().unwrap();
+  panic!("{:?}", err);
+}
+
+pub async fn run_sentinel<F, Fut>(func: F, resp3: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
@@ -430,29 +443,31 @@ where
     password: Some(read_redis_password()),
     ..Default::default()
   };
-  let perf = PerformanceConfig {
-    auto_pipeline: pipeline,
-    ..Default::default()
-  };
+  let perf = PerformanceConfig::default();
   let client = RedisClient::new(config.clone(), Some(perf), Some(connection), Some(policy));
   let _client = client.clone();
 
-  let _jh = client.connect();
+  let jh = client.connect();
   client.wait_for_connect().await.expect("Failed to connect client");
 
-  flushall_between_tests(&client).await.expect("Failed to flushall");
-  func(_client, config.clone()).await.expect("Failed to run test");
-  let _ = client.quit().await;
+  if let Err(err) = flushall_between_tests(&client).await {
+    check_panic(&client, jh, err).await;
+  } else if let Err(err) = func(_client, config.clone()).await {
+    check_panic(&client, jh, err).await;
+  } else {
+    let _ = client.quit().await;
+    jh.await.unwrap().unwrap();
+  }
 }
 
-pub async fn run_cluster<F, Fut>(func: F, pipeline: bool, resp3: bool)
+pub async fn run_cluster<F, Fut>(func: F, resp3: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
   let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
-  let (mut config, perf) = create_redis_config(true, pipeline, resp3);
+  let (mut config, perf) = create_redis_config(true, resp3);
   connection.max_command_attempts = cmd_attempts;
   connection.max_redirections = 10;
   connection.unresponsive = UnresponsiveConfig {
@@ -464,26 +479,31 @@ where
   let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
-  let _jh = client.connect();
+  let jh = client.connect();
   client.wait_for_connect().await.expect("Failed to connect client");
 
-  flushall_between_tests(&client).await.expect("Failed to flushall");
-  func(_client, config.clone()).await.expect("Failed to run test");
-  let _ = client.quit().await;
+  if let Err(err) = flushall_between_tests(&client).await {
+    check_panic(&client, jh, err).await;
+  } else if let Err(err) = func(_client, config.clone()).await {
+    check_panic(&client, jh, err).await;
+  } else {
+    let _ = client.quit().await;
+    jh.await.unwrap().unwrap();
+  }
 }
 
-pub async fn run_centralized<F, Fut>(func: F, pipeline: bool, resp3: bool)
+pub async fn run_centralized<F, Fut>(func: F, resp3: bool)
 where
   F: Fn(RedisClient, RedisConfig) -> Fut,
   Fut: Future<Output = Result<(), RedisError>>,
 {
   if should_use_sentinel_config() {
-    return run_sentinel(func, pipeline, resp3).await;
+    return run_sentinel(func, resp3).await;
   }
 
   let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
-  let (mut config, perf) = create_redis_config(false, pipeline, resp3);
+  let (mut config, perf) = create_redis_config(false, resp3);
   connection.max_command_attempts = cmd_attempts;
   connection.unresponsive = UnresponsiveConfig {
     max_timeout: Some(Duration::from_secs(10)),
@@ -494,12 +514,17 @@ where
   let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
-  let _jh = client.connect();
+  let jh = client.connect();
   client.wait_for_connect().await.expect("Failed to connect client");
 
-  flushall_between_tests(&client).await.expect("Failed to flushall");
-  func(_client, config.clone()).await.expect("Failed to run test");
-  let _ = client.quit().await;
+  if let Err(err) = flushall_between_tests(&client).await {
+    check_panic(&client, jh, err).await;
+  } else if let Err(err) = func(_client, config.clone()).await {
+    check_panic(&client, jh, err).await;
+  } else {
+    let _ = client.quit().await;
+    jh.await.unwrap().unwrap();
+  }
 }
 
 /// Check whether the server is Valkey.
@@ -526,52 +551,26 @@ macro_rules! centralized_test_panic(
   ($module:tt, $name:tt) => {
     #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls", feature = "enable-rustls-ring")))]
     mod $name {
-      mod resp2 {
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn pipelined() {
-          if crate::integration::utils::read_ci_tls_env() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, true, false).await;
+      #[tokio::test(flavor = "multi_thread")]
+      #[should_panic]
+      async fn resp2() {
+        if crate::integration::utils::read_ci_tls_env() {
+          panic!("");
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn no_pipeline() {
-          if crate::integration::utils::read_ci_tls_env() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, false, false).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
       }
 
-      mod resp3 {
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn pipelined() {
-          if crate::integration::utils::read_ci_tls_env() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, true, true).await;
+      #[tokio::test(flavor = "multi_thread")]
+      #[should_panic]
+      async fn resp3() {
+        if crate::integration::utils::read_ci_tls_env() {
+          panic!("");
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn no_pipeline() {
-          if crate::integration::utils::read_ci_tls_env() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, false, true).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, true).await;
       }
     }
   }
@@ -581,53 +580,27 @@ macro_rules! cluster_test_panic(
   ($module:tt, $name:tt) => {
     mod $name {
       #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
-      mod resp2 {
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn pipelined() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, true, false).await;
+      #[tokio::test(flavor = "multi_thread")]
+      #[should_panic]
+      async fn resp2() {
+        if crate::integration::utils::should_use_sentinel_config() {
+          panic!("");
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn no_pipeline() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, false, false).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, false).await;
       }
 
       #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
-      mod resp3 {
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn pipelined() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, true, true).await;
+      #[tokio::test(flavor = "multi_thread")]
+      #[should_panic]
+      async fn resp3() {
+        if crate::integration::utils::should_use_sentinel_config() {
+          panic!("");
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        #[should_panic]
-        async fn no_pipeline() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            panic!("");
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, false, true).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, true).await;
       }
     }
   }
@@ -637,48 +610,24 @@ macro_rules! centralized_test(
   ($module:tt, $name:tt) => {
     #[cfg(not(any(feature = "enable-rustls", feature = "enable-native-tls", feature = "enable-rustls-ring")))]
     mod $name {
-      mod resp2 {
-        #[tokio::test(flavor = "multi_thread")]
-        async fn pipelined() {
-          if crate::integration::utils::read_ci_tls_env() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, true, false).await;
+      #[tokio::test(flavor = "multi_thread")]
+      async fn resp2() {
+        if crate::integration::utils::read_ci_tls_env() {
+          return;
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        async fn no_pipeline() {
-          if crate::integration::utils::read_ci_tls_env() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, false, false).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, false).await;
       }
 
-      mod resp3 {
-        #[tokio::test(flavor = "multi_thread")]
-        async fn pipelined() {
-          if crate::integration::utils::read_ci_tls_env() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, true, true).await;
+      #[tokio::test(flavor = "multi_thread")]
+      async fn resp3() {
+        if crate::integration::utils::read_ci_tls_env() {
+          return;
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        async fn no_pipeline() {
-          if crate::integration::utils::read_ci_tls_env() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_centralized(crate::integration::$module::$name, false, true).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_centralized(crate::integration::$module::$name, true).await;
       }
     }
   }
@@ -688,49 +637,25 @@ macro_rules! cluster_test(
   ($module:tt, $name:tt) => {
     mod $name {
       #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
-      mod resp2 {
-        #[tokio::test(flavor = "multi_thread")]
-        async fn pipelined() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, true, false).await;
+      #[tokio::test(flavor = "multi_thread")]
+      async fn resp2() {
+        if crate::integration::utils::should_use_sentinel_config() {
+          return;
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        async fn no_pipeline() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, false, false).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, false).await;
       }
 
       #[cfg(not(any(feature = "i-redis-stack", feature = "unix-sockets")))]
-      mod resp3 {
-        #[tokio::test(flavor = "multi_thread")]
-        async fn pipelined() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, true, true).await;
+      #[tokio::test(flavor = "multi_thread")]
+      async fn resp3() {
+        if crate::integration::utils::should_use_sentinel_config() {
+          return;
         }
 
-        #[tokio::test(flavor = "multi_thread")]
-        async fn no_pipeline() {
-          if crate::integration::utils::should_use_sentinel_config() {
-            return;
-          }
-
-          let _ = pretty_env_logger::try_init();
-          crate::integration::utils::run_cluster(crate::integration::$module::$name, false, true).await;
-        }
+        let _ = pretty_env_logger::try_init();
+        crate::integration::utils::run_cluster(crate::integration::$module::$name, true).await;
       }
     }
   }

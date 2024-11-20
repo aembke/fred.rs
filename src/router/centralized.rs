@@ -48,6 +48,8 @@ pub async fn process_response_frame(
     conn.blocked = false;
   }
   responses::check_and_set_unblocked(inner, &command).await;
+  #[cfg(feature = "partial-tracing")]
+  let _ = command.traces.network.take();
 
   _trace!(inner, "Handling centralized response kind: {:?}", command.response);
   match command.take_response() {

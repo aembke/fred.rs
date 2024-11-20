@@ -482,20 +482,14 @@ pub struct ConnectionConfig {
   pub auto_client_setname:          bool,
   /// Limit the size of the internal in-memory command queue.
   ///
-  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error.
+  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error. Setting this value to
+  /// anything > 0 will indicate that the client should use a bounded MPSC channel to communicate with the routing
+  /// task.
   ///
   /// See [command_queue_len](crate::interfaces::MetricsInterface::command_queue_len) for more information.
   ///
   /// Default: `0` (unlimited)
-  #[deprecated(since = "9.5.0", note = "Use bounded_channel_capacity instead.")]
   pub max_command_buffer_len:       usize,
-  /// Use a bounded channel to communicate with the routing task.
-  ///
-  /// This value generally represents the max number of commands the client will queue in memory. Exceeding this
-  /// limit can result in `RedisError::Backpressure` errors.
-  ///
-  /// Default: `0` (unlimited, use an unbounded channel).
-  pub bounded_channel_capacity:     usize,
   /// Disable the `CLUSTER INFO` health check when initializing cluster connections.
   ///
   /// Default: `false`
@@ -537,7 +531,6 @@ impl Default for ConnectionConfig {
       max_redirections: 5,
       max_command_attempts: 3,
       max_command_buffer_len: 0,
-      bounded_channel_capacity: 0,
       auto_client_setname: false,
       cluster_cache_update_delay: Duration::from_millis(0),
       reconnect_on_auth_error: false,
@@ -569,6 +562,7 @@ pub struct PerformanceConfig {
   /// whereas this flag can automatically pipeline commands across tasks.
   ///
   /// Default: `true`
+  #[deprecated(since = "9.5.0", note = "Clients now automatically pipeline across tasks.")]
   pub auto_pipeline:              bool,
   /// Configuration options for backpressure features in the client.
   pub backpressure:               BackpressureConfig,
@@ -601,6 +595,7 @@ pub struct PerformanceConfig {
 
 impl Default for PerformanceConfig {
   fn default() -> Self {
+    #[allow(deprecated)]
     PerformanceConfig {
       auto_pipeline: true,
       backpressure: BackpressureConfig::default(),

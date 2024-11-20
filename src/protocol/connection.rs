@@ -883,17 +883,21 @@ impl RedisConnection {
   pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     let is_clustered = inner.config.server.is_clustered();
     while !self.buffer.is_empty() {
-      let frame = match self.read_skip_pubsub(&inner).await? {
+      let frame = match self.read_skip_pubsub(inner).await? {
         Some(f) => f,
         None => return Ok(()),
       };
 
-      // TODO check for special errors, pubsub, etc
-      // need to merge this with router.drain and reader logic
-      if is_clustered {
-        clustered::process_response_frame(&inner, self, frame).await?;
+      if let Some(err) = responses::check_special_errors(inner, &frame) {
+        return Err(err);
+      } else if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
+        if is_clustered {
+          clustered::process_response_frame(inner, self, frame).await?;
+        } else {
+          centralized::process_response_frame(inner, self, frame).await?;
+        }
       } else {
-        centralized::process_response_frame(&inner, self, frame).await?;
+        continue;
       }
     }
 
@@ -903,7 +907,7 @@ impl RedisConnection {
   /// Read frames until the in-flight buffer is empty, dropping any non-pubsub frames.
   pub async fn skip_results(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     while !self.buffer.is_empty() {
-      match self.read_skip_pubsub(&inner).await? {
+      match self.read_skip_pubsub(inner).await? {
         Some(f) => f,
         None => return Ok(()),
       };
@@ -979,6 +983,7 @@ pub async fn request_response(
   let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
   let ft = async {
     conn.write(frame, true, true, check_unresponsive).await?;
+    conn.flush().await?;
     match conn.read_skip_pubsub(inner).await {
       Ok(Some(f)) => Ok(f),
       Ok(None) => Err(RedisError::new(RedisErrorKind::Unknown, "Missing response.")),

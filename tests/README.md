@@ -2,9 +2,8 @@
 
 Tests are organized by category, similar to the [commands](../src/commands) folder.
 
-By default, most tests run 8 times based on the following configuration parameters: clustered vs centralized servers,
-pipelined vs non-pipelined clients, and RESP2 vs RESP3 mode. Helper macros exist to make this easy so each test only has
-to be written once.
+By default, most tests run 4 times against a cluster and centralized deployments in RESP2 and RESP3 modes. Helper macros
+exist to make this easy so each test only has to be written once.
 
 **The tests require Redis version >=6.2** As of writing the default version used is 7.2.4.
 
@@ -81,8 +80,8 @@ node in a cluster.
 5. Use `centralized_test!` or `cluster_test!` to generate tests in the appropriate module. Centralized tests will be
    converted to sentinel tests or redis-stack tests if needed.
 
-Tests that use this pattern will run 8 times to check the functionality against clustered and centralized redis servers
-with using both pipelined and non-pipelined clients in RESP2 and RESP3 mode.
+Tests that use this pattern will run 4 times to check the functionality against clustered and centralized redis servers
+in RESP2 and RESP3 mode.
 
 ## Notes
 

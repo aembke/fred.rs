@@ -492,7 +492,7 @@ impl RedisClientInner {
   ) -> RefCount<RedisClientInner> {
     let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
-    let (command_tx, command_rx) = channel(connection.bounded_channel_capacity);
+    let (command_tx, command_rx) = channel(connection.max_command_buffer_len);
     let notifications = RefCount::new(Notifications::new(&id, perf.broadcast_channel_capacity));
     let (config, policy) = (RefCount::new(config), RwLock::new(policy));
     let performance = RefSwap::new(RefCount::new(perf));
@@ -548,10 +548,6 @@ impl RedisClientInner {
 
   pub fn active_connections(&self) -> Vec<Server> {
     self.server_state.read().connections.iter().cloned().collect()
-  }
-
-  pub fn is_pipelined(&self) -> bool {
-    self.performance.load().as_ref().auto_pipeline
   }
 
   #[cfg(feature = "replicas")]
@@ -741,44 +737,6 @@ impl RedisClientInner {
       self.id, has_policy, is_disconnecting,
     );
     has_policy && !is_disconnecting
-  }
-
-  pub fn send_reconnect(
-    self: &RefCount<RedisClientInner>,
-    server: Option<Server>,
-    force: bool,
-    tx: Option<ResponseSender>,
-  ) {
-    debug!("{}: Sending reconnect message to router for {:?}", self.id, server);
-
-    let cmd = RouterCommand::Reconnect {
-      server,
-      force,
-      tx,
-      #[cfg(feature = "replicas")]
-      replica: false,
-    };
-    if let Err(_) = interfaces::send_to_router(self, cmd) {
-      warn!("{}: Error sending reconnect command to router.", self.id);
-    }
-  }
-
-  #[cfg(feature = "replicas")]
-  pub fn send_replica_reconnect(self: &RefCount<RedisClientInner>, server: &Server) {
-    debug!(
-      "{}: Sending replica reconnect message to router for {:?}",
-      self.id, server
-    );
-
-    let cmd = RouterCommand::Reconnect {
-      server:  Some(server.clone()),
-      force:   false,
-      tx:      None,
-      replica: true,
-    };
-    if let Err(_) = interfaces::send_to_router(self, cmd) {
-      warn!("{}: Error sending reconnect command to router.", self.id);
-    }
   }
 
   pub fn reset_reconnection_attempts(&self) {

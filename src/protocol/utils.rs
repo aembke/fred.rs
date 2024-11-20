@@ -943,9 +943,9 @@ pub fn command_to_resp2_frame(command: &RedisCommand) -> Result<ProtocolFrame, R
 /// Serialize the command as a protocol frame.
 pub fn command_to_frame(command: &RedisCommand, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
   if is_resp3 || command.kind.is_hello() {
-    command_to_resp3_frame(command).map(|c| c.into())
+    command_to_resp3_frame(command)
   } else {
-    command_to_resp2_frame(command).map(|c| c.into())
+    command_to_resp2_frame(command)
   }
 }
 

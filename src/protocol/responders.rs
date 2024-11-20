@@ -601,7 +601,7 @@ pub async fn respond_key_scan_buffered(
     let mut command = RedisCommand::new(RedisCommandKind::Scan, Vec::new());
     command.response = ResponseKind::KeyScanBuffered(scanner);
     if let Err(e) = interfaces::default_send_command(inner, command) {
-      let _ = scan_stream.send(Err(e));
+      let _ = scan_stream.try_send(Err(e));
     };
   }
 

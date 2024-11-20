@@ -117,23 +117,23 @@ impl<'a> From<&'a Resp3Frame> for DebugFrame {
 impl<'a> From<&'a Resp3BorrowedFrame<'a>> for DebugFrame {
   fn from(frame: &'a Resp3BorrowedFrame<'a>) -> Self {
     match frame {
-      Resp3BorrowedFrame::Map { ref data, .. } => {
+      Resp3BorrowedFrame::Map { data, .. } => {
         DebugFrame::Array(data.iter().flat_map(|(k, v)| vec![k.into(), v.into()]).collect())
       },
-      Resp3BorrowedFrame::Set { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
-      Resp3BorrowedFrame::Array { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
-      Resp3BorrowedFrame::BlobError { ref data, .. } => bytes_or_string(data),
-      Resp3BorrowedFrame::BlobString { ref data, .. } => bytes_or_string(data),
-      Resp3BorrowedFrame::SimpleString { ref data, .. } => bytes_or_string(data),
+      Resp3BorrowedFrame::Set { data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
+      Resp3BorrowedFrame::Array { data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
+      Resp3BorrowedFrame::BlobError { data, .. } => bytes_or_string(data),
+      Resp3BorrowedFrame::BlobString { data, .. } => bytes_or_string(data),
+      Resp3BorrowedFrame::SimpleString { data, .. } => bytes_or_string(data),
       Resp3BorrowedFrame::SimpleError { ref data, .. } => DebugFrame::String(data.to_string()),
       Resp3BorrowedFrame::Double { ref data, .. } => DebugFrame::Double(*data),
-      Resp3BorrowedFrame::BigNumber { ref data, .. } => bytes_or_string(data),
+      Resp3BorrowedFrame::BigNumber { data, .. } => bytes_or_string(data),
       Resp3BorrowedFrame::Number { ref data, .. } => DebugFrame::Integer(*data),
       Resp3BorrowedFrame::Boolean { ref data, .. } => DebugFrame::String(data.to_string()),
       Resp3BorrowedFrame::Null => DebugFrame::String("nil".into()),
-      Resp3BorrowedFrame::Push { ref data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
-      Resp3BorrowedFrame::ChunkedString(ref data) => bytes_or_string(data),
-      Resp3BorrowedFrame::VerbatimString { ref data, .. } => bytes_or_string(data),
+      Resp3BorrowedFrame::Push { data, .. } => DebugFrame::Array(data.iter().map(|d| d.into()).collect()),
+      Resp3BorrowedFrame::ChunkedString(data) => bytes_or_string(data),
+      Resp3BorrowedFrame::VerbatimString { data, .. } => bytes_or_string(data),
       Resp3BorrowedFrame::Hello {
         ref version, ref auth, ..
       } => {
@@ -155,16 +155,6 @@ pub fn log_resp2_frame(name: &str, frame: &Resp2Frame, encode: bool) {
 }
 
 pub fn log_resp3_frame(name: &str, frame: &Resp3Frame, encode: bool) {
-  let prefix = if encode { "Encoded" } else { "Decoded" };
-  trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))
-}
-
-pub fn log_resp2_borrowed_frame(name: &str, frame: &Resp2BorrowedFrame, encode: bool) {
-  let prefix = if encode { "Encoded" } else { "Decoded" };
-  trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))
-}
-
-pub fn log_resp3_borrowed_frame(name: &str, frame: &Resp3BorrowedFrame, encode: bool) {
   let prefix = if encode { "Encoded" } else { "Decoded" };
   trace!("{}: {} {:?}", name, prefix, DebugFrame::from(frame))
 }

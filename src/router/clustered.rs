@@ -1,8 +1,9 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   modules::inner::RedisClientInner,
   protocol::{
-    command::{ClusterErrorKind, RedisCommand, RedisCommandKind},
+    command::{ClusterErrorKind, RedisCommand, RedisCommandKind, RouterCommand},
     connection::{self, ExclusiveConnection, RedisConnection},
     responders,
     responders::ResponseKind,
@@ -75,11 +76,17 @@ async fn write_all_nodes(
         return Err(err);
       }
 
-      if let Err(err) = conn.write(frame, true, true, false).await {
+      let server = if let Err(err) = conn.write(frame, true, true, false).await {
         debug!("{}: Error sending frame to socket: {:?}", conn.server, err);
+        return Err(err);
+      } else {
+        server.clone()
+      };
+      if let Err(err) = conn.flush().await {
+        debug!("{}: Error flushing socket: {:?}", conn.server, err);
         Err(err)
       } else {
-        Ok(server.clone())
+        Ok(server)
       }
     });
   }
@@ -87,20 +94,48 @@ async fn write_all_nodes(
   join_all(write_ft).await
 }
 
+/// Read the next non-pubsub frame from all connections concurrently.
 async fn read_all_nodes(
   inner: &RefCount<RedisClientInner>,
   writers: &mut HashMap<Server, RedisConnection>,
   filter: &HashSet<Server>,
-) -> Vec<Result<Option<Server>, RedisError>> {
+) -> Vec<Result<Option<(Server, Resp3Frame)>, RedisError>> {
   join_all(writers.iter_mut().map(|(server, conn)| async {
     if filter.contains(server) {
-      conn.read_skip_pubsub(inner).await?;
-      Ok(Some(server.clone()))
+      match conn.read_skip_pubsub(inner).await? {
+        Some(frame) => Ok(Some((server.clone(), frame))),
+        None => Ok(None),
+      }
     } else {
       Ok(None)
     }
   }))
   .await
+}
+
+/// Find the first error or last successful frame from the concurrent server responses.
+fn parse_all_responses(
+  results: &[Result<Option<(Server, Resp3Frame)>, RedisError>],
+) -> Result<Resp3Frame, RedisError> {
+  let num_responses = results.len();
+  for (idx, result) in results.iter().enumerate() {
+    match result {
+      Ok(Some((_, frame))) => {
+        if idx == num_responses - 1 {
+          return Ok(frame.clone());
+        } else {
+          continue;
+        }
+      },
+      Ok(None) => continue,
+      Err(err) => return Err(err.clone()),
+    }
+  }
+
+  Err(RedisError::new(
+    RedisErrorKind::Protocol,
+    "Missing expected response from cluster node.",
+  ))
 }
 
 /// Send a command to all cluster nodes.
@@ -115,7 +150,6 @@ pub async fn send_all_cluster_command(
   let mut disconnect = Vec::new();
   // write to all the cluster nodes, keeping track of which ones failed, then try to read from the ones that
   // succeeded. at the end disconnect from all the nodes that failed writes or reads and return the last error.
-  command.response = ResponseKind::Skip;
   let frame = protocol_utils::encode_frame(inner, &command)?;
   let all_nodes: HashSet<_> = writers.keys().cloned().collect();
 
@@ -133,10 +167,8 @@ pub async fn send_all_cluster_command(
   let write_failed: Vec<_> = {
     all_nodes
       .difference(&write_success)
-      .into_iter()
-      .map(|server| {
-        disconnect.push(server.clone());
-        server
+      .inspect(|server| {
+        disconnect.push((*server).clone());
       })
       .collect()
   };
@@ -144,10 +176,12 @@ pub async fn send_all_cluster_command(
 
   // try to read from all nodes concurrently, keeping track of which ones failed
   let results = read_all_nodes(inner, writers, &write_success).await;
+  command.respond_to_caller(parse_all_responses(&results));
+
   let read_success: HashSet<_> = results
     .into_iter()
     .filter_map(|result| match result {
-      Ok(Some(server)) => Some(server),
+      Ok(Some((server, _))) => Some(server),
       Ok(None) => None,
       Err(e) => {
         out = Err(e);
@@ -158,10 +192,8 @@ pub async fn send_all_cluster_command(
   let read_failed: Vec<_> = {
     all_nodes
       .difference(&read_success)
-      .into_iter()
-      .map(|server| {
-        disconnect.push(server.clone());
-        server
+      .inspect(|server| {
+        disconnect.push((*server).clone());
       })
       .collect()
   };
@@ -255,6 +287,36 @@ pub fn parse_cluster_error_frame(
   Ok((kind, slot, server))
 }
 
+/// Process a MOVED or ASK error, retrying commands via the command channel if needed.
+///
+/// Errors returned here should end the router task.
+pub fn redirect_command(
+  inner: &RefCount<RedisClientInner>,
+  server: &Server,
+  mut command: RedisCommand,
+  frame: Resp3Frame,
+) {
+  // commands are not redirected to replica nodes
+  command.use_replica = false;
+
+  let (kind, slot, server) = match parse_cluster_error_frame(inner, &frame, server) {
+    Ok(results) => results,
+    Err(e) => {
+      command.respond_to_caller(Err(e));
+      return;
+    },
+  };
+
+  let command = match kind {
+    ClusterErrorKind::Ask => RouterCommand::Ask { slot, server, command },
+    ClusterErrorKind::Moved => RouterCommand::Moved { slot, server, command },
+  };
+  _debug!(inner, "Sending cluster error to command queue.");
+  if let Err(e) = interfaces::send_to_router(inner, command) {
+    _warn!(inner, "Cannot send ASKED to router channel: {:?}", e);
+  }
+}
+
 /// Process the response frame in the context of the last command.
 ///
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
@@ -287,6 +349,13 @@ pub async fn process_response_frame(
     conn.blocked = false;
   }
   responses::check_and_set_unblocked(inner, &command).await;
+  #[cfg(feature = "partial-tracing")]
+  let _ = command.traces.network.take();
+
+  if frame.is_redirection() {
+    redirect_command(inner, &conn.server, command, frame);
+    return Ok(());
+  }
 
   _trace!(inner, "Handling clustered response kind: {:?}", command.response);
   match command.take_response() {

@@ -366,7 +366,7 @@ impl KeyScanInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+    let _ = self.tx.try_send(Err(error));
   }
 }
 
@@ -378,7 +378,7 @@ impl KeyScanBufferedInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+    let _ = self.tx.try_send(Err(error));
   }
 }
 
@@ -405,7 +405,7 @@ impl ValueScanInner {
 
   /// Send an error on the response stream.
   pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+    let _ = self.tx.try_send(Err(error));
   }
 
   pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
