@@ -8,33 +8,37 @@ use crate::{
 };
 use parking_lot::Mutex;
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
-use std::collections::HashMap;
+use std::{
+  collections::HashMap,
+  ops::{Deref, DerefMut},
+};
 
 /// Check if an existing connection can be used to the provided `server`, otherwise create a new one.
 ///
 /// Returns whether a new connection was created.
 async fn check_and_create_transport(
-  backchannel: &mut Backchannel,
+  backchannel: &Backchannel,
   inner: &RefCount<RedisClientInner>,
   server: &Server,
 ) -> Result<bool, RedisError> {
-  if let Some(ref mut transport) = backchannel.transport {
+  let mut transport = backchannel.transport.write().await;
+
+  if let Some(ref mut transport) = transport.deref_mut() {
     if &transport.server == server && transport.ping(inner).await.is_ok() {
       _debug!(inner, "Using existing backchannel connection to {}", server);
       return Ok(false);
     }
   }
-  backchannel.transport = None;
+  *transport.deref_mut() = None;
 
-  let mut transport = connection::create(inner, server, None).await?;
-  transport.setup(inner, None).await?;
-  backchannel.transport = Some(transport);
+  let mut _transport = connection::create(inner, server, None).await?;
+  _transport.setup(inner, None).await?;
+  *transport.deref_mut() = Some(_transport);
 
   Ok(true)
 }
 
 /// A struct wrapping a separate connection to the server or cluster for client or cluster management commands.
-#[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
   pub transport:      AsyncRwLock<Option<ExclusiveConnection>>,
@@ -44,91 +48,116 @@ pub struct Backchannel {
   pub connection_ids: Mutex<HashMap<Server, i64>>,
 }
 
+impl Default for Backchannel {
+  fn default() -> Self {
+    Backchannel {
+      transport:      AsyncRwLock::new(None),
+      blocked:        Mutex::new(None),
+      connection_ids: Mutex::new(HashMap::new()),
+    }
+  }
+}
+
 impl Backchannel {
   /// Check if the current server matches the provided server, and disconnect.
   // TODO does this need to disconnect whenever the caller manually changes the RESP protocol mode?
-  pub async fn check_and_disconnect(&mut self, inner: &RefCount<RedisClientInner>, server: Option<&Server>) {
+  pub async fn check_and_disconnect(&self, inner: &RefCount<RedisClientInner>, server: Option<&Server>) {
     let should_close = self
       .current_server()
+      .await
       .map(|current| server.map(|server| *server == current).unwrap_or(true))
       .unwrap_or(false);
 
     if should_close {
-      if let Some(ref mut transport) = self.transport {
+      if let Some(ref mut transport) = self.transport.write().await.take() {
         let _ = transport.disconnect(inner).await;
       }
-      self.transport = None;
+    }
+  }
+
+  /// Check if the provided server is marked as blocked, and if so remove it from the cache.
+  pub fn check_and_unblock(&self, server: &Server) {
+    let mut guard = self.blocked.lock();
+    let matches = if let Some(blocked) = guard.as_ref() {
+      blocked == server
+    } else {
+      false
+    };
+
+    if matches {
+      *guard = None;
     }
   }
 
   /// Clear all local state that depends on the associated `Router` instance.
-  pub async fn clear_router_state(&mut self, inner: &RefCount<RedisClientInner>) {
-    self.connection_ids.clear();
-    self.blocked = None;
+  pub async fn clear_router_state(&self, inner: &RefCount<RedisClientInner>) {
+    self.connection_ids.lock().clear();
+    self.blocked.lock().take();
 
-    if let Some(ref mut transport) = self.transport {
+    if let Some(ref mut transport) = self.transport.write().await.take() {
       let _ = transport.disconnect(inner).await;
     }
-    self.transport = None;
   }
 
   /// Set the connection IDs from the router.
-  pub fn update_connection_ids(&mut self, connections: &Connections) {
-    self.connection_ids = connections.connection_ids();
+  pub fn update_connection_ids(&self, connections: &Connections) {
+    let mut guard = self.connection_ids.lock();
+    *guard.deref_mut() = connections.connection_ids();
   }
 
   /// Remove the provided server from the connection ID map.
-  pub fn remove_connection_id(&mut self, server: &Server) {
-    self.connection_ids.get(server);
+  pub fn remove_connection_id(&self, server: &Server) {
+    self.connection_ids.lock().get(server);
   }
 
   /// Read the connection ID for the provided server.
   pub fn connection_id(&self, server: &Server) -> Option<i64> {
-    self.connection_ids.get(server).cloned()
+    self.connection_ids.lock().get(server).cloned()
   }
 
   /// Set the blocked flag to the provided server.
-  pub fn set_blocked(&mut self, server: &Server) {
-    self.blocked = Some(server.clone());
+  pub fn set_blocked(&self, server: &Server) {
+    self.blocked.lock().replace(server.clone());
   }
 
   /// Remove the blocked flag.
-  pub fn set_unblocked(&mut self) {
-    self.blocked = None;
+  pub fn set_unblocked(&self) {
+    self.blocked.lock().take();
   }
 
   /// Remove the blocked flag only if the server matches the blocked server.
-  pub fn check_and_set_unblocked(&mut self, server: &Server) {
-    let should_remove = self.blocked.as_ref().map(|blocked| blocked == server).unwrap_or(false);
-    if should_remove {
-      self.set_unblocked();
+  pub fn check_and_set_unblocked(&self, server: &Server) {
+    let mut guard = self.blocked.lock();
+    if guard.as_ref().map(|b| b == server).unwrap_or(false) {
+      guard.take();
     }
   }
 
   /// Whether the client is blocked on a command.
   pub fn is_blocked(&self) -> bool {
-    self.blocked.is_some()
+    self.blocked.lock().is_some()
   }
 
   /// Whether an open connection exists to the blocked server.
-  pub fn has_blocked_transport(&self) -> bool {
-    match self.blocked {
-      Some(ref server) => match self.transport {
-        Some(ref transport) => &transport.server == server,
+  pub async fn has_blocked_transport(&self) -> bool {
+    if let Some(server) = self.blocked_server() {
+      match self.transport.read().await.deref() {
+        Some(ref transport) => transport.server == server,
         None => false,
-      },
-      None => false,
+      }
+    } else {
+      false
     }
   }
 
   /// Return the server ID of the blocked client connection, if found.
   pub fn blocked_server(&self) -> Option<Server> {
-    self.blocked.clone()
+    self.blocked.lock().clone()
   }
 
   /// Return the server ID of the existing backchannel connection, if found.
-  pub fn current_server(&self) -> Option<Server> {
-    self.transport.as_ref().map(|t| t.server.clone())
+  pub async fn current_server(&self) -> Option<Server> {
+    self.transport.read().await.as_ref().map(|t| t.server.clone())
   }
 
   /// Return a server ID, with the following preferences:
@@ -136,17 +165,19 @@ impl Backchannel {
   /// 1. The server ID of the existing connection, if any.
   /// 2. The blocked server ID, if any.
   /// 3. A random server ID from the router's connection map.
-  pub fn any_server(&self) -> Option<Server> {
+  pub async fn any_server(&self) -> Option<Server> {
     self
       .current_server()
+      .await
       .or(self.blocked_server())
-      .or(self.connection_ids.keys().next().cloned())
+      .or_else(|| self.connection_ids.lock().keys().next().cloned())
   }
 
   /// Whether the existing connection is to the currently blocked server.
-  pub fn current_server_is_blocked(&self) -> bool {
+  pub async fn current_server_is_blocked(&self) -> bool {
     self
       .current_server()
+      .await
       .and_then(|server| self.blocked_server().map(|blocked| server == blocked))
       .unwrap_or(false)
   }
@@ -155,14 +186,14 @@ impl Backchannel {
   ///
   /// If a new connection is created this function also sets it on `self` before returning.
   pub async fn request_response(
-    &mut self,
+    &self,
     inner: &RefCount<RedisClientInner>,
     server: &Server,
     command: RedisCommand,
   ) -> Result<Resp3Frame, RedisError> {
     let _ = check_and_create_transport(self, inner, server).await?;
 
-    if let Some(ref mut transport) = self.transport {
+    if let Some(ref mut transport) = self.transport.write().await.deref_mut() {
       _debug!(
         inner,
         "Sending {} ({}) on backchannel to {}",
@@ -193,14 +224,14 @@ impl Backchannel {
   ///   will be used.
   /// * If a backchannel connection already exists then that will be used.
   /// * Failing all of the above a random server will be used.
-  pub fn find_server(
+  pub async fn find_server(
     &self,
     inner: &RefCount<RedisClientInner>,
     command: &RedisCommand,
     use_blocked: bool,
   ) -> Result<Server, RedisError> {
     if use_blocked {
-      if let Some(server) = self.blocked.as_ref() {
+      if let Some(server) = self.blocked.lock().deref() {
         Ok(server.clone())
       } else {
         // should this be more relaxed?
@@ -210,6 +241,7 @@ impl Backchannel {
       if command.kind.use_random_cluster_node() {
         self
           .any_server()
+          .await
           .ok_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Failed to find backchannel server."))
       } else {
         inner.with_cluster_state(|state| {
@@ -231,6 +263,7 @@ impl Backchannel {
     } else {
       self
         .any_server()
+        .await
         .ok_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Failed to find backchannel server."))
     }
   }

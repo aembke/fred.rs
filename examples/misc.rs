@@ -17,8 +17,8 @@ async fn main() -> Result<(), RedisError> {
       // allow up to 25000 in-flight commands per connection
       config.backpressure = BackpressureConfig {
         disable_auto_backpressure: false,
-        max_in_flight_commands: 25_000,
         policy: BackpressurePolicy::Drain,
+        .. Default::default()
       }
     })
     .with_connection_config(|config| {

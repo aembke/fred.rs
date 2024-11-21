@@ -22,6 +22,7 @@ use crate::{
     RwLock,
     Sender,
   },
+  trace,
   types::*,
   utils,
 };
@@ -497,7 +498,7 @@ impl RedisClientInner {
     let performance = RefSwap::new(RefCount::new(perf));
     let (counters, state) = (ClientCounters::default(), RwLock::new(ClientState::Disconnected));
     let command_rx = RwLock::new(Some(command_rx));
-    let backchannel = RefCount::new(AsyncRwLock::new(Backchannel::default()));
+    let backchannel = RefCount::new(Backchannel::default());
     let server_state = RwLock::new(ServerState::new(&config));
     let resp3 = if config.version == RespVersion::RESP3 {
       RefCount::new(AtomicBool::new(true))
@@ -719,7 +720,7 @@ impl RedisClientInner {
   }
 
   pub async fn set_blocked_server(&self, server: &Server) {
-    self.backchannel.write().await.set_blocked(server);
+    self.backchannel.blocked.lock().replace(server.clone());
   }
 
   pub fn should_reconnect(&self) -> bool {
@@ -749,7 +750,7 @@ impl RedisClientInner {
   }
 
   pub async fn update_backchannel(&self, transport: ExclusiveConnection) {
-    self.backchannel.write().await.transport = Some(transport);
+    self.backchannel.transport.write().await.replace(transport);
   }
 
   pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
@@ -776,6 +777,7 @@ impl RedisClientInner {
         TrySendError::Closed(c) => Err(c),
         TrySendError::Full(c) => match c {
           RouterCommand::Command(mut cmd) => {
+            trace::backpressure_event(&cmd, None);
             cmd.respond_to_caller(Err(RedisError::new_backpressure()));
             Ok(())
           },

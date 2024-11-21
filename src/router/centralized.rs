@@ -8,7 +8,7 @@ use crate::{
     connection::RedisConnection,
     responders::{self, ResponseKind},
   },
-  router::{responses, Connections},
+  router::Connections,
   runtime::RefCount,
   types::ServerConfig,
 };
@@ -45,8 +45,8 @@ pub fn process_response_frame(
   );
   if command.blocks_connection() {
     conn.blocked = false;
+    inner.backchannel.set_unblocked();
   }
-  responses::check_and_set_unblocked(inner, &command);
   #[cfg(feature = "partial-tracing")]
   let _ = command.traces.network.take();
 

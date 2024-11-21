@@ -127,7 +127,7 @@ pub async fn unblock_self<C: ClientLike>(client: &C, flag: Option<ClientUnblockF
   let inner = client.inner();
   let flag = flag.unwrap_or(ClientUnblockFlag::Error);
   let result = utils::interrupt_blocked_connection(inner, flag).await;
-  inner.backchannel.write().await.set_unblocked();
+  inner.backchannel.set_unblocked();
   result
 }
 

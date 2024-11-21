@@ -2,18 +2,23 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   interfaces,
   modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, connection::RedisConnection, types::*, utils as protocol_utils},
-  router::{utils, Counters, Router},
+  protocol::{
+    command::{RedisCommand, RouterCommand},
+    connection::RedisConnection,
+    types::*,
+    utils as protocol_utils,
+  },
+  router::{centralized, clustered, responses, Counters, Router},
   runtime::RefCount,
   types::*,
   utils as client_utils,
 };
 use bytes::Bytes;
 use std::{
-  cmp,
   collections::VecDeque,
   time::{Duration, Instant},
 };
+use tokio::pin;
 
 static OK_FRAME: Resp3Frame = Resp3Frame::SimpleString {
   data:       Bytes::from_static(b"OK"),
@@ -55,21 +60,21 @@ pub fn prepare_command(
   Ok((frame, should_flush))
 }
 
-/// Write a command to the connection.
+/// Write a command to the connection, returning whether the socket was flushed.
 #[inline(always)]
 pub async fn write_command(
   inner: &RefCount<RedisClientInner>,
   conn: &mut RedisConnection,
   mut command: RedisCommand,
   force_flush: bool,
-) -> Result<(), RedisError> {
+) -> Result<bool, (RedisError, Option<RedisCommand>)> {
   if client_utils::read_bool_atomic(&command.timed_out) {
     _debug!(
       inner,
       "Ignore writing timed out command: {}",
       command.kind.to_str_debug()
     );
-    return Ok(());
+    return Ok(false);
   }
   let (frame, should_flush) = match prepare_command(inner, &conn.counters, &mut command) {
     Ok((frame, should_flush)) => (frame, should_flush || force_flush),
@@ -77,7 +82,7 @@ pub async fn write_command(
       _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
       // do not retry commands that trigger frame encoding errors
       command.respond_to_caller(Err(e));
-      return Ok(());
+      return Ok(false);
     },
   };
 
@@ -90,7 +95,6 @@ pub async fn write_command(
   );
   command.write_attempts += 1;
 
-  let no_incr = command.has_no_responses();
   let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
   let respond_early = if command.kind.closes_connection() {
     command.take_responder()
@@ -99,27 +103,29 @@ pub async fn write_command(
   };
 
   conn.push_command(command);
-  let write_result = conn.write(frame, should_flush, no_incr, check_unresponsive).await;
+  let write_result = conn.write(frame, should_flush, check_unresponsive).await;
   if let Err(err) = write_result {
     debug!("{}: Error sending frame to socket: {:?}", conn.server, err);
-    Err(err)
+    Err((err, None))
   } else {
     if let Some(tx) = respond_early {
       let _ = tx.send(Ok(OK_FRAME.clone()));
     }
-    Ok(())
+    Ok(should_flush)
   }
-}
-
-pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, server: &Server) {
-  inner.backchannel.write().await.remove_connection_id(server);
 }
 
 pub fn defer_reconnection(
   inner: &RefCount<RedisClientInner>,
   server: Option<&Server>,
+  error: RedisError,
   _replica: bool,
 ) -> Result<(), RedisError> {
+  if !inner.should_reconnect() || error.should_not_reconnect() {
+    return Err(error);
+  }
+
+  _debug!(inner, "Defer reconnection to {:?} after {:?}", server, error);
   interfaces::send_to_router(inner, RouterCommand::Reconnect {
     server:                               server.cloned(),
     force:                                false,
@@ -193,6 +199,111 @@ pub async fn reconnect_once(inner: &RefCount<RedisClientInner>, router: &mut Rou
   }
 }
 
+/// Disconnect, broadcast events to callers, and remove cached connection info.
+pub async fn disconnect(
+  inner: &RefCount<RedisClientInner>,
+  conn: &mut RedisConnection,
+  error: &RedisError,
+) -> VecDeque<RedisCommand> {
+  let commands = conn.close().await;
+  let commands = check_final_write_attempt(inner, commands, Some(error));
+
+  if conn.replica {
+    responses::broadcast_replica_error(inner, &conn.server, Some(error.clone()));
+  } else {
+    responses::broadcast_reader_error(inner, &conn.server, Some(error.clone()));
+  }
+  inner.backchannel.remove_connection_id(&conn.server);
+  inner.backchannel.check_and_unblock(&conn.server);
+  inner.remove_connection(&conn.server);
+  commands
+}
+
+/// Disconnect and buffer any commands to be retried later.
+pub async fn drop_connection(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  server: &Server,
+  error: &RedisError,
+) {
+  _debug!(inner, "Resetting connection to {} with error: {:?}", server, error);
+  if let Some(mut conn) = router.take_connection(server) {
+    let commands = disconnect(inner, &mut conn, error).await;
+    router.retry_commands(commands);
+  }
+}
+
+/// Process the response frame from the provided server.
+///
+/// Errors returned here should interrupt the routing task.
+pub async fn process_response(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  server: &Server,
+  result: Result<Resp3Frame, RedisError>,
+) -> Result<(), RedisError> {
+  _trace!(inner, "Recv read result from {}", server);
+  match result {
+    Ok(frame) => {
+      let frame = match responses::preprocess_frame(inner, server, frame).await {
+        Ok(frame) => frame,
+        Err(err) => {
+          _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
+          let replica = router.is_replica(server);
+          drop_connection(inner, router, server, &err).await;
+          return defer_reconnection(inner, Some(server), err, replica);
+        },
+      };
+
+      if let Some(frame) = frame {
+        let conn = match router.get_connection_mut(server) {
+          Some(conn) => conn,
+          None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing expected connection.")),
+        };
+
+        if inner.config.server.is_clustered() {
+          clustered::process_response_frame(inner, conn, frame)
+        } else {
+          centralized::process_response_frame(inner, conn, frame)
+        }
+      } else {
+        Ok(())
+      }
+    },
+    Err(err) => {
+      _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
+      let replica = router.is_replica(server);
+      drop_connection(inner, router, server, &err).await;
+      defer_reconnection(inner, Some(server), err, replica)
+    },
+  }
+}
+
+/// Read from sockets while waiting for the provided duration.
+pub async fn read_and_sleep(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  duration: Duration,
+) -> Result<(), RedisError> {
+  let sleep_ft = inner.wait_with_interrupt(duration);
+  pin!(sleep_ft);
+
+  loop {
+    tokio::select! {
+    result = &mut sleep_ft => return result,
+    Some((server, result)) = router.select_read(inner) => {
+        if let Err(err) = process_response(inner, router, &server, result).await {
+          // defer reconnections until after waiting the full duration
+          let replica = router.is_replica(&server);
+          _debug!(inner, "Error reading from {} while sleeping: {:?}", server, err);
+          drop_connection(inner, router, &server, &err).await;
+          defer_reconnection(inner, Some(&server), err, replica)?;
+        }
+      }
+    }
+  }
+}
+
 /// Reconnect to the server(s) until the max reconnect policy attempts are reached.
 ///
 /// Errors from this function should end the connection task.
@@ -200,12 +311,12 @@ pub async fn reconnect_with_policy(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
 ) -> Result<(), RedisError> {
-  let mut delay = utils::next_reconnection_delay(inner)?;
+  let mut delay = next_reconnection_delay(inner)?;
 
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      inner.wait_with_interrupt(delay).await?;
+      read_and_sleep(inner, router, delay).await?;
     }
 
     if let Err(e) = Box::pin(reconnect_once(inner, router)).await {
@@ -235,17 +346,47 @@ pub async fn send_asking_with_policy(
   slot: u16,
   mut attempts_remaining: u32,
 ) -> Result<(), RedisError> {
+  macro_rules! next_sleep {
+    ($err:expr) => {{
+      let delay = match next_reconnection_delay(inner) {
+        Ok(delay) => delay,
+        Err(_) => {
+          return Err(
+            $err.unwrap_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Unable to route command or reconnect.")),
+          );
+        },
+      };
+      let _ = read_and_sleep(inner, router, delay).await;
+      continue;
+    }};
+  }
+
   loop {
     let mut command = RedisCommand::new_asking(slot);
     command.cluster_node = Some(server.clone());
+    command.hasher = ClusterHash::Custom(slot);
 
     if attempts_remaining == 0 {
       return Err(RedisError::new(RedisErrorKind::Unknown, "Max attempts reached."));
     }
     attempts_remaining -= 1;
 
-    // write/drain/read to connection, reconnect if needed
-    unimplemented!()
+    let conn = match router.route(&command) {
+      Some(conn) => conn,
+      None => next_sleep!(None),
+    };
+    let frame = protocol_utils::encode_frame(inner, &command)?;
+    if let Err(err) = conn.write(frame, true, false).await {
+      next_sleep!(Some(err));
+    }
+    if let Err(err) = conn.flush().await {
+      next_sleep!(Some(err));
+    }
+    if let Err(err) = conn.read_skip_pubsub(inner).await {
+      next_sleep!(Some(err));
+    } else {
+      break;
+    }
   }
 
   inner.reset_reconnection_attempts();
@@ -281,7 +422,7 @@ pub async fn sync_replicas_with_policy(
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      inner.wait_with_interrupt(delay).await?;
+      read_and_sleep(inner, router, delay).await?;
     }
 
     if let Err(e) = sync_cluster_replicas(inner, router, reset).await {
@@ -291,7 +432,7 @@ pub async fn sync_replicas_with_policy(
         break;
       } else {
         // return the underlying error on the last attempt
-        delay = match utils::next_reconnection_delay(inner) {
+        delay = match next_reconnection_delay(inner) {
           Ok(delay) => delay,
           Err(_) => return Err(e),
         };
@@ -307,11 +448,9 @@ pub async fn sync_replicas_with_policy(
 }
 
 /// Wait for `inner.connection.cluster_cache_update_delay`.
-pub async fn delay_cluster_sync(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn delay_cluster_sync(inner: &RefCount<RedisClientInner>, router: &mut Router) -> Result<(), RedisError> {
   if inner.config.server.is_clustered() && !inner.connection.cluster_cache_update_delay.is_zero() {
-    inner
-      .wait_with_interrupt(inner.connection.cluster_cache_update_delay)
-      .await
+    read_and_sleep(inner, router, inner.connection.cluster_cache_update_delay).await
   } else {
     Ok(())
   }
@@ -329,7 +468,7 @@ pub async fn sync_cluster_with_policy(
   loop {
     if !delay.is_zero() {
       _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      inner.wait_with_interrupt(delay).await?;
+      read_and_sleep(inner, router, delay).await?;
     }
 
     if let Err(e) = router.sync_cluster().await {
@@ -339,7 +478,7 @@ pub async fn sync_cluster_with_policy(
         break;
       } else {
         // return the underlying error on the last attempt
-        delay = match utils::next_reconnection_delay(inner) {
+        delay = match next_reconnection_delay(inner) {
           Ok(delay) => delay,
           Err(_) => return Err(e),
         };
@@ -378,5 +517,4 @@ macro_rules! next_frame {
   }};
 }
 
-use crate::protocol::command::RouterCommand;
 pub(crate) use next_frame;

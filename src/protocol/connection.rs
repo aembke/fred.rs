@@ -928,13 +928,14 @@ impl RedisConnection {
   /// Close the connection.
   ///
   /// Returns the in-flight commands that had not received a response.
-  pub async fn close(mut self) -> VecDeque<RedisCommand> {
+  pub async fn close(&mut self) -> VecDeque<RedisCommand> {
     let _ = utils::timeout(
       self.transport.close(),
       Duration::from_millis(CONNECTION_CLOSE_TIMEOUT_MS),
     )
     .await;
-    self.buffer
+
+    self.buffer.drain(..).collect()
   }
 }
 

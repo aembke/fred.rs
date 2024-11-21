@@ -330,12 +330,12 @@ pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
 }
 
 /// Whether the router should check and interrupt the blocked command.
-async fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> bool {
+fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> bool {
   if command.kind.closes_connection() {
     return false;
   }
   if matches!(inner.config.blocking, Blocking::Error | Blocking::Interrupt) {
-    inner.backchannel.write().await.is_blocked()
+    inner.backchannel.is_blocked()
   } else {
     false
   }
@@ -347,12 +347,11 @@ pub async fn interrupt_blocked_connection(
   flag: ClientUnblockFlag,
 ) -> Result<(), RedisError> {
   let connection_id = {
-    let backchannel = inner.backchannel.write().await;
-    let server = match backchannel.blocked_server() {
+    let server = match inner.backchannel.blocked_server() {
       Some(server) => server,
       None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),
     };
-    let id = match backchannel.connection_id(&server) {
+    let id = match inner.backchannel.connection_id(&server) {
       Some(id) => id,
       None => {
         return Err(RedisError::new(
@@ -377,7 +376,7 @@ pub async fn interrupt_blocked_connection(
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should
 /// be unblocked automatically.
 async fn check_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
-  if should_enforce_blocking_policy(inner, command).await {
+  if should_enforce_blocking_policy(inner, command) {
     _debug!(
       inner,
       "Checking to enforce blocking policy for {}",
@@ -525,9 +524,8 @@ pub async fn backchannel_request_response(
   command: RedisCommand,
   use_blocked: bool,
 ) -> Result<Resp3Frame, RedisError> {
-  let mut backchannel = inner.backchannel.write().await;
-  let server = backchannel.find_server(inner, &command, use_blocked)?;
-  backchannel.request_response(inner, &server, command).await
+  let server = inner.backchannel.find_server(inner, &command, use_blocked).await?;
+  inner.backchannel.request_response(inner, &server, command).await
 }
 
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.
@@ -852,10 +850,6 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
       None
     }
   })
-}
-
-pub async fn clear_backchannel_state(inner: &RefCount<RedisClientInner>) {
-  inner.backchannel.write().await.clear_router_state(inner).await;
 }
 
 /// Send QUIT to the servers and clean up the old router task's state.

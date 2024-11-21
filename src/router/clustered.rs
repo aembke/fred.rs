@@ -10,14 +10,17 @@ use crate::{
     types::{ClusterRouting, ProtocolFrame, Server, SlotRange},
     utils as protocol_utils,
   },
-  router::{responses, types::ClusterChange, Connections},
+  router::{types::ClusterChange, Connections, Router},
   runtime::{Mutex, RefCount},
   types::{ClusterDiscoveryPolicy, ClusterStateChange},
   utils as client_utils,
 };
 use futures::future::{join_all, try_join_all};
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame};
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::{
+  collections::{BTreeSet, HashMap, HashSet, VecDeque},
+  ops::DerefMut,
+};
 
 async fn write_all_nodes(
   inner: &RefCount<RedisClientInner>,
@@ -36,7 +39,7 @@ async fn write_all_nodes(
         return Err(err);
       }
 
-      let server = if let Err(err) = conn.write(frame, true, true, false).await {
+      let server = if let Err(err) = conn.write(frame, true, false).await {
         debug!("{}: Error sending frame to socket: {:?}", conn.server, err);
         return Err(err);
       } else {
@@ -103,84 +106,89 @@ fn parse_all_responses(
 /// The caller must drain the in-flight buffers before calling this.
 pub async fn send_all_cluster_command(
   inner: &RefCount<RedisClientInner>,
-  writers: &mut HashMap<Server, RedisConnection>,
+  router: &mut Router,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
-  let mut out = Ok(());
-  let mut disconnect = Vec::new();
-  // write to all the cluster nodes, keeping track of which ones failed, then try to read from the ones that
-  // succeeded. at the end disconnect from all the nodes that failed writes or reads and return the last error.
-  let frame = protocol_utils::encode_frame(inner, &command)?;
-  let all_nodes: HashSet<_> = writers.keys().cloned().collect();
+  match router.connections {
+    Connections::Clustered { ref mut writers, .. } => {
+      let mut out = Ok(());
+      let mut disconnect = Vec::new();
+      // write to all the cluster nodes, keeping track of which ones failed, then try to read from the ones that
+      // succeeded. at the end disconnect from all the nodes that failed writes or reads and return the last error.
+      let frame = protocol_utils::encode_frame(inner, &command)?;
+      let all_nodes: HashSet<_> = writers.keys().cloned().collect();
 
-  let results = write_all_nodes(inner, writers, &frame).await;
-  let write_success: HashSet<_> = results
-    .into_iter()
-    .filter_map(|r| match r {
-      Ok(server) => Some(server),
-      Err(e) => {
-        out = Err(e);
-        None
-      },
-    })
-    .collect();
-  let write_failed: Vec<_> = {
-    all_nodes
-      .difference(&write_success)
-      .inspect(|server| {
-        disconnect.push((*server).clone());
-      })
-      .collect()
-  };
-  _debug!(inner, "Failed sending command to {:?}", write_failed);
+      let results = write_all_nodes(inner, writers, &frame).await;
+      let write_success: HashSet<_> = results
+        .into_iter()
+        .filter_map(|r| match r {
+          Ok(server) => Some(server),
+          Err(e) => {
+            out = Err(e);
+            None
+          },
+        })
+        .collect();
+      let write_failed: Vec<_> = {
+        all_nodes
+          .difference(&write_success)
+          .inspect(|server| {
+            disconnect.push((*server).clone());
+          })
+          .collect()
+      };
+      _debug!(inner, "Failed sending command to {:?}", write_failed);
 
-  // try to read from all nodes concurrently, keeping track of which ones failed
-  let results = read_all_nodes(inner, writers, &write_success).await;
-  command.respond_to_caller(parse_all_responses(&results));
+      // try to read from all nodes concurrently, keeping track of which ones failed
+      let results = read_all_nodes(inner, writers, &write_success).await;
+      command.respond_to_caller(parse_all_responses(&results));
 
-  let read_success: HashSet<_> = results
-    .into_iter()
-    .filter_map(|result| match result {
-      Ok(Some((server, _))) => Some(server),
-      Ok(None) => None,
-      Err(e) => {
-        out = Err(e);
-        None
-      },
-    })
-    .collect();
-  let read_failed: Vec<_> = {
-    all_nodes
-      .difference(&read_success)
-      .inspect(|server| {
-        disconnect.push((*server).clone());
-      })
-      .collect()
-  };
-  _debug!(inner, "Failed reading responses from {:?}", read_failed);
+      let read_success: HashSet<_> = results
+        .into_iter()
+        .filter_map(|result| match result {
+          Ok(Some((server, _))) => Some(server),
+          Ok(None) => None,
+          Err(e) => {
+            out = Err(e);
+            None
+          },
+        })
+        .collect();
+      let read_failed: Vec<_> = {
+        all_nodes
+          .difference(&read_success)
+          .inspect(|server| {
+            disconnect.push((*server).clone());
+          })
+          .collect()
+      };
+      _debug!(inner, "Failed reading responses from {:?}", read_failed);
 
-  // disconnect from all the connections that failed writing or reading
-  for server in disconnect.into_iter() {
-    let conn = match writers.remove(&server) {
-      Some(conn) => conn,
-      None => continue,
-    };
+      // disconnect from all the connections that failed writing or reading
+      for server in disconnect.into_iter() {
+        let mut conn = match writers.remove(&server) {
+          Some(conn) => conn,
+          None => continue,
+        };
 
-    // the retry buffer is empty since the caller must drain the connection beforehand in this context
-    let result = client_utils::timeout(
-      async move {
-        let _ = conn.close().await;
-        Ok::<(), RedisError>(())
-      },
-      inner.connection.internal_command_timeout,
-    )
-    .await;
-    if let Err(err) = result {
-      _warn!(inner, "Error disconnecting {:?}", err);
-    }
+        // the retry buffer is empty since the caller must drain the connection beforehand in this context
+        let result = client_utils::timeout(
+          async move {
+            let _ = conn.close().await;
+            Ok::<(), RedisError>(())
+          },
+          inner.connection.internal_command_timeout,
+        )
+        .await;
+        if let Err(err) = result {
+          _warn!(inner, "Error disconnecting {:?}", err);
+        }
+      }
+
+      out
+    },
+    _ => Err(RedisError::new(RedisErrorKind::Config, "Expected clustered config.")),
   }
-
-  out
 }
 
 pub fn parse_cluster_changes(
@@ -306,8 +314,8 @@ pub fn process_response_frame(
   );
   if command.blocks_connection() {
     conn.blocked = false;
+    inner.backchannel.set_unblocked();
   }
-  responses::check_and_set_unblocked(inner, &command);
   #[cfg(feature = "partial-tracing")]
   let _ = command.traces.network.take();
 
@@ -403,7 +411,7 @@ pub async fn cluster_slots_backchannel(
   force_disconnect: bool,
 ) -> Result<ClusterRouting, RedisError> {
   if force_disconnect {
-    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
+    inner.backchannel.check_and_disconnect(inner, None).await;
   }
 
   let (response, host) = {
@@ -411,8 +419,8 @@ pub async fn cluster_slots_backchannel(
 
     let backchannel_result = {
       // try to use the existing backchannel connection first
-      let mut backchannel = inner.backchannel.write().await;
-      if let Some(ref mut transport) = backchannel.transport {
+      let mut backchannel = inner.backchannel.transport.write().await;
+      if let Some(ref mut transport) = backchannel.deref_mut() {
         let default_host = transport.default_host.clone();
 
         _trace!(inner, "Sending backchannel CLUSTER SLOTS to {}", transport.server);
@@ -428,7 +436,7 @@ pub async fn cluster_slots_backchannel(
       }
     };
     if backchannel_result.is_none() {
-      inner.backchannel.write().await.check_and_disconnect(inner, None).await;
+      inner.backchannel.check_and_disconnect(inner, None).await;
     }
 
     // failing the backchannel, try to connect to any of the user-provided hosts or the last known cluster nodes
@@ -479,7 +487,7 @@ pub async fn cluster_slots_backchannel(
   };
   _trace!(inner, "Recv CLUSTER SLOTS response: {:?}", response);
   if response.is_null() {
-    inner.backchannel.write().await.check_and_disconnect(inner, None).await;
+    inner.backchannel.check_and_disconnect(inner, None).await;
     return Err(RedisError::new(
       RedisErrorKind::Protocol,
       "Invalid or missing CLUSTER SLOTS response.",
@@ -546,7 +554,7 @@ pub async fn sync(
   // drop connections that are no longer used
   for removed_server in changes.remove.into_iter() {
     _debug!(inner, "Disconnecting from cluster node {}", removed_server);
-    let writer = match connections.remove(&removed_server) {
+    let mut writer = match connections.remove(&removed_server) {
       Some(writer) => writer,
       None => continue,
     };

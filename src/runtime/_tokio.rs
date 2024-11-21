@@ -303,7 +303,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     utils::reset_router_task(&inner);
 
     tokio::spawn(async move {
-      utils::clear_backchannel_state(&inner).await;
+      inner.backchannel.clear_router_state(&inner).await;
       let result = router_commands::start(&inner).await;
       // a canceled error means we intentionally closed the client
       _trace!(inner, "Ending connection task with {:?}", result);

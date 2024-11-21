@@ -32,7 +32,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
-  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
+  inner.backchannel.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }
@@ -63,7 +63,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
-  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
+  inner.backchannel.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }

@@ -3,8 +3,7 @@ use crate::types::Invalidation;
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, types::Server, utils as protocol_utils, utils::pretty_error},
-  router::{commands, Router},
+  protocol::{types::Server, utils as protocol_utils, utils::pretty_error},
   runtime::RefCount,
   trace,
   types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
@@ -214,13 +213,6 @@ pub fn check_pubsub_message(
   }
 
   None
-}
-
-#[inline(always)]
-pub fn check_and_set_unblocked(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
-  if command.blocks_connection() {
-    inner.backchannel.blocked.lock().take();
-  }
 }
 
 /// Parse the response frame to see if it's an auth error.

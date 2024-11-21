@@ -149,8 +149,7 @@ impl Connections {
         inner.server_state.write().kind.set_server_version(version);
       }
 
-      let mut backchannel = inner.backchannel.write().await;
-      backchannel.connection_ids = self.connection_ids();
+      inner.backchannel.update_connection_ids(self);
     }
     result
   }
@@ -175,6 +174,14 @@ impl Connections {
     }
   }
 
+  pub fn take_connection(&mut self, server: Option<&Server>) -> Option<RedisConnection> {
+    match self {
+      Connections::Centralized { ref mut writer } => writer.take(),
+      Connections::Sentinel { ref mut writer, .. } => writer.take(),
+      Connections::Clustered { ref mut writers, .. } => server.and_then(|server| writers.remove(server)),
+    }
+  }
+
   /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
   pub async fn disconnect(
     &mut self,
@@ -183,7 +190,7 @@ impl Connections {
   ) -> VecDeque<RedisCommand> {
     match self {
       Connections::Centralized { ref mut writer } => {
-        if let Some(writer) = writer.take() {
+        if let Some(mut writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.close().await
         } else {
@@ -194,7 +201,7 @@ impl Connections {
         let mut out = VecDeque::new();
 
         if let Some(server) = server {
-          if let Some(writer) = writers.remove(server) {
+          if let Some(mut writer) = writers.remove(server) {
             _debug!(inner, "Disconnecting from {}", writer.server);
             let commands = writer.close().await;
             out.extend(commands);
@@ -203,7 +210,7 @@ impl Connections {
         out.into_iter().collect()
       },
       Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer.take() {
+        if let Some(mut writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.close().await
         } else {
@@ -217,7 +224,7 @@ impl Connections {
   pub async fn disconnect_all(&mut self, inner: &RefCount<RedisClientInner>) -> VecDeque<RedisCommand> {
     match self {
       Connections::Centralized { ref mut writer } => {
-        if let Some(writer) = writer.take() {
+        if let Some(mut writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.close().await
         } else {
@@ -226,7 +233,7 @@ impl Connections {
       },
       Connections::Clustered { ref mut writers, .. } => {
         let mut out = VecDeque::new();
-        for (_, writer) in writers.drain() {
+        for (_, mut writer) in writers.drain() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           let commands = writer.close().await;
           out.extend(commands.into_iter());
@@ -234,7 +241,7 @@ impl Connections {
         out.into_iter().collect()
       },
       Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer.take() {
+        if let Some(mut writer) = writer.take() {
           _debug!(inner, "Disconnecting from {}", writer.server);
           writer.close().await
         } else {

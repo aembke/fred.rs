@@ -4,7 +4,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::{utils, utils::next_frame},
+  router::utils::next_frame,
   runtime::RefCount,
   types::{Resp3Frame, Server},
   utils as client_utils,
@@ -215,9 +215,9 @@ impl ReplicaSet {
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
 pub struct Replicas {
-  pub writers: HashMap<Server, RedisConnection>,
-  pub routing: ReplicaSet,
-  pub buffer:  VecDeque<RedisCommand>,
+  pub connections: HashMap<Server, RedisConnection>,
+  pub routing:     ReplicaSet,
+  pub buffer:      VecDeque<RedisCommand>,
 }
 
 #[cfg(feature = "replicas")]
@@ -225,15 +225,15 @@ pub struct Replicas {
 impl Replicas {
   pub fn new() -> Replicas {
     Replicas {
-      writers: HashMap::new(),
-      routing: ReplicaSet::new(),
-      buffer:  VecDeque::new(),
+      connections: HashMap::new(),
+      routing:     ReplicaSet::new(),
+      buffer:      VecDeque::new(),
     }
   }
 
   /// Sync the connection map in place based on the cached routing table.
   pub async fn sync_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
-    for (_, writer) in self.writers.drain() {
+    for (_, mut writer) in self.connections.drain() {
       let commands = writer.close().await;
       self.buffer.extend(commands);
     }
@@ -278,7 +278,7 @@ impl Replicas {
       if inner.config.server.is_clustered() {
         transport.readonly(inner, None).await?;
       };
-      self.writers.insert(replica.clone(), transport.into_pipelined(true));
+      self.connections.insert(replica.clone(), transport.into_pipelined(true));
     }
 
     self.routing.add(primary, replica);
@@ -287,7 +287,7 @@ impl Replicas {
 
   /// Drop the socket associated with the provided server.
   pub async fn drop_writer(&mut self, replica: &Server) {
-    if let Some(writer) = self.writers.remove(replica) {
+    if let Some(mut writer) = self.connections.remove(replica) {
       self.buffer.extend(writer.close().await);
     }
   }
@@ -321,7 +321,7 @@ impl Replicas {
 
   /// Check and flush all the sockets managed by the replica routing state.
   pub async fn flush(&mut self) -> Result<(), RedisError> {
-    for (_, writer) in self.writers.iter_mut() {
+    for (_, writer) in self.connections.iter_mut() {
       writer.flush().await?;
     }
 
@@ -331,7 +331,7 @@ impl Replicas {
   /// Whether a working connection exists to any replica for the provided primary node.
   pub async fn has_replica_connection(&mut self, primary: &Server) -> bool {
     for replica in self.routing.replicas(primary) {
-      if let Some(replica) = self.writers.get_mut(replica) {
+      if let Some(replica) = self.connections.get_mut(replica) {
         if replica.peek_reader_errors().await.is_some() {
           continue;
         } else {
@@ -352,8 +352,8 @@ impl Replicas {
 
   /// Check the active connections and drop any without a working reader task.
   pub async fn drop_broken_connections(&mut self) {
-    let mut new_writers = HashMap::with_capacity(self.writers.len());
-    for (server, mut writer) in self.writers.drain() {
+    let mut new_writers = HashMap::with_capacity(self.connections.len());
+    for (server, mut writer) in self.connections.drain() {
       if writer.peek_reader_errors().await.is_some() {
         self.buffer.extend(writer.close().await);
         self.routing.remove_replica(&server);
@@ -362,12 +362,12 @@ impl Replicas {
       }
     }
 
-    self.writers = new_writers;
+    self.connections = new_writers;
   }
 
   /// Read the set of all active connections.
   pub async fn active_connections(&mut self) -> Vec<Server> {
-    join_all(self.writers.iter_mut().map(|(server, conn)| async move {
+    join_all(self.connections.iter_mut().map(|(server, conn)| async move {
       if conn.peek_reader_errors().await.is_some() {
         None
       } else {
@@ -387,7 +387,7 @@ impl Replicas {
 
   pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     // let inner = inner.clone();
-    let _ = join_all(self.writers.iter_mut().map(|(_, conn)| conn.drain(inner)))
+    let _ = join_all(self.connections.iter_mut().map(|(_, conn)| conn.drain(inner)))
       .await
       .into_iter()
       .collect::<Result<Vec<()>, RedisError>>()?;
@@ -400,13 +400,13 @@ impl Replicas {
     &mut self,
     inner: &RefCount<RedisClientInner>,
   ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
-    if self.writers.is_empty() {
+    if self.connections.is_empty() {
       // this is used in the context of select!, so we want to wait rather than break early.
       pending::<()>().await;
       return None;
     }
 
-    select_all(self.writers.iter_mut().map(|(_, conn)| {
+    select_all(self.connections.iter_mut().map(|(_, conn)| {
       Box::pin(async {
         match next_frame!(inner, conn) {
           Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),

@@ -23,7 +23,7 @@ use crate::{
   utils as client_utils,
 };
 use futures::future::{join_all, select_all};
-use std::{collections::VecDeque, fmt, fmt::Formatter, future::pending, time::Duration};
+use std::{collections::VecDeque, future::pending};
 
 #[cfg(feature = "replicas")]
 use futures::future::{select, try_join, Either};
@@ -119,6 +119,10 @@ impl Router {
   /// Find the connection that should receive the provided command.
   #[cfg(feature = "replicas")]
   pub fn route<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
+    if command.is_all_cluster_nodes() {
+      return None;
+    }
+
     match command.cluster_node.as_ref() {
       Some(server) => {
         if command.use_replica {
@@ -126,17 +130,20 @@ impl Router {
             .replicas
             .routing
             .next_replica(server)
-            .and_then(|replica| self.replicas.writers.get_mut(replica))
+            .and_then(|replica| self.replicas.connections.get_mut(replica))
         } else {
           self.connections.get_connection_mut(server)
         }
       },
       None => {
         if command.use_replica {
-          self
-            .cluster_owner(command)
-            .and_then(|primary| self.replicas.routing.next_replica(primary))
-            .and_then(|replica| self.replicas.writers.get_mut(replica))
+          match self.cluster_owner(command).cloned() {
+            Some(primary) => match self.replicas.routing.next_replica(&primary) {
+              Some(replica) => self.replicas.connections.get_mut(replica),
+              None => None,
+            },
+            None => None,
+          }
         } else {
           match self.connections {
             Connections::Centralized { ref mut writer } => writer.as_mut(),
@@ -157,6 +164,10 @@ impl Router {
   /// Find the connection that should receive the provided command.
   #[cfg(not(feature = "replicas"))]
   pub fn route<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
+    if command.is_all_cluster_nodes() {
+      return None;
+    }
+
     match command.cluster_node.as_ref() {
       Some(server) => self.connections.get_connection_mut(server),
       None => match self.connections {
@@ -175,11 +186,11 @@ impl Router {
   }
 
   #[cfg(feature = "replicas")]
-  pub fn get_connection_mut<'a>(&mut self, server: &Server) -> Option<&mut RedisConnection> {
+  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut RedisConnection> {
     self
       .connections
       .get_connection_mut(server)
-      .or_else(|| self.replicas.writers.get_mut(server))
+      .or_else(|| self.replicas.connections.get_mut(server))
   }
 
   #[cfg(not(feature = "replicas"))]
@@ -187,11 +198,24 @@ impl Router {
     self.connections.get_connection_mut(server)
   }
 
+  #[cfg(feature = "replicas")]
+  pub fn take_connection(&mut self, server: &Server) -> Option<RedisConnection> {
+    self
+      .connections
+      .take_connection(Some(server))
+      .or_else(|| self.replicas.connections.remove(server))
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub fn take_connection(&mut self, server: &Server) -> Option<RedisConnection> {
+    self.connections.take_connection(Some(server))
+  }
+
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
   /// reconnection, if necessary.
   pub async fn disconnect_all(&mut self) {
     let commands = self.connections.disconnect_all(&self.inner).await;
-    self.buffer_commands(commands);
+    self.retry_commands(commands);
     self.disconnect_replicas().await;
   }
 
@@ -208,14 +232,14 @@ impl Router {
   pub async fn disconnect_replicas(&mut self) {}
 
   /// Add the provided commands to the retry buffer.
-  pub fn buffer_commands(&mut self, commands: impl IntoIterator<Item = RedisCommand>) {
+  pub fn retry_commands(&mut self, commands: impl IntoIterator<Item = RedisCommand>) {
     for command in commands.into_iter() {
-      self.buffer_command(command);
+      self.retry_command(command);
     }
   }
 
   /// Add the provided command to the retry buffer.
-  pub fn buffer_command(&mut self, command: RedisCommand) {
+  pub fn retry_command(&mut self, command: RedisCommand) {
     trace!(
       "{}: Adding {} ({}) command to retry buffer.",
       self.inner.id,
@@ -267,7 +291,7 @@ impl Router {
   ///
   /// This will also create new connections or drop old connections as needed.
   pub async fn sync_cluster(&mut self) -> Result<(), RedisError> {
-    match self.connections {
+    let result = match self.connections {
       Connections::Clustered {
         ref mut writers,
         ref mut cache,
@@ -284,7 +308,10 @@ impl Router {
         result
       },
       _ => Ok(()),
-    }
+    };
+
+    self.inner.backchannel.update_connection_ids(&self.connections);
+    result
   }
 
   /// Rebuild the cached replica routing table based on the primary node connections.
@@ -369,15 +396,6 @@ impl Router {
     Ok(())
   }
 
-  /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.
-  #[cfg(feature = "replicas")]
-  pub async fn flush(&mut self) -> Result<(), RedisError> {
-    if let Err(e) = self.replicas.flush().await {
-      warn!("{}: Error flushing replica connections: {:?}", self.inner.id, e);
-    }
-    self.connections.flush(&self.inner).await
-  }
-
   #[cfg(not(feature = "replicas"))]
   pub async fn lush(&mut self) -> Result<(), RedisError> {
     self.connections.flush(&self.inner).await
@@ -453,7 +471,7 @@ impl Router {
 
   #[cfg(feature = "replicas")]
   pub fn is_replica(&self, server: &Server) -> bool {
-    self.replicas.writers.contains_key(server)
+    self.replicas.connections.contains_key(server)
   }
 
   #[cfg(not(feature = "replicas"))]

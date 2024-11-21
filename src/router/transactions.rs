@@ -61,21 +61,13 @@ fn update_hash_slot(commands: &mut [RedisCommand], slot: u16) {
   }
 }
 
-/// Find the server that should receive the transaction, creating connections if needed.
-fn route_command(router: &mut Router, command: &RedisCommand) -> Option<Server> {
-  if let Some(server) = command.cluster_node.as_ref() {
-    Some(server.clone())
-  } else {
-    router.find_connection(command).cloned()
-  }
-}
-
 fn max_attempts_error(tx: ResponseSender, error: Option<RedisError>) {
   let _ =
     tx.send(Err(error.unwrap_or_else(|| {
       RedisError::new(RedisErrorKind::Unknown, "Max attempts exceeded")
     })));
 }
+
 fn max_redirections_error(tx: ResponseSender) {
   let _ = tx.send(Err(RedisError::new(
     RedisErrorKind::Unknown,
@@ -161,21 +153,20 @@ pub async fn send(
       }};
     }
 
-    if let Err(err) = router.drain().await {
+    if let Err(err) = router.drain_all().await {
       _debug!(inner, "Error draining router before transaction: {:?}", err);
       retry!(None);
     }
     // find the server that should receive the transaction
-    let server = match asking.as_ref() {
-      Some((server, _)) => server.clone(),
-      None => match route_command(router, commands.last().unwrap()) {
+    let conn = match asking.as_ref() {
+      Some((server, _)) => match router.get_connection_mut(server) {
+        Some(conn) => conn,
+        None => retry!(None),
+      },
+      None => match router.route(commands.last().unwrap()) {
         Some(server) => server,
         None => retry!(None),
       },
-    };
-    let conn = match router.connections.get_connection_mut(&server) {
-      Some(conn) => conn,
-      None => retry!(None),
     };
 
     let expected = if asking.is_some() {
@@ -194,7 +185,7 @@ pub async fn send(
         },
       };
 
-      if let Err(err) = conn.write(frame, true, true, false).await {
+      if let Err(err) = conn.write(frame, true, false).await {
         _debug!(inner, "Error sending trx command: {:?}", err);
         retry!(Some(err));
       }
@@ -209,7 +200,7 @@ pub async fn send(
           return Ok(());
         },
       };
-      if let Err(err) = conn.write(frame, true, true, false).await {
+      if let Err(err) = conn.write(frame, true, false).await {
         _debug!(inner, "Error sending trx command: {:?}", err);
         discard_retry!(conn, Some(err));
       }

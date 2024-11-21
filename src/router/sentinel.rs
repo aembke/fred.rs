@@ -287,11 +287,17 @@ async fn update_sentinel_backchannel(
   inner: &RefCount<RedisClientInner>,
   transport: &ExclusiveConnection,
 ) -> Result<(), RedisError> {
-  let mut backchannel = inner.backchannel.write().await;
-  backchannel.check_and_disconnect(inner, Some(&transport.server)).await;
-  backchannel.connection_ids.clear();
+  inner
+    .backchannel
+    .check_and_disconnect(inner, Some(&transport.server))
+    .await;
+  inner.backchannel.connection_ids.lock().clear();
   if let Some(id) = transport.id {
-    backchannel.connection_ids.insert(transport.server.clone(), id);
+    inner
+      .backchannel
+      .connection_ids
+      .lock()
+      .insert(transport.server.clone(), id);
   }
 
   Ok(())
