@@ -220,7 +220,6 @@ impl Sink<ProtocolFrame> for ConnectionKind {
 #[derive(Clone, Debug)]
 pub struct Counters {
   pub cmd_buffer_len: RefCount<AtomicUsize>,
-  pub in_flight:      RefCount<AtomicUsize>,
   pub feed_count:     RefCount<AtomicUsize>,
 }
 
@@ -228,7 +227,6 @@ impl Counters {
   pub fn new(cmd_buffer_len: &RefCount<AtomicUsize>) -> Self {
     Counters {
       cmd_buffer_len: cmd_buffer_len.clone(),
-      in_flight:      RefCount::new(AtomicUsize::new(0)),
       feed_count:     RefCount::new(AtomicUsize::new(0)),
     }
   }
@@ -243,20 +241,8 @@ impl Counters {
     client_utils::incr_atomic(&self.feed_count)
   }
 
-  pub fn incr_in_flight(&self) -> usize {
-    client_utils::incr_atomic(&self.in_flight)
-  }
-
-  pub fn decr_in_flight(&self) -> usize {
-    client_utils::decr_atomic(&self.in_flight)
-  }
-
   pub fn reset_feed_count(&self) {
     client_utils::set_atomic(&self.feed_count, 0);
-  }
-
-  pub fn reset_in_flight(&self) {
-    client_utils::set_atomic(&self.in_flight, 0);
   }
 }
 

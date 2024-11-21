@@ -7,7 +7,7 @@ use crate::{
     connection::{Counters, RedisConnection},
     types::ClusterRouting,
   },
-  router::{centralized, clustered, sentinel, WriteResult},
+  router::{centralized, clustered, sentinel},
   runtime::RefCount,
   types::Server,
 };
@@ -299,26 +299,6 @@ impl Connections {
           .await
           .map(|_| ())
       },
-    }
-  }
-
-  /// Send a command to all servers in a cluster.
-  pub async fn write_all_cluster(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    command: RedisCommand,
-  ) -> WriteResult {
-    if let Connections::Clustered { ref mut writers, .. } = self {
-      if let Err(error) = clustered::send_all_cluster_command(inner, writers, command).await {
-        WriteResult::Disconnected((None, None, error))
-      } else {
-        WriteResult::SentAll
-      }
-    } else {
-      WriteResult::Error((
-        RedisError::new(RedisErrorKind::Config, "Expected clustered configuration."),
-        None,
-      ))
     }
   }
 

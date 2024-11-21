@@ -11,7 +11,6 @@ use crate::{
     broadcast_channel,
     channel,
     oneshot_channel,
-    sleep,
     AtomicBool,
     AtomicUsize,
     BroadcastSender,
@@ -24,12 +23,7 @@ use crate::{
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
-use futures::{
-  future::{select, Either},
-  pin_mut,
-  Future,
-  TryFutureExt,
-};
+use futures::{Future, TryFutureExt};
 use rand::{self, distributions::Alphanumeric, Rng};
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{collections::HashMap, convert::TryInto, f64, sync::atomic::Ordering, time::Duration};
@@ -308,15 +302,10 @@ where
   Fut: Future<Output = Result<T, E>>,
 {
   if !timeout.is_zero() {
-    let sleep_ft = sleep(timeout);
-    pin_mut!(sleep_ft);
-    pin_mut!(ft);
-
-    trace!("Using timeout: {:?}", timeout);
-    match select(ft, sleep_ft).await {
-      Either::Left((lhs, _)) => lhs.map_err(|e| e.into()),
-      Either::Right((_, _)) => Err(RedisError::new(RedisErrorKind::Timeout, "Request timed out.")),
-    }
+    tokio::time::timeout(timeout, ft)
+      .await
+      .map_err(|_| RedisError::new(RedisErrorKind::Timeout, "Request timed out."))
+      .and_then(|r| r.map_err(|e| e.into()))
   } else {
     ft.await.map_err(|e| e.into())
   }

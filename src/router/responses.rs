@@ -322,9 +322,6 @@ pub async fn preprocess_frame(
 pub fn broadcast_reader_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _warn!(inner, "Ending reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
-    inner.send_reconnect(Some(server.clone()), false, None);
-  }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications
@@ -341,9 +338,6 @@ pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Serv
 pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
   _warn!(inner, "Ending replica reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
-    inner.send_replica_reconnect(server);
-  }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications

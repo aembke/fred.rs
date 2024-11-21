@@ -4,7 +4,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::{utils, utils::next_frame, WriteResult},
+  router::{utils, utils::next_frame},
   runtime::RefCount,
   types::{Resp3Frame, Server},
   utils as client_utils,
@@ -215,9 +215,9 @@ impl ReplicaSet {
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
 pub struct Replicas {
-  pub(crate) writers: HashMap<Server, RedisConnection>,
-  routing:            ReplicaSet,
-  buffer:             VecDeque<RedisCommand>,
+  pub writers: HashMap<Server, RedisConnection>,
+  pub routing: ReplicaSet,
+  pub buffer:  VecDeque<RedisCommand>,
 }
 
 #[cfg(feature = "replicas")]
@@ -288,8 +288,7 @@ impl Replicas {
   /// Drop the socket associated with the provided server.
   pub async fn drop_writer(&mut self, replica: &Server) {
     if let Some(writer) = self.writers.remove(replica) {
-      let commands = writer.close().await;
-      self.buffer.extend(commands);
+      self.buffer.extend(writer.close().await);
     }
   }
 
@@ -321,7 +320,7 @@ impl Replicas {
   }
 
   /// Check and flush all the sockets managed by the replica routing state.
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
+  pub async fn flush(&mut self) -> Result<(), RedisError> {
     for (_, writer) in self.writers.iter_mut() {
       writer.flush().await?;
     }
@@ -379,119 +378,6 @@ impl Replicas {
     .into_iter()
     .flatten()
     .collect()
-  }
-
-  /// Send a command to one of the replicas associated with the provided primary server.
-  pub async fn write(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    primary: &Server,
-    mut command: RedisCommand,
-    force_flush: bool,
-  ) -> WriteResult {
-    let replica = match command.cluster_node {
-      Some(ref server) => server.clone(),
-      None => match self.routing.next_replica(primary) {
-        Some(replica) => replica.clone(),
-        None => {
-          // we do not know of any replica node associated with the primary node
-          return if inner.connection.replica.primary_fallback {
-            WriteResult::Fallback(command)
-          } else {
-            command.respond_to_caller(Err(RedisError::new(RedisErrorKind::Replica, "Missing replica node.")));
-            WriteResult::Ignore
-          };
-        },
-      },
-    };
-
-    _trace!(
-      inner,
-      "Found replica {} (primary: {}) for {} ({})",
-      replica,
-      primary,
-      command.kind.to_str_debug(),
-      command.debug_id()
-    );
-
-    let writer = match self.writers.get_mut(&replica) {
-      Some(writer) => writer,
-      None => {
-        // these errors indicate that we know a replica node should exist, but we are not connected or cannot
-        // connect to it. in this case we want to hide the error, trigger a reconnect, and retry the command later.
-        if inner.connection.replica.lazy_connections {
-          _debug!(inner, "Lazily adding {} replica connection", replica);
-          if let Err(e) = self.add_connection(inner, primary.clone(), replica.clone(), true).await {
-            // we tried connecting once but failed.
-            self.routing.remove_replica(&replica);
-            // since we didn't get to actually send the command
-            command.attempts_remaining += 1;
-            return WriteResult::Disconnected((Some(replica.clone()), Some(command), e));
-          }
-
-          match self.writers.get_mut(&replica) {
-            Some(writer) => writer,
-            None => {
-              self.routing.remove_replica(&replica);
-              // the connection should be here if self.add_connection succeeded
-              return WriteResult::Disconnected((
-                Some(replica.clone()),
-                Some(command),
-                RedisError::new(RedisErrorKind::Replica, "Missing connection."),
-              ));
-            },
-          }
-        } else {
-          // we don't have a connection to the replica, and we're not configured to lazily create new ones
-          return WriteResult::NotFound(command);
-        }
-      },
-    };
-    let (frame, should_flush) = match utils::prepare_command(inner, &writer.counters, &mut command) {
-      Ok((frame, should_flush)) => (frame, should_flush || force_flush),
-      Err(e) => {
-        _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
-        // do not retry commands that trigger frame encoding errors
-        command.respond_to_caller(Err(e));
-        return WriteResult::Ignore;
-      },
-    };
-
-    let blocks_connection = command.blocks_connection();
-    _debug!(
-      inner,
-      "Sending {} ({}) to replica {}",
-      command.kind.to_str_debug(),
-      command.debug_id(),
-      replica
-    );
-    command.write_attempts += 1;
-
-    // TODO is this still necessary in the write path?
-    // if let Some(error) = writer.peek_reader_errors().await {
-    // _debug!(
-    // inner,
-    // "Error sending replica command {}: {:?}",
-    // command.kind.to_str_debug(),
-    // error
-    // );
-    // self.routing.remove_replica(&writer.server);
-    // return WriteResult::Disconnected((Some(writer.server.clone()), Some(command), error));
-    // }
-
-    let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
-    writer.push_command(command);
-    let write_result = writer.write(frame, should_flush, false, check_unresponsive).await;
-
-    if let Err(err) = write_result {
-      self.routing.remove_replica(&writer.server);
-      WriteResult::Disconnected((Some(writer.server.clone()), None, err))
-    } else {
-      if blocks_connection {
-        inner.backchannel.write().await.set_blocked(&writer.server);
-      }
-      WriteResult::Sent((writer.server.clone(), should_flush))
-    }
   }
 
   /// Take the commands stored for retry later.

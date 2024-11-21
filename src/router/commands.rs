@@ -122,10 +122,6 @@ macro_rules! write_one_command {
             }
           },
           WriteResult::Ignore => {
-            _trace!($inner, "Ignore `Written` response.");
-            break;
-          },
-          WriteResult::SentAll => {
             _trace!($inner, "Sent command to all servers.");
             let _ = $router.check_and_flush().await;
 

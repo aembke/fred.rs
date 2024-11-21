@@ -348,6 +348,7 @@ pub struct BackpressureConfig {
   /// The maximum number of in-flight commands (per connection) before backpressure will be applied.
   ///
   /// Default: 10_000
+  #[deprecated(since = "9.5.0", note = "Use `PerformanceConfig::max_command_buffer_len` instead.")]
   pub max_in_flight_commands:    u64,
   /// The backpressure policy to apply when the max number of in-flight commands is reached.
   ///
@@ -357,6 +358,7 @@ pub struct BackpressureConfig {
 
 impl Default for BackpressureConfig {
   fn default() -> Self {
+    #[allow(deprecated)]
     BackpressureConfig {
       disable_auto_backpressure: false,
       max_in_flight_commands:    10_000,

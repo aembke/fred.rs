@@ -19,46 +19,6 @@ use futures::future::{join_all, try_join_all};
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, FrameKind, Resp3Frame as _Resp3Frame};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-/// Find the cluster node that should receive the command.
-pub fn route_command<'a>(
-  inner: &RefCount<RedisClientInner>,
-  state: &'a ClusterRouting,
-  command: &RedisCommand,
-) -> Option<&'a Server> {
-  if let Some(ref server) = command.cluster_node {
-    // this `_server` has a lifetime tied to `command`, so we switch `server` to refer to the record in `state` while
-    // we check whether that node exists in the cluster. we return None here if the command specifies a server that
-    // does not exist in the cluster.
-    _trace!(inner, "Routing with custom cluster node: {}", server);
-    state.slots().iter().find_map(|slot| {
-      if slot.primary == *server {
-        Some(&slot.primary)
-      } else {
-        None
-      }
-    })
-  } else {
-    command
-      .cluster_hash()
-      .and_then(|slot| state.get_server(slot))
-      .or_else(|| {
-        // for some commands we know they can go to any node, but for others it may depend on the arguments provided.
-        if command.args().is_empty() || command.kind.use_random_cluster_node() {
-          let node = state.random_node();
-          _trace!(
-            inner,
-            "Using random cluster node `{:?}` for {}",
-            node,
-            command.kind.to_str_debug()
-          );
-          node
-        } else {
-          None
-        }
-      })
-  }
-}
-
 async fn write_all_nodes(
   inner: &RefCount<RedisClientInner>,
   writers: &mut HashMap<Server, RedisConnection>,

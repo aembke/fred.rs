@@ -1,9 +1,8 @@
 use crate::{
   error::*,
-  interfaces,
   modules::backchannel::Backchannel,
   protocol::{
-    command::{ResponseSender, RouterCommand},
+    command::RouterCommand,
     connection::ExclusiveConnection,
     types::{ClusterRouting, DefaultResolver, Resolve, Server},
   },

@@ -2,7 +2,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection::RedisConnection, types::*, utils as protocol_utils},
-  router::{utils, Backpressure, Counters, Router, WriteResult},
+  router::{utils, Counters, Router},
   runtime::RefCount,
   types::*,
   utils as client_utils,
@@ -18,45 +18,6 @@ static OK_FRAME: Resp3Frame = Resp3Frame::SimpleString {
   data:       Bytes::from_static(b"OK"),
   attributes: None,
 };
-
-/// Check the connection state and command flags to determine the backpressure policy to apply, if any.
-pub fn check_backpressure(
-  inner: &RefCount<RedisClientInner>,
-  counters: &Counters,
-  command: &RedisCommand,
-) -> Result<Option<Backpressure>, RedisError> {
-  if command.skip_backpressure {
-    return Ok(None);
-  }
-  let in_flight = client_utils::read_atomic(&counters.in_flight);
-
-  inner.with_perf_config(|perf_config| {
-    // TODO clean this up and write better docs
-    if in_flight as u64 > perf_config.backpressure.max_in_flight_commands {
-      if perf_config.backpressure.disable_auto_backpressure {
-        Err(RedisError::new_backpressure())
-      } else {
-        match perf_config.backpressure.policy {
-          BackpressurePolicy::Drain => Ok(Some(Backpressure::Block)),
-          BackpressurePolicy::Sleep {
-            disable_backpressure_scaling,
-            min_sleep_duration,
-          } => {
-            let duration = if disable_backpressure_scaling {
-              min_sleep_duration
-            } else {
-              Duration::from_millis(cmp::max(min_sleep_duration.as_millis() as u64, in_flight as u64))
-            };
-
-            Ok(Some(Backpressure::Wait(duration)))
-          },
-        }
-      }
-    } else {
-      Ok(None)
-    }
-  })
-}
 
 #[cfg(feature = "partial-tracing")]
 fn set_command_trace(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) {
@@ -100,34 +61,22 @@ pub async fn write_command(
   conn: &mut RedisConnection,
   mut command: RedisCommand,
   force_flush: bool,
-) -> WriteResult {
+) -> Result<(), RedisError> {
   if client_utils::read_bool_atomic(&command.timed_out) {
     _debug!(
       inner,
       "Ignore writing timed out command: {}",
       command.kind.to_str_debug()
     );
-    return WriteResult::Ignore;
+    return Ok(());
   }
-  match check_backpressure(inner, &conn.counters, &command) {
-    Ok(Some(backpressure)) => {
-      _trace!(inner, "Returning backpressure for {}", command.kind.to_str_debug());
-      return WriteResult::Backpressure((command, backpressure));
-    },
-    Err(e) => {
-      // return manual backpressure errors directly to the caller
-      command.respond_to_caller(Err(e));
-      return WriteResult::Ignore;
-    },
-    _ => {},
-  };
   let (frame, should_flush) = match prepare_command(inner, &conn.counters, &mut command) {
     Ok((frame, should_flush)) => (frame, should_flush || force_flush),
     Err(e) => {
       _warn!(inner, "Frame encoding error for {}", command.kind.to_str_debug());
       // do not retry commands that trigger frame encoding errors
       command.respond_to_caller(Err(e));
-      return WriteResult::Ignore;
+      return Ok(());
     },
   };
 
@@ -140,13 +89,6 @@ pub async fn write_command(
   );
   command.write_attempts += 1;
 
-  // TODO is this still necessary in the write path?
-  // if let Some(error) = conn.peek_reader_errors().await {
-  // _debug!(inner, "Error sending command: {:?}", error);
-  // return WriteResult::Disconnected((Some(conn.server.clone()), Some(command), error));
-  // }
-  //
-
   let no_incr = command.has_no_responses();
   let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
   let respond_early = if command.kind.closes_connection() {
@@ -157,14 +99,14 @@ pub async fn write_command(
 
   conn.push_command(command);
   let write_result = conn.write(frame, should_flush, no_incr, check_unresponsive).await;
-  if let Err(e) = write_result {
-    debug!("{}: Error sending frame to socket: {:?}", conn.server, e);
-    WriteResult::Disconnected((Some(conn.server.clone()), None, e))
+  if let Err(err) = write_result {
+    debug!("{}: Error sending frame to socket: {:?}", conn.server, err);
+    Err(err)
   } else {
     if let Some(tx) = respond_early {
       let _ = tx.send(Ok(OK_FRAME.clone()));
     }
-    WriteResult::Sent((conn.server.clone(), should_flush))
+    Ok(())
   }
 }
 
@@ -227,7 +169,7 @@ pub async fn reconnect_once(inner: &RefCount<RedisClientInner>, router: &mut Rou
       }
     }
     // try to flush any previously in-flight commands
-    Box::pin(router.retry_buffer()).await;
+    Box::pin(router.retry_buffer()).await?;
 
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
@@ -287,53 +229,8 @@ pub async fn send_asking_with_policy(
     }
     attempts_remaining -= 1;
 
-    match router.write(command, true).await {
-      WriteResult::Disconnected((_, _, err)) => {
-        if attempts_remaining == 0 {
-          return Err(err);
-        }
-
-        if let Err(err) = Box::pin(reconnect_with_policy(inner, router)).await {
-          return Err(err);
-        } else {
-          continue;
-        }
-      },
-      WriteResult::NotFound(_) => {
-        if attempts_remaining == 0 {
-          return Err(RedisError::new(
-            RedisErrorKind::Unknown,
-            "Failed to route ASKING command.",
-          ));
-        }
-
-        if let Err(err) = Box::pin(reconnect_with_policy(inner, router)).await {
-          return Err(err);
-        } else {
-          continue;
-        }
-      },
-      WriteResult::Error((err, _)) => {
-        return Err(err);
-      },
-      _ => {},
-    };
-
-    if let Err(err) = router.drain().await {
-      if attempts_remaining == 0 {
-        return Err(err);
-      }
-
-      _debug!(inner, "Failed to read ASKING response: {:?}", err);
-      if let Err(err) = Box::pin(reconnect_with_policy(inner, router)).await {
-        return Err(err);
-      } else {
-        continue;
-      }
-    } else {
-      // ASKING always responds with OK so we don't need to read the frame
-      break;
-    }
+    // write/drain/read to connection, reconnect if needed
+    unimplemented!()
   }
 
   inner.reset_reconnection_attempts();
