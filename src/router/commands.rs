@@ -1,25 +1,27 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::{CommandReceiver, RedisClientInner},
-  protocol::command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
+  protocol::{
+    command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
+    connection::RedisConnection,
+  },
   router::{
     centralized,
     clustered,
     responses,
-    utils,
-    utils::reconnect_with_policy,
-    Backpressure,
+    utils::{self, reconnect_with_policy},
     Router,
-    WriteResult,
   },
   runtime::{OneshotSender, RefCount},
   trace,
   types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
+use futures::future::{select, Either};
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
+use std::time::Duration;
+use tokio::pin;
 
-use crate::protocol::connection::RedisConnection;
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
 #[cfg(feature = "full-tracing")]
@@ -433,15 +435,12 @@ async fn process_command(
   }
 }
 
-/// Reset the connection and broadcast errors to callers.
-///
-/// Any errors returned should interrupt the router task.
-pub async fn reset_connection(
+pub async fn drop_connection(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
   error: RedisError,
-) -> Result<(), RedisError> {
+) {
   _debug!(inner, "Resetting connection to {} with error: {:?}", server, error);
   let commands = router.connections.disconnect(inner, Some(server)).await;
   let commands = utils::check_final_write_attempt(inner, commands, Some(&error));
@@ -454,20 +453,52 @@ pub async fn reset_connection(
   }
   utils::remove_cached_connection_id(inner, server).await;
   inner.remove_connection(server);
-  Box::pin(reconnect_with_policy(inner, router)).await
 }
 
-#[cfg(feature = "replicas")]
-fn get_connection_mut<'a>(router: &'a mut Router, server: &Server) -> Option<&'a mut RedisConnection> {
-  router
-    .connections
-    .get_connection_mut(server)
-    .or_else(|| router.replicas.writers.get_mut(server))
-}
+/// Process the response frame from the provided server.
+///
+/// Errors returned here should interrupt the routing task.
+async fn process_response(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  server: &Server,
+  result: Result<Resp3Frame, RedisError>,
+) -> Result<(), RedisError> {
+  _trace!(inner, "Recv read result from {}", server);
+  match result {
+    Ok(frame) => {
+      let frame = match responses::preprocess_frame(inner, &server, frame).await {
+        Ok(frame) => frame,
+        Err(err) => {
+          _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
+          let replica = router.is_replica(server);
+          drop_connection(inner, router, server, err).await;
+          return utils::defer_reconnection(inner, Some(&server), replica);
+        },
+      };
 
-#[cfg(not(feature = "replicas"))]
-fn get_connection_mut<'a>(router: &'a mut Router, server: &Server) -> Option<&'a mut RedisConnection> {
-  router.connections.get_connection_mut(server)
+      if let Some(frame) = frame {
+        let conn = match router.get_connection_mut(&server) {
+          Some(conn) => conn,
+          None => return Err(RedisError::new(RedisErrorKind::Unknown, "Missing expected connection.")),
+        };
+
+        if inner.config.server.is_clustered() {
+          clustered::process_response_frame(inner, conn, frame)
+        } else {
+          centralized::process_response_frame(inner, conn, frame)
+        }
+      } else {
+        Ok(())
+      }
+    },
+    Err(err) => {
+      _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
+      let replica = router.is_replica(server);
+      drop_connection(inner, router, server, err).await;
+      utils::defer_reconnection(inner, Some(&server), replica)
+    },
+  }
 }
 
 /// Try to read frames from any socket, otherwise try to write the next command.
@@ -479,43 +510,34 @@ async fn read_or_write(
   tokio::select! {
     biased;
     Some((server, result)) = router.select_read(inner) => {
-      _trace!(inner, "Recv read result from {}", server);
-      match result {
-        Ok(frame) => {
-          let frame = match responses::preprocess_frame(inner, router, &server, frame).await {
-            Ok(frame) => frame,
-            Err(err) => {
-              _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
-              return reset_connection(inner, router, &server, err).await;
-            }
-          };
-
-          if let Some(frame) = frame {
-            let conn = match get_connection_mut(router, &server) {
-              Some(conn) => conn,
-              None => return Err(RedisError::new(
-                RedisErrorKind::Unknown,
-                "Missing expected connection."
-              ))
-            };
-
-            if inner.config.server.is_clustered() {
-              clustered::process_response_frame(inner, conn, frame).await
-            }else{
-              centralized::process_response_frame(inner, conn, frame).await
-            }
-          }else{
-            Ok(())
-          }
-        },
-        Err(err) => {
-          _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
-          reset_connection(inner, router, &server, err).await
-        }
-      }
+      process_response(inner, router, &server, result).await
     },
     Some(command) = rx.recv() => {
       process_command(inner, router, command).await
+    }
+  }
+}
+
+pub async fn read_or_sleep(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  duration: Duration,
+) -> Result<(), RedisError> {
+  let mut sleep_ft = inner.wait_with_interrupt(duration);
+  pin!(sleep_ft);
+
+  loop {
+    match select(sleep_ft, router.select_read(inner)).await {
+      Either::Left((l, _)) => return l,
+      Either::Right((r, _sleep_ft)) => match r {
+        Some((server, result)) => {
+          process_response(inner, router, &server, result).await?;
+          sleep_ft = _sleep_ft;
+        },
+        None => {
+          sleep_ft = _sleep_ft;
+        },
+      },
     }
   }
 }

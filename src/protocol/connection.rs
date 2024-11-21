@@ -821,25 +821,19 @@ impl RedisConnection {
     &mut self,
     frame: F,
     flush: bool,
-    no_incr: bool,
     check_unresponsive: bool,
   ) -> Result<(), RedisError> {
     if check_unresponsive {
       self.last_write = Some(Instant::now());
     }
 
-    let result = if flush {
+    if flush {
       self.counters.reset_feed_count();
       self.transport.send(frame.into()).await
     } else {
       self.counters.incr_feed_count();
       self.transport.feed(frame.into()).await
-    };
-
-    if result.is_ok() & !no_incr {
-      self.counters.incr_in_flight();
     }
-    result
   }
 
   /// Put a command at the back of the in-flight command buffer.
@@ -860,8 +854,30 @@ impl RedisConnection {
   #[inline(always)]
   pub async fn read(&mut self) -> Result<Option<Resp3Frame>, RedisError> {
     match self.transport.next().await {
-      Some(result) => result.map(|f| Some(f.into_resp3())),
+      Some(frame) => frame.map(|f| Some(f.into_resp3())),
       None => Ok(None),
+    }
+  }
+
+  /// Read frames until detecting a non-pubsub frame.
+  #[inline(always)]
+  pub async fn read_skip_pubsub(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Result<Option<Resp3Frame>, RedisError> {
+    loop {
+      let frame = match self.read().await? {
+        Some(f) => f,
+        None => return Ok(None),
+      };
+
+      if let Some(err) = responses::check_special_errors(inner, &frame) {
+        return Err(err);
+      } else if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
+        return Ok(Some(frame));
+      } else {
+        continue;
+      }
     }
   }
 
@@ -869,7 +885,7 @@ impl RedisConnection {
   pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     let is_clustered = inner.config.server.is_clustered();
     while !self.buffer.is_empty() {
-      let frame = match self.read_skip_pubsub(inner).await? {
+      let frame = match self.read().await? {
         Some(f) => f,
         None => return Ok(()),
       };
@@ -878,9 +894,9 @@ impl RedisConnection {
         return Err(err);
       } else if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
         if is_clustered {
-          clustered::process_response_frame(inner, self, frame).await?;
+          clustered::process_response_frame(inner, self, frame)?;
         } else {
-          centralized::process_response_frame(inner, self, frame).await?;
+          centralized::process_response_frame(inner, self, frame)?;
         }
       } else {
         continue;
@@ -893,34 +909,12 @@ impl RedisConnection {
   /// Read frames until the in-flight buffer is empty, dropping any non-pubsub frames.
   pub async fn skip_results(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     while !self.buffer.is_empty() {
-      match self.read_skip_pubsub(inner).await? {
-        Some(f) => f,
-        None => return Ok(()),
-      };
+      if self.read_skip_pubsub(inner).await?.is_none() {
+        return Ok(());
+      }
     }
 
     Ok(())
-  }
-
-  /// Read frames until detecting a non-pubsub frame.
-  ///
-  /// This function is not cancellation-safe.
-  pub async fn read_skip_pubsub(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Result<Option<Resp3Frame>, RedisError> {
-    loop {
-      let frame = match self.read().await? {
-        Some(f) => f,
-        None => return Ok(None),
-      };
-
-      if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
-        return Ok(Some(frame));
-      } else {
-        continue;
-      }
-    }
   }
 
   /// Flush the sink and reset the feed counter.
@@ -968,7 +962,7 @@ pub async fn request_response(
 
   let check_unresponsive = !command.kind.is_pubsub() && inner.has_unresponsive_duration();
   let ft = async {
-    conn.write(frame, true, true, check_unresponsive).await?;
+    conn.write(frame, true, check_unresponsive).await?;
     conn.flush().await?;
     match conn.read_skip_pubsub(inner).await {
       Ok(Some(f)) => Ok(f),

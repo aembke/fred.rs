@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 ///
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 #[inline(always)]
-pub async fn process_response_frame(
+pub fn process_response_frame(
   inner: &RefCount<RedisClientInner>,
   conn: &mut RedisConnection,
   frame: Resp3Frame,
@@ -43,11 +43,10 @@ pub async fn process_response_frame(
     command.kind.to_str_debug(),
     command.debug_id()
   );
-  conn.counters.decr_in_flight();
   if command.blocks_connection() {
     conn.blocked = false;
   }
-  responses::check_and_set_unblocked(inner, &command).await;
+  responses::check_and_set_unblocked(inner, &command);
   #[cfg(feature = "partial-tracing")]
   let _ = command.traces.network.take();
 
@@ -74,14 +73,10 @@ pub async fn process_response_frame(
       tx,
       frame,
     ),
-    ResponseKind::KeyScan(scanner) => {
-      responders::respond_key_scan(inner, &conn.server, command, scanner, frame).await
-    },
-    ResponseKind::ValueScan(scanner) => {
-      responders::respond_value_scan(inner, &conn.server, command, scanner, frame).await
-    },
+    ResponseKind::KeyScan(scanner) => responders::respond_key_scan(inner, &conn.server, command, scanner, frame),
+    ResponseKind::ValueScan(scanner) => responders::respond_value_scan(inner, &conn.server, command, scanner, frame),
     ResponseKind::KeyScanBuffered(scanner) => {
-      responders::respond_key_scan_buffered(inner, &conn.server, command, scanner, frame).await
+      responders::respond_key_scan_buffered(inner, &conn.server, command, scanner, frame)
     },
   }
 }

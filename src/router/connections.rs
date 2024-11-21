@@ -276,7 +276,7 @@ impl Connections {
   }
 
   /// Flush the socket(s) associated with each server if they have pending frames.
-  pub async fn check_and_flush(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn flush(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
     _trace!(inner, "Checking and flushing sockets...");
 
     match self {

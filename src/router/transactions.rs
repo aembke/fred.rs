@@ -34,7 +34,7 @@ async fn exec(
 ) -> Result<Vec<Resp3Frame>, RedisError> {
   let mut command = RedisCommand::new(RedisCommandKind::Exec, vec![]);
   let (frame, _) = utils::prepare_command(inner, &conn.counters, &mut command)?;
-  conn.write(frame, true, true, false).await?;
+  conn.write(frame, true, false).await?;
   conn.flush().await?;
   let mut responses = Vec::with_capacity(expected + 1);
 

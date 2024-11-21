@@ -449,7 +449,7 @@ pub struct RedisClientInner {
   /// The DNS resolver to use when establishing new connections.
   pub resolver:      AsyncRwLock<RefCount<dyn Resolve>>,
   /// A backchannel that can be used to control the router connections even while the connections are blocked.
-  pub backchannel:   RefCount<AsyncRwLock<Backchannel>>,
+  pub backchannel:   RefCount<Backchannel>,
   /// Server state cache for various deployment types.
   pub server_state:  RwLock<ServerState>,
 

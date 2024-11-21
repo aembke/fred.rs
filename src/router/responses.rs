@@ -217,9 +217,9 @@ pub fn check_pubsub_message(
 }
 
 #[inline(always)]
-pub async fn check_and_set_unblocked(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
+pub fn check_and_set_unblocked(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
   if command.blocks_connection() {
-    inner.backchannel.write().await.set_unblocked();
+    inner.backchannel.blocked.lock().take();
   }
 }
 
@@ -305,14 +305,11 @@ pub fn check_special_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Fra
 /// The frame is returned to the caller for further processing if necessary.
 pub async fn preprocess_frame(
   inner: &RefCount<RedisClientInner>,
-  router: &mut Router,
   server: &Server,
   frame: Resp3Frame,
 ) -> Result<Option<Resp3Frame>, RedisError> {
   if let Some(error) = check_special_errors(inner, &frame) {
-    Box::pin(commands::reset_connection(inner, router, server, error))
-      .await
-      .map(|_| None)
+    Err(error)
   } else {
     Ok(check_pubsub_message(inner, server, frame))
   }

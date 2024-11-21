@@ -1,5 +1,6 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection::RedisConnection, types::*, utils as protocol_utils},
   router::{utils, Counters, Router},
@@ -112,6 +113,20 @@ pub async fn write_command(
 
 pub async fn remove_cached_connection_id(inner: &RefCount<RedisClientInner>, server: &Server) {
   inner.backchannel.write().await.remove_connection_id(server);
+}
+
+pub fn defer_reconnection(
+  inner: &RefCount<RedisClientInner>,
+  server: Option<&Server>,
+  _replica: bool,
+) -> Result<(), RedisError> {
+  interfaces::send_to_router(inner, RouterCommand::Reconnect {
+    server:                               server.cloned(),
+    force:                                false,
+    tx:                                   None,
+    #[cfg(feature = "replicas")]
+    replica:                              _replica,
+  })
 }
 
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
@@ -363,4 +378,5 @@ macro_rules! next_frame {
   }};
 }
 
+use crate::protocol::command::RouterCommand;
 pub(crate) use next_frame;

@@ -3,9 +3,10 @@ use crate::{
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::ExclusiveConnection, types::Server},
   router::connections::Connections,
-  runtime::RefCount,
+  runtime::{AsyncRwLock, RefCount},
   utils,
 };
+use parking_lot::Mutex;
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::collections::HashMap;
 
@@ -36,11 +37,11 @@ async fn check_and_create_transport(
 #[derive(Default)]
 pub struct Backchannel {
   /// A connection to any of the servers.
-  pub transport:      Option<ExclusiveConnection>,
+  pub transport:      AsyncRwLock<Option<ExclusiveConnection>>,
   /// An identifier for the blocked connection, if any.
-  pub blocked:        Option<Server>,
+  pub blocked:        Mutex<Option<Server>>,
   /// A map of server IDs to connection IDs, as managed by the router.
-  pub connection_ids: HashMap<Server, i64>,
+  pub connection_ids: Mutex<HashMap<Server, i64>>,
 }
 
 impl Backchannel {

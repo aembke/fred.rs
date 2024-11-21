@@ -118,7 +118,7 @@ impl Router {
 
   /// Find the connection that should receive the provided command.
   #[cfg(feature = "replicas")]
-  pub fn get_connection_mut<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
+  pub fn route<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
     match command.cluster_node.as_ref() {
       Some(server) => {
         if command.use_replica {
@@ -156,7 +156,7 @@ impl Router {
 
   /// Find the connection that should receive the provided command.
   #[cfg(not(feature = "replicas"))]
-  pub fn get_connection_mut<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
+  pub fn route<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
     match command.cluster_node.as_ref() {
       Some(server) => self.connections.get_connection_mut(server),
       None => match self.connections {
@@ -172,6 +172,19 @@ impl Router {
           .or_else(|| writers.values_mut().next()),
       },
     }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn get_connection_mut<'a>(&mut self, server: &Server) -> Option<&mut RedisConnection> {
+    self
+      .connections
+      .get_connection_mut(server)
+      .or_else(|| self.replicas.writers.get_mut(server))
+  }
+
+  #[cfg(not(feature = "replicas"))]
+  pub fn get_connection_mut<'a>(&mut self, server: &Server) -> Option<&mut RedisConnection> {
+    self.connections.get_connection_mut(server)
   }
 
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
@@ -358,16 +371,16 @@ impl Router {
 
   /// Check each connection for pending frames that have not been flushed, and flush the connection if needed.
   #[cfg(feature = "replicas")]
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
-    if let Err(e) = self.replicas.check_and_flush().await {
+  pub async fn flush(&mut self) -> Result<(), RedisError> {
+    if let Err(e) = self.replicas.flush().await {
       warn!("{}: Error flushing replica connections: {:?}", self.inner.id, e);
     }
-    self.connections.check_and_flush(&self.inner).await
+    self.connections.flush(&self.inner).await
   }
 
   #[cfg(not(feature = "replicas"))]
-  pub async fn check_and_flush(&mut self) -> Result<(), RedisError> {
-    self.connections.check_and_flush(&self.inner).await
+  pub async fn lush(&mut self) -> Result<(), RedisError> {
+    self.connections.flush(&self.inner).await
   }
 
   /// Wait and read frames until there are no in-flight frames on primary connections.
