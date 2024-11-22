@@ -15,12 +15,10 @@ use crate::{
 };
 use bytes_utils::Str;
 use futures::{
-  future::poll_fn,
   sink::SinkExt,
   stream::{Peekable, StreamExt},
   Sink,
   Stream,
-  TryStream,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame, RespVersion};
 use semver::Version;
@@ -849,22 +847,15 @@ impl RedisConnection {
     }
   }
 
-  /// Read the next frame from the reader half in a cancellation-safe way.
+  /// Read the next frame from the reader half.
   ///
-  /// The caller is responsible for decrementing any in-flight counters.
+  /// This function is not cancel-safe.
   #[inline(always)]
   pub async fn read(&mut self) -> Result<Option<Resp3Frame>, RedisError> {
-    println!("HERE6-1");
-    let r = match self.transport.next().await {
+    match self.transport.next().await {
       Some(f) => f.map(|f| Some(f.into_resp3())),
       None => Ok(None),
-    };
-    println!("HERE6-2");
-    r
-
-    // let r = self.transport.try_next().await.map(|f| f.map(|f| f.into_resp3()));
-    // println!("HERE6-2");
-    // r
+    }
   }
 
   /// Read frames until detecting a non-pubsub frame.

@@ -1,22 +1,18 @@
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 use crate::types::TlsHostMapping;
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::RedisError,
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::types::ReadAllFuture,
   runtime::RefCount,
-  types::{Resp3Frame, Server},
-  utils as client_utils,
+  types::Server,
 };
-use futures::future::{join_all, poll_fn, select_all};
+use futures::future::join_all;
 use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
-  future::{pending, Future},
 };
-use tokio::pin;
 
 /// An interface used to filter the list of available replica nodes.
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -394,14 +390,6 @@ impl Replicas {
       .collect::<Result<Vec<()>, RedisError>>()?;
 
     Ok(())
-  }
-
-  /// Try to read from all sockets concurrently.
-  pub async fn select_read(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Vec<(Server, Option<Result<Resp3Frame, RedisError>>)> {
-    ReadAllFuture::new(inner, &mut self.connections).await
   }
 }
 

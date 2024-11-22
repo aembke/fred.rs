@@ -30,16 +30,61 @@ impl Default for ClusterChange {
   }
 }
 
+fn poll_connection(
+  inner: &RefCount<RedisClientInner>,
+  conn: &mut RedisConnection,
+  cx: &mut Context<'_>,
+  buf: &mut Vec<(Server, Option<Result<Resp3Frame, RedisError>>)>,
+  now: &Instant,
+) {
+  match Pin::new(&mut conn.transport).poll_next(cx) {
+    Poll::Ready(Some(frame)) => {
+      buf.push((conn.server.clone(), Some(frame.map(|f| f.into_resp3()))));
+    },
+    Poll::Ready(None) => {
+      buf.push((conn.server.clone(), None));
+    },
+    Poll::Pending => {
+      if let Some(duration) = inner.connection.unresponsive.max_timeout {
+        if let Some(last_write) = conn.last_write {
+          if now.saturating_duration_since(last_write) > duration {
+            buf.push((
+              conn.server.clone(),
+              Some(Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))),
+            ));
+          }
+        }
+      }
+    },
+  };
+}
+
 /// A future that reads from all connections and performs unresponsive checks.
 // `poll_next` on a Framed<TcpStream> is not cancel-safe
 pub struct ReadAllFuture<'a, 'b> {
-  transports: &'a mut HashMap<Server, RedisConnection>,
-  inner:      &'b RefCount<RedisClientInner>,
+  inner:       &'a RefCount<RedisClientInner>,
+  connections: &'b mut HashMap<Server, RedisConnection>,
+  #[cfg(feature = "replicas")]
+  replicas:    &'b mut HashMap<Server, RedisConnection>,
 }
 
-impl ReadAllFuture {
-  pub fn new(inner: &RefCount<RedisClientInner>, transports: &mut HashMap<Server, RedisConnection>) -> Self {
-    Self { transports, inner }
+impl<'a, 'b> ReadAllFuture<'a, 'b> {
+  #[cfg(not(feature = "replicas"))]
+  pub fn new(inner: &'a RefCount<RedisClientInner>, connections: &'b mut HashMap<Server, RedisConnection>) -> Self {
+    Self { connections, inner }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn new(
+    inner: &'a RefCount<RedisClientInner>,
+    connections: &'b mut HashMap<Server, RedisConnection>,
+    replicas: &'b mut HashMap<Server, RedisConnection>,
+  ) -> Self {
+    Self {
+      connections,
+      inner,
+      replicas,
+    }
   }
 }
 
@@ -47,34 +92,19 @@ impl<'a, 'b> Future for ReadAllFuture<'a, 'b> {
   type Output = Vec<(Server, Option<Result<Resp3Frame, RedisError>>)>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    if self.transports.is_empty() {
+    if self.connections.is_empty() && self.replicas.is_empty() {
       return Poll::Ready(Vec::new());
     }
 
-    // check and buffer any frames that are ready already
+    let _self = self.get_mut();
     let now = Instant::now();
     let mut out = Vec::new();
-    for (server, conn) in self.transports.iter_mut() {
-      match conn.transport.poll_next(cx) {
-        Poll::Ready(Some(frame)) => {
-          out.push((server.clone(), Some(frame.map(|f| f.into_resp3()))));
-        },
-        Poll::Ready(None) => {
-          out.push((server.clone(), None));
-        },
-        Poll::Pending => {
-          if let Some(duration) = self.inner.connection.unresponsive.max_timeout {
-            if let Some(last_write) = conn.last_write {
-              if now.saturating_duration_since(last_write) > duration {
-                out.push((
-                  server.clone(),
-                  Some(Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))),
-                ));
-              }
-            }
-          }
-        },
-      };
+    for (_, conn) in _self.connections.iter_mut() {
+      poll_connection(_self.inner, conn, cx, &mut out, &now);
+    }
+    #[cfg(feature = "replicas")]
+    for (_, conn) in _self.replicas.iter_mut() {
+      poll_connection(_self.inner, conn, cx, &mut out, &now);
     }
 
     if out.is_empty() {
@@ -87,13 +117,29 @@ impl<'a, 'b> Future for ReadAllFuture<'a, 'b> {
 
 /// A future that reads from the connection and performs unresponsive checks.
 pub struct ReadFuture<'a, 'b> {
-  connection: &'a mut RedisConnection,
-  inner:      &'b RefCount<RedisClientInner>,
+  inner:      &'a RefCount<RedisClientInner>,
+  connection: &'b mut RedisConnection,
+  #[cfg(feature = "replicas")]
+  replicas:   &'b mut HashMap<Server, RedisConnection>,
 }
 
-impl ReadFuture {
-  pub fn new(inner: &RefCount<RedisClientInner>, connection: &mut RedisConnection) -> Self {
+impl<'a, 'b> ReadFuture<'a, 'b> {
+  #[cfg(not(feature = "replicas"))]
+  pub fn new(inner: &'a RefCount<RedisClientInner>, connection: &'b mut RedisConnection) -> Self {
     Self { connection, inner }
+  }
+
+  #[cfg(feature = "replicas")]
+  pub fn new(
+    inner: &'a RefCount<RedisClientInner>,
+    connection: &'b mut RedisConnection,
+    replicas: &'b mut HashMap<Server, RedisConnection>,
+  ) -> Self {
+    Self {
+      inner,
+      connection,
+      replicas,
+    }
   }
 }
 
@@ -101,26 +147,20 @@ impl<'a, 'b> Future for ReadFuture<'a, 'b> {
   type Output = Vec<(Server, Option<Result<Resp3Frame, RedisError>>)>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-    match self.connection.transport.poll_next(cx) {
-      Poll::Ready(Some(result)) => Poll::Ready(vec![(
-        self.connection.server.clone(),
-        Some(result.map(|f| f.into_resp3())),
-      )]),
-      Poll::Ready(None) => Poll::Ready(vec![(self.connection.server.clone(), None)]),
-      Poll::Pending => {
-        if let Some(duration) = self.inner.connection.unresponsive.max_timeout {
-          if let Some(last_write) = self.connection.last_write {
-            if Instant::now().duration_since(last_write) > duration {
-              return Poll::Ready(vec![(
-                self.connection.server.clone(),
-                Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection.")),
-              )]);
-            }
-          }
-        }
+    let mut out = Vec::new();
+    let now = Instant::now();
+    let _self = self.get_mut();
 
-        Poll::Pending
-      },
+    poll_connection(_self.inner, _self.connection, cx, &mut out, &now);
+    #[cfg(feature = "replicas")]
+    for (_, conn) in _self.replicas.iter_mut() {
+      poll_connection(_self.inner, conn, cx, &mut out, &now);
+    }
+
+    if out.is_empty() {
+      Poll::Pending
+    } else {
+      Poll::Ready(out)
     }
   }
 }

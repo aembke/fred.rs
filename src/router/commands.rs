@@ -372,25 +372,19 @@ async fn read_or_write(
     _trace!(inner, "Read or write");
   }
 
-  let result = tokio::select! {
+  tokio::select! {
     biased;
-    Some((server, result)) = router.select_read(inner) => {
-      utils::process_response(inner, router, &server, result).await
+    results = router.select_read(inner) => {
+      for (server, result) in results.into_iter() {
+        utils::process_response(inner, router, &server, result).await?;
+      }
     },
     Some(command) = rx.recv() => {
-      println!("COMMAND");
-      process_command(inner, router, command).await
+      process_command(inner, router, command).await?;
     },
-    else => {
-      println!("HERE1"); return Ok(()) }
   };
 
-  println!("HERE2");
-
-  if log_enabled!(Level::Trace) {
-    _trace!(inner, "After read or write");
-  }
-  result
+  Ok(())
 }
 
 /// Start the command processing stream, initiating new connections in the process.

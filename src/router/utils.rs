@@ -240,18 +240,25 @@ pub async fn process_response(
   inner: &RefCount<RedisClientInner>,
   router: &mut Router,
   server: &Server,
-  result: Result<Resp3Frame, RedisError>,
+  result: Option<Result<Resp3Frame, RedisError>>,
 ) -> Result<(), RedisError> {
   _trace!(inner, "Recv read result from {}", server);
+
+  macro_rules! disconnect {
+    ($inner:expr, $router:expr, $server:expr, $err:expr) => {{
+      let replica = $router.is_replica($server);
+      drop_connection($inner, $router, $server, &$err).await;
+      defer_reconnection($inner, Some($server), $err, replica)
+    }};
+  }
+
   match result {
-    Ok(frame) => {
+    Some(Ok(frame)) => {
       let frame = match responses::preprocess_frame(inner, server, frame).await {
         Ok(frame) => frame,
         Err(err) => {
           _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
-          let replica = router.is_replica(server);
-          drop_connection(inner, router, server, &err).await;
-          return defer_reconnection(inner, Some(server), err, replica);
+          return disconnect!(inner, router, server, err);
         },
       };
 
@@ -270,11 +277,14 @@ pub async fn process_response(
         Ok(())
       }
     },
-    Err(err) => {
+    Some(Err(err)) => {
       _debug!(inner, "Error reading frame from server {}: {:?}", server, err);
-      let replica = router.is_replica(server);
-      drop_connection(inner, router, server, &err).await;
-      defer_reconnection(inner, Some(server), err, replica)
+      disconnect!(inner, router, server, err)
+    },
+    None => {
+      _debug!(inner, "Connection closed to {}", server);
+      let err = RedisError::new(RedisErrorKind::IO, "Connection closed.");
+      disconnect!(inner, router, server, err)
     },
   }
 }
@@ -290,14 +300,16 @@ pub async fn read_and_sleep(
 
   loop {
     tokio::select! {
-    result = &mut sleep_ft => return result,
-    Some((server, result)) = router.select_read(inner) => {
-        if let Err(err) = process_response(inner, router, &server, result).await {
-          // defer reconnections until after waiting the full duration
-          let replica = router.is_replica(&server);
-          _debug!(inner, "Error reading from {} while sleeping: {:?}", server, err);
-          drop_connection(inner, router, &server, &err).await;
-          defer_reconnection(inner, Some(&server), err, replica)?;
+      result = &mut sleep_ft => return result,
+      results = router.select_read(inner) => {
+        for (server, result) in results.into_iter() {
+          if let Err(err) = process_response(inner, router, &server, result).await {
+            // defer reconnections until after waiting the full duration
+            let replica = router.is_replica(&server);
+            _debug!(inner, "Error reading from {} while sleeping: {:?}", server, err);
+            drop_connection(inner, router, &server, &err).await;
+            defer_reconnection(inner, Some(&server), err, replica)?;
+          }
         }
       }
     }

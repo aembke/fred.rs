@@ -10,7 +10,7 @@ pub mod types;
 pub mod utils;
 
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::RedisError,
   modules::inner::RedisClientInner,
   protocol::{
     command::RedisCommand,
@@ -25,35 +25,18 @@ use crate::{
   types::Resp3Frame,
   utils as client_utils,
 };
-use futures::future::{join, join_all, select_all};
-use std::{collections::VecDeque, future::pending};
+use futures::future::join_all;
+use std::collections::VecDeque;
 
 #[cfg(feature = "replicas")]
-use futures::future::{select, try_join, Either};
+use futures::future::try_join;
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
-#[cfg(feature = "replicas")]
-use tokio::pin;
 
 #[cfg(feature = "transactions")]
 pub mod transactions;
 #[cfg(feature = "replicas")]
 use replicas::Replicas;
-
-macro_rules! read_primary_nodes {
-  ($inner:expr, $router:expr) => {{
-    match $router.connections {
-      Connections::Clustered { ref mut writers, .. } => ReadAllFuture::new(inner, writers).await,
-      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
-        if let Some(writer) = writer {
-          ReadFuture::new(inner, writer).await
-        } else {
-          pending().await
-        }
-      },
-    }
-  }};
-}
 
 /// A struct for routing commands to the server(s).
 pub struct Router {
@@ -428,21 +411,33 @@ impl Router {
     &mut self,
     inner: &RefCount<RedisClientInner>,
   ) -> Vec<(Server, Option<Result<Resp3Frame, RedisError>>)> {
-    let primary_ft = async { read_primary_nodes!(inner, self) };
-    pin!(primary_ft);
-    let replica_ft = self.replicas.select_read(inner);
-    pin!(replica_ft);
-
-    // TODO can't use join here since replica ft and primary wait for a result
-    let (mut left, right) = join(primary_ft, replica_ft).await;
-    left.extend(right);
-    left
+    match self.connections {
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
+        if let Some(writer) = writer {
+          ReadFuture::new(inner, writer, &mut self.replicas.connections).await
+        } else {
+          Vec::new()
+        }
+      },
+      Connections::Clustered { ref mut writers, .. } => {
+        ReadAllFuture::new(inner, writers, &mut self.replicas.connections).await
+      },
+    }
   }
 
-  /// Try to read from all sockets concurrently, returning the first result that completes.
+  /// Try to read from all sockets concurrently.
   #[cfg(not(feature = "replicas"))]
   pub async fn select_read(&mut self) -> Vec<(Server, Result<Resp3Frame, RedisError>)> {
-    read_primary_nodes!(self)
+    match self.connections {
+      Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
+        if let Some(writer) = writer {
+          ReadFuture::new(inner, writer).await
+        } else {
+          Vec::new()
+        }
+      },
+      Connections::Clustered { ref mut writers, .. } => ReadAllFuture::new(inner, writers).await,
+    }
   }
 
   #[cfg(feature = "replicas")]
