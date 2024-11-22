@@ -492,29 +492,3 @@ pub async fn sync_cluster_with_policy(
 
   Ok(())
 }
-
-macro_rules! next_frame {
-  ($inner:expr, $conn:expr) => {{
-    if let Some(duration) = $inner.connection.unresponsive.max_timeout {
-      if $conn.buffer.is_empty() {
-        $conn.read().await
-      } else {
-        if let Some(ref last_written) = $conn.last_write {
-          if last_written.elapsed() > duration {
-            // check for frames waiting a response across multiple calls to poll_read
-            $inner.notifications.broadcast_unresponsive($conn.server.clone());
-            Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))
-          } else {
-            client_utils::timeout($conn.read(), duration).await
-          }
-        } else {
-          $conn.read().await
-        }
-      }
-    } else {
-      $conn.read().await
-    }
-  }};
-}
-
-pub(crate) use next_frame;

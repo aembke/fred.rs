@@ -4,7 +4,7 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::{types::SelectReadAll, utils::next_frame},
+  router::types::ReadAllFuture,
   runtime::RefCount,
   types::{Resp3Frame, Server},
   utils as client_utils,
@@ -397,8 +397,11 @@ impl Replicas {
   }
 
   /// Try to read from all sockets concurrently.
-  pub async fn select_read(&mut self) -> Vec<(Server, Result<Resp3Frame, RedisError>)> {
-    SelectReadAll::new(&mut self.connections).await
+  pub async fn select_read(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Vec<(Server, Option<Result<Resp3Frame, RedisError>>)> {
+    ReadAllFuture::new(inner, &mut self.connections).await
   }
 }
 

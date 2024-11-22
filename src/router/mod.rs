@@ -17,7 +17,10 @@ use crate::{
     connection::{Counters, RedisConnection},
     types::Server,
   },
-  router::{connections::Connections, types::SelectReadAll, utils::next_frame},
+  router::{
+    connections::Connections,
+    types::{ReadAllFuture, ReadFuture},
+  },
   runtime::RefCount,
   types::Resp3Frame,
   utils as client_utils,
@@ -27,7 +30,6 @@ use std::{collections::VecDeque, future::pending};
 
 #[cfg(feature = "replicas")]
 use futures::future::{select, try_join, Either};
-use log::Level;
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
 #[cfg(feature = "replicas")]
@@ -39,18 +41,14 @@ pub mod transactions;
 use replicas::Replicas;
 
 macro_rules! read_primary_nodes {
-  ($router:expr) => {{
+  ($inner:expr, $router:expr) => {{
     match $router.connections {
-      Connections::Clustered { ref mut writers, .. } => SelectReadAll::new(writers).await,
+      Connections::Clustered { ref mut writers, .. } => ReadAllFuture::new(inner, writers).await,
       Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
-        if let Some(conn) = writer {
-          match next_frame!($inner, conn) {
-            Ok(Some(frame)) => vec![(conn.server.clone(), Ok(frame))],
-            Ok(None) => Vec::new(),
-            Err(e) => vec![(conn.server.clone(), Err(e))],
-          }
+        if let Some(writer) = writer {
+          ReadFuture::new(inner, writer).await
         } else {
-          Vec::new()
+          pending().await
         }
       },
     }
@@ -99,7 +97,7 @@ impl Router {
 
   /// Find the connection that should receive the provided command.
   #[cfg(feature = "replicas")]
-  pub fn route<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
+  pub fn route(&mut self, command: &RedisCommand) -> Option<&mut RedisConnection> {
     if command.is_all_cluster_nodes() {
       return None;
     }
@@ -424,18 +422,18 @@ impl Router {
     }
   }
 
-  /// Try to read from all sockets concurrently, returning the first result that completes.
+  /// Try to read from all sockets concurrently.
   #[cfg(feature = "replicas")]
-  pub async fn select_read(&mut self) -> Vec<(Server, Result<Resp3Frame, RedisError>)> {
-    if log_enabled!(Level::Trace) {
-      trace!("Select read all sockets.");
-    }
-
-    let primary_ft = async { read_primary_nodes!(self) };
+  pub async fn select_read(
+    &mut self,
+    inner: &RefCount<RedisClientInner>,
+  ) -> Vec<(Server, Option<Result<Resp3Frame, RedisError>>)> {
+    let primary_ft = async { read_primary_nodes!(inner, self) };
     pin!(primary_ft);
-    let replica_ft = self.replicas.select_read();
+    let replica_ft = self.replicas.select_read(inner);
     pin!(replica_ft);
 
+    // TODO can't use join here since replica ft and primary wait for a result
     let (mut left, right) = join(primary_ft, replica_ft).await;
     left.extend(right);
     left
