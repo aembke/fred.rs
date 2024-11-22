@@ -17,16 +17,17 @@ use crate::{
     connection::{Counters, RedisConnection},
     types::Server,
   },
-  router::{connections::Connections, utils::next_frame},
+  router::{connections::Connections, types::SelectReadAll, utils::next_frame},
   runtime::RefCount,
   types::Resp3Frame,
   utils as client_utils,
 };
-use futures::future::{join_all, select_all};
+use futures::future::{join, join_all, select_all};
 use std::{collections::VecDeque, future::pending};
 
 #[cfg(feature = "replicas")]
 use futures::future::{select, try_join, Either};
+use log::Level;
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
 #[cfg(feature = "replicas")]
@@ -38,38 +39,18 @@ pub mod transactions;
 use replicas::Replicas;
 
 macro_rules! read_primary_nodes {
-  ($router:expr, $inner:expr) => {{
+  ($router:expr) => {{
     match $router.connections {
-      Connections::Clustered { ref mut writers, .. } => {
-        if writers.is_empty() {
-          // this is used in the context of select!, so we want to wait rather than break early.
-          pending::<()>().await;
-          return None;
-        }
-
-        select_all(writers.iter_mut().map(|(_, conn)| {
-          Box::pin(async {
-            match next_frame!($inner, conn) {
-              Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
-              Ok(None) => None,
-              Err(e) => Some((conn.server.clone(), Err(e))),
-            }
-          })
-        }))
-        .await
-        .0
-      },
+      Connections::Clustered { ref mut writers, .. } => SelectReadAll::new(writers).await,
       Connections::Centralized { ref mut writer } | Connections::Sentinel { ref mut writer } => {
         if let Some(conn) = writer {
           match next_frame!($inner, conn) {
-            Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
-            Ok(None) => None,
-            Err(e) => Some((conn.server.clone(), Err(e))),
+            Ok(Some(frame)) => vec![(conn.server.clone(), Ok(frame))],
+            Ok(None) => Vec::new(),
+            Err(e) => vec![(conn.server.clone(), Err(e))],
           }
         } else {
-          // this is used in the context of select!, so we want to wait rather than break early.
-          pending::<()>().await;
-          None
+          Vec::new()
         }
       },
     }
@@ -445,28 +426,25 @@ impl Router {
 
   /// Try to read from all sockets concurrently, returning the first result that completes.
   #[cfg(feature = "replicas")]
-  pub async fn select_read(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
-    let primary_ft = async { read_primary_nodes!(self, inner) };
+  pub async fn select_read(&mut self) -> Vec<(Server, Result<Resp3Frame, RedisError>)> {
+    if log_enabled!(Level::Trace) {
+      trace!("Select read all sockets.");
+    }
+
+    let primary_ft = async { read_primary_nodes!(self) };
     pin!(primary_ft);
-    let replica_ft = self.replicas.select_read(inner);
+    let replica_ft = self.replicas.select_read();
     pin!(replica_ft);
 
-    match select(primary_ft, replica_ft).await {
-      Either::Left((l, _)) => l,
-      Either::Right((r, _)) => r,
-    }
+    let (mut left, right) = join(primary_ft, replica_ft).await;
+    left.extend(right);
+    left
   }
 
   /// Try to read from all sockets concurrently, returning the first result that completes.
   #[cfg(not(feature = "replicas"))]
-  pub async fn select_read(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
-    read_primary_nodes!(self, inner)
+  pub async fn select_read(&mut self) -> Vec<(Server, Result<Resp3Frame, RedisError>)> {
+    read_primary_nodes!(self)
   }
 
   #[cfg(feature = "replicas")]

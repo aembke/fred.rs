@@ -7,6 +7,7 @@ use crate::{
   types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
 };
+use log::Level;
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 
 #[cfg(feature = "transactions")]
@@ -88,6 +89,9 @@ async fn write_command(
           _trace!(inner, "Sent command to {}. Flushed: {}", conn.server, flushed);
           if is_blocking {
             inner.backchannel.set_blocked(&conn.server);
+          }
+          if !flushed && inner.counters.read_cmd_buffer_len() == 0 {
+            let _ = conn.flush().await;
           }
 
           // interrupt the command that was just sent if another command is queued after sending this one
@@ -352,15 +356,41 @@ async fn read_or_write(
   router: &mut Router,
   rx: &mut CommandReceiver,
 ) -> Result<(), RedisError> {
-  tokio::select! {
+  // The most complicated part of the main client command loop is implemented in this function.
+  //
+  // In the past `fred` worked by spawning a separate task for each connection such that the Tokio scheduler could
+  // read from all sockets concurrently. Unfortunately this introduced significant overhead directly in the scheduling
+  // layer (via a huge number of calls to `next_expiration` within Tokio) and indirectly via the added message passing
+  // communication mechanisms required between reader tasks and the writer task.
+  //
+  // In 9.5.0 the routing layer was reworked to operate on both readers and writers within a single task. This
+  // increased throughput by 2-3x on the happy path, but requires some `select` shenanigans so that the client can
+  // appear to operate on readers and writers concurrently.
+  //
+  // This function is called in a loop and drives futures that concurrently read and write to sockets.
+  if log_enabled!(Level::Trace) {
+    _trace!(inner, "Read or write");
+  }
+
+  let result = tokio::select! {
     biased;
     Some((server, result)) = router.select_read(inner) => {
       utils::process_response(inner, router, &server, result).await
     },
     Some(command) = rx.recv() => {
+      println!("COMMAND");
       process_command(inner, router, command).await
-    }
+    },
+    else => {
+      println!("HERE1"); return Ok(()) }
+  };
+
+  println!("HERE2");
+
+  if log_enabled!(Level::Trace) {
+    _trace!(inner, "After read or write");
   }
+  result
 }
 
 /// Start the command processing stream, initiating new connections in the process.

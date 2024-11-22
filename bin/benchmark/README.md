@@ -63,8 +63,10 @@ Callers may have to also change `run.sh` to enable additional features in docker
 ## Usage
 
 ```
+A benchmarking module based on the `redis-benchmark` tool included with Redis.
+
 USAGE:
-    fred_benchmark [FLAGS] [OPTIONS] [SUBCOMMAND]
+    fred_benchmark [FLAGS] [OPTIONS]
 
 FLAGS:
         --cluster     Whether to assume a clustered deployment.
@@ -72,23 +74,19 @@ FLAGS:
     -q, --quiet       Only print the final req/sec measurement.
         --replicas    Whether to use `GET` with replica nodes instead of `INCR` with primary nodes.
     -t, --tls         Enable TLS via whichever build flag is provided.
-    -t, --tracing     Whether to enable tracing via a local Jeager instance. See tests/docker-compose.yml to
-                      start up a local Jaeger instance.
+    -T, --tracing     Whether to enable tracing via a local Jeager instance. See tests/docker-compose.yml to start up a
+                      local Jaeger instance.
     -V, --version     Prints version information
 
 OPTIONS:
     -a, --auth <STRING>           The password/key to use. `REDIS_USERNAME` and `REDIS_PASSWORD` can also be used.
+        --bounded <NUMBER>        The size of the bounded mpsc channel used to route commands. [default: 0]
     -c, --concurrency <NUMBER>    The number of Tokio tasks used to run commands. [default: 100]
     -n, --commands <NUMBER>       The number of commands to run. [default: 100000]
     -h, --host <STRING>           The hostname of the redis server. [default: 127.0.0.1]
     -P, --pool <NUMBER>           The number of clients in the redis connection pool. [default: 1]
     -p, --port <NUMBER>           The port for the redis server. [default: 6379]
     -u, --unix-sock <PATH>        The path to a unix socket.
-
-SUBCOMMANDS:
-    help           Prints this message or the help of the given subcommand(s)
-    no-pipeline    Run the test without pipelining [Default].
-    pipeline       Run the test with pipelining.
 ```
 
 ## Examples
@@ -133,9 +131,36 @@ Maybe Relevant Specs:
 The `USE_REDIS_RS` environment variable can be toggled to [switch the benchmark logic](./src/_redis.rs) to
 use `redis-rs` instead of `fred`. There's also an `info` level log line that can confirm this at runtime.
 
-The `redis-rs` variant uses the same general strategy, but with [bb8-redis](https://crates.io/crates/bb8-redis) (
-specifically `Pool<RedisConnectionManager>`) instead of `fred::clients::RedisPool`. All the other components
-in the benchmark logic are the same.
+The `redis-rs` variant uses the same general strategy where multiple tasks share a client or pool and try to send `INCR`
+to the server(s) as quickly as possible.
+
+The comparison benchmarks require some explanation since there are several ways to use `redis-rs`. Both `redis-rs` and
+`fred` implement a form of multiplexing across Tokio tasks such that independent tasks can share a connection without
+waiting on one another (usually). In `redis-rs` this is called the `MultiplexedConnection` and in `fred` it was formerly
+called `auto_pipeline`.
+
+For many use cases a single client instance can handle more than enough concurrent commands, but in some cases callers
+may want to use connection pooling (connection redundancy and failover, TCP layer bottlenecks, etc). The `redis-rs`
+crate has several ways to do this, but for the purposes of this benchmark I used `bb8-redis`. It's worth noting however
+that `bb8-redis` does not appear to be aware of the multiplexed nature of `MultiplexedConnection`, and as a result it
+actually performs significantly worse than a single `MultiplexedConnection` since the pool acquisition interface gives
+exclusive access to the connection while waiting on a response, essentially requiring the caller to wait for a full
+round-trip on each command and negating any benefits of the underlying multiplexing layer. At the time of writing there
+does not appear to be an out-of-the-box module that can do efficient pooling across multiple `redis-rs`'s
+`MultiplexedConnection`s. For those curious, this is why `fred` ships with its own `RedisPool` interface rather than
+using `bb8` (or similar). The `RedisPool` interface is specifically built to avoid this issue.
+
+As a result there's currently no direct (or fair) comparisons between a `RedisPool` and anything in
+`redis-rs`, but we can compare individual client instances that use a single connection. However, for comparison
+purposes this tool does include a way to benchmark `bb8-redis` pooling, although callers should be aware that it's not a
+fair, apples-to-apples to comparison with `RedisPool` due to the multiplexing issue mentioned above.
+
+There are two env flags that can be used to enable the `redis-rs` benchmarks via the `./run.sh` script:
+
+* `REDIS_RS_BB8` - Use the `bb8-redis` interface to pool several `MultiplexedConnection` instances. Again, note the
+  above limitations.
+* `REDIS_RS_MANAGER` - Use a single `MultiplexedConnection`. This is the best comparison between the two libraries, but
+  it will ignore any pooling argv. At the moment it's only suitable for comparing individual centralized clients.
 
 ### Examples
 

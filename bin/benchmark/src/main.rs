@@ -73,7 +73,6 @@ struct Argv {
   pub unix:     Option<String>,
   pub host:     String,
   pub port:     u16,
-  pub pipeline: bool,
   pub pool:     usize,
   pub quiet:    bool,
   pub auth:     Option<String>,
@@ -125,7 +124,6 @@ fn parse_argv() -> Arc<Argv> {
     .map(|v| v.parse::<usize>().expect("Invalid bounded value"))
     .unwrap_or(0);
   let auth = matches.value_of("auth").map(|v| v.to_owned());
-  let pipeline = matches.subcommand_matches("pipeline").is_some();
 
   Arc::new(Argv {
     cluster,
@@ -136,7 +134,6 @@ fn parse_argv() -> Arc<Argv> {
     tasks,
     host,
     port,
-    pipeline,
     bounded,
     pool,
     replicas,

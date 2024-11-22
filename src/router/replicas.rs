@@ -4,18 +4,19 @@ use crate::{
   error::{RedisError, RedisErrorKind},
   modules::inner::RedisClientInner,
   protocol::{command::RedisCommand, connection, connection::RedisConnection},
-  router::utils::next_frame,
+  router::{types::SelectReadAll, utils::next_frame},
   runtime::RefCount,
   types::{Resp3Frame, Server},
   utils as client_utils,
 };
-use futures::future::{join_all, select_all};
+use futures::future::{join_all, poll_fn, select_all};
 use std::{
   collections::{HashMap, VecDeque},
   fmt,
   fmt::Formatter,
-  future::pending,
+  future::{pending, Future},
 };
+use tokio::pin;
 
 /// An interface used to filter the list of available replica nodes.
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -395,28 +396,9 @@ impl Replicas {
     Ok(())
   }
 
-  /// Try to read from all sockets concurrently, returning the first result that completes.
-  pub async fn select_read(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Option<(Server, Result<Resp3Frame, RedisError>)> {
-    if self.connections.is_empty() {
-      // this is used in the context of select!, so we want to wait rather than break early.
-      pending::<()>().await;
-      return None;
-    }
-
-    select_all(self.connections.iter_mut().map(|(_, conn)| {
-      Box::pin(async {
-        match next_frame!(inner, conn) {
-          Ok(Some(frame)) => Some((conn.server.clone(), Ok(frame))),
-          Ok(None) => None,
-          Err(e) => Some((conn.server.clone(), Err(e))),
-        }
-      })
-    }))
-    .await
-    .0
+  /// Try to read from all sockets concurrently.
+  pub async fn select_read(&mut self) -> Vec<(Server, Result<Resp3Frame, RedisError>)> {
+    SelectReadAll::new(&mut self.connections).await
   }
 }
 

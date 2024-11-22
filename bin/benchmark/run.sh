@@ -1,9 +1,9 @@
 #!/bin/bash
 
-[[ -z "${USE_REDIS_RS}" ]] && FEATURES="assert-expected" || FEATURES="assert-expected redis-rs"
+[[ -z "${REDIS_RS_BB8}" ]] && FEATURES="assert-expected" || FEATURES="assert-expected redis-rs"
 
-if [[ ! -z "${REDIS_MANAGER}" ]]; then
-  FEATURES="$FEATURES redis-manager"
+if [[ ! -z "${REDIS_RS_MANAGER}" ]]; then
+  FEATURES="assert-expected redis-rs redis-manager"
 fi
 
 # echo 0 | sudo tee /proc/sys/kernel/kptr_restrict

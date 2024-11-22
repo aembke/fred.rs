@@ -37,8 +37,8 @@ tokio-metrics = { version = "0.3.1", optional = true, features = ["rt"] }
 dhat = { version = "0.3.3", optional = true }
 
 [dependencies.fred]
-path = "../.."
-#path = "/fred"
+#path = "../.."
+path = "/fred"
 #path = "/project"
 features = ["replicas", "unix-sockets", "i-all"]
 default-features = false

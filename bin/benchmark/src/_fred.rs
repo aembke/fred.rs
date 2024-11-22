@@ -64,7 +64,6 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
 
   let pool = RedisBuilder::from_config(config)
     .with_performance_config(|config| {
-      config.auto_pipeline = argv.pipeline;
       config.backpressure.max_in_flight_commands = 100_000_000;
     })
     .with_connection_config(|config| {
@@ -113,6 +112,7 @@ fn spawn_client_task(
         bar.inc(1);
       }
     }
+    debug!("Ending client task");
   })
 }
 
