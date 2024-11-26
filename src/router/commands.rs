@@ -1,8 +1,9 @@
 use crate::{
   error::{RedisError, RedisErrorKind},
+  interfaces,
   modules::inner::{CommandReceiver, RedisClientInner},
   protocol::command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
-  router::{clustered, utils, Router},
+  router::{clustered, utils, ReconnectServer, Router},
   runtime::{OneshotSender, RefCount},
   types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
   utils as client_utils,
@@ -12,29 +13,77 @@ use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 
 #[cfg(feature = "transactions")]
 use crate::router::transactions;
-#[cfg(feature = "full-tracing")]
-use tracing_futures::Instrument;
 
-#[cfg(feature = "full-tracing")]
-macro_rules! write_command_t {
-  ($inner:ident, $router:ident, $command:ident) => {
-    if $inner.should_trace() {
-      $command.take_queued_span();
-      let span = fspan!($command, $inner.full_tracing_span_level(), "fred.write");
-      Box::pin(write_command($inner, $router, $command))
-        .instrument(span)
-        .await
-    } else {
-      Box::pin(write_command($inner, $router, $command)).await
+#[cfg(feature = "replicas")]
+async fn create_replica_connection(
+  inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
+  mut command: RedisCommand,
+) -> Result<(), RedisError> {
+  if command.use_replica && inner.connection.replica.lazy_connections {
+    let (primary, replica) = {
+      let primary = match router.cluster_owner(&command) {
+        Some(server) => server,
+        None => {
+          command.respond_to_caller(Err(RedisError::new(
+            RedisErrorKind::Cluster,
+            "Failed to find cluster hash slot owner.",
+          )));
+          return Ok(());
+        },
+      };
+      let replica = match router.replicas.routing.next_replica(primary) {
+        Some(replica) => replica,
+        None => {
+          command.respond_to_caller(Err(RedisError::new(
+            RedisErrorKind::Cluster,
+            "Failed to find cluster hash slot owner.",
+          )));
+          return Ok(());
+        },
+      };
+
+      (primary.clone(), replica.clone())
+    };
+    if let Err(err) = router
+      .replicas
+      .add_connection(inner, primary, replica.clone(), true)
+      .await
+    {
+      utils::defer_reconnection(inner, router, Some(&replica), err, true)?;
+      // TODO change reconnect_once to not fail if draining retry buffer fails
     }
-  };
-}
 
-#[cfg(not(feature = "full-tracing"))]
-macro_rules! write_command_t {
-  ($inner:ident, $router:ident, $command:ident) => {
-    Box::pin(write_command($inner, $router, $command)).await
-  };
+    // create connection, try again by sending to command_tx
+    // incr attempts remaining
+
+    // how does fallback work?
+    //
+
+    unimplemented!()
+  } else if command.use_replica && !inner.connection.replica.lazy_connections {
+    if inner.connection.replica.primary_fallback {
+      command.use_replica = false;
+      interfaces::send_to_router(inner, command.into())?;
+    } else {
+      command.respond_to_caller(Err(RedisError::new(
+        RedisErrorKind::Unknown,
+        "Failed to route command to replica.",
+      )));
+    }
+    Ok(())
+  } else if !command.use_replica {
+    let err = RedisError::new(RedisErrorKind::Unknown, "Failed to route command.");
+    utils::defer_reconnection(inner, router, None, err, false)?;
+    router.retry_command(command);
+    Ok(())
+  } else {
+    command.respond_to_caller(Err(RedisError::new(
+      RedisErrorKind::Unknown,
+      "Failed to route command to replica.",
+    )));
+    Ok(())
+  }
 }
 
 /// Write the command to a connection.
@@ -43,7 +92,6 @@ async fn write_command(
   router: &mut Router,
   mut command: RedisCommand,
 ) -> Result<(), RedisError> {
-  // TODO find a way to pass command by reference
   _trace!(inner, "Writing command: {:?}", command);
   if let Err(err) = command.decr_check_attempted() {
     command.respond_to_caller(Err(err));
@@ -56,19 +104,17 @@ async fn write_command(
   #[cfg(not(feature = "replicas"))]
   let use_replica = false;
 
-  // TODO handle lazy replica connections
-
   let disconnect_from = {
     if command.is_all_cluster_nodes() {
       if let Err(err) = router.drain_all().await {
         router.disconnect_all().await;
         router.retry_command(command);
-        utils::defer_reconnection(inner, None, err, use_replica)?;
+        utils::defer_reconnection(inner, router, None, err, use_replica)?;
         None
       } else {
         if let Err(err) = clustered::send_all_cluster_command(inner, router, command).await {
           router.disconnect_all().await;
-          utils::defer_reconnection(inner, None, err, use_replica)?;
+          utils::defer_reconnection(inner, router, None, err, use_replica)?;
         }
 
         None
@@ -77,10 +123,16 @@ async fn write_command(
       let conn = match router.route(&command) {
         Some(conn) => conn,
         None => {
-          let err = RedisError::new(RedisErrorKind::Unknown, "Failed to route command.");
-          utils::defer_reconnection(inner, None, err, use_replica)?;
-          router.retry_command(command);
-          return Ok(());
+          #[cfg(feature = "replicas")]
+          return Box::pin(create_replica_connection(inner, router, command)).await;
+
+          #[cfg(not(feature = "replicas"))]
+          {
+            let err = RedisError::new(RedisErrorKind::Unknown, "Failed to route command.");
+            utils::defer_reconnection(inner, router, None, err, use_replica)?;
+            router.retry_command(command);
+            return Ok(());
+          }
         },
       };
 
@@ -122,10 +174,32 @@ async fn write_command(
       router.retry_command(command);
     }
     utils::drop_connection(inner, router, &server, &err).await;
-    utils::defer_reconnection(inner, None, err, use_replica)
+    utils::defer_reconnection(inner, router, None, err, use_replica)
   } else {
     Ok(())
   }
+}
+
+#[cfg(feature = "full-tracing")]
+macro_rules! write_command_t {
+  ($inner:ident, $router:ident, $command:ident) => {
+    if $inner.should_trace() {
+      $command.take_queued_span();
+      let span = fspan!($command, $inner.full_tracing_span_level(), "fred.write");
+      Box::pin(write_command($inner, $router, $command))
+        .instrument(span)
+        .await
+    } else {
+      Box::pin(write_command($inner, $router, $command)).await
+    }
+  };
+}
+
+#[cfg(not(feature = "full-tracing"))]
+macro_rules! write_command_t {
+  ($inner:ident, $router:ident, $command:ident) => {
+    Box::pin(write_command($inner, $router, $command)).await
+  };
 }
 
 /// Run a pipelined series of commands, queueing commands to run later if needed.
@@ -139,7 +213,7 @@ async fn process_pipeline(
   for mut command in commands.into_iter() {
     // trying to pipeline `SSUBSCRIBE` is problematic since successful responses arrive out-of-order via pubsub push
     // frames, but error redirections are returned in-order and the client is expected to follow them. this makes it
-    // very difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
+    // difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
     // never pipeline `ssubscribe`, even if the caller asks.
     command.can_pipeline = command.kind != RedisCommandKind::Ssubscribe;
     command.skip_backpressure = true;
@@ -226,6 +300,8 @@ async fn process_replica_reconnect(
   tx: Option<ResponseSender>,
   replica: bool,
 ) -> Result<(), RedisError> {
+  router.reset_pending_reconnection(server.as_ref());
+
   #[allow(unused_mut)]
   if replica {
     let result = utils::sync_replicas_with_policy(inner, router, false).await;
@@ -249,6 +325,7 @@ async fn process_reconnect(
   tx: Option<ResponseSender>,
 ) -> Result<(), RedisError> {
   _debug!(inner, "Maybe reconnecting to {:?} (force: {})", server, force);
+  router.reset_pending_reconnection(server.as_ref());
 
   if let Some(server) = server {
     let has_connection = router.connections.has_server_connection(&server).await;

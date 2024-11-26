@@ -1,3 +1,11 @@
+## 10.0.0
+
+* Rename interfaces to remove `Redis` prefixes
+* Reduced memory footprint and significant write throughput improvements
+* Add `WITHSCORES` to `ZRANK` and `ZREVRANK`
+* Separate feature flags for different Redis and Valkey versions
+* Add `scan_with_cursor` interface
+
 ## 9.4.0
 
 * Change scanning functions to automatically continue when the current page is dropped

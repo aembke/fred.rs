@@ -32,22 +32,40 @@ use std::collections::VecDeque;
 use futures::future::try_join;
 #[cfg(feature = "replicas")]
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 
 #[cfg(feature = "transactions")]
 pub mod transactions;
 #[cfg(feature = "replicas")]
 use replicas::Replicas;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ReconnectServer {
+  All,
+  One(Server),
+}
+
+impl Hash for ReconnectServer {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    match self {
+      ReconnectServer::All => "all".hash(state),
+      ReconnectServer::One(server) => server.hash(state),
+    }
+  }
+}
+
 /// A struct for routing commands to the server(s).
 pub struct Router {
-  pub inner:        RefCount<RedisClientInner>,
+  pub inner:                RefCount<RedisClientInner>,
   /// The connection map for each deployment type.
-  pub connections:  Connections,
+  pub connections:          Connections,
   /// Storage for commands that should be deferred or retried later.
-  pub retry_buffer: VecDeque<RedisCommand>,
+  pub retry_buffer:         VecDeque<RedisCommand>,
+  /// A set to dedup pending reconnection commands.
+  pub pending_reconnection: HashSet<ReconnectServer>,
   /// The replica routing interface.
   #[cfg(feature = "replicas")]
-  pub replicas:     Replicas,
+  pub replicas:             Replicas,
 }
 
 impl Router {
@@ -64,6 +82,7 @@ impl Router {
     Router {
       inner: inner.clone(),
       retry_buffer: VecDeque::new(),
+      pending_reconnection: HashSet::new(),
       connections,
       #[cfg(feature = "replicas")]
       replicas: Replicas::new(),
@@ -75,6 +94,27 @@ impl Router {
     match self.connections {
       Connections::Clustered { ref cache, .. } => command.cluster_hash().and_then(|slot| cache.get_server(slot)),
       _ => None,
+    }
+  }
+
+  /// Whether a deferred reconnection command exists for the provided server.
+  pub fn has_pending_reconnection(&self, server: &Option<&Server>) -> bool {
+    match server {
+      Some(server) => {
+        self.pending_reconnection.contains(&ReconnectServer::All)
+          || self
+            .pending_reconnection
+            .contains(&ReconnectServer::One((*server).clone()))
+      },
+      None => self.pending_reconnection.contains(&ReconnectServer::All),
+    }
+  }
+
+  pub fn reset_pending_reconnection(&mut self, server: Option<&Server>) {
+    if let Some(server) = server {
+      self.pending_reconnection.remove(&ReconnectServer::One(server.clone()));
+    } else {
+      self.pending_reconnection.clear();
     }
   }
 

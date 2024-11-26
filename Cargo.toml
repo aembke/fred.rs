@@ -11,7 +11,7 @@ name = "fred"
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 rust-version = "1.75"
-version = "9.5.0"
+version = "10.0.0"
 
 [package.metadata.docs.rs]
 # do not show the glommio version of the docs

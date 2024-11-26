@@ -8,7 +8,7 @@ use crate::{
     types::*,
     utils as protocol_utils,
   },
-  router::{centralized, clustered, responses, Counters, Router},
+  router::{centralized, clustered, responses, Counters, ReconnectServer, Router},
   runtime::RefCount,
   types::*,
   utils as client_utils,
@@ -19,6 +19,9 @@ use std::{
   time::{Duration, Instant},
 };
 use tokio::pin;
+
+#[cfg(feature = "full-tracing")]
+use tracing_futures::Instrument;
 
 static OK_FRAME: Resp3Frame = Resp3Frame::SimpleString {
   data:       Bytes::from_static(b"OK"),
@@ -117,6 +120,7 @@ pub async fn write_command(
 
 pub fn defer_reconnection(
   inner: &RefCount<RedisClientInner>,
+  router: &mut Router,
   server: Option<&Server>,
   error: RedisError,
   _replica: bool,
@@ -125,14 +129,19 @@ pub fn defer_reconnection(
     return Err(error);
   }
 
-  _debug!(inner, "Defer reconnection to {:?} after {:?}", server, error);
-  interfaces::send_to_router(inner, RouterCommand::Reconnect {
-    server:                               server.cloned(),
-    force:                                false,
-    tx:                                   None,
-    #[cfg(feature = "replicas")]
-    replica:                              _replica,
-  })
+  if router.has_pending_reconnection(&server) {
+    _debug!(inner, "Skip defer reconnection.");
+    Ok(())
+  } else {
+    _debug!(inner, "Defer reconnection to {:?} after {:?}", server, error);
+    interfaces::send_to_router(inner, RouterCommand::Reconnect {
+      server:                               server.cloned(),
+      force:                                false,
+      tx:                                   None,
+      #[cfg(feature = "replicas")]
+      replica:                              _replica,
+    })
+  }
 }
 
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller
@@ -190,7 +199,12 @@ pub async fn reconnect_once(inner: &RefCount<RedisClientInner>, router: &mut Rou
       }
     }
     // try to flush any previously in-flight commands
-    Box::pin(router.retry_buffer()).await?;
+    if let Err(e) = Box::pin(router.retry_buffer()).await {
+      _warn!(inner, "Error flushing retry buffer: {:?}", e);
+      client_utils::set_client_state(&inner.state, ClientState::Disconnected);
+      inner.notifications.broadcast_error(e.clone());
+      return Err(e);
+    }
 
     client_utils::set_client_state(&inner.state, ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
@@ -248,7 +262,7 @@ pub async fn process_response(
     ($inner:expr, $router:expr, $server:expr, $err:expr) => {{
       let replica = $router.is_replica($server);
       drop_connection($inner, $router, $server, &$err).await;
-      defer_reconnection($inner, Some($server), $err, replica)
+      defer_reconnection($inner, $router, Some($server), $err, replica)
     }};
   }
 
@@ -308,7 +322,7 @@ pub async fn read_and_sleep(
             let replica = router.is_replica(&server);
             _debug!(inner, "Error reading from {} while sleeping: {:?}", server, err);
             drop_connection(inner, router, &server, &err).await;
-            defer_reconnection(inner, Some(&server), err, replica)?;
+            defer_reconnection(inner, router, Some(&server), err, replica)?;
           }
         }
       }

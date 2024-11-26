@@ -100,15 +100,6 @@ All the examples below use the following parameters:
 * 10_000 Tokio tasks
 * 15 clients in the connection pool
 
-With `auto_pipeline` **disabled**:
-
-```
-$ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar no-pipeline
-Performed 10000000 operations in: 27.038434665s. Throughput: 369849 req/sec
-```
-
-With `auto_pipeline` **enabled**:
-
 ```
 $ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a bar pipeline
 Performed 10000000 operations in: 3.728232639s. Throughput: 2682403 req/sec
@@ -121,7 +112,7 @@ $ ./run.sh --cluster -c 10000 -n 10000000 -P 15 -h redis-cluster-1 -p 30001 -a b
 erformed 10000000 operations in: 3.234255482s. Throughput: 3092145 req/sec
 ```
 
-Maybe Relevant Specs:
+Relevant Specs:
 
 * 32 CPUs
 * 64 GB memory
@@ -136,29 +127,43 @@ to the server(s) as quickly as possible.
 
 The comparison benchmarks require some explanation since there are several ways to use `redis-rs`. Both `redis-rs` and
 `fred` implement a form of multiplexing across Tokio tasks such that independent tasks can share a connection without
-waiting on one another (usually). In `redis-rs` this is called the `MultiplexedConnection` and in `fred` it was formerly
+waiting on one another. In `redis-rs` this is called the `MultiplexedConnection` and in `fred` it was formerly
 called `auto_pipeline`.
 
 For many use cases a single client instance can handle more than enough concurrent commands, but in some cases callers
-may want to use connection pooling (connection redundancy and failover, TCP layer bottlenecks, etc). The `redis-rs`
-crate has several ways to do this, but for the purposes of this benchmark I used `bb8-redis`. It's worth noting however
-that `bb8-redis` does not appear to be aware of the multiplexed nature of `MultiplexedConnection`, and as a result it
-actually performs significantly worse than a single `MultiplexedConnection` since the pool acquisition interface gives
-exclusive access to the connection while waiting on a response, essentially requiring the caller to wait for a full
-round-trip on each command and negating any benefits of the underlying multiplexing layer. At the time of writing there
-does not appear to be an out-of-the-box module that can do efficient pooling across multiple `redis-rs`'s
-`MultiplexedConnection`s. For those curious, this is why `fred` ships with its own `RedisPool` interface rather than
-using `bb8` (or similar). The `RedisPool` interface is specifically built to avoid this issue.
+may want to use connection pooling (connection redundancy and failover, TCP layer bottlenecks, etc). There are several
+ways to do this with `redis-rs`:
 
-As a result there's currently no direct (or fair) comparisons between a `RedisPool` and anything in
-`redis-rs`, but we can compare individual client instances that use a single connection. However, for comparison
-purposes this tool does include a way to benchmark `bb8-redis` pooling, although callers should be aware that it's not a
-fair, apples-to-apples to comparison with `RedisPool` due to the multiplexing issue mentioned above.
+* Use `bb8-redis`. This seems to be the most up-to-date option, but has some downsides mentioned below.
+* Use `r2d2-redis`. There are several flavors of this on crates.io, and it's not always clear which of these are
+  up-to-date or maintained.
 
-There are two env flags that can be used to enable the `redis-rs` benchmarks via the `./run.sh` script:
+The biggest difference between these two libraries relates to how they manage ownership of the underlying pooled
+connections. Based on my testing there is one key difference from a write throughput perspective - the `bb8-redis`
+interface gives exclusive access to the connection and the `r2d2` interface gives shared access to the underlying
+connection. When combined with the multiplexing layer inside the client this can have a dramatic effect on write
+throughput.
+
+Ultimately the exclusive access patterns in `bb8-redis` defeat the purpose of the multiplexing layer inside `redis-rs`.
+If only one caller or task can access a connection at a time, and that caller holds the `&mut MultiplexedConnection`
+across command await points then callers effectively have to wait for a full round trip on every command. As a result, a
+pool of connections managed by `bb8-redis` performs significantly worse than a single shared `MultiplexedConnection`.
+Fortunately the shared interface supported by `r2d2-redis` does not have this limitation. This is also why `fred` ships
+with its own `RedisPool` - that interface is purpose-built to work with the underlying multiplexing layer inside the
+client.
+
+For benchmark comparison purposes this is important since it means that comparing `bb8-redis` with `fred::RedisPool` is
+not really a fair or direct comparison. However, `r2d2-redis` and `fred::RedisPool` can be compared directly since they
+both work by sharing the underlying clients. Additionally, we can also compare individual clients.
+
+However, for comparison purposes this tool does include a way to benchmark `bb8-redis` pooling, although callers should
+be aware that it's not a fair, direct comparison with `RedisPool` due to the multiplexing issue mentioned above.
+
+There are 3 env flags that can be used to enable the `redis-rs` benchmarks via the `./run.sh` script:
 
 * `REDIS_RS_BB8` - Use the `bb8-redis` interface to pool several `MultiplexedConnection` instances. Again, note the
   above limitations.
+* `REDIS_RS_R2D2` - Use the `r2d2-redos` interface to pool several `MultiplexedConnection` instances.
 * `REDIS_RS_MANAGER` - Use a single `MultiplexedConnection`. This is the best comparison between the two libraries, but
   it will ignore any pooling argv. At the moment it's only suitable for comparing individual centralized clients.
 
@@ -174,15 +179,11 @@ These examples use the following parameters:
 * 15 clients in the connection pool
 
 ```
-# fred without `auto_pipeline` 
-$ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 no-pipeline
-Performed 10000000 operations in: 52.156700826s. Throughput: 191732 req/sec
-
 # redis-rs via bb8-redis
 $ USE_REDIS_RS=1 ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000
 Performed 10000000 operations in: 102.953612933s. Throughput: 97131 req/sec
 
-# fred with `auto_pipeline`
+# fred 
 $ ./run.sh -h redis-main -p 6379 -a bar -n 10000000 -P 15 -c 10000 pipeline
 Performed 10000000 operations in: 5.74236423s. Throughput: 1741553 req/sec
 ```
