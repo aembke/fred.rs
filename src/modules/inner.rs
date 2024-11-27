@@ -810,6 +810,7 @@ impl ClientInner {
         GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
         GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
           RouterCommand::Command(mut cmd) => {
+            trace::backpressure_event(&cmd, None);
             cmd.respond_to_caller(Err(Error::new_backpressure()));
             Ok(())
           },

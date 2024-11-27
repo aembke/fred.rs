@@ -325,8 +325,6 @@ pub fn reset_router_task(inner: &RefCount<ClientInner>) {
     // another connection task is running. this will let the command channel drain, then it'll drop everything on
     // the old connection/router interface.
     let (tx, rx) = channel(inner.connection.max_command_buffer_len);
-    #[cfg(feature = "glommio")]
-    let tx = tx.into();
 
     let old_command_tx = inner.swap_command_tx(tx);
     inner.store_command_rx(rx, true);

@@ -11,8 +11,8 @@ use crate::{
   router::commands as router_commands,
   runtime::{glommio::compat::spawn_into, spawn, BroadcastReceiver, JoinHandle, RefCount},
   types::{
-    client::ClientState,
     config::{Config, ConnectionConfig, Options, PerformanceConfig, ReconnectPolicy, Server},
+    ClientState,
     ConnectHandle,
     CustomCommand,
     FromValue,
@@ -154,7 +154,7 @@ pub trait ClientLike: Clone + Sized {
     utils::reset_router_task(&inner);
 
     let connection_ft = async move {
-      inner.backchannel.clear_router_state(inner).await;
+      inner.backchannel.clear_router_state(&inner).await;
       let result = router_commands::start(&inner).await;
       // a canceled error means we intentionally closed the client
       _trace!(inner, "Ending connection task with {:?}", result);
@@ -340,7 +340,7 @@ pub fn spawn_event_listener<T, F, Fut>(rx: BroadcastReceiver<T>, func: F) -> Joi
 where
   T: Clone + 'static,
   Fut: Future<Output = FredResult<()>> + 'static,
-  F: Fn(T) -> Fut,
+  F: Fn(T) -> Fut + 'static,
 {
   spawn(async move {
     let mut result = Ok(());
