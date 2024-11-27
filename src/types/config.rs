@@ -421,7 +421,7 @@ pub struct ConnectionConfig {
   pub auto_client_setname:          bool,
   /// Limit the size of the internal in-memory command queue.
   ///
-  /// Commands that exceed this limit will receive a `RedisErrorKind::Backpressure` error. Setting this value to
+  /// Commands that exceed this limit will receive a `ErrorKind::Backpressure` error. Setting this value to
   /// anything > 0 will indicate that the client should use a bounded MPSC channel to communicate with the routing
   /// task.
   ///
@@ -600,7 +600,7 @@ pub struct Config {
   pub server:              ServerConfig,
   /// The protocol version to use when communicating with the server(s).
   ///
-  /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires Redis
+  /// If RESP3 is specified the client will automatically use `HELLO` when authenticating. **This requires version
   /// 6.0.0 or above.** If the `HELLO` command fails this will prevent the client from connecting. Callers should set
   /// this to RESP2 and use `HELLO` manually to fall back to RESP2 if needed.
   ///
@@ -649,7 +649,7 @@ pub struct Config {
   /// Default: `None`
   ///
   /// When used with the `sentinel-auth` feature this interface will take precedence over all `username` and
-  /// `password` fields for both sentinel nodes and Redis servers.
+  /// `password` fields for both sentinel nodes and servers.
   #[cfg(feature = "credential-provider")]
   #[cfg_attr(docsrs, doc(cfg(feature = "credential-provider")))]
   pub credential_provider: Option<Arc<dyn CredentialProvider>>,
@@ -749,7 +749,7 @@ impl Config {
     false
   }
 
-  /// Parse a URL string into a `RedisConfig`.
+  /// Parse a URL string into a `Config`.
   ///
   /// # URL Syntax
   ///
@@ -782,15 +782,15 @@ impl Config {
   ///
   /// This function will use the URL scheme to determine which server type the caller is using. Valid schemes include:
   ///
-  /// * `redis` - TCP connected to a centralized server.
-  /// * `rediss` - TLS connected to a centralized server.
-  /// * `redis-cluster` - TCP connected to a cluster.
-  /// * `rediss-cluster` - TLS connected to a cluster.
-  /// * `redis-sentinel` - TCP connected to a centralized server behind a sentinel layer.
-  /// * `rediss-sentinel` - TLS connected to a centralized server behind a sentinel layer.
-  /// * `redis+unix` - Unix domain socket followed by a path.
+  /// * `redis|valkey` - TCP connected to a centralized server.
+  /// * `rediss|valkeys` - TLS connected to a centralized server.
+  /// * `redis-cluster|valkey-cluster` - TCP connected to a cluster.
+  /// * `rediss-cluster|valkeys-cluster` - TLS connected to a cluster.
+  /// * `redis-sentinel|valkey-sentinel` - TCP connected to a centralized server behind a sentinel layer.
+  /// * `rediss-sentinel|valkeys-sentinel` - TLS connected to a centralized server behind a sentinel layer.
+  /// * `redis+unix|valkey+unix` - Unix domain socket followed by a path.
   ///
-  /// **The `rediss` scheme prefix requires one of the TLS feature flags.**
+  /// **The `rediss|valkeys` scheme prefix requires one of the TLS feature flags.**
   ///
   /// # Query Parameters
   ///
@@ -798,22 +798,22 @@ impl Config {
   /// example). The following query parameters may also be used in their respective contexts:
   ///
   /// * `node` - Specify another node in the topology. In a cluster this would refer to any other known cluster node.
-  ///   In the context of a Redis sentinel layer this refers to a known **sentinel** node. Multiple `node` parameters
-  ///   may be used in a URL.
+  ///   In the context of a sentinel layer this refers to a known **sentinel** node. Multiple `node` parameters may be
+  ///   used in a URL.
   /// * `sentinelServiceName` - Specify the name of the sentinel service. This is required when using the
   ///   `redis-sentinel` scheme.
   /// * `sentinelUsername` - Specify the username to use when connecting to a **sentinel** node. This requires the
   ///   `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual
-  ///   Redis server. The `username` part of the URL immediately following the scheme will refer to the username used
-  ///   when connecting to the backing Redis server.
+  ///   server. The `username` part of the URL immediately following the scheme will refer to the username used when
+  ///   connecting to the backing server.
   /// * `sentinelPassword` - Specify the password to use when connecting to a **sentinel** node. This requires the
   ///   `sentinel-auth` feature and allows the caller to use different credentials for sentinel nodes vs the actual
-  ///   Redis server. The `password` part of the URL immediately following the scheme will refer to the password used
-  ///   when connecting to the backing Redis server.
+  ///   server. The `password` part of the URL immediately following the scheme will refer to the password used when
+  ///   connecting to the backing server.
   ///
   /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered),
   /// [from_url_sentinel](Self::from_url_sentinel), and [from_url_unix](Self::from_url_unix) for more information. Or
-  /// see the [RedisConfig](Self) unit tests for examples.
+  /// see the [Config](Self) unit tests for examples.
   pub fn from_url(url: &str) -> Result<Config, Error> {
     let parsed_url = Url::parse(url)?;
     if utils::url_is_clustered(&parsed_url) {
@@ -830,7 +830,7 @@ impl Config {
     }
   }
 
-  /// Create a centralized `RedisConfig` struct from a URL.
+  /// Create a centralized `Config` struct from a URL.
   ///
   /// ```text
   /// redis://username:password@foo.com:6379/1
@@ -869,7 +869,7 @@ impl Config {
     })
   }
 
-  /// Create a clustered `RedisConfig` struct from a URL.
+  /// Create a clustered `Config` struct from a URL.
   ///
   /// ```text
   /// redis-cluster://username:password@foo.com:30001?node=bar.com:30002&node=baz.com:30003
@@ -913,7 +913,7 @@ impl Config {
     })
   }
 
-  /// Create a sentinel `RedisConfig` struct from a URL.
+  /// Create a sentinel `Config` struct from a URL.
   ///
   /// ```text
   /// redis-sentinel://username:password@foo.com:6379/1?sentinelServiceName=fakename&node=foo.com:30001&node=bar.com:30002
@@ -937,13 +937,13 @@ impl Config {
   /// * Depending on the cargo features used other sentinel query parameters may be used.
   ///
   /// This particular function is more complex than the others when the `sentinel-auth` feature is used. For example,
-  /// to declare a config that uses different credentials for the sentinel nodes vs the backing Redis servers:
+  /// to declare a config that uses different credentials for the sentinel nodes vs the backing servers:
   ///
   /// ```text
   /// redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&sentinelUsername=username2&sentinelPassword=password2&node=bar.com:26379&node=baz.com:26380
   /// ```
   ///
-  /// The above example will use `("username1", "password1")` when authenticating to the backing Redis servers, and
+  /// The above example will use `("username1", "password1")` when authenticating to the backing servers, and
   /// `("username2", "password2")` when initially connecting to the sentinel nodes. Additionally, all 3 addresses
   /// (`foo.com:26379`, `bar.com:26379`, `baz.com:26380`) specify known **sentinel** nodes.
   pub fn from_url_sentinel(url: &str) -> Result<Config, Error> {
@@ -977,7 +977,7 @@ impl Config {
     })
   }
 
-  /// Create a `RedisConfig` from a URL that connects via a Unix domain socket.
+  /// Create a `Config` from a URL that connects via a Unix domain socket.
   ///
   /// ```text
   /// redis+unix:///path/to/redis.sock
@@ -988,8 +988,8 @@ impl Config {
   ///
   /// * In the other URL parsing functions the path section indicates the database that the client should `SELECT`
   ///   after connecting. However, Unix sockets are also specified by a path rather than a hostname:port, which
-  ///   creates some ambiguity in this case. Callers should manually set the database field on the returned
-  ///   `RedisConfig` if needed.
+  ///   creates some ambiguity in this case. Callers should manually set the database field on the returned `Config`
+  ///   if needed.
   /// * If credentials are provided the caller must also specify a hostname in order to pass to the [URL
   ///   validation](Url::parse) process. This function will ignore the value, but some non-empty string must be
   ///   provided.
@@ -1008,7 +1008,7 @@ impl Config {
   }
 }
 
-/// Connection configuration for the Redis server.
+/// Connection configuration for the server.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ServerConfig {
   Centralized {
@@ -1115,7 +1115,8 @@ impl ServerConfig {
     }
   }
 
-  /// Create a clustered config with the same defaults as specified in the `create-cluster` script provided by Redis.
+  /// Create a clustered config with the same defaults as specified in the `create-cluster` script provided by Redis
+  /// or Valkey.
   pub fn default_clustered() -> ServerConfig {
     ServerConfig::Clustered {
       hosts:  vec![
@@ -1356,7 +1357,7 @@ pub struct Options {
   pub timeout:          Option<Duration>,
   /// The cluster node that should receive the command.
   ///
-  /// The caller will receive a `RedisErrorKind::Cluster` error if the provided server does not exist.
+  /// The caller will receive a `ErrorKind::Cluster` error if the provided server does not exist.
   ///
   /// The client will still follow redirection errors via this interface. Callers may not notice this, but incorrect
   /// server arguments here could result in unnecessary calls to refresh the cached cluster routing table.

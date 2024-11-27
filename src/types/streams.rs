@@ -490,7 +490,7 @@ pub type XReadValue<I, K, V> = (I, HashMap<K, V>);
 /// See the [xread](crate::interfaces::StreamsInterface::xread) documentation for more information.
 ///
 /// The inner type declarations refer to the following:
-/// * K1 - The type of the outer Redis key for the stream. Usually a `String` or `RedisKey`.
+/// * K1 - The type of the outer key for the stream. Usually a `String` or `Key`.
 /// * I - The type of the ID for a stream record ("abc-123"). This is usually a `String`.
 /// * K2 - The type of key in the map associated with each stream record.
 /// * V - The type of value in the map associated with each stream record.

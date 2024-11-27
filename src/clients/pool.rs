@@ -31,7 +31,7 @@ struct PoolInner {
 ///
 /// ### Restrictions
 ///
-/// The following interfaces are not implemented on `RedisPool`:
+/// The following interfaces are not implemented on `Pool`:
 /// * [MetricsInterface](crate::interfaces::MetricsInterface)
 /// * [PubsubInterface](crate::interfaces::PubsubInterface)
 /// * [EventInterface](crate::interfaces::EventInterface)
@@ -40,7 +40,7 @@ struct PoolInner {
 ///
 /// In many cases, such as [publish](crate::interfaces::PubsubInterface::publish), callers can work around this by
 /// adding a call to [next](Self::next), but in some scenarios this may not work. As a general rule, any commands
-/// that change or depend on local connection state will not be implemented directly on `RedisPool`. Callers can use
+/// that change or depend on local connection state will not be implemented directly on `Pool`. Callers can use
 /// [clients](Self::clients), [next](Self::next), or [last](Self::last) to operate on individual clients if needed.
 #[derive(Clone)]
 pub struct Pool {

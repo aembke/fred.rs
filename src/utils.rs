@@ -88,7 +88,7 @@ pub fn f64_opt_eq(lhs: &Option<f64>, rhs: &Option<f64>) -> bool {
   }
 }
 
-/// Convert a redis string to an `f64`, supporting "+inf" and "-inf".
+/// Convert a string to an `f64`, supporting "+inf" and "-inf".
 pub fn string_to_f64(s: &str) -> Result<f64, Error> {
   // this is changing in newer versions of redis to lose the "+" prefix
   if s == "+inf" || s == "inf" {
@@ -105,7 +105,7 @@ pub fn string_to_f64(s: &str) -> Result<f64, Error> {
   }
 }
 
-/// Convert an `f64` to a redis string, supporting "+inf" and "-inf".
+/// Convert an `f64` to a string, supporting "+inf" and "-inf".
 pub fn f64_to_string(d: f64) -> Result<Value, Error> {
   if d.is_infinite() && d.is_sign_negative() {
     Ok(Value::from_static_str("-inf"))

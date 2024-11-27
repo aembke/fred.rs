@@ -19,7 +19,7 @@ use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, fmt::Formatter};
 
-/// A cheaply cloneable Redis client struct.
+/// A cheaply cloneable client struct.
 #[derive(Clone)]
 pub struct Client {
   pub(crate) inner: RefCount<ClientInner>,
@@ -151,7 +151,7 @@ impl Client {
     }
   }
 
-  /// Create a new `RedisClient` from the config provided to this client.
+  /// Create a new `Client` from the config provided to this client.
   ///
   /// The returned client will **not** be connected to the server.
   pub fn clone_new(&self) -> Self {
@@ -168,7 +168,7 @@ impl Client {
     )
   }
 
-  /// Split a clustered Redis client into a set of centralized clients - one for each primary node in the cluster.
+  /// Split a clustered client into a set of centralized clients - one for each primary node in the cluster.
   ///
   /// Alternatively, callers can use [with_cluster_node](crate::clients::Client::with_cluster_node) to avoid
   /// creating new connections.
@@ -325,7 +325,7 @@ impl Client {
   /// ```rust
   /// # use fred::prelude::*;
   /// async fn example(client: &Client) -> Result<(), Error> {
-  ///   // discover servers via the `RedisConfig` or active connections
+  ///   // discover servers via the `Config` or active connections
   ///   let connections = client.active_connections().await?;
   ///
   ///   // ping each node in the cluster individually

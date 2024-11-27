@@ -1,4 +1,4 @@
-//! An interface for mocking Redis commands.
+//! An interface for mocking commands.
 //!
 //! There are several patterns for utilizing a mocking layer in tests. In some cases a simple "echo" interface is
 //! enough, or in others callers may need to buffer a series of commands before performing any assertions, etc. More
@@ -24,7 +24,7 @@ use std::{
   fmt::Debug,
 };
 
-/// A wrapper type for the parts of an internal Redis command.
+/// A wrapper type for the parts of an internal command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MockCommand {
   /// The first word in the command string. For example:
@@ -41,11 +41,11 @@ pub struct MockCommand {
   pub args:       Vec<Value>,
 }
 
-/// An interface for intercepting and processing Redis commands in a mocking layer.
+/// An interface for intercepting and processing commands in a mocking layer.
 #[allow(unused_variables)]
 #[rm_send_if(feature = "glommio")]
 pub trait Mocks: Debug + Send + Sync + 'static {
-  /// Intercept and process a Redis command, returning any `Value`.
+  /// Intercept and process a command, returning any `Value`.
   ///
   /// # Important
   ///

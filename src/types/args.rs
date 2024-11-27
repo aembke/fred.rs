@@ -153,21 +153,21 @@ impl From<f64> for StringOrNumber {
   }
 }
 
-/// A key in Redis.
+/// A key identifying a [Value](crate::types::Value).
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Key {
   key: Bytes,
 }
 
 impl Key {
-  /// Create a new `RedisKey` from static bytes without copying.
+  /// Create a new `Key` from static bytes without copying.
   pub const fn from_static(b: &'static [u8]) -> Self {
     Key {
       key: Bytes::from_static(b),
     }
   }
 
-  /// Create a new `RedisKey` from a `&'static str` without copying.
+  /// Create a new `Key` from a `&'static str` without copying.
   pub const fn from_static_str(b: &'static str) -> Self {
     Key {
       key: Bytes::from_static(b.as_bytes()),
@@ -579,7 +579,7 @@ impl fmt::Display for ValueKind {
   }
 }
 
-/// A value used in a Redis command.
+/// A value used in arguments or response types.
 #[derive(Clone, Debug)]
 pub enum Value {
   /// A boolean value.
@@ -1052,7 +1052,7 @@ impl Value {
     }
   }
 
-  /// Attempt to convert this value to a Redis map if it's an array with an even number of elements.
+  /// Attempt to convert this value to a map if it's an array with an even number of elements.
   pub fn into_map(self) -> Result<Map, Error> {
     match self {
       Value::Map(map) => Ok(map),
@@ -1099,7 +1099,7 @@ impl Value {
     }
   }
 
-  /// Convert a `RedisValue` to `Vec<(RedisValue, f64)>`, if possible.
+  /// Convert a `Value` to `Vec<(Value, f64)>`, if possible.
   pub fn into_zset_result(self) -> Result<Vec<(Value, f64)>, Error> {
     protocol_utils::value_to_zset_result(self)
   }
@@ -1309,7 +1309,7 @@ impl Value {
     }
   }
 
-  /// Replace this value with `RedisValue::Null`, returning the original value.
+  /// Replace this value with `Value::Null`, returning the original value.
   pub fn take(&mut self) -> Value {
     mem::replace(self, Value::Null)
   }
@@ -1704,7 +1704,7 @@ mod tests {
     assert_eq!(map.inner[&Key::from("hello")], Value::from("world"));
   }
 
-  // requires specialization of TryFrom<Vec<u8>> for RedisValue
+  // requires specialization of TryFrom<Vec<u8>> for Value
   #[test]
   #[cfg(feature = "specialize-into-bytes")]
   fn bytes_from_vec_u8() {

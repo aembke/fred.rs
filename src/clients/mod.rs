@@ -1,12 +1,12 @@
+mod client;
 mod options;
 mod pipeline;
 mod pool;
-mod redis;
 
+pub use client::Client;
 pub use options::WithOptions;
 pub use pipeline::Pipeline;
 pub use pool::Pool;
-pub use redis::Client;
 
 #[cfg(not(feature = "glommio"))]
 pub use pool::ExclusivePool;

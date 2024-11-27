@@ -340,11 +340,11 @@ impl BucketTimestamp {
 
 /// Shorthand for the result of commands such as `MGET`, `MRANGE`, etc.
 ///
-/// * **K** - The key type, usually a `RedisKey`, `Str`, or `String`.
+/// * **K** - The key type, usually a `Key`, `Str`, or `String`.
 /// * **Lk** - The label key type, usually a `Str` or `String`.
 /// * **Lv** - The label value type, often some kind of string type.
 ///
-/// The fastest/cheapest option is usually `TimeseriesValues<RedisKey, Str, Str>`.
+/// The fastest/cheapest option is usually `TimeseriesValues<Key, Str, Str>`.
 ///
 /// ```rust
 /// # use fred::prelude::*;

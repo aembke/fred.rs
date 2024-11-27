@@ -149,7 +149,7 @@ impl Notifications {
   }
 
   /// Interrupt any tokio `sleep` calls.
-  //`RedisClientInner::wait_with_interrupt` hides the subscription part from callers.
+  //`ClientInner::wait_with_interrupt` hides the subscription part from callers.
   pub fn broadcast_close(&self) {
     broadcast_send(&self.close, &(), |_| {
       debug!("{}: No `close` listeners.", self.id);

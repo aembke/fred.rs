@@ -103,10 +103,10 @@ pub trait HeartbeatInterface: ClientLike {
 /// Functions for authenticating clients.
 #[rm_send_if(feature = "glommio")]
 pub trait AuthInterface: ClientLike {
-  /// Request for authentication in a password-protected Redis server. Returns ok if successful.
+  /// Request for authentication in a password-protected server. Returns ok if successful.
   ///
   /// The client will automatically authenticate with the default user if a password is provided in the associated
-  /// `RedisConfig` when calling [connect](crate::interfaces::ClientLike::connect).
+  /// `Config` when calling [connect](crate::interfaces::ClientLike::connect).
   ///
   /// If running against clustered servers this function will authenticate all connections.
   ///
@@ -267,7 +267,7 @@ pub trait EventInterface: ClientLike {
   ///
   /// **Keyspace events are not sent on this interface.**
   ///
-  /// If the connection to the Redis server closes for any reason this function does not need to be called again.
+  /// If the connection to the server closes for any reason this function does not need to be called again.
   /// Messages will start appearing on the original stream after
   /// [subscribe](crate::interfaces::PubsubInterface::subscribe) is called again.
   fn message_rx(&self) -> BroadcastReceiver<Message> {

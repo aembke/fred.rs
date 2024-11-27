@@ -238,7 +238,7 @@ pub trait ClientLike: Clone + Sized {
     }
   }
 
-  /// Close the connection to the Redis server. The returned future resolves when the command has been written to the
+  /// Close the connection to the server. The returned future resolves when the command has been written to the
   /// socket, not when the connection has been fully closed. Some time after this future resolves the future
   /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
   ///
@@ -266,13 +266,13 @@ pub trait ClientLike: Clone + Sized {
     async move { commands::server::flushall(self, r#async).await?.convert() }
   }
 
-  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis
+  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the server
   /// interface.
   fn flushall_cluster(&self) -> impl Future<Output = FredResult<()>> {
     async move { commands::server::flushall_cluster(self).await }
   }
 
-  /// Ping the Redis server.
+  /// Ping the server.
   ///
   /// <https://redis.io/commands/ping>
   fn ping<R>(&self, message: Option<String>) -> impl Future<Output = FredResult<R>>
@@ -336,7 +336,7 @@ pub trait ClientLike: Clone + Sized {
   }
 }
 
-pub fn spawn_event_listener<T, F, Fut>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<FredResult<()>>
+pub(crate) fn spawn_event_listener<T, F, Fut>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<FredResult<()>>
 where
   T: Clone + 'static,
   Fut: Future<Output = FredResult<()>> + 'static,

@@ -60,7 +60,7 @@ pub trait Scanner {
   /// afterwards.
   fn take_results(&mut self) -> Option<Self::Page>;
 
-  /// A lightweight function to create a Redis client from the SCAN result.
+  /// A lightweight function to create a client from the SCAN result.
   ///
   /// To continue scanning the caller should call `next` on this struct. Calling `scan` again on the client will
   /// initiate a new SCAN call starting with a cursor of 0.

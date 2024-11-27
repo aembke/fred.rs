@@ -171,7 +171,7 @@ pub fn broadcast_channel<T: Clone>(capacity: usize) -> (BroadcastSender<T>, Broa
   broadcast::channel(capacity)
 }
 
-/// Any Redis client that implements any part of the Redis interface.
+/// Any client that implements any part of the server interface.
 pub trait ClientLike: Clone + Send + Sync + Sized {
   #[doc(hidden)]
   fn inner(&self) -> &Arc<ClientInner>;
@@ -374,7 +374,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     }
   }
 
-  /// Close the connection to the Redis server. The returned future resolves when the command has been written to the
+  /// Close the connection to the server. The returned future resolves when the command has been written to the
   /// socket, not when the connection has been fully closed. Some time after this future resolves the future
   /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
   ///
@@ -403,13 +403,13 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     async move { commands::server::flushall(self, r#async).await?.convert() }
   }
 
-  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis
+  /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the server
   /// interface.
   fn flushall_cluster(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::server::flushall_cluster(self).await }
   }
 
-  /// Ping the Redis server.
+  /// Ping the server.
   ///
   /// <https://redis.io/commands/ping>
   fn ping<R>(&self, message: Option<String>) -> impl Future<Output = FredResult<R>> + Send

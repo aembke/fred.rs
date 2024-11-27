@@ -14,7 +14,7 @@ use std::{
 };
 use url::ParseError;
 
-/// An enum representing the type of error from Redis.
+/// An enum representing the type of error.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ErrorKind {
   /// A fatal client configuration error. These errors will shut down a client and break out of any reconnection
@@ -104,7 +104,7 @@ impl ErrorKind {
   }
 }
 
-/// An error from Redis.
+/// An error from the server or client.
 #[derive(Debug)]
 pub struct Error {
   /// Details about the specific error condition.
@@ -265,7 +265,7 @@ impl From<oneshot::RecvError> for Error {
 #[doc(hidden)]
 impl From<SemverError> for Error {
   fn from(e: SemverError) -> Self {
-    Error::new(ErrorKind::Protocol, format!("Invalid Redis version: {:?}", e))
+    Error::new(ErrorKind::Protocol, format!("Invalid server version: {:?}", e))
   }
 }
 
@@ -344,7 +344,7 @@ impl From<serde_json::Error> for Error {
 }
 
 impl Error {
-  /// Create a new Redis error with the provided details.
+  /// Create a new error with the provided details.
   pub fn new<T>(kind: ErrorKind, details: T) -> Error
   where
     T: Into<Cow<'static, str>>,
