@@ -418,7 +418,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  fn ping<R>(&self, message: Option<&str>) -> impl Future<Output = RedisResult<R>> + Send
+  fn ping<R>(&self, message: Option<String>) -> impl Future<Output = RedisResult<R>> + Send
   where
     R: FromRedis,
   {

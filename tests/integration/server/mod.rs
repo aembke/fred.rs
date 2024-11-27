@@ -26,14 +26,8 @@ pub async fn should_read_server_info(client: RedisClient, _: RedisConfig) -> Res
 pub async fn should_ping_pong_command(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
   let res: String = client.ping(None).await?;
   assert_eq!(res, "PONG");
-  let res: String = client.ping(Some("hello world!")).await?;
+  let res: String = client.ping(Some("hello world!".into())).await?;
   assert_eq!(res, "hello world!");
-  Ok(())
-}
-
-pub async fn should_run_custom_command(_client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  // TODO find a good third party module to test
-
   Ok(())
 }
 

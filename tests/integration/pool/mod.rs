@@ -15,10 +15,10 @@ async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), 
   pool.init().await?;
 
   for client in pool.clients().iter() {
-    let _: () = client.ping().await?;
+    let _: () = client.ping(None).await?;
   }
 
-  let _: () = pool.ping().await?;
+  let _: () = pool.ping(None).await?;
   let _: () = pool.quit().await?;
   Ok(())
 }

@@ -280,7 +280,7 @@ pub trait ClientLike: Clone + Sized {
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  fn ping<R>(&self, message: Option<&str>) -> impl Future<Output = RedisResult<R>>
+  fn ping<R>(&self, message: Option<String>) -> impl Future<Output = RedisResult<R>>
   where
     R: FromRedis,
   {

@@ -131,12 +131,13 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   Ok(())
 }
 
-pub async fn ping<C: ClientLike>(client: &C, message: Option<&str>) -> Result<RedisValue, RedisError> {
-  let arg = match message {
-    Some(m) => vec![m.into()],
-    None => vec![],
-  };
-  let frame = utils::request_response(client, || Ok((RedisCommandKind::Ping, arg))).await?;
+pub async fn ping<C: ClientLike>(client: &C, message: Option<String>) -> Result<RedisValue, RedisError> {
+  let mut args = Vec::with_capacity(1);
+  if let Some(message) = message {
+    args.push(message.into());
+  }
+
+  let frame = utils::request_response(client, || Ok((RedisCommandKind::Ping, args))).await?;
   protocol_utils::frame_to_results(frame)
 }
 

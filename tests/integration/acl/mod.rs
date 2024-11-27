@@ -26,7 +26,7 @@ pub async fn should_auth_as_test_user(client: RedisClient, _: RedisConfig) -> Re
   let (username, password) = check_env_creds();
   if let Some(password) = password {
     let _: () = client.auth(username, password).await?;
-    let _: () = client.ping().await?;
+    let _: () = client.ping(None).await?;
   }
 
   Ok(())
@@ -41,7 +41,7 @@ pub async fn should_auth_as_test_user_via_config(_: RedisClient, mut config: Red
     let client = RedisClient::new(config, None, None, None);
     client.connect();
     client.wait_for_connect().await?;
-    let _: () = client.ping().await?;
+    let _: () = client.ping(None).await?;
   }
 
   Ok(())
