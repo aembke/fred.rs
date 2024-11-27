@@ -35,7 +35,6 @@ features = [
     "enable-native-tls",
     "full-tracing",
     "credential-provider",
-    "specialize-into-bytes"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -47,7 +46,6 @@ test = true
 [features]
 default = ["transactions", "i-std"]
 
-specialize-into-bytes = []
 blocking-encoding = ["tokio/rt-multi-thread"]
 custom-reconnect-errors = []
 default-nil-types = []

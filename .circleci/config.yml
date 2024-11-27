@@ -283,7 +283,7 @@ jobs:
           command: |
             cargo clippy --features "i-all i-redis-stack transactions blocking-encoding dns metrics mocks monitor \
               replicas sentinel-auth sentinel-client serde-json subscriber-client unix-sockets credential-provider \
-              enable-rustls enable-native-tls full-tracing specialize-into-bytes" --lib -p fred -- -Dwarnings
+              enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
       - run:
           name: Clippy Glommio features
           command: |

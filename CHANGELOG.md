@@ -33,6 +33,7 @@ The compiler should guide callers through most of these changes.
 * Many of the common public types were renamed to remove the `Redis` prefix, such as `RedisConfig`, `RedisClient`,
   `RedisPool`, etc.
 * `rustls-native-certs` was upgraded to 8.x.
+* The `specialize-into-bytes` feature flag was removed. This is now the default behavior.
 
 ### Behavior Changes
 

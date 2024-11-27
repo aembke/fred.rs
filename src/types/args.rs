@@ -1382,14 +1382,6 @@ impl Hash for Value {
   }
 }
 
-#[cfg(not(feature = "specialize-into-bytes"))]
-#[cfg_attr(docsrs, doc(cfg(not(feature = "specialize-into-bytes"))))]
-impl From<u8> for Value {
-  fn from(d: u8) -> Self {
-    Value::Integer(d as i64)
-  }
-}
-
 impl From<u16> for Value {
   fn from(d: u16) -> Self {
     Value::Integer(d as i64)
@@ -1583,8 +1575,6 @@ where
   }
 }
 
-#[cfg(feature = "specialize-into-bytes")]
-#[cfg_attr(docsrs, doc(cfg(feature = "specialize-into-bytes")))]
 impl TryFrom<Vec<u8>> for Value {
   type Error = Error;
 
@@ -1706,7 +1696,6 @@ mod tests {
 
   // requires specialization of TryFrom<Vec<u8>> for Value
   #[test]
-  #[cfg(feature = "specialize-into-bytes")]
   fn bytes_from_vec_u8() {
     let input: Vec<u8> = vec![0, 1, 2];
     let output: Value = input.clone().try_into().unwrap();

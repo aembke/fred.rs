@@ -38,9 +38,8 @@ pub trait ClientInterface: ClientLike + Sized {
   /// The returned map contains each server's `host:port` and the result of calling `CLIENT ID` on the connection.
   ///
   /// Note: despite being async this function will return cached information from the client if possible.
-  // TODO make this sync in the next major version
-  fn connection_ids(&self) -> impl Future<Output = HashMap<Server, i64>> + Send {
-    async move { self.inner().backchannel.connection_ids.lock().clone() }
+  fn connection_ids(&self) -> HashMap<Server, i64> {
+    self.inner().backchannel.connection_ids.lock().clone()
   }
 
   /// The command returns information and statistics about the current client connection in a mostly human readable
