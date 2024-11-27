@@ -33,7 +33,7 @@ pub async fn should_scan_keyspace(client: Client, _: Config) -> Result<(), Error
         panic!("Empty results in scan.");
       }
 
-      result.next()?;
+      result.next();
       Ok(count)
     })
     .await?;
@@ -64,7 +64,7 @@ pub async fn should_hscan_hash(client: Client, _: Config) -> Result<(), Error> {
         panic!("Empty results in hscan.");
       }
 
-      result.next()?;
+      result.next();
       Ok(count)
     })
     .await?;
@@ -92,7 +92,7 @@ pub async fn should_sscan_set(client: Client, _: Config) -> Result<(), Error> {
         panic!("Empty sscan result");
       }
 
-      result.next()?;
+      result.next();
       Ok(count)
     })
     .await?;
@@ -125,7 +125,7 @@ pub async fn should_zscan_sorted_set(client: Client, _: Config) -> Result<(), Er
         panic!("Empty zscan result");
       }
 
-      result.next()?;
+      result.next();
       Ok(count)
     })
     .await?;
@@ -145,7 +145,7 @@ pub async fn should_scan_cluster(client: Client, _: Config) -> Result<(), Error>
   while let Some(Ok(mut page)) = scan_stream.next().await {
     let results = page.take_results();
     count += results.unwrap().len();
-    let _ = page.next();
+    page.next();
   }
 
   assert_eq!(count, 2000);

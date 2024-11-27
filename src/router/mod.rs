@@ -371,7 +371,7 @@ impl Router {
       self.retry_buffer.extend(commands);
     }
 
-    while let Some(mut command) = self.retry_buffer.pop_front() {
+    while let Some(command) = self.retry_buffer.pop_front() {
       if client_utils::read_bool_atomic(&command.timed_out) {
         _debug!(
           inner,
@@ -381,24 +381,20 @@ impl Router {
         continue;
       }
 
-      if let Err(e) = command.decr_check_attempted() {
-        command.respond_to_caller(Err(e));
-        continue;
-      }
-
       _trace!(
         inner,
-        "Retry `{}` ({}) command, attempts left: {}",
+        "Retry `{}` ({}) command, attempts remaining: {}",
         command.kind.to_str_debug(),
         command.debug_id(),
         command.attempts_remaining,
       );
-      command.skip_backpressure = true;
-
-      // TODO find connection, write to it, put back in buffer on failure
-      unimplemented!()
+      if let Err(err) = Box::pin(commands::write_command(inner, self, command)).await {
+        _debug!(inner, "Error retrying command: {:?}", err);
+        break;
+      }
     }
 
+    let _ = self.flush().await;
     Ok(())
   }
 

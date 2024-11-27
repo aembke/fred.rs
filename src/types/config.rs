@@ -1365,8 +1365,6 @@ pub struct Options {
   ///
   /// If `cluster_node` is also provided it will take precedence over this value.
   pub cluster_hash:     Option<ClusterHash>,
-  /// Whether to skip backpressure checks for a command.
-  pub no_backpressure:  bool,
   /// Whether the command should fail quickly if the connection is not healthy or available for writes. This always
   /// takes precedence over `max_attempts` if `true`.
   ///
@@ -1399,7 +1397,6 @@ impl Options {
     if let Some(ref cluster_hash) = other.cluster_hash {
       self.cluster_hash = Some(cluster_hash.clone());
     }
-    self.no_backpressure |= other.no_backpressure;
     self.fail_fast |= other.fail_fast;
 
     #[cfg(feature = "i-tracking")]
@@ -1417,7 +1414,6 @@ impl Options {
       max_attempts:                           Some(cmd.attempts_remaining),
       max_redirections:                       Some(cmd.redirections_remaining),
       timeout:                                cmd.timeout_dur,
-      no_backpressure:                        cmd.skip_backpressure,
       cluster_node:                           cmd.cluster_node.clone(),
       cluster_hash:                           Some(cmd.hasher.clone()),
       fail_fast:                              cmd.fail_fast,
@@ -1428,7 +1424,6 @@ impl Options {
 
   /// Overwrite the configuration options on the provided command.
   pub(crate) fn apply(&self, command: &mut Command) {
-    command.skip_backpressure = self.no_backpressure;
     command.timeout_dur = self.timeout;
     command.cluster_node = self.cluster_node.clone();
     command.fail_fast = self.fail_fast;

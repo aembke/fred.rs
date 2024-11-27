@@ -298,7 +298,6 @@ async fn exec(
       command.inherit_options(inner);
       command.response = ResponseKind::Skip;
       command.can_pipeline = true;
-      command.skip_backpressure = true;
       command.transaction_id = Some(id);
       command.use_replica = false;
       if let Some(hash_slot) = hash_slot.as_ref() {

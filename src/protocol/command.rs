@@ -1540,8 +1540,6 @@ pub struct Command {
   ///
   /// Also used for commands like XREAD that block based on an argument.
   pub can_pipeline:           bool,
-  /// Whether to skip backpressure checks.
-  pub skip_backpressure:      bool,
   /// Whether to fail fast without retries if the connection ever closes unexpectedly.
   pub fail_fast:              bool,
   /// The internal ID of a transaction.
@@ -1580,7 +1578,6 @@ impl fmt::Debug for Command {
       .field("can_pipeline", &self.can_pipeline)
       .field("write_attempts", &self.write_attempts)
       .field("timeout_dur", &self.timeout_dur)
-      .field("no_backpressure", &self.skip_backpressure)
       .field("cluster_node", &self.cluster_node)
       .field("cluster_hash", &self.hasher)
       .field("use_replica", &self.use_replica)
@@ -1617,7 +1614,6 @@ impl From<(CommandKind, Vec<Value>)> for Command {
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
-      skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
       cluster_node: None,
@@ -1648,7 +1644,6 @@ impl From<(CommandKind, Vec<Value>, ResponseSender)> for Command {
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
-      skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
       cluster_node: None,
@@ -1679,7 +1674,6 @@ impl From<(CommandKind, Vec<Value>, ResponseKind)> for Command {
       attempts_remaining: 0,
       redirections_remaining: 0,
       can_pipeline: true,
-      skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
       cluster_node: None,
@@ -1711,7 +1705,6 @@ impl Command {
       attempts_remaining: 1,
       redirections_remaining: 1,
       can_pipeline: true,
-      skip_backpressure: false,
       transaction_id: None,
       use_replica: false,
       cluster_node: None,
@@ -1741,7 +1734,6 @@ impl Command {
       attempts_remaining:                         1,
       redirections_remaining:                     1,
       can_pipeline:                               true,
-      skip_backpressure:                          false,
       transaction_id:                             None,
       use_replica:                                false,
       cluster_node:                               None,
@@ -1883,7 +1875,6 @@ impl Command {
       redirections_remaining: self.redirections_remaining,
       timeout_dur: self.timeout_dur,
       can_pipeline: self.can_pipeline,
-      skip_backpressure: self.skip_backpressure,
       cluster_node: self.cluster_node.clone(),
       fail_fast: self.fail_fast,
       response,
@@ -2084,14 +2075,6 @@ pub enum RouterCommand {
 }
 
 impl RouterCommand {
-  /// Whether the client should skip backpressure on the command buffer when sending this command.
-  pub fn should_skip_backpressure(&self) -> bool {
-    matches!(
-      *self,
-      RouterCommand::SyncCluster { .. } | RouterCommand::Reconnect { .. }
-    )
-  }
-
   /// Whether the command should check the health of the backing connections before being used.
   pub fn should_check_fail_fast(&self) -> bool {
     match self {

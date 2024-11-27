@@ -9,6 +9,8 @@
 * Refactor public types into submodules
 * Add `i-hexpire` feature flag
 * Support async blocks in `on_*` event handler functions
+* Add an interface to cancel scanning functions
+* Update `rustls-native-certs` to 0.8
 
 ### Upgrading from 9.x
 

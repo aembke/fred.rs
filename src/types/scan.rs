@@ -1,6 +1,5 @@
 use crate::{
   clients::Client,
-  error::Error,
   interfaces,
   modules::inner::ClientInner,
   protocol::{
@@ -68,18 +67,17 @@ pub trait Scanner {
   fn create_client(&self) -> Client;
 
   /// Move on to the next page of results from the SCAN operation. If no more results are available this may close the
-  /// stream.
+  /// stream. This interface provides a mechanism for throttling the throughput of the SCAN call
   ///
   /// If callers do not call this function the scanning will continue when this struct is dropped. Results are not
   /// automatically scanned in the background since this could cause the buffer backing the stream to grow too large
-  /// very quickly. This interface provides a mechanism for throttling the throughput of the SCAN call. Callers can
-  /// use [scan_buffered](crate::clients::Client::scan_buffered) or
+  /// very quickly. Callers can use [scan_buffered](crate::clients::Client::scan_buffered) or
   /// [scan_cluster_buffered](crate::clients::Client::scan_cluster_buffered) to automatically continue scanning
   /// in the background.
-  ///
-  /// If this function returns an error the scan call cannot continue as the client has been closed, or some other
-  /// fatal error has occurred. If this happens the error will appear in the stream from the original SCAN call.
-  fn next(self) -> Result<(), Error>;
+  fn next(self);
+
+  /// Stop the scanning process, ending the outer stream.
+  fn cancel(self);
 }
 
 /// The result of a SCAN operation.
@@ -138,15 +136,17 @@ impl Scanner for ScanResult {
     }
   }
 
-  /// TODO remove Result wrapper in next major version
-  fn next(self) -> Result<(), Error> {
+  fn next(self) {
     if !self.can_continue {
-      return Ok(());
+      return;
     }
 
     let mut _self = self;
     next_key_page(&_self.inner, &mut _self.scan_state);
-    Ok(())
+  }
+
+  fn cancel(mut self) {
+    let _ = self.scan_state.take();
   }
 }
 
@@ -203,14 +203,17 @@ impl Scanner for HScanResult {
     }
   }
 
-  fn next(self) -> Result<(), Error> {
+  fn next(self) {
     if !self.can_continue {
-      return Ok(());
+      return;
     }
 
     let mut _self = self;
     next_hscan_page(&_self.inner, &mut _self.scan_state);
-    Ok(())
+  }
+
+  fn cancel(mut self) {
+    let _ = self.scan_state.take();
   }
 }
 
@@ -267,14 +270,17 @@ impl Scanner for SScanResult {
     }
   }
 
-  fn next(self) -> Result<(), Error> {
+  fn next(self) {
     if !self.can_continue {
-      return Ok(());
+      return;
     }
 
     let mut _self = self;
     next_sscan_page(&_self.inner, &mut _self.scan_state);
-    Ok(())
+  }
+
+  fn cancel(mut self) {
+    let _ = self.scan_state.take();
   }
 }
 
@@ -331,13 +337,16 @@ impl Scanner for ZScanResult {
     }
   }
 
-  fn next(self) -> Result<(), Error> {
+  fn next(self) {
     if !self.can_continue {
-      return Ok(());
+      return;
     }
 
     let mut _self = self;
     next_zscan_page(&_self.inner, &mut _self.scan_state);
-    Ok(())
+  }
+
+  fn cancel(mut self) {
+    let _ = self.scan_state.take();
   }
 }

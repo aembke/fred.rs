@@ -31,7 +31,7 @@ async fn scan_throttled(client: &Client) -> Result<(), Error> {
 
     // callers can call `page.next()` to control when the next page is fetched from the server. if this is not called
     // then the next page will be fetched when `page` is dropped.
-    let _ = page.next();
+    page.next();
   }
   Ok(())
 }
@@ -125,7 +125,7 @@ async fn pool_scan_cluster_memory_example(pool: &Pool) -> Result<(), Error> {
       }
     }
 
-    let _ = page.next();
+    page.next();
   }
 
   println!("Total size: {}", total_size);

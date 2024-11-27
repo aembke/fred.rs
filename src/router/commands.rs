@@ -79,15 +79,23 @@ async fn create_replica_connection(
     // connection does not exist
     _debug!(inner, "Failed to route command to replica. Deferring reconnection...");
     let err = Error::new(ErrorKind::Routing, "Failed to route command.");
-    utils::defer_reconnection(inner, router, None, err, false)?;
     command.attempts_remaining += 1;
-    router.retry_command(command);
+    finish_or_retry_command(router, command, &err);
+    utils::defer_reconnection(inner, router, None, err, false)?;
     Ok(())
   }
 }
 
+fn finish_or_retry_command(router: &mut Router, mut command: Command, error: &Error) {
+  if command.attempts_remaining == 0 {
+    command.respond_to_caller(Err(error.clone()));
+  } else {
+    router.retry_command(command);
+  }
+}
+
 /// Write the command to a connection.
-async fn write_command(
+pub async fn write_command(
   inner: &RefCount<ClientInner>,
   router: &mut Router,
   mut command: Command,
@@ -112,7 +120,7 @@ async fn write_command(
     if command.is_all_cluster_nodes() {
       if let Err(err) = router.drain_all(inner).await {
         router.disconnect_all(inner).await;
-        router.retry_command(command);
+        finish_or_retry_command(router, command, &err);
         utils::defer_reconnection(inner, router, None, err, use_replica)?;
         (false, None)
       } else {
@@ -133,8 +141,8 @@ async fn write_command(
           #[cfg(not(feature = "replicas"))]
           {
             let err = Error::new(ErrorKind::Unknown, "Failed to route command.");
+            finish_or_retry_command(router, command, &err);
             utils::defer_reconnection(inner, router, None, err, use_replica)?;
-            router.retry_command(command);
             return Ok(());
           }
         },
@@ -180,7 +188,7 @@ async fn write_command(
   }
   if let Some((server, err, command)) = disconnect_from {
     if let Some(command) = command {
-      router.retry_command(command);
+      finish_or_retry_command(router, command, &err);
     }
     utils::drop_connection(inner, router, &server, &err).await;
     utils::defer_reconnection(inner, router, None, err, use_replica)
@@ -225,7 +233,6 @@ async fn process_pipeline(
     // difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
     // never pipeline `ssubscribe`, even if the caller asks.
     command.can_pipeline = command.kind != CommandKind::Ssubscribe;
-    command.skip_backpressure = true;
 
     write_command_t!(inner, router, command)?;
   }
