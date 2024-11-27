@@ -44,15 +44,15 @@ async fn main() -> Result<(), RedisError> {
 
   // run all event listener functions in one task
   let _events_task = client.on_any(
-    |error| {
+    |error| async move {
       println!("Connection error: {:?}", error);
       Ok(())
     },
-    |server| {
+    |server| async move {
       println!("Reconnected to {:?}", server);
       Ok(())
     },
-    |changes| {
+    |changes| async move {
       println!("Cluster changed: {:?}", changes);
       Ok(())
     },

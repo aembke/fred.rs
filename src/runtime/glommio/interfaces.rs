@@ -341,16 +341,17 @@ pub trait ClientLike: Clone + Sized {
   }
 }
 
-pub fn spawn_event_listener<T, F>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
+pub fn spawn_event_listener<T, F, Fut>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
 where
   T: Clone + 'static,
-  F: Fn(T) -> RedisResult<()> + 'static,
+  Fut: Future<Output = RedisResult<()>> + 'static,
+  F: Fn(T) -> Fut,
 {
   spawn(async move {
     let mut result = Ok(());
 
     while let Ok(val) = rx.recv().await {
-      if let Err(err) = func(val) {
+      if let Err(err) = func(val).await {
         result = Err(err);
         break;
       }

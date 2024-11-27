@@ -24,11 +24,11 @@ async fn main() -> Result<(), RedisError> {
   let client = Builder::default_centralized().build()?;
 
   // use the on_* functions
-  let _reconnect_task = client.on_reconnect(|server| {
+  let _reconnect_task = client.on_reconnect(|server| async move {
     println!("Reconnected to {}", server);
     Ok(())
   });
-  let _error_task = client.on_error(|error| {
+  let _error_task = client.on_error(|error| async move {
     println!("Connection error: {:?}", error);
     Ok(())
   });

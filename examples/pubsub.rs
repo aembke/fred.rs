@@ -20,7 +20,7 @@ async fn main() -> Result<(), RedisError> {
   subscriber_client.init().await?;
 
   // or use `message_rx()` to use the underlying `BroadcastReceiver` directly without spawning a new task
-  let _message_task = subscriber_client.on_message(|message| {
+  let _message_task = subscriber_client.on_message(|message| async move {
     println!("{}: {}", message.channel, message.value.convert::<i64>()?);
     Ok::<_, RedisError>(())
   });

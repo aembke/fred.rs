@@ -479,16 +479,17 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
   }
 }
 
-pub fn spawn_event_listener<T, F>(mut rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
+pub fn spawn_event_listener<T, F, Fut>(mut rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
 where
   T: Clone + Send + 'static,
-  F: Fn(T) -> RedisResult<()> + Send + 'static,
+  Fut: Future<Output = RedisResult<()>> + Send + 'static,
+  F: Fn(T) -> Fut + Send + 'static,
 {
   tokio::spawn(async move {
     let mut result = Ok(());
 
     while let Ok(val) = rx.recv().await {
-      if let Err(err) = func(val) {
+      if let Err(err) = func(val).await {
         result = Err(err);
         break;
       }

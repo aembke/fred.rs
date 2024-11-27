@@ -153,9 +153,10 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each publish-subscribe message.
   ///
   /// See [message_rx](Self::message_rx) for more information.
-  fn on_message<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_message<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(Message) -> RedisResult<()> + Send + 'static,
+    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    F: Fn(Message) -> Fut + Send + 'static,
   {
     let rx = self.message_rx();
     spawn_event_listener(rx, func)
@@ -164,9 +165,10 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each keyspace event.
   ///
   /// <https://redis.io/topics/notifications>
-  fn on_keyspace_event<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_keyspace_event<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(KeyspaceEvent) -> RedisResult<()> + Send + 'static,
+    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    F: Fn(KeyspaceEvent) -> Fut + Send + 'static,
   {
     let rx = self.keyspace_event_rx();
     spawn_event_listener(rx, func)
@@ -175,9 +177,10 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each reconnection event.
   ///
   /// Errors returned by `func` will exit the task.
-  fn on_reconnect<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_reconnect<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(Server) -> RedisResult<()> + Send + 'static,
+    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    F: Fn(Server) -> Fut + Send + 'static,
   {
     let rx = self.reconnect_rx();
     spawn_event_listener(rx, func)
@@ -186,9 +189,10 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each cluster change event.
   ///
   /// Errors returned by `func` will exit the task.
-  fn on_cluster_change<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_cluster_change<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(Vec<ClusterStateChange>) -> RedisResult<()> + Send + 'static,
+    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    F: Fn(Vec<ClusterStateChange>) -> Fut + Send + 'static,
   {
     let rx = self.cluster_change_rx();
     spawn_event_listener(rx, func)
@@ -197,18 +201,20 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each connection error event.
   ///
   /// Errors returned by `func` will exit the task.
-  fn on_error<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_error<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(RedisError) -> RedisResult<()> + Send + 'static,
+    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    F: Fn(RedisError) -> Fut + Send + 'static,
   {
     let rx = self.error_rx();
     spawn_event_listener(rx, func)
   }
 
   /// Spawn a task that runs the provided function whenever the client detects an unresponsive connection.
-  fn on_unresponsive<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_unresponsive<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
   where
-    F: Fn(Server) -> RedisResult<()> + Send + 'static,
+    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    F: Fn(Server) -> Fut + Send + 'static,
   {
     let rx = self.unresponsive_rx();
     spawn_event_listener(rx, func)
@@ -217,11 +223,19 @@ pub trait EventInterface: ClientLike {
   /// Spawn one task that listens for all connection management event types.
   ///
   /// Errors in any of the provided functions will exit the task.
-  fn on_any<Fe, Fr, Fc>(&self, error_fn: Fe, reconnect_fn: Fr, cluster_change_fn: Fc) -> JoinHandle<RedisResult<()>>
+  fn on_any<Fe, Fr, Fc, Fut1, Fut2, Fut3>(
+    &self,
+    error_fn: Fe,
+    reconnect_fn: Fr,
+    cluster_change_fn: Fc,
+  ) -> JoinHandle<RedisResult<()>>
   where
-    Fe: Fn(RedisError) -> RedisResult<()> + Send + 'static,
-    Fr: Fn(Server) -> RedisResult<()> + Send + 'static,
-    Fc: Fn(Vec<ClusterStateChange>) -> RedisResult<()> + Send + 'static,
+    Fut1: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut2: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut3: Future<Output = RedisResult<()>> + Send + 'static,
+    Fe: Fn(RedisError) -> Fut1 + Send + 'static,
+    Fr: Fn(Server) -> Fut2 + Send + 'static,
+    Fc: Fn(Vec<ClusterStateChange>) -> Fut3 + Send + 'static,
   {
     let mut error_rx = self.error_rx();
     let mut reconnect_rx = self.reconnect_rx();
@@ -234,19 +248,19 @@ pub trait EventInterface: ClientLike {
       loop {
         tokio::select! {
           Ok(error) = error_rx.recv() => {
-            if let Err(err) = error_fn(error) {
+            if let Err(err) = error_fn(error).await {
               result = Err(err);
               break;
             }
           }
           Ok(server) = reconnect_rx.recv() => {
-            if let Err(err) = reconnect_fn(server) {
+            if let Err(err) = reconnect_fn(server).await {
               result = Err(err);
               break;
             }
           }
           Ok(changes) = cluster_rx.recv() => {
-            if let Err(err) = cluster_change_fn(changes) {
+            if let Err(err) = cluster_change_fn(changes).await {
               result = Err(err);
               break;
             }
