@@ -181,6 +181,8 @@ mod scanning {
   cluster_test!(scanning, should_scan_cluster_buffered);
   #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_continue_scanning_on_page_drop);
+  #[cfg(feature = "i-keys")]
+  cluster_test!(scanning, should_scan_by_page_clustered);
 }
 
 #[cfg(feature = "i-slowlog")]
@@ -195,7 +197,6 @@ mod server {
   cluster_test!(server, should_flushall);
   cluster_test!(server, should_read_server_info);
   cluster_test!(server, should_ping_pong_command);
-  cluster_test!(server, should_run_custom_command);
   cluster_test!(server, should_read_last_save);
   cluster_test!(server, should_read_db_size);
   cluster_test!(server, should_start_bgsave);

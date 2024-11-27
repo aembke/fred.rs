@@ -32,8 +32,14 @@ fn values_args(key: RedisKey, pattern: Str, count: Option<u32>) -> Vec<RedisValu
   args
 }
 
-fn create_scan_args(args: &mut Vec<RedisValue>, pattern: Str, count: Option<u32>, r#type: Option<ScanType>) {
-  args.push(static_val!(STARTING_CURSOR));
+fn create_scan_args(
+  args: &mut Vec<RedisValue>,
+  pattern: Str,
+  count: Option<u32>,
+  r#type: Option<ScanType>,
+  cursor: Option<RedisValue>,
+) {
+  args.push(cursor.unwrap_or_else(|| static_val!(STARTING_CURSOR)));
   args.push(static_val!(MATCH));
   args.push(pattern.into());
 
@@ -47,8 +53,17 @@ fn create_scan_args(args: &mut Vec<RedisValue>, pattern: Str, count: Option<u32>
   }
 }
 
-// TODO change all of the scanning functions to return a Future<Stream<...>> in the next major version to avoid the
-// task spawning here.
+fn pattern_hash_slot(inner: &RefCount<RedisClientInner>, pattern: &str) -> Option<u16> {
+  if inner.config.server.is_clustered() {
+    if utils::clustered_scan_pattern_has_hash_tag(inner, pattern) {
+      Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
+    } else {
+      None
+    }
+  } else {
+    None
+  }
+}
 
 pub fn scan_cluster(
   inner: &RefCount<RedisClientInner>,
@@ -68,7 +83,7 @@ pub fn scan_cluster(
   };
 
   let mut args = Vec::with_capacity(7);
-  create_scan_args(&mut args, pattern, count, r#type);
+  create_scan_args(&mut args, pattern, count, r#type, None);
   for slot in hash_slots.into_iter() {
     _trace!(inner, "Scan cluster hash slot server: {}", slot);
     let response = ResponseKind::KeyScan(KeyScanInner {
@@ -107,7 +122,7 @@ pub fn scan_cluster_buffered(
   };
 
   let mut args = Vec::with_capacity(7);
-  create_scan_args(&mut args, pattern, count, r#type);
+  create_scan_args(&mut args, pattern, count, r#type, None);
   for slot in hash_slots.into_iter() {
     _trace!(inner, "Scan cluster buffered hash slot server: {}", slot);
     let response = ResponseKind::KeyScanBuffered(KeyScanBufferedInner {
@@ -128,31 +143,50 @@ pub fn scan_cluster_buffered(
   rx.into_stream()
 }
 
+pub async fn scan_page<C: ClientLike>(
+  client: &C,
+  cursor: Str,
+  pattern: Str,
+  count: Option<u32>,
+  r#type: Option<ScanType>,
+  server: Option<Server>,
+  cluster_hash: Option<ClusterHash>,
+) -> Result<RedisValue, RedisError> {
+  let frame = utils::request_response(client, move || {
+    let hash_slot = pattern_hash_slot(client.inner(), &pattern);
+    let mut args = Vec::with_capacity(7);
+    create_scan_args(&mut args, pattern, count, r#type, Some(cursor.into()));
+
+    let mut command = RedisCommand::new(RedisCommandKind::Scan, args);
+    if let Some(server) = server {
+      command.cluster_node = Some(server);
+    } else if let Some(hasher) = cluster_hash {
+      command.hasher = hasher;
+    } else if let Some(slot) = hash_slot {
+      command.hasher = ClusterHash::Custom(slot);
+    }
+    Ok(command)
+  })
+  .await?;
+
+  protocol_utils::frame_to_results(frame)
+}
+
 pub fn scan(
   inner: &RefCount<RedisClientInner>,
   pattern: Str,
   count: Option<u32>,
   r#type: Option<ScanType>,
-  server: Option<Server>,
 ) -> impl Stream<Item = Result<ScanResult, RedisError>> {
   let (tx, rx) = channel(0);
 
-  let hash_slot = if inner.config.server.is_clustered() {
-    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
-      Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
-    } else {
-      None
-    }
-  } else {
-    None
-  };
-
+  let hash_slot = pattern_hash_slot(inner, &pattern);
   let mut args = Vec::with_capacity(7);
-  create_scan_args(&mut args, pattern, count, r#type);
+  create_scan_args(&mut args, pattern, count, r#type, None);
   let response = ResponseKind::KeyScan(KeyScanInner {
     hash_slot,
     args,
-    server,
+    server: None,
     cursor_idx: 0,
     tx: tx.clone(),
   });
@@ -174,18 +208,9 @@ pub fn scan_buffered(
 ) -> impl Stream<Item = Result<RedisKey, RedisError>> {
   let (tx, rx) = channel(0);
 
-  let hash_slot = if inner.config.server.is_clustered() {
-    if utils::clustered_scan_pattern_has_hash_tag(inner, &pattern) {
-      Some(redis_protocol::redis_keyslot(pattern.as_bytes()))
-    } else {
-      None
-    }
-  } else {
-    None
-  };
-
+  let hash_slot = pattern_hash_slot(inner, &pattern);
   let mut args = Vec::with_capacity(7);
-  create_scan_args(&mut args, pattern, count, r#type);
+  create_scan_args(&mut args, pattern, count, r#type, None);
   let response = ResponseKind::KeyScanBuffered(KeyScanBufferedInner {
     hash_slot,
     args,

@@ -5,6 +5,7 @@ use fred::{
 };
 use futures::{Stream, TryStreamExt};
 // tokio_stream has a more flexible version of `collect`
+use bytes_utils::Str;
 use tokio_stream::StreamExt;
 
 const SCAN_KEYS: i64 = 100;
@@ -218,5 +219,64 @@ pub async fn should_continue_scanning_on_page_drop(client: RedisClient, _: Redis
   }
   assert_eq!(count, 100);
 
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_scan_by_page_centralized(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0 .. 100 {
+    let key: RedisKey = format!("foo-{}", idx).into();
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+  let mut cursor: Str = "0".into();
+  let mut count = 0;
+
+  loop {
+    let (new_cursor, keys): (Str, Vec<RedisKey>) = client.scan_page(cursor, "*", None, None).await?;
+    count += keys.len();
+
+    if new_cursor == "0" {
+      break;
+    } else {
+      cursor = new_cursor;
+    }
+  }
+
+  assert_eq!(count, 100);
+  Ok(())
+}
+
+#[cfg(feature = "i-keys")]
+pub async fn should_scan_by_page_clustered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+  for idx in 0 .. 100 {
+    let key: RedisKey = format!("foo-{{1}}-{idx}").into();
+    let _: () = client.set(key, idx, None, None, false).await?;
+  }
+  let mut cursor: Str = "0".into();
+  let mut count = 0;
+
+  let server = client
+    .cached_cluster_state()
+    .and_then(|state| {
+      let slot = redis_protocol::redis_keyslot(b"foo-{1}-0");
+      state.get_server(slot).cloned()
+    })
+    .unwrap();
+
+  loop {
+    let (new_cursor, keys): (Str, Vec<RedisKey>) = client
+      .with_cluster_node(&server)
+      .scan_page(cursor, "*", None, None)
+      .await?;
+    count += keys.len();
+
+    if new_cursor == "0" {
+      break;
+    } else {
+      cursor = new_cursor;
+    }
+  }
+
+  assert_eq!(count, 100);
   Ok(())
 }

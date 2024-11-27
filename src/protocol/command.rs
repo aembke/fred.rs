@@ -1427,7 +1427,6 @@ impl RedisCommandKind {
       RedisCommandKind::Publish
         | RedisCommandKind::Ping
         | RedisCommandKind::Info
-        | RedisCommandKind::Scan
         | RedisCommandKind::FlushAll
         | RedisCommandKind::FlushDB
     )

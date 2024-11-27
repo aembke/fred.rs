@@ -172,6 +172,8 @@ mod scanning {
   centralized_test!(scanning, should_scan_buffered);
   #[cfg(feature = "i-keys")]
   centralized_test!(scanning, should_continue_scanning_on_page_drop);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(scanning, should_scan_by_page_centralized);
 }
 
 #[cfg(feature = "i-slowlog")]
@@ -185,11 +187,12 @@ mod slowlog {
 mod server {
   centralized_test!(server, should_flushall);
   centralized_test!(server, should_read_server_info);
-  centralized_test!(server, should_ping_pong_server);
+  centralized_test!(server, should_ping_pong_command);
   centralized_test!(server, should_read_last_save);
   centralized_test!(server, should_read_db_size);
   centralized_test!(server, should_start_bgsave);
   centralized_test!(server, should_do_bgrewriteaof);
+  centralized_test!(server, should_select_index_command);
 }
 
 #[cfg(feature = "i-sets")]

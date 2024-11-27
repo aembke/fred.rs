@@ -2,6 +2,7 @@
 #![allow(clippy::let_underscore_future)]
 #![allow(dead_code)]
 
+use bytes_utils::Str;
 use fred::{prelude::*, types::Scanner};
 use futures::stream::TryStreamExt;
 
@@ -47,6 +48,31 @@ async fn scan_buffered(client: &RedisClient) -> Result<(), RedisError> {
     .await
 }
 
+/// Example showing how to scan a server one page a time with a custom cursor.
+async fn scan_with_cursor(client: &RedisClient) -> Result<(), RedisError> {
+  let mut cursor: Str = "0".into();
+  // break out after 1000 records
+  let max_keys = 1000;
+  let mut count = 0;
+
+  loop {
+    let (new_cursor, keys): (Str, Vec<RedisKey>) = client.scan_page(cursor, "*", Some(100), None).await?;
+    count += keys.len();
+
+    for key in keys.into_iter() {
+      let val: RedisValue = client.get(&key).await?;
+      println!("Scanned {} -> {:?}", key.as_str_lossy(), val);
+    }
+
+    if count >= max_keys {
+      break;
+    } else {
+      cursor = new_cursor;
+    }
+  }
+  Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), RedisError> {
   let client = RedisClient::default();
@@ -55,6 +81,7 @@ async fn main() -> Result<(), RedisError> {
 
   scan_buffered(&client).await?;
   scan_throttled(&client).await?;
+  scan_with_cursor(&client).await?;
 
   delete_fake_data(&client).await?;
   client.quit().await?;

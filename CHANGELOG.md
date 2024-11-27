@@ -4,7 +4,8 @@
 * Reduced memory footprint and significant write throughput improvements
 * Add `WITHSCORES` to `ZRANK` and `ZREVRANK`
 * Separate feature flags for different Redis and Valkey versions
-* Add `scan_with_cursor` interface
+* Add `scan_page` interface
+* Add optional message to `PING`
 
 ## 9.4.0
 

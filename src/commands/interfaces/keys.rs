@@ -2,8 +2,9 @@ use crate::{
   commands,
   error::RedisError,
   interfaces::{ClientLike, RedisResult},
-  types::{Expiration, ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, SetOptions},
+  types::{Expiration, ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, ScanType, SetOptions},
 };
+use bytes_utils::Str;
 use fred_macros::rm_send_if;
 use futures::Future;
 use std::convert::TryInto;
@@ -659,6 +660,31 @@ pub trait KeysInterface: ClientLike + Sized {
     async move {
       into!(key1, key2);
       commands::keys::lcs(self, key1, key2, len, idx, minmatchlen, withmatchlen)
+        .await?
+        .convert()
+    }
+  }
+
+  /// Fetch one page of `SCAN` results with the provided cursor.
+  ///
+  /// With a clustered the deployment the caller must include a hash tag in the pattern or manually specify the server
+  /// via [with_cluster_node](crate::clients::RedisClient::with_cluster_node) or
+  /// [with_options](crate::clients::RedisClient::with_options).
+  fn scan_page<R, S, P>(
+    &self,
+    cursor: S,
+    pattern: P,
+    count: Option<u32>,
+    r#type: Option<ScanType>,
+  ) -> impl Future<Output = RedisResult<R>> + Send
+  where
+    R: FromRedis,
+    S: Into<Str> + Send,
+    P: Into<Str> + Send,
+  {
+    async move {
+      into!(cursor, pattern);
+      commands::scan::scan_page(self, cursor, pattern, count, r#type, None, None)
         .await?
         .convert()
     }

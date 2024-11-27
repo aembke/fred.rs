@@ -1,3 +1,7 @@
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
+#[cfg(feature = "i-tracking")]
+use crate::interfaces::TrackingInterface;
 use crate::{
   clients::{Pipeline, WithOptions},
   commands,
@@ -11,11 +15,6 @@ use crate::{
 use bytes_utils::Str;
 use futures::Stream;
 use std::{fmt, fmt::Formatter};
-
-#[cfg(feature = "replicas")]
-use crate::clients::Replicas;
-#[cfg(feature = "i-tracking")]
-use crate::interfaces::TrackingInterface;
 
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
@@ -204,7 +203,7 @@ impl RedisClient {
   where
     P: Into<Str>,
   {
-    commands::scan::scan(&self.inner, pattern.into(), count, r#type, None)
+    commands::scan::scan(&self.inner, pattern.into(), count, r#type)
   }
 
   /// Scan the keys in the keyspace, buffering all results in memory as quickly as the server returns them.
