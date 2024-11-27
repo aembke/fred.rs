@@ -1,11 +1,11 @@
 use fred::{
-  clients::RedisClient,
-  error::RedisError,
+  clients::Client,
+  error::Error,
   interfaces::*,
-  types::{RedisConfig, RedisValue},
+  types::{config::Config, Value},
 };
 
-pub async fn should_run_get_set_trx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_run_get_set_trx(client: Client, _config: Config) -> Result<(), Error> {
   let trx = client.multi();
 
   let _: () = trx.set("foo", "bar", None, None, false).await?;
@@ -16,21 +16,21 @@ pub async fn should_run_get_set_trx(client: RedisClient, _config: RedisConfig) -
   Ok(())
 }
 
-pub async fn should_run_error_get_set_trx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_run_error_get_set_trx(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
 
   let trx = client.multi();
   let _: () = trx.incr("foo").await?;
-  let _: Vec<RedisValue> = trx.exec(true).await?;
+  let _: Vec<Value> = trx.exec(true).await?;
 
   Ok(())
 }
 
-pub async fn should_fail_with_hashslot_error(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_fail_with_hashslot_error(client: Client, _config: Config) -> Result<(), Error> {
   let trx = client.multi();
   let _: () = trx.set("foo", "bar", None, None, false).await?;
   let _: () = trx.set("bar", "baz", None, None, false).await?;
-  let _: Vec<RedisValue> = trx.exec(true).await?;
+  let _: Vec<Value> = trx.exec(true).await?;
 
   Ok(())
 }

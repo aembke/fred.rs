@@ -3,26 +3,21 @@ use crate::types::ShutdownFlags;
 use crate::{
   clients::WithOptions,
   commands,
-  error::RedisError,
-  interfaces::{RedisResult, Resp3Frame},
-  modules::inner::RedisClientInner,
+  error::Error,
+  interfaces::{FredResult, Resp3Frame},
+  modules::inner::ClientInner,
   prelude::default_send_command,
-  protocol::command::RedisCommand,
+  protocol::command::Command,
   router::commands as router_commands,
   runtime::{glommio::compat::spawn_into, spawn, BroadcastReceiver, JoinHandle, RefCount},
   types::{
-    ClientState,
+    client::ClientState,
+    config::{Config, ConnectionConfig, Options, PerformanceConfig, ReconnectPolicy, Server},
     ConnectHandle,
-    ConnectionConfig,
     CustomCommand,
-    FromRedis,
+    FromValue,
     InfoKind,
-    Options,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    RedisValue,
-    Server,
+    Value,
   },
   utils,
 };
@@ -35,19 +30,19 @@ use crate::protocol::types::Resolve;
 
 pub trait ClientLike: Clone + Sized {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner>;
+  fn inner(&self) -> &RefCount<ClientInner>;
 
   /// Helper function to intercept and modify a command without affecting how it is sent to the connection layer.
   #[doc(hidden)]
-  fn change_command(&self, _: &mut RedisCommand) {}
+  fn change_command(&self, _: &mut Command) {}
 
   /// Helper function to intercept and customize how a command is sent to the connection layer.
   #[doc(hidden)]
-  fn send_command<C>(&self, command: C) -> Result<(), RedisError>
+  fn send_command<C>(&self, command: C) -> Result<(), Error>
   where
-    C: Into<RedisCommand>,
+    C: Into<Command>,
   {
-    let mut command: RedisCommand = command.into();
+    let mut command: Command = command.into();
     self.change_command(&mut command);
     default_send_command(self.inner(), command)
   }
@@ -58,7 +53,7 @@ pub trait ClientLike: Clone + Sized {
   }
 
   /// Read the config used to initialize the client.
-  fn client_config(&self) -> RedisConfig {
+  fn client_config(&self) -> Config {
     self.inner().config.as_ref().clone()
   }
 
@@ -102,12 +97,12 @@ pub trait ClientLike: Clone + Sized {
     self.inner().config.server.is_sentinel()
   }
 
-  /// Update the internal [PerformanceConfig](crate::types::PerformanceConfig) in place with new values.
+  /// Update the internal [PerformanceConfig](crate::types::config::PerformanceConfig) in place with new values.
   fn update_perf_config(&self, config: PerformanceConfig) {
     self.inner().update_performance_config(config);
   }
 
-  /// Read the [PerformanceConfig](crate::types::PerformanceConfig) associated with this client.
+  /// Read the [PerformanceConfig](crate::types::config::PerformanceConfig) associated with this client.
   fn perf_config(&self) -> PerformanceConfig {
     self.inner().performance_config()
   }
@@ -125,8 +120,8 @@ pub trait ClientLike: Clone + Sized {
   }
 
   /// Read the set of active connections managed by the client.
-  fn active_connections(&self) -> impl Future<Output = Result<Vec<Server>, RedisError>> {
-    async { Ok(self.inner().active_connections()) }
+  fn active_connections(&self) -> Vec<Server> {
+    self.inner().active_connections()
   }
 
   /// Read the server version, if known.
@@ -184,7 +179,7 @@ pub trait ClientLike: Clone + Sized {
   /// Force a reconnection to the server(s).
   ///
   /// When running against a cluster this function will also refresh the cached cluster routing table.
-  fn force_reconnection(&self) -> impl Future<Output = RedisResult<()>> {
+  fn force_reconnection(&self) -> impl Future<Output = FredResult<()>> {
     async move { commands::server::force_reconnection(self.inner()).await }
   }
 
@@ -192,7 +187,7 @@ pub trait ClientLike: Clone + Sized {
   ///
   /// This can be used with `on_reconnect` to separate initialization logic that needs to occur only on the next
   /// connection attempt vs all subsequent attempts.
-  fn wait_for_connect(&self) -> impl Future<Output = RedisResult<()>> {
+  fn wait_for_connect(&self) -> impl Future<Output = FredResult<()>> {
     async move {
       if { utils::read_locked(&self.inner().state) } == ClientState::Connected {
         debug!("{}: Client is already connected.", self.inner().id);
@@ -217,8 +212,8 @@ pub trait ClientLike: Clone + Sized {
   /// use fred::prelude::*;
   ///
   /// #[tokio::main]
-  /// async fn main() -> Result<(), RedisError> {
-  ///   let client = RedisClient::default();
+  /// async fn main() -> Result<(), Error> {
+  ///   let client = Client::default();
   ///   let connection_task = client.init().await?;
   ///
   ///   // ...
@@ -227,11 +222,11 @@ pub trait ClientLike: Clone + Sized {
   ///   connection_task.await?
   /// }
   /// ```
-  fn init(&self) -> impl Future<Output = RedisResult<ConnectHandle>> {
+  fn init(&self) -> impl Future<Output = FredResult<ConnectHandle>> {
     async move {
       let rx = { self.inner().notifications.connect.load().subscribe() };
       let task = self.connect();
-      let error = rx.recv().await.map_err(RedisError::from).and_then(|r| r).err();
+      let error = rx.recv().await.map_err(Error::from).and_then(|r| r).err();
 
       if let Some(error) = error {
         // the initial connection failed, so we should gracefully close the routing task
@@ -248,7 +243,7 @@ pub trait ClientLike: Clone + Sized {
   /// returned by [connect](Self::connect) will resolve which indicates that the connection has been fully closed.
   ///
   /// This function will also close all error, pubsub message, and reconnection event streams.
-  fn quit(&self) -> impl Future<Output = RedisResult<()>> {
+  fn quit(&self) -> impl Future<Output = FredResult<()>> {
     async move { commands::server::quit(self).await }
   }
 
@@ -257,32 +252,32 @@ pub trait ClientLike: Clone + Sized {
   /// <https://redis.io/commands/shutdown>
   #[cfg(feature = "i-server")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
-  fn shutdown(&self, flags: Option<ShutdownFlags>) -> impl Future<Output = RedisResult<()>> {
+  fn shutdown(&self, flags: Option<ShutdownFlags>) -> impl Future<Output = FredResult<()>> {
     async move { commands::server::shutdown(self, flags).await }
   }
 
   /// Delete the keys in all databases.
   ///
   /// <https://redis.io/commands/flushall>
-  fn flushall<R>(&self, r#async: bool) -> impl Future<Output = RedisResult<R>>
+  fn flushall<R>(&self, r#async: bool) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::flushall(self, r#async).await?.convert() }
   }
 
   /// Delete the keys on all nodes in the cluster. This is a special function that does not map directly to the Redis
   /// interface.
-  fn flushall_cluster(&self) -> impl Future<Output = RedisResult<()>> {
+  fn flushall_cluster(&self) -> impl Future<Output = FredResult<()>> {
     async move { commands::server::flushall_cluster(self).await }
   }
 
   /// Ping the Redis server.
   ///
   /// <https://redis.io/commands/ping>
-  fn ping<R>(&self, message: Option<String>) -> impl Future<Output = RedisResult<R>>
+  fn ping<R>(&self, message: Option<String>) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::ping(self, message).await?.convert() }
   }
@@ -290,9 +285,9 @@ pub trait ClientLike: Clone + Sized {
   /// Read info about the server.
   ///
   /// <https://redis.io/commands/info>
-  fn info<R>(&self, section: Option<InfoKind>) -> impl Future<Output = RedisResult<R>>
+  fn info<R>(&self, section: Option<InfoKind>) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::info(self, section).await?.convert() }
   }
@@ -305,11 +300,11 @@ pub trait ClientLike: Clone + Sized {
   ///
   /// This interface should be used with caution as it may break the automatic pipeline features in the client if
   /// command flags are not properly configured.
-  fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> impl Future<Output = RedisResult<R>>
+  fn custom<R, T>(&self, cmd: CustomCommand, args: Vec<T>) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
-    T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>,
+    R: FromValue,
+    T: TryInto<Value>,
+    T::Error: Into<Error>,
   {
     async move {
       let args = utils::try_into_vec(args)?;
@@ -321,10 +316,10 @@ pub trait ClientLike: Clone + Sized {
   /// parsing.
   ///
   /// Note: RESP2 frames from the server are automatically converted to the RESP3 format when parsed by the client.
-  fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> impl Future<Output = RedisResult<Resp3Frame>>
+  fn custom_raw<T>(&self, cmd: CustomCommand, args: Vec<T>) -> impl Future<Output = FredResult<Resp3Frame>>
   where
-    T: TryInto<RedisValue>,
-    T::Error: Into<RedisError>,
+    T: TryInto<Value>,
+    T::Error: Into<Error>,
   {
     async move {
       let args = utils::try_into_vec(args)?;
@@ -341,10 +336,10 @@ pub trait ClientLike: Clone + Sized {
   }
 }
 
-pub fn spawn_event_listener<T, F, Fut>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<RedisResult<()>>
+pub fn spawn_event_listener<T, F, Fut>(rx: BroadcastReceiver<T>, func: F) -> JoinHandle<FredResult<()>>
 where
   T: Clone + 'static,
-  Fut: Future<Output = RedisResult<()>> + 'static,
+  Fut: Future<Output = FredResult<()>> + 'static,
   F: Fn(T) -> Fut,
 {
   spawn(async move {

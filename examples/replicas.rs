@@ -4,7 +4,11 @@
 
 use fred::{
   prelude::*,
-  types::{ClusterDiscoveryPolicy, ClusterHash, ReplicaConfig, RespVersion},
+  types::{
+    config::{ClusterDiscoveryPolicy, ReplicaConfig},
+    ClusterHash,
+    RespVersion,
+  },
   util::redis_keyslot,
 };
 use futures::future::try_join_all;
@@ -12,10 +16,10 @@ use log::info;
 use std::collections::HashSet;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   pretty_env_logger::init();
 
-  let config = RedisConfig::from_url("redis-cluster://foo:bar@redis-cluster-1:30001")?;
+  let config = Config::from_url("redis-cluster://foo:bar@redis-cluster-1:30001")?;
   let pool = Builder::from_config(config)
     .with_config(|config| {
       config.version = RespVersion::RESP3;
@@ -43,7 +47,7 @@ async fn main() -> Result<(), RedisError> {
   for idx in 0 .. 1000 {
     let pool = pool.clone();
     ops.push(async move {
-      let key: RedisKey = format!("foo-{}", idx).into();
+      let key: Key = format!("foo-{}", idx).into();
       let cluster_hash = ClusterHash::Custom(redis_keyslot(key.as_bytes()));
 
       // send WAIT to the cluster node that received SET
@@ -59,7 +63,7 @@ async fn main() -> Result<(), RedisError> {
       let _: () = pipeline.all().await?;
 
       assert_eq!(pool.replicas().get::<i64, _>(&key).await?, idx);
-      Ok::<_, RedisError>(())
+      Ok::<_, Error>(())
     });
   }
   try_join_all(ops).await?;
@@ -69,7 +73,7 @@ async fn main() -> Result<(), RedisError> {
 
 // use one client to demonstrate how lazy connections are created. in this case each primary node is expected to have
 // one replica.
-async fn lazy_connection_example(client: &RedisClient) -> Result<(), RedisError> {
+async fn lazy_connection_example(client: &Client) -> Result<(), Error> {
   let replica_routing = client.replicas().nodes();
   let cluster_routing = client
     .cached_cluster_state()
@@ -77,11 +81,11 @@ async fn lazy_connection_example(client: &RedisClient) -> Result<(), RedisError>
   let expected_primary = cluster_routing
     .get_server(redis_keyslot(b"foo"))
     .expect("Failed to read primary node owner for 'foo'");
-  let old_connections: HashSet<_> = client.active_connections().await?.into_iter().collect();
+  let old_connections: HashSet<_> = client.active_connections().into_iter().collect();
 
   // if `lazy_connections: true` the client creates the connection here
   let _: () = client.replicas().get("foo").await?;
-  let new_connections: HashSet<_> = client.active_connections().await?.into_iter().collect();
+  let new_connections: HashSet<_> = client.active_connections().into_iter().collect();
   let new_servers: Vec<_> = new_connections.difference(&old_connections).collect();
   // verify that 1 new connection was created, and that it's in the replica map as a replica of the expected primary
   // node
@@ -90,7 +94,7 @@ async fn lazy_connection_example(client: &RedisClient) -> Result<(), RedisError>
 
   // update the replica routing table and reset replica connections
   client.replicas().sync(true).await?;
-  assert_eq!(old_connections.len(), client.active_connections().await?.len());
+  assert_eq!(old_connections.len(), client.active_connections().len());
 
   Ok(())
 }

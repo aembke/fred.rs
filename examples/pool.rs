@@ -4,7 +4,7 @@
 use fred::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let pool = Builder::default_centralized().build_pool(5)?;
   pool.init().await?;
 
@@ -22,7 +22,7 @@ async fn main() -> Result<(), RedisError> {
   assert_eq!(pipeline.last::<i64>().await?, 2);
 
   for client in pool.clients() {
-    println!("{} connected to {:?}", client.id(), client.active_connections().await?);
+    println!("{} connected to {:?}", client.id(), client.active_connections());
   }
 
   pool.quit().await?;

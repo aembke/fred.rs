@@ -11,7 +11,7 @@ pub(crate) mod compat {
     broadcast::{BroadcastReceiver, BroadcastSender},
     mpsc::{channel, Receiver, Sender},
   };
-  use crate::error::RedisError;
+  use crate::error::Error;
   use futures::Future;
   use glommio::TaskQueueHandle;
   pub use glommio::{task::JoinHandle as GlommioJoinHandle, timer::sleep};
@@ -77,7 +77,7 @@ pub(crate) mod compat {
 
   // map from futures_lite::Future to std::future::Future
   impl<T> Future for JoinHandle<T> {
-    type Output = Result<T, RedisError>;
+    type Output = Result<T, Error>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
       use futures_lite::FutureExt;
@@ -87,7 +87,7 @@ pub(crate) mod compat {
         .get_mut()
         .inner
         .poll(cx)
-        .map(|result| result.ok_or(RedisError::new_canceled()));
+        .map(|result| result.ok_or(Error::new_canceled()));
 
       if let Poll::Ready(_) = result {
         finished.replace(true);

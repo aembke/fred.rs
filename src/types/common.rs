@@ -3,13 +3,14 @@ pub use crate::protocol::{
   types::{Message, MessageKind},
 };
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::{RedisKey, RedisValue, Server},
+  error::{Error, ErrorKind},
+  types::{Key, Value},
   utils,
 };
 use bytes_utils::Str;
 use std::{convert::TryFrom, fmt, time::Duration};
 
+use crate::prelude::Server;
 #[cfg(feature = "i-memory")]
 use crate::utils::convert_or_default;
 #[cfg(feature = "i-memory")]
@@ -33,6 +34,64 @@ impl ShutdownFlags {
   }
 }
 
+/// The state of the underlying connection to the Redis server.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientState {
+  Disconnected,
+  Disconnecting,
+  Connected,
+  Connecting,
+}
+
+impl ClientState {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      ClientState::Connecting => "Connecting",
+      ClientState::Connected => "Connected",
+      ClientState::Disconnecting => "Disconnecting",
+      ClientState::Disconnected => "Disconnected",
+    })
+  }
+}
+
+impl fmt::Display for ClientState {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{}", self.to_str())
+  }
+}
+/// An enum describing the possible ways in which a Redis cluster can change state.
+///
+/// See [on_cluster_change](crate::interfaces::EventInterface::on_cluster_change) for more information.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClusterStateChange {
+  /// A node was added to the cluster.
+  ///
+  /// This implies that hash slots were also probably rebalanced.
+  Add(Server),
+  /// A node was removed from the cluster.
+  ///
+  /// This implies that hash slots were also probably rebalanced.
+  Remove(Server),
+  /// Hash slots were rebalanced across the cluster and/or local routing state was updated.
+  Rebalance,
+}
+
+/// Arguments to the CLIENT UNBLOCK command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClientUnblockFlag {
+  Timeout,
+  Error,
+}
+
+impl ClientUnblockFlag {
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      ClientUnblockFlag::Timeout => "TIMEOUT",
+      ClientUnblockFlag::Error => "ERROR",
+    })
+  }
+}
+
 /// An event on the publish-subscribe interface describing a keyspace notification.
 ///
 /// <https://redis.io/topics/notifications>
@@ -40,25 +99,7 @@ impl ShutdownFlags {
 pub struct KeyspaceEvent {
   pub db:        u8,
   pub operation: String,
-  pub key:       RedisKey,
-}
-
-/// Aggregate options for the [zinterstore](https://redis.io/commands/zinterstore) (and related) commands.
-pub enum AggregateOptions {
-  Sum,
-  Min,
-  Max,
-}
-
-impl AggregateOptions {
-  #[cfg(feature = "i-sorted-sets")]
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      AggregateOptions::Sum => "SUM",
-      AggregateOptions::Min => "MIN",
-      AggregateOptions::Max => "MAX",
-    })
-  }
+  pub key:       Key,
 }
 
 /// Options for the [info](https://redis.io/commands/info) command.
@@ -139,23 +180,6 @@ impl CustomCommand {
   }
 }
 
-/// An enum describing the possible ways in which a Redis cluster can change state.
-///
-/// See [on_cluster_change](crate::interfaces::EventInterface::on_cluster_change) for more information.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ClusterStateChange {
-  /// A node was added to the cluster.
-  ///
-  /// This implies that hash slots were also probably rebalanced.
-  Add(Server),
-  /// A node was removed from the cluster.
-  ///
-  /// This implies that hash slots were also probably rebalanced.
-  Remove(Server),
-  /// Hash slots were rebalanced across the cluster and/or local routing state was updated.
-  Rebalance,
-}
-
 /// Options for the [set](https://redis.io/commands/set) command.
 ///
 /// <https://redis.io/commands/set>
@@ -226,32 +250,6 @@ impl Expiration {
   }
 }
 
-/// The state of the underlying connection to the Redis server.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ClientState {
-  Disconnected,
-  Disconnecting,
-  Connected,
-  Connecting,
-}
-
-impl ClientState {
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      ClientState::Connecting => "Connecting",
-      ClientState::Connected => "Connected",
-      ClientState::Disconnecting => "Disconnecting",
-      ClientState::Disconnected => "Disconnected",
-    })
-  }
-}
-
-impl fmt::Display for ClientState {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "{}", self.to_str())
-  }
-}
-
 /// The parsed result of the MEMORY STATS command for a specific database.
 ///
 /// <https://redis.io/commands/memory-stats>
@@ -276,7 +274,7 @@ impl Default for DatabaseMemoryStats {
 }
 
 #[cfg(feature = "i-memory")]
-fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value: RedisValue) {
+fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value: Value) {
   match key {
     "overhead.hashtable.main" => stats.overhead_hashtable_main = convert_or_default(value),
     "overhead.hashtable.expires" => stats.overhead_hashtable_expires = convert_or_default(value),
@@ -287,11 +285,11 @@ fn parse_database_memory_stat(stats: &mut DatabaseMemoryStats, key: &str, value:
 
 #[cfg(feature = "i-memory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
-impl TryFrom<RedisValue> for DatabaseMemoryStats {
-  type Error = RedisError;
+impl TryFrom<Value> for DatabaseMemoryStats {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
-    let values: HashMap<Str, RedisValue> = value.convert()?;
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    let values: HashMap<Str, Value> = value.convert()?;
     let mut out = DatabaseMemoryStats::default();
 
     for (key, value) in values.into_iter() {
@@ -405,7 +403,7 @@ impl PartialEq for MemoryStats {
 impl Eq for MemoryStats {}
 
 #[cfg(feature = "i-memory")]
-fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue) {
+fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: Value) {
   match key {
     "peak.allocated" => stats.peak_allocated = convert_or_default(value),
     "total.allocated" => stats.total_allocated = convert_or_default(value),
@@ -451,11 +449,11 @@ fn parse_memory_stat_field(stats: &mut MemoryStats, key: &str, value: RedisValue
 
 #[cfg(feature = "i-memory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
-impl TryFrom<RedisValue> for MemoryStats {
-  type Error = RedisError;
+impl TryFrom<Value> for MemoryStats {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
-    let values: HashMap<Str, RedisValue> = value.convert()?;
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    let values: HashMap<Str, Value> = value.convert()?;
     let mut out = MemoryStats::default();
 
     for (key, value) in values.into_iter() {
@@ -473,43 +471,39 @@ pub struct SlowlogEntry {
   pub id:        i64,
   pub timestamp: i64,
   pub duration:  Duration,
-  pub args:      Vec<RedisValue>,
+  pub args:      Vec<Value>,
   pub ip:        Option<Str>,
   pub name:      Option<Str>,
 }
 
-impl TryFrom<RedisValue> for SlowlogEntry {
-  type Error = RedisError;
+impl TryFrom<Value> for SlowlogEntry {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
-    if let RedisValue::Array(values) = value {
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
+    if let Value::Array(values) = value {
       if values.len() < 4 {
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Expected at least 4 response values.",
-        ));
+        return Err(Error::new(ErrorKind::Protocol, "Expected at least 4 response values."));
       }
 
       let id = values[0]
         .as_i64()
-        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer ID."))?;
+        .ok_or(Error::new(ErrorKind::Protocol, "Expected integer ID."))?;
       let timestamp = values[1]
         .as_i64()
-        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer timestamp."))?;
+        .ok_or(Error::new(ErrorKind::Protocol, "Expected integer timestamp."))?;
       let duration = values[2]
         .as_u64()
         .map(Duration::from_micros)
-        .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected integer duration."))?;
+        .ok_or(Error::new(ErrorKind::Protocol, "Expected integer duration."))?;
       let args = values[3].clone().into_multiple_values();
 
       let (ip, name) = if values.len() == 6 {
         let ip = values[4]
           .as_bytes_str()
-          .ok_or(RedisError::new(RedisErrorKind::Protocol, "Expected IP address string."))?;
-        let name = values[5].as_bytes_str().ok_or(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Expected client name string.",
-        ))?;
+          .ok_or(Error::new(ErrorKind::Protocol, "Expected IP address string."))?;
+        let name = values[5]
+          .as_bytes_str()
+          .ok_or(Error::new(ErrorKind::Protocol, "Expected client name string."))?;
 
         (Some(ip), Some(name))
       } else {
@@ -525,27 +519,8 @@ impl TryFrom<RedisValue> for SlowlogEntry {
         name,
       })
     } else {
-      Err(RedisError::new_parse("Expected array."))
+      Err(Error::new_parse("Expected array."))
     }
-  }
-}
-
-/// Flags for the SCRIPT DEBUG command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ScriptDebugFlag {
-  Yes,
-  No,
-  Sync,
-}
-
-impl ScriptDebugFlag {
-  #[cfg(feature = "i-scripts")]
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      ScriptDebugFlag::Yes => "YES",
-      ScriptDebugFlag::No => "NO",
-      ScriptDebugFlag::Sync => "SYNC",
-    })
   }
 }
 
@@ -583,102 +558,6 @@ impl SortOrder {
     utils::static_str(match *self {
       SortOrder::Asc => "ASC",
       SortOrder::Desc => "DESC",
-    })
-  }
-}
-
-/// The policy type for the [FUNCTION RESTORE](https://redis.io/commands/function-restore/) command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum FnPolicy {
-  Flush,
-  Append,
-  Replace,
-}
-
-impl Default for FnPolicy {
-  fn default() -> Self {
-    FnPolicy::Append
-  }
-}
-
-impl FnPolicy {
-  #[cfg(feature = "i-scripts")]
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      FnPolicy::Flush => "FLUSH",
-      FnPolicy::Append => "APPEND",
-      FnPolicy::Replace => "REPLACE",
-    })
-  }
-
-  pub(crate) fn from_str(s: &str) -> Result<Self, RedisError> {
-    Ok(match s {
-      "flush" | "FLUSH" => FnPolicy::Flush,
-      "append" | "APPEND" => FnPolicy::Append,
-      "replace" | "REPLACE" => FnPolicy::Replace,
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid function restore policy.",
-        ))
-      },
-    })
-  }
-}
-
-// have to implement these for specific types to avoid conflicting with the core Into implementation
-impl TryFrom<&str> for FnPolicy {
-  type Error = RedisError;
-
-  fn try_from(value: &str) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(value)
-  }
-}
-
-impl TryFrom<&String> for FnPolicy {
-  type Error = RedisError;
-
-  fn try_from(value: &String) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(value.as_str())
-  }
-}
-
-impl TryFrom<String> for FnPolicy {
-  type Error = RedisError;
-
-  fn try_from(value: String) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(value.as_str())
-  }
-}
-
-impl TryFrom<Str> for FnPolicy {
-  type Error = RedisError;
-
-  fn try_from(value: Str) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(&value)
-  }
-}
-
-impl TryFrom<&Str> for FnPolicy {
-  type Error = RedisError;
-
-  fn try_from(value: &Str) -> Result<Self, Self::Error> {
-    FnPolicy::from_str(value)
-  }
-}
-
-/// Arguments to the CLIENT UNBLOCK command.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ClientUnblockFlag {
-  Timeout,
-  Error,
-}
-
-impl ClientUnblockFlag {
-  pub(crate) fn to_str(&self) -> Str {
-    utils::static_str(match *self {
-      ClientUnblockFlag::Timeout => "TIMEOUT",
-      ClientUnblockFlag::Error => "ERROR",
     })
   }
 }

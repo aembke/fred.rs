@@ -1,34 +1,39 @@
 use bytes::Bytes;
 use fred::{
-  clients::{RedisClient, RedisPool},
-  error::RedisError,
+  clients::{Client, Pool},
+  error::Error,
   interfaces::*,
-  types::{Expiration, ReconnectPolicy, RedisConfig, RedisMap, RedisValue},
+  types::{
+    config::{Config, ReconnectPolicy},
+    Expiration,
+    Map,
+    Value,
+  },
 };
 use futures::{pin_mut, StreamExt};
 use std::{collections::HashMap, time::Duration};
 use tokio::{self, time::sleep};
 
 #[cfg(feature = "default-nil-types")]
-pub async fn should_handle_missing_keys(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_handle_missing_keys(client: Client, _: Config) -> Result<(), Error> {
   assert!(client.get::<Bytes, _>("foo").await?.is_empty());
   Ok(())
 }
 
 #[cfg(not(feature = "default-nil-types"))]
-pub async fn should_handle_missing_keys(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_handle_missing_keys(client: Client, _: Config) -> Result<(), Error> {
   assert!(client.get::<Bytes, _>("foo").await.is_err());
   Ok(())
 }
 
-pub async fn should_set_and_get_a_value(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_set_and_get_a_value(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
 
   assert_eq!(client.get::<String, _>("foo").await?, "bar");
   Ok(())
 }
 
-pub async fn should_set_and_del_a_value(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_set_and_del_a_value(client: Client, _config: Config) -> Result<(), Error> {
   let result: Option<String> = client.set("foo", "bar", None, None, true).await?;
   assert!(result.is_none());
 
@@ -38,7 +43,7 @@ pub async fn should_set_and_del_a_value(client: RedisClient, _config: RedisConfi
   Ok(())
 }
 
-pub async fn should_set_with_get_argument(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_set_with_get_argument(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
 
   let result: String = client.set("foo", "baz", None, None, true).await?;
@@ -50,7 +55,7 @@ pub async fn should_set_with_get_argument(client: RedisClient, _config: RedisCon
   Ok(())
 }
 
-pub async fn should_rename(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_rename(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("{foo}.1", "baz", None, None, false).await?;
 
   let _: () = client.rename("{foo}.1", "{foo}.2").await?;
@@ -60,11 +65,11 @@ pub async fn should_rename(client: RedisClient, _config: RedisConfig) -> Result<
   Ok(())
 }
 
-pub async fn should_error_rename_does_not_exist(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_error_rename_does_not_exist(client: Client, _config: Config) -> Result<(), Error> {
   client.rename("{foo}", "{foo}.bar").await
 }
 
-pub async fn should_renamenx(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_renamenx(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("{foo}.1", "baz", None, None, false).await?;
 
   let _: () = client.renamenx("{foo}.1", "{foo}.2").await?;
@@ -74,14 +79,11 @@ pub async fn should_renamenx(client: RedisClient, _config: RedisConfig) -> Resul
   Ok(())
 }
 
-pub async fn should_error_renamenx_does_not_exist(
-  client: RedisClient,
-  _config: RedisConfig,
-) -> Result<(), RedisError> {
+pub async fn should_error_renamenx_does_not_exist(client: Client, _config: Config) -> Result<(), Error> {
   client.renamenx("{foo}", "{foo}.bar").await
 }
 
-pub async fn should_unlink(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_unlink(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("{foo}1", "bar", None, None, false).await?;
 
   assert_eq!(client.get::<String, _>("{foo}1").await?, "bar");
@@ -95,7 +97,7 @@ pub async fn should_unlink(client: RedisClient, _config: RedisConfig) -> Result<
   Ok(())
 }
 
-pub async fn should_incr_and_decr_a_value(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_incr_and_decr_a_value(client: Client, _config: Config) -> Result<(), Error> {
   let count: u64 = client.incr("foo").await?;
   assert_eq!(count, 1);
   let count: u64 = client.incr_by("foo", 2).await?;
@@ -108,7 +110,7 @@ pub async fn should_incr_and_decr_a_value(client: RedisClient, _config: RedisCon
   Ok(())
 }
 
-pub async fn should_incr_by_float(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_incr_by_float(client: Client, _config: Config) -> Result<(), Error> {
   let count: f64 = client.incr_by_float("foo", 1.5).await?;
   assert_eq!(count, 1.5);
   let count: f64 = client.incr_by_float("foo", 2.2).await?;
@@ -119,8 +121,8 @@ pub async fn should_incr_by_float(client: RedisClient, _config: RedisConfig) -> 
   Ok(())
 }
 
-pub async fn should_mset_a_non_empty_map(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
-  let mut map: HashMap<String, RedisValue> = HashMap::new();
+pub async fn should_mset_a_non_empty_map(client: Client, _config: Config) -> Result<(), Error> {
+  let mut map: HashMap<String, Value> = HashMap::new();
   // MSET args all have to map to the same cluster node
   map.insert("a{1}".into(), 1.into());
   map.insert("b{1}".into(), 2.into());
@@ -139,11 +141,11 @@ pub async fn should_mset_a_non_empty_map(client: RedisClient, _config: RedisConf
 }
 
 // should panic
-pub async fn should_error_mset_empty_map(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
-  client.mset(RedisMap::new()).await.map(|_| ())
+pub async fn should_error_mset_empty_map(client: Client, _config: Config) -> Result<(), Error> {
+  client.mset(Map::new()).await.map(|_| ())
 }
 
-pub async fn should_expire_key(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_expire_key(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
 
   let _: () = client.expire("foo", 1).await?;
@@ -154,7 +156,7 @@ pub async fn should_expire_key(client: RedisClient, _config: RedisConfig) -> Res
   Ok(())
 }
 
-pub async fn should_persist_key(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_persist_key(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", Some(Expiration::EX(5)), None, false).await?;
 
   let removed: bool = client.persist("foo").await?;
@@ -166,7 +168,7 @@ pub async fn should_persist_key(client: RedisClient, _config: RedisConfig) -> Re
   Ok(())
 }
 
-pub async fn should_check_ttl(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_check_ttl(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", Some(Expiration::EX(5)), None, false).await?;
 
   let ttl: i64 = client.ttl("foo").await?;
@@ -175,7 +177,7 @@ pub async fn should_check_ttl(client: RedisClient, _config: RedisConfig) -> Resu
   Ok(())
 }
 
-pub async fn should_check_pttl(client: RedisClient, _config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_check_pttl(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", Some(Expiration::EX(5)), None, false).await?;
 
   let ttl: i64 = client.pttl("foo").await?;
@@ -184,15 +186,15 @@ pub async fn should_check_pttl(client: RedisClient, _config: RedisConfig) -> Res
   Ok(())
 }
 
-pub async fn should_dump_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_dump_key(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "abc123", None, None, false).await?;
-  let dump: RedisValue = client.dump("foo").await?;
+  let dump: Value = client.dump("foo").await?;
   assert!(dump.is_bytes());
 
   Ok(())
 }
 
-pub async fn should_dump_and_restore_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_dump_and_restore_key(client: Client, _: Config) -> Result<(), Error> {
   let expected = "abc123";
 
   let _: () = client.set("foo", expected, None, None, false).await?;
@@ -206,7 +208,7 @@ pub async fn should_dump_and_restore_key(client: RedisClient, _: RedisConfig) ->
   Ok(())
 }
 
-pub async fn should_modify_ranges(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_modify_ranges(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "0123456789", None, None, false).await?;
 
   let range: String = client.getrange("foo", 0, 4).await?;
@@ -219,7 +221,7 @@ pub async fn should_modify_ranges(client: RedisClient, _: RedisConfig) -> Result
   Ok(())
 }
 
-pub async fn should_getset_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_getset_value(client: Client, _: Config) -> Result<(), Error> {
   let value: Option<String> = client.getset("foo", "bar").await?;
   assert!(value.is_none());
   let value: String = client.getset("foo", "baz").await?;
@@ -230,7 +232,7 @@ pub async fn should_getset_value(client: RedisClient, _: RedisConfig) -> Result<
   Ok(())
 }
 
-pub async fn should_getdel_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_getdel_value(client: Client, _: Config) -> Result<(), Error> {
   let value: Option<String> = client.getdel("foo").await?;
   assert!(value.is_none());
 
@@ -243,7 +245,7 @@ pub async fn should_getdel_value(client: RedisClient, _: RedisConfig) -> Result<
   Ok(())
 }
 
-pub async fn should_get_strlen(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_get_strlen(client: Client, _: Config) -> Result<(), Error> {
   let expected = "abcdefghijklmnopqrstuvwxyz";
   let _: () = client.set("foo", expected, None, None, false).await?;
   let len: usize = client.strlen("foo").await?;
@@ -252,8 +254,8 @@ pub async fn should_get_strlen(client: RedisClient, _: RedisConfig) -> Result<()
   Ok(())
 }
 
-pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
+pub async fn should_mget_values(client: Client, _: Config) -> Result<(), Error> {
+  let expected: Vec<(&str, Value)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
   for (key, value) in expected.iter() {
     let _: () = client.set(*key, value.clone(), None, None, false).await?;
   }
@@ -263,8 +265,8 @@ pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(
   Ok(())
 }
 
-pub async fn should_msetnx_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into())];
+pub async fn should_msetnx_values(client: Client, _: Config) -> Result<(), Error> {
+  let expected: Vec<(&str, Value)> = vec![("a{1}", 1.into()), ("b{1}", 2.into())];
 
   // do it first, check they're there
   let values: i64 = client.msetnx(expected.clone()).await?;
@@ -285,7 +287,7 @@ pub async fn should_msetnx_values(client: RedisClient, _: RedisConfig) -> Result
   Ok(())
 }
 
-pub async fn should_copy_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_copy_values(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("a{1}", "bar", None, None, false).await?;
   let result: i64 = client.copy("a{1}", "b{1}", None, false).await?;
   assert_eq!(result, 1);
@@ -305,13 +307,10 @@ pub async fn should_copy_values(client: RedisClient, _: RedisConfig) -> Result<(
   Ok(())
 }
 
-pub async fn should_get_keys_from_pool_in_a_stream(
-  client: RedisClient,
-  config: RedisConfig,
-) -> Result<(), RedisError> {
+pub async fn should_get_keys_from_pool_in_a_stream(client: Client, config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
 
-  let pool = RedisPool::new(config, None, None, None, 5)?;
+  let pool = Pool::new(config, None, None, None, 5)?;
   pool.connect();
   pool.wait_for_connect().await?;
 
@@ -339,7 +338,7 @@ pub async fn should_get_keys_from_pool_in_a_stream(
   Ok(())
 }
 
-pub async fn should_pexpire_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_pexpire_key(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
   assert_eq!(client.pexpire::<i64, _>("foo", 100, None).await?, 1);
 
@@ -348,7 +347,7 @@ pub async fn should_pexpire_key(client: RedisClient, _: RedisConfig) -> Result<(
   Ok(())
 }
 
-pub async fn should_setnx_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_setnx_value(client: Client, _: Config) -> Result<(), Error> {
   let value_set: i64 = client.setnx("foo", 123456).await?;
   assert_eq!(value_set, 1);
 
@@ -364,7 +363,7 @@ pub async fn should_setnx_value(client: RedisClient, _: RedisConfig) -> Result<(
   Ok(())
 }
 
-pub async fn should_expire_time_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_expire_time_value(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", Some(Expiration::EX(60)), None, false).await?;
   let expiration: i64 = client.expire_time("foo").await?;
   assert!(expiration > 0);
@@ -372,7 +371,7 @@ pub async fn should_expire_time_value(client: RedisClient, _: RedisConfig) -> Re
   Ok(())
 }
 
-pub async fn should_pexpire_time_value(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_pexpire_time_value(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", Some(Expiration::EX(60)), None, false).await?;
   let expiration: i64 = client.pexpire_time("foo").await?;
   assert!(expiration > 0);
@@ -381,7 +380,7 @@ pub async fn should_pexpire_time_value(client: RedisClient, _: RedisConfig) -> R
 }
 
 #[cfg(all(feature = "i-keys", feature = "i-hashes", feature = "i-sets"))]
-pub async fn should_check_type_of_key(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_check_type_of_key(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo1", "bar", None, None, false).await?;
   let _: () = client.hset("foo2", ("a", "b")).await?;
   let _: () = client.sadd("foo3", "c").await?;

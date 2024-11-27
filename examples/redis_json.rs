@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 // see the serde-json example for more information on deserializing responses
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let client = Builder::default_centralized().build()?;
   client.init().await?;
 

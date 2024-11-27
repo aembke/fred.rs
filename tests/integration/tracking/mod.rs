@@ -1,6 +1,6 @@
 use fred::{
   prelude::*,
-  types::{RedisKey, RespVersion},
+  types::{Key, RespVersion},
 };
 use std::{
   sync::{
@@ -13,12 +13,12 @@ use tokio::time::sleep;
 
 #[allow(dead_code)]
 #[cfg(feature = "i-keys")]
-pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_invalidate_foo_resp3(client: Client, _: Config) -> Result<(), Error> {
   if client.protocol_version() == RespVersion::RESP2 {
     return Ok(());
   }
 
-  let key: RedisKey = "foo{1}".into();
+  let key: Key = "foo{1}".into();
   let invalidated = Arc::new(AtomicBool::new(false));
   let _invalidated = invalidated.clone();
 
@@ -49,12 +49,12 @@ pub async fn should_invalidate_foo_resp3(client: RedisClient, _: RedisConfig) ->
 
 #[allow(dead_code)]
 #[cfg(feature = "i-keys")]
-pub async fn should_invalidate_foo_resp2_centralized(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_invalidate_foo_resp2_centralized(client: Client, _: Config) -> Result<(), Error> {
   if client.protocol_version() == RespVersion::RESP3 || client.is_clustered() {
     return Ok(());
   }
 
-  let key: RedisKey = "foo{1}".into();
+  let key: Key = "foo{1}".into();
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;

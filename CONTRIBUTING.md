@@ -5,8 +5,8 @@ This document gives some background on how the library is structured and how to 
 ## General
 
 * Run rustfmt and clippy before submitting any changes.
-  * Formatting should adhere to [rustfmt.toml](./rustfmt.toml), i.e. by running `cargo +nightly fmt --all`
-  * VS Code users should use the checked-in settings in the [.vscode](./.vscode) directory
+    * Formatting should adhere to [rustfmt.toml](./rustfmt.toml), i.e. by running `cargo +nightly fmt --all`
+    * VS Code users should use the checked-in settings in the [.vscode](./.vscode) directory
 * Please use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/#summary).
 
 ## File Structure
@@ -43,7 +43,7 @@ The code has the following structure:
 
 This example shows how to add `MGET` to the commands.
 
-1. Add the new variant to the `RedisCommandKind` enum, if needed.
+1. Add the new variant to the `CommandKind` enum, if needed.
 
     ```rust
     pub enum RedisCommandKind {
@@ -80,7 +80,7 @@ This example shows how to add `MGET` to the commands.
 2. Create the private function implementing the command in [src/commands/impls/keys.rs](src/commands/impls/keys.rs).
 
     ```rust
-    pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+    pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<Value, RedisError> {
       // maybe do some kind of validation 
       utils::check_empty_keys(&keys)?;
 
@@ -94,10 +94,10 @@ This example shows how to add `MGET` to the commands.
     }
     ```
 
-    Or use one of the shorthand helper functions or macros.
+   Or use one of the shorthand helper functions or macros.
 
     ```rust
-    pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<RedisValue, RedisError> {
+    pub async fn mget<C: ClientLike>(client: &C, keys: MultipleKeys) -> Result<Value, RedisError> {
       utils::check_empty_keys(&keys)?;
       args_values_cmd(client, keys.into_values()).await
     }
@@ -133,13 +133,13 @@ This example shows how to add `MGET` to the commands.
 
 4. Implement the interface on the client structs, if needed.
 
-    In the [RedisClient](src/clients/redis.rs) file.
+   In the [Client](src/clients/redis.rs) file.
 
     ```rust
-    impl KeysInterface for RedisClient {}
+    impl KeysInterface for Client {}
     ```
 
-    In the [transaction](src/clients/transaction.rs) file.
+   In the [transaction](src/clients/transaction.rs) file.
 
     ```rust
     impl KeysInterface for Transaction {}
@@ -155,8 +155,8 @@ Using `MGET` as an example again:
 1. Write tests in the [keys](tests/integration/keys/mod.rs) file.
 
     ```rust
-    pub async fn should_mget_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-      let expected: Vec<(&str, RedisValue)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
+    pub async fn should_mget_values(client: Client, _: Config) -> Result<(), RedisError> {
+      let expected: Vec<(&str, Value)> = vec![("a{1}", 1.into()), ("b{1}", 2.into()), ("c{1}", 3.into())];
       for (key, value) in expected.iter() {
         let _: () = client.set(key, value.clone(), None, None, false).await?;
       }
@@ -186,8 +186,7 @@ Using `MGET` as an example again:
     }
     ```
 
-These macros will generate test wrapper functions to call your test 8 times based on the following options:
+These macros will generate test wrapper functions to call your test 4 times based on the following options:
 
 * Clustered vs centralized deployments
-* Pipelined vs non-pipelined clients
 * RESP2 vs RESP3 protocol modes

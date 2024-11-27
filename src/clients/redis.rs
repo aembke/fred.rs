@@ -5,12 +5,15 @@ use crate::interfaces::TrackingInterface;
 use crate::{
   clients::{Pipeline, WithOptions},
   commands,
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces::*,
-  modules::inner::RedisClientInner,
-  prelude::ClientLike,
+  modules::inner::ClientInner,
+  prelude::{ClientLike, Config, ConnectionConfig, Options, PerformanceConfig, ReconnectPolicy, Server},
   runtime::RefCount,
-  types::*,
+  types::{
+    scan::{HScanResult, SScanResult, ScanResult, ScanType, ZScanResult},
+    *,
+  },
 };
 use bytes_utils::Str;
 use futures::Stream;
@@ -18,133 +21,133 @@ use std::{fmt, fmt::Formatter};
 
 /// A cheaply cloneable Redis client struct.
 #[derive(Clone)]
-pub struct RedisClient {
-  pub(crate) inner: RefCount<RedisClientInner>,
+pub struct Client {
+  pub(crate) inner: RefCount<ClientInner>,
 }
 
-impl Default for RedisClient {
+impl Default for Client {
   fn default() -> Self {
-    RedisClient::new(RedisConfig::default(), None, None, None)
+    Client::new(Config::default(), None, None, None)
   }
 }
 
-impl fmt::Debug for RedisClient {
+impl fmt::Debug for Client {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.debug_struct("RedisClient")
+    f.debug_struct("Client")
       .field("id", &self.inner.id)
       .field("state", &self.state())
       .finish()
   }
 }
 
-impl fmt::Display for RedisClient {
+impl fmt::Display for Client {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "{}", self.inner.id)
   }
 }
 
 #[doc(hidden)]
-impl<'a> From<&'a RefCount<RedisClientInner>> for RedisClient {
-  fn from(inner: &'a RefCount<RedisClientInner>) -> RedisClient {
-    RedisClient { inner: inner.clone() }
+impl<'a> From<&'a RefCount<ClientInner>> for Client {
+  fn from(inner: &'a RefCount<ClientInner>) -> Client {
+    Client { inner: inner.clone() }
   }
 }
 
-impl ClientLike for RedisClient {
+impl ClientLike for Client {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     &self.inner
   }
 }
 
-impl EventInterface for RedisClient {}
+impl EventInterface for Client {}
 #[cfg(feature = "i-redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
-impl RedisJsonInterface for RedisClient {}
+impl RedisJsonInterface for Client {}
 #[cfg(feature = "i-time-series")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
-impl TimeSeriesInterface for RedisClient {}
+impl TimeSeriesInterface for Client {}
 #[cfg(feature = "i-acl")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-acl")))]
-impl AclInterface for RedisClient {}
+impl AclInterface for Client {}
 #[cfg(feature = "i-client")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-client")))]
-impl ClientInterface for RedisClient {}
+impl ClientInterface for Client {}
 #[cfg(feature = "i-cluster")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-cluster")))]
-impl ClusterInterface for RedisClient {}
+impl ClusterInterface for Client {}
 #[cfg(feature = "i-config")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-config")))]
-impl ConfigInterface for RedisClient {}
+impl ConfigInterface for Client {}
 #[cfg(feature = "i-geo")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
-impl GeoInterface for RedisClient {}
+impl GeoInterface for Client {}
 #[cfg(feature = "i-hashes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-hashes")))]
-impl HashesInterface for RedisClient {}
+impl HashesInterface for Client {}
 #[cfg(feature = "i-hyperloglog")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-hyperloglog")))]
-impl HyperloglogInterface for RedisClient {}
-impl MetricsInterface for RedisClient {}
+impl HyperloglogInterface for Client {}
+impl MetricsInterface for Client {}
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
-impl TransactionInterface for RedisClient {}
+impl TransactionInterface for Client {}
 #[cfg(feature = "i-keys")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-keys")))]
-impl KeysInterface for RedisClient {}
+impl KeysInterface for Client {}
 #[cfg(feature = "i-scripts")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
-impl LuaInterface for RedisClient {}
+impl LuaInterface for Client {}
 #[cfg(feature = "i-lists")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-lists")))]
-impl ListInterface for RedisClient {}
+impl ListInterface for Client {}
 #[cfg(feature = "i-memory")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-memory")))]
-impl MemoryInterface for RedisClient {}
-impl AuthInterface for RedisClient {}
+impl MemoryInterface for Client {}
+impl AuthInterface for Client {}
 #[cfg(feature = "i-server")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
-impl ServerInterface for RedisClient {}
+impl ServerInterface for Client {}
 #[cfg(feature = "i-slowlog")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-slowlog")))]
-impl SlowlogInterface for RedisClient {}
+impl SlowlogInterface for Client {}
 #[cfg(feature = "i-sets")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-sets")))]
-impl SetsInterface for RedisClient {}
+impl SetsInterface for Client {}
 #[cfg(feature = "i-sorted-sets")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-sorted-sets")))]
-impl SortedSetsInterface for RedisClient {}
+impl SortedSetsInterface for Client {}
 #[cfg(feature = "i-server")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-server")))]
-impl HeartbeatInterface for RedisClient {}
+impl HeartbeatInterface for Client {}
 #[cfg(feature = "i-streams")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
-impl StreamsInterface for RedisClient {}
+impl StreamsInterface for Client {}
 #[cfg(feature = "i-scripts")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
-impl FunctionInterface for RedisClient {}
+impl FunctionInterface for Client {}
 #[cfg(feature = "i-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
-impl TrackingInterface for RedisClient {}
+impl TrackingInterface for Client {}
 #[cfg(feature = "i-pubsub")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
-impl PubsubInterface for RedisClient {}
+impl PubsubInterface for Client {}
 #[cfg(feature = "i-redisearch")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
-impl RediSearchInterface for RedisClient {}
+impl RediSearchInterface for Client {}
 
-impl RedisClient {
+impl Client {
   /// Create a new client instance without connecting to the server.
   ///
   /// See the [builder](crate::types::Builder) interface for more information.
   pub fn new(
-    config: RedisConfig,
+    config: Config,
     perf: Option<PerformanceConfig>,
     connection: Option<ConnectionConfig>,
     policy: Option<ReconnectPolicy>,
-  ) -> RedisClient {
-    RedisClient {
-      inner: RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
+  ) -> Client {
+    Client {
+      inner: ClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 
@@ -157,7 +160,7 @@ impl RedisClient {
       policy.reset_attempts();
     }
 
-    RedisClient::new(
+    Client::new(
       self.inner.config.as_ref().clone(),
       Some(self.inner.performance_config()),
       Some(self.inner.connection_config()),
@@ -167,17 +170,17 @@ impl RedisClient {
 
   /// Split a clustered Redis client into a set of centralized clients - one for each primary node in the cluster.
   ///
-  /// Alternatively, callers can use [with_cluster_node](crate::clients::RedisClient::with_cluster_node) to avoid
+  /// Alternatively, callers can use [with_cluster_node](crate::clients::Client::with_cluster_node) to avoid
   /// creating new connections.
   ///
   /// The clients returned by this function will not be connected to their associated servers. The caller needs to
   /// call `connect` on each client before sending any commands.
-  pub fn split_cluster(&self) -> Result<Vec<RedisClient>, RedisError> {
+  pub fn split_cluster(&self) -> Result<Vec<Client>, Error> {
     if self.inner.config.server.is_clustered() {
       commands::server::split(&self.inner)
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
+      Err(Error::new(
+        ErrorKind::Unknown,
         "Client is not using a clustered deployment.",
       ))
     }
@@ -199,7 +202,7 @@ impl RedisClient {
     pattern: P,
     count: Option<u32>,
     r#type: Option<ScanType>,
-  ) -> impl Stream<Item = Result<ScanResult, RedisError>>
+  ) -> impl Stream<Item = Result<ScanResult, Error>>
   where
     P: Into<Str>,
   {
@@ -221,7 +224,7 @@ impl RedisClient {
     pattern: P,
     count: Option<u32>,
     r#type: Option<ScanType>,
-  ) -> impl Stream<Item = Result<RedisKey, RedisError>>
+  ) -> impl Stream<Item = Result<Key, Error>>
   where
     P: Into<Str>,
   {
@@ -236,7 +239,7 @@ impl RedisClient {
   /// state changes.
   ///
   /// Unlike `SCAN`, `HSCAN`, etc, the returned stream may continue even if
-  /// [has_more](crate::types::ScanResult::has_more) returns false on a given page of keys.
+  /// [has_more](crate::types::scan::Scanner::has_more) returns false on a given page of keys.
   ///
   /// See [scan_buffered](Self::scan_buffered) or [scan_cluster_buffered](Self::scan_cluster_buffered) for
   /// alternatives that automatically continue scanning in the background.
@@ -245,7 +248,7 @@ impl RedisClient {
     pattern: P,
     count: Option<u32>,
     r#type: Option<ScanType>,
-  ) -> impl Stream<Item = Result<ScanResult, RedisError>>
+  ) -> impl Stream<Item = Result<ScanResult, Error>>
   where
     P: Into<Str>,
   {
@@ -268,7 +271,7 @@ impl RedisClient {
     pattern: P,
     count: Option<u32>,
     r#type: Option<ScanType>,
-  ) -> impl Stream<Item = Result<RedisKey, RedisError>>
+  ) -> impl Stream<Item = Result<Key, Error>>
   where
     P: Into<Str>,
   {
@@ -279,14 +282,9 @@ impl RedisClient {
   /// specified.
   ///
   /// <https://redis.io/commands/hscan>
-  pub fn hscan<K, P>(
-    &self,
-    key: K,
-    pattern: P,
-    count: Option<u32>,
-  ) -> impl Stream<Item = Result<HScanResult, RedisError>>
+  pub fn hscan<K, P>(&self, key: K, pattern: P, count: Option<u32>) -> impl Stream<Item = Result<HScanResult, Error>>
   where
-    K: Into<RedisKey>,
+    K: Into<Key>,
     P: Into<Str>,
   {
     commands::scan::hscan(&self.inner, key.into(), pattern.into(), count)
@@ -295,14 +293,9 @@ impl RedisClient {
   /// Incrementally iterate over pages of the set stored at `key`, returning `count` results per page, if specified.
   ///
   /// <https://redis.io/commands/sscan>
-  pub fn sscan<K, P>(
-    &self,
-    key: K,
-    pattern: P,
-    count: Option<u32>,
-  ) -> impl Stream<Item = Result<SScanResult, RedisError>>
+  pub fn sscan<K, P>(&self, key: K, pattern: P, count: Option<u32>) -> impl Stream<Item = Result<SScanResult, Error>>
   where
-    K: Into<RedisKey>,
+    K: Into<Key>,
     P: Into<Str>,
   {
     commands::scan::sscan(&self.inner, key.into(), pattern.into(), count)
@@ -312,21 +305,16 @@ impl RedisClient {
   /// specified.
   ///
   /// <https://redis.io/commands/zscan>
-  pub fn zscan<K, P>(
-    &self,
-    key: K,
-    pattern: P,
-    count: Option<u32>,
-  ) -> impl Stream<Item = Result<ZScanResult, RedisError>>
+  pub fn zscan<K, P>(&self, key: K, pattern: P, count: Option<u32>) -> impl Stream<Item = Result<ZScanResult, Error>>
   where
-    K: Into<RedisKey>,
+    K: Into<Key>,
     P: Into<Str>,
   {
     commands::scan::zscan(&self.inner, key.into(), pattern.into(), count)
   }
 
   /// Send a series of commands in a [pipeline](https://redis.io/docs/manual/pipelining/).
-  pub fn pipeline(&self) -> Pipeline<RedisClient> {
+  pub fn pipeline(&self) -> Pipeline<Client> {
     Pipeline::from(self.clone())
   }
 
@@ -336,13 +324,13 @@ impl RedisClient {
   ///
   /// ```rust
   /// # use fred::prelude::*;
-  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  /// async fn example(client: &Client) -> Result<(), Error> {
   ///   // discover servers via the `RedisConfig` or active connections
   ///   let connections = client.active_connections().await?;
   ///
   ///   // ping each node in the cluster individually
   ///   for server in connections.into_iter() {
-  ///     let _: () = client.with_cluster_node(server).ping().await?;
+  ///     let _: () = client.with_cluster_node(server).ping(None).await?;
   ///   }
   ///
   ///   // or use the cached cluster routing table to discover servers

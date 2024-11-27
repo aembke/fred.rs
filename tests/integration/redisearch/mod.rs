@@ -1,16 +1,18 @@
 use fred::{
-  error::RedisError,
+  error::Error,
   prelude::*,
   types::{
-    AggregateOperation,
-    FtAggregateOptions,
-    FtCreateOptions,
-    FtSearchOptions,
-    IndexKind,
-    Load,
-    RedisMap,
-    SearchSchema,
-    SearchSchemaKind,
+    redisearch::{
+      AggregateOperation,
+      FtAggregateOptions,
+      FtCreateOptions,
+      FtSearchOptions,
+      IndexKind,
+      Load,
+      SearchSchema,
+      SearchSchemaKind,
+    },
+    Map,
   },
   util::NONE,
 };
@@ -19,7 +21,7 @@ use rand::{thread_rng, Rng};
 use redis_protocol::resp3::types::RespVersion;
 use std::{collections::HashMap, time::Duration};
 
-pub async fn should_list_indexes(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_list_indexes(client: Client, _: Config) -> Result<(), Error> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
   let _: () = client
@@ -38,7 +40,7 @@ pub async fn should_list_indexes(client: RedisClient, _: RedisConfig) -> Result<
   Ok(())
 }
 
-pub async fn should_index_and_info_basic_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_index_and_info_basic_hash(client: Client, _: Config) -> Result<(), Error> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
   let _: () = client
@@ -67,13 +69,13 @@ pub async fn should_index_and_info_basic_hash(client: RedisClient, _: RedisConfi
   let _: () = client.hset("foo", ("bar", "abc123")).await?;
   tokio::time::sleep(Duration::from_millis(100)).await;
 
-  let mut info: HashMap<String, RedisValue> = client.ft_info("foo_idx").await?;
-  assert_eq!(info.remove("num_docs").unwrap_or(RedisValue::Null).convert::<i64>()?, 1);
+  let mut info: HashMap<String, Value> = client.ft_info("foo_idx").await?;
+  assert_eq!(info.remove("num_docs").unwrap_or(Value::Null).convert::<i64>()?, 1);
 
   Ok(())
 }
 
-pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_index_and_search_hash(client: Client, _: Config) -> Result<(), Error> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
   let _: () = client
@@ -107,13 +109,12 @@ pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -
 
   if client.protocol_version() == RespVersion::RESP3 {
     // RESP3 uses maps and includes extra metadata fields
-    let mut results: HashMap<String, RedisValue> =
-      client.ft_search("foo_idx", "*", FtSearchOptions::default()).await?;
+    let mut results: HashMap<String, Value> = client.ft_search("foo_idx", "*", FtSearchOptions::default()).await?;
     assert_eq!(
       results
         .get("total_results")
         .cloned()
-        .unwrap_or(RedisValue::Null)
+        .unwrap_or(Value::Null)
         .convert::<i64>()?,
       3
     );
@@ -122,25 +123,25 @@ pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -
     // 123"},"id":"record:1","values":[]},{"extra_attributes":{"bar":"abc
     // 345"},"id":"record:2","values":[]},{"extra_attributes":{"bar":"def
     // 678"},"id":"record:3","values":[]}],"total_results":3,"warning":[]}
-    let results: Vec<HashMap<String, RedisValue>> = results.remove("results").unwrap().convert()?;
+    let results: Vec<HashMap<String, Value>> = results.remove("results").unwrap().convert()?;
     let expected = vec![
       hashmap! {
         "id" => "record:1".into(),
-        "values" => RedisValue::Array(vec![]),
+        "values" => Value::Array(vec![]),
         "extra_attributes" => hashmap! {
           "bar" => "abc 123"
         }.try_into()?
       },
       hashmap! {
         "id" => "record:2".into(),
-        "values" => RedisValue::Array(vec![]),
+        "values" => Value::Array(vec![]),
         "extra_attributes" => hashmap! {
           "bar" => "abc 345"
         }.try_into()?
       },
       hashmap! {
         "id" => "record:3".into(),
-        "values" => RedisValue::Array(vec![]),
+        "values" => Value::Array(vec![]),
         "extra_attributes" => hashmap! {
           "bar" => "def 678"
         }
@@ -151,27 +152,27 @@ pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -
     .map(|m| {
       m.into_iter()
         .map(|(k, v)| (k.to_string(), v))
-        .collect::<HashMap<String, RedisValue>>()
+        .collect::<HashMap<String, Value>>()
     })
     .collect::<Vec<_>>();
     assert_eq!(results, expected);
   } else {
     // RESP2 uses an array format w/o extra metadata
-    let results: (usize, RedisKey, RedisKey, RedisKey) = client
+    let results: (usize, Key, Key, Key) = client
       .ft_search("foo_idx", "*", FtSearchOptions {
         nocontent: true,
         ..Default::default()
       })
       .await?;
     assert_eq!(results, (3, "record:1".into(), "record:2".into(), "record:3".into()));
-    let results: (usize, RedisKey, RedisKey) = client
+    let results: (usize, Key, Key) = client
       .ft_search("foo_idx", "@bar:(abc)", FtSearchOptions {
         nocontent: true,
         ..Default::default()
       })
       .await?;
     assert_eq!(results, (2, "record:1".into(), "record:2".into()));
-    let results: (usize, RedisKey, (String, String)) = client
+    let results: (usize, Key, (String, String)) = client
       .ft_search("foo_idx", "@bar:(def)", FtSearchOptions::default())
       .await?;
     assert_eq!(results, (1, "record:3".into(), ("bar".into(), "def 678".into())));
@@ -180,7 +181,7 @@ pub async fn should_index_and_search_hash(client: RedisClient, _: RedisConfig) -
   Ok(())
 }
 
-pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_index_and_aggregate_timestamps(client: Client, _: Config) -> Result<(), Error> {
   assert!(client.ft_list::<Vec<String>>().await?.is_empty());
 
   // https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/aggregations/
@@ -221,7 +222,7 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
 
     // FT.AGGREGATE myIndex "*"
     //   APPLY "@timestamp - (@timestamp % 3600)" AS hour
-    let mut result: HashMap<String, RedisValue> = client
+    let mut result: HashMap<String, Value> = client
       .ft_aggregate("timestamp_idx", "*", FtAggregateOptions {
         load: Some(Load::All),
         pipeline: vec![AggregateOperation::Apply {
@@ -232,9 +233,9 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
       })
       .await?;
 
-    let results: Vec<RedisValue> = result.remove("results").unwrap().convert()?;
+    let results: Vec<Value> = result.remove("results").unwrap().convert()?;
     for (idx, val) in results.into_iter().enumerate() {
-      let mut val: HashMap<String, RedisValue> = val.convert()?;
+      let mut val: HashMap<String, Value> = val.convert()?;
       let mut val: HashMap<String, usize> = val.remove("extra_attributes").unwrap().convert()?;
       assert_eq!(val.remove("timestamp").unwrap(), idx);
       assert_eq!(val.remove("hour").unwrap(), 0);
@@ -243,7 +244,7 @@ pub async fn should_index_and_aggregate_timestamps(client: RedisClient, _: Redis
   } else {
     // FT.AGGREGATE myIndex "*"
     //   APPLY "@timestamp - (@timestamp % 3600)" AS hour
-    let result: Vec<RedisValue> = client
+    let result: Vec<Value> = client
       .ft_aggregate("timestamp_idx", "*", FtAggregateOptions {
         load: Some(Load::All),
         pipeline: vec![AggregateOperation::Apply {

@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, MultipleKeys, MultipleValues, RedisKey, RedisValue},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{FromValue, Key, MultipleKeys, MultipleValues, Value},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -14,12 +14,12 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Add the specified members to the set stored at `key`.
   ///
   /// <https://redis.io/commands/sadd>
-  fn sadd<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn sadd<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -31,10 +31,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns the set cardinality (number of elements) of the set stored at `key`.
   ///
   /// <https://redis.io/commands/scard>
-  fn scard<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn scard<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -45,9 +45,9 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns the members of the set resulting from the difference between the first set and all the successive sets.
   ///
   /// <https://redis.io/commands/sdiff>
-  fn sdiff<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn sdiff<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -59,10 +59,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// This command is equal to SDIFF, but instead of returning the resulting set, it is stored in `destination`.
   ///
   /// <https://redis.io/commands/sdiffstore>
-  fn sdiffstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn sdiffstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -74,9 +74,9 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns the members of the set resulting from the intersection of all the given sets.
   ///
   /// <https://redis.io/commands/sinter>
-  fn sinter<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn sinter<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -88,10 +88,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// This command is equal to SINTER, but instead of returning the resulting set, it is stored in `destination`.
   ///
   /// <https://redis.io/commands/sinterstore>
-  fn sinterstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn sinterstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -103,12 +103,12 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns if `member` is a member of the set stored at `key`.
   ///
   /// <https://redis.io/commands/sismember>
-  fn sismember<R, K, V>(&self, key: K, member: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn sismember<R, K, V>(&self, key: K, member: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -120,12 +120,12 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns whether each member is a member of the set stored at `key`.
   ///
   /// <https://redis.io/commands/smismember>
-  fn smismember<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn smismember<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -137,10 +137,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns all the members of the set value stored at `key`.
   ///
   /// <https://redis.io/commands/smembers>
-  fn smembers<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn smembers<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -151,13 +151,13 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Move `member` from the set at `source` to the set at `destination`.
   ///
   /// <https://redis.io/commands/smove>
-  fn smove<R, S, D, V>(&self, source: S, dest: D, member: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn smove<R, S, D, V>(&self, source: S, dest: D, member: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(source, dest);
@@ -169,10 +169,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Removes and returns one or more random members from the set value store at `key`.
   ///
   /// <https://redis.io/commands/spop>
-  fn spop<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = RedisResult<R>> + Send
+  fn spop<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -186,10 +186,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// count or the set's cardinality (SCARD), whichever is lower.
   ///
   /// <https://redis.io/commands/srandmember>
-  fn srandmember<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = RedisResult<R>> + Send
+  fn srandmember<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -200,12 +200,12 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Remove the specified members from the set stored at `key`.
   ///
   /// <https://redis.io/commands/srem>
-  fn srem<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn srem<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -217,9 +217,9 @@ pub trait SetsInterface: ClientLike + Sized {
   /// Returns the members of the set resulting from the union of all the given sets.
   ///
   /// <https://redis.io/commands/sunion>
-  fn sunion<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn sunion<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -231,10 +231,10 @@ pub trait SetsInterface: ClientLike + Sized {
   /// This command is equal to SUNION, but instead of returning the resulting set, it is stored in `destination`.
   ///
   /// <https://redis.io/commands/sunionstore>
-  fn sunionstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn sunionstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     K: Into<MultipleKeys> + Send,
   {
     async move {

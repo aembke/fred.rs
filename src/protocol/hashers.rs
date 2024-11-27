@@ -1,28 +1,28 @@
-use crate::types::RedisValue;
+use crate::types::Value;
 use redis_protocol::redis_keyslot;
 
-pub fn hash_value(value: &RedisValue) -> Option<u16> {
+pub fn hash_value(value: &Value) -> Option<u16> {
   Some(match value {
-    RedisValue::String(s) => redis_keyslot(s.as_bytes()),
-    RedisValue::Bytes(b) => redis_keyslot(b),
-    RedisValue::Integer(i) => redis_keyslot(i.to_string().as_bytes()),
-    RedisValue::Double(f) => redis_keyslot(f.to_string().as_bytes()),
-    RedisValue::Null => redis_keyslot(b"nil"),
-    RedisValue::Boolean(b) => redis_keyslot(b.to_string().as_bytes()),
+    Value::String(s) => redis_keyslot(s.as_bytes()),
+    Value::Bytes(b) => redis_keyslot(b),
+    Value::Integer(i) => redis_keyslot(i.to_string().as_bytes()),
+    Value::Double(f) => redis_keyslot(f.to_string().as_bytes()),
+    Value::Null => redis_keyslot(b"nil"),
+    Value::Boolean(b) => redis_keyslot(b.to_string().as_bytes()),
     _ => return None,
   })
 }
 
-pub fn read_redis_key(value: &RedisValue) -> Option<&[u8]> {
+pub fn read_key(value: &Value) -> Option<&[u8]> {
   match value {
-    RedisValue::String(s) => Some(s.as_bytes()),
-    RedisValue::Bytes(b) => Some(b),
+    Value::String(s) => Some(s.as_bytes()),
+    Value::Bytes(b) => Some(b),
     _ => None,
   }
 }
 
-fn hash_key(value: &RedisValue) -> Option<u16> {
-  read_redis_key(value).map(redis_keyslot)
+fn hash_key(value: &Value) -> Option<u16> {
+  read_key(value).map(redis_keyslot)
 }
 
 /// A cluster hashing policy.
@@ -75,7 +75,7 @@ impl From<&[u8]> for ClusterHash {
 
 impl ClusterHash {
   /// Hash the provided arguments.
-  pub fn hash(&self, args: &[RedisValue]) -> Option<u16> {
+  pub fn hash(&self, args: &[Value]) -> Option<u16> {
     match self {
       ClusterHash::FirstValue => args.first().and_then(hash_value),
       ClusterHash::FirstKey => args.iter().find_map(hash_key),
@@ -86,11 +86,11 @@ impl ClusterHash {
   }
 
   /// Find the key to hash with the provided arguments.
-  pub fn find_key<'a>(&self, args: &'a [RedisValue]) -> Option<&'a [u8]> {
+  pub fn find_key<'a>(&self, args: &'a [Value]) -> Option<&'a [u8]> {
     match self {
-      ClusterHash::FirstValue => args.first().and_then(read_redis_key),
-      ClusterHash::FirstKey => args.iter().find_map(read_redis_key),
-      ClusterHash::Offset(idx) => args.get(*idx).and_then(read_redis_key),
+      ClusterHash::FirstValue => args.first().and_then(read_key),
+      ClusterHash::FirstKey => args.iter().find_map(read_key),
+      ClusterHash::Offset(idx) => args.get(*idx).and_then(read_key),
       ClusterHash::Random | ClusterHash::Custom(_) => None,
     }
   }

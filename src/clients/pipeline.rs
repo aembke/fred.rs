@@ -1,10 +1,10 @@
 use crate::{
-  error::RedisError,
+  error::Error,
   interfaces::{self, *},
-  modules::{inner::RedisClientInner, response::FromRedis},
-  prelude::{RedisResult, RedisValue},
+  modules::{inner::ClientInner, response::FromValue},
+  prelude::{FredResult, Value},
   protocol::{
-    command::{RedisCommand, RouterCommand},
+    command::{Command, RouterCommand},
     responders::ResponseKind,
     utils as protocol_utils,
   },
@@ -13,14 +13,14 @@ use crate::{
 };
 use std::{collections::VecDeque, fmt, fmt::Formatter};
 
-fn clone_buffered_commands(buffer: &Mutex<VecDeque<RedisCommand>>) -> VecDeque<RedisCommand> {
+fn clone_buffered_commands(buffer: &Mutex<VecDeque<Command>>) -> VecDeque<Command> {
   buffer.lock().iter().map(|c| c.duplicate(ResponseKind::Skip)).collect()
 }
 
 fn prepare_all_commands(
-  commands: VecDeque<RedisCommand>,
+  commands: VecDeque<Command>,
   error_early: bool,
-) -> (RouterCommand, OneshotReceiver<Result<Resp3Frame, RedisError>>) {
+) -> (RouterCommand, OneshotReceiver<Result<Resp3Frame, Error>>) {
   let (tx, rx) = oneshot_channel();
   let expected_responses = commands
     .iter()
@@ -29,7 +29,7 @@ fn prepare_all_commands(
   let mut response = ResponseKind::new_buffer_with_size(expected_responses, tx);
   response.set_error_early(error_early);
 
-  let commands: Vec<RedisCommand> = commands
+  let commands: Vec<Command> = commands
     .into_iter()
     .enumerate()
     .map(|(idx, mut cmd)| {
@@ -47,7 +47,7 @@ fn prepare_all_commands(
 ///
 /// See the [all](Self::all), [last](Self::last), and [try_all](Self::try_all) functions for more information.
 pub struct Pipeline<C: ClientLike> {
-  commands: RefCount<Mutex<VecDeque<RedisCommand>>>,
+  commands: RefCount<Mutex<VecDeque<Command>>>,
   client:   C,
 }
 
@@ -82,22 +82,22 @@ impl<C: ClientLike> From<C> for Pipeline<C> {
 
 impl<C: ClientLike> ClientLike for Pipeline<C> {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     self.client.inner()
   }
 
   #[doc(hidden)]
-  fn change_command(&self, command: &mut RedisCommand) {
+  fn change_command(&self, command: &mut Command) {
     self.client.change_command(command);
   }
 
   #[doc(hidden)]
   #[allow(unused_mut)]
-  fn send_command<T>(&self, command: T) -> Result<(), RedisError>
+  fn send_command<T>(&self, command: T) -> Result<(), Error>
   where
-    T: Into<RedisCommand>,
+    T: Into<Command>,
   {
-    let mut command: RedisCommand = command.into();
+    let mut command: Command = command.into();
     self.change_command(&mut command);
 
     if let Some(mut tx) = command.take_responder() {
@@ -183,7 +183,7 @@ impl<C: ClientLike> Pipeline<C> {
   ///
   /// ```rust no_run
   /// # use fred::prelude::*;
-  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  /// async fn example(client: &Client) -> Result<(), Error> {
   ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
   ///
   ///   let pipeline = client.pipeline();
@@ -195,9 +195,9 @@ impl<C: ClientLike> Pipeline<C> {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn all<R>(&self) -> Result<R, RedisError>
+  pub async fn all<R>(&self) -> Result<R, Error>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     let commands = clone_buffered_commands(&self.commands);
     send_all(self.client.inner(), commands).await?.convert()
@@ -205,28 +205,28 @@ impl<C: ClientLike> Pipeline<C> {
 
   /// Send the pipeline and respond with each individual result.
   ///
-  /// Note: use `RedisValue` as the return type (and [convert](crate::types::RedisValue::convert) as needed) to
+  /// Note: use `Value` as the return type (and [convert](crate::types::Value::convert) as needed) to
   /// support an array of different return types.
   ///
   /// ```rust no_run
   /// # use fred::prelude::*;
-  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  /// async fn example(client: &Client) -> Result<(), Error> {
   ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;  
   ///
   ///   let pipeline = client.pipeline();
   ///   let _: () = pipeline.get("foo").await?;
   ///   let _: () = pipeline.hgetall("bar").await?; // this will error since `bar` is an integer
   ///
-  ///   let results = pipeline.try_all::<RedisValue>().await;
+  ///   let results = pipeline.try_all::<Value>().await;
   ///   assert_eq!(results[0].clone()?.convert::<i64>()?, 1);
   ///   assert!(results[1].is_err());
   ///
   ///   Ok(())
   /// }
   /// ```
-  pub async fn try_all<R>(&self) -> Vec<RedisResult<R>>
+  pub async fn try_all<R>(&self) -> Vec<FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     let commands = clone_buffered_commands(&self.commands);
     try_send_all(self.client.inner(), commands)
@@ -240,7 +240,7 @@ impl<C: ClientLike> Pipeline<C> {
   ///
   /// ```rust no_run
   /// # use fred::prelude::*;
-  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  /// async fn example(client: &Client) -> Result<(), Error> {
   ///   let pipeline = client.pipeline();
   ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
   ///   let _: () = pipeline.incr("foo").await?; // returns when the command is queued in memory
@@ -251,19 +251,16 @@ impl<C: ClientLike> Pipeline<C> {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn last<R>(&self) -> Result<R, RedisError>
+  pub async fn last<R>(&self) -> Result<R, Error>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     let commands = clone_buffered_commands(&self.commands);
     send_last(self.client.inner(), commands).await?.convert()
   }
 }
 
-async fn try_send_all(
-  inner: &RefCount<RedisClientInner>,
-  commands: VecDeque<RedisCommand>,
-) -> Vec<Result<RedisValue, RedisError>> {
+async fn try_send_all(inner: &RefCount<ClientInner>, commands: VecDeque<Command>) -> Vec<Result<Value, Error>> {
   if commands.is_empty() {
     return Vec::new();
   }
@@ -290,12 +287,9 @@ async fn try_send_all(
   }
 }
 
-async fn send_all(
-  inner: &RefCount<RedisClientInner>,
-  commands: VecDeque<RedisCommand>,
-) -> Result<RedisValue, RedisError> {
+async fn send_all(inner: &RefCount<ClientInner>, commands: VecDeque<Command>) -> Result<Value, Error> {
   if commands.is_empty() {
-    return Ok(RedisValue::Array(Vec::new()));
+    return Ok(Value::Array(Vec::new()));
   }
 
   let (mut command, rx) = prepare_all_commands(commands, true);
@@ -307,17 +301,14 @@ async fn send_all(
   protocol_utils::frame_to_results(frame)
 }
 
-async fn send_last(
-  inner: &RefCount<RedisClientInner>,
-  commands: VecDeque<RedisCommand>,
-) -> Result<RedisValue, RedisError> {
+async fn send_last(inner: &RefCount<ClientInner>, commands: VecDeque<Command>) -> Result<Value, Error> {
   if commands.is_empty() {
-    return Ok(RedisValue::Null);
+    return Ok(Value::Null);
   }
 
   let len = commands.len();
   let (tx, rx) = oneshot_channel();
-  let mut commands: Vec<RedisCommand> = commands.into_iter().collect();
+  let mut commands: Vec<Command> = commands.into_iter().collect();
   commands[len - 1].response = ResponseKind::Respond(Some(tx));
   let mut command = RouterCommand::Pipeline { commands };
   command.inherit_options(inner);

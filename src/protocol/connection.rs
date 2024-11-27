@@ -1,9 +1,9 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
   protocol::{
     codec::RedisCodec,
-    command::{RedisCommand, RedisCommandKind},
+    command::{Command, CommandKind},
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
@@ -55,7 +55,7 @@ use crate::prelude::ServerConfig;
 ))]
 use crate::protocol::tls::TlsConnector;
 #[cfg(feature = "replicas")]
-use crate::types::RedisValue;
+use crate::types::Value;
 #[cfg(feature = "unix-sockets")]
 use std::path::Path;
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
@@ -75,11 +75,11 @@ pub const INITIAL_BUFFER_SIZE: usize = 64;
 
 /// Connect to each socket addr and return the first successful connection.
 async fn tcp_connect_any(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
   addrs: &Vec<SocketAddr>,
-) -> Result<(TcpStream, SocketAddr), RedisError> {
-  let mut last_error: Option<RedisError> = None;
+) -> Result<(TcpStream, SocketAddr), Error> {
+  let mut last_error: Option<Error> = None;
 
   for addr in addrs.iter() {
     _debug!(
@@ -122,7 +122,7 @@ async fn tcp_connect_any(
   }
 
   _trace!(inner, "Failed to connect to any of {:?}.", addrs);
-  Err(last_error.unwrap_or(RedisError::new(RedisErrorKind::IO, "Failed to connect.")))
+  Err(last_error.unwrap_or(Error::new(ErrorKind::IO, "Failed to connect.")))
 }
 
 pub enum ConnectionKind {
@@ -136,7 +136,7 @@ pub enum ConnectionKind {
 }
 
 impl Stream for ConnectionKind {
-  type Item = Result<ProtocolFrame, RedisError>;
+  type Item = Result<ProtocolFrame, Error>;
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     match self.get_mut() {
@@ -164,7 +164,7 @@ impl Stream for ConnectionKind {
 }
 
 impl Sink<ProtocolFrame> for ConnectionKind {
-  type Error = RedisError;
+  type Error = Error;
 
   fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
     match self.get_mut() {
@@ -231,7 +231,7 @@ impl Counters {
   }
 
   /// Flush the sink if the max feed count is reached or no commands are queued following the current command.
-  pub fn should_send(&self, inner: &RefCount<RedisClientInner>) -> bool {
+  pub fn should_send(&self, inner: &RefCount<ClientInner>) -> bool {
     client_utils::read_atomic(&self.feed_count) as u64 > inner.max_feed_count()
       || client_utils::read_atomic(&self.cmd_buffer_len) == 0
   }
@@ -264,10 +264,7 @@ pub struct ExclusiveConnection {
 }
 
 impl ExclusiveConnection {
-  pub async fn new_tcp(
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<ExclusiveConnection, RedisError> {
+  pub async fn new_tcp(inner: &RefCount<ClientInner>, server: &Server) -> Result<ExclusiveConnection, Error> {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let default_host = server.host.clone();
@@ -292,7 +289,7 @@ impl ExclusiveConnection {
   }
 
   #[cfg(feature = "unix-sockets")]
-  pub async fn new_unix(inner: &RefCount<RedisClientInner>, path: &Path) -> Result<ExclusiveConnection, RedisError> {
+  pub async fn new_unix(inner: &RefCount<ClientInner>, path: &Path) -> Result<ExclusiveConnection, Error> {
     _debug!(inner, "Connecting via unix socket to {}", utils::path_to_string(path));
     let server = Server::new(utils::path_to_string(path), 0);
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
@@ -315,14 +312,11 @@ impl ExclusiveConnection {
 
   #[cfg(feature = "enable-native-tls")]
   #[allow(unreachable_patterns)]
-  pub async fn new_native_tls(
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<ExclusiveConnection, RedisError> {
+  pub async fn new_native_tls(inner: &RefCount<ClientInner>, server: &Server) -> Result<ExclusiveConnection, Error> {
     let connector = match inner.config.tls {
       Some(ref config) => match config.connector {
         TlsConnector::Native(ref connector) => connector.clone(),
-        _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
+        _ => return Err(Error::new(ErrorKind::Tls, "Invalid TLS configuration.")),
       },
       None => return ExclusiveConnection::new_tcp(inner, server).await,
     };
@@ -356,25 +350,19 @@ impl ExclusiveConnection {
   }
 
   #[cfg(not(feature = "enable-native-tls"))]
-  pub async fn new_native_tls(
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<ExclusiveConnection, RedisError> {
+  pub async fn new_native_tls(inner: &RefCount<ClientInner>, server: &Server) -> Result<ExclusiveConnection, Error> {
     ExclusiveConnection::new_tcp(inner, server).await
   }
 
   #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
   #[allow(unreachable_patterns)]
-  pub async fn new_rustls(
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<ExclusiveConnection, RedisError> {
+  pub async fn new_rustls(inner: &RefCount<ClientInner>, server: &Server) -> Result<ExclusiveConnection, Error> {
     use rustls::pki_types::ServerName;
 
     let connector = match inner.config.tls {
       Some(ref config) => match config.connector {
         TlsConnector::Rustls(ref connector) => connector.clone(),
-        _ => return Err(RedisError::new(RedisErrorKind::Tls, "Invalid TLS configuration.")),
+        _ => return Err(Error::new(ErrorKind::Tls, "Invalid TLS configuration.")),
       },
       None => return ExclusiveConnection::new_tcp(inner, server).await,
     };
@@ -409,15 +397,12 @@ impl ExclusiveConnection {
   }
 
   #[cfg(not(any(feature = "enable-rustls", feature = "enable-rustls-ring")))]
-  pub async fn new_rustls(
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<ExclusiveConnection, RedisError> {
+  pub async fn new_rustls(inner: &RefCount<ClientInner>, server: &Server) -> Result<ExclusiveConnection, Error> {
     ExclusiveConnection::new_tcp(inner, server).await
   }
 
   /// Send a command to the server.
-  pub async fn request_response(&mut self, cmd: RedisCommand, is_resp3: bool) -> Result<Resp3Frame, RedisError> {
+  pub async fn request_response(&mut self, cmd: Command, is_resp3: bool) -> Result<Resp3Frame, Error> {
     let frame = cmd.to_frame(is_resp3)?;
     self.transport.send(frame).await?;
 
@@ -428,10 +413,10 @@ impl ExclusiveConnection {
   }
 
   /// Set the client name with `CLIENT SETNAME`.
-  pub async fn set_client_name(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn set_client_name(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     _debug!(inner, "Setting client name.");
     let name = &inner.id;
-    let command = RedisCommand::new(RedisCommandKind::ClientSetname, vec![name.clone().into()]);
+    let command = Command::new(CommandKind::ClientSetname, vec![name.clone().into()]);
     let response = self.request_response(command, inner.is_resp3()).await?;
 
     if protocol_utils::is_ok(&response) {
@@ -439,13 +424,13 @@ impl ExclusiveConnection {
       Ok(())
     } else {
       error!("{} Failed to set client name with error {:?}", name, response);
-      Err(RedisError::new(RedisErrorKind::Protocol, "Failed to set client name."))
+      Err(Error::new(ErrorKind::Protocol, "Failed to set client name."))
     }
   }
 
   /// Read and cache the server version.
-  pub async fn cache_server_version(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
-    let command = RedisCommand::new(RedisCommandKind::Info, vec![InfoKind::Server.to_str().into()]);
+  pub async fn cache_server_version(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
+    let command = Command::new(CommandKind::Info, vec![InfoKind::Server.to_str().into()]);
     let result = self.request_response(command, inner.is_resp3()).await?;
     let result = match result {
       Resp3Frame::SimpleString { data, .. } => String::from_utf8(data.to_vec())?,
@@ -491,14 +476,14 @@ impl ExclusiveConnection {
     username: Option<String>,
     password: Option<String>,
     is_resp3: bool,
-  ) -> Result<(), RedisError> {
+  ) -> Result<(), Error> {
     if let Some(password) = password {
       let args = if let Some(username) = username {
         vec![username.into(), password.into()]
       } else {
         vec![password.into()]
       };
-      let command = RedisCommand::new(RedisCommandKind::Auth, args);
+      let command = Command::new(CommandKind::Auth, args);
 
       debug!("{}: Authenticating Redis client...", name);
       let frame = self.request_response(command, is_resp3).await?;
@@ -515,10 +500,7 @@ impl ExclusiveConnection {
   }
 
   /// Authenticate via HELLO in RESP3 mode or AUTH in RESP2 mode, then set the client name.
-  pub async fn switch_protocols_and_authenticate(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Result<(), RedisError> {
+  pub async fn switch_protocols_and_authenticate(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     // reset the protocol version to the one specified by the config when we create new connections
     inner.reset_protocol_version();
     let (username, password) = inner.read_credentials(&self.server).await?;
@@ -535,7 +517,7 @@ impl ExclusiveConnection {
         vec![]
       };
 
-      let cmd = RedisCommand::new(RedisCommandKind::_Hello(RespVersion::RESP3), args);
+      let cmd = Command::new(CommandKind::_Hello(RespVersion::RESP3), args);
       let response = self.request_response(cmd, true).await?;
       let response = protocol_utils::frame_to_results(response)?;
       inner.switch_protocol_versions(RespVersion::RESP3);
@@ -548,8 +530,8 @@ impl ExclusiveConnection {
   }
 
   /// Read and cache the connection ID.
-  pub async fn cache_connection_id(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
-    let command = (RedisCommandKind::ClientID, vec![]).into();
+  pub async fn cache_connection_id(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
+    let command = (CommandKind::ClientID, vec![]).into();
     let result = self.request_response(command, inner.is_resp3()).await;
     _debug!(inner, "Read client ID: {:?}", result);
     self.id = match result {
@@ -561,8 +543,8 @@ impl ExclusiveConnection {
   }
 
   /// Send `PING` to the server.
-  pub async fn ping(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
-    let command = RedisCommandKind::Ping.into();
+  pub async fn ping(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
+    let command = CommandKind::Ping.into();
     let response = self.request_response(command, inner.is_resp3()).await?;
 
     if let Some(e) = protocol_utils::frame_to_error(&response) {
@@ -573,7 +555,7 @@ impl ExclusiveConnection {
   }
 
   /// Send `QUIT` and close the connection.
-  pub async fn disconnect(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn disconnect(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     if let Err(e) = self.transport.close().await {
       _warn!(inner, "Error closing connection to {}: {:?}", self.server, e);
     }
@@ -581,7 +563,7 @@ impl ExclusiveConnection {
   }
 
   /// Select the database provided in the `RedisConfig`.
-  pub async fn select_database(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn select_database(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     if inner.config.server.is_clustered() {
       return Ok(());
     }
@@ -592,7 +574,7 @@ impl ExclusiveConnection {
     };
 
     _trace!(inner, "Selecting database {} after connecting.", db);
-    let command = RedisCommand::new(RedisCommandKind::Select, vec![(db as i64).into()]);
+    let command = Command::new(CommandKind::Select, vec![(db as i64).into()]);
     let response = self.request_response(command, inner.is_resp3()).await?;
 
     if let Some(error) = protocol_utils::frame_to_error(&response) {
@@ -605,13 +587,13 @@ impl ExclusiveConnection {
   /// Check the `cluster_state` via `CLUSTER INFO`.
   ///
   /// Returns an error if the state is not `ok`.
-  pub async fn check_cluster_state(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn check_cluster_state(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     if !inner.config.server.is_clustered() {
       return Ok(());
     }
 
     _trace!(inner, "Checking cluster info for {}", self.server);
-    let command = RedisCommand::new(RedisCommandKind::ClusterInfo, vec![]);
+    let command = Command::new(CommandKind::ClusterInfo, vec![]);
     let response = self.request_response(command, inner.is_resp3()).await?;
     let response: String = protocol_utils::frame_to_results(response)?.convert()?;
 
@@ -622,19 +604,12 @@ impl ExclusiveConnection {
       }
     }
 
-    Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid or missing cluster state.",
-    ))
+    Err(Error::new(ErrorKind::Protocol, "Invalid or missing cluster state."))
   }
 
   /// Authenticate, set the protocol version, set the client name, select the provided database, cache the
   /// connection ID and server version, and check the cluster state (if applicable).
-  pub async fn setup(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    timeout: Option<Duration>,
-  ) -> Result<(), RedisError> {
+  pub async fn setup(&mut self, inner: &RefCount<ClientInner>, timeout: Option<Duration>) -> Result<(), Error> {
     let timeout = timeout.unwrap_or(inner.internal_command_timeout());
     let has_credentials = inner.config.password.is_some() || inner.config.version == RespVersion::RESP3;
     #[cfg(feature = "credential-provider")]
@@ -657,7 +632,7 @@ impl ExclusiveConnection {
           self.check_cluster_state(inner).await?;
         }
 
-        Ok::<_, RedisError>(())
+        Ok::<_, Error>(())
       },
       timeout,
     )
@@ -666,11 +641,7 @@ impl ExclusiveConnection {
 
   /// Send `READONLY` to the server.
   #[cfg(feature = "replicas")]
-  pub async fn readonly(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    timeout: Option<Duration>,
-  ) -> Result<(), RedisError> {
+  pub async fn readonly(&mut self, inner: &RefCount<ClientInner>, timeout: Option<Duration>) -> Result<(), Error> {
     if !inner.config.server.is_clustered() {
       return Ok(());
     }
@@ -679,11 +650,11 @@ impl ExclusiveConnection {
     utils::timeout(
       async {
         _debug!(inner, "Sending READONLY to {}", self.server);
-        let command = RedisCommand::new(RedisCommandKind::Readonly, vec![]);
+        let command = Command::new(CommandKind::Readonly, vec![]);
         let response = self.request_response(command, inner.is_resp3()).await?;
         let _ = protocol_utils::frame_to_results(response)?;
 
-        Ok::<_, RedisError>(())
+        Ok::<_, Error>(())
       },
       timeout,
     )
@@ -692,13 +663,9 @@ impl ExclusiveConnection {
 
   /// Send the `ROLE` command to the server.
   #[cfg(feature = "replicas")]
-  pub async fn role(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    timeout: Option<Duration>,
-  ) -> Result<RedisValue, RedisError> {
+  pub async fn role(&mut self, inner: &RefCount<ClientInner>, timeout: Option<Duration>) -> Result<Value, Error> {
     let timeout = timeout.unwrap_or(inner.internal_command_timeout());
-    let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
+    let command = Command::new(CommandKind::Role, vec![]);
 
     utils::timeout(
       async {
@@ -714,7 +681,7 @@ impl ExclusiveConnection {
 
   /// Discover connected replicas via the ROLE command.
   #[cfg(feature = "replicas")]
-  pub async fn discover_replicas(&mut self, inner: &RefCount<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+  pub async fn discover_replicas(&mut self, inner: &RefCount<ClientInner>) -> Result<Vec<Server>, Error> {
     self
       .role(inner, None)
       .await
@@ -723,17 +690,17 @@ impl ExclusiveConnection {
 
   /// Discover connected replicas via the ROLE command.
   #[cfg(not(feature = "replicas"))]
-  pub async fn discover_replicas(&mut self, _: &RefCount<RedisClientInner>) -> Result<Vec<Server>, RedisError> {
+  pub async fn discover_replicas(&mut self, _: &RefCount<ClientInner>) -> Result<Vec<Server>, Error> {
     Ok(Vec::new())
   }
 
   /// Convert the connection into one that can be shared and pipelined across tasks.
-  pub fn into_pipelined(self, _replica: bool) -> RedisConnection {
+  pub fn into_pipelined(self, _replica: bool) -> Connection {
     let buffer = VecDeque::with_capacity(INITIAL_BUFFER_SIZE);
     let (server, addr, default_host) = (self.server, self.addr, self.default_host);
     let (id, version, counters) = (self.id, self.version, self.counters);
 
-    RedisConnection {
+    Connection {
       server,
       default_host,
       addr,
@@ -753,13 +720,14 @@ impl ExclusiveConnection {
 /// A connection to Redis that can be shared and pipelined across tasks.
 ///
 /// Once a connection becomes usable by clients we can no longer use the request-response logic on `RedisTransport`
-/// since caller tasks may have in-flight frames already on the wire.
-pub struct RedisConnection {
+/// since caller tasks may have in-flight frames already on the wire. This struct contains extra state used to
+/// pipeline commands across tasks.
+pub struct Connection {
   pub server:       Server,
   pub transport:    ConnectionKind,
   pub default_host: Str,
   pub addr:         Option<SocketAddr>,
-  pub buffer:       VecDeque<RedisCommand>,
+  pub buffer:       VecDeque<Command>,
   pub version:      Option<Version>,
   pub id:           Option<i64>,
   pub counters:     Counters,
@@ -769,7 +737,7 @@ pub struct RedisConnection {
   pub replica:      bool,
 }
 
-impl fmt::Debug for RedisConnection {
+impl fmt::Debug for Connection {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("RedisConnection")
       .field("server", &self.server)
@@ -780,13 +748,13 @@ impl fmt::Debug for RedisConnection {
   }
 }
 
-impl RedisConnection {
+impl Connection {
   /// Check if the reader half is healthy, returning any errors.
-  pub async fn peek_reader_errors(&mut self) -> Option<RedisError> {
+  pub async fn peek_reader_errors(&mut self) -> Option<Error> {
     let result = std::future::poll_fn(|cx| match self.transport {
       ConnectionKind::Tcp(ref mut t) => match Pin::new(t).poll_peek(cx) {
         Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),
-        _ => Poll::Ready(None::<Result<(), RedisError>>),
+        _ => Poll::Ready(None::<Result<(), Error>>),
       },
       #[cfg(feature = "unix-sockets")]
       ConnectionKind::Unix(ref mut t) => match Pin::new(t).poll_peek(cx) {
@@ -821,7 +789,7 @@ impl RedisConnection {
     frame: F,
     flush: bool,
     check_unresponsive: bool,
-  ) -> Result<(), RedisError> {
+  ) -> Result<(), Error> {
     if check_unresponsive {
       self.last_write = Some(Instant::now());
     }
@@ -836,7 +804,7 @@ impl RedisConnection {
   }
 
   /// Put a command at the back of the in-flight command buffer.
-  pub fn push_command(&mut self, mut cmd: RedisCommand) {
+  pub fn push_command(&mut self, mut cmd: Command) {
     if cmd.has_no_responses() {
       cmd.respond_to_caller(Ok(Resp3Frame::Null));
     } else {
@@ -851,7 +819,7 @@ impl RedisConnection {
   ///
   /// This function is not cancel-safe.
   #[inline(always)]
-  pub async fn read(&mut self) -> Result<Option<Resp3Frame>, RedisError> {
+  pub async fn read(&mut self) -> Result<Option<Resp3Frame>, Error> {
     match self.transport.next().await {
       Some(f) => f.map(|f| Some(f.into_resp3())),
       None => Ok(None),
@@ -860,10 +828,7 @@ impl RedisConnection {
 
   /// Read frames until detecting a non-pubsub frame.
   #[inline(always)]
-  pub async fn read_skip_pubsub(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Result<Option<Resp3Frame>, RedisError> {
+  pub async fn read_skip_pubsub(&mut self, inner: &RefCount<ClientInner>) -> Result<Option<Resp3Frame>, Error> {
     loop {
       let frame = match self.read().await? {
         Some(f) => f,
@@ -881,7 +846,7 @@ impl RedisConnection {
   }
 
   /// Read frames until the in-flight buffer is empty.
-  pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn drain(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     let is_clustered = inner.config.server.is_clustered();
     while !self.buffer.is_empty() {
       let frame = match self.read().await? {
@@ -906,7 +871,7 @@ impl RedisConnection {
   }
 
   /// Read frames until the in-flight buffer is empty, dropping any non-pubsub frames.
-  pub async fn skip_results(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn skip_results(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     while !self.buffer.is_empty() {
       if self.read_skip_pubsub(inner).await?.is_none() {
         return Ok(());
@@ -917,7 +882,7 @@ impl RedisConnection {
   }
 
   /// Flush the sink and reset the feed counter.
-  pub async fn flush(&mut self) -> Result<(), RedisError> {
+  pub async fn flush(&mut self) -> Result<(), Error> {
     trace!("Flushing socket to {}", self.server);
     self.transport.flush().await?;
     self.counters.reset_feed_count();
@@ -927,7 +892,7 @@ impl RedisConnection {
   /// Close the connection.
   ///
   /// Returns the in-flight commands that had not received a response.
-  pub async fn close(&mut self) -> VecDeque<RedisCommand> {
+  pub async fn close(&mut self) -> VecDeque<Command> {
     let _ = utils::timeout(
       self.transport.close(),
       Duration::from_millis(CONNECTION_CLOSE_TIMEOUT_MS),
@@ -941,12 +906,13 @@ impl RedisConnection {
 /// Send a command and wait on the response.
 ///
 /// The connection's in-flight command queue must be empty or drained before calling this.
+#[cfg(any(feature = "replicas", feature = "transactions"))]
 pub async fn request_response(
-  inner: &RefCount<RedisClientInner>,
-  conn: &mut RedisConnection,
-  command: RedisCommand,
+  inner: &RefCount<ClientInner>,
+  conn: &mut Connection,
+  command: Command,
   timeout: Option<Duration>,
-) -> Result<Resp3Frame, RedisError> {
+) -> Result<Resp3Frame, Error> {
   let timeout_dur = timeout
     .or(command.timeout_dur)
     .unwrap_or_else(|| inner.default_command_timeout());
@@ -966,7 +932,7 @@ pub async fn request_response(
     conn.flush().await?;
     match conn.read_skip_pubsub(inner).await {
       Ok(Some(f)) => Ok(f),
-      Ok(None) => Err(RedisError::new(RedisErrorKind::Unknown, "Missing response.")),
+      Ok(None) => Err(Error::new(ErrorKind::Unknown, "Missing response.")),
       Err(e) => Err(e),
     }
   };
@@ -978,13 +944,10 @@ pub async fn request_response(
 }
 
 #[cfg(feature = "replicas")]
-pub async fn discover_replicas(
-  inner: &RefCount<RedisClientInner>,
-  conn: &mut RedisConnection,
-) -> Result<Vec<Server>, RedisError> {
+pub async fn discover_replicas(inner: &RefCount<ClientInner>, conn: &mut Connection) -> Result<Vec<Server>, Error> {
   utils::timeout(conn.drain(inner), inner.internal_command_timeout()).await?;
 
-  let command = RedisCommand::new(RedisCommandKind::Role, vec![]);
+  let command = Command::new(CommandKind::Role, vec![]);
   let role = request_response(inner, conn, command, None)
     .await
     .and_then(protocol_utils::frame_to_results)?;
@@ -996,10 +959,10 @@ pub async fn discover_replicas(
 ///
 /// The returned connection will not be initialized.
 pub async fn create(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
   timeout: Option<Duration>,
-) -> Result<ExclusiveConnection, RedisError> {
+) -> Result<ExclusiveConnection, Error> {
   let timeout = timeout.unwrap_or(inner.connection_timeout());
 
   _trace!(

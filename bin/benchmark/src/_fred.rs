@@ -1,5 +1,11 @@
 use crate::{utils, Argv};
-use fred::{clients::RedisPool, error::RedisError, prelude::*, types::Builder as RedisBuilder};
+use fred::{
+  clients::Pool,
+  error::Error,
+  prelude::*,
+  types::{Builder, ClusterDiscoveryPolicy},
+};
+use futures::TryStreamExt;
 use indicatif::ProgressBar;
 use std::{
   error::Error,
@@ -8,14 +14,12 @@ use std::{
 };
 use tokio::task::JoinHandle;
 
-use fred::types::ClusterDiscoveryPolicy;
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
   feature = "enabled-rustls-ring"
 ))]
 use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
-use futures::TryStreamExt;
 
 #[cfg(feature = "enable-rustls")]
 fn default_tls_config() -> TlsConfig {
@@ -35,7 +39,7 @@ fn default_tls_config() -> TlsConfig {
 
 pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
   let (username, password) = utils::read_auth_env();
-  let config = RedisConfig {
+  let config = Config {
     fail_fast: true,
     server: if argv.unix.is_some() {
       ServerConfig::Unix {
@@ -62,7 +66,7 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
     ..Default::default()
   };
 
-  let pool = RedisBuilder::from_config(config)
+  let pool = Builder::from_config(config)
     .with_connection_config(|config| {
       config.max_command_buffer_len = argv.bounded;
       config.internal_command_timeout = Duration::from_secs(5);
@@ -80,7 +84,7 @@ pub async fn init(argv: &Arc<Argv>) -> Result<RedisPool, RedisError> {
 
 fn spawn_client_task(
   bar: &Option<ProgressBar>,
-  client: &RedisClient,
+  client: &Client,
   counter: &Arc<AtomicUsize>,
   argv: &Arc<Argv>,
 ) -> JoinHandle<()> {

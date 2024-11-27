@@ -1,6 +1,6 @@
 use fred::prelude::*;
 
-pub async fn should_pfadd_elements(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_pfadd_elements(client: Client, _: Config) -> Result<(), Error> {
   let result: i64 = client.pfadd("foo", vec!["a", "b"]).await?;
   assert_eq!(result, 1);
   let result: i64 = client.pfadd("foo", "a").await?;
@@ -9,7 +9,7 @@ pub async fn should_pfadd_elements(client: RedisClient, _: RedisConfig) -> Resul
   Ok(())
 }
 
-pub async fn should_pfcount_elements(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_pfcount_elements(client: Client, _: Config) -> Result<(), Error> {
   let result: i64 = client.pfadd("foo", vec!["a", "b", "c"]).await?;
   assert_eq!(result, 1);
   let result: i64 = client.pfcount("foo").await?;
@@ -22,7 +22,7 @@ pub async fn should_pfcount_elements(client: RedisClient, _: RedisConfig) -> Res
   Ok(())
 }
 
-pub async fn should_pfmerge_elements(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_pfmerge_elements(client: Client, _: Config) -> Result<(), Error> {
   let result: i64 = client.pfadd("foo{1}", vec!["a", "b", "c"]).await?;
   assert_eq!(result, 1);
   let result: i64 = client.pfadd("bar{1}", vec!["c", "d", "e"]).await?;

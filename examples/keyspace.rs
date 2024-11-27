@@ -17,19 +17,19 @@ use tokio::time::sleep;
 ///
 /// Both examples assume that the server has been configured to emit keyspace events (via `notify-keyspace-events`).
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   clustered_keyspace_events().await?;
   centralized_keyspace_events().await?;
   Ok(())
 }
 
-async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisError> {
+async fn fake_traffic(client: &Client, amount: usize) -> Result<(), Error> {
   // use a new client since the provided client is subscribed to keyspace events
   let client = client.clone_new();
   client.init().await?;
 
   for idx in 0 .. amount {
-    let key: RedisKey = format!("foo-{}", idx).into();
+    let key: Key = format!("foo-{}", idx).into();
 
     let _: () = client.set(&key, 1, None, None, false).await?;
     let _: () = client.incr(&key).await?;
@@ -40,7 +40,7 @@ async fn fake_traffic(client: &RedisClient, amount: usize) -> Result<(), RedisEr
   Ok(())
 }
 
-async fn centralized_keyspace_events() -> Result<(), RedisError> {
+async fn centralized_keyspace_events() -> Result<(), Error> {
   let subscriber = Builder::default_centralized().build()?;
 
   let reconnect_subscriber = subscriber.clone();
@@ -53,7 +53,7 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
       reconnect_subscriber.psubscribe("__key__*:foo*").await?;
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   // connect after setting up the reconnection logic
@@ -71,7 +71,7 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
       );
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   // generate fake traffic and wait a second
@@ -81,7 +81,7 @@ async fn centralized_keyspace_events() -> Result<(), RedisError> {
   Ok(())
 }
 
-async fn clustered_keyspace_events() -> Result<(), RedisError> {
+async fn clustered_keyspace_events() -> Result<(), Error> {
   let subscriber = Builder::default_clustered().build()?;
 
   let reconnect_subscriber = subscriber.clone();
@@ -98,7 +98,7 @@ async fn clustered_keyspace_events() -> Result<(), RedisError> {
         .await?;
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   // connect after setting up the reconnection logic
@@ -116,7 +116,7 @@ async fn clustered_keyspace_events() -> Result<(), RedisError> {
       );
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   // generate fake traffic and wait a second

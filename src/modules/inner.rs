@@ -23,7 +23,14 @@ use crate::{
     Sender,
   },
   trace,
-  types::*,
+  types::{
+    config::{ClusterDiscoveryPolicy, Config, ConnectionConfig, PerformanceConfig, ReconnectPolicy, ServerConfig},
+    ClientState,
+    ClusterStateChange,
+    KeyspaceEvent,
+    Message,
+    RespVersion,
+  },
   utils,
 };
 use bytes_utils::Str;
@@ -35,8 +42,8 @@ use std::{collections::HashSet, ops::DerefMut, time::Duration};
 use crate::modules::metrics::MovingStats;
 #[cfg(feature = "credential-provider")]
 use crate::{
-  clients::RedisClient,
-  interfaces::RedisResult,
+  clients::Client,
+  interfaces::FredResult,
   interfaces::{AuthInterface, ClientLike},
   runtime::{spawn, JoinHandle},
 };
@@ -47,13 +54,13 @@ pub type CommandSender = Sender<RouterCommand>;
 pub type CommandReceiver = Receiver<RouterCommand>;
 
 #[cfg(feature = "i-tracking")]
-use crate::types::Invalidation;
+use crate::types::client::Invalidation;
 
 pub struct Notifications {
   /// The client ID.
   pub id:             Str,
   /// A broadcast channel for the `on_error` interface.
-  pub errors:         RefSwap<RefCount<BroadcastSender<RedisError>>>,
+  pub errors:         RefSwap<RefCount<BroadcastSender<Error>>>,
   /// A broadcast channel for the `on_message` interface.
   pub pubsub:         RefSwap<RefCount<BroadcastSender<Message>>>,
   /// A broadcast channel for the `on_keyspace_event` interface.
@@ -63,7 +70,7 @@ pub struct Notifications {
   /// A broadcast channel for the `on_cluster_change` interface.
   pub cluster_change: RefSwap<RefCount<BroadcastSender<Vec<ClusterStateChange>>>>,
   /// A broadcast channel for the `on_connect` interface.
-  pub connect:        RefSwap<RefCount<BroadcastSender<Result<(), RedisError>>>>,
+  pub connect:        RefSwap<RefCount<BroadcastSender<Result<(), Error>>>>,
   /// A channel for events that should close all client tasks with `Canceled` errors.
   ///
   /// Emitted when QUIT, SHUTDOWN, etc are called.
@@ -105,7 +112,7 @@ impl Notifications {
     utils::swap_new_broadcast_channel(&self.unresponsive, capacity);
   }
 
-  pub fn broadcast_error(&self, error: RedisError) {
+  pub fn broadcast_error(&self, error: Error) {
     broadcast_send(self.errors.load().as_ref(), &error, |err| {
       debug!("{}: No `on_error` listener. The error was: {err:?}", self.id);
     });
@@ -135,7 +142,7 @@ impl Notifications {
     });
   }
 
-  pub fn broadcast_connect(&self, result: Result<(), RedisError>) {
+  pub fn broadcast_connect(&self, result: Result<(), Error>) {
     broadcast_send(self.connect.load().as_ref(), &result, |_| {
       debug!("{}: No `on_connect` listeners.", self.id);
     });
@@ -222,7 +229,7 @@ pub struct ServerState {
 }
 
 impl ServerState {
-  pub fn new(config: &RedisConfig) -> Self {
+  pub fn new(config: &Config) -> Self {
     ServerState {
       kind:                                  ServerKind::new(config),
       connections:                           HashSet::new(),
@@ -258,7 +265,7 @@ pub enum ServerKind {
 
 impl ServerKind {
   /// Create a new, empty server state cache.
-  pub fn new(config: &RedisConfig) -> Self {
+  pub fn new(config: &Config) -> Self {
     match config.server {
       ServerConfig::Clustered { .. } => ServerKind::Cluster {
         version: None,
@@ -314,24 +321,18 @@ impl ServerKind {
     }
   }
 
-  pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
+  pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, Error>
   where
-    F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
+    F: FnOnce(&ClusterRouting) -> Result<R, Error>,
   {
     if let ServerKind::Cluster { ref cache, .. } = *self {
       if let Some(state) = cache.as_ref() {
         func(state)
       } else {
-        Err(RedisError::new(
-          RedisErrorKind::Cluster,
-          "Missing cluster routing state.",
-        ))
+        Err(Error::new(ErrorKind::Cluster, "Missing cluster routing state."))
       }
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Cluster,
-        "Missing cluster routing state.",
-      ))
+      Err(Error::new(ErrorKind::Cluster, "Missing cluster routing state."))
     }
   }
 
@@ -382,7 +383,7 @@ fn create_resolver(id: &Str) -> RefCount<dyn Resolve> {
 }
 
 #[cfg(feature = "credential-provider")]
-fn spawn_credential_refresh(client: RedisClient, interval: Duration) -> JoinHandle<RedisResult<()>> {
+fn spawn_credential_refresh(client: Client, interval: Duration) -> JoinHandle<FredResult<()>> {
   spawn(async move {
     loop {
       trace!(
@@ -426,7 +427,7 @@ fn spawn_credential_refresh(client: RedisClient, interval: Duration) -> JoinHand
   })
 }
 
-pub struct RedisClientInner {
+pub struct ClientInner {
   /// An internal lock used to sync certain select operations that should not run concurrently across tasks.
   pub _lock:         Mutex<()>,
   /// The client ID used for logging and the default `CLIENT SETNAME` value.
@@ -436,7 +437,7 @@ pub struct RedisClientInner {
   /// The state of the underlying connection.
   pub state:         RwLock<ClientState>,
   /// Client configuration options.
-  pub config:        RefCount<RedisConfig>,
+  pub config:        RefCount<Config>,
   /// Connection configuration options.
   pub connection:    RefCount<ConnectionConfig>,
   /// Performance config options for the client.
@@ -461,7 +462,7 @@ pub struct RedisClientInner {
 
   /// A handle to a task that refreshes credentials on an interval.
   #[cfg(feature = "credential-provider")]
-  pub credentials_task:      RwLock<Option<JoinHandle<RedisResult<()>>>>,
+  pub credentials_task:      RwLock<Option<JoinHandle<FredResult<()>>>>,
   /// Command latency metrics.
   #[cfg(feature = "metrics")]
   pub latency_stats:         RwLock<MovingStats>,
@@ -477,19 +478,19 @@ pub struct RedisClientInner {
 }
 
 #[cfg(feature = "credential-provider")]
-impl Drop for RedisClientInner {
+impl Drop for ClientInner {
   fn drop(&mut self) {
     self.abort_credential_refresh_task();
   }
 }
 
-impl RedisClientInner {
+impl ClientInner {
   pub fn new(
-    config: RedisConfig,
+    config: Config,
     perf: PerformanceConfig,
     connection: ConnectionConfig,
     policy: Option<ReconnectPolicy>,
-  ) -> RefCount<RedisClientInner> {
+  ) -> RefCount<ClientInner> {
     let id = Str::from(format!("fred-{}", utils::random_string(10)));
     let resolver = AsyncRwLock::new(create_resolver(&id));
     let (command_tx, command_rx) = channel(connection.max_command_buffer_len);
@@ -508,7 +509,7 @@ impl RedisClientInner {
     let connection = RefCount::new(connection);
     let command_tx = RefSwap::new(RefCount::new(command_tx));
 
-    RefCount::new(RedisClientInner {
+    RefCount::new(ClientInner {
       _lock: Mutex::new(()),
       #[cfg(feature = "metrics")]
       latency_stats: RwLock::new(MovingStats::default()),
@@ -617,9 +618,9 @@ impl RedisClientInner {
     self.server_state.read().kind.num_cluster_nodes()
   }
 
-  pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, RedisError>
+  pub fn with_cluster_state<F, R>(&self, func: F) -> Result<R, Error>
   where
-    F: FnOnce(&ClusterRouting) -> Result<R, RedisError>,
+    F: FnOnce(&ClusterRouting) -> Result<R, Error>,
   {
     self.server_state.read().kind.with_cluster_state(func)
   }
@@ -745,7 +746,7 @@ impl RedisClientInner {
     }
   }
 
-  pub fn should_cluster_sync(&self, error: &RedisError) -> bool {
+  pub fn should_cluster_sync(&self, error: &Error) -> bool {
     self.config.server.is_clustered() && error.is_cluster()
   }
 
@@ -753,7 +754,7 @@ impl RedisClientInner {
     self.backchannel.transport.write().await.replace(transport);
   }
 
-  pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), RedisError> {
+  pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), Error> {
     #[allow(unused_mut)]
     let mut rx = self.notifications.close.subscribe();
     debug!("{}: Sleeping for {} ms", self.id, duration.as_millis());
@@ -762,7 +763,7 @@ impl RedisClientInner {
     tokio::pin!(recv_ft);
 
     if let Either::Right((_, _)) = select(sleep_ft, recv_ft).await {
-      Err(RedisError::new(RedisErrorKind::Canceled, "Connection(s) closed."))
+      Err(Error::new(ErrorKind::Canceled, "Connection(s) closed."))
     } else {
       Ok(())
     }
@@ -778,18 +779,18 @@ impl RedisClientInner {
         TrySendError::Full(c) => match c {
           RouterCommand::Command(mut cmd) => {
             trace::backpressure_event(&cmd, None);
-            cmd.respond_to_caller(Err(RedisError::new_backpressure()));
+            cmd.respond_to_caller(Err(Error::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
             if let Some(mut cmd) = commands.pop() {
-              cmd.respond_to_caller(Err(RedisError::new_backpressure()));
+              cmd.respond_to_caller(Err(Error::new_backpressure()));
             }
             Ok(())
           },
           #[cfg(feature = "transactions")]
           RouterCommand::Transaction { tx, .. } => {
-            let _ = tx.send(Err(RedisError::new_backpressure()));
+            let _ = tx.send(Err(Error::new_backpressure()));
             Ok(())
           },
           _ => Err(c),
@@ -809,18 +810,18 @@ impl RedisClientInner {
         GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
         GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
           RouterCommand::Command(mut cmd) => {
-            cmd.respond_to_caller(Err(RedisError::new_backpressure()));
+            cmd.respond_to_caller(Err(Error::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
             if let Some(mut cmd) = commands.pop() {
-              cmd.respond_to_caller(Err(RedisError::new_backpressure()));
+              cmd.respond_to_caller(Err(Error::new_backpressure()));
             }
             Ok(())
           },
           #[cfg(feature = "transactions")]
           RouterCommand::Transaction { tx, .. } => {
-            let _ = tx.send(Err(RedisError::new_backpressure()));
+            let _ = tx.send(Err(Error::new_backpressure()));
             Ok(())
           },
           _ => Err(v),
@@ -833,12 +834,12 @@ impl RedisClientInner {
   }
 
   #[cfg(not(feature = "credential-provider"))]
-  pub async fn read_credentials(&self, _: &Server) -> Result<(Option<String>, Option<String>), RedisError> {
+  pub async fn read_credentials(&self, _: &Server) -> Result<(Option<String>, Option<String>), Error> {
     Ok((self.config.username.clone(), self.config.password.clone()))
   }
 
   #[cfg(feature = "credential-provider")]
-  pub async fn read_credentials(&self, server: &Server) -> Result<(Option<String>, Option<String>), RedisError> {
+  pub async fn read_credentials(&self, server: &Server) -> Result<(Option<String>, Option<String>), Error> {
     Ok(if let Some(ref provider) = self.config.credential_provider {
       provider.fetch(Some(server)).await?
     } else {

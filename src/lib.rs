@@ -76,8 +76,8 @@ mod runtime;
 
 /// Various client utility functions.
 pub mod util {
-  pub use crate::utils::{f64_to_redis_string, redis_string_to_f64, static_bytes, static_str};
-  use crate::{error::RedisError, types::RedisKey};
+  pub use crate::utils::{f64_to_string, static_bytes, static_str, string_to_f64};
+  use crate::{error::Error, types::Key};
   pub use redis_protocol::redis_keyslot;
   use std::collections::{BTreeMap, VecDeque};
 
@@ -107,7 +107,7 @@ pub mod util {
   ///
   /// ```rust
   /// # use fred::prelude::*;
-  /// async fn example(client: impl KeysInterface) -> Result<(), RedisError> {
+  /// async fn example(client: impl KeysInterface) -> Result<(), Error> {
   ///   let keys = vec!["foo", "bar", "baz", "a{1}", "b{1}", "c{1}"];
   ///   let groups = fred::util::group_by_hash_slot(keys)?;
   ///
@@ -118,17 +118,15 @@ pub mod util {
   ///   Ok(())
   /// }
   /// ```
-  pub fn group_by_hash_slot<T>(
-    args: impl IntoIterator<Item = T>,
-  ) -> Result<BTreeMap<u16, VecDeque<RedisKey>>, RedisError>
+  pub fn group_by_hash_slot<T>(args: impl IntoIterator<Item = T>) -> Result<BTreeMap<u16, VecDeque<Key>>, Error>
   where
-    T: TryInto<RedisKey>,
-    T::Error: Into<RedisError>,
+    T: TryInto<Key>,
+    T::Error: Into<Error>,
   {
     let mut out = BTreeMap::new();
 
     for arg in args.into_iter() {
-      let arg: RedisKey = to!(arg)?;
+      let arg: Key = to!(arg)?;
       let slot = redis_keyslot(arg.as_bytes());
 
       out.entry(slot).or_insert(VecDeque::new()).push_back(arg);
@@ -142,29 +140,33 @@ pub mod util {
 pub mod prelude {
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
-  pub use crate::types::TracingConfig;
+  pub use crate::types::config::TracingConfig;
 
   pub use crate::{
-    clients::{RedisClient, RedisPool},
-    error::{RedisError, RedisErrorKind},
+    clients::{Client, Pool},
+    error::{Error, ErrorKind},
     interfaces::*,
     types::{
-      Blocking,
+      config::{
+        Blocking,
+        Config,
+        ConnectionConfig,
+        Options,
+        PerformanceConfig,
+        ReconnectPolicy,
+        Server,
+        ServerConfig,
+        TcpConfig,
+      },
       Builder,
-      ConnectionConfig,
+      ClientState,
       Expiration,
-      FromRedis,
-      Options,
-      PerformanceConfig,
-      ReconnectPolicy,
-      RedisConfig,
-      RedisKey,
-      RedisValue,
-      RedisValueKind,
-      Server,
-      ServerConfig,
+      FromKey,
+      FromValue,
+      Key,
       SetOptions,
-      TcpConfig,
+      Value,
+      ValueKind,
     },
   };
 
@@ -181,5 +183,5 @@ pub mod prelude {
       feature = "enable-rustls-ring"
     )))
   )]
-  pub use crate::types::{TlsConfig, TlsConnector};
+  pub use crate::types::config::{TlsConfig, TlsConnector};
 }

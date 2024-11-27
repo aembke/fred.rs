@@ -1,8 +1,14 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FnPolicy, FromRedis, MultipleKeys, MultipleStrings, MultipleValues, ScriptDebugFlag},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{
+    scripts::{FnPolicy, ScriptDebugFlag},
+    FromValue,
+    MultipleKeys,
+    MultipleStrings,
+    MultipleValues,
+  },
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -19,9 +25,9 @@ pub trait LuaInterface: ClientLike + Sized {
   /// Returns the SHA-1 hash of the script.
   ///
   /// <https://redis.io/commands/script-load>
-  fn script_load<R, S>(&self, script: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn script_load<R, S>(&self, script: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -35,9 +41,9 @@ pub trait LuaInterface: ClientLike + Sized {
   /// Returns the SHA-1 hash of the script.
   #[cfg(feature = "sha-1")]
   #[cfg_attr(docsrs, doc(cfg(feature = "sha-1")))]
-  fn script_load_cluster<R, S>(&self, script: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn script_load_cluster<R, S>(&self, script: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -49,35 +55,35 @@ pub trait LuaInterface: ClientLike + Sized {
   /// Kills the currently executing Lua script, assuming no write operation was yet performed by the script.
   ///
   /// <https://redis.io/commands/script-kill>
-  fn script_kill(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn script_kill(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::lua::script_kill(self).await }
   }
 
   /// A clustered variant of the [script_kill](Self::script_kill) command that issues the command to all primary nodes
   /// in the cluster.
-  fn script_kill_cluster(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn script_kill_cluster(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::lua::script_kill_cluster(self).await }
   }
 
   /// Flush the Lua scripts cache.
   ///
   /// <https://redis.io/commands/script-flush>
-  fn script_flush(&self, r#async: bool) -> impl Future<Output = RedisResult<()>> + Send {
+  fn script_flush(&self, r#async: bool) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::lua::script_flush(self, r#async).await }
   }
 
   /// A clustered variant of [script_flush](Self::script_flush) that flushes the script cache on all primary nodes in
   /// the cluster.
-  fn script_flush_cluster(&self, r#async: bool) -> impl Future<Output = RedisResult<()>> + Send {
+  fn script_flush_cluster(&self, r#async: bool) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::lua::script_flush_cluster(self, r#async).await }
   }
 
   /// Returns information about the existence of the scripts in the script cache.
   ///
   /// <https://redis.io/commands/script-exists>
-  fn script_exists<R, H>(&self, hashes: H) -> impl Future<Output = RedisResult<R>> + Send
+  fn script_exists<R, H>(&self, hashes: H) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     H: Into<MultipleStrings> + Send,
   {
     async move {
@@ -89,7 +95,7 @@ pub trait LuaInterface: ClientLike + Sized {
   /// Set the debug mode for subsequent scripts executed with EVAL.
   ///
   /// <https://redis.io/commands/script-debug>
-  fn script_debug(&self, flag: ScriptDebugFlag) -> impl Future<Output = RedisResult<()>> + Send {
+  fn script_debug(&self, flag: ScriptDebugFlag) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::lua::script_debug(self, flag).await }
   }
 
@@ -98,13 +104,13 @@ pub trait LuaInterface: ClientLike + Sized {
   /// <https://redis.io/commands/evalsha>
   ///
   /// **Note: Use `None` to represent an empty set of keys or args.**
-  fn evalsha<R, S, K, V>(&self, hash: S, keys: K, args: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn evalsha<R, S, K, V>(&self, hash: S, keys: K, args: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(hash, keys);
@@ -118,13 +124,13 @@ pub trait LuaInterface: ClientLike + Sized {
   /// <https://redis.io/commands/eval>
   ///
   /// **Note: Use `None` to represent an empty set of keys or args.**
-  fn eval<R, S, K, V>(&self, script: S, keys: K, args: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn eval<R, S, K, V>(&self, script: S, keys: K, args: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(script, keys);
@@ -140,13 +146,13 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Invoke a function.
   ///
   /// <https://redis.io/commands/fcall/>
-  fn fcall<R, F, K, V>(&self, func: F, keys: K, args: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn fcall<R, F, K, V>(&self, func: F, keys: K, args: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     F: Into<Str> + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(func);
@@ -158,13 +164,13 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// This is a read-only variant of the FCALL command that cannot execute commands that modify data.
   ///
   /// <https://redis.io/commands/fcall_ro/>
-  fn fcall_ro<R, F, K, V>(&self, func: F, keys: K, args: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn fcall_ro<R, F, K, V>(&self, func: F, keys: K, args: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     F: Into<Str> + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(func);
@@ -176,9 +182,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Delete a library and all its functions.
   ///
   /// <https://redis.io/commands/function-delete/>
-  fn function_delete<R, S>(&self, library_name: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_delete<R, S>(&self, library_name: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -190,7 +196,7 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Delete a library and all its functions from each cluster node concurrently.
   ///
   /// <https://redis.io/commands/function-delete/>
-  fn function_delete_cluster<S>(&self, library_name: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn function_delete_cluster<S>(&self, library_name: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<Str> + Send,
   {
@@ -203,9 +209,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Return the serialized payload of loaded libraries.
   ///
   /// <https://redis.io/commands/function-dump/>
-  fn function_dump<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_dump<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::lua::function_dump(self).await?.convert() }
   }
@@ -213,9 +219,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Deletes all the libraries.
   ///
   /// <https://redis.io/commands/function-flush/>
-  fn function_flush<R>(&self, r#async: bool) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_flush<R>(&self, r#async: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::lua::function_flush(self, r#async).await?.convert() }
   }
@@ -223,7 +229,7 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Deletes all the libraries on all cluster nodes concurrently.
   ///
   /// <https://redis.io/commands/function-flush/>
-  fn function_flush_cluster(&self, r#async: bool) -> impl Future<Output = RedisResult<()>> + Send {
+  fn function_flush_cluster(&self, r#async: bool) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::lua::function_flush_cluster(self, r#async).await }
   }
 
@@ -233,9 +239,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// possible.
   ///
   /// <https://redis.io/commands/function-kill/>
-  fn function_kill<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_kill<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::lua::function_kill(self).await?.convert() }
   }
@@ -243,13 +249,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Return information about the functions and libraries.
   ///
   /// <https://redis.io/commands/function-list/>
-  fn function_list<R, S>(
-    &self,
-    library_name: Option<S>,
-    withcode: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_list<R, S>(&self, library_name: Option<S>, withcode: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -263,9 +265,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Load a library to Redis.
   ///
   /// <https://redis.io/commands/function-load/>
-  fn function_load<R, S>(&self, replace: bool, code: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_load<R, S>(&self, replace: bool, code: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -277,9 +279,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Load a library to Redis on all cluster nodes concurrently.
   ///
   /// <https://redis.io/commands/function-load/>
-  fn function_load_cluster<R, S>(&self, replace: bool, code: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_load_cluster<R, S>(&self, replace: bool, code: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -295,12 +297,12 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// <https://redis.io/commands/function-restore/>
   ///
   /// Note: Use `FnPolicy::default()` to use the default function restore policy (`"APPEND"`).
-  fn function_restore<R, B, P>(&self, serialized: B, policy: P) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_restore<R, B, P>(&self, serialized: B, policy: P) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     B: Into<Bytes> + Send,
     P: TryInto<FnPolicy> + Send,
-    P::Error: Into<RedisError> + Send,
+    P::Error: Into<Error> + Send,
   {
     async move {
       into!(serialized);
@@ -316,11 +318,11 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// <https://redis.io/commands/function-restore/>
   ///
   /// Note: Use `FnPolicy::default()` to use the default function restore policy (`"APPEND"`).
-  fn function_restore_cluster<B, P>(&self, serialized: B, policy: P) -> impl Future<Output = RedisResult<()>> + Send
+  fn function_restore_cluster<B, P>(&self, serialized: B, policy: P) -> impl Future<Output = FredResult<()>> + Send
   where
     B: Into<Bytes> + Send,
     P: TryInto<FnPolicy> + Send,
-    P::Error: Into<RedisError> + Send,
+    P::Error: Into<Error> + Send,
   {
     async move {
       into!(serialized);
@@ -335,9 +337,9 @@ pub trait FunctionInterface: ClientLike + Sized {
   /// Note: This command runs on a backchannel connection to the server.
   ///
   /// <https://redis.io/commands/function-stats/>
-  fn function_stats<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn function_stats<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::lua::function_stats(self).await?.convert() }
   }

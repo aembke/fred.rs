@@ -1,7 +1,7 @@
 pub use crate::protocol::types::Server;
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  protocol::command::RedisCommand,
+  error::{Error, ErrorKind},
+  protocol::command::Command,
   types::{ClusterHash, RespVersion},
   utils,
 };
@@ -304,71 +304,6 @@ impl Default for Blocking {
   }
 }
 
-/// Backpressure policies to apply when the max number of in-flight commands is reached on a connection.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum BackpressurePolicy {
-  /// Sleep for some amount of time before sending the next command.
-  Sleep {
-    /// Disable the backpressure scaling logic used to calculate the `sleep` duration when throttling commands.
-    ///
-    /// If `true` the client will always wait a constant amount of time defined by `min_sleep_duration_ms` when
-    /// throttling commands. Otherwise the sleep duration will scale based on the number of in-flight commands.
-    ///
-    /// Default: `false`
-    disable_backpressure_scaling: bool,
-    /// The minimum amount of time to wait when applying backpressure to a command.
-    ///
-    /// If `0` then no backpressure will be applied, but backpressure errors will not be surfaced to callers unless
-    /// `disable_auto_backpressure` is `true`.
-    ///
-    /// Default: 10 ms
-    min_sleep_duration:           Duration,
-  },
-  /// Wait for all in-flight commands to finish before sending the next command.
-  Drain,
-}
-
-impl Default for BackpressurePolicy {
-  fn default() -> Self {
-    BackpressurePolicy::Drain
-  }
-}
-
-impl BackpressurePolicy {
-  /// Create a new `Sleep` policy with the legacy default values.
-  pub fn default_sleep() -> Self {
-    BackpressurePolicy::Sleep {
-      disable_backpressure_scaling: false,
-      min_sleep_duration:           Duration::from_millis(10),
-    }
-  }
-}
-
-/// Configuration options for backpressure features in the client.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BackpressureConfig {
-  /// Whether to disable the automatic backpressure features when pipelining is enabled.
-  ///
-  /// If `true` then `RedisErrorKind::Backpressure` errors may be surfaced to callers. Callers can set this to `true`
-  /// and `max_in_flight_commands` to `0` to effectively disable the backpressure logic.
-  ///
-  /// Default: `false`
-  pub disable_auto_backpressure: bool,
-  /// The backpressure policy to apply when the max number of in-flight commands is reached.
-  ///
-  /// Default: [Drain](crate::types::BackpressurePolicy::Drain).
-  pub policy:                    BackpressurePolicy,
-}
-
-impl Default for BackpressureConfig {
-  fn default() -> Self {
-    BackpressureConfig {
-      disable_auto_backpressure: false,
-      policy:                    BackpressurePolicy::default(),
-    }
-  }
-}
-
 /// TCP configuration options.
 #[derive(Clone, Debug, Default)]
 pub struct TcpConfig {
@@ -397,13 +332,13 @@ pub struct UnresponsiveConfig {
   /// considered unresponsive.
   ///
   /// If a connection is considered unresponsive it will be forcefully closed and the client will reconnect based on
-  /// the [ReconnectPolicy](crate::types::ReconnectPolicy). This heuristic can be useful in environments where
-  /// connections may close or change in subtle or unexpected ways.
+  /// the [ReconnectPolicy](crate::types::config::ReconnectPolicy). This heuristic can be useful in environments
+  /// where connections may close or change in subtle or unexpected ways.
   ///
-  /// Unlike the [timeout](crate::types::Options) and [default_command_timeout](crate::types::PerformanceConfig)
-  /// interfaces, any in-flight commands waiting on a response when the connection is closed this way will be
-  /// retried based on the associated [ReconnectPolicy](crate::types::ReconnectPolicy) and
-  /// [Options](crate::types::Options).
+  /// Unlike the [timeout](crate::types::config::Options) and
+  /// [default_command_timeout](crate::types::config::PerformanceConfig) interfaces, any in-flight commands waiting
+  /// on a response when the connection is closed this way will be retried based on the associated
+  /// [ReconnectPolicy](crate::types::config::ReconnectPolicy) and [Options](crate::types::config::Options).
   ///
   /// Default: `None`
   pub max_timeout: Option<Duration>,
@@ -476,7 +411,7 @@ pub struct ConnectionConfig {
   /// Unresponsive connection configuration options.
   pub unresponsive:                 UnresponsiveConfig,
   /// An unexpected `NOAUTH` error is treated the same as a general connection failure, causing the client to
-  /// reconnect based on the [ReconnectPolicy](crate::types::ReconnectPolicy). This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.
+  /// reconnect based on the [ReconnectPolicy](crate::types::config::ReconnectPolicy). This is [recommended](https://github.com/StackExchange/StackExchange.Redis/issues/1273#issuecomment-651823824) if callers are using ElastiCache.
   ///
   /// Default: `false`
   pub reconnect_on_auth_error:      bool,
@@ -560,8 +495,6 @@ impl Default for ConnectionConfig {
 /// Configuration options that can affect the performance of the client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PerformanceConfig {
-  /// Configuration options for backpressure features in the client.
-  pub backpressure:               BackpressureConfig,
   /// An optional timeout to apply to all commands.
   ///
   /// If `0` this will disable any timeout being applied to commands. Callers can also set timeouts on individual
@@ -592,12 +525,11 @@ pub struct PerformanceConfig {
 impl Default for PerformanceConfig {
   fn default() -> Self {
     PerformanceConfig {
-      backpressure: BackpressureConfig::default(),
-      default_command_timeout: Duration::from_millis(0),
-      max_feed_count: 200,
-      broadcast_channel_capacity: 32,
+      default_command_timeout:                                         Duration::from_millis(0),
+      max_feed_count:                                                  200,
+      broadcast_channel_capacity:                                      32,
       #[cfg(feature = "blocking-encoding")]
-      blocking_encode_threshold: 50_000_000,
+      blocking_encode_threshold:                                       50_000_000,
     }
   }
 }
@@ -608,7 +540,7 @@ impl Default for PerformanceConfig {
 #[cfg_attr(docsrs, doc(cfg(feature = "credential-provider")))]
 pub trait CredentialProvider: Debug + Send + Sync + 'static {
   /// Read the username and password that should be used in the next `AUTH` or `HELLO` command.
-  async fn fetch(&self, server: Option<&Server>) -> Result<(Option<String>, Option<String>), RedisError>;
+  async fn fetch(&self, server: Option<&Server>) -> Result<(Option<String>, Option<String>), Error>;
 
   /// Configure the client to call [fetch](Self::fetch) and send `AUTH` or `HELLO` on some interval.
   fn refresh_interval(&self) -> Option<Duration> {
@@ -622,7 +554,7 @@ pub trait CredentialProvider: Debug + Send + Sync + 'static {
 #[cfg_attr(docsrs, doc(cfg(feature = "credential-provider")))]
 pub trait CredentialProvider: Debug + 'static {
   /// Read the username and password that should be used in the next `AUTH` or `HELLO` command.
-  async fn fetch(&self, server: Option<&Server>) -> Result<(Option<String>, Option<String>), RedisError>;
+  async fn fetch(&self, server: Option<&Server>) -> Result<(Option<String>, Option<String>), Error>;
 
   /// Configure the client to call [fetch](Self::fetch) and send `AUTH` or `HELLO` on some interval.
   fn refresh_interval(&self) -> Option<Duration> {
@@ -630,9 +562,9 @@ pub trait CredentialProvider: Debug + 'static {
   }
 }
 
-/// Configuration options for a `RedisClient`.
+/// Configuration options for a `Client`.
 #[derive(Clone, Debug)]
-pub struct RedisConfig {
+pub struct Config {
   /// Whether the client should return an error if it cannot connect to the server the first time when being
   /// initialized. If `false` the client will run the reconnect logic if it cannot connect to the server the first
   /// time, but if `true` the client will return initial connection errors to the caller immediately.
@@ -723,7 +655,7 @@ pub struct RedisConfig {
   pub credential_provider: Option<Arc<dyn CredentialProvider>>,
 }
 
-impl PartialEq for RedisConfig {
+impl PartialEq for Config {
   fn eq(&self, other: &Self) -> bool {
     self.server == other.server
       && self.database == other.database
@@ -735,11 +667,11 @@ impl PartialEq for RedisConfig {
   }
 }
 
-impl Eq for RedisConfig {}
+impl Eq for Config {}
 
-impl Default for RedisConfig {
+impl Default for Config {
   fn default() -> Self {
-    RedisConfig {
+    Config {
       fail_fast: true,
       blocking: Blocking::default(),
       username: None,
@@ -764,7 +696,7 @@ impl Default for RedisConfig {
 }
 
 #[cfg_attr(docsrs, allow(rustdoc::broken_intra_doc_links))]
-impl RedisConfig {
+impl Config {
   /// Whether the client uses TLS.
   #[cfg(any(
     feature = "enable-native-tls",
@@ -882,19 +814,19 @@ impl RedisConfig {
   /// See the [from_url_centralized](Self::from_url_centralized), [from_url_clustered](Self::from_url_clustered),
   /// [from_url_sentinel](Self::from_url_sentinel), and [from_url_unix](Self::from_url_unix) for more information. Or
   /// see the [RedisConfig](Self) unit tests for examples.
-  pub fn from_url(url: &str) -> Result<RedisConfig, RedisError> {
+  pub fn from_url(url: &str) -> Result<Config, Error> {
     let parsed_url = Url::parse(url)?;
     if utils::url_is_clustered(&parsed_url) {
-      RedisConfig::from_url_clustered(url)
+      Config::from_url_clustered(url)
     } else if utils::url_is_sentinel(&parsed_url) {
-      RedisConfig::from_url_sentinel(url)
+      Config::from_url_sentinel(url)
     } else if utils::url_is_unix_socket(&parsed_url) {
       #[cfg(feature = "unix-sockets")]
-      return RedisConfig::from_url_unix(url);
+      return Config::from_url_unix(url);
       #[allow(unreachable_code)]
-      Err(RedisError::new(RedisErrorKind::Config, "Missing unix-socket feature."))
+      Err(Error::new(ErrorKind::Config, "Missing unix-socket feature."))
     } else {
-      RedisConfig::from_url_centralized(url)
+      Config::from_url_centralized(url)
     }
   }
 
@@ -916,13 +848,13 @@ impl RedisConfig {
   /// * A database can be defined in the `path` section.
   /// * The `port` field is optional in this context. If it is not specified then `6379` will be used.
   /// * Any `node` or sentinel query parameters will be ignored.
-  pub fn from_url_centralized(url: &str) -> Result<RedisConfig, RedisError> {
+  pub fn from_url_centralized(url: &str) -> Result<Config, Error> {
     let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let server = ServerConfig::new_centralized(host, port);
     let database = utils::parse_url_db(&url)?;
     let (username, password) = utils::parse_url_credentials(&url)?;
 
-    Ok(RedisConfig {
+    Ok(Config {
       server,
       username,
       password,
@@ -933,7 +865,7 @@ impl RedisConfig {
         feature = "enable-rustls-ring"
       ))]
       tls: utils::tls_config_from_url(_tls)?,
-      ..RedisConfig::default()
+      ..Config::default()
     })
   }
 
@@ -957,7 +889,7 @@ impl RedisConfig {
   /// * The `port` field is required in this context alongside any hostname.
   /// * Any `node` query parameters will be used to find other known cluster nodes.
   /// * Any sentinel query parameters will be ignored.
-  pub fn from_url_clustered(url: &str) -> Result<RedisConfig, RedisError> {
+  pub fn from_url_clustered(url: &str) -> Result<Config, Error> {
     let (url, host, port, _tls) = utils::parse_url(url, Some(6379))?;
     let mut cluster_nodes = utils::parse_url_other_nodes(&url)?;
     cluster_nodes.push(Server::new(host, port));
@@ -967,7 +899,7 @@ impl RedisConfig {
     };
     let (username, password) = utils::parse_url_credentials(&url)?;
 
-    Ok(RedisConfig {
+    Ok(Config {
       server,
       username,
       password,
@@ -977,7 +909,7 @@ impl RedisConfig {
         feature = "enable-rustls-ring"
       ))]
       tls: utils::tls_config_from_url(_tls)?,
-      ..RedisConfig::default()
+      ..Config::default()
     })
   }
 
@@ -1014,7 +946,7 @@ impl RedisConfig {
   /// The above example will use `("username1", "password1")` when authenticating to the backing Redis servers, and
   /// `("username2", "password2")` when initially connecting to the sentinel nodes. Additionally, all 3 addresses
   /// (`foo.com:26379`, `bar.com:26379`, `baz.com:26380`) specify known **sentinel** nodes.
-  pub fn from_url_sentinel(url: &str) -> Result<RedisConfig, RedisError> {
+  pub fn from_url_sentinel(url: &str) -> Result<Config, Error> {
     let (url, host, port, _tls) = utils::parse_url(url, Some(26379))?;
     let mut other_nodes = utils::parse_url_other_nodes(&url)?;
     other_nodes.push(Server::new(host, port));
@@ -1030,7 +962,7 @@ impl RedisConfig {
       password: utils::parse_url_sentinel_password(&url),
     };
 
-    Ok(RedisConfig {
+    Ok(Config {
       server,
       username,
       password,
@@ -1041,7 +973,7 @@ impl RedisConfig {
         feature = "enable-rustls-ring"
       ))]
       tls: utils::tls_config_from_url(_tls)?,
-      ..RedisConfig::default()
+      ..Config::default()
     })
   }
 
@@ -1063,11 +995,11 @@ impl RedisConfig {
   ///   provided.
   #[cfg(feature = "unix-sockets")]
   #[cfg_attr(docsrs, doc(cfg(feature = "unix-sockets")))]
-  pub fn from_url_unix(url: &str) -> Result<RedisConfig, RedisError> {
+  pub fn from_url_unix(url: &str) -> Result<Config, Error> {
     let (url, path) = utils::parse_unix_url(url)?;
     let (username, password) = utils::parse_url_credentials(&url)?;
 
-    Ok(RedisConfig {
+    Ok(Config {
       server: ServerConfig::Unix { path },
       username,
       password,
@@ -1097,7 +1029,7 @@ pub enum ServerConfig {
   Unix {
     /// The path to the Unix socket.
     ///
-    /// Any associated [Server](crate::types::Server) identifiers will use this value as the `host`.
+    /// Any associated [Server](crate::types::config::Server) identifiers will use this value as the `host`.
     path: PathBuf,
   },
   Sentinel {
@@ -1231,12 +1163,12 @@ impl ServerConfig {
   }
 
   /// Set the [ClusterDiscoveryPolicy], if possible.
-  pub fn set_cluster_discovery_policy(&mut self, new_policy: ClusterDiscoveryPolicy) -> Result<(), RedisError> {
+  pub fn set_cluster_discovery_policy(&mut self, new_policy: ClusterDiscoveryPolicy) -> Result<(), Error> {
     if let ServerConfig::Clustered { ref mut policy, .. } = self {
       *policy = new_policy;
       Ok(())
     } else {
-      Err(RedisError::new(RedisErrorKind::Config, "Expected clustered config."))
+      Err(Error::new(ErrorKind::Config, "Expected clustered config."))
     }
   }
 }
@@ -1359,9 +1291,9 @@ impl Default for SentinelConfig {
 
 #[doc(hidden)]
 #[cfg(feature = "sentinel-client")]
-impl From<SentinelConfig> for RedisConfig {
+impl From<SentinelConfig> for Config {
   fn from(config: SentinelConfig) -> Self {
-    RedisConfig {
+    Config {
       server: ServerConfig::Centralized {
         server: Server::new(config.host, config.port),
       },
@@ -1393,14 +1325,14 @@ impl From<SentinelConfig> for RedisConfig {
 ///
 /// ```rust
 /// # use fred::prelude::*;
-/// async fn example() -> Result<(), RedisError> {
+/// async fn example() -> Result<(), Error> {
 ///   let options = Options {
 ///     max_attempts: Some(10),
 ///     max_redirections: Some(2),
 ///     ..Default::default()
 ///   };
 ///
-///   let client = RedisClient::default();
+///   let client = Client::default();
 ///   client.init().await?;
 ///   let _: () = client.with_options(&options).get("foo").await?;
 ///
@@ -1480,7 +1412,7 @@ impl Options {
 
   /// Create options from a command
   #[cfg(feature = "transactions")]
-  pub(crate) fn from_command(cmd: &RedisCommand) -> Self {
+  pub(crate) fn from_command(cmd: &Command) -> Self {
     Options {
       max_attempts:                           Some(cmd.attempts_remaining),
       max_redirections:                       Some(cmd.redirections_remaining),
@@ -1495,7 +1427,7 @@ impl Options {
   }
 
   /// Overwrite the configuration options on the provided command.
-  pub(crate) fn apply(&self, command: &mut RedisCommand) {
+  pub(crate) fn apply(&self, command: &mut Command) {
     command.skip_backpressure = self.no_backpressure;
     command.timeout_dur = self.timeout;
     command.cluster_node = self.cluster_node.clone();
@@ -1521,69 +1453,69 @@ impl Options {
 #[cfg(test)]
 mod tests {
   #[cfg(feature = "sentinel-auth")]
-  use crate::types::Server;
+  use crate::types::config::Server;
   #[allow(unused_imports)]
-  use crate::{prelude::ServerConfig, types::RedisConfig, utils};
+  use crate::{prelude::ServerConfig, types::config::Config, utils};
 
   #[test]
   fn should_parse_centralized_url() {
     let url = "redis://username:password@foo.com:6379/1";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_centralized("foo.com", 6379),
       database: Some(1),
       username: Some("username".into()),
       password: Some("password".into()),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    let actual = Config::from_url_centralized(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_centralized_url_without_port() {
     let url = "redis://foo.com";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_centralized("foo.com", 6379),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    let actual = Config::from_url_centralized(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_centralized_url_without_creds() {
     let url = "redis://foo.com:6379/1";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_centralized("foo.com", 6379),
       database: Some(1),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    let actual = Config::from_url_centralized(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_centralized_url_without_db() {
     let url = "redis://username:password@foo.com:6379";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_centralized("foo.com", 6379),
       username: Some("username".into()),
       password: Some("password".into()),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    let actual = Config::from_url_centralized(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1591,79 +1523,79 @@ mod tests {
   #[cfg(feature = "enable-native-tls")]
   fn should_parse_centralized_url_with_tls() {
     let url = "rediss://username:password@foo.com:6379/1";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_centralized("foo.com", 6379),
       database: Some(1),
       username: Some("username".into()),
       password: Some("password".into()),
       tls: utils::tls_config_from_url(true).unwrap(),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_centralized(url).unwrap();
+    let actual = Config::from_url_centralized(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_clustered_url() {
     let url = "redis-cluster://username:password@foo.com:30000";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
       username: Some("username".into()),
       password: Some("password".into()),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    let actual = Config::from_url_clustered(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_clustered_url_without_port() {
     let url = "redis-cluster://foo.com";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_clustered(vec![("foo.com", 6379)]),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    let actual = Config::from_url_clustered(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_clustered_url_without_creds() {
     let url = "redis-cluster://foo.com:30000";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    let actual = Config::from_url_clustered(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_clustered_url_with_other_nodes() {
     let url = "redis-cluster://username:password@foo.com:30000?node=bar.com:30001&node=baz.com:30002";
-    let expected = RedisConfig {
+    let expected = Config {
       // need to be careful with the array ordering here
       server: ServerConfig::new_clustered(vec![("bar.com", 30001), ("baz.com", 30002), ("foo.com", 30000)]),
       username: Some("username".into()),
       password: Some("password".into()),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    let actual = Config::from_url_clustered(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1671,34 +1603,34 @@ mod tests {
   #[cfg(feature = "enable-native-tls")]
   fn should_parse_clustered_url_with_tls() {
     let url = "rediss-cluster://username:password@foo.com:30000";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_clustered(vec![("foo.com", 30000)]),
       username: Some("username".into()),
       password: Some("password".into()),
       tls: utils::tls_config_from_url(true).unwrap(),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_clustered(url).unwrap();
+    let actual = Config::from_url_clustered(url).unwrap();
     assert_eq!(actual, expected);
   }
 
   #[test]
   fn should_parse_sentinel_url() {
     let url = "redis-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_sentinel(vec![("foo.com", 26379)], "fakename"),
       username: Some("username".into()),
       password: Some("password".into()),
       database: Some(1),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    let actual = Config::from_url_sentinel(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1706,7 +1638,7 @@ mod tests {
   fn should_parse_sentinel_url_with_other_nodes() {
     let url = "redis-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename&node=bar.com:26380&\
                node=baz.com:26381";
-    let expected = RedisConfig {
+    let expected = Config {
       // also need to be careful with array ordering here
       server: ServerConfig::new_sentinel(
         vec![("bar.com", 26380), ("baz.com", 26381), ("foo.com", 26379)],
@@ -1715,12 +1647,12 @@ mod tests {
       username: Some("username".into()),
       password: Some("password".into()),
       database: Some(1),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    let actual = Config::from_url_sentinel(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1728,7 +1660,7 @@ mod tests {
   #[cfg(feature = "unix-sockets")]
   fn should_parse_unix_socket_url_no_auth() {
     let url = "redis+unix:///path/to/redis.sock";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::Unix {
         path: "/path/to/redis.sock".into(),
       },
@@ -1737,9 +1669,9 @@ mod tests {
       ..Default::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_unix(url).unwrap();
+    let actual = Config::from_url_unix(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1747,7 +1679,7 @@ mod tests {
   #[cfg(feature = "unix-sockets")]
   fn should_parse_unix_socket_url_with_auth() {
     let url = "redis+unix://username:password@foo/path/to/redis.sock";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::Unix {
         path: "/path/to/redis.sock".into(),
       },
@@ -1756,9 +1688,9 @@ mod tests {
       ..Default::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_unix(url).unwrap();
+    let actual = Config::from_url_unix(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1766,18 +1698,18 @@ mod tests {
   #[cfg(feature = "enable-native-tls")]
   fn should_parse_sentinel_url_with_tls() {
     let url = "rediss-sentinel://username:password@foo.com:26379/1?sentinelServiceName=fakename";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::new_sentinel(vec![("foo.com", 26379)], "fakename"),
       username: Some("username".into()),
       password: Some("password".into()),
       database: Some(1),
       tls: utils::tls_config_from_url(true).unwrap(),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    let actual = Config::from_url_sentinel(url).unwrap();
     assert_eq!(actual, expected);
   }
 
@@ -1786,7 +1718,7 @@ mod tests {
   fn should_parse_sentinel_url_with_sentinel_auth() {
     let url = "redis-sentinel://username1:password1@foo.com:26379/1?sentinelServiceName=fakename&\
                sentinelUsername=username2&sentinelPassword=password2";
-    let expected = RedisConfig {
+    let expected = Config {
       server: ServerConfig::Sentinel {
         hosts:        vec![Server::new("foo.com", 26379)],
         service_name: "fakename".into(),
@@ -1796,12 +1728,12 @@ mod tests {
       username: Some("username1".into()),
       password: Some("password1".into()),
       database: Some(1),
-      ..RedisConfig::default()
+      ..Config::default()
     };
 
-    let actual = RedisConfig::from_url(url).unwrap();
+    let actual = Config::from_url(url).unwrap();
     assert_eq!(actual, expected);
-    let actual = RedisConfig::from_url_sentinel(url).unwrap();
+    let actual = Config::from_url_sentinel(url).unwrap();
     assert_eq!(actual, expected);
   }
 }

@@ -5,18 +5,23 @@
 #![allow(clippy::match_like_matches_macro)]
 
 use fred::{
-  clients::RedisClient,
-  error::RedisError,
+  clients::Client,
+  error::Error,
   interfaces::*,
   types::{
+    config::{
+      ClusterDiscoveryPolicy,
+      Config,
+      ConnectionConfig,
+      PerformanceConfig,
+      ReconnectPolicy,
+      Server,
+      ServerConfig,
+      UnresponsiveConfig,
+    },
     Builder,
-    ConnectionConfig,
-    PerformanceConfig,
-    ReconnectPolicy,
-    RedisConfig,
-    Server,
-    ServerConfig,
-    UnresponsiveConfig,
+    ConnectHandle,
+    InfoKind,
   },
 };
 use redis_protocol::resp3::types::RespVersion;
@@ -33,13 +38,12 @@ use std::{
 
 const RECONNECT_DELAY: u32 = 1000;
 
-use fred::types::{ClusterDiscoveryPolicy, ConnectHandle, InfoKind};
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 ))]
-use fred::types::{TlsConfig, TlsConnector, TlsHostMapping};
+use fred::types::config::{TlsConfig, TlsConnector, TlsHostMapping};
 #[cfg(feature = "enable-native-tls")]
 use tokio_native_tls::native_tls::{
   Certificate as NativeTlsCertificate,
@@ -312,8 +316,8 @@ fn create_server_config(cluster: bool) -> ServerConfig {
   }
 }
 
-fn create_normal_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
-  let config = RedisConfig {
+fn create_normal_redis_config(cluster: bool, resp3: bool) -> (Config, PerformanceConfig) {
+  let config = Config {
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
@@ -334,7 +338,7 @@ fn create_normal_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, Perfo
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 )))]
-fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (Config, PerformanceConfig) {
   create_normal_redis_config(cluster, resp3)
 }
 
@@ -342,7 +346,7 @@ fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceC
   feature = "enable-native-tls",
   any(feature = "enable-rustls", feature = "enable-rustls-ring")
 ))]
-fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (Config, PerformanceConfig) {
   // if both are enabled then don't use either since all the tests assume one or the other
   create_normal_redis_config(cluster, resp3)
 }
@@ -351,13 +355,13 @@ fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceC
   any(feature = "enable-rustls", feature = "enable-rustls-ring"),
   not(feature = "enable-native-tls")
 ))]
-fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (Config, PerformanceConfig) {
   if !read_ci_tls_env() {
     return create_normal_redis_config(cluster, resp3);
   }
 
   debug!("Creating rustls test config...");
-  let config = RedisConfig {
+  let config = Config {
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
@@ -381,13 +385,13 @@ fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceC
   feature = "enable-native-tls",
   not(any(feature = "enable-rustls", feature = "enable-rustls-ring"))
 ))]
-fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceConfig) {
+fn create_redis_config(cluster: bool, resp3: bool) -> (Config, PerformanceConfig) {
   if !read_ci_tls_env() {
     return create_normal_redis_config(cluster, resp3);
   }
 
   debug!("Creating native-tls test config...");
-  let config = RedisConfig {
+  let config = Config {
     fail_fast: read_fail_fast_env(),
     server: create_server_config(cluster),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
@@ -407,7 +411,7 @@ fn create_redis_config(cluster: bool, resp3: bool) -> (RedisConfig, PerformanceC
   (config, perf)
 }
 
-async fn flushall_between_tests(client: &RedisClient) -> Result<(), RedisError> {
+async fn flushall_between_tests(client: &Client) -> Result<(), Error> {
   if should_flushall_between_tests() {
     client.flushall_cluster().await
   } else {
@@ -415,7 +419,7 @@ async fn flushall_between_tests(client: &RedisClient) -> Result<(), RedisError> 
   }
 }
 
-async fn check_panic(client: &RedisClient, jh: ConnectHandle, err: RedisError) {
+async fn check_panic(client: &Client, jh: ConnectHandle, err: Error) {
   println!("Checking panic after: {:?}", err);
   let _ = client.quit().await;
   jh.await.unwrap().unwrap();
@@ -424,12 +428,12 @@ async fn check_panic(client: &RedisClient, jh: ConnectHandle, err: RedisError) {
 
 pub async fn run_sentinel<F, Fut>(func: F, resp3: bool)
 where
-  F: Fn(RedisClient, RedisConfig) -> Fut,
-  Fut: Future<Output = Result<(), RedisError>>,
+  F: Fn(Client, Config) -> Fut,
+  Fut: Future<Output = Result<(), Error>>,
 {
   let policy = ReconnectPolicy::new_constant(300, RECONNECT_DELAY);
   let connection = ConnectionConfig::default();
-  let config = RedisConfig {
+  let config = Config {
     fail_fast: read_fail_fast_env(),
     version: if resp3 { RespVersion::RESP3 } else { RespVersion::RESP2 },
     server: ServerConfig::Sentinel {
@@ -444,7 +448,7 @@ where
     ..Default::default()
   };
   let perf = PerformanceConfig::default();
-  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), Some(policy));
+  let client = Client::new(config.clone(), Some(perf), Some(connection), Some(policy));
   let _client = client.clone();
 
   let jh = client.connect();
@@ -462,8 +466,8 @@ where
 
 pub async fn run_cluster<F, Fut>(func: F, resp3: bool)
 where
-  F: Fn(RedisClient, RedisConfig) -> Fut,
-  Fut: Future<Output = Result<(), RedisError>>,
+  F: Fn(Client, Config) -> Fut,
+  Fut: Future<Output = Result<(), Error>>,
 {
   let (policy, cmd_attempts, fail_fast) = reconnect_settings();
   let mut connection = ConnectionConfig::default();
@@ -476,7 +480,7 @@ where
   };
   config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
+  let client = Client::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
   let jh = client.connect();
@@ -494,8 +498,8 @@ where
 
 pub async fn run_centralized<F, Fut>(func: F, resp3: bool)
 where
-  F: Fn(RedisClient, RedisConfig) -> Fut,
-  Fut: Future<Output = Result<(), RedisError>>,
+  F: Fn(Client, Config) -> Fut,
+  Fut: Future<Output = Result<(), Error>>,
 {
   if should_use_sentinel_config() {
     return run_sentinel(func, resp3).await;
@@ -511,7 +515,7 @@ where
   };
   config.fail_fast = fail_fast;
 
-  let client = RedisClient::new(config.clone(), Some(perf), Some(connection), policy);
+  let client = Client::new(config.clone(), Some(perf), Some(connection), policy);
   let _client = client.clone();
 
   let jh = client.connect();
@@ -528,7 +532,7 @@ where
 }
 
 /// Check whether the server is Valkey.
-pub async fn check_valkey(client: &RedisClient) -> bool {
+pub async fn check_valkey(client: &Client) -> bool {
   let info: String = match client.info(Some(InfoKind::Server)).await {
     Ok(val) => val,
     Err(e) => {
@@ -663,8 +667,8 @@ macro_rules! cluster_test(
 
 macro_rules! return_err(
   ($($arg:tt)*) => { {
-    return Err(fred::error::RedisError::new(
-      fred::error::RedisErrorKind::Unknown, format!($($arg)*)
+    return Err(fred::error::Error::new(
+      fred::error::ErrorKind::Unknown, format!($($arg)*)
     ));
   } }
 );

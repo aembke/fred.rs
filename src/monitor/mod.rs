@@ -1,6 +1,6 @@
 use crate::{
-  error::RedisError,
-  types::{RedisConfig, RedisValue},
+  error::Error,
+  types::{config::Config, Value},
   utils as client_utils,
 };
 use futures::Stream;
@@ -13,11 +13,11 @@ mod utils;
 ///
 /// Formatting with the [Display](https://doc.rust-lang.org/std/fmt/trait.Display.html) trait will print the same output as `redis-cli`.
 #[derive(Clone, Debug)]
-pub struct Command {
+pub struct MonitorCommand {
   /// The command run by the server.
   pub command:   String,
   /// Arguments passed to the command.
-  pub args:      Vec<RedisValue>,
+  pub args:      Vec<Value>,
   /// When the command was run on the server.
   pub timestamp: f64,
   /// The database against which the command was run.
@@ -26,7 +26,7 @@ pub struct Command {
   pub client:    String,
 }
 
-impl PartialEq for Command {
+impl PartialEq for MonitorCommand {
   fn eq(&self, other: &Self) -> bool {
     client_utils::f64_eq(self.timestamp, other.timestamp)
       && self.client == other.client
@@ -36,9 +36,9 @@ impl PartialEq for Command {
   }
 }
 
-impl Eq for Command {}
+impl Eq for MonitorCommand {}
 
-impl fmt::Display for Command {
+impl fmt::Display for MonitorCommand {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
       f,
@@ -57,6 +57,6 @@ impl fmt::Display for Command {
 /// Run the [MONITOR](https://redis.io/commands/monitor) command against the provided server.
 ///
 /// Currently only centralized configurations are supported.
-pub async fn run(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
+pub async fn run(config: Config) -> Result<impl Stream<Item = MonitorCommand>, Error> {
   utils::start(config).await
 }

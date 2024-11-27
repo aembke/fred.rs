@@ -1,11 +1,11 @@
 use crate::{
-  clients::{Pipeline, RedisClient},
-  error::RedisError,
+  clients::{Client, Pipeline},
+  error::Error,
   interfaces::{self, *},
-  modules::inner::RedisClientInner,
-  protocol::command::{RedisCommand, RouterCommand},
+  modules::inner::ClientInner,
+  protocol::command::{Command, RouterCommand},
   runtime::{oneshot_channel, RefCount},
-  types::Server,
+  types::config::Server,
 };
 use std::{collections::HashMap, fmt, fmt::Formatter};
 
@@ -20,7 +20,7 @@ use std::{collections::HashMap, fmt, fmt::Formatter};
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub struct Replicas {
-  inner: RefCount<RedisClientInner>,
+  inner: RefCount<ClientInner>,
 }
 
 impl fmt::Debug for Replicas {
@@ -30,20 +30,20 @@ impl fmt::Debug for Replicas {
 }
 
 #[doc(hidden)]
-impl From<&RefCount<RedisClientInner>> for Replicas {
-  fn from(inner: &RefCount<RedisClientInner>) -> Self {
+impl From<&RefCount<ClientInner>> for Replicas {
+  fn from(inner: &RefCount<ClientInner>) -> Self {
     Replicas { inner: inner.clone() }
   }
 }
 
 impl ClientLike for Replicas {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     &self.inner
   }
 
   #[doc(hidden)]
-  fn change_command(&self, command: &mut RedisCommand) {
+  fn change_command(&self, command: &mut Command) {
     command.use_replica = true;
   }
 }
@@ -114,16 +114,16 @@ impl Replicas {
     Pipeline::from(self.clone())
   }
 
-  /// Read the underlying [RedisClient](crate::clients::RedisClient) that interacts with primary nodes.
-  pub fn client(&self) -> RedisClient {
-    RedisClient::from(&self.inner)
+  /// Read the underlying [RedisClient](crate::clients::Client) that interacts with primary nodes.
+  pub fn client(&self) -> Client {
+    Client::from(&self.inner)
   }
 
   /// Sync the cached replica routing table with the server(s).
   ///
   /// If `reset: true` the client will forcefully disconnect from replicas even if the connections could otherwise be
   /// reused.
-  pub async fn sync(&self, reset: bool) -> Result<(), RedisError> {
+  pub async fn sync(&self, reset: bool) -> Result<(), Error> {
     let (tx, rx) = oneshot_channel();
     let cmd = RouterCommand::SyncReplicas { tx, reset };
     interfaces::send_to_router(&self.inner, cmd)?;

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  protocol::{command::CommandKind, utils as protocol_utils},
   types::*,
   utils,
 };
@@ -18,7 +18,7 @@ fn frame_is_queued(frame: &Resp3Frame) -> bool {
   }
 }
 
-pub async fn hdel<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn hdel<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + fields.len());
     args.push(key.into());
@@ -27,63 +27,53 @@ pub async fn hdel<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HDel, args))
+    Ok((CommandKind::HDel, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hexists<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
-  let args: Vec<RedisValue> = vec![key.into(), field.into()];
-  args_value_cmd(client, RedisCommandKind::HExists, args).await
+pub async fn hexists<C: ClientLike>(client: &C, key: Key, field: Key) -> Result<Value, Error> {
+  let args: Vec<Value> = vec![key.into(), field.into()];
+  args_value_cmd(client, CommandKind::HExists, args).await
 }
 
-pub async fn hget<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
-  let args: Vec<RedisValue> = vec![key.into(), field.into()];
-  args_value_cmd(client, RedisCommandKind::HGet, args).await
+pub async fn hget<C: ClientLike>(client: &C, key: Key, field: Key) -> Result<Value, Error> {
+  let args: Vec<Value> = vec![key.into(), field.into()];
+  args_value_cmd(client, CommandKind::HGet, args).await
 }
 
-pub async fn hgetall<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(client, move || Ok((RedisCommandKind::HGetAll, vec![key.into()]))).await?;
+pub async fn hgetall<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error> {
+  let frame = utils::request_response(client, move || Ok((CommandKind::HGetAll, vec![key.into()]))).await?;
 
   if frame.as_str().map(|s| s == QUEUED).unwrap_or(false) {
     protocol_utils::frame_to_results(frame)
   } else {
-    Ok(RedisValue::Map(protocol_utils::frame_to_map(frame)?))
+    Ok(Value::Map(protocol_utils::frame_to_map(frame)?))
   }
 }
 
-pub async fn hincrby<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  field: RedisKey,
-  increment: i64,
-) -> Result<RedisValue, RedisError> {
-  let args: Vec<RedisValue> = vec![key.into(), field.into(), increment.into()];
-  args_value_cmd(client, RedisCommandKind::HIncrBy, args).await
+pub async fn hincrby<C: ClientLike>(client: &C, key: Key, field: Key, increment: i64) -> Result<Value, Error> {
+  let args: Vec<Value> = vec![key.into(), field.into(), increment.into()];
+  args_value_cmd(client, CommandKind::HIncrBy, args).await
 }
 
-pub async fn hincrbyfloat<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  field: RedisKey,
-  increment: f64,
-) -> Result<RedisValue, RedisError> {
-  let args: Vec<RedisValue> = vec![key.into(), field.into(), increment.try_into()?];
-  args_value_cmd(client, RedisCommandKind::HIncrByFloat, args).await
+pub async fn hincrbyfloat<C: ClientLike>(client: &C, key: Key, field: Key, increment: f64) -> Result<Value, Error> {
+  let args: Vec<Value> = vec![key.into(), field.into(), increment.try_into()?];
+  args_value_cmd(client, CommandKind::HIncrByFloat, args).await
 }
 
-pub async fn hkeys<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(client, move || Ok((RedisCommandKind::HKeys, vec![key.into()]))).await?;
+pub async fn hkeys<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error> {
+  let frame = utils::request_response(client, move || Ok((CommandKind::HKeys, vec![key.into()]))).await?;
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hlen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(client, RedisCommandKind::HLen, key.into()).await
+pub async fn hlen<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error> {
+  one_arg_value_cmd(client, CommandKind::HLen, key.into()).await
 }
 
-pub async fn hmget<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn hmget<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + fields.len());
     args.push(key.into());
@@ -91,14 +81,14 @@ pub async fn hmget<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKey
     for field in fields.inner().into_iter() {
       args.push(field.into());
     }
-    Ok((RedisCommandKind::HMGet, args))
+    Ok((CommandKind::HMGet, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn hmset<C: ClientLike>(client: &C, key: Key, values: Map) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
@@ -107,14 +97,14 @@ pub async fn hmset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -
       args.push(key.into());
       args.push(value);
     }
-    Ok((RedisCommandKind::HMSet, args))
+    Ok((CommandKind::HMSet, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) -> Result<RedisValue, RedisError> {
+pub async fn hset<C: ClientLike>(client: &C, key: Key, values: Map) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + (values.len() * 2));
     args.push(key.into());
@@ -124,32 +114,23 @@ pub async fn hset<C: ClientLike>(client: &C, key: RedisKey, values: RedisMap) ->
       args.push(value);
     }
 
-    Ok((RedisCommandKind::HSet, args))
+    Ok((CommandKind::HSet, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hsetnx<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  field: RedisKey,
-  value: RedisValue,
-) -> Result<RedisValue, RedisError> {
+pub async fn hsetnx<C: ClientLike>(client: &C, key: Key, field: Key, value: Value) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::HSetNx, vec![key.into(), field.into(), value]))
+    Ok((CommandKind::HSetNx, vec![key.into(), field.into(), value]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hrandfield<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  count: Option<(i64, bool)>,
-) -> Result<RedisValue, RedisError> {
+pub async fn hrandfield<C: ClientLike>(client: &C, key: Key, count: Option<(i64, bool)>) -> Result<Value, Error> {
   let (has_count, has_values) = count.as_ref().map(|(_c, b)| (true, *b)).unwrap_or((false, false));
 
   let frame = utils::request_response(client, move || {
@@ -163,14 +144,14 @@ pub async fn hrandfield<C: ClientLike>(
       }
     }
 
-    Ok((RedisCommandKind::HRandField, args))
+    Ok((CommandKind::HRandField, args))
   })
   .await?;
 
   if has_count {
     if has_values && frame.as_str().map(|s| s != QUEUED).unwrap_or(true) {
       let frame = protocol_utils::flatten_frame(frame);
-      protocol_utils::frame_to_map(frame).map(RedisValue::Map)
+      protocol_utils::frame_to_map(frame).map(Value::Map)
     } else {
       protocol_utils::frame_to_results(frame)
     }
@@ -179,21 +160,21 @@ pub async fn hrandfield<C: ClientLike>(
   }
 }
 
-pub async fn hstrlen<C: ClientLike>(client: &C, key: RedisKey, field: RedisKey) -> Result<RedisValue, RedisError> {
+pub async fn hstrlen<C: ClientLike>(client: &C, key: Key, field: Key) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::HStrLen, vec![key.into(), field.into()]))
+    Ok((CommandKind::HStrLen, vec![key.into(), field.into()]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn hvals<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_values_cmd(client, RedisCommandKind::HVals, key.into()).await
+pub async fn hvals<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error> {
+  one_arg_values_cmd(client, CommandKind::HVals, key.into()).await
 }
 
 #[cfg(feature = "i-hexpire")]
-pub async fn httl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn httl<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
     args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
@@ -201,7 +182,7 @@ pub async fn httl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HTtl, args))
+    Ok((CommandKind::HTtl, args))
   })
   .await?;
 
@@ -211,11 +192,11 @@ pub async fn httl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys
 #[cfg(feature = "i-hexpire")]
 pub async fn hexpire<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   seconds: i64,
   options: Option<ExpireOptions>,
   fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 4);
     args.extend([key.into(), seconds.into()]);
@@ -227,7 +208,7 @@ pub async fn hexpire<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HExpire, args))
+    Ok((CommandKind::HExpire, args))
   })
   .await?;
 
@@ -237,11 +218,11 @@ pub async fn hexpire<C: ClientLike>(
 #[cfg(feature = "i-hexpire")]
 pub async fn hexpire_at<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   time: i64,
   options: Option<ExpireOptions>,
   fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 4);
     args.extend([key.into(), time.into()]);
@@ -253,7 +234,7 @@ pub async fn hexpire_at<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HExpireAt, args))
+    Ok((CommandKind::HExpireAt, args))
   })
   .await?;
 
@@ -261,11 +242,7 @@ pub async fn hexpire_at<C: ClientLike>(
 }
 
 #[cfg(feature = "i-hexpire")]
-pub async fn hexpire_time<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+pub async fn hexpire_time<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
     args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
@@ -273,7 +250,7 @@ pub async fn hexpire_time<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HExpireTime, args))
+    Ok((CommandKind::HExpireTime, args))
   })
   .await?;
 
@@ -281,7 +258,7 @@ pub async fn hexpire_time<C: ClientLike>(
 }
 
 #[cfg(feature = "i-hexpire")]
-pub async fn hpttl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKeys) -> Result<RedisValue, RedisError> {
+pub async fn hpttl<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
     args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
@@ -289,7 +266,7 @@ pub async fn hpttl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKey
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HPTtl, args))
+    Ok((CommandKind::HPTtl, args))
   })
   .await?;
 
@@ -299,11 +276,11 @@ pub async fn hpttl<C: ClientLike>(client: &C, key: RedisKey, fields: MultipleKey
 #[cfg(feature = "i-hexpire")]
 pub async fn hpexpire<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   milliseconds: i64,
   options: Option<ExpireOptions>,
   fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 4);
     args.extend([key.into(), milliseconds.into()]);
@@ -315,7 +292,7 @@ pub async fn hpexpire<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HPExpire, args))
+    Ok((CommandKind::HPExpire, args))
   })
   .await?;
 
@@ -325,11 +302,11 @@ pub async fn hpexpire<C: ClientLike>(
 #[cfg(feature = "i-hexpire")]
 pub async fn hpexpire_at<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   time: i64,
   options: Option<ExpireOptions>,
   fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 4);
     args.extend([key.into(), time.into()]);
@@ -341,7 +318,7 @@ pub async fn hpexpire_at<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HPExpireAt, args))
+    Ok((CommandKind::HPExpireAt, args))
   })
   .await?;
 
@@ -349,11 +326,7 @@ pub async fn hpexpire_at<C: ClientLike>(
 }
 
 #[cfg(feature = "i-hexpire")]
-pub async fn hpexpire_time<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+pub async fn hpexpire_time<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
     args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
@@ -361,7 +334,7 @@ pub async fn hpexpire_time<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HPExpireTime, args))
+    Ok((CommandKind::HPExpireTime, args))
   })
   .await?;
 
@@ -369,11 +342,7 @@ pub async fn hpexpire_time<C: ClientLike>(
 }
 
 #[cfg(feature = "i-hexpire")]
-pub async fn hpersist<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  fields: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+pub async fn hpersist<C: ClientLike>(client: &C, key: Key, fields: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(fields.len() + 3);
     args.extend([key.into(), static_val!(FIELDS), fields.len().try_into()?]);
@@ -381,7 +350,7 @@ pub async fn hpersist<C: ClientLike>(
       args.push(field.into());
     }
 
-    Ok((RedisCommandKind::HPersist, args))
+    Ok((CommandKind::HPersist, args))
   })
   .await?;
 

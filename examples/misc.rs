@@ -1,24 +1,16 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::let_underscore_future)]
 
-use fred::{
-  prelude::*,
-  types::{BackpressureConfig, BackpressurePolicy, UnresponsiveConfig},
-};
+use fred::{prelude::*, types::config::UnresponsiveConfig};
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let client = Builder::default_centralized()
     .with_performance_config(|config| {
       config.max_feed_count = 100;
       // change the buffer size behind the event interface functions (`on_message`, etc.)
       config.broadcast_channel_capacity = 48;
-      // allow up to 25000 in-flight commands per connection
-      config.backpressure = BackpressureConfig {
-        disable_auto_backpressure: false,
-        policy: BackpressurePolicy::Drain,
-      }
     })
     .with_connection_config(|config| {
       config.tcp = TcpConfig {
@@ -89,7 +81,7 @@ async fn main() -> Result<(), RedisError> {
   // interact with specific cluster nodes without creating new connections
   if client.is_clustered() {
     // discover connections via the active connection map
-    let _connections = client.active_connections().await?;
+    let _connections = client.active_connections();
     // or use the cached cluster state from `CLUSTER SLOTS`
     let connections = client
       .cached_cluster_state()
@@ -102,11 +94,11 @@ async fn main() -> Result<(), RedisError> {
     }
   }
 
-  // the `RedisValue` type also works as quick way to discover the type signature of a complicated response:
+  // the `Value` type also works as quick way to discover the type signature of a complicated response:
   println!(
     "{:?}",
     client
-      .xreadgroup::<RedisValue, _, _, _, _>("foo", "bar", None, None, false, "baz", ">")
+      .xreadgroup::<Value, _, _, _, _>("foo", "bar", None, None, false, "baz", ">")
       .await?
   );
 

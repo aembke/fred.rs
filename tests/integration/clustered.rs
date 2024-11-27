@@ -181,7 +181,7 @@ mod scanning {
   cluster_test!(scanning, should_scan_cluster_buffered);
   #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_continue_scanning_on_page_drop);
-  #[cfg(feature = "i-keys")]
+  #[cfg(all(feature = "i-keys", feature = "i-cluster"))]
   cluster_test!(scanning, should_scan_by_page_clustered);
 }
 
@@ -288,6 +288,7 @@ pub mod sorted_sets {
   cluster_test!(sorted_sets, should_zrangebyscore);
   cluster_test!(sorted_sets, should_zrevrangebyscore);
   cluster_test!(sorted_sets, should_zrank_values);
+  cluster_test!(sorted_sets, should_zrank_values_withscore);
   cluster_test!(sorted_sets, should_zrem_values);
   cluster_test!(sorted_sets, should_zremrangebylex);
   cluster_test!(sorted_sets, should_zremrangebyrank);

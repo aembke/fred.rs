@@ -1,4 +1,4 @@
-use crate::{error::RedisError, protocol::utils as protocol_utils, types::RedisValue, utils};
+use crate::{error::Error, protocol::utils as protocol_utils, types::Value, utils};
 use bytes_utils::Str;
 use std::{
   collections::VecDeque,
@@ -29,10 +29,10 @@ impl From<(f64, f64)> for GeoPosition {
   }
 }
 
-impl TryFrom<RedisValue> for GeoPosition {
-  type Error = RedisError;
+impl TryFrom<Value> for GeoPosition {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
     let (longitude, latitude): (f64, f64) = value.convert()?;
     Ok(GeoPosition { longitude, latitude })
   }
@@ -62,15 +62,15 @@ impl GeoUnit {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GeoValue {
   pub coordinates: GeoPosition,
-  pub member:      RedisValue,
+  pub member:      Value,
 }
 
 impl<T> TryFrom<(f64, f64, T)> for GeoValue
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(v: (f64, f64, T)) -> Result<Self, Self::Error> {
     Ok(GeoValue {
@@ -122,7 +122,7 @@ impl From<VecDeque<GeoValue>> for MultipleGeoValues {
 /// A typed struct representing the full output of the GEORADIUS (or similar) command.
 #[derive(Clone, Debug)]
 pub struct GeoRadiusInfo {
-  pub member:   RedisValue,
+  pub member:   Value,
   pub position: Option<GeoPosition>,
   pub distance: Option<f64>,
   pub hash:     Option<i64>,
@@ -131,7 +131,7 @@ pub struct GeoRadiusInfo {
 impl Default for GeoRadiusInfo {
   fn default() -> Self {
     GeoRadiusInfo {
-      member:   RedisValue::Null,
+      member:   Value::Null,
       position: None,
       distance: None,
       hash:     None,
@@ -152,13 +152,8 @@ impl Eq for GeoRadiusInfo {}
 
 impl GeoRadiusInfo {
   /// Parse the value with context from the calling command.
-  pub fn from_redis_value(
-    value: RedisValue,
-    withcoord: bool,
-    withdist: bool,
-    withhash: bool,
-  ) -> Result<Self, RedisError> {
-    if let RedisValue::Array(mut data) = value {
+  pub fn from_value(value: Value, withcoord: bool, withdist: bool, withhash: bool) -> Result<Self, Error> {
+    if let Value::Array(mut data) = value {
       let mut out = GeoRadiusInfo::default();
       data.reverse();
 

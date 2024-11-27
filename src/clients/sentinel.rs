@@ -1,28 +1,28 @@
 use crate::{
   interfaces::*,
-  modules::inner::RedisClientInner,
+  modules::inner::ClientInner,
   runtime::RefCount,
-  types::{ConnectionConfig, PerformanceConfig, ReconnectPolicy, SentinelConfig},
+  types::config::{ConnectionConfig, PerformanceConfig, ReconnectPolicy, SentinelConfig},
 };
 use std::fmt;
 
 /// A struct for interacting directly with Sentinel nodes.
 ///
 /// This struct **will not** communicate with Redis servers behind the sentinel interface, but rather with the
-/// sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::RedisClient) interface with a
-/// [ServerConfig::Sentinel](crate::types::ServerConfig::Sentinel) for interacting with Redis services behind a
-/// sentinel layer.
+/// sentinel nodes themselves. Callers should use the [RedisClient](crate::clients::Client) interface with a
+/// [ServerConfig::Sentinel](crate::types::config::ServerConfig::Sentinel) for interacting with Redis services behind
+/// a sentinel layer.
 ///
 /// See the [sentinel API docs](https://redis.io/topics/sentinel#sentinel-api) for more information.
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
 pub struct SentinelClient {
-  inner: RefCount<RedisClientInner>,
+  inner: RefCount<ClientInner>,
 }
 
 impl ClientLike for SentinelClient {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     &self.inner
   }
 }
@@ -37,8 +37,8 @@ impl fmt::Debug for SentinelClient {
 }
 
 #[doc(hidden)]
-impl<'a> From<&'a RefCount<RedisClientInner>> for SentinelClient {
-  fn from(inner: &'a RefCount<RedisClientInner>) -> Self {
+impl<'a> From<&'a RefCount<ClientInner>> for SentinelClient {
+  fn from(inner: &'a RefCount<ClientInner>) -> Self {
     SentinelClient { inner: inner.clone() }
   }
 }
@@ -71,7 +71,7 @@ impl SentinelClient {
     policy: Option<ReconnectPolicy>,
   ) -> SentinelClient {
     SentinelClient {
-      inner: RedisClientInner::new(
+      inner: ClientInner::new(
         config.into(),
         perf.unwrap_or_default(),
         connection.unwrap_or_default(),

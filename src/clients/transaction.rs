@@ -1,25 +1,29 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces,
   interfaces::*,
-  modules::inner::RedisClientInner,
-  prelude::RedisValue,
+  modules::inner::ClientInner,
+  prelude::Value,
   protocol::{
-    command::{RedisCommand, RedisCommandKind, RouterCommand},
+    command::{Command, CommandKind, RouterCommand},
     hashers::ClusterHash,
     responders::ResponseKind,
     utils as protocol_utils,
   },
   runtime::{oneshot_channel, Mutex, RefCount},
-  types::{FromRedis, Options, RedisKey, Server},
+  types::{
+    config::{Options, Server},
+    FromValue,
+    Key,
+  },
   utils,
 };
 use std::{collections::VecDeque, fmt};
 
 struct State {
   id:        u64,
-  commands:  Mutex<VecDeque<RedisCommand>>,
-  watched:   Mutex<VecDeque<RedisKey>>,
+  commands:  Mutex<VecDeque<Command>>,
+  watched:   Mutex<VecDeque<Key>>,
   hash_slot: Mutex<Option<u16>>,
 }
 
@@ -27,7 +31,7 @@ struct State {
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
-  inner: RefCount<RedisClientInner>,
+  inner: RefCount<ClientInner>,
   state: RefCount<State>,
 }
 
@@ -52,16 +56,16 @@ impl Eq for Transaction {}
 
 impl ClientLike for Transaction {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     &self.inner
   }
 
   #[doc(hidden)]
-  fn send_command<C>(&self, command: C) -> Result<(), RedisError>
+  fn send_command<C>(&self, command: C) -> Result<(), Error>
   where
-    C: Into<RedisCommand>,
+    C: Into<Command>,
   {
-    let mut command: RedisCommand = command.into();
+    let mut command: Command = command.into();
 
     self.disallow_all_cluster_commands(&command)?;
     // check cluster slot mappings as commands are added
@@ -140,7 +144,7 @@ impl RediSearchInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
-  pub(crate) fn from_inner(inner: &RefCount<RedisClientInner>) -> Self {
+  pub(crate) fn from_inner(inner: &RefCount<ClientInner>) -> Self {
     Transaction {
       inner: inner.clone(),
       state: RefCount::new(State {
@@ -153,7 +157,7 @@ impl Transaction {
   }
 
   /// Check and update the hash slot for the transaction.
-  pub(crate) fn update_hash_slot(&self, command: &RedisCommand) -> Result<(), RedisError> {
+  pub(crate) fn update_hash_slot(&self, command: &Command) -> Result<(), Error> {
     if !self.inner.config.server.is_clustered() {
       return Ok(());
     }
@@ -170,8 +174,8 @@ impl Transaction {
         })?;
 
         if old_server != server {
-          return Err(RedisError::new(
-            RedisErrorKind::Cluster,
+          return Err(Error::new(
+            ErrorKind::Cluster,
             "All transaction commands must use the same cluster node.",
           ));
         }
@@ -183,10 +187,10 @@ impl Transaction {
     Ok(())
   }
 
-  pub(crate) fn disallow_all_cluster_commands(&self, command: &RedisCommand) -> Result<(), RedisError> {
+  pub(crate) fn disallow_all_cluster_commands(&self, command: &Command) -> Result<(), Error> {
     if command.is_all_cluster_nodes() {
-      Err(RedisError::new(
-        RedisErrorKind::Cluster,
+      Err(Error::new(
+        ErrorKind::Cluster,
         "Cannot use concurrent cluster commands inside a transaction.",
       ))
     } else {
@@ -222,7 +226,7 @@ impl Transaction {
   /// ```rust no_run
   /// # use fred::prelude::*;
   ///
-  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  /// async fn example(client: &Client) -> Result<(), Error> {
   ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
   ///
   ///   let trx = client.multi();
@@ -234,9 +238,9 @@ impl Transaction {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn exec<R>(&self, abort_on_error: bool) -> Result<R, RedisError>
+  pub async fn exec<R>(&self, abort_on_error: bool) -> Result<R, Error>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     let commands = {
       self
@@ -272,22 +276,22 @@ impl Transaction {
 }
 
 async fn exec(
-  inner: &RefCount<RedisClientInner>,
-  commands: VecDeque<RedisCommand>,
+  inner: &RefCount<ClientInner>,
+  commands: VecDeque<Command>,
   hash_slot: Option<u16>,
   abort_on_error: bool,
   id: u64,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   if commands.is_empty() {
-    return Ok(RedisValue::Null);
+    return Ok(Value::Null);
   }
   let (tx, rx) = oneshot_channel();
   let trx_options = Options::from_command(&commands[0]);
 
-  let mut multi = RedisCommand::new(RedisCommandKind::Multi, vec![]);
+  let mut multi = Command::new(CommandKind::Multi, vec![]);
   trx_options.apply(&mut multi);
 
-  let commands: Vec<RedisCommand> = [multi]
+  let commands: Vec<Command> = [multi]
     .into_iter()
     .chain(commands.into_iter())
     .map(|mut command| {

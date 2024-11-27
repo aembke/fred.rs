@@ -1,19 +1,21 @@
 use crate::{
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  prelude::RedisKey,
-  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  prelude::Key,
+  protocol::{command::CommandKind, utils as protocol_utils},
   types::{
-    Aggregator,
-    DuplicatePolicy,
-    Encoding,
-    GetLabels,
-    GetTimestamp,
-    GroupBy,
-    RangeAggregation,
-    RedisMap,
-    RedisValue,
-    Timestamp,
+    timeseries::{
+      Aggregator,
+      DuplicatePolicy,
+      Encoding,
+      GetLabels,
+      GetTimestamp,
+      GroupBy,
+      RangeAggregation,
+      Timestamp,
+    },
+    Map,
+    Value,
   },
   utils,
 };
@@ -42,7 +44,7 @@ static UNCOMPRESSED: &str = "UNCOMPRESSED";
 static TIMESTAMP: &str = "TIMESTAMP";
 static DEBUG: &str = "DEBUG";
 
-fn add_labels(args: &mut Vec<RedisValue>, labels: RedisMap) {
+fn add_labels(args: &mut Vec<Value>, labels: Map) {
   if !labels.is_empty() {
     args.push(static_val!(LABELS));
 
@@ -53,7 +55,7 @@ fn add_labels(args: &mut Vec<RedisValue>, labels: RedisMap) {
   }
 }
 
-fn add_retention(args: &mut Vec<RedisValue>, retention: Option<u64>) -> Result<(), RedisError> {
+fn add_retention(args: &mut Vec<Value>, retention: Option<u64>) -> Result<(), Error> {
   if let Some(retention) = retention {
     args.push(static_val!(RETENTION));
     args.push(retention.try_into()?);
@@ -62,14 +64,14 @@ fn add_retention(args: &mut Vec<RedisValue>, retention: Option<u64>) -> Result<(
   Ok(())
 }
 
-fn add_encoding(args: &mut Vec<RedisValue>, encoding: Option<Encoding>) {
+fn add_encoding(args: &mut Vec<Value>, encoding: Option<Encoding>) {
   if let Some(encoding) = encoding {
     args.push(static_val!(ENCODING));
     args.push(encoding.to_str().into());
   }
 }
 
-fn add_chunk_size(args: &mut Vec<RedisValue>, chunk_size: Option<u64>) -> Result<(), RedisError> {
+fn add_chunk_size(args: &mut Vec<Value>, chunk_size: Option<u64>) -> Result<(), Error> {
   if let Some(chunk_size) = chunk_size {
     args.push(static_val!(CHUNK_SIZE));
     args.push(chunk_size.try_into()?);
@@ -78,21 +80,21 @@ fn add_chunk_size(args: &mut Vec<RedisValue>, chunk_size: Option<u64>) -> Result
   Ok(())
 }
 
-fn add_timestamp(args: &mut Vec<RedisValue>, timestamp: Option<Timestamp>) {
+fn add_timestamp(args: &mut Vec<Value>, timestamp: Option<Timestamp>) {
   if let Some(timestamp) = timestamp {
     args.push(static_val!(TIMESTAMP));
     args.push(timestamp.to_value());
   }
 }
 
-fn add_duplicate_policy(args: &mut Vec<RedisValue>, duplicate_policy: Option<DuplicatePolicy>) {
+fn add_duplicate_policy(args: &mut Vec<Value>, duplicate_policy: Option<DuplicatePolicy>) {
   if let Some(duplicate) = duplicate_policy {
     args.push(static_val!(DUPLICATE_POLICY));
     args.push(duplicate.to_str().into());
   }
 }
 
-fn add_count(args: &mut Vec<RedisValue>, count: Option<u64>) -> Result<(), RedisError> {
+fn add_count(args: &mut Vec<Value>, count: Option<u64>) -> Result<(), Error> {
   if let Some(count) = count {
     args.push(static_val!(COUNT));
     args.push(count.try_into()?);
@@ -100,7 +102,7 @@ fn add_count(args: &mut Vec<RedisValue>, count: Option<u64>) -> Result<(), Redis
   Ok(())
 }
 
-fn add_get_labels(args: &mut Vec<RedisValue>, labels: Option<GetLabels>) {
+fn add_get_labels(args: &mut Vec<Value>, labels: Option<GetLabels>) {
   if let Some(labels) = labels {
     match labels {
       GetLabels::WithLabels => args.push(static_val!(WITHLABELS)),
@@ -112,10 +114,7 @@ fn add_get_labels(args: &mut Vec<RedisValue>, labels: Option<GetLabels>) {
   }
 }
 
-fn add_range_aggregation(
-  args: &mut Vec<RedisValue>,
-  aggregation: Option<RangeAggregation>,
-) -> Result<(), RedisError> {
+fn add_range_aggregation(args: &mut Vec<Value>, aggregation: Option<RangeAggregation>) -> Result<(), Error> {
   if let Some(aggregation) = aggregation {
     if let Some(align) = aggregation.align {
       args.push(static_val!(ALIGN));
@@ -138,7 +137,7 @@ fn add_range_aggregation(
   Ok(())
 }
 
-fn add_groupby(args: &mut Vec<RedisValue>, group_by: Option<GroupBy>) {
+fn add_groupby(args: &mut Vec<Value>, group_by: Option<GroupBy>) {
   if let Some(group_by) = group_by {
     args.push(static_val!(GROUPBY));
     args.push(group_by.groupby.into());
@@ -147,22 +146,22 @@ fn add_groupby(args: &mut Vec<RedisValue>, group_by: Option<GroupBy>) {
   }
 }
 
-fn add_filters(args: &mut Vec<RedisValue>, filters: Vec<Str>) {
+fn add_filters(args: &mut Vec<Value>, filters: Vec<Str>) {
   args.push(static_val!(FILTER));
   args.extend(filters.into_iter().map(|s| s.into()));
 }
 
 pub async fn ts_add<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   timestamp: Timestamp,
   value: f64,
   retention: Option<u64>,
   encoding: Option<Encoding>,
   chunk_size: Option<u64>,
   on_duplicate: Option<DuplicatePolicy>,
-  labels: RedisMap,
-) -> RedisResult<RedisValue> {
+  labels: Map,
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(12 + labels.len() * 2);
     args.push(key.into());
@@ -178,7 +177,7 @@ pub async fn ts_add<C: ClientLike>(
     }
 
     add_labels(&mut args, labels);
-    Ok((RedisCommandKind::TsAdd, args))
+    Ok((CommandKind::TsAdd, args))
   })
   .await?;
 
@@ -187,12 +186,12 @@ pub async fn ts_add<C: ClientLike>(
 
 pub async fn ts_alter<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   retention: Option<u64>,
   chunk_size: Option<u64>,
   duplicate_policy: Option<DuplicatePolicy>,
-  labels: RedisMap,
-) -> RedisResult<RedisValue> {
+  labels: Map,
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(8 + labels.len() * 2);
     args.push(key.into());
@@ -201,7 +200,7 @@ pub async fn ts_alter<C: ClientLike>(
     add_chunk_size(&mut args, chunk_size)?;
     add_duplicate_policy(&mut args, duplicate_policy);
     add_labels(&mut args, labels);
-    Ok((RedisCommandKind::TsAlter, args))
+    Ok((CommandKind::TsAlter, args))
   })
   .await?;
 
@@ -210,13 +209,13 @@ pub async fn ts_alter<C: ClientLike>(
 
 pub async fn ts_create<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   retention: Option<u64>,
   encoding: Option<Encoding>,
   chunk_size: Option<u64>,
   duplicate_policy: Option<DuplicatePolicy>,
-  labels: RedisMap,
-) -> RedisResult<RedisValue> {
+  labels: Map,
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(10 + labels.len() * 2);
     args.push(key.into());
@@ -226,7 +225,7 @@ pub async fn ts_create<C: ClientLike>(
     add_chunk_size(&mut args, chunk_size)?;
     add_duplicate_policy(&mut args, duplicate_policy);
     add_labels(&mut args, labels);
-    Ok((RedisCommandKind::TsCreate, args))
+    Ok((CommandKind::TsCreate, args))
   })
   .await?;
 
@@ -235,11 +234,11 @@ pub async fn ts_create<C: ClientLike>(
 
 pub async fn ts_createrule<C: ClientLike>(
   client: &C,
-  src: RedisKey,
-  dest: RedisKey,
+  src: Key,
+  dest: Key,
   aggregation: (Aggregator, u64),
   align_timestamp: Option<u64>,
-) -> RedisResult<RedisValue> {
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
     args.extend([
@@ -253,7 +252,7 @@ pub async fn ts_createrule<C: ClientLike>(
     if let Some(align) = align_timestamp {
       args.push(align.try_into()?)
     }
-    Ok((RedisCommandKind::TsCreateRule, args))
+    Ok((CommandKind::TsCreateRule, args))
   })
   .await?;
 
@@ -262,14 +261,14 @@ pub async fn ts_createrule<C: ClientLike>(
 
 pub async fn ts_decrby<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   subtrahend: f64,
   timestamp: Option<Timestamp>,
   retention: Option<u64>,
   uncompressed: bool,
   chunk_size: Option<u64>,
-  labels: RedisMap,
-) -> RedisResult<RedisValue> {
+  labels: Map,
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(10 + labels.len() * 2);
     args.push(key.into());
@@ -283,32 +282,32 @@ pub async fn ts_decrby<C: ClientLike>(
     add_chunk_size(&mut args, chunk_size)?;
     add_labels(&mut args, labels);
 
-    Ok((RedisCommandKind::TsDecrBy, args))
+    Ok((CommandKind::TsDecrBy, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ts_del<C: ClientLike>(client: &C, key: RedisKey, from: i64, to: i64) -> RedisResult<RedisValue> {
+pub async fn ts_del<C: ClientLike>(client: &C, key: Key, from: i64, to: i64) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::TsDel, vec![key.into(), from.into(), to.into()]))
+    Ok((CommandKind::TsDel, vec![key.into(), from.into(), to.into()]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ts_deleterule<C: ClientLike>(client: &C, src: RedisKey, dest: RedisKey) -> RedisResult<RedisValue> {
+pub async fn ts_deleterule<C: ClientLike>(client: &C, src: Key, dest: Key) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::TsDeleteRule, vec![src.into(), dest.into()]))
+    Ok((CommandKind::TsDeleteRule, vec![src.into(), dest.into()]))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ts_get<C: ClientLike>(client: &C, key: RedisKey, latest: bool) -> RedisResult<RedisValue> {
+pub async fn ts_get<C: ClientLike>(client: &C, key: Key, latest: bool) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(key.into());
@@ -316,7 +315,7 @@ pub async fn ts_get<C: ClientLike>(client: &C, key: RedisKey, latest: bool) -> R
       args.push(static_val!(LATEST));
     }
 
-    Ok((RedisCommandKind::TsGet, args))
+    Ok((CommandKind::TsGet, args))
   })
   .await?;
 
@@ -325,14 +324,14 @@ pub async fn ts_get<C: ClientLike>(client: &C, key: RedisKey, latest: bool) -> R
 
 pub async fn ts_incrby<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   addend: f64,
   timestamp: Option<Timestamp>,
   retention: Option<u64>,
   uncompressed: bool,
   chunk_size: Option<u64>,
-  labels: RedisMap,
-) -> RedisResult<RedisValue> {
+  labels: Map,
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(10 + labels.len() * 2);
     args.push(key.into());
@@ -346,14 +345,14 @@ pub async fn ts_incrby<C: ClientLike>(
     add_chunk_size(&mut args, chunk_size)?;
     add_labels(&mut args, labels);
 
-    Ok((RedisCommandKind::TsIncrBy, args))
+    Ok((CommandKind::TsIncrBy, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ts_info<C: ClientLike>(client: &C, key: RedisKey, debug: bool) -> RedisResult<RedisValue> {
+pub async fn ts_info<C: ClientLike>(client: &C, key: Key, debug: bool) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2);
     args.push(key.into());
@@ -361,20 +360,20 @@ pub async fn ts_info<C: ClientLike>(client: &C, key: RedisKey, debug: bool) -> R
       args.push(static_val!(DEBUG));
     }
 
-    Ok((RedisCommandKind::TsInfo, args))
+    Ok((CommandKind::TsInfo, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ts_madd<C: ClientLike>(client: &C, samples: Vec<(RedisKey, Timestamp, f64)>) -> RedisResult<RedisValue> {
+pub async fn ts_madd<C: ClientLike>(client: &C, samples: Vec<(Key, Timestamp, f64)>) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(samples.len() * 3);
     for (key, timestamp, value) in samples.into_iter() {
       args.extend([key.into(), timestamp.to_value(), value.into()]);
     }
-    Ok((RedisCommandKind::TsMAdd, args))
+    Ok((CommandKind::TsMAdd, args))
   })
   .await?;
 
@@ -386,7 +385,7 @@ pub async fn ts_mget<C: ClientLike>(
   latest: bool,
   labels: Option<GetLabels>,
   filters: Vec<Str>,
-) -> RedisResult<RedisValue> {
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let labels_len = labels.as_ref().map(|l| l.args_len()).unwrap_or(0);
     let mut args = Vec::with_capacity(2 + labels_len + filters.len());
@@ -396,7 +395,7 @@ pub async fn ts_mget<C: ClientLike>(
     add_get_labels(&mut args, labels);
     add_filters(&mut args, filters);
 
-    Ok((RedisCommandKind::TsMGet, args))
+    Ok((CommandKind::TsMGet, args))
   })
   .await?;
 
@@ -415,7 +414,7 @@ pub async fn ts_mrange<C: ClientLike>(
   aggregation: Option<RangeAggregation>,
   filters: Vec<Str>,
   group_by: Option<GroupBy>,
-) -> RedisResult<RedisValue> {
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let labels_len = labels.as_ref().map(|l| l.args_len()).unwrap_or(0);
     let mut args = Vec::with_capacity(18 + filter_by_ts.len() + labels_len + filters.len());
@@ -438,7 +437,7 @@ pub async fn ts_mrange<C: ClientLike>(
     add_filters(&mut args, filters);
     add_groupby(&mut args, group_by);
 
-    Ok((RedisCommandKind::TsMRange, args))
+    Ok((CommandKind::TsMRange, args))
   })
   .await?;
 
@@ -457,7 +456,7 @@ pub async fn ts_mrevrange<C: ClientLike>(
   aggregation: Option<RangeAggregation>,
   filters: Vec<Str>,
   group_by: Option<GroupBy>,
-) -> RedisResult<RedisValue> {
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let labels_len = labels.as_ref().map(|l| l.args_len()).unwrap_or(0);
     let mut args = Vec::with_capacity(18 + filter_by_ts.len() + labels_len + filters.len());
@@ -480,17 +479,17 @@ pub async fn ts_mrevrange<C: ClientLike>(
     add_filters(&mut args, filters);
     add_groupby(&mut args, group_by);
 
-    Ok((RedisCommandKind::TsMRevRange, args))
+    Ok((CommandKind::TsMRevRange, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ts_queryindex<C: ClientLike>(client: &C, filters: Vec<Str>) -> RedisResult<RedisValue> {
+pub async fn ts_queryindex<C: ClientLike>(client: &C, filters: Vec<Str>) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     Ok((
-      RedisCommandKind::TsQueryIndex,
+      CommandKind::TsQueryIndex,
       filters.into_iter().map(|v| v.into()).collect(),
     ))
   })
@@ -501,7 +500,7 @@ pub async fn ts_queryindex<C: ClientLike>(client: &C, filters: Vec<Str>) -> Redi
 
 pub async fn ts_range<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   from: GetTimestamp,
   to: GetTimestamp,
   latest: bool,
@@ -509,7 +508,7 @@ pub async fn ts_range<C: ClientLike>(
   filter_by_value: Option<(i64, i64)>,
   count: Option<u64>,
   aggregation: Option<RangeAggregation>,
-) -> RedisResult<RedisValue> {
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(14 + filter_by_ts.len());
     args.push(key.into());
@@ -529,7 +528,7 @@ pub async fn ts_range<C: ClientLike>(
     add_count(&mut args, count)?;
     add_range_aggregation(&mut args, aggregation)?;
 
-    Ok((RedisCommandKind::TsRange, args))
+    Ok((CommandKind::TsRange, args))
   })
   .await?;
 
@@ -538,7 +537,7 @@ pub async fn ts_range<C: ClientLike>(
 
 pub async fn ts_revrange<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   from: GetTimestamp,
   to: GetTimestamp,
   latest: bool,
@@ -546,7 +545,7 @@ pub async fn ts_revrange<C: ClientLike>(
   filter_by_value: Option<(i64, i64)>,
   count: Option<u64>,
   aggregation: Option<RangeAggregation>,
-) -> RedisResult<RedisValue> {
+) -> FredResult<Value> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(14 + filter_by_ts.len());
     args.push(key.into());
@@ -566,7 +565,7 @@ pub async fn ts_revrange<C: ClientLike>(
     add_count(&mut args, count)?;
     add_range_aggregation(&mut args, aggregation)?;
 
-    Ok((RedisCommandKind::TsRevRange, args))
+    Ok((CommandKind::TsRevRange, args))
   })
   .await?;
 

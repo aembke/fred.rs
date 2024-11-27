@@ -1,22 +1,22 @@
 use crate::{
-  error::RedisError,
+  error::Error,
   interfaces::*,
-  modules::inner::RedisClientInner,
-  protocol::command::RedisCommand,
+  modules::inner::ClientInner,
+  protocol::command::Command,
   runtime::RefCount,
-  types::Options,
+  types::config::Options,
 };
 use std::{fmt, ops::Deref};
 
 /// A client interface used to customize command configuration options.
 ///
-/// See [Options](crate::types::Options) for more information.
+/// See [Options](crate::types::config::Options) for more information.
 ///
 /// ```rust
 /// # use fred::prelude::*;
 /// # use std::time::Duration;
-/// async fn example() -> Result<(), RedisError> {
-///   let client = RedisClient::default();
+/// async fn example() -> Result<(), Error> {
+///   let client = Client::default();
 ///   client.init().await?;
 ///
 ///   let options = Options {
@@ -74,22 +74,22 @@ impl<C: ClientLike> fmt::Debug for WithOptions<C> {
 
 impl<C: ClientLike> ClientLike for WithOptions<C> {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     self.client.inner()
   }
 
   #[doc(hidden)]
-  fn change_command(&self, command: &mut RedisCommand) {
+  fn change_command(&self, command: &mut Command) {
     self.client.change_command(command);
     self.options.apply(command);
   }
 
   #[doc(hidden)]
-  fn send_command<T>(&self, command: T) -> Result<(), RedisError>
+  fn send_command<T>(&self, command: T) -> Result<(), Error>
   where
-    T: Into<RedisCommand>,
+    T: Into<Command>,
   {
-    let mut command: RedisCommand = command.into();
+    let mut command: Command = command.into();
     self.options.apply(&mut command);
     self.client.send_command(command)
   }

@@ -2,11 +2,11 @@ pub(crate) use crate::runtime::spawn_event_listener;
 pub use crate::runtime::ClientLike;
 use crate::{
   commands,
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::command::{RedisCommand, RouterCommand},
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  protocol::command::{Command, RouterCommand},
   runtime::{sleep, spawn, BroadcastReceiver, JoinHandle, RefCount},
-  types::{ClientState, ClusterStateChange, KeyspaceEvent, Message, RespVersion, Server},
+  types::{config::Server, ClientState, ClusterStateChange, KeyspaceEvent, Message, RespVersion},
   utils,
 };
 use bytes_utils::Str;
@@ -15,15 +15,15 @@ use futures::Future;
 pub use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::time::Duration;
 
-/// Type alias for `Result<T, RedisError>`.
-pub type RedisResult<T> = Result<T, RedisError>;
+/// Type alias for `Result<T, Error>`.
+pub type FredResult<T> = Result<T, Error>;
 
-/// Send a single `RedisCommand` to the router.
-pub(crate) fn default_send_command<C>(inner: &RefCount<RedisClientInner>, command: C) -> Result<(), RedisError>
+/// Send a single `Command` to the router.
+pub(crate) fn default_send_command<C>(inner: &RefCount<ClientInner>, command: C) -> Result<(), Error>
 where
-  C: Into<RedisCommand>,
+  C: Into<Command>,
 {
-  let mut command: RedisCommand = command.into();
+  let mut command: Command = command.into();
   _trace!(
     inner,
     "Sending command {} ({}) to router.",
@@ -36,15 +36,12 @@ where
 }
 
 /// Send a `RouterCommand` to the router.
-pub(crate) fn send_to_router(inner: &RefCount<RedisClientInner>, command: RouterCommand) -> Result<(), RedisError> {
+pub(crate) fn send_to_router(inner: &RefCount<ClientInner>, command: RouterCommand) -> Result<(), Error> {
   #[allow(clippy::collapsible_if)]
   if command.should_check_fail_fast() {
     if utils::read_locked(&inner.state) != ClientState::Connected {
       _debug!(inner, "Responding early after fail fast check.");
-      command.finish_with_error(RedisError::new(
-        RedisErrorKind::Canceled,
-        "Connection closed unexpectedly.",
-      ));
+      command.finish_with_error(Error::new(ErrorKind::Canceled, "Connection closed unexpectedly."));
       return Ok(());
     }
   }
@@ -61,10 +58,7 @@ pub(crate) fn send_to_router(inner: &RefCount<RedisClientInner>, command: Router
         command.kind.to_str_debug()
       );
 
-      command.respond_to_caller(Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Client is not initialized.",
-      )));
+      command.respond_to_caller(Err(Error::new(ErrorKind::Unknown, "Client is not initialized.")));
     } else {
       _warn!(
         inner,
@@ -72,10 +66,7 @@ pub(crate) fn send_to_router(inner: &RefCount<RedisClientInner>, command: Router
       );
     }
 
-    Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Failed to send command to router.",
-    ))
+    Err(Error::new(ErrorKind::Unknown, "Failed to send command to router."))
   } else {
     Ok(())
   }
@@ -90,7 +81,7 @@ pub trait HeartbeatInterface: ClientLike {
     &self,
     interval: Duration,
     break_on_error: bool,
-  ) -> impl Future<Output = RedisResult<()>> + Send {
+  ) -> impl Future<Output = FredResult<()>> + Send {
     async move {
       let _self = self.clone();
 
@@ -120,7 +111,7 @@ pub trait AuthInterface: ClientLike {
   /// If running against clustered servers this function will authenticate all connections.
   ///
   /// <https://redis.io/commands/auth>
-  fn auth<S>(&self, username: Option<String>, password: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn auth<S>(&self, username: Option<String>, password: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<Str> + Send,
   {
@@ -140,7 +131,7 @@ pub trait AuthInterface: ClientLike {
     version: RespVersion,
     auth: Option<(Str, Str)>,
     setname: Option<Str>,
-  ) -> impl Future<Output = RedisResult<()>> + Send {
+  ) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::server::hello(self, version, auth, setname).await }
   }
 }
@@ -153,9 +144,9 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each publish-subscribe message.
   ///
   /// See [message_rx](Self::message_rx) for more information.
-  fn on_message<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_message<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut: Future<Output = FredResult<()>> + Send + 'static,
     F: Fn(Message) -> Fut + Send + 'static,
   {
     let rx = self.message_rx();
@@ -165,9 +156,9 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each keyspace event.
   ///
   /// <https://redis.io/topics/notifications>
-  fn on_keyspace_event<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_keyspace_event<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut: Future<Output = FredResult<()>> + Send + 'static,
     F: Fn(KeyspaceEvent) -> Fut + Send + 'static,
   {
     let rx = self.keyspace_event_rx();
@@ -177,9 +168,9 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each reconnection event.
   ///
   /// Errors returned by `func` will exit the task.
-  fn on_reconnect<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_reconnect<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut: Future<Output = FredResult<()>> + Send + 'static,
     F: Fn(Server) -> Fut + Send + 'static,
   {
     let rx = self.reconnect_rx();
@@ -189,9 +180,9 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each cluster change event.
   ///
   /// Errors returned by `func` will exit the task.
-  fn on_cluster_change<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_cluster_change<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut: Future<Output = FredResult<()>> + Send + 'static,
     F: Fn(Vec<ClusterStateChange>) -> Fut + Send + 'static,
   {
     let rx = self.cluster_change_rx();
@@ -201,19 +192,19 @@ pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each connection error event.
   ///
   /// Errors returned by `func` will exit the task.
-  fn on_error<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_error<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    Fut: Future<Output = RedisResult<()>> + Send + 'static,
-    F: Fn(RedisError) -> Fut + Send + 'static,
+    Fut: Future<Output = FredResult<()>> + Send + 'static,
+    F: Fn(Error) -> Fut + Send + 'static,
   {
     let rx = self.error_rx();
     spawn_event_listener(rx, func)
   }
 
   /// Spawn a task that runs the provided function whenever the client detects an unresponsive connection.
-  fn on_unresponsive<F, Fut>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_unresponsive<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    Fut: Future<Output = RedisResult<()>> + Send + 'static,
+    Fut: Future<Output = FredResult<()>> + Send + 'static,
     F: Fn(Server) -> Fut + Send + 'static,
   {
     let rx = self.unresponsive_rx();
@@ -228,12 +219,12 @@ pub trait EventInterface: ClientLike {
     error_fn: Fe,
     reconnect_fn: Fr,
     cluster_change_fn: Fc,
-  ) -> JoinHandle<RedisResult<()>>
+  ) -> JoinHandle<FredResult<()>>
   where
-    Fut1: Future<Output = RedisResult<()>> + Send + 'static,
-    Fut2: Future<Output = RedisResult<()>> + Send + 'static,
-    Fut3: Future<Output = RedisResult<()>> + Send + 'static,
-    Fe: Fn(RedisError) -> Fut1 + Send + 'static,
+    Fut1: Future<Output = FredResult<()>> + Send + 'static,
+    Fut2: Future<Output = FredResult<()>> + Send + 'static,
+    Fut3: Future<Output = FredResult<()>> + Send + 'static,
+    Fe: Fn(Error) -> Fut1 + Send + 'static,
     Fr: Fn(Server) -> Fut2 + Send + 'static,
     Fc: Fn(Vec<ClusterStateChange>) -> Fut3 + Send + 'static,
   {
@@ -313,7 +304,7 @@ pub trait EventInterface: ClientLike {
 
   /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
   /// not appear in the request-response cycle, and so cannot be handled by response futures.
-  fn error_rx(&self) -> BroadcastReceiver<RedisError> {
+  fn error_rx(&self) -> BroadcastReceiver<Error> {
     self.inner().notifications.errors.load().subscribe()
   }
 

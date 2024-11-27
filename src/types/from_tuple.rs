@@ -1,14 +1,14 @@
-use crate::types::{MultipleKeys, RedisKey, RedisValue};
+use crate::types::{Key, MultipleKeys, Value};
 
 macro_rules! tuple2val {
     ($($id:tt $ty:ident);+) => {
-impl<$($ty: Into<RedisValue>),+ > From<($($ty),+)> for RedisValue {
+impl<$($ty: Into<Value>),+ > From<($($ty),+)> for Value {
     fn from(value: ($($ty),+)) -> Self {
-        RedisValue::Array(vec![$(value.$id.into()),+])
+        Value::Array(vec![$(value.$id.into()),+])
     }
 }
 
-impl<$($ty: Into<RedisKey>),+ > From<($($ty),+)> for MultipleKeys {
+impl<$($ty: Into<Key>),+ > From<($($ty),+)> for MultipleKeys {
     fn from(value: ($($ty),+)) -> Self {
         Self{keys:vec![$(value.$id.into()),+]}
     }

@@ -1,16 +1,16 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  monitor::{parser, Command},
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  monitor::{parser, MonitorCommand},
   protocol::{
     codec::RedisCodec,
-    command::{RedisCommand, RedisCommandKind},
+    command::{Command, CommandKind},
     connection::{self, ConnectionKind, ExclusiveConnection},
     types::ProtocolFrame,
     utils as protocol_utils,
   },
   runtime::{channel, spawn, RefCount, Sender},
-  types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
+  types::config::{Config, ConnectionConfig, PerformanceConfig, ServerConfig},
 };
 use futures::stream::{Peekable, Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -21,9 +21,9 @@ use redis_protocol::resp3::types::Resp3Frame;
 
 #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
 async fn handle_monitor_frame(
-  inner: &RefCount<RedisClientInner>,
-  frame: Result<ProtocolFrame, RedisError>,
-) -> Option<Command> {
+  inner: &RefCount<ClientInner>,
+  frame: Result<ProtocolFrame, Error>,
+) -> Option<MonitorCommand> {
   let frame = match frame {
     Ok(frame) => frame.into_resp3(),
     Err(e) => {
@@ -53,9 +53,9 @@ async fn handle_monitor_frame(
 
 #[cfg(any(not(feature = "blocking-encoding"), feature = "glommio"))]
 async fn handle_monitor_frame(
-  inner: &RefCount<RedisClientInner>,
-  frame: Result<ProtocolFrame, RedisError>,
-) -> Option<Command> {
+  inner: &RefCount<ClientInner>,
+  frame: Result<ProtocolFrame, Error>,
+) -> Option<MonitorCommand> {
   let frame = match frame {
     Ok(frame) => frame.into_resp3(),
     Err(e) => {
@@ -68,12 +68,12 @@ async fn handle_monitor_frame(
 }
 
 async fn send_monitor_command(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   mut connection: ExclusiveConnection,
-) -> Result<ExclusiveConnection, RedisError> {
+) -> Result<ExclusiveConnection, Error> {
   _debug!(inner, "Sending MONITOR command.");
 
-  let command = RedisCommand::new(RedisCommandKind::Monitor, vec![]);
+  let command = Command::new(CommandKind::Monitor, vec![]);
   let frame = connection.request_response(command, inner.is_resp3()).await?;
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);
@@ -83,8 +83,8 @@ async fn send_monitor_command(
 }
 
 async fn forward_results<T>(
-  inner: &RefCount<RedisClientInner>,
-  tx: Sender<Command>,
+  inner: &RefCount<ClientInner>,
+  tx: Sender<MonitorCommand>,
   mut framed: Peekable<Framed<T, RedisCodec>>,
 ) where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
@@ -101,7 +101,7 @@ async fn forward_results<T>(
   }
 }
 
-async fn process_stream(inner: &RefCount<RedisClientInner>, tx: Sender<Command>, connection: ExclusiveConnection) {
+async fn process_stream(inner: &RefCount<ClientInner>, tx: Sender<MonitorCommand>, connection: ExclusiveConnection) {
   _debug!(inner, "Starting monitor stream processing...");
 
   match connection.transport {
@@ -117,19 +117,14 @@ async fn process_stream(inner: &RefCount<RedisClientInner>, tx: Sender<Command>,
   _warn!(inner, "Stopping monitor stream.");
 }
 
-pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
+pub async fn start(config: Config) -> Result<impl Stream<Item = MonitorCommand>, Error> {
   let connection = ConnectionConfig::default();
   let server = match config.server {
     ServerConfig::Centralized { ref server } => server.clone(),
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Expected centralized server config.",
-      ))
-    },
+    _ => return Err(Error::new(ErrorKind::Config, "Expected centralized server config.")),
   };
 
-  let inner = RedisClientInner::new(config, PerformanceConfig::default(), connection, None);
+  let inner = ClientInner::new(config, PerformanceConfig::default(), connection, None);
   let mut connection = connection::create(&inner, &server, None).await?;
   connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;

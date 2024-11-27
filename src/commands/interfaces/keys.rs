@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{Expiration, ExpireOptions, FromRedis, MultipleKeys, RedisKey, RedisMap, RedisValue, ScanType, SetOptions},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{scan::ScanType, Expiration, ExpireOptions, FromValue, Key, Map, MultipleKeys, SetOptions, Value},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -17,7 +17,7 @@ pub trait KeysInterface: ClientLike + Sized {
   /// This should usually be used with an [ExclusivePool](crate::clients::ExclusivePool).
   ///
   /// <https://redis.io/commands/watch>
-  fn watch<K>(&self, keys: K) -> impl Future<Output = RedisResult<()>> + Send
+  fn watch<K>(&self, keys: K) -> impl Future<Output = FredResult<()>> + Send
   where
     K: Into<MultipleKeys> + Send,
   {
@@ -30,16 +30,16 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Flushes all the previously watched keys for a transaction.
   ///
   /// <https://redis.io/commands/unwatch>
-  fn unwatch(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn unwatch(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::keys::unwatch(self).await }
   }
 
   /// Return a random key from the currently selected database.
   ///
   /// <https://redis.io/commands/randomkey>
-  fn randomkey<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn randomkey<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::keys::randomkey(self).await?.convert() }
   }
@@ -53,11 +53,11 @@ pub trait KeysInterface: ClientLike + Sized {
     destination: D,
     db: Option<u8>,
     replace: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source, destination);
@@ -70,10 +70,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Serialize the value stored at `key` in a Redis-specific format and return it as bulk string.
   ///
   /// <https://redis.io/commands/dump>
-  fn dump<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn dump<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -85,10 +85,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// returned are: string, list, set, zset, hash and stream.
   ///
   /// <https://redis.io/docs/latest/commands/type/>
-  fn r#type<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn r#type<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -103,15 +103,15 @@ pub trait KeysInterface: ClientLike + Sized {
     &self,
     key: K,
     ttl: i64,
-    serialized: RedisValue,
+    serialized: Value,
     replace: bool,
     absttl: bool,
     idletime: Option<i64>,
     frequency: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -133,12 +133,12 @@ pub trait KeysInterface: ClientLike + Sized {
     expire: Option<Expiration>,
     options: Option<SetOptions>,
     get: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -154,12 +154,12 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Note: the command is regarded as deprecated since Redis 2.6.12.
   ///
   /// <https://redis.io/commands/setnx>
-  fn setnx<R, K, V>(&self, key: K, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn setnx<R, K, V>(&self, key: K, value: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -171,10 +171,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Read a value from the server.
   ///
   /// <https://redis.io/commands/get>
-  fn get<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn get<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -187,10 +187,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Note: Command formerly called SUBSTR in Redis verison <=2.0.
   ///
   /// <https://redis.io/commands/getrange>
-  fn getrange<R, K>(&self, key: K, start: usize, end: usize) -> impl Future<Output = RedisResult<R>> + Send
+  fn getrange<R, K>(&self, key: K, start: usize, end: usize) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -202,12 +202,12 @@ pub trait KeysInterface: ClientLike + Sized {
   /// `value`.
   ///
   /// <https://redis.io/commands/setrange>
-  fn setrange<R, K, V>(&self, key: K, offset: u32, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn setrange<R, K, V>(&self, key: K, offset: u32, value: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -221,12 +221,12 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error if `key` does not hold string value. Returns nil if `key` does not exist.
   ///
   /// <https://redis.io/commands/getset>
-  fn getset<R, K, V>(&self, key: K, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn getset<R, K, V>(&self, key: K, value: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -239,10 +239,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// deletes the key on success (if and only if the key's value type is a string).
   ///
   /// <https://redis.io/commands/getdel>
-  fn getdel<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn getdel<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -253,10 +253,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns the length of the string value stored at key. An error is returned when key holds a non-string value.
   ///
   /// <https://redis.io/commands/strlen>
-  fn strlen<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn strlen<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -269,9 +269,9 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns the number of keys removed.
   ///
   /// <https://redis.io/commands/del>
-  fn del<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn del<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -285,9 +285,9 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns the number of keys removed.
   ///
   /// <https://redis.io/commands/del>
-  fn unlink<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn unlink<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -301,11 +301,11 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error when `source` does not exist. If `destination` exists, it gets overwritten.
   ///
   /// <https://redis.io/commands/rename>
-  fn rename<R, S, D>(&self, source: S, destination: D) -> impl Future<Output = RedisResult<R>> + Send
+  fn rename<R, S, D>(&self, source: S, destination: D) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source);
@@ -319,11 +319,11 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error when `source` does not exist.
   ///
   /// <https://redis.io/commands/renamenx>
-  fn renamenx<R, S, D>(&self, source: S, destination: D) -> impl Future<Output = RedisResult<R>> + Send
+  fn renamenx<R, S, D>(&self, source: S, destination: D) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source);
@@ -335,12 +335,12 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Append `value` to `key` if it's a string.
   ///
   /// <https://redis.io/commands/append/>
-  fn append<R, K, V>(&self, key: K, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn append<R, K, V>(&self, key: K, value: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -353,9 +353,9 @@ pub trait KeysInterface: ClientLike + Sized {
   /// special value nil is returned.
   ///
   /// <https://redis.io/commands/mget>
-  fn mget<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn mget<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -367,10 +367,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Sets the given keys to their respective values.
   ///
   /// <https://redis.io/commands/mset>
-  fn mset<V>(&self, values: V) -> impl Future<Output = RedisResult<()>> + Send
+  fn mset<V>(&self, values: V) -> impl Future<Output = FredResult<()>> + Send
   where
-    V: TryInto<RedisMap> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Map> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       try_into!(values);
@@ -382,11 +382,11 @@ pub trait KeysInterface: ClientLike + Sized {
   /// single key already exists.
   ///
   /// <https://redis.io/commands/msetnx>
-  fn msetnx<R, V>(&self, values: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn msetnx<R, V>(&self, values: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    V: TryInto<RedisMap> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    V: TryInto<Map> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       try_into!(values);
@@ -400,10 +400,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error if the value at key is of the wrong type.
   ///
   /// <https://redis.io/commands/incr>
-  fn incr<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn incr<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -417,10 +417,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error if the value at key is of the wrong type.
   ///
   /// <https://redis.io/commands/incrby>
-  fn incr_by<R, K>(&self, key: K, val: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn incr_by<R, K>(&self, key: K, val: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -435,10 +435,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// value.
   ///
   /// <https://redis.io/commands/incrbyfloat>
-  fn incr_by_float<R, K>(&self, key: K, val: f64) -> impl Future<Output = RedisResult<R>> + Send
+  fn incr_by_float<R, K>(&self, key: K, val: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -452,10 +452,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error if the key contains a value of the wrong type.
   ///
   /// <https://redis.io/commands/decr>
-  fn decr<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn decr<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -469,10 +469,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns an error if the key contains a value of the wrong type.
   ///
   /// <https://redis.io/commands/decrby>
-  fn decr_by<R, K>(&self, key: K, val: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn decr_by<R, K>(&self, key: K, val: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -483,10 +483,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns the remaining time to live of a key that has a timeout, in seconds.
   ///
   /// <https://redis.io/commands/ttl>
-  fn ttl<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn ttl<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -497,10 +497,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns the remaining time to live of a key that has a timeout, in milliseconds.
   ///
   /// <https://redis.io/commands/pttl>
-  fn pttl<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn pttl<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -514,10 +514,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns a boolean value describing whether the timeout was removed.
   ///
   /// <https://redis.io/commands/persist>
-  fn persist<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn persist<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -528,10 +528,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Set a timeout on key. After the timeout has expired, the key will be automatically deleted.
   ///
   /// <https://redis.io/commands/expire>
-  fn expire<R, K>(&self, key: K, seconds: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn expire<R, K>(&self, key: K, seconds: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -542,10 +542,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Set a timeout on a key based on a UNIX timestamp.
   ///
   /// <https://redis.io/commands/expireat>
-  fn expire_at<R, K>(&self, key: K, timestamp: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn expire_at<R, K>(&self, key: K, timestamp: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -556,10 +556,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns the absolute Unix timestamp (since January 1, 1970) in seconds at which the given key will expire.
   ///
   /// <https://redis.io/docs/latest/commands/expiretime/>
-  fn expire_time<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn expire_time<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -576,10 +576,10 @@ pub trait KeysInterface: ClientLike + Sized {
     key: K,
     milliseconds: i64,
     options: Option<ExpireOptions>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -598,10 +598,10 @@ pub trait KeysInterface: ClientLike + Sized {
     key: K,
     timestamp: i64,
     options: Option<ExpireOptions>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -615,10 +615,10 @@ pub trait KeysInterface: ClientLike + Sized {
   /// milliseconds instead of seconds.
   ///
   /// <https://redis.io/docs/latest/commands/pexpiretime/>
-  fn pexpire_time<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn pexpire_time<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -629,9 +629,9 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Returns number of keys that exist from the `keys` arguments.
   ///
   /// <https://redis.io/commands/exists>
-  fn exists<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn exists<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -651,11 +651,11 @@ pub trait KeysInterface: ClientLike + Sized {
     idx: bool,
     minmatchlen: Option<i64>,
     withmatchlen: bool,
-  ) -> impl Future<Output = Result<R, RedisError>> + Send
+  ) -> impl Future<Output = Result<R, Error>> + Send
   where
-    R: FromRedis,
-    K1: Into<RedisKey> + Send,
-    K2: Into<RedisKey> + Send,
+    R: FromValue,
+    K1: Into<Key> + Send,
+    K2: Into<Key> + Send,
   {
     async move {
       into!(key1, key2);
@@ -668,17 +668,17 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Fetch one page of `SCAN` results with the provided cursor.
   ///
   /// With a clustered the deployment the caller must include a hash tag in the pattern or manually specify the server
-  /// via [with_cluster_node](crate::clients::RedisClient::with_cluster_node) or
-  /// [with_options](crate::clients::RedisClient::with_options).
+  /// via [with_cluster_node](crate::clients::Client::with_cluster_node) or
+  /// [with_options](crate::clients::Client::with_options).
   fn scan_page<R, S, P>(
     &self,
     cursor: S,
     pattern: P,
     count: Option<u32>,
     r#type: Option<ScanType>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
     P: Into<Str> + Send,
   {

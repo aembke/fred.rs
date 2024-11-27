@@ -1,22 +1,16 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
   types::{
-    AggregateOptions,
-    FromRedis,
+    sorted_sets::{AggregateOptions, MultipleWeights, MultipleZaddValues, Ordering, ZCmp, ZRange, ZSort},
+    FromValue,
+    Key,
     Limit,
     MultipleKeys,
     MultipleValues,
-    MultipleWeights,
-    MultipleZaddValues,
-    Ordering,
-    RedisKey,
-    RedisValue,
     SetOptions,
-    ZCmp,
-    ZRange,
-    ZSort,
+    Value,
   },
 };
 use fred_macros::rm_send_if;
@@ -35,9 +29,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     keys: K,
     sort: ZCmp,
     count: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -51,9 +45,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// The blocking variant of [Self::zpopmin].
   ///
   /// <https://redis.io/commands/bzpopmin>
-  fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = RedisResult<R>> + Send
+  fn bzpopmin<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -65,9 +59,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// The blocking variant of [Self::zpopmax].
   ///
   /// <https://redis.io/commands/bzpopmax>
-  fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = RedisResult<R>> + Send
+  fn bzpopmax<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -87,12 +81,12 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     changed: bool,
     incr: bool,
     values: V,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleZaddValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -106,10 +100,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Returns the sorted set cardinality (number of elements) of the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zcard>
-  fn zcard<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn zcard<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -120,10 +114,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Returns the number of elements in the sorted set at `key` with a score between `min` and `max`.
   ///
   /// <https://redis.io/commands/zcount>
-  fn zcount<R, K>(&self, key: K, min: f64, max: f64) -> impl Future<Output = RedisResult<R>> + Send
+  fn zcount<R, K>(&self, key: K, min: f64, max: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -135,9 +129,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// client.
   ///
   /// <https://redis.io/commands/zdiff>
-  fn zdiff<R, K>(&self, keys: K, withscores: bool) -> impl Future<Output = RedisResult<R>> + Send
+  fn zdiff<R, K>(&self, keys: K, withscores: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -150,10 +144,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// `destination`.
   ///
   /// <https://redis.io/commands/zdiffstore>
-  fn zdiffstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn zdiffstore<R, D, K>(&self, dest: D, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -165,12 +159,12 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Increments the score of `member` in the sorted set stored at `key` by `increment`.
   ///
   /// <https://redis.io/commands/zincrby>
-  fn zincrby<R, K, V>(&self, key: K, increment: f64, member: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn zincrby<R, K, V>(&self, key: K, increment: f64, member: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -191,9 +185,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     weights: W,
     aggregate: Option<AggregateOptions>,
     withscores: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
     W: Into<MultipleWeights> + Send,
   {
@@ -215,10 +209,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     K: Into<MultipleKeys> + Send,
     W: Into<MultipleWeights> + Send,
   {
@@ -235,14 +229,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// max.
   ///
   /// <https://redis.io/commands/zlexcount>
-  fn zlexcount<R, K, M, N>(&self, key: K, min: M, max: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn zlexcount<R, K, M, N>(&self, key: K, min: M, max: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -254,10 +248,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Removes and returns up to count members with the highest scores in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zpopmax>
-  fn zpopmax<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = RedisResult<R>> + Send
+  fn zpopmax<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -268,10 +262,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Removes and returns up to count members with the lowest scores in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zpopmin>
-  fn zpopmin<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = RedisResult<R>> + Send
+  fn zpopmin<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -283,9 +277,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// of key names.
   ///
   /// <https://redis.io/commands/zmpop/>
-  fn zmpop<R, K>(&self, keys: K, sort: ZCmp, count: Option<i64>) -> impl Future<Output = RedisResult<R>> + Send
+  fn zmpop<R, K>(&self, keys: K, sort: ZCmp, count: Option<i64>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -297,10 +291,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// When called with just the key argument, return a random element from the sorted set value stored at `key`.
   ///
   /// <https://redis.io/commands/zrandmember>
-  fn zrandmember<R, K>(&self, key: K, count: Option<(i64, bool)>) -> impl Future<Output = RedisResult<R>> + Send
+  fn zrandmember<R, K>(&self, key: K, count: Option<(i64, bool)>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -320,15 +314,15 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     sort: Option<ZSort>,
     rev: bool,
     limit: Option<Limit>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
-    S: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
+    S: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(dest, source);
@@ -351,14 +345,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     rev: bool,
     limit: Option<Limit>,
     withscores: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -379,14 +373,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     min: M,
     max: N,
     limit: Option<Limit>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -407,14 +401,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     max: M,
     min: N,
     limit: Option<Limit>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -436,14 +430,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     max: N,
     withscores: bool,
     limit: Option<Limit>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -465,14 +459,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     min: N,
     withscores: bool,
     limit: Option<Limit>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -486,29 +480,31 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Returns the rank of member in the sorted set stored at `key`, with the scores ordered from low to high.
   ///
   /// <https://redis.io/commands/zrank>
-  fn zrank<R, K, V>(&self, key: K, member: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn zrank<R, K, V>(&self, key: K, member: V, withscore: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
       try_into!(member);
-      commands::sorted_sets::zrank(self, key, member).await?.convert()
+      commands::sorted_sets::zrank(self, key, member, withscore)
+        .await?
+        .convert()
     }
   }
 
   /// Removes the specified members from the sorted set stored at `key`. Non existing members are ignored.
   ///
   /// <https://redis.io/commands/zrem>
-  fn zrem<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn zrem<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -522,14 +518,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// specified by `min` and `max`.
   ///
   /// <https://redis.io/commands/zremrangebylex>
-  fn zremrangebylex<R, K, M, N>(&self, key: K, min: M, max: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn zremrangebylex<R, K, M, N>(&self, key: K, min: M, max: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -543,10 +539,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Removes all elements in the sorted set stored at `key` with rank between `start` and `stop`.
   ///
   /// <https://redis.io/commands/zremrangebyrank>
-  fn zremrangebyrank<R, K>(&self, key: K, start: i64, stop: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn zremrangebyrank<R, K>(&self, key: K, start: i64, stop: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -559,14 +555,14 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Removes all elements in the sorted set stored at `key` with a score between `min` and `max`.
   ///
   /// <https://redis.io/commands/zremrangebyscore>
-  fn zremrangebyscore<R, K, M, N>(&self, key: K, min: M, max: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn zremrangebyscore<R, K, M, N>(&self, key: K, min: M, max: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     M: TryInto<ZRange> + Send,
-    M::Error: Into<RedisError> + Send,
+    M::Error: Into<Error> + Send,
     N: TryInto<ZRange> + Send,
-    N::Error: Into<RedisError> + Send,
+    N::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -586,10 +582,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     start: i64,
     stop: i64,
     withscores: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -602,29 +598,31 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Returns the rank of `member` in the sorted set stored at `key`, with the scores ordered from high to low.
   ///
   /// <https://redis.io/commands/zrevrank>
-  fn zrevrank<R, K, V>(&self, key: K, member: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn zrevrank<R, K, V>(&self, key: K, member: V, withscore: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
       try_into!(member);
-      commands::sorted_sets::zrevrank(self, key, member).await?.convert()
+      commands::sorted_sets::zrevrank(self, key, member, withscore)
+        .await?
+        .convert()
     }
   }
 
   /// Returns the score of `member` in the sorted set at `key`.
   ///
   /// <https://redis.io/commands/zscore>
-  fn zscore<R, K, V>(&self, key: K, member: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn zscore<R, K, V>(&self, key: K, member: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -643,9 +641,9 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     weights: W,
     aggregate: Option<AggregateOptions>,
     withscores: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
     W: Into<MultipleWeights> + Send,
   {
@@ -666,10 +664,10 @@ pub trait SortedSetsInterface: ClientLike + Sized {
     keys: K,
     weights: W,
     aggregate: Option<AggregateOptions>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     K: Into<MultipleKeys> + Send,
     W: Into<MultipleWeights> + Send,
   {
@@ -684,12 +682,12 @@ pub trait SortedSetsInterface: ClientLike + Sized {
   /// Returns the scores associated with the specified members in the sorted set stored at `key`.
   ///
   /// <https://redis.io/commands/zmscore>
-  fn zmscore<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn zmscore<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);

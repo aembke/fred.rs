@@ -1,9 +1,9 @@
 use crate::{
   commands,
   interfaces::ClientLike,
-  prelude::RedisResult,
+  prelude::FredResult,
   runtime::{spawn, BroadcastReceiver, JoinHandle},
-  types::{Invalidation, MultipleStrings},
+  types::{client::Invalidation, MultipleStrings},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -26,7 +26,7 @@ pub trait TrackingInterface: ClientLike + Sized {
     optin: bool,
     optout: bool,
     noloop: bool,
-  ) -> impl Future<Output = RedisResult<()>> + Send
+  ) -> impl Future<Output = FredResult<()>> + Send
   where
     P: Into<MultipleStrings> + Send,
   {
@@ -37,16 +37,16 @@ pub trait TrackingInterface: ClientLike + Sized {
   }
 
   /// Disable client tracking on all connections.
-  fn stop_tracking(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn stop_tracking(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::tracking::stop_tracking(self).await }
   }
 
   /// Spawn a task that processes invalidation messages from the server.
   ///
   /// See [invalidation_rx](Self::invalidation_rx) for a more flexible variation of this function.
-  fn on_invalidation<F>(&self, func: F) -> JoinHandle<RedisResult<()>>
+  fn on_invalidation<F>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
-    F: Fn(Invalidation) -> RedisResult<()> + Send + 'static,
+    F: Fn(Invalidation) -> FredResult<()> + Send + 'static,
   {
     let mut invalidation_rx = self.invalidation_rx();
 

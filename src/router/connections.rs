@@ -1,15 +1,15 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
   protocol::{
-    command::RedisCommand,
+    command::Command,
     connection,
-    connection::{Counters, RedisConnection},
+    connection::{Connection, Counters},
     types::ClusterRouting,
   },
   router::{centralized, clustered, sentinel},
   runtime::RefCount,
-  types::Server,
+  types::config::Server,
 };
 use futures::future::try_join_all;
 use semver::Version;
@@ -19,17 +19,17 @@ use std::collections::{HashMap, VecDeque};
 pub enum Connections {
   Centralized {
     /// The connection to the primary server.
-    connection: Option<RedisConnection>,
+    connection: Option<Connection>,
   },
   Clustered {
     /// The cached cluster routing table used for mapping keys to server IDs.
     cache:       ClusterRouting,
     /// A map of server IDs and connections.
-    connections: HashMap<Server, RedisConnection>,
+    connections: HashMap<Server, Connection>,
   },
   Sentinel {
     /// The connection to the primary server.
-    connection: Option<RedisConnection>,
+    connection: Option<Connection>,
   },
 }
 
@@ -51,10 +51,7 @@ impl Connections {
 
   /// Discover and return a mapping of replica nodes to their associated primary node.
   #[cfg(feature = "replicas")]
-  pub async fn replica_map(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Result<HashMap<Server, Server>, RedisError> {
+  pub async fn replica_map(&mut self, inner: &RefCount<ClientInner>) -> Result<HashMap<Server, Server>, Error> {
     Ok(match self {
       Connections::Centralized {
         connection: ref mut writer,
@@ -128,7 +125,7 @@ impl Connections {
   }
 
   /// Get the connection writer half for the provided server.
-  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut RedisConnection> {
+  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut Connection> {
     match self {
       Connections::Centralized {
         connection: ref mut writer,
@@ -150,9 +147,9 @@ impl Connections {
   /// Initialize the underlying connection(s) and update the cached backchannel information.
   pub async fn initialize(
     &mut self,
-    inner: &RefCount<RedisClientInner>,
-    buffer: &mut VecDeque<RedisCommand>,
-  ) -> Result<(), RedisError> {
+    inner: &RefCount<ClientInner>,
+    buffer: &mut VecDeque<Command>,
+  ) -> Result<(), Error> {
     let result = if inner.config.server.is_clustered() {
       Box::pin(clustered::initialize_connections(inner, self, buffer)).await
     } else if inner.config.server.is_centralized() || inner.config.server.is_unix_socket() {
@@ -160,7 +157,7 @@ impl Connections {
     } else if inner.config.server.is_sentinel() {
       Box::pin(sentinel::initialize_connection(inner, self, buffer)).await
     } else {
-      return Err(RedisError::new(RedisErrorKind::Config, "Invalid client configuration."));
+      return Err(Error::new(ErrorKind::Config, "Invalid client configuration."));
     };
 
     if result.is_ok() {
@@ -201,7 +198,7 @@ impl Connections {
     }
   }
 
-  pub fn take_connection(&mut self, server: Option<&Server>) -> Option<RedisConnection> {
+  pub fn take_connection(&mut self, server: Option<&Server>) -> Option<Connection> {
     match self {
       Connections::Centralized {
         connection: ref mut writer,
@@ -218,11 +215,7 @@ impl Connections {
   }
 
   /// Disconnect from the provided server, using the default centralized connection if `None` is provided.
-  pub async fn disconnect(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    server: Option<&Server>,
-  ) -> VecDeque<RedisCommand> {
+  pub async fn disconnect(&mut self, inner: &RefCount<ClientInner>, server: Option<&Server>) -> VecDeque<Command> {
     match self {
       Connections::Centralized {
         connection: ref mut writer,
@@ -263,7 +256,7 @@ impl Connections {
   }
 
   /// Disconnect and clear local state for all connections, returning all in-flight commands.
-  pub async fn disconnect_all(&mut self, inner: &RefCount<RedisClientInner>) -> VecDeque<RedisCommand> {
+  pub async fn disconnect_all(&mut self, inner: &RefCount<ClientInner>) -> VecDeque<Command> {
     match self {
       Connections::Centralized {
         connection: ref mut writer,
@@ -334,7 +327,7 @@ impl Connections {
   }
 
   /// Flush the socket(s) associated with each server if they have pending frames.
-  pub async fn flush(&mut self) -> Result<(), RedisError> {
+  pub async fn flush(&mut self) -> Result<(), Error> {
     match self {
       Connections::Centralized {
         connection: ref mut writer,
@@ -379,11 +372,7 @@ impl Connections {
   }
 
   /// Connect or reconnect to the provided `host:port`.
-  pub async fn add_connection(
-    &mut self,
-    inner: &RefCount<RedisClientInner>,
-    server: &Server,
-  ) -> Result<(), RedisError> {
+  pub async fn add_connection(&mut self, inner: &RefCount<ClientInner>, server: &Server) -> Result<(), Error> {
     if let Connections::Clustered {
       connections: ref mut writers,
       ..
@@ -394,10 +383,7 @@ impl Connections {
       writers.insert(server.clone(), transport.into_pipelined(false));
       Ok(())
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Expected clustered configuration.",
-      ))
+      Err(Error::new(ErrorKind::Config, "Expected clustered configuration."))
     }
   }
 }

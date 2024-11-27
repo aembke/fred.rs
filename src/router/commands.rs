@@ -1,10 +1,15 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::{CommandReceiver, RedisClientInner},
-  protocol::command::{RedisCommand, RedisCommandKind, ResponseSender, RouterCommand},
+  error::{Error, ErrorKind},
+  modules::inner::{ClientInner, CommandReceiver},
+  protocol::command::{Command, CommandKind, ResponseSender, RouterCommand},
   router::{clustered, utils, Router},
   runtime::{OneshotSender, RefCount},
-  types::{Blocking, ClientState, ClientUnblockFlag, ClusterHash, Server},
+  types::{
+    config::{Blocking, Server},
+    ClientState,
+    ClientUnblockFlag,
+    ClusterHash,
+  },
   utils as client_utils,
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
@@ -18,10 +23,10 @@ use tracing_futures::Instrument;
 
 #[cfg(feature = "replicas")]
 async fn create_replica_connection(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
-  mut command: RedisCommand,
-) -> Result<(), RedisError> {
+  mut command: Command,
+) -> Result<(), Error> {
   if command.use_replica && inner.connection.replica.lazy_connections {
     let (primary, replica) = match utils::route_replica(router, &command) {
       Ok((primary, replica)) => (primary, replica),
@@ -64,8 +69,8 @@ async fn create_replica_connection(
       command.use_replica = false;
       interfaces::send_to_router(inner, command.into())?;
     } else {
-      command.respond_to_caller(Err(RedisError::new(
-        RedisErrorKind::Routing,
+      command.respond_to_caller(Err(Error::new(
+        ErrorKind::Routing,
         "Failed to route command to replica.",
       )));
     }
@@ -73,7 +78,7 @@ async fn create_replica_connection(
   } else {
     // connection does not exist
     _debug!(inner, "Failed to route command to replica. Deferring reconnection...");
-    let err = RedisError::new(RedisErrorKind::Routing, "Failed to route command.");
+    let err = Error::new(ErrorKind::Routing, "Failed to route command.");
     utils::defer_reconnection(inner, router, None, err, false)?;
     command.attempts_remaining += 1;
     router.retry_command(command);
@@ -83,10 +88,10 @@ async fn create_replica_connection(
 
 /// Write the command to a connection.
 async fn write_command(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
-  mut command: RedisCommand,
-) -> Result<(), RedisError> {
+  mut command: Command,
+) -> Result<(), Error> {
   _trace!(inner, "Writing command: {:?} ({})", command, command.debug_id());
   if let Err(err) = command.decr_check_attempted() {
     command.respond_to_caller(Err(err));
@@ -127,7 +132,7 @@ async fn write_command(
 
           #[cfg(not(feature = "replicas"))]
           {
-            let err = RedisError::new(RedisErrorKind::Unknown, "Failed to route command.");
+            let err = Error::new(ErrorKind::Unknown, "Failed to route command.");
             utils::defer_reconnection(inner, router, None, err, use_replica)?;
             router.retry_command(command);
             return Ok(());
@@ -158,7 +163,7 @@ async fn write_command(
 
           if closes_connection {
             _trace!(inner, "Ending command loop after QUIT or SHUTDOWN.");
-            return Err(RedisError::new_canceled());
+            return Err(Error::new_canceled());
           } else {
             (flushed, None)
           }
@@ -208,10 +213,10 @@ macro_rules! write_command_t {
 
 /// Run a pipelined series of commands, queueing commands to run later if needed.
 async fn process_pipeline(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
-  commands: Vec<RedisCommand>,
-) -> Result<(), RedisError> {
+  commands: Vec<Command>,
+) -> Result<(), Error> {
   _debug!(inner, "Writing pipeline with {} commands", commands.len());
 
   for mut command in commands.into_iter() {
@@ -219,7 +224,7 @@ async fn process_pipeline(
     // frames, but error redirections are returned in-order and the client is expected to follow them. this makes it
     // difficult to accurately associate redirections with `ssubscribe` calls within a pipeline. to avoid this we
     // never pipeline `ssubscribe`, even if the caller asks.
-    command.can_pipeline = command.kind != RedisCommandKind::Ssubscribe;
+    command.can_pipeline = command.kind != CommandKind::Ssubscribe;
     command.skip_backpressure = true;
 
     write_command_t!(inner, router, command)?;
@@ -230,12 +235,12 @@ async fn process_pipeline(
 
 /// Send `ASKING` to the provided server, then retry the provided command.
 async fn process_ask(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
   server: Server,
   slot: u16,
-  mut command: RedisCommand,
-) -> Result<(), RedisError> {
+  mut command: Command,
+) -> Result<(), Error> {
   command.use_replica = false;
   command.hasher = ClusterHash::Custom(slot);
 
@@ -267,12 +272,12 @@ async fn process_ask(
 
 /// Sync the cluster state then retry the command.
 async fn process_moved(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
   server: Server,
   slot: u16,
-  mut command: RedisCommand,
-) -> Result<(), RedisError> {
+  mut command: Command,
+) -> Result<(), Error> {
   command.use_replica = false;
   command.hasher = ClusterHash::Custom(slot);
 
@@ -297,13 +302,13 @@ async fn process_moved(
 
 #[cfg(feature = "replicas")]
 async fn process_replica_reconnect(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
   server: Option<Server>,
   force: bool,
   tx: Option<ResponseSender>,
   replica: bool,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   router.reset_pending_reconnection(server.as_ref());
 
   #[allow(unused_mut)]
@@ -322,12 +327,12 @@ async fn process_replica_reconnect(
 /// Reconnect to the server(s).
 #[allow(unused_mut)]
 async fn process_reconnect(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
   server: Option<Server>,
   force: bool,
   tx: Option<ResponseSender>,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   _debug!(inner, "Maybe reconnecting to {:?} (force: {})", server, force);
   router.reset_pending_reconnection(server.as_ref());
 
@@ -372,11 +377,11 @@ async fn process_reconnect(
 #[cfg(feature = "replicas")]
 #[allow(unused_mut)]
 async fn process_sync_replicas(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
-  mut tx: OneshotSender<Result<(), RedisError>>,
+  mut tx: OneshotSender<Result<(), Error>>,
   reset: bool,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   let result = utils::sync_replicas_with_policy(inner, router, reset).await;
   let _ = tx.send(result);
   Ok(())
@@ -385,10 +390,10 @@ async fn process_sync_replicas(
 /// Sync and update the cached cluster state.
 #[allow(unused_mut)]
 async fn process_sync_cluster(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
-  mut tx: OneshotSender<Result<(), RedisError>>,
-) -> Result<(), RedisError> {
+  mut tx: OneshotSender<Result<(), Error>>,
+) -> Result<(), Error> {
   let result = utils::sync_cluster_with_policy(inner, router).await;
   let _ = tx.send(result.clone());
   result
@@ -396,10 +401,10 @@ async fn process_sync_cluster(
 
 /// Start processing commands from the client front end.
 async fn process_command(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
   command: RouterCommand,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   inner.counters.decr_cmd_buffer_len();
 
   _trace!(inner, "Recv command: {:?}", command);
@@ -433,10 +438,10 @@ async fn process_command(
 
 /// Try to read frames from any socket, otherwise try to write the next command.
 async fn read_or_write(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
   rx: &mut CommandReceiver,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   // The most complicated part of the main client command loop is implemented in this function.
   //
   // In the past `fred` worked by spawning a separate task for each connection such that the Tokio scheduler could
@@ -465,7 +470,7 @@ async fn read_or_write(
 }
 
 /// Start the command processing stream, initiating new connections in the process.
-pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   #[cfg(feature = "mocks")]
   if let Some(ref mocks) = inner.config.mocks {
     return mocking::start(inner, mocks).await;
@@ -476,8 +481,8 @@ pub async fn start(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError>
     None => {
       // the `_lock` field on inner synchronizes the getters/setters on the command channel halves, so if this field
       // is None then another task must have set and removed the receiver concurrently.
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
+      return Err(Error::new(
+        ErrorKind::Config,
         "Another connection task is already running.",
       ));
     },
@@ -539,7 +544,7 @@ mod mocking {
   use std::sync::Arc;
 
   /// Process any kind of router command.
-  pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), RedisError> {
+  pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), Error> {
     match command {
       #[cfg(feature = "transactions")]
       RouterCommand::Transaction { commands, mut tx, .. } => {
@@ -604,15 +609,15 @@ mod mocking {
 
         Ok(())
       },
-      _ => Err(RedisError::new(RedisErrorKind::Unknown, "Unimplemented.")),
+      _ => Err(Error::new(ErrorKind::Unknown, "Unimplemented.")),
     }
   }
 
   pub async fn process_commands(
-    inner: &RefCount<RedisClientInner>,
+    inner: &RefCount<ClientInner>,
     mocks: &Arc<dyn Mocks>,
     rx: &mut CommandReceiver,
-  ) -> Result<(), RedisError> {
+  ) -> Result<(), Error> {
     while let Some(command) = rx.recv().await {
       inner.counters.decr_cmd_buffer_len();
 
@@ -631,7 +636,7 @@ mod mocking {
     Ok(())
   }
 
-  pub async fn start(inner: &RefCount<RedisClientInner>, mocks: &Arc<dyn Mocks>) -> Result<(), RedisError> {
+  pub async fn start(inner: &RefCount<ClientInner>, mocks: &Arc<dyn Mocks>) -> Result<(), Error> {
     _debug!(inner, "Starting mocking layer");
 
     #[cfg(feature = "glommio")]
@@ -641,12 +646,7 @@ mod mocking {
 
     let mut rx = match inner.take_command_rx() {
       Some(rx) => rx,
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Config,
-          "Redis client is already initialized.",
-        ))
-      },
+      None => return Err(Error::new(ErrorKind::Config, "Redis client is already initialized.")),
     };
 
     inner.notifications.broadcast_connect(Ok(()));

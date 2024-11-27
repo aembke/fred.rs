@@ -1,18 +1,16 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
   types::{
+    geo::{GeoPosition, GeoUnit, MultipleGeoValues},
     Any,
-    FromRedis,
-    GeoPosition,
-    GeoUnit,
-    MultipleGeoValues,
+    FromValue,
+    Key,
     MultipleValues,
-    RedisKey,
-    RedisValue,
     SetOptions,
     SortOrder,
+    Value,
   },
 };
 use fred_macros::rm_send_if;
@@ -31,10 +29,10 @@ pub trait GeoInterface: ClientLike + Sized {
     options: Option<SetOptions>,
     changed: bool,
     values: V,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: Into<MultipleGeoValues> + Send,
   {
     async move {
@@ -49,12 +47,12 @@ pub trait GeoInterface: ClientLike + Sized {
   /// representing a geospatial index (where elements were added using GEOADD).
   ///
   /// <https://redis.io/commands/geohash>
-  fn geohash<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn geohash<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -66,15 +64,15 @@ pub trait GeoInterface: ClientLike + Sized {
   /// Return the positions (longitude,latitude) of all the specified members of the geospatial index represented by
   /// the sorted set at key.
   ///
-  /// Callers can use [as_geo_position](crate::types::RedisValue::as_geo_position) to lazily parse results as needed.
+  /// Callers can use [as_geo_position](crate::types::Value::as_geo_position) to lazily parse results as needed.
   ///
   /// <https://redis.io/commands/geopos>
-  fn geopos<R, K, V>(&self, key: K, members: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn geopos<R, K, V>(&self, key: K, members: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -92,14 +90,14 @@ pub trait GeoInterface: ClientLike + Sized {
     src: S,
     dest: D,
     unit: Option<GeoUnit>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    S: TryInto<RedisValue> + Send,
-    S::Error: Into<RedisError> + Send,
-    D: TryInto<RedisValue> + Send,
-    D::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    S: TryInto<Value> + Send,
+    S::Error: Into<Error> + Send,
+    D: TryInto<Value> + Send,
+    D::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -123,12 +121,12 @@ pub trait GeoInterface: ClientLike + Sized {
     withhash: bool,
     count: Option<(u64, Any)>,
     ord: Option<SortOrder>,
-    store: Option<RedisKey>,
-    storedist: Option<RedisKey>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+    store: Option<Key>,
+    storedist: Option<Key>,
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     P: Into<GeoPosition> + Send,
   {
     async move {
@@ -157,14 +155,14 @@ pub trait GeoInterface: ClientLike + Sized {
     withhash: bool,
     count: Option<(u64, Any)>,
     ord: Option<SortOrder>,
-    store: Option<RedisKey>,
-    storedist: Option<RedisKey>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+    store: Option<Key>,
+    storedist: Option<Key>,
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -195,7 +193,7 @@ pub trait GeoInterface: ClientLike + Sized {
   fn geosearch<R, K>(
     &self,
     key: K,
-    from_member: Option<RedisValue>,
+    from_member: Option<Value>,
     from_lonlat: Option<GeoPosition>,
     by_radius: Option<(f64, GeoUnit)>,
     by_box: Option<(f64, f64, GeoUnit)>,
@@ -204,10 +202,10 @@ pub trait GeoInterface: ClientLike + Sized {
     withcoord: bool,
     withdist: bool,
     withhash: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -237,18 +235,18 @@ pub trait GeoInterface: ClientLike + Sized {
     &self,
     dest: D,
     source: S,
-    from_member: Option<RedisValue>,
+    from_member: Option<Value>,
     from_lonlat: Option<GeoPosition>,
     by_radius: Option<(f64, GeoUnit)>,
     by_box: Option<(f64, f64, GeoUnit)>,
     ord: Option<SortOrder>,
     count: Option<(u64, Any)>,
     storedist: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
-    S: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
+    S: Into<Key> + Send,
   {
     async move {
       into!(dest, source);

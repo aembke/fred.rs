@@ -1,7 +1,7 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces::Resp3Frame,
-  modules::inner::RedisClientInner,
+  modules::inner::ClientInner,
   protocol::{
     hashers::ClusterHash,
     responders::ResponseKind,
@@ -10,7 +10,7 @@ use crate::{
   },
   runtime::{AtomicBool, OneshotSender, RefCount},
   trace,
-  types::{CustomCommand, RedisValue},
+  types::{CustomCommand, Value},
   utils as client_utils,
   utils,
 };
@@ -40,7 +40,7 @@ pub fn command_counter() -> usize {
 }
 
 /// A channel for communication between connection reader tasks and futures returned to the caller.
-pub type ResponseSender = OneshotSender<Result<Resp3Frame, RedisError>>;
+pub type ResponseSender = OneshotSender<Result<Resp3Frame, Error>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterErrorKind {
@@ -58,23 +58,20 @@ impl fmt::Display for ClusterErrorKind {
 }
 
 impl<'a> TryFrom<&'a str> for ClusterErrorKind {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
     match value {
       "MOVED" => Ok(ClusterErrorKind::Moved),
       "ASK" => Ok(ClusterErrorKind::Ask),
-      _ => Err(RedisError::new(
-        RedisErrorKind::Protocol,
-        "Expected MOVED or ASK error.",
-      )),
+      _ => Err(Error::new(ErrorKind::Protocol, "Expected MOVED or ASK error.")),
     }
   }
 }
 
 // TODO organize these and gate them w/ the appropriate feature flags
 #[derive(Clone, Eq, PartialEq)]
-pub enum RedisCommandKind {
+pub enum CommandKind {
   AclLoad,
   AclSave,
   AclList,
@@ -466,78 +463,72 @@ pub enum RedisCommandKind {
   _Custom(CustomCommand),
 }
 
-impl fmt::Debug for RedisCommandKind {
+impl fmt::Debug for CommandKind {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "{}", self.to_str_debug())
   }
 }
 
-impl RedisCommandKind {
+impl CommandKind {
   pub fn is_scan(&self) -> bool {
-    matches!(*self, RedisCommandKind::Scan)
+    matches!(*self, CommandKind::Scan)
   }
 
   pub fn is_hscan(&self) -> bool {
-    matches!(*self, RedisCommandKind::Hscan)
+    matches!(*self, CommandKind::Hscan)
   }
 
   pub fn is_sscan(&self) -> bool {
-    matches!(*self, RedisCommandKind::Sscan)
+    matches!(*self, CommandKind::Sscan)
   }
 
   pub fn is_zscan(&self) -> bool {
-    matches!(*self, RedisCommandKind::Zscan)
+    matches!(*self, CommandKind::Zscan)
   }
 
   pub fn is_hello(&self) -> bool {
-    matches!(
-      *self,
-      RedisCommandKind::_Hello(_) | RedisCommandKind::_HelloAllCluster(_)
-    )
+    matches!(*self, CommandKind::_Hello(_) | CommandKind::_HelloAllCluster(_))
   }
 
   pub fn is_auth(&self) -> bool {
-    matches!(*self, RedisCommandKind::Auth)
+    matches!(*self, CommandKind::Auth)
   }
 
   pub fn is_value_scan(&self) -> bool {
-    matches!(
-      *self,
-      RedisCommandKind::Zscan | RedisCommandKind::Hscan | RedisCommandKind::Sscan
-    )
+    matches!(*self, CommandKind::Zscan | CommandKind::Hscan | CommandKind::Sscan)
   }
 
   pub fn is_multi(&self) -> bool {
-    matches!(*self, RedisCommandKind::Multi)
+    matches!(*self, CommandKind::Multi)
   }
 
   pub fn is_exec(&self) -> bool {
-    matches!(*self, RedisCommandKind::Exec)
+    matches!(*self, CommandKind::Exec)
   }
 
   pub fn is_discard(&self) -> bool {
-    matches!(*self, RedisCommandKind::Discard)
+    matches!(*self, CommandKind::Discard)
   }
 
   pub fn ends_transaction(&self) -> bool {
-    matches!(*self, RedisCommandKind::Exec | RedisCommandKind::Discard)
+    matches!(*self, CommandKind::Exec | CommandKind::Discard)
   }
 
   pub fn is_mset(&self) -> bool {
-    matches!(*self, RedisCommandKind::Mset | RedisCommandKind::Msetnx)
+    matches!(*self, CommandKind::Mset | CommandKind::Msetnx)
   }
 
   pub fn is_custom(&self) -> bool {
-    matches!(*self, RedisCommandKind::_Custom(_))
+    matches!(*self, CommandKind::_Custom(_))
   }
 
   pub fn closes_connection(&self) -> bool {
-    matches!(*self, RedisCommandKind::Quit | RedisCommandKind::Shutdown)
+    matches!(*self, CommandKind::Quit | CommandKind::Shutdown)
   }
 
   pub fn custom_hash_slot(&self) -> Option<u16> {
     match self {
-      RedisCommandKind::_Custom(ref cmd) => match cmd.cluster_hash {
+      CommandKind::_Custom(ref cmd) => match cmd.cluster_hash {
         ClusterHash::Custom(ref val) => Some(*val),
         _ => None,
       },
@@ -550,384 +541,384 @@ impl RedisCommandKind {
   /// Typically used for logging or debugging.
   pub fn to_str_debug(&self) -> &str {
     match *self {
-      RedisCommandKind::AclLoad => "ACL LOAD",
-      RedisCommandKind::AclSave => "ACL SAVE",
-      RedisCommandKind::AclList => "ACL LIST",
-      RedisCommandKind::AclUsers => "ACL USERS",
-      RedisCommandKind::AclGetUser => "ACL GETUSER",
-      RedisCommandKind::AclSetUser => "ACL SETUSER",
-      RedisCommandKind::AclDelUser => "ACL DELUSER",
-      RedisCommandKind::AclCat => "ACL CAT",
-      RedisCommandKind::AclGenPass => "ACL GENPASS",
-      RedisCommandKind::AclWhoAmI => "ACL WHOAMI",
-      RedisCommandKind::AclLog => "ACL LOG",
-      RedisCommandKind::AclHelp => "ACL HELP",
-      RedisCommandKind::Append => "APPEND",
-      RedisCommandKind::Auth => "AUTH",
-      RedisCommandKind::Asking => "ASKING",
-      RedisCommandKind::BgreWriteAof => "BGREWRITEAOF",
-      RedisCommandKind::BgSave => "BGSAVE",
-      RedisCommandKind::BitCount => "BITCOUNT",
-      RedisCommandKind::BitField => "BITFIELD",
-      RedisCommandKind::BitOp => "BITOP",
-      RedisCommandKind::BitPos => "BITPOS",
-      RedisCommandKind::BlPop => "BLPOP",
-      RedisCommandKind::BlMove => "BLMOVE",
-      RedisCommandKind::BrPop => "BRPOP",
-      RedisCommandKind::BzmPop => "BZMPOP",
-      RedisCommandKind::BlmPop => "BLMPOP",
-      RedisCommandKind::BrPopLPush => "BRPOPLPUSH",
-      RedisCommandKind::BzPopMin => "BZPOPMIN",
-      RedisCommandKind::BzPopMax => "BZPOPMAX",
-      RedisCommandKind::ClientID => "CLIENT ID",
-      RedisCommandKind::ClientInfo => "CLIENT INFO",
-      RedisCommandKind::ClientKill => "CLIENT KILL",
-      RedisCommandKind::ClientList => "CLIENT LIST",
-      RedisCommandKind::ClientGetName => "CLIENT GETNAME",
-      RedisCommandKind::ClientPause => "CLIENT PAUSE",
-      RedisCommandKind::ClientUnpause => "CLIENT UNPAUSE",
-      RedisCommandKind::ClientUnblock => "CLIENT UNBLOCK",
-      RedisCommandKind::ClientReply => "CLIENT REPLY",
-      RedisCommandKind::ClientSetname => "CLIENT SETNAME",
-      RedisCommandKind::ClientGetRedir => "CLIENT GETREDIR",
-      RedisCommandKind::ClientTracking => "CLIENT TRACKING",
-      RedisCommandKind::ClientTrackingInfo => "CLIENT TRACKINGINFO",
-      RedisCommandKind::ClientCaching => "CLIENT CACHING",
-      RedisCommandKind::ClusterAddSlots => "CLUSTER ADDSLOTS",
-      RedisCommandKind::ClusterCountFailureReports => "CLUSTER COUNT-FAILURE-REPORTS",
-      RedisCommandKind::ClusterCountKeysInSlot => "CLUSTER COUNTKEYSINSLOT",
-      RedisCommandKind::ClusterDelSlots => "CLUSTER DEL SLOTS",
-      RedisCommandKind::ClusterFailOver => "CLUSTER FAILOVER",
-      RedisCommandKind::ClusterForget => "CLUSTER FORGET",
-      RedisCommandKind::ClusterGetKeysInSlot => "CLUSTER GETKEYSINSLOTS",
-      RedisCommandKind::ClusterInfo => "CLUSTER INFO",
-      RedisCommandKind::ClusterKeySlot => "CLUSTER KEYSLOT",
-      RedisCommandKind::ClusterMeet => "CLUSTER MEET",
-      RedisCommandKind::ClusterNodes => "CLUSTER NODES",
-      RedisCommandKind::ClusterReplicate => "CLUSTER REPLICATE",
-      RedisCommandKind::ClusterReset => "CLUSTER RESET",
-      RedisCommandKind::ClusterSaveConfig => "CLUSTER SAVECONFIG",
-      RedisCommandKind::ClusterSetConfigEpoch => "CLUSTER SET-CONFIG-EPOCH",
-      RedisCommandKind::ClusterSetSlot => "CLUSTER SETSLOT",
-      RedisCommandKind::ClusterReplicas => "CLUSTER REPLICAS",
-      RedisCommandKind::ClusterSlots => "CLUSTER SLOTS",
-      RedisCommandKind::ClusterBumpEpoch => "CLUSTER BUMPEPOCH",
-      RedisCommandKind::ClusterFlushSlots => "CLUSTER FLUSHSLOTS",
-      RedisCommandKind::ClusterMyID => "CLUSTER MYID",
-      RedisCommandKind::ConfigGet => "CONFIG GET",
-      RedisCommandKind::ConfigRewrite => "CONFIG REWRITE",
-      RedisCommandKind::ConfigSet => "CONFIG SET",
-      RedisCommandKind::ConfigResetStat => "CONFIG RESETSTAT",
-      RedisCommandKind::Copy => "COPY",
-      RedisCommandKind::DBSize => "DBSIZE",
-      RedisCommandKind::Decr => "DECR",
-      RedisCommandKind::DecrBy => "DECRBY",
-      RedisCommandKind::Del => "DEL",
-      RedisCommandKind::Discard => "DISCARD",
-      RedisCommandKind::Dump => "DUMP",
-      RedisCommandKind::Echo => "ECHO",
-      RedisCommandKind::Eval => "EVAL",
-      RedisCommandKind::EvalSha => "EVALSHA",
-      RedisCommandKind::Exec => "EXEC",
-      RedisCommandKind::Exists => "EXISTS",
-      RedisCommandKind::Expire => "EXPIRE",
-      RedisCommandKind::ExpireAt => "EXPIREAT",
-      RedisCommandKind::ExpireTime => "EXPIRETIME",
-      RedisCommandKind::Failover => "FAILOVER",
-      RedisCommandKind::FlushAll => "FLUSHALL",
-      RedisCommandKind::FlushDB => "FLUSHDB",
-      RedisCommandKind::GeoAdd => "GEOADD",
-      RedisCommandKind::GeoHash => "GEOHASH",
-      RedisCommandKind::GeoPos => "GEOPOS",
-      RedisCommandKind::GeoDist => "GEODIST",
-      RedisCommandKind::GeoRadius => "GEORADIUS",
-      RedisCommandKind::GeoRadiusByMember => "GEORADIUSBYMEMBER",
-      RedisCommandKind::GeoSearch => "GEOSEARCH",
-      RedisCommandKind::GeoSearchStore => "GEOSEARCHSTORE",
-      RedisCommandKind::Get => "GET",
-      RedisCommandKind::GetDel => "GETDEL",
-      RedisCommandKind::GetBit => "GETBIT",
-      RedisCommandKind::GetRange => "GETRANGE",
-      RedisCommandKind::GetSet => "GETSET",
-      RedisCommandKind::HDel => "HDEL",
-      RedisCommandKind::_Hello(_) => "HELLO",
-      RedisCommandKind::HExists => "HEXISTS",
-      RedisCommandKind::HGet => "HGET",
-      RedisCommandKind::HGetAll => "HGETALL",
-      RedisCommandKind::HIncrBy => "HINCRBY",
-      RedisCommandKind::HIncrByFloat => "HINCRBYFLOAT",
-      RedisCommandKind::HKeys => "HKEYS",
-      RedisCommandKind::HLen => "HLEN",
-      RedisCommandKind::HMGet => "HMGET",
-      RedisCommandKind::HMSet => "HMSET",
-      RedisCommandKind::HSet => "HSET",
-      RedisCommandKind::HSetNx => "HSETNX",
-      RedisCommandKind::HStrLen => "HSTRLEN",
-      RedisCommandKind::HRandField => "HRANDFIELD",
-      RedisCommandKind::HTtl => "HTTL",
-      RedisCommandKind::HExpire => "HEXPIRE",
-      RedisCommandKind::HExpireAt => "HEXPIREAT",
-      RedisCommandKind::HExpireTime => "HEXPIRETIME",
-      RedisCommandKind::HPersist => "HPERSIST",
-      RedisCommandKind::HPTtl => "HPTTL",
-      RedisCommandKind::HPExpire => "HPEXPIRE",
-      RedisCommandKind::HPExpireAt => "HPEXPIREAT",
-      RedisCommandKind::HPExpireTime => "HPEXPIRETIME",
-      RedisCommandKind::HVals => "HVALS",
-      RedisCommandKind::Incr => "INCR",
-      RedisCommandKind::IncrBy => "INCRBY",
-      RedisCommandKind::IncrByFloat => "INCRBYFLOAT",
-      RedisCommandKind::Info => "INFO",
-      RedisCommandKind::Keys => "KEYS",
-      RedisCommandKind::LastSave => "LASTSAVE",
-      RedisCommandKind::LIndex => "LINDEX",
-      RedisCommandKind::LInsert => "LINSERT",
-      RedisCommandKind::LLen => "LLEN",
-      RedisCommandKind::LMove => "LMOVE",
-      RedisCommandKind::LPop => "LPOP",
-      RedisCommandKind::LPos => "LPOS",
-      RedisCommandKind::LPush => "LPUSH",
-      RedisCommandKind::LPushX => "LPUSHX",
-      RedisCommandKind::LRange => "LRANGE",
-      RedisCommandKind::LMPop => "LMPOP",
-      RedisCommandKind::LRem => "LREM",
-      RedisCommandKind::LSet => "LSET",
-      RedisCommandKind::LTrim => "LTRIM",
-      RedisCommandKind::Lcs => "LCS",
-      RedisCommandKind::MemoryDoctor => "MEMORY DOCTOR",
-      RedisCommandKind::MemoryHelp => "MEMORY HELP",
-      RedisCommandKind::MemoryMallocStats => "MEMORY MALLOC-STATS",
-      RedisCommandKind::MemoryPurge => "MEMORY PURGE",
-      RedisCommandKind::MemoryStats => "MEMORY STATS",
-      RedisCommandKind::MemoryUsage => "MEMORY USAGE",
-      RedisCommandKind::Mget => "MGET",
-      RedisCommandKind::Migrate => "MIGRATE",
-      RedisCommandKind::Monitor => "MONITOR",
-      RedisCommandKind::Move => "MOVE",
-      RedisCommandKind::Mset => "MSET",
-      RedisCommandKind::Msetnx => "MSETNX",
-      RedisCommandKind::Multi => "MULTI",
-      RedisCommandKind::Object => "OBJECT",
-      RedisCommandKind::Persist => "PERSIST",
-      RedisCommandKind::Pexpire => "PEXPIRE",
-      RedisCommandKind::Pexpireat => "PEXPIREAT",
-      RedisCommandKind::PexpireTime => "PEXPIRETIME",
-      RedisCommandKind::Pfadd => "PFADD",
-      RedisCommandKind::Pfcount => "PFCOUNT",
-      RedisCommandKind::Pfmerge => "PFMERGE",
-      RedisCommandKind::Ping => "PING",
-      RedisCommandKind::Psetex => "PSETEX",
-      RedisCommandKind::Psubscribe => "PSUBSCRIBE",
-      RedisCommandKind::Pttl => "PTTL",
-      RedisCommandKind::Publish => "PUBLISH",
-      RedisCommandKind::Punsubscribe => "PUNSUBSCRIBE",
-      RedisCommandKind::Quit => "QUIT",
-      RedisCommandKind::Randomkey => "RANDOMKEY",
-      RedisCommandKind::Readonly => "READONLY",
-      RedisCommandKind::Readwrite => "READWRITE",
-      RedisCommandKind::Rename => "RENAME",
-      RedisCommandKind::Renamenx => "RENAMENX",
-      RedisCommandKind::Restore => "RESTORE",
-      RedisCommandKind::Role => "ROLE",
-      RedisCommandKind::Rpop => "RPOP",
-      RedisCommandKind::Rpoplpush => "RPOPLPUSH",
-      RedisCommandKind::Rpush => "RPUSH",
-      RedisCommandKind::Rpushx => "RPUSHX",
-      RedisCommandKind::Sadd => "SADD",
-      RedisCommandKind::Save => "SAVE",
-      RedisCommandKind::Scard => "SCARD",
-      RedisCommandKind::Sdiff => "SDIFF",
-      RedisCommandKind::Sdiffstore => "SDIFFSTORE",
-      RedisCommandKind::Select => "SELECT",
-      RedisCommandKind::Sentinel => "SENTINEL",
-      RedisCommandKind::Set => "SET",
-      RedisCommandKind::Setbit => "SETBIT",
-      RedisCommandKind::Setex => "SETEX",
-      RedisCommandKind::Setnx => "SETNX",
-      RedisCommandKind::Setrange => "SETRANGE",
-      RedisCommandKind::Shutdown => "SHUTDOWN",
-      RedisCommandKind::Sinter => "SINTER",
-      RedisCommandKind::Sinterstore => "SINTERSTORE",
-      RedisCommandKind::Sismember => "SISMEMBER",
-      RedisCommandKind::Replicaof => "REPLICAOF",
-      RedisCommandKind::Slowlog => "SLOWLOG",
-      RedisCommandKind::Smembers => "SMEMBERS",
-      RedisCommandKind::Smismember => "SMISMEMBER",
-      RedisCommandKind::Smove => "SMOVE",
-      RedisCommandKind::Sort => "SORT",
-      RedisCommandKind::SortRo => "SORT_RO",
-      RedisCommandKind::Spop => "SPOP",
-      RedisCommandKind::Srandmember => "SRANDMEMBER",
-      RedisCommandKind::Srem => "SREM",
-      RedisCommandKind::Strlen => "STRLEN",
-      RedisCommandKind::Subscribe => "SUBSCRIBE",
-      RedisCommandKind::Sunion => "SUNION",
-      RedisCommandKind::Sunionstore => "SUNIONSTORE",
-      RedisCommandKind::Swapdb => "SWAPDB",
-      RedisCommandKind::Sync => "SYNC",
-      RedisCommandKind::Time => "TIME",
-      RedisCommandKind::Touch => "TOUCH",
-      RedisCommandKind::Ttl => "TTL",
-      RedisCommandKind::Type => "TYPE",
-      RedisCommandKind::Unsubscribe => "UNSUBSCRIBE",
-      RedisCommandKind::Unlink => "UNLINK",
-      RedisCommandKind::Unwatch => "UNWATCH",
-      RedisCommandKind::Wait => "WAIT",
-      RedisCommandKind::Watch => "WATCH",
-      RedisCommandKind::XinfoConsumers => "XINFO CONSUMERS",
-      RedisCommandKind::XinfoGroups => "XINFO GROUPS",
-      RedisCommandKind::XinfoStream => "XINFO STREAM",
-      RedisCommandKind::Xadd => "XADD",
-      RedisCommandKind::Xtrim => "XTRIM",
-      RedisCommandKind::Xdel => "XDEL",
-      RedisCommandKind::Xrange => "XRANGE",
-      RedisCommandKind::Xrevrange => "XREVRANGE",
-      RedisCommandKind::Xlen => "XLEN",
-      RedisCommandKind::Xread => "XREAD",
-      RedisCommandKind::Xgroupcreate => "XGROUP CREATE",
-      RedisCommandKind::XgroupCreateConsumer => "XGROUP CREATECONSUMER",
-      RedisCommandKind::XgroupDelConsumer => "XGROUP DELCONSUMER",
-      RedisCommandKind::XgroupDestroy => "XGROUP DESTROY",
-      RedisCommandKind::XgroupSetId => "XGROUP SETID",
-      RedisCommandKind::Xreadgroup => "XREADGROUP",
-      RedisCommandKind::Xack => "XACK",
-      RedisCommandKind::Xclaim => "XCLAIM",
-      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
-      RedisCommandKind::Xpending => "XPENDING",
-      RedisCommandKind::Zadd => "ZADD",
-      RedisCommandKind::Zcard => "ZCARD",
-      RedisCommandKind::Zcount => "ZCOUNT",
-      RedisCommandKind::Zdiff => "ZDIFF",
-      RedisCommandKind::Zdiffstore => "ZDIFFSTORE",
-      RedisCommandKind::Zincrby => "ZINCRBY",
-      RedisCommandKind::Zinter => "ZINTER",
-      RedisCommandKind::Zinterstore => "ZINTERSTORE",
-      RedisCommandKind::Zlexcount => "ZLEXCOUNT",
-      RedisCommandKind::Zrandmember => "ZRANDMEMBER",
-      RedisCommandKind::Zrange => "ZRANGE",
-      RedisCommandKind::Zrangestore => "ZRANGESTORE",
-      RedisCommandKind::Zrangebylex => "ZRANGEBYLEX",
-      RedisCommandKind::Zrangebyscore => "ZRANGEBYSCORE",
-      RedisCommandKind::Zrank => "ZRANK",
-      RedisCommandKind::Zrem => "ZREM",
-      RedisCommandKind::Zremrangebylex => "ZREMRANGEBYLEX",
-      RedisCommandKind::Zremrangebyrank => "ZREMRANGEBYRANK",
-      RedisCommandKind::Zremrangebyscore => "ZREMRANGEBYSCORE",
-      RedisCommandKind::Zrevrange => "ZREVRANGE",
-      RedisCommandKind::Zrevrangebylex => "ZREVRANGEBYLEX",
-      RedisCommandKind::Zrevrangebyscore => "ZREVRANGEBYSCORE",
-      RedisCommandKind::Zrevrank => "ZREVRANK",
-      RedisCommandKind::Zscore => "ZSCORE",
-      RedisCommandKind::Zmscore => "ZMSCORE",
-      RedisCommandKind::Zunion => "ZUNION",
-      RedisCommandKind::Zunionstore => "ZUNIONSTORE",
-      RedisCommandKind::Zpopmax => "ZPOPMAX",
-      RedisCommandKind::Zpopmin => "ZPOPMIN",
-      RedisCommandKind::Zmpop => "ZMPOP",
-      RedisCommandKind::Scan => "SCAN",
-      RedisCommandKind::Sscan => "SSCAN",
-      RedisCommandKind::Hscan => "HSCAN",
-      RedisCommandKind::Zscan => "ZSCAN",
-      RedisCommandKind::ScriptDebug => "SCRIPT DEBUG",
-      RedisCommandKind::ScriptExists => "SCRIPT EXISTS",
-      RedisCommandKind::ScriptFlush => "SCRIPT FLUSH",
-      RedisCommandKind::ScriptKill => "SCRIPT KILL",
-      RedisCommandKind::ScriptLoad => "SCRIPT LOAD",
-      RedisCommandKind::Spublish => "SPUBLISH",
-      RedisCommandKind::Ssubscribe => "SSUBSCRIBE",
-      RedisCommandKind::Sunsubscribe => "SUNSUBSCRIBE",
-      RedisCommandKind::_AuthAllCluster => "AUTH ALL CLUSTER",
-      RedisCommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
-      RedisCommandKind::_FlushAllCluster => "FLUSHALL CLUSTER",
-      RedisCommandKind::_ScriptFlushCluster => "SCRIPT FLUSH CLUSTER",
-      RedisCommandKind::_ScriptLoadCluster => "SCRIPT LOAD CLUSTER",
-      RedisCommandKind::_ScriptKillCluster => "SCRIPT Kill CLUSTER",
-      RedisCommandKind::_FunctionLoadCluster => "FUNCTION LOAD CLUSTER",
-      RedisCommandKind::_FunctionFlushCluster => "FUNCTION FLUSH CLUSTER",
-      RedisCommandKind::_FunctionDeleteCluster => "FUNCTION DELETE CLUSTER",
-      RedisCommandKind::_FunctionRestoreCluster => "FUNCTION RESTORE CLUSTER",
-      RedisCommandKind::_ClientTrackingCluster => "CLIENT TRACKING CLUSTER",
-      RedisCommandKind::Fcall => "FCALL",
-      RedisCommandKind::FcallRO => "FCALL_RO",
-      RedisCommandKind::FunctionDelete => "FUNCTION DELETE",
-      RedisCommandKind::FunctionDump => "FUNCTION DUMP",
-      RedisCommandKind::FunctionFlush => "FUNCTION FLUSH",
-      RedisCommandKind::FunctionKill => "FUNCTION KILL",
-      RedisCommandKind::FunctionList => "FUNCTION LIST",
-      RedisCommandKind::FunctionLoad => "FUNCTION LOAD",
-      RedisCommandKind::FunctionRestore => "FUNCTION RESTORE",
-      RedisCommandKind::FunctionStats => "FUNCTION STATS",
-      RedisCommandKind::PubsubChannels => "PUBSUB CHANNELS",
-      RedisCommandKind::PubsubNumpat => "PUBSUB NUMPAT",
-      RedisCommandKind::PubsubNumsub => "PUBSUB NUMSUB",
-      RedisCommandKind::PubsubShardchannels => "PUBSUB SHARDCHANNELS",
-      RedisCommandKind::PubsubShardnumsub => "PUBSUB SHARDNUMSUB",
-      RedisCommandKind::JsonArrAppend => "JSON.ARRAPPEND",
-      RedisCommandKind::JsonArrIndex => "JSON.ARRINDEX",
-      RedisCommandKind::JsonArrInsert => "JSON.ARRINSERT",
-      RedisCommandKind::JsonArrLen => "JSON.ARRLEN",
-      RedisCommandKind::JsonArrPop => "JSON.ARRPOP",
-      RedisCommandKind::JsonArrTrim => "JSON.ARRTRIM",
-      RedisCommandKind::JsonClear => "JSON.CLEAR",
-      RedisCommandKind::JsonDebugMemory => "JSON.DEBUG MEMORY",
-      RedisCommandKind::JsonDel => "JSON.DEL",
-      RedisCommandKind::JsonGet => "JSON.GET",
-      RedisCommandKind::JsonMerge => "JSON.MERGE",
-      RedisCommandKind::JsonMGet => "JSON.MGET",
-      RedisCommandKind::JsonMSet => "JSON.MSET",
-      RedisCommandKind::JsonNumIncrBy => "JSON.NUMINCRBY",
-      RedisCommandKind::JsonObjKeys => "JSON.OBJKEYS",
-      RedisCommandKind::JsonObjLen => "JSON.OBJLEN",
-      RedisCommandKind::JsonResp => "JSON.RESP",
-      RedisCommandKind::JsonSet => "JSON.SET",
-      RedisCommandKind::JsonStrAppend => "JSON.STRAPPEND",
-      RedisCommandKind::JsonStrLen => "JSON.STRLEN",
-      RedisCommandKind::JsonToggle => "JSON.TOGGLE",
-      RedisCommandKind::JsonType => "JSON.TYPE",
-      RedisCommandKind::TsAdd => "TS.ADD",
-      RedisCommandKind::TsAlter => "TS.ALTER",
-      RedisCommandKind::TsCreate => "TS.CREATE",
-      RedisCommandKind::TsCreateRule => "TS.CREATERULE",
-      RedisCommandKind::TsDecrBy => "TS.DECRBY",
-      RedisCommandKind::TsDel => "TS.DEL",
-      RedisCommandKind::TsDeleteRule => "TS.DELETERULE",
-      RedisCommandKind::TsGet => "TS.GET",
-      RedisCommandKind::TsIncrBy => "TS.INCRBY",
-      RedisCommandKind::TsInfo => "TS.INFO",
-      RedisCommandKind::TsMAdd => "TS.MADD",
-      RedisCommandKind::TsMGet => "TS.MGET",
-      RedisCommandKind::TsMRange => "TS.MRANGE",
-      RedisCommandKind::TsMRevRange => "TS.MREVRANGE",
-      RedisCommandKind::TsQueryIndex => "TS.QUERYINDEX",
-      RedisCommandKind::TsRange => "TS.RANGE",
-      RedisCommandKind::TsRevRange => "TS.REVRANGE",
-      RedisCommandKind::FtList => "FT._LIST",
-      RedisCommandKind::FtAggregate => "FT.AGGREGATE",
-      RedisCommandKind::FtSearch => "FT.SEARCH",
-      RedisCommandKind::FtCreate => "FT.CREATE",
-      RedisCommandKind::FtAlter => "FT.ALTER",
-      RedisCommandKind::FtAliasAdd => "FT.ALIASADD",
-      RedisCommandKind::FtAliasDel => "FT.ALIASDEL",
-      RedisCommandKind::FtAliasUpdate => "FT.ALIASUPDATE",
-      RedisCommandKind::FtConfigGet => "FT.CONFIG GET",
-      RedisCommandKind::FtConfigSet => "FT.CONFIG SET",
-      RedisCommandKind::FtCursorDel => "FT.CURSOR DEL",
-      RedisCommandKind::FtCursorRead => "FT.CURSOR READ",
-      RedisCommandKind::FtDictAdd => "FT.DICTADD",
-      RedisCommandKind::FtDictDel => "FT.DICTDEL",
-      RedisCommandKind::FtDictDump => "FT.DICTDUMP",
-      RedisCommandKind::FtDropIndex => "FT.DROPINDEX",
-      RedisCommandKind::FtExplain => "FT.EXPLAIN",
-      RedisCommandKind::FtInfo => "FT.INFO",
-      RedisCommandKind::FtSpellCheck => "FT.SPELLCHECK",
-      RedisCommandKind::FtSugAdd => "FT.SUGADD",
-      RedisCommandKind::FtSugDel => "FT.SUGDEL",
-      RedisCommandKind::FtSugGet => "FT.SUGGET",
-      RedisCommandKind::FtSugLen => "FT.SUGLEN",
-      RedisCommandKind::FtSynDump => "FT.SYNDUMP",
-      RedisCommandKind::FtSynUpdate => "FT.SYNUPDATE",
-      RedisCommandKind::FtTagVals => "FT.TAGVALS",
-      RedisCommandKind::_Custom(ref kind) => &kind.cmd,
+      CommandKind::AclLoad => "ACL LOAD",
+      CommandKind::AclSave => "ACL SAVE",
+      CommandKind::AclList => "ACL LIST",
+      CommandKind::AclUsers => "ACL USERS",
+      CommandKind::AclGetUser => "ACL GETUSER",
+      CommandKind::AclSetUser => "ACL SETUSER",
+      CommandKind::AclDelUser => "ACL DELUSER",
+      CommandKind::AclCat => "ACL CAT",
+      CommandKind::AclGenPass => "ACL GENPASS",
+      CommandKind::AclWhoAmI => "ACL WHOAMI",
+      CommandKind::AclLog => "ACL LOG",
+      CommandKind::AclHelp => "ACL HELP",
+      CommandKind::Append => "APPEND",
+      CommandKind::Auth => "AUTH",
+      CommandKind::Asking => "ASKING",
+      CommandKind::BgreWriteAof => "BGREWRITEAOF",
+      CommandKind::BgSave => "BGSAVE",
+      CommandKind::BitCount => "BITCOUNT",
+      CommandKind::BitField => "BITFIELD",
+      CommandKind::BitOp => "BITOP",
+      CommandKind::BitPos => "BITPOS",
+      CommandKind::BlPop => "BLPOP",
+      CommandKind::BlMove => "BLMOVE",
+      CommandKind::BrPop => "BRPOP",
+      CommandKind::BzmPop => "BZMPOP",
+      CommandKind::BlmPop => "BLMPOP",
+      CommandKind::BrPopLPush => "BRPOPLPUSH",
+      CommandKind::BzPopMin => "BZPOPMIN",
+      CommandKind::BzPopMax => "BZPOPMAX",
+      CommandKind::ClientID => "CLIENT ID",
+      CommandKind::ClientInfo => "CLIENT INFO",
+      CommandKind::ClientKill => "CLIENT KILL",
+      CommandKind::ClientList => "CLIENT LIST",
+      CommandKind::ClientGetName => "CLIENT GETNAME",
+      CommandKind::ClientPause => "CLIENT PAUSE",
+      CommandKind::ClientUnpause => "CLIENT UNPAUSE",
+      CommandKind::ClientUnblock => "CLIENT UNBLOCK",
+      CommandKind::ClientReply => "CLIENT REPLY",
+      CommandKind::ClientSetname => "CLIENT SETNAME",
+      CommandKind::ClientGetRedir => "CLIENT GETREDIR",
+      CommandKind::ClientTracking => "CLIENT TRACKING",
+      CommandKind::ClientTrackingInfo => "CLIENT TRACKINGINFO",
+      CommandKind::ClientCaching => "CLIENT CACHING",
+      CommandKind::ClusterAddSlots => "CLUSTER ADDSLOTS",
+      CommandKind::ClusterCountFailureReports => "CLUSTER COUNT-FAILURE-REPORTS",
+      CommandKind::ClusterCountKeysInSlot => "CLUSTER COUNTKEYSINSLOT",
+      CommandKind::ClusterDelSlots => "CLUSTER DEL SLOTS",
+      CommandKind::ClusterFailOver => "CLUSTER FAILOVER",
+      CommandKind::ClusterForget => "CLUSTER FORGET",
+      CommandKind::ClusterGetKeysInSlot => "CLUSTER GETKEYSINSLOTS",
+      CommandKind::ClusterInfo => "CLUSTER INFO",
+      CommandKind::ClusterKeySlot => "CLUSTER KEYSLOT",
+      CommandKind::ClusterMeet => "CLUSTER MEET",
+      CommandKind::ClusterNodes => "CLUSTER NODES",
+      CommandKind::ClusterReplicate => "CLUSTER REPLICATE",
+      CommandKind::ClusterReset => "CLUSTER RESET",
+      CommandKind::ClusterSaveConfig => "CLUSTER SAVECONFIG",
+      CommandKind::ClusterSetConfigEpoch => "CLUSTER SET-CONFIG-EPOCH",
+      CommandKind::ClusterSetSlot => "CLUSTER SETSLOT",
+      CommandKind::ClusterReplicas => "CLUSTER REPLICAS",
+      CommandKind::ClusterSlots => "CLUSTER SLOTS",
+      CommandKind::ClusterBumpEpoch => "CLUSTER BUMPEPOCH",
+      CommandKind::ClusterFlushSlots => "CLUSTER FLUSHSLOTS",
+      CommandKind::ClusterMyID => "CLUSTER MYID",
+      CommandKind::ConfigGet => "CONFIG GET",
+      CommandKind::ConfigRewrite => "CONFIG REWRITE",
+      CommandKind::ConfigSet => "CONFIG SET",
+      CommandKind::ConfigResetStat => "CONFIG RESETSTAT",
+      CommandKind::Copy => "COPY",
+      CommandKind::DBSize => "DBSIZE",
+      CommandKind::Decr => "DECR",
+      CommandKind::DecrBy => "DECRBY",
+      CommandKind::Del => "DEL",
+      CommandKind::Discard => "DISCARD",
+      CommandKind::Dump => "DUMP",
+      CommandKind::Echo => "ECHO",
+      CommandKind::Eval => "EVAL",
+      CommandKind::EvalSha => "EVALSHA",
+      CommandKind::Exec => "EXEC",
+      CommandKind::Exists => "EXISTS",
+      CommandKind::Expire => "EXPIRE",
+      CommandKind::ExpireAt => "EXPIREAT",
+      CommandKind::ExpireTime => "EXPIRETIME",
+      CommandKind::Failover => "FAILOVER",
+      CommandKind::FlushAll => "FLUSHALL",
+      CommandKind::FlushDB => "FLUSHDB",
+      CommandKind::GeoAdd => "GEOADD",
+      CommandKind::GeoHash => "GEOHASH",
+      CommandKind::GeoPos => "GEOPOS",
+      CommandKind::GeoDist => "GEODIST",
+      CommandKind::GeoRadius => "GEORADIUS",
+      CommandKind::GeoRadiusByMember => "GEORADIUSBYMEMBER",
+      CommandKind::GeoSearch => "GEOSEARCH",
+      CommandKind::GeoSearchStore => "GEOSEARCHSTORE",
+      CommandKind::Get => "GET",
+      CommandKind::GetDel => "GETDEL",
+      CommandKind::GetBit => "GETBIT",
+      CommandKind::GetRange => "GETRANGE",
+      CommandKind::GetSet => "GETSET",
+      CommandKind::HDel => "HDEL",
+      CommandKind::_Hello(_) => "HELLO",
+      CommandKind::HExists => "HEXISTS",
+      CommandKind::HGet => "HGET",
+      CommandKind::HGetAll => "HGETALL",
+      CommandKind::HIncrBy => "HINCRBY",
+      CommandKind::HIncrByFloat => "HINCRBYFLOAT",
+      CommandKind::HKeys => "HKEYS",
+      CommandKind::HLen => "HLEN",
+      CommandKind::HMGet => "HMGET",
+      CommandKind::HMSet => "HMSET",
+      CommandKind::HSet => "HSET",
+      CommandKind::HSetNx => "HSETNX",
+      CommandKind::HStrLen => "HSTRLEN",
+      CommandKind::HRandField => "HRANDFIELD",
+      CommandKind::HTtl => "HTTL",
+      CommandKind::HExpire => "HEXPIRE",
+      CommandKind::HExpireAt => "HEXPIREAT",
+      CommandKind::HExpireTime => "HEXPIRETIME",
+      CommandKind::HPersist => "HPERSIST",
+      CommandKind::HPTtl => "HPTTL",
+      CommandKind::HPExpire => "HPEXPIRE",
+      CommandKind::HPExpireAt => "HPEXPIREAT",
+      CommandKind::HPExpireTime => "HPEXPIRETIME",
+      CommandKind::HVals => "HVALS",
+      CommandKind::Incr => "INCR",
+      CommandKind::IncrBy => "INCRBY",
+      CommandKind::IncrByFloat => "INCRBYFLOAT",
+      CommandKind::Info => "INFO",
+      CommandKind::Keys => "KEYS",
+      CommandKind::LastSave => "LASTSAVE",
+      CommandKind::LIndex => "LINDEX",
+      CommandKind::LInsert => "LINSERT",
+      CommandKind::LLen => "LLEN",
+      CommandKind::LMove => "LMOVE",
+      CommandKind::LPop => "LPOP",
+      CommandKind::LPos => "LPOS",
+      CommandKind::LPush => "LPUSH",
+      CommandKind::LPushX => "LPUSHX",
+      CommandKind::LRange => "LRANGE",
+      CommandKind::LMPop => "LMPOP",
+      CommandKind::LRem => "LREM",
+      CommandKind::LSet => "LSET",
+      CommandKind::LTrim => "LTRIM",
+      CommandKind::Lcs => "LCS",
+      CommandKind::MemoryDoctor => "MEMORY DOCTOR",
+      CommandKind::MemoryHelp => "MEMORY HELP",
+      CommandKind::MemoryMallocStats => "MEMORY MALLOC-STATS",
+      CommandKind::MemoryPurge => "MEMORY PURGE",
+      CommandKind::MemoryStats => "MEMORY STATS",
+      CommandKind::MemoryUsage => "MEMORY USAGE",
+      CommandKind::Mget => "MGET",
+      CommandKind::Migrate => "MIGRATE",
+      CommandKind::Monitor => "MONITOR",
+      CommandKind::Move => "MOVE",
+      CommandKind::Mset => "MSET",
+      CommandKind::Msetnx => "MSETNX",
+      CommandKind::Multi => "MULTI",
+      CommandKind::Object => "OBJECT",
+      CommandKind::Persist => "PERSIST",
+      CommandKind::Pexpire => "PEXPIRE",
+      CommandKind::Pexpireat => "PEXPIREAT",
+      CommandKind::PexpireTime => "PEXPIRETIME",
+      CommandKind::Pfadd => "PFADD",
+      CommandKind::Pfcount => "PFCOUNT",
+      CommandKind::Pfmerge => "PFMERGE",
+      CommandKind::Ping => "PING",
+      CommandKind::Psetex => "PSETEX",
+      CommandKind::Psubscribe => "PSUBSCRIBE",
+      CommandKind::Pttl => "PTTL",
+      CommandKind::Publish => "PUBLISH",
+      CommandKind::Punsubscribe => "PUNSUBSCRIBE",
+      CommandKind::Quit => "QUIT",
+      CommandKind::Randomkey => "RANDOMKEY",
+      CommandKind::Readonly => "READONLY",
+      CommandKind::Readwrite => "READWRITE",
+      CommandKind::Rename => "RENAME",
+      CommandKind::Renamenx => "RENAMENX",
+      CommandKind::Restore => "RESTORE",
+      CommandKind::Role => "ROLE",
+      CommandKind::Rpop => "RPOP",
+      CommandKind::Rpoplpush => "RPOPLPUSH",
+      CommandKind::Rpush => "RPUSH",
+      CommandKind::Rpushx => "RPUSHX",
+      CommandKind::Sadd => "SADD",
+      CommandKind::Save => "SAVE",
+      CommandKind::Scard => "SCARD",
+      CommandKind::Sdiff => "SDIFF",
+      CommandKind::Sdiffstore => "SDIFFSTORE",
+      CommandKind::Select => "SELECT",
+      CommandKind::Sentinel => "SENTINEL",
+      CommandKind::Set => "SET",
+      CommandKind::Setbit => "SETBIT",
+      CommandKind::Setex => "SETEX",
+      CommandKind::Setnx => "SETNX",
+      CommandKind::Setrange => "SETRANGE",
+      CommandKind::Shutdown => "SHUTDOWN",
+      CommandKind::Sinter => "SINTER",
+      CommandKind::Sinterstore => "SINTERSTORE",
+      CommandKind::Sismember => "SISMEMBER",
+      CommandKind::Replicaof => "REPLICAOF",
+      CommandKind::Slowlog => "SLOWLOG",
+      CommandKind::Smembers => "SMEMBERS",
+      CommandKind::Smismember => "SMISMEMBER",
+      CommandKind::Smove => "SMOVE",
+      CommandKind::Sort => "SORT",
+      CommandKind::SortRo => "SORT_RO",
+      CommandKind::Spop => "SPOP",
+      CommandKind::Srandmember => "SRANDMEMBER",
+      CommandKind::Srem => "SREM",
+      CommandKind::Strlen => "STRLEN",
+      CommandKind::Subscribe => "SUBSCRIBE",
+      CommandKind::Sunion => "SUNION",
+      CommandKind::Sunionstore => "SUNIONSTORE",
+      CommandKind::Swapdb => "SWAPDB",
+      CommandKind::Sync => "SYNC",
+      CommandKind::Time => "TIME",
+      CommandKind::Touch => "TOUCH",
+      CommandKind::Ttl => "TTL",
+      CommandKind::Type => "TYPE",
+      CommandKind::Unsubscribe => "UNSUBSCRIBE",
+      CommandKind::Unlink => "UNLINK",
+      CommandKind::Unwatch => "UNWATCH",
+      CommandKind::Wait => "WAIT",
+      CommandKind::Watch => "WATCH",
+      CommandKind::XinfoConsumers => "XINFO CONSUMERS",
+      CommandKind::XinfoGroups => "XINFO GROUPS",
+      CommandKind::XinfoStream => "XINFO STREAM",
+      CommandKind::Xadd => "XADD",
+      CommandKind::Xtrim => "XTRIM",
+      CommandKind::Xdel => "XDEL",
+      CommandKind::Xrange => "XRANGE",
+      CommandKind::Xrevrange => "XREVRANGE",
+      CommandKind::Xlen => "XLEN",
+      CommandKind::Xread => "XREAD",
+      CommandKind::Xgroupcreate => "XGROUP CREATE",
+      CommandKind::XgroupCreateConsumer => "XGROUP CREATECONSUMER",
+      CommandKind::XgroupDelConsumer => "XGROUP DELCONSUMER",
+      CommandKind::XgroupDestroy => "XGROUP DESTROY",
+      CommandKind::XgroupSetId => "XGROUP SETID",
+      CommandKind::Xreadgroup => "XREADGROUP",
+      CommandKind::Xack => "XACK",
+      CommandKind::Xclaim => "XCLAIM",
+      CommandKind::Xautoclaim => "XAUTOCLAIM",
+      CommandKind::Xpending => "XPENDING",
+      CommandKind::Zadd => "ZADD",
+      CommandKind::Zcard => "ZCARD",
+      CommandKind::Zcount => "ZCOUNT",
+      CommandKind::Zdiff => "ZDIFF",
+      CommandKind::Zdiffstore => "ZDIFFSTORE",
+      CommandKind::Zincrby => "ZINCRBY",
+      CommandKind::Zinter => "ZINTER",
+      CommandKind::Zinterstore => "ZINTERSTORE",
+      CommandKind::Zlexcount => "ZLEXCOUNT",
+      CommandKind::Zrandmember => "ZRANDMEMBER",
+      CommandKind::Zrange => "ZRANGE",
+      CommandKind::Zrangestore => "ZRANGESTORE",
+      CommandKind::Zrangebylex => "ZRANGEBYLEX",
+      CommandKind::Zrangebyscore => "ZRANGEBYSCORE",
+      CommandKind::Zrank => "ZRANK",
+      CommandKind::Zrem => "ZREM",
+      CommandKind::Zremrangebylex => "ZREMRANGEBYLEX",
+      CommandKind::Zremrangebyrank => "ZREMRANGEBYRANK",
+      CommandKind::Zremrangebyscore => "ZREMRANGEBYSCORE",
+      CommandKind::Zrevrange => "ZREVRANGE",
+      CommandKind::Zrevrangebylex => "ZREVRANGEBYLEX",
+      CommandKind::Zrevrangebyscore => "ZREVRANGEBYSCORE",
+      CommandKind::Zrevrank => "ZREVRANK",
+      CommandKind::Zscore => "ZSCORE",
+      CommandKind::Zmscore => "ZMSCORE",
+      CommandKind::Zunion => "ZUNION",
+      CommandKind::Zunionstore => "ZUNIONSTORE",
+      CommandKind::Zpopmax => "ZPOPMAX",
+      CommandKind::Zpopmin => "ZPOPMIN",
+      CommandKind::Zmpop => "ZMPOP",
+      CommandKind::Scan => "SCAN",
+      CommandKind::Sscan => "SSCAN",
+      CommandKind::Hscan => "HSCAN",
+      CommandKind::Zscan => "ZSCAN",
+      CommandKind::ScriptDebug => "SCRIPT DEBUG",
+      CommandKind::ScriptExists => "SCRIPT EXISTS",
+      CommandKind::ScriptFlush => "SCRIPT FLUSH",
+      CommandKind::ScriptKill => "SCRIPT KILL",
+      CommandKind::ScriptLoad => "SCRIPT LOAD",
+      CommandKind::Spublish => "SPUBLISH",
+      CommandKind::Ssubscribe => "SSUBSCRIBE",
+      CommandKind::Sunsubscribe => "SUNSUBSCRIBE",
+      CommandKind::_AuthAllCluster => "AUTH ALL CLUSTER",
+      CommandKind::_HelloAllCluster(_) => "HELLO ALL CLUSTER",
+      CommandKind::_FlushAllCluster => "FLUSHALL CLUSTER",
+      CommandKind::_ScriptFlushCluster => "SCRIPT FLUSH CLUSTER",
+      CommandKind::_ScriptLoadCluster => "SCRIPT LOAD CLUSTER",
+      CommandKind::_ScriptKillCluster => "SCRIPT Kill CLUSTER",
+      CommandKind::_FunctionLoadCluster => "FUNCTION LOAD CLUSTER",
+      CommandKind::_FunctionFlushCluster => "FUNCTION FLUSH CLUSTER",
+      CommandKind::_FunctionDeleteCluster => "FUNCTION DELETE CLUSTER",
+      CommandKind::_FunctionRestoreCluster => "FUNCTION RESTORE CLUSTER",
+      CommandKind::_ClientTrackingCluster => "CLIENT TRACKING CLUSTER",
+      CommandKind::Fcall => "FCALL",
+      CommandKind::FcallRO => "FCALL_RO",
+      CommandKind::FunctionDelete => "FUNCTION DELETE",
+      CommandKind::FunctionDump => "FUNCTION DUMP",
+      CommandKind::FunctionFlush => "FUNCTION FLUSH",
+      CommandKind::FunctionKill => "FUNCTION KILL",
+      CommandKind::FunctionList => "FUNCTION LIST",
+      CommandKind::FunctionLoad => "FUNCTION LOAD",
+      CommandKind::FunctionRestore => "FUNCTION RESTORE",
+      CommandKind::FunctionStats => "FUNCTION STATS",
+      CommandKind::PubsubChannels => "PUBSUB CHANNELS",
+      CommandKind::PubsubNumpat => "PUBSUB NUMPAT",
+      CommandKind::PubsubNumsub => "PUBSUB NUMSUB",
+      CommandKind::PubsubShardchannels => "PUBSUB SHARDCHANNELS",
+      CommandKind::PubsubShardnumsub => "PUBSUB SHARDNUMSUB",
+      CommandKind::JsonArrAppend => "JSON.ARRAPPEND",
+      CommandKind::JsonArrIndex => "JSON.ARRINDEX",
+      CommandKind::JsonArrInsert => "JSON.ARRINSERT",
+      CommandKind::JsonArrLen => "JSON.ARRLEN",
+      CommandKind::JsonArrPop => "JSON.ARRPOP",
+      CommandKind::JsonArrTrim => "JSON.ARRTRIM",
+      CommandKind::JsonClear => "JSON.CLEAR",
+      CommandKind::JsonDebugMemory => "JSON.DEBUG MEMORY",
+      CommandKind::JsonDel => "JSON.DEL",
+      CommandKind::JsonGet => "JSON.GET",
+      CommandKind::JsonMerge => "JSON.MERGE",
+      CommandKind::JsonMGet => "JSON.MGET",
+      CommandKind::JsonMSet => "JSON.MSET",
+      CommandKind::JsonNumIncrBy => "JSON.NUMINCRBY",
+      CommandKind::JsonObjKeys => "JSON.OBJKEYS",
+      CommandKind::JsonObjLen => "JSON.OBJLEN",
+      CommandKind::JsonResp => "JSON.RESP",
+      CommandKind::JsonSet => "JSON.SET",
+      CommandKind::JsonStrAppend => "JSON.STRAPPEND",
+      CommandKind::JsonStrLen => "JSON.STRLEN",
+      CommandKind::JsonToggle => "JSON.TOGGLE",
+      CommandKind::JsonType => "JSON.TYPE",
+      CommandKind::TsAdd => "TS.ADD",
+      CommandKind::TsAlter => "TS.ALTER",
+      CommandKind::TsCreate => "TS.CREATE",
+      CommandKind::TsCreateRule => "TS.CREATERULE",
+      CommandKind::TsDecrBy => "TS.DECRBY",
+      CommandKind::TsDel => "TS.DEL",
+      CommandKind::TsDeleteRule => "TS.DELETERULE",
+      CommandKind::TsGet => "TS.GET",
+      CommandKind::TsIncrBy => "TS.INCRBY",
+      CommandKind::TsInfo => "TS.INFO",
+      CommandKind::TsMAdd => "TS.MADD",
+      CommandKind::TsMGet => "TS.MGET",
+      CommandKind::TsMRange => "TS.MRANGE",
+      CommandKind::TsMRevRange => "TS.MREVRANGE",
+      CommandKind::TsQueryIndex => "TS.QUERYINDEX",
+      CommandKind::TsRange => "TS.RANGE",
+      CommandKind::TsRevRange => "TS.REVRANGE",
+      CommandKind::FtList => "FT._LIST",
+      CommandKind::FtAggregate => "FT.AGGREGATE",
+      CommandKind::FtSearch => "FT.SEARCH",
+      CommandKind::FtCreate => "FT.CREATE",
+      CommandKind::FtAlter => "FT.ALTER",
+      CommandKind::FtAliasAdd => "FT.ALIASADD",
+      CommandKind::FtAliasDel => "FT.ALIASDEL",
+      CommandKind::FtAliasUpdate => "FT.ALIASUPDATE",
+      CommandKind::FtConfigGet => "FT.CONFIG GET",
+      CommandKind::FtConfigSet => "FT.CONFIG SET",
+      CommandKind::FtCursorDel => "FT.CURSOR DEL",
+      CommandKind::FtCursorRead => "FT.CURSOR READ",
+      CommandKind::FtDictAdd => "FT.DICTADD",
+      CommandKind::FtDictDel => "FT.DICTDEL",
+      CommandKind::FtDictDump => "FT.DICTDUMP",
+      CommandKind::FtDropIndex => "FT.DROPINDEX",
+      CommandKind::FtExplain => "FT.EXPLAIN",
+      CommandKind::FtInfo => "FT.INFO",
+      CommandKind::FtSpellCheck => "FT.SPELLCHECK",
+      CommandKind::FtSugAdd => "FT.SUGADD",
+      CommandKind::FtSugDel => "FT.SUGDEL",
+      CommandKind::FtSugGet => "FT.SUGGET",
+      CommandKind::FtSugLen => "FT.SUGLEN",
+      CommandKind::FtSynDump => "FT.SYNDUMP",
+      CommandKind::FtSynUpdate => "FT.SYNUPDATE",
+      CommandKind::FtTagVals => "FT.TAGVALS",
+      CommandKind::_Custom(ref kind) => &kind.cmd,
     }
   }
 
@@ -935,382 +926,381 @@ impl RedisCommandKind {
   /// command.
   pub(crate) fn cmd_str(&self) -> Str {
     let s = match *self {
-      RedisCommandKind::AclLoad
-      | RedisCommandKind::AclSave
-      | RedisCommandKind::AclList
-      | RedisCommandKind::AclUsers
-      | RedisCommandKind::AclGetUser
-      | RedisCommandKind::AclSetUser
-      | RedisCommandKind::AclDelUser
-      | RedisCommandKind::AclCat
-      | RedisCommandKind::AclGenPass
-      | RedisCommandKind::AclWhoAmI
-      | RedisCommandKind::AclLog
-      | RedisCommandKind::AclHelp => "ACL",
-      RedisCommandKind::Append => "APPEND",
-      RedisCommandKind::Auth => "AUTH",
-      RedisCommandKind::Asking => "ASKING",
-      RedisCommandKind::BgreWriteAof => "BGREWRITEAOF",
-      RedisCommandKind::BgSave => "BGSAVE",
-      RedisCommandKind::BitCount => "BITCOUNT",
-      RedisCommandKind::BitField => "BITFIELD",
-      RedisCommandKind::BitOp => "BITOP",
-      RedisCommandKind::BitPos => "BITPOS",
-      RedisCommandKind::BlPop => "BLPOP",
-      RedisCommandKind::BlMove => "BLMOVE",
-      RedisCommandKind::BrPop => "BRPOP",
-      RedisCommandKind::BrPopLPush => "BRPOPLPUSH",
-      RedisCommandKind::BzPopMin => "BZPOPMIN",
-      RedisCommandKind::BzPopMax => "BZPOPMAX",
-      RedisCommandKind::BzmPop => "BZMPOP",
-      RedisCommandKind::BlmPop => "BLMPOP",
-      RedisCommandKind::ClientID
-      | RedisCommandKind::ClientInfo
-      | RedisCommandKind::ClientKill
-      | RedisCommandKind::ClientList
-      | RedisCommandKind::ClientGetName
-      | RedisCommandKind::ClientPause
-      | RedisCommandKind::ClientUnpause
-      | RedisCommandKind::ClientUnblock
-      | RedisCommandKind::ClientReply
-      | RedisCommandKind::ClientSetname
-      | RedisCommandKind::ClientCaching
-      | RedisCommandKind::ClientTrackingInfo
-      | RedisCommandKind::ClientTracking
-      | RedisCommandKind::ClientGetRedir => "CLIENT",
-      RedisCommandKind::ClusterAddSlots
-      | RedisCommandKind::ClusterCountFailureReports
-      | RedisCommandKind::ClusterCountKeysInSlot
-      | RedisCommandKind::ClusterDelSlots
-      | RedisCommandKind::ClusterFailOver
-      | RedisCommandKind::ClusterForget
-      | RedisCommandKind::ClusterGetKeysInSlot
-      | RedisCommandKind::ClusterInfo
-      | RedisCommandKind::ClusterKeySlot
-      | RedisCommandKind::ClusterMeet
-      | RedisCommandKind::ClusterNodes
-      | RedisCommandKind::ClusterReplicate
-      | RedisCommandKind::ClusterReset
-      | RedisCommandKind::ClusterSaveConfig
-      | RedisCommandKind::ClusterSetConfigEpoch
-      | RedisCommandKind::ClusterSetSlot
-      | RedisCommandKind::ClusterReplicas
-      | RedisCommandKind::ClusterSlots
-      | RedisCommandKind::ClusterBumpEpoch
-      | RedisCommandKind::ClusterFlushSlots
-      | RedisCommandKind::ClusterMyID => "CLUSTER",
-      RedisCommandKind::ConfigGet
-      | RedisCommandKind::ConfigRewrite
-      | RedisCommandKind::ConfigSet
-      | RedisCommandKind::ConfigResetStat => "CONFIG",
-      RedisCommandKind::Copy => "COPY",
-      RedisCommandKind::DBSize => "DBSIZE",
-      RedisCommandKind::Decr => "DECR",
-      RedisCommandKind::DecrBy => "DECRBY",
-      RedisCommandKind::Del => "DEL",
-      RedisCommandKind::Discard => "DISCARD",
-      RedisCommandKind::Dump => "DUMP",
-      RedisCommandKind::Echo => "ECHO",
-      RedisCommandKind::Eval => "EVAL",
-      RedisCommandKind::EvalSha => "EVALSHA",
-      RedisCommandKind::Exec => "EXEC",
-      RedisCommandKind::Exists => "EXISTS",
-      RedisCommandKind::Expire => "EXPIRE",
-      RedisCommandKind::ExpireAt => "EXPIREAT",
-      RedisCommandKind::ExpireTime => "EXPIRETIME",
-      RedisCommandKind::Failover => "FAILOVER",
-      RedisCommandKind::FlushAll => "FLUSHALL",
-      RedisCommandKind::_FlushAllCluster => "FLUSHALL",
-      RedisCommandKind::FlushDB => "FLUSHDB",
-      RedisCommandKind::GeoAdd => "GEOADD",
-      RedisCommandKind::GeoHash => "GEOHASH",
-      RedisCommandKind::GeoPos => "GEOPOS",
-      RedisCommandKind::GeoDist => "GEODIST",
-      RedisCommandKind::GeoRadius => "GEORADIUS",
-      RedisCommandKind::GeoRadiusByMember => "GEORADIUSBYMEMBER",
-      RedisCommandKind::GeoSearch => "GEOSEARCH",
-      RedisCommandKind::GeoSearchStore => "GEOSEARCHSTORE",
-      RedisCommandKind::Get => "GET",
-      RedisCommandKind::GetDel => "GETDEL",
-      RedisCommandKind::GetBit => "GETBIT",
-      RedisCommandKind::GetRange => "GETRANGE",
-      RedisCommandKind::GetSet => "GETSET",
-      RedisCommandKind::HDel => "HDEL",
-      RedisCommandKind::_Hello(_) => "HELLO",
-      RedisCommandKind::HExists => "HEXISTS",
-      RedisCommandKind::HGet => "HGET",
-      RedisCommandKind::HGetAll => "HGETALL",
-      RedisCommandKind::HIncrBy => "HINCRBY",
-      RedisCommandKind::HIncrByFloat => "HINCRBYFLOAT",
-      RedisCommandKind::HKeys => "HKEYS",
-      RedisCommandKind::HLen => "HLEN",
-      RedisCommandKind::HMGet => "HMGET",
-      RedisCommandKind::HMSet => "HMSET",
-      RedisCommandKind::HSet => "HSET",
-      RedisCommandKind::HSetNx => "HSETNX",
-      RedisCommandKind::HStrLen => "HSTRLEN",
-      RedisCommandKind::HRandField => "HRANDFIELD",
-      RedisCommandKind::HTtl => "HTTL",
-      RedisCommandKind::HExpire => "HEXPIRE",
-      RedisCommandKind::HExpireAt => "HEXPIREAT",
-      RedisCommandKind::HExpireTime => "HEXPIRETIME",
-      RedisCommandKind::HPersist => "HPERSIST",
-      RedisCommandKind::HPTtl => "HPTTL",
-      RedisCommandKind::HPExpire => "HPEXPIRE",
-      RedisCommandKind::HPExpireAt => "HPEXPIREAT",
-      RedisCommandKind::HPExpireTime => "HPEXPIRETIME",
-      RedisCommandKind::HVals => "HVALS",
-      RedisCommandKind::Incr => "INCR",
-      RedisCommandKind::IncrBy => "INCRBY",
-      RedisCommandKind::IncrByFloat => "INCRBYFLOAT",
-      RedisCommandKind::Info => "INFO",
-      RedisCommandKind::Keys => "KEYS",
-      RedisCommandKind::LastSave => "LASTSAVE",
-      RedisCommandKind::LIndex => "LINDEX",
-      RedisCommandKind::LInsert => "LINSERT",
-      RedisCommandKind::LLen => "LLEN",
-      RedisCommandKind::LMove => "LMOVE",
-      RedisCommandKind::LPop => "LPOP",
-      RedisCommandKind::LPos => "LPOS",
-      RedisCommandKind::LPush => "LPUSH",
-      RedisCommandKind::LPushX => "LPUSHX",
-      RedisCommandKind::LRange => "LRANGE",
-      RedisCommandKind::LMPop => "LMPOP",
-      RedisCommandKind::LRem => "LREM",
-      RedisCommandKind::LSet => "LSET",
-      RedisCommandKind::LTrim => "LTRIM",
-      RedisCommandKind::Lcs => "LCS",
-      RedisCommandKind::MemoryDoctor => "MEMORY",
-      RedisCommandKind::MemoryHelp => "MEMORY",
-      RedisCommandKind::MemoryMallocStats => "MEMORY",
-      RedisCommandKind::MemoryPurge => "MEMORY",
-      RedisCommandKind::MemoryStats => "MEMORY",
-      RedisCommandKind::MemoryUsage => "MEMORY",
-      RedisCommandKind::Mget => "MGET",
-      RedisCommandKind::Migrate => "MIGRATE",
-      RedisCommandKind::Monitor => "MONITOR",
-      RedisCommandKind::Move => "MOVE",
-      RedisCommandKind::Mset => "MSET",
-      RedisCommandKind::Msetnx => "MSETNX",
-      RedisCommandKind::Multi => "MULTI",
-      RedisCommandKind::Object => "OBJECT",
-      RedisCommandKind::Persist => "PERSIST",
-      RedisCommandKind::Pexpire => "PEXPIRE",
-      RedisCommandKind::Pexpireat => "PEXPIREAT",
-      RedisCommandKind::PexpireTime => "PEXPIRETIME",
-      RedisCommandKind::Pfadd => "PFADD",
-      RedisCommandKind::Pfcount => "PFCOUNT",
-      RedisCommandKind::Pfmerge => "PFMERGE",
-      RedisCommandKind::Ping => "PING",
-      RedisCommandKind::Psetex => "PSETEX",
-      RedisCommandKind::Psubscribe => "PSUBSCRIBE",
-      RedisCommandKind::Pttl => "PTTL",
-      RedisCommandKind::Publish => "PUBLISH",
-      RedisCommandKind::Punsubscribe => "PUNSUBSCRIBE",
-      RedisCommandKind::Quit => "QUIT",
-      RedisCommandKind::Randomkey => "RANDOMKEY",
-      RedisCommandKind::Readonly => "READONLY",
-      RedisCommandKind::Readwrite => "READWRITE",
-      RedisCommandKind::Rename => "RENAME",
-      RedisCommandKind::Renamenx => "RENAMENX",
-      RedisCommandKind::Restore => "RESTORE",
-      RedisCommandKind::Role => "ROLE",
-      RedisCommandKind::Rpop => "RPOP",
-      RedisCommandKind::Rpoplpush => "RPOPLPUSH",
-      RedisCommandKind::Rpush => "RPUSH",
-      RedisCommandKind::Rpushx => "RPUSHX",
-      RedisCommandKind::Sadd => "SADD",
-      RedisCommandKind::Save => "SAVE",
-      RedisCommandKind::Scard => "SCARD",
-      RedisCommandKind::Sdiff => "SDIFF",
-      RedisCommandKind::Sdiffstore => "SDIFFSTORE",
-      RedisCommandKind::Select => "SELECT",
-      RedisCommandKind::Sentinel => "SENTINEL",
-      RedisCommandKind::Set => "SET",
-      RedisCommandKind::Setbit => "SETBIT",
-      RedisCommandKind::Setex => "SETEX",
-      RedisCommandKind::Setnx => "SETNX",
-      RedisCommandKind::Setrange => "SETRANGE",
-      RedisCommandKind::Shutdown => "SHUTDOWN",
-      RedisCommandKind::Sinter => "SINTER",
-      RedisCommandKind::Sinterstore => "SINTERSTORE",
-      RedisCommandKind::Sismember => "SISMEMBER",
-      RedisCommandKind::Replicaof => "REPLICAOF",
-      RedisCommandKind::Slowlog => "SLOWLOG",
-      RedisCommandKind::Smembers => "SMEMBERS",
-      RedisCommandKind::Smismember => "SMISMEMBER",
-      RedisCommandKind::Smove => "SMOVE",
-      RedisCommandKind::Sort => "SORT",
-      RedisCommandKind::SortRo => "SORT_RO",
-      RedisCommandKind::Spop => "SPOP",
-      RedisCommandKind::Srandmember => "SRANDMEMBER",
-      RedisCommandKind::Srem => "SREM",
-      RedisCommandKind::Strlen => "STRLEN",
-      RedisCommandKind::Subscribe => "SUBSCRIBE",
-      RedisCommandKind::Sunion => "SUNION",
-      RedisCommandKind::Sunionstore => "SUNIONSTORE",
-      RedisCommandKind::Swapdb => "SWAPDB",
-      RedisCommandKind::Sync => "SYNC",
-      RedisCommandKind::Time => "TIME",
-      RedisCommandKind::Touch => "TOUCH",
-      RedisCommandKind::Ttl => "TTL",
-      RedisCommandKind::Type => "TYPE",
-      RedisCommandKind::Unsubscribe => "UNSUBSCRIBE",
-      RedisCommandKind::Unlink => "UNLINK",
-      RedisCommandKind::Unwatch => "UNWATCH",
-      RedisCommandKind::Wait => "WAIT",
-      RedisCommandKind::Watch => "WATCH",
-      RedisCommandKind::XinfoConsumers | RedisCommandKind::XinfoGroups | RedisCommandKind::XinfoStream => "XINFO",
-      RedisCommandKind::Xadd => "XADD",
-      RedisCommandKind::Xtrim => "XTRIM",
-      RedisCommandKind::Xdel => "XDEL",
-      RedisCommandKind::Xrange => "XRANGE",
-      RedisCommandKind::Xrevrange => "XREVRANGE",
-      RedisCommandKind::Xlen => "XLEN",
-      RedisCommandKind::Xread => "XREAD",
-      RedisCommandKind::Xgroupcreate
-      | RedisCommandKind::XgroupCreateConsumer
-      | RedisCommandKind::XgroupDelConsumer
-      | RedisCommandKind::XgroupDestroy
-      | RedisCommandKind::XgroupSetId => "XGROUP",
-      RedisCommandKind::Xreadgroup => "XREADGROUP",
-      RedisCommandKind::Xack => "XACK",
-      RedisCommandKind::Xclaim => "XCLAIM",
-      RedisCommandKind::Xautoclaim => "XAUTOCLAIM",
-      RedisCommandKind::Xpending => "XPENDING",
-      RedisCommandKind::Zadd => "ZADD",
-      RedisCommandKind::Zcard => "ZCARD",
-      RedisCommandKind::Zcount => "ZCOUNT",
-      RedisCommandKind::Zdiff => "ZDIFF",
-      RedisCommandKind::Zdiffstore => "ZDIFFSTORE",
-      RedisCommandKind::Zincrby => "ZINCRBY",
-      RedisCommandKind::Zinter => "ZINTER",
-      RedisCommandKind::Zinterstore => "ZINTERSTORE",
-      RedisCommandKind::Zlexcount => "ZLEXCOUNT",
-      RedisCommandKind::Zrandmember => "ZRANDMEMBER",
-      RedisCommandKind::Zrange => "ZRANGE",
-      RedisCommandKind::Zrangestore => "ZRANGESTORE",
-      RedisCommandKind::Zrangebylex => "ZRANGEBYLEX",
-      RedisCommandKind::Zrangebyscore => "ZRANGEBYSCORE",
-      RedisCommandKind::Zrank => "ZRANK",
-      RedisCommandKind::Zrem => "ZREM",
-      RedisCommandKind::Zremrangebylex => "ZREMRANGEBYLEX",
-      RedisCommandKind::Zremrangebyrank => "ZREMRANGEBYRANK",
-      RedisCommandKind::Zremrangebyscore => "ZREMRANGEBYSCORE",
-      RedisCommandKind::Zrevrange => "ZREVRANGE",
-      RedisCommandKind::Zrevrangebylex => "ZREVRANGEBYLEX",
-      RedisCommandKind::Zrevrangebyscore => "ZREVRANGEBYSCORE",
-      RedisCommandKind::Zrevrank => "ZREVRANK",
-      RedisCommandKind::Zscore => "ZSCORE",
-      RedisCommandKind::Zmscore => "ZMSCORE",
-      RedisCommandKind::Zunion => "ZUNION",
-      RedisCommandKind::Zunionstore => "ZUNIONSTORE",
-      RedisCommandKind::Zpopmax => "ZPOPMAX",
-      RedisCommandKind::Zpopmin => "ZPOPMIN",
-      RedisCommandKind::Zmpop => "ZMPOP",
-      RedisCommandKind::ScriptDebug
-      | RedisCommandKind::ScriptExists
-      | RedisCommandKind::ScriptFlush
-      | RedisCommandKind::ScriptKill
-      | RedisCommandKind::ScriptLoad
-      | RedisCommandKind::_ScriptFlushCluster
-      | RedisCommandKind::_ScriptKillCluster
-      | RedisCommandKind::_ScriptLoadCluster => "SCRIPT",
-      RedisCommandKind::Spublish => "SPUBLISH",
-      RedisCommandKind::Ssubscribe => "SSUBSCRIBE",
-      RedisCommandKind::Sunsubscribe => "SUNSUBSCRIBE",
-      RedisCommandKind::Scan => "SCAN",
-      RedisCommandKind::Sscan => "SSCAN",
-      RedisCommandKind::Hscan => "HSCAN",
-      RedisCommandKind::Zscan => "ZSCAN",
-      RedisCommandKind::Fcall => "FCALL",
-      RedisCommandKind::FcallRO => "FCALL_RO",
-      RedisCommandKind::FunctionDelete
-      | RedisCommandKind::FunctionDump
-      | RedisCommandKind::FunctionFlush
-      | RedisCommandKind::FunctionKill
-      | RedisCommandKind::FunctionList
-      | RedisCommandKind::FunctionLoad
-      | RedisCommandKind::FunctionRestore
-      | RedisCommandKind::FunctionStats
-      | RedisCommandKind::_FunctionFlushCluster
-      | RedisCommandKind::_FunctionRestoreCluster
-      | RedisCommandKind::_FunctionDeleteCluster
-      | RedisCommandKind::_FunctionLoadCluster => "FUNCTION",
-      RedisCommandKind::PubsubChannels
-      | RedisCommandKind::PubsubNumpat
-      | RedisCommandKind::PubsubNumsub
-      | RedisCommandKind::PubsubShardchannels
-      | RedisCommandKind::PubsubShardnumsub => "PUBSUB",
-      RedisCommandKind::_AuthAllCluster => "AUTH",
-      RedisCommandKind::_HelloAllCluster(_) => "HELLO",
-      RedisCommandKind::_ClientTrackingCluster => "CLIENT",
-      RedisCommandKind::JsonArrAppend => "JSON.ARRAPPEND",
-      RedisCommandKind::JsonArrIndex => "JSON.ARRINDEX",
-      RedisCommandKind::JsonArrInsert => "JSON.ARRINSERT",
-      RedisCommandKind::JsonArrLen => "JSON.ARRLEN",
-      RedisCommandKind::JsonArrPop => "JSON.ARRPOP",
-      RedisCommandKind::JsonArrTrim => "JSON.ARRTRIM",
-      RedisCommandKind::JsonClear => "JSON.CLEAR",
-      RedisCommandKind::JsonDebugMemory => "JSON.DEBUG",
-      RedisCommandKind::JsonDel => "JSON.DEL",
-      RedisCommandKind::JsonGet => "JSON.GET",
-      RedisCommandKind::JsonMerge => "JSON.MERGE",
-      RedisCommandKind::JsonMGet => "JSON.MGET",
-      RedisCommandKind::JsonMSet => "JSON.MSET",
-      RedisCommandKind::JsonNumIncrBy => "JSON.NUMINCRBY",
-      RedisCommandKind::JsonObjKeys => "JSON.OBJKEYS",
-      RedisCommandKind::JsonObjLen => "JSON.OBJLEN",
-      RedisCommandKind::JsonResp => "JSON.RESP",
-      RedisCommandKind::JsonSet => "JSON.SET",
-      RedisCommandKind::JsonStrAppend => "JSON.STRAPPEND",
-      RedisCommandKind::JsonStrLen => "JSON.STRLEN",
-      RedisCommandKind::JsonToggle => "JSON.TOGGLE",
-      RedisCommandKind::JsonType => "JSON.TYPE",
-      RedisCommandKind::TsAdd => "TS.ADD",
-      RedisCommandKind::TsAlter => "TS.ALTER",
-      RedisCommandKind::TsCreate => "TS.CREATE",
-      RedisCommandKind::TsCreateRule => "TS.CREATERULE",
-      RedisCommandKind::TsDecrBy => "TS.DECRBY",
-      RedisCommandKind::TsDel => "TS.DEL",
-      RedisCommandKind::TsDeleteRule => "TS.DELETERULE",
-      RedisCommandKind::TsGet => "TS.GET",
-      RedisCommandKind::TsIncrBy => "TS.INCRBY",
-      RedisCommandKind::TsInfo => "TS.INFO",
-      RedisCommandKind::TsMAdd => "TS.MADD",
-      RedisCommandKind::TsMGet => "TS.MGET",
-      RedisCommandKind::TsMRange => "TS.MRANGE",
-      RedisCommandKind::TsMRevRange => "TS.MREVRANGE",
-      RedisCommandKind::TsQueryIndex => "TS.QUERYINDEX",
-      RedisCommandKind::TsRange => "TS.RANGE",
-      RedisCommandKind::TsRevRange => "TS.REVRANGE",
-      RedisCommandKind::FtList => "FT._LIST",
-      RedisCommandKind::FtAggregate => "FT.AGGREGATE",
-      RedisCommandKind::FtSearch => "FT.SEARCH",
-      RedisCommandKind::FtCreate => "FT.CREATE",
-      RedisCommandKind::FtAlter => "FT.ALTER",
-      RedisCommandKind::FtAliasAdd => "FT.ALIASADD",
-      RedisCommandKind::FtAliasDel => "FT.ALIASDEL",
-      RedisCommandKind::FtAliasUpdate => "FT.ALIASUPDATE",
-      RedisCommandKind::FtConfigGet => "FT.CONFIG",
-      RedisCommandKind::FtConfigSet => "FT.CONFIG",
-      RedisCommandKind::FtCursorDel => "FT.CURSOR",
-      RedisCommandKind::FtCursorRead => "FT.CURSOR",
-      RedisCommandKind::FtDictAdd => "FT.DICTADD",
-      RedisCommandKind::FtDictDel => "FT.DICTDEL",
-      RedisCommandKind::FtDictDump => "FT.DICTDUMP",
-      RedisCommandKind::FtDropIndex => "FT.DROPINDEX",
-      RedisCommandKind::FtExplain => "FT.EXPLAIN",
-      RedisCommandKind::FtInfo => "FT.INFO",
-      RedisCommandKind::FtSpellCheck => "FT.SPELLCHECK",
-      RedisCommandKind::FtSugAdd => "FT.SUGADD",
-      RedisCommandKind::FtSugDel => "FT.SUGDEL",
-      RedisCommandKind::FtSugGet => "FT.SUGGET",
-      RedisCommandKind::FtSugLen => "FT.SUGLEN",
-      RedisCommandKind::FtSynDump => "FT.SYNDUMP",
-      RedisCommandKind::FtSynUpdate => "FT.SYNUPDATE",
-      RedisCommandKind::FtTagVals => "FT.TAGVALS",
-      RedisCommandKind::_Custom(ref kind) => return kind.cmd.clone(),
+      CommandKind::AclLoad
+      | CommandKind::AclSave
+      | CommandKind::AclList
+      | CommandKind::AclUsers
+      | CommandKind::AclGetUser
+      | CommandKind::AclSetUser
+      | CommandKind::AclDelUser
+      | CommandKind::AclCat
+      | CommandKind::AclGenPass
+      | CommandKind::AclWhoAmI
+      | CommandKind::AclLog
+      | CommandKind::AclHelp => "ACL",
+      CommandKind::Append => "APPEND",
+      CommandKind::Auth => "AUTH",
+      CommandKind::Asking => "ASKING",
+      CommandKind::BgreWriteAof => "BGREWRITEAOF",
+      CommandKind::BgSave => "BGSAVE",
+      CommandKind::BitCount => "BITCOUNT",
+      CommandKind::BitField => "BITFIELD",
+      CommandKind::BitOp => "BITOP",
+      CommandKind::BitPos => "BITPOS",
+      CommandKind::BlPop => "BLPOP",
+      CommandKind::BlMove => "BLMOVE",
+      CommandKind::BrPop => "BRPOP",
+      CommandKind::BrPopLPush => "BRPOPLPUSH",
+      CommandKind::BzPopMin => "BZPOPMIN",
+      CommandKind::BzPopMax => "BZPOPMAX",
+      CommandKind::BzmPop => "BZMPOP",
+      CommandKind::BlmPop => "BLMPOP",
+      CommandKind::ClientID
+      | CommandKind::ClientInfo
+      | CommandKind::ClientKill
+      | CommandKind::ClientList
+      | CommandKind::ClientGetName
+      | CommandKind::ClientPause
+      | CommandKind::ClientUnpause
+      | CommandKind::ClientUnblock
+      | CommandKind::ClientReply
+      | CommandKind::ClientSetname
+      | CommandKind::ClientCaching
+      | CommandKind::ClientTrackingInfo
+      | CommandKind::ClientTracking
+      | CommandKind::ClientGetRedir => "CLIENT",
+      CommandKind::ClusterAddSlots
+      | CommandKind::ClusterCountFailureReports
+      | CommandKind::ClusterCountKeysInSlot
+      | CommandKind::ClusterDelSlots
+      | CommandKind::ClusterFailOver
+      | CommandKind::ClusterForget
+      | CommandKind::ClusterGetKeysInSlot
+      | CommandKind::ClusterInfo
+      | CommandKind::ClusterKeySlot
+      | CommandKind::ClusterMeet
+      | CommandKind::ClusterNodes
+      | CommandKind::ClusterReplicate
+      | CommandKind::ClusterReset
+      | CommandKind::ClusterSaveConfig
+      | CommandKind::ClusterSetConfigEpoch
+      | CommandKind::ClusterSetSlot
+      | CommandKind::ClusterReplicas
+      | CommandKind::ClusterSlots
+      | CommandKind::ClusterBumpEpoch
+      | CommandKind::ClusterFlushSlots
+      | CommandKind::ClusterMyID => "CLUSTER",
+      CommandKind::ConfigGet | CommandKind::ConfigRewrite | CommandKind::ConfigSet | CommandKind::ConfigResetStat => {
+        "CONFIG"
+      },
+      CommandKind::Copy => "COPY",
+      CommandKind::DBSize => "DBSIZE",
+      CommandKind::Decr => "DECR",
+      CommandKind::DecrBy => "DECRBY",
+      CommandKind::Del => "DEL",
+      CommandKind::Discard => "DISCARD",
+      CommandKind::Dump => "DUMP",
+      CommandKind::Echo => "ECHO",
+      CommandKind::Eval => "EVAL",
+      CommandKind::EvalSha => "EVALSHA",
+      CommandKind::Exec => "EXEC",
+      CommandKind::Exists => "EXISTS",
+      CommandKind::Expire => "EXPIRE",
+      CommandKind::ExpireAt => "EXPIREAT",
+      CommandKind::ExpireTime => "EXPIRETIME",
+      CommandKind::Failover => "FAILOVER",
+      CommandKind::FlushAll => "FLUSHALL",
+      CommandKind::_FlushAllCluster => "FLUSHALL",
+      CommandKind::FlushDB => "FLUSHDB",
+      CommandKind::GeoAdd => "GEOADD",
+      CommandKind::GeoHash => "GEOHASH",
+      CommandKind::GeoPos => "GEOPOS",
+      CommandKind::GeoDist => "GEODIST",
+      CommandKind::GeoRadius => "GEORADIUS",
+      CommandKind::GeoRadiusByMember => "GEORADIUSBYMEMBER",
+      CommandKind::GeoSearch => "GEOSEARCH",
+      CommandKind::GeoSearchStore => "GEOSEARCHSTORE",
+      CommandKind::Get => "GET",
+      CommandKind::GetDel => "GETDEL",
+      CommandKind::GetBit => "GETBIT",
+      CommandKind::GetRange => "GETRANGE",
+      CommandKind::GetSet => "GETSET",
+      CommandKind::HDel => "HDEL",
+      CommandKind::_Hello(_) => "HELLO",
+      CommandKind::HExists => "HEXISTS",
+      CommandKind::HGet => "HGET",
+      CommandKind::HGetAll => "HGETALL",
+      CommandKind::HIncrBy => "HINCRBY",
+      CommandKind::HIncrByFloat => "HINCRBYFLOAT",
+      CommandKind::HKeys => "HKEYS",
+      CommandKind::HLen => "HLEN",
+      CommandKind::HMGet => "HMGET",
+      CommandKind::HMSet => "HMSET",
+      CommandKind::HSet => "HSET",
+      CommandKind::HSetNx => "HSETNX",
+      CommandKind::HStrLen => "HSTRLEN",
+      CommandKind::HRandField => "HRANDFIELD",
+      CommandKind::HTtl => "HTTL",
+      CommandKind::HExpire => "HEXPIRE",
+      CommandKind::HExpireAt => "HEXPIREAT",
+      CommandKind::HExpireTime => "HEXPIRETIME",
+      CommandKind::HPersist => "HPERSIST",
+      CommandKind::HPTtl => "HPTTL",
+      CommandKind::HPExpire => "HPEXPIRE",
+      CommandKind::HPExpireAt => "HPEXPIREAT",
+      CommandKind::HPExpireTime => "HPEXPIRETIME",
+      CommandKind::HVals => "HVALS",
+      CommandKind::Incr => "INCR",
+      CommandKind::IncrBy => "INCRBY",
+      CommandKind::IncrByFloat => "INCRBYFLOAT",
+      CommandKind::Info => "INFO",
+      CommandKind::Keys => "KEYS",
+      CommandKind::LastSave => "LASTSAVE",
+      CommandKind::LIndex => "LINDEX",
+      CommandKind::LInsert => "LINSERT",
+      CommandKind::LLen => "LLEN",
+      CommandKind::LMove => "LMOVE",
+      CommandKind::LPop => "LPOP",
+      CommandKind::LPos => "LPOS",
+      CommandKind::LPush => "LPUSH",
+      CommandKind::LPushX => "LPUSHX",
+      CommandKind::LRange => "LRANGE",
+      CommandKind::LMPop => "LMPOP",
+      CommandKind::LRem => "LREM",
+      CommandKind::LSet => "LSET",
+      CommandKind::LTrim => "LTRIM",
+      CommandKind::Lcs => "LCS",
+      CommandKind::MemoryDoctor => "MEMORY",
+      CommandKind::MemoryHelp => "MEMORY",
+      CommandKind::MemoryMallocStats => "MEMORY",
+      CommandKind::MemoryPurge => "MEMORY",
+      CommandKind::MemoryStats => "MEMORY",
+      CommandKind::MemoryUsage => "MEMORY",
+      CommandKind::Mget => "MGET",
+      CommandKind::Migrate => "MIGRATE",
+      CommandKind::Monitor => "MONITOR",
+      CommandKind::Move => "MOVE",
+      CommandKind::Mset => "MSET",
+      CommandKind::Msetnx => "MSETNX",
+      CommandKind::Multi => "MULTI",
+      CommandKind::Object => "OBJECT",
+      CommandKind::Persist => "PERSIST",
+      CommandKind::Pexpire => "PEXPIRE",
+      CommandKind::Pexpireat => "PEXPIREAT",
+      CommandKind::PexpireTime => "PEXPIRETIME",
+      CommandKind::Pfadd => "PFADD",
+      CommandKind::Pfcount => "PFCOUNT",
+      CommandKind::Pfmerge => "PFMERGE",
+      CommandKind::Ping => "PING",
+      CommandKind::Psetex => "PSETEX",
+      CommandKind::Psubscribe => "PSUBSCRIBE",
+      CommandKind::Pttl => "PTTL",
+      CommandKind::Publish => "PUBLISH",
+      CommandKind::Punsubscribe => "PUNSUBSCRIBE",
+      CommandKind::Quit => "QUIT",
+      CommandKind::Randomkey => "RANDOMKEY",
+      CommandKind::Readonly => "READONLY",
+      CommandKind::Readwrite => "READWRITE",
+      CommandKind::Rename => "RENAME",
+      CommandKind::Renamenx => "RENAMENX",
+      CommandKind::Restore => "RESTORE",
+      CommandKind::Role => "ROLE",
+      CommandKind::Rpop => "RPOP",
+      CommandKind::Rpoplpush => "RPOPLPUSH",
+      CommandKind::Rpush => "RPUSH",
+      CommandKind::Rpushx => "RPUSHX",
+      CommandKind::Sadd => "SADD",
+      CommandKind::Save => "SAVE",
+      CommandKind::Scard => "SCARD",
+      CommandKind::Sdiff => "SDIFF",
+      CommandKind::Sdiffstore => "SDIFFSTORE",
+      CommandKind::Select => "SELECT",
+      CommandKind::Sentinel => "SENTINEL",
+      CommandKind::Set => "SET",
+      CommandKind::Setbit => "SETBIT",
+      CommandKind::Setex => "SETEX",
+      CommandKind::Setnx => "SETNX",
+      CommandKind::Setrange => "SETRANGE",
+      CommandKind::Shutdown => "SHUTDOWN",
+      CommandKind::Sinter => "SINTER",
+      CommandKind::Sinterstore => "SINTERSTORE",
+      CommandKind::Sismember => "SISMEMBER",
+      CommandKind::Replicaof => "REPLICAOF",
+      CommandKind::Slowlog => "SLOWLOG",
+      CommandKind::Smembers => "SMEMBERS",
+      CommandKind::Smismember => "SMISMEMBER",
+      CommandKind::Smove => "SMOVE",
+      CommandKind::Sort => "SORT",
+      CommandKind::SortRo => "SORT_RO",
+      CommandKind::Spop => "SPOP",
+      CommandKind::Srandmember => "SRANDMEMBER",
+      CommandKind::Srem => "SREM",
+      CommandKind::Strlen => "STRLEN",
+      CommandKind::Subscribe => "SUBSCRIBE",
+      CommandKind::Sunion => "SUNION",
+      CommandKind::Sunionstore => "SUNIONSTORE",
+      CommandKind::Swapdb => "SWAPDB",
+      CommandKind::Sync => "SYNC",
+      CommandKind::Time => "TIME",
+      CommandKind::Touch => "TOUCH",
+      CommandKind::Ttl => "TTL",
+      CommandKind::Type => "TYPE",
+      CommandKind::Unsubscribe => "UNSUBSCRIBE",
+      CommandKind::Unlink => "UNLINK",
+      CommandKind::Unwatch => "UNWATCH",
+      CommandKind::Wait => "WAIT",
+      CommandKind::Watch => "WATCH",
+      CommandKind::XinfoConsumers | CommandKind::XinfoGroups | CommandKind::XinfoStream => "XINFO",
+      CommandKind::Xadd => "XADD",
+      CommandKind::Xtrim => "XTRIM",
+      CommandKind::Xdel => "XDEL",
+      CommandKind::Xrange => "XRANGE",
+      CommandKind::Xrevrange => "XREVRANGE",
+      CommandKind::Xlen => "XLEN",
+      CommandKind::Xread => "XREAD",
+      CommandKind::Xgroupcreate
+      | CommandKind::XgroupCreateConsumer
+      | CommandKind::XgroupDelConsumer
+      | CommandKind::XgroupDestroy
+      | CommandKind::XgroupSetId => "XGROUP",
+      CommandKind::Xreadgroup => "XREADGROUP",
+      CommandKind::Xack => "XACK",
+      CommandKind::Xclaim => "XCLAIM",
+      CommandKind::Xautoclaim => "XAUTOCLAIM",
+      CommandKind::Xpending => "XPENDING",
+      CommandKind::Zadd => "ZADD",
+      CommandKind::Zcard => "ZCARD",
+      CommandKind::Zcount => "ZCOUNT",
+      CommandKind::Zdiff => "ZDIFF",
+      CommandKind::Zdiffstore => "ZDIFFSTORE",
+      CommandKind::Zincrby => "ZINCRBY",
+      CommandKind::Zinter => "ZINTER",
+      CommandKind::Zinterstore => "ZINTERSTORE",
+      CommandKind::Zlexcount => "ZLEXCOUNT",
+      CommandKind::Zrandmember => "ZRANDMEMBER",
+      CommandKind::Zrange => "ZRANGE",
+      CommandKind::Zrangestore => "ZRANGESTORE",
+      CommandKind::Zrangebylex => "ZRANGEBYLEX",
+      CommandKind::Zrangebyscore => "ZRANGEBYSCORE",
+      CommandKind::Zrank => "ZRANK",
+      CommandKind::Zrem => "ZREM",
+      CommandKind::Zremrangebylex => "ZREMRANGEBYLEX",
+      CommandKind::Zremrangebyrank => "ZREMRANGEBYRANK",
+      CommandKind::Zremrangebyscore => "ZREMRANGEBYSCORE",
+      CommandKind::Zrevrange => "ZREVRANGE",
+      CommandKind::Zrevrangebylex => "ZREVRANGEBYLEX",
+      CommandKind::Zrevrangebyscore => "ZREVRANGEBYSCORE",
+      CommandKind::Zrevrank => "ZREVRANK",
+      CommandKind::Zscore => "ZSCORE",
+      CommandKind::Zmscore => "ZMSCORE",
+      CommandKind::Zunion => "ZUNION",
+      CommandKind::Zunionstore => "ZUNIONSTORE",
+      CommandKind::Zpopmax => "ZPOPMAX",
+      CommandKind::Zpopmin => "ZPOPMIN",
+      CommandKind::Zmpop => "ZMPOP",
+      CommandKind::ScriptDebug
+      | CommandKind::ScriptExists
+      | CommandKind::ScriptFlush
+      | CommandKind::ScriptKill
+      | CommandKind::ScriptLoad
+      | CommandKind::_ScriptFlushCluster
+      | CommandKind::_ScriptKillCluster
+      | CommandKind::_ScriptLoadCluster => "SCRIPT",
+      CommandKind::Spublish => "SPUBLISH",
+      CommandKind::Ssubscribe => "SSUBSCRIBE",
+      CommandKind::Sunsubscribe => "SUNSUBSCRIBE",
+      CommandKind::Scan => "SCAN",
+      CommandKind::Sscan => "SSCAN",
+      CommandKind::Hscan => "HSCAN",
+      CommandKind::Zscan => "ZSCAN",
+      CommandKind::Fcall => "FCALL",
+      CommandKind::FcallRO => "FCALL_RO",
+      CommandKind::FunctionDelete
+      | CommandKind::FunctionDump
+      | CommandKind::FunctionFlush
+      | CommandKind::FunctionKill
+      | CommandKind::FunctionList
+      | CommandKind::FunctionLoad
+      | CommandKind::FunctionRestore
+      | CommandKind::FunctionStats
+      | CommandKind::_FunctionFlushCluster
+      | CommandKind::_FunctionRestoreCluster
+      | CommandKind::_FunctionDeleteCluster
+      | CommandKind::_FunctionLoadCluster => "FUNCTION",
+      CommandKind::PubsubChannels
+      | CommandKind::PubsubNumpat
+      | CommandKind::PubsubNumsub
+      | CommandKind::PubsubShardchannels
+      | CommandKind::PubsubShardnumsub => "PUBSUB",
+      CommandKind::_AuthAllCluster => "AUTH",
+      CommandKind::_HelloAllCluster(_) => "HELLO",
+      CommandKind::_ClientTrackingCluster => "CLIENT",
+      CommandKind::JsonArrAppend => "JSON.ARRAPPEND",
+      CommandKind::JsonArrIndex => "JSON.ARRINDEX",
+      CommandKind::JsonArrInsert => "JSON.ARRINSERT",
+      CommandKind::JsonArrLen => "JSON.ARRLEN",
+      CommandKind::JsonArrPop => "JSON.ARRPOP",
+      CommandKind::JsonArrTrim => "JSON.ARRTRIM",
+      CommandKind::JsonClear => "JSON.CLEAR",
+      CommandKind::JsonDebugMemory => "JSON.DEBUG",
+      CommandKind::JsonDel => "JSON.DEL",
+      CommandKind::JsonGet => "JSON.GET",
+      CommandKind::JsonMerge => "JSON.MERGE",
+      CommandKind::JsonMGet => "JSON.MGET",
+      CommandKind::JsonMSet => "JSON.MSET",
+      CommandKind::JsonNumIncrBy => "JSON.NUMINCRBY",
+      CommandKind::JsonObjKeys => "JSON.OBJKEYS",
+      CommandKind::JsonObjLen => "JSON.OBJLEN",
+      CommandKind::JsonResp => "JSON.RESP",
+      CommandKind::JsonSet => "JSON.SET",
+      CommandKind::JsonStrAppend => "JSON.STRAPPEND",
+      CommandKind::JsonStrLen => "JSON.STRLEN",
+      CommandKind::JsonToggle => "JSON.TOGGLE",
+      CommandKind::JsonType => "JSON.TYPE",
+      CommandKind::TsAdd => "TS.ADD",
+      CommandKind::TsAlter => "TS.ALTER",
+      CommandKind::TsCreate => "TS.CREATE",
+      CommandKind::TsCreateRule => "TS.CREATERULE",
+      CommandKind::TsDecrBy => "TS.DECRBY",
+      CommandKind::TsDel => "TS.DEL",
+      CommandKind::TsDeleteRule => "TS.DELETERULE",
+      CommandKind::TsGet => "TS.GET",
+      CommandKind::TsIncrBy => "TS.INCRBY",
+      CommandKind::TsInfo => "TS.INFO",
+      CommandKind::TsMAdd => "TS.MADD",
+      CommandKind::TsMGet => "TS.MGET",
+      CommandKind::TsMRange => "TS.MRANGE",
+      CommandKind::TsMRevRange => "TS.MREVRANGE",
+      CommandKind::TsQueryIndex => "TS.QUERYINDEX",
+      CommandKind::TsRange => "TS.RANGE",
+      CommandKind::TsRevRange => "TS.REVRANGE",
+      CommandKind::FtList => "FT._LIST",
+      CommandKind::FtAggregate => "FT.AGGREGATE",
+      CommandKind::FtSearch => "FT.SEARCH",
+      CommandKind::FtCreate => "FT.CREATE",
+      CommandKind::FtAlter => "FT.ALTER",
+      CommandKind::FtAliasAdd => "FT.ALIASADD",
+      CommandKind::FtAliasDel => "FT.ALIASDEL",
+      CommandKind::FtAliasUpdate => "FT.ALIASUPDATE",
+      CommandKind::FtConfigGet => "FT.CONFIG",
+      CommandKind::FtConfigSet => "FT.CONFIG",
+      CommandKind::FtCursorDel => "FT.CURSOR",
+      CommandKind::FtCursorRead => "FT.CURSOR",
+      CommandKind::FtDictAdd => "FT.DICTADD",
+      CommandKind::FtDictDel => "FT.DICTDEL",
+      CommandKind::FtDictDump => "FT.DICTDUMP",
+      CommandKind::FtDropIndex => "FT.DROPINDEX",
+      CommandKind::FtExplain => "FT.EXPLAIN",
+      CommandKind::FtInfo => "FT.INFO",
+      CommandKind::FtSpellCheck => "FT.SPELLCHECK",
+      CommandKind::FtSugAdd => "FT.SUGADD",
+      CommandKind::FtSugDel => "FT.SUGDEL",
+      CommandKind::FtSugGet => "FT.SUGGET",
+      CommandKind::FtSugLen => "FT.SUGLEN",
+      CommandKind::FtSynDump => "FT.SYNDUMP",
+      CommandKind::FtSynUpdate => "FT.SYNUPDATE",
+      CommandKind::FtTagVals => "FT.TAGVALS",
+      CommandKind::_Custom(ref kind) => return kind.cmd.clone(),
     };
 
     client_utils::static_str(s)
@@ -1319,102 +1309,102 @@ impl RedisCommandKind {
   /// Read the optional subcommand string for a command.
   pub fn subcommand_str(&self) -> Option<Str> {
     let s = match *self {
-      RedisCommandKind::ScriptDebug => "DEBUG",
-      RedisCommandKind::ScriptLoad => "LOAD",
-      RedisCommandKind::ScriptKill => "KILL",
-      RedisCommandKind::ScriptFlush => "FLUSH",
-      RedisCommandKind::ScriptExists => "EXISTS",
-      RedisCommandKind::_ScriptFlushCluster => "FLUSH",
-      RedisCommandKind::_ScriptLoadCluster => "LOAD",
-      RedisCommandKind::_ScriptKillCluster => "KILL",
-      RedisCommandKind::AclLoad => "LOAD",
-      RedisCommandKind::AclSave => "SAVE",
-      RedisCommandKind::AclList => "LIST",
-      RedisCommandKind::AclUsers => "USERS",
-      RedisCommandKind::AclGetUser => "GETUSER",
-      RedisCommandKind::AclSetUser => "SETUSER",
-      RedisCommandKind::AclDelUser => "DELUSER",
-      RedisCommandKind::AclCat => "CAT",
-      RedisCommandKind::AclGenPass => "GENPASS",
-      RedisCommandKind::AclWhoAmI => "WHOAMI",
-      RedisCommandKind::AclLog => "LOG",
-      RedisCommandKind::AclHelp => "HELP",
-      RedisCommandKind::ClusterAddSlots => "ADDSLOTS",
-      RedisCommandKind::ClusterCountFailureReports => "COUNT-FAILURE-REPORTS",
-      RedisCommandKind::ClusterCountKeysInSlot => "COUNTKEYSINSLOT",
-      RedisCommandKind::ClusterDelSlots => "DELSLOTS",
-      RedisCommandKind::ClusterFailOver => "FAILOVER",
-      RedisCommandKind::ClusterForget => "FORGET",
-      RedisCommandKind::ClusterGetKeysInSlot => "GETKEYSINSLOT",
-      RedisCommandKind::ClusterInfo => "INFO",
-      RedisCommandKind::ClusterKeySlot => "KEYSLOT",
-      RedisCommandKind::ClusterMeet => "MEET",
-      RedisCommandKind::ClusterNodes => "NODES",
-      RedisCommandKind::ClusterReplicate => "REPLICATE",
-      RedisCommandKind::ClusterReset => "RESET",
-      RedisCommandKind::ClusterSaveConfig => "SAVECONFIG",
-      RedisCommandKind::ClusterSetConfigEpoch => "SET-CONFIG-EPOCH",
-      RedisCommandKind::ClusterSetSlot => "SETSLOT",
-      RedisCommandKind::ClusterReplicas => "REPLICAS",
-      RedisCommandKind::ClusterSlots => "SLOTS",
-      RedisCommandKind::ClusterBumpEpoch => "BUMPEPOCH",
-      RedisCommandKind::ClusterFlushSlots => "FLUSHSLOTS",
-      RedisCommandKind::ClusterMyID => "MYID",
-      RedisCommandKind::ClientID => "ID",
-      RedisCommandKind::ClientInfo => "INFO",
-      RedisCommandKind::ClientKill => "KILL",
-      RedisCommandKind::ClientList => "LIST",
-      RedisCommandKind::ClientGetName => "GETNAME",
-      RedisCommandKind::ClientPause => "PAUSE",
-      RedisCommandKind::ClientUnpause => "UNPAUSE",
-      RedisCommandKind::ClientUnblock => "UNBLOCK",
-      RedisCommandKind::ClientReply => "REPLY",
-      RedisCommandKind::ClientSetname => "SETNAME",
-      RedisCommandKind::ConfigGet => "GET",
-      RedisCommandKind::ConfigRewrite => "REWRITE",
-      RedisCommandKind::ClientGetRedir => "GETREDIR",
-      RedisCommandKind::ClientTracking => "TRACKING",
-      RedisCommandKind::ClientTrackingInfo => "TRACKINGINFO",
-      RedisCommandKind::ClientCaching => "CACHING",
-      RedisCommandKind::ConfigSet => "SET",
-      RedisCommandKind::ConfigResetStat => "RESETSTAT",
-      RedisCommandKind::MemoryDoctor => "DOCTOR",
-      RedisCommandKind::MemoryHelp => "HELP",
-      RedisCommandKind::MemoryUsage => "USAGE",
-      RedisCommandKind::MemoryMallocStats => "MALLOC-STATS",
-      RedisCommandKind::MemoryStats => "STATS",
-      RedisCommandKind::MemoryPurge => "PURGE",
-      RedisCommandKind::XinfoConsumers => "CONSUMERS",
-      RedisCommandKind::XinfoGroups => "GROUPS",
-      RedisCommandKind::XinfoStream => "STREAM",
-      RedisCommandKind::Xgroupcreate => "CREATE",
-      RedisCommandKind::XgroupCreateConsumer => "CREATECONSUMER",
-      RedisCommandKind::XgroupDelConsumer => "DELCONSUMER",
-      RedisCommandKind::XgroupDestroy => "DESTROY",
-      RedisCommandKind::XgroupSetId => "SETID",
-      RedisCommandKind::FunctionDelete => "DELETE",
-      RedisCommandKind::FunctionDump => "DUMP",
-      RedisCommandKind::FunctionFlush => "FLUSH",
-      RedisCommandKind::FunctionKill => "KILL",
-      RedisCommandKind::FunctionList => "LIST",
-      RedisCommandKind::FunctionLoad => "LOAD",
-      RedisCommandKind::FunctionRestore => "RESTORE",
-      RedisCommandKind::FunctionStats => "STATS",
-      RedisCommandKind::PubsubChannels => "CHANNELS",
-      RedisCommandKind::PubsubNumpat => "NUMPAT",
-      RedisCommandKind::PubsubNumsub => "NUMSUB",
-      RedisCommandKind::PubsubShardchannels => "SHARDCHANNELS",
-      RedisCommandKind::PubsubShardnumsub => "SHARDNUMSUB",
-      RedisCommandKind::_FunctionLoadCluster => "LOAD",
-      RedisCommandKind::_FunctionFlushCluster => "FLUSH",
-      RedisCommandKind::_FunctionDeleteCluster => "DELETE",
-      RedisCommandKind::_FunctionRestoreCluster => "RESTORE",
-      RedisCommandKind::_ClientTrackingCluster => "TRACKING",
-      RedisCommandKind::JsonDebugMemory => "MEMORY",
-      RedisCommandKind::FtConfigGet => "GET",
-      RedisCommandKind::FtConfigSet => "SET",
-      RedisCommandKind::FtCursorDel => "DEL",
-      RedisCommandKind::FtCursorRead => "READ",
+      CommandKind::ScriptDebug => "DEBUG",
+      CommandKind::ScriptLoad => "LOAD",
+      CommandKind::ScriptKill => "KILL",
+      CommandKind::ScriptFlush => "FLUSH",
+      CommandKind::ScriptExists => "EXISTS",
+      CommandKind::_ScriptFlushCluster => "FLUSH",
+      CommandKind::_ScriptLoadCluster => "LOAD",
+      CommandKind::_ScriptKillCluster => "KILL",
+      CommandKind::AclLoad => "LOAD",
+      CommandKind::AclSave => "SAVE",
+      CommandKind::AclList => "LIST",
+      CommandKind::AclUsers => "USERS",
+      CommandKind::AclGetUser => "GETUSER",
+      CommandKind::AclSetUser => "SETUSER",
+      CommandKind::AclDelUser => "DELUSER",
+      CommandKind::AclCat => "CAT",
+      CommandKind::AclGenPass => "GENPASS",
+      CommandKind::AclWhoAmI => "WHOAMI",
+      CommandKind::AclLog => "LOG",
+      CommandKind::AclHelp => "HELP",
+      CommandKind::ClusterAddSlots => "ADDSLOTS",
+      CommandKind::ClusterCountFailureReports => "COUNT-FAILURE-REPORTS",
+      CommandKind::ClusterCountKeysInSlot => "COUNTKEYSINSLOT",
+      CommandKind::ClusterDelSlots => "DELSLOTS",
+      CommandKind::ClusterFailOver => "FAILOVER",
+      CommandKind::ClusterForget => "FORGET",
+      CommandKind::ClusterGetKeysInSlot => "GETKEYSINSLOT",
+      CommandKind::ClusterInfo => "INFO",
+      CommandKind::ClusterKeySlot => "KEYSLOT",
+      CommandKind::ClusterMeet => "MEET",
+      CommandKind::ClusterNodes => "NODES",
+      CommandKind::ClusterReplicate => "REPLICATE",
+      CommandKind::ClusterReset => "RESET",
+      CommandKind::ClusterSaveConfig => "SAVECONFIG",
+      CommandKind::ClusterSetConfigEpoch => "SET-CONFIG-EPOCH",
+      CommandKind::ClusterSetSlot => "SETSLOT",
+      CommandKind::ClusterReplicas => "REPLICAS",
+      CommandKind::ClusterSlots => "SLOTS",
+      CommandKind::ClusterBumpEpoch => "BUMPEPOCH",
+      CommandKind::ClusterFlushSlots => "FLUSHSLOTS",
+      CommandKind::ClusterMyID => "MYID",
+      CommandKind::ClientID => "ID",
+      CommandKind::ClientInfo => "INFO",
+      CommandKind::ClientKill => "KILL",
+      CommandKind::ClientList => "LIST",
+      CommandKind::ClientGetName => "GETNAME",
+      CommandKind::ClientPause => "PAUSE",
+      CommandKind::ClientUnpause => "UNPAUSE",
+      CommandKind::ClientUnblock => "UNBLOCK",
+      CommandKind::ClientReply => "REPLY",
+      CommandKind::ClientSetname => "SETNAME",
+      CommandKind::ConfigGet => "GET",
+      CommandKind::ConfigRewrite => "REWRITE",
+      CommandKind::ClientGetRedir => "GETREDIR",
+      CommandKind::ClientTracking => "TRACKING",
+      CommandKind::ClientTrackingInfo => "TRACKINGINFO",
+      CommandKind::ClientCaching => "CACHING",
+      CommandKind::ConfigSet => "SET",
+      CommandKind::ConfigResetStat => "RESETSTAT",
+      CommandKind::MemoryDoctor => "DOCTOR",
+      CommandKind::MemoryHelp => "HELP",
+      CommandKind::MemoryUsage => "USAGE",
+      CommandKind::MemoryMallocStats => "MALLOC-STATS",
+      CommandKind::MemoryStats => "STATS",
+      CommandKind::MemoryPurge => "PURGE",
+      CommandKind::XinfoConsumers => "CONSUMERS",
+      CommandKind::XinfoGroups => "GROUPS",
+      CommandKind::XinfoStream => "STREAM",
+      CommandKind::Xgroupcreate => "CREATE",
+      CommandKind::XgroupCreateConsumer => "CREATECONSUMER",
+      CommandKind::XgroupDelConsumer => "DELCONSUMER",
+      CommandKind::XgroupDestroy => "DESTROY",
+      CommandKind::XgroupSetId => "SETID",
+      CommandKind::FunctionDelete => "DELETE",
+      CommandKind::FunctionDump => "DUMP",
+      CommandKind::FunctionFlush => "FLUSH",
+      CommandKind::FunctionKill => "KILL",
+      CommandKind::FunctionList => "LIST",
+      CommandKind::FunctionLoad => "LOAD",
+      CommandKind::FunctionRestore => "RESTORE",
+      CommandKind::FunctionStats => "STATS",
+      CommandKind::PubsubChannels => "CHANNELS",
+      CommandKind::PubsubNumpat => "NUMPAT",
+      CommandKind::PubsubNumsub => "NUMSUB",
+      CommandKind::PubsubShardchannels => "SHARDCHANNELS",
+      CommandKind::PubsubShardnumsub => "SHARDNUMSUB",
+      CommandKind::_FunctionLoadCluster => "LOAD",
+      CommandKind::_FunctionFlushCluster => "FLUSH",
+      CommandKind::_FunctionDeleteCluster => "DELETE",
+      CommandKind::_FunctionRestoreCluster => "RESTORE",
+      CommandKind::_ClientTrackingCluster => "TRACKING",
+      CommandKind::JsonDebugMemory => "MEMORY",
+      CommandKind::FtConfigGet => "GET",
+      CommandKind::FtConfigSet => "SET",
+      CommandKind::FtCursorDel => "DEL",
+      CommandKind::FtCursorRead => "READ",
       _ => return None,
     };
 
@@ -1424,31 +1414,27 @@ impl RedisCommandKind {
   pub fn use_random_cluster_node(&self) -> bool {
     matches!(
       *self,
-      RedisCommandKind::Publish
-        | RedisCommandKind::Ping
-        | RedisCommandKind::Info
-        | RedisCommandKind::FlushAll
-        | RedisCommandKind::FlushDB
+      CommandKind::Publish | CommandKind::Ping | CommandKind::Info | CommandKind::FlushAll | CommandKind::FlushDB
     )
   }
 
   pub fn is_blocking(&self) -> bool {
     match *self {
-      RedisCommandKind::BlPop
-      | RedisCommandKind::BrPop
-      | RedisCommandKind::BrPopLPush
-      | RedisCommandKind::BlMove
-      | RedisCommandKind::BzPopMin
-      | RedisCommandKind::BzPopMax
-      | RedisCommandKind::BlmPop
-      | RedisCommandKind::BzmPop
-      | RedisCommandKind::Fcall
-      | RedisCommandKind::FcallRO
-      | RedisCommandKind::Wait => true,
+      CommandKind::BlPop
+      | CommandKind::BrPop
+      | CommandKind::BrPopLPush
+      | CommandKind::BlMove
+      | CommandKind::BzPopMin
+      | CommandKind::BzPopMax
+      | CommandKind::BlmPop
+      | CommandKind::BzmPop
+      | CommandKind::Fcall
+      | CommandKind::FcallRO
+      | CommandKind::Wait => true,
       // default is false, but can be changed by the BLOCKING args. the RedisCommand::can_pipeline function checks the
       // args too.
-      RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => false,
-      RedisCommandKind::_Custom(ref kind) => kind.blocking,
+      CommandKind::Xread | CommandKind::Xreadgroup => false,
+      CommandKind::_Custom(ref kind) => kind.blocking,
       _ => false,
     }
   }
@@ -1456,47 +1442,47 @@ impl RedisCommandKind {
   pub fn force_all_cluster_nodes(&self) -> bool {
     matches!(
       *self,
-      RedisCommandKind::_FlushAllCluster
-        | RedisCommandKind::_AuthAllCluster
-        | RedisCommandKind::_ScriptFlushCluster
-        | RedisCommandKind::_ScriptKillCluster
-        | RedisCommandKind::_HelloAllCluster(_)
-        | RedisCommandKind::_ClientTrackingCluster
-        | RedisCommandKind::_ScriptLoadCluster
-        | RedisCommandKind::_FunctionFlushCluster
-        | RedisCommandKind::_FunctionDeleteCluster
-        | RedisCommandKind::_FunctionRestoreCluster
-        | RedisCommandKind::_FunctionLoadCluster
+      CommandKind::_FlushAllCluster
+        | CommandKind::_AuthAllCluster
+        | CommandKind::_ScriptFlushCluster
+        | CommandKind::_ScriptKillCluster
+        | CommandKind::_HelloAllCluster(_)
+        | CommandKind::_ClientTrackingCluster
+        | CommandKind::_ScriptLoadCluster
+        | CommandKind::_FunctionFlushCluster
+        | CommandKind::_FunctionDeleteCluster
+        | CommandKind::_FunctionRestoreCluster
+        | CommandKind::_FunctionLoadCluster
     )
   }
 
   pub fn should_flush(&self) -> bool {
     matches!(
       *self,
-      RedisCommandKind::Quit
-        | RedisCommandKind::Shutdown
-        | RedisCommandKind::Ping
-        | RedisCommandKind::Auth
-        | RedisCommandKind::_Hello(_)
-        | RedisCommandKind::Exec
-        | RedisCommandKind::Discard
-        | RedisCommandKind::Eval
-        | RedisCommandKind::EvalSha
-        | RedisCommandKind::Fcall
-        | RedisCommandKind::FcallRO
-        | RedisCommandKind::_Custom(_)
+      CommandKind::Quit
+        | CommandKind::Shutdown
+        | CommandKind::Ping
+        | CommandKind::Auth
+        | CommandKind::_Hello(_)
+        | CommandKind::Exec
+        | CommandKind::Discard
+        | CommandKind::Eval
+        | CommandKind::EvalSha
+        | CommandKind::Fcall
+        | CommandKind::FcallRO
+        | CommandKind::_Custom(_)
     )
   }
 
   pub fn is_pubsub(&self) -> bool {
     matches!(
       *self,
-      RedisCommandKind::Subscribe
-        | RedisCommandKind::Unsubscribe
-        | RedisCommandKind::Psubscribe
-        | RedisCommandKind::Punsubscribe
-        | RedisCommandKind::Ssubscribe
-        | RedisCommandKind::Sunsubscribe
+      CommandKind::Subscribe
+        | CommandKind::Unsubscribe
+        | CommandKind::Psubscribe
+        | CommandKind::Punsubscribe
+        | CommandKind::Ssubscribe
+        | CommandKind::Sunsubscribe
     )
   }
 
@@ -1506,20 +1492,20 @@ impl RedisCommandKind {
     } else {
       match self {
         // make it easier to handle multiple potentially out-of-band responses
-        RedisCommandKind::Subscribe
-        | RedisCommandKind::Unsubscribe
-        | RedisCommandKind::Psubscribe
-        | RedisCommandKind::Punsubscribe
-        | RedisCommandKind::Ssubscribe
-        | RedisCommandKind::Sunsubscribe
+        CommandKind::Subscribe
+        | CommandKind::Unsubscribe
+        | CommandKind::Psubscribe
+        | CommandKind::Punsubscribe
+        | CommandKind::Ssubscribe
+        | CommandKind::Sunsubscribe
         // https://redis.io/commands/eval#evalsha-in-the-context-of-pipelining
-        | RedisCommandKind::Eval
-        | RedisCommandKind::EvalSha
-        | RedisCommandKind::Auth
-        | RedisCommandKind::Fcall
-        | RedisCommandKind::FcallRO
+        | CommandKind::Eval
+        | CommandKind::EvalSha
+        | CommandKind::Auth
+        | CommandKind::Fcall
+        | CommandKind::FcallRO
         // makes it easier to avoid decoding in-flight responses with the wrong codec logic
-        | RedisCommandKind::_Hello(_) => false,
+        | CommandKind::_Hello(_) => false,
         _ => true,
       }
     }
@@ -1528,14 +1514,14 @@ impl RedisCommandKind {
   pub fn is_eval(&self) -> bool {
     matches!(
       *self,
-      RedisCommandKind::EvalSha | RedisCommandKind::Eval | RedisCommandKind::Fcall | RedisCommandKind::FcallRO
+      CommandKind::EvalSha | CommandKind::Eval | CommandKind::Fcall | CommandKind::FcallRO
     )
   }
 }
 
-pub struct RedisCommand {
+pub struct Command {
   /// The command and optional subcommand name.
-  pub kind:                   RedisCommandKind,
+  pub kind:                   CommandKind,
   /// The policy to apply when handling the response.
   pub response:               ResponseKind,
   /// The policy to use when hashing the arguments for cluster routing.
@@ -1543,7 +1529,7 @@ pub struct RedisCommand {
   /// The provided arguments.
   ///
   /// Some commands store arguments differently. Callers should use `self.args()` to account for this.
-  pub arguments:              Vec<RedisValue>,
+  pub arguments:              Vec<Value>,
   /// The number of times the command has been written to a socket.
   pub write_attempts:         u32,
   /// The number of write attempts remaining.
@@ -1584,7 +1570,7 @@ pub struct RedisCommand {
   pub caching:                Option<bool>,
 }
 
-impl fmt::Debug for RedisCommand {
+impl fmt::Debug for Command {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     let mut formatter = f.debug_struct("RedisCommand");
     formatter
@@ -1607,21 +1593,21 @@ impl fmt::Debug for RedisCommand {
   }
 }
 
-impl fmt::Display for RedisCommand {
+impl fmt::Display for Command {
   fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
     write!(f, "{}", self.kind.to_str_debug())
   }
 }
 
-impl From<RedisCommandKind> for RedisCommand {
-  fn from(kind: RedisCommandKind) -> Self {
+impl From<CommandKind> for Command {
+  fn from(kind: CommandKind) -> Self {
     (kind, Vec::new()).into()
   }
 }
 
-impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
-  fn from((kind, arguments): (RedisCommandKind, Vec<RedisValue>)) -> Self {
-    RedisCommand {
+impl From<(CommandKind, Vec<Value>)> for Command {
+  fn from((kind, arguments): (CommandKind, Vec<Value>)) -> Self {
+    Command {
       kind,
       arguments,
       timed_out: RefCount::new(AtomicBool::new(false)),
@@ -1650,9 +1636,9 @@ impl From<(RedisCommandKind, Vec<RedisValue>)> for RedisCommand {
   }
 }
 
-impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand {
-  fn from((kind, arguments, tx): (RedisCommandKind, Vec<RedisValue>, ResponseSender)) -> Self {
-    RedisCommand {
+impl From<(CommandKind, Vec<Value>, ResponseSender)> for Command {
+  fn from((kind, arguments, tx): (CommandKind, Vec<Value>, ResponseSender)) -> Self {
+    Command {
       kind,
       arguments,
       response: ResponseKind::Respond(Some(tx)),
@@ -1681,9 +1667,9 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseSender)> for RedisCommand 
   }
 }
 
-impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
-  fn from((kind, arguments, response): (RedisCommandKind, Vec<RedisValue>, ResponseKind)) -> Self {
-    RedisCommand {
+impl From<(CommandKind, Vec<Value>, ResponseKind)> for Command {
+  fn from((kind, arguments, response): (CommandKind, Vec<Value>, ResponseKind)) -> Self {
+    Command {
       kind,
       arguments,
       response,
@@ -1712,10 +1698,10 @@ impl From<(RedisCommandKind, Vec<RedisValue>, ResponseKind)> for RedisCommand {
   }
 }
 
-impl RedisCommand {
+impl Command {
   /// Create a new command without a response handling policy.
-  pub fn new(kind: RedisCommandKind, arguments: Vec<RedisValue>) -> Self {
-    RedisCommand {
+  pub fn new(kind: CommandKind, arguments: Vec<Value>) -> Self {
+    Command {
       kind,
       arguments,
       timed_out: RefCount::new(AtomicBool::new(false)),
@@ -1745,8 +1731,8 @@ impl RedisCommand {
 
   /// Create a new empty `ASKING` command.
   pub fn new_asking(hash_slot: u16) -> Self {
-    RedisCommand {
-      kind:                                       RedisCommandKind::Asking,
+    Command {
+      kind:                                       CommandKind::Asking,
       hasher:                                     ClusterHash::Custom(hash_slot),
       arguments:                                  Vec::new(),
       timed_out:                                  RefCount::new(AtomicBool::new(false)),
@@ -1775,7 +1761,7 @@ impl RedisCommand {
 
   /// Whether to pipeline the command.
   #[allow(dead_code)]
-  pub fn should_auto_pipeline(&self, inner: &RefCount<RedisClientInner>, force: bool) -> bool {
+  pub fn should_auto_pipeline(&self, inner: &RefCount<ClientInner>, force: bool) -> bool {
     let should_pipeline = force
       || (self.can_pipeline
       && self.kind.can_pipeline()
@@ -1798,23 +1784,20 @@ impl RedisCommand {
     self.kind.force_all_cluster_nodes()
       || match self.kind {
         // since we don't know the hash slot we send this to all nodes
-        RedisCommandKind::Sunsubscribe => self.arguments.is_empty(),
+        CommandKind::Sunsubscribe => self.arguments.is_empty(),
         _ => false,
       }
   }
 
   /// Whether errors writing the command should be returned to the caller.
-  pub fn should_finish_with_error(&self, inner: &RefCount<RedisClientInner>) -> bool {
+  pub fn should_finish_with_error(&self, inner: &RefCount<ClientInner>) -> bool {
     self.fail_fast || self.attempts_remaining == 0 || inner.policy.read().is_none()
   }
 
   /// Increment and check the number of write attempts.
-  pub fn decr_check_attempted(&mut self) -> Result<(), RedisError> {
+  pub fn decr_check_attempted(&mut self) -> Result<(), Error> {
     if self.attempts_remaining == 0 {
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Too many failed write attempts.",
-      ))
+      Err(Error::new(ErrorKind::Unknown, "Too many failed write attempts."))
     } else {
       self.attempts_remaining -= 1;
       Ok(())
@@ -1825,9 +1808,9 @@ impl RedisCommand {
     self.transaction_id.is_some()
   }
 
-  pub fn decr_check_redirections(&mut self) -> Result<(), RedisError> {
+  pub fn decr_check_redirections(&mut self) -> Result<(), Error> {
     if self.redirections_remaining == 0 {
-      Err(RedisError::new(RedisErrorKind::Unknown, "Too many redirections."))
+      Err(Error::new(ErrorKind::Unknown, "Too many redirections."))
     } else {
       self.redirections_remaining -= 1;
       Ok(())
@@ -1835,7 +1818,7 @@ impl RedisCommand {
   }
 
   /// Read the arguments associated with the command.
-  pub fn args(&self) -> &Vec<RedisValue> {
+  pub fn args(&self) -> &Vec<Value> {
     match self.response {
       ResponseKind::ValueScan(ref inner) => &inner.args,
       ResponseKind::KeyScan(ref inner) => &inner.args,
@@ -1849,7 +1832,7 @@ impl RedisCommand {
     self.transaction_id.is_none()
       && (self.kind.is_blocking()
         || match self.kind {
-          RedisCommandKind::Xread | RedisCommandKind::Xreadgroup => !self.can_pipeline,
+          CommandKind::Xread | CommandKind::Xreadgroup => !self.can_pipeline,
           _ => false,
         })
   }
@@ -1863,16 +1846,16 @@ impl RedisCommand {
   pub fn has_no_responses(&self) -> bool {
     matches!(
       self.kind,
-      RedisCommandKind::Subscribe
-        | RedisCommandKind::Unsubscribe
-        | RedisCommandKind::Psubscribe
-        | RedisCommandKind::Punsubscribe
-        | RedisCommandKind::Sunsubscribe
+      CommandKind::Subscribe
+        | CommandKind::Unsubscribe
+        | CommandKind::Psubscribe
+        | CommandKind::Punsubscribe
+        | CommandKind::Sunsubscribe
     )
   }
 
   /// Take the arguments from this command.
-  pub fn take_args(&mut self) -> Vec<RedisValue> {
+  pub fn take_args(&mut self) -> Vec<Value> {
     match self.response {
       ResponseKind::ValueScan(ref mut inner) => inner.args.drain(..).collect(),
       ResponseKind::KeyScan(ref mut inner) => inner.args.drain(..).collect(),
@@ -1890,7 +1873,7 @@ impl RedisCommand {
   ///
   /// Note: this will **not** clone the router channel.
   pub fn duplicate(&self, response: ResponseKind) -> Self {
-    RedisCommand {
+    Command {
       timed_out: RefCount::new(AtomicBool::new(false)),
       kind: self.kind.clone(),
       arguments: self.arguments.clone(),
@@ -1919,7 +1902,7 @@ impl RedisCommand {
   }
 
   /// Inherit connection and perf settings from the client.
-  pub fn inherit_options(&mut self, inner: &RefCount<RedisClientInner>) {
+  pub fn inherit_options(&mut self, inner: &RefCount<ClientInner>) {
     if self.attempts_remaining == 0 {
       self.attempts_remaining = inner.connection.max_command_attempts;
     }
@@ -1967,7 +1950,7 @@ impl RedisCommand {
   }
 
   /// Respond to the caller, taking the response channel in the process.
-  pub fn respond_to_caller(&mut self, result: Result<Resp3Frame, RedisError>) {
+  pub fn respond_to_caller(&mut self, result: Result<Resp3Frame, Error>) {
     match self.response {
       ResponseKind::KeyScanBuffered(ref inner) => {
         if let Err(error) = result {
@@ -2018,13 +2001,13 @@ impl RedisCommand {
   }
 
   /// Convert to a single frame with an array of bulk strings (or null).
-  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, RedisError> {
+  pub fn to_frame(&self, is_resp3: bool) -> Result<ProtocolFrame, Error> {
     protocol_utils::command_to_frame(self, is_resp3)
   }
 
   /// Convert to a single frame with an array of bulk strings (or null), using a blocking task.
   #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
-  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, RedisError> {
+  pub fn to_frame_blocking(&self, is_resp3: bool, blocking_threshold: usize) -> Result<ProtocolFrame, Error> {
     let cmd_size = protocol_utils::args_size(self.args());
 
     if cmd_size >= blocking_threshold {
@@ -2058,15 +2041,15 @@ impl RedisCommand {
 /// A message sent from the front-end client to the router.
 pub enum RouterCommand {
   /// Send a command to the server.
-  Command(RedisCommand),
+  Command(Command),
   /// Send a pipelined series of commands to the server.
-  Pipeline { commands: Vec<RedisCommand> },
+  Pipeline { commands: Vec<Command> },
   /// Send a transaction to the server.
   // The inner command buffer will not contain the trailing `EXEC` command.
   #[cfg(feature = "transactions")]
   Transaction {
     id:             u64,
-    commands:       Vec<RedisCommand>,
+    commands:       Vec<Command>,
     abort_on_error: bool,
     tx:             ResponseSender,
   },
@@ -2082,20 +2065,20 @@ pub enum RouterCommand {
   Moved {
     slot:    u16,
     server:  Server,
-    command: RedisCommand,
+    command: Command,
   },
   /// Retry a command after an `ASK` error.
   Ask {
     slot:    u16,
     server:  Server,
-    command: RedisCommand,
+    command: Command,
   },
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
-  SyncCluster { tx: OneshotSender<Result<(), RedisError>> },
+  SyncCluster { tx: OneshotSender<Result<(), Error>> },
   /// Force sync the replica routing table with the server(s).
   #[cfg(feature = "replicas")]
   SyncReplicas {
-    tx:    OneshotSender<Result<(), RedisError>>,
+    tx:    OneshotSender<Result<(), Error>>,
     reset: bool,
   },
 }
@@ -2122,7 +2105,7 @@ impl RouterCommand {
 
   /// Finish the command early with the provided error.
   #[allow(unused_mut)]
-  pub fn finish_with_error(self, error: RedisError) {
+  pub fn finish_with_error(self, error: Error) {
     match self {
       RouterCommand::Command(mut command) => {
         command.respond_to_caller(Err(error));
@@ -2148,7 +2131,7 @@ impl RouterCommand {
   }
 
   /// Inherit settings from the configuration structs on `inner`.
-  pub fn inherit_options(&mut self, inner: &RefCount<RedisClientInner>) {
+  pub fn inherit_options(&mut self, inner: &RefCount<ClientInner>) {
     match self {
       RouterCommand::Command(ref mut cmd) => {
         cmd.inherit_options(inner);
@@ -2234,8 +2217,8 @@ impl fmt::Debug for RouterCommand {
   }
 }
 
-impl From<RedisCommand> for RouterCommand {
-  fn from(cmd: RedisCommand) -> Self {
+impl From<Command> for RouterCommand {
+  fn from(cmd: Command) -> Self {
     RouterCommand::Command(cmd)
   }
 }

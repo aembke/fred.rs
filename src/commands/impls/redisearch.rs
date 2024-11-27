@@ -1,21 +1,23 @@
 use crate::{
   commands::{args_values_cmd, one_arg_values_cmd, COUNT, LEN, LIMIT},
-  error::RedisError,
+  error::Error,
   interfaces::ClientLike,
-  protocol::{command::RedisCommandKind, utils as protocol_utils},
+  protocol::{command::CommandKind, utils as protocol_utils},
   types::{
-    AggregateOperation,
-    FtAggregateOptions,
-    FtAlterOptions,
-    FtCreateOptions,
-    FtSearchOptions,
-    Load,
+    redisearch::{
+      AggregateOperation,
+      FtAggregateOptions,
+      FtAlterOptions,
+      FtCreateOptions,
+      FtSearchOptions,
+      Load,
+      SearchSchema,
+      SearchSchemaKind,
+      SpellcheckTerms,
+    },
+    Key,
     MultipleStrings,
-    RedisKey,
-    RedisValue,
-    SearchSchema,
-    SearchSchemaKind,
-    SpellcheckTerms,
+    Value,
   },
   utils,
 };
@@ -99,7 +101,7 @@ static GEO: &str = "GEO";
 static VECTOR: &str = "VECTOR";
 static GEOSHAPE: &str = "GEOSHAPE";
 
-fn gen_aggregate_op(args: &mut Vec<RedisValue>, operation: AggregateOperation) -> Result<(), RedisError> {
+fn gen_aggregate_op(args: &mut Vec<Value>, operation: AggregateOperation) -> Result<(), Error> {
   match operation {
     AggregateOperation::Filter { expression } => {
       args.extend([static_val!(FILTER), expression.into()]);
@@ -140,7 +142,7 @@ fn gen_aggregate_op(args: &mut Vec<RedisValue>, operation: AggregateOperation) -
   Ok(())
 }
 
-fn gen_aggregate_options(args: &mut Vec<RedisValue>, options: FtAggregateOptions) -> Result<(), RedisError> {
+fn gen_aggregate_options(args: &mut Vec<Value>, options: FtAggregateOptions) -> Result<(), Error> {
   if options.verbatim {
     args.push(static_val!(VERBATIM));
   }
@@ -190,7 +192,7 @@ fn gen_aggregate_options(args: &mut Vec<RedisValue>, options: FtAggregateOptions
   Ok(())
 }
 
-fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> Result<(), RedisError> {
+fn gen_search_options(args: &mut Vec<Value>, options: FtSearchOptions) -> Result<(), Error> {
   if options.nocontent {
     args.push(static_val!(NOCONTENT));
   }
@@ -300,7 +302,7 @@ fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> R
     args.push(static_val!(EXPLAINSCORE));
   }
   if let Some(payload) = options.payload {
-    args.extend([static_val!(PAYLOAD), RedisValue::Bytes(payload)]);
+    args.extend([static_val!(PAYLOAD), Value::Bytes(payload)]);
   }
   if let Some(sort) = options.sortby {
     args.push(static_val!(SORTBY));
@@ -329,7 +331,7 @@ fn gen_search_options(args: &mut Vec<RedisValue>, options: FtSearchOptions) -> R
   Ok(())
 }
 
-fn gen_schema_kind(args: &mut Vec<RedisValue>, kind: SearchSchemaKind) -> Result<(), RedisError> {
+fn gen_schema_kind(args: &mut Vec<Value>, kind: SearchSchemaKind) -> Result<(), Error> {
   match kind {
     SearchSchemaKind::Custom { name, arguments } => {
       args.push(name.into());
@@ -436,7 +438,7 @@ fn gen_schema_kind(args: &mut Vec<RedisValue>, kind: SearchSchemaKind) -> Result
   Ok(())
 }
 
-fn gen_alter_options(args: &mut Vec<RedisValue>, options: FtAlterOptions) -> Result<(), RedisError> {
+fn gen_alter_options(args: &mut Vec<Value>, options: FtAlterOptions) -> Result<(), Error> {
   if options.skipinitialscan {
     args.push(static_val!(SKIPINITIALSCAN));
   }
@@ -446,7 +448,7 @@ fn gen_alter_options(args: &mut Vec<RedisValue>, options: FtAlterOptions) -> Res
   Ok(())
 }
 
-fn gen_create_options(args: &mut Vec<RedisValue>, options: FtCreateOptions) -> Result<(), RedisError> {
+fn gen_create_options(args: &mut Vec<Value>, options: FtCreateOptions) -> Result<(), Error> {
   if let Some(kind) = options.on {
     args.extend([static_val!(ON), kind.to_str().into()]);
   }
@@ -502,7 +504,7 @@ fn gen_create_options(args: &mut Vec<RedisValue>, options: FtCreateOptions) -> R
 }
 
 // does not include the prefix SCHEMA
-fn gen_schema_args(args: &mut Vec<RedisValue>, options: SearchSchema) -> Result<(), RedisError> {
+fn gen_schema_args(args: &mut Vec<Value>, options: SearchSchema) -> Result<(), Error> {
   args.push(options.field_name.into());
   if let Some(alias) = options.alias {
     args.extend([static_val!(AS), alias.into()]);
@@ -512,8 +514,8 @@ fn gen_schema_args(args: &mut Vec<RedisValue>, options: SearchSchema) -> Result<
   Ok(())
 }
 
-pub async fn ft_list<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtList, vec![]).await
+pub async fn ft_list<C: ClientLike>(client: &C) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtList, vec![]).await
 }
 
 pub async fn ft_aggregate<C: ClientLike>(
@@ -521,14 +523,14 @@ pub async fn ft_aggregate<C: ClientLike>(
   index: Str,
   query: Str,
   options: FtAggregateOptions,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + options.num_args());
     args.push(index.into());
     args.push(query.into());
     gen_aggregate_options(&mut args, options)?;
 
-    Ok((RedisCommandKind::FtAggregate, args))
+    Ok((CommandKind::FtAggregate, args))
   })
   .await?;
 
@@ -540,13 +542,13 @@ pub async fn ft_search<C: ClientLike>(
   index: Str,
   query: Str,
   options: FtSearchOptions,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + options.num_args());
     args.extend([index.into(), query.into()]);
     gen_search_options(&mut args, options)?;
 
-    Ok((RedisCommandKind::FtSearch, args))
+    Ok((CommandKind::FtSearch, args))
   })
   .await?;
 
@@ -558,7 +560,7 @@ pub async fn ft_create<C: ClientLike>(
   index: Str,
   options: FtCreateOptions,
   schema: Vec<SearchSchema>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let schema_num_args = schema.iter().fold(0, |m, s| m + s.num_args());
     let mut args = Vec::with_capacity(2 + options.num_args() + schema_num_args);
@@ -570,86 +572,66 @@ pub async fn ft_create<C: ClientLike>(
       gen_schema_args(&mut args, schema)?;
     }
 
-    Ok((RedisCommandKind::FtCreate, args))
+    Ok((CommandKind::FtCreate, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_alter<C: ClientLike>(
-  client: &C,
-  index: Str,
-  options: FtAlterOptions,
-) -> Result<RedisValue, RedisError> {
+pub async fn ft_alter<C: ClientLike>(client: &C, index: Str, options: FtAlterOptions) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + options.num_args());
     args.push(index.into());
     gen_alter_options(&mut args, options)?;
 
-    Ok((RedisCommandKind::FtAlter, args))
+    Ok((CommandKind::FtAlter, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_aliasadd<C: ClientLike>(client: &C, alias: Str, index: Str) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtAliasAdd, vec![alias.into(), index.into()]).await
+pub async fn ft_aliasadd<C: ClientLike>(client: &C, alias: Str, index: Str) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtAliasAdd, vec![alias.into(), index.into()]).await
 }
 
-pub async fn ft_aliasdel<C: ClientLike>(client: &C, alias: Str) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtAliasDel, vec![alias.into()]).await
+pub async fn ft_aliasdel<C: ClientLike>(client: &C, alias: Str) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtAliasDel, vec![alias.into()]).await
 }
 
-pub async fn ft_aliasupdate<C: ClientLike>(client: &C, alias: Str, index: Str) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtAliasUpdate, vec![
-    alias.into(),
-    index.into(),
-  ])
-  .await
+pub async fn ft_aliasupdate<C: ClientLike>(client: &C, alias: Str, index: Str) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtAliasUpdate, vec![alias.into(), index.into()]).await
 }
 
-pub async fn ft_config_get<C: ClientLike>(client: &C, option: Str) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtConfigGet, vec![option.into()]).await
+pub async fn ft_config_get<C: ClientLike>(client: &C, option: Str) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtConfigGet, vec![option.into()]).await
 }
 
-pub async fn ft_config_set<C: ClientLike>(
-  client: &C,
-  option: Str,
-  value: RedisValue,
-) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtConfigSet, vec![option.into(), value]).await
+pub async fn ft_config_set<C: ClientLike>(client: &C, option: Str, value: Value) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtConfigSet, vec![option.into(), value]).await
 }
 
-pub async fn ft_cursor_del<C: ClientLike>(
-  client: &C,
-  index: Str,
-  cursor: RedisValue,
-) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtCursorDel, vec![index.into(), cursor]).await
+pub async fn ft_cursor_del<C: ClientLike>(client: &C, index: Str, cursor: Value) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtCursorDel, vec![index.into(), cursor]).await
 }
 
 pub async fn ft_cursor_read<C: ClientLike>(
   client: &C,
   index: Str,
-  cursor: RedisValue,
+  cursor: Value,
   count: Option<u64>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let args = if let Some(count) = count {
     vec![index.into(), cursor, static_val!(COUNT), count.try_into()?]
   } else {
     vec![index.into(), cursor]
   };
 
-  args_values_cmd(client, RedisCommandKind::FtCursorRead, args).await
+  args_values_cmd(client, CommandKind::FtCursorRead, args).await
 }
 
-pub async fn ft_dictadd<C: ClientLike>(
-  client: &C,
-  dict: Str,
-  terms: MultipleStrings,
-) -> Result<RedisValue, RedisError> {
+pub async fn ft_dictadd<C: ClientLike>(client: &C, dict: Str, terms: MultipleStrings) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(terms.len() + 1);
     args.push(dict.into());
@@ -657,18 +639,14 @@ pub async fn ft_dictadd<C: ClientLike>(
       args.push(term.into());
     }
 
-    Ok((RedisCommandKind::FtDictAdd, args))
+    Ok((CommandKind::FtDictAdd, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_dictdel<C: ClientLike>(
-  client: &C,
-  dict: Str,
-  terms: MultipleStrings,
-) -> Result<RedisValue, RedisError> {
+pub async fn ft_dictdel<C: ClientLike>(client: &C, dict: Str, terms: MultipleStrings) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(terms.len() + 1);
     args.push(dict.into());
@@ -676,25 +654,25 @@ pub async fn ft_dictdel<C: ClientLike>(
       args.push(term.into());
     }
 
-    Ok((RedisCommandKind::FtDictDel, args))
+    Ok((CommandKind::FtDictDel, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_dictdump<C: ClientLike>(client: &C, dict: Str) -> Result<RedisValue, RedisError> {
-  one_arg_values_cmd(client, RedisCommandKind::FtDictDump, dict.into()).await
+pub async fn ft_dictdump<C: ClientLike>(client: &C, dict: Str) -> Result<Value, Error> {
+  one_arg_values_cmd(client, CommandKind::FtDictDump, dict.into()).await
 }
 
-pub async fn ft_dropindex<C: ClientLike>(client: &C, index: Str, dd: bool) -> Result<RedisValue, RedisError> {
+pub async fn ft_dropindex<C: ClientLike>(client: &C, index: Str, dd: bool) -> Result<Value, Error> {
   let args = if dd {
     vec![index.into(), static_val!(DD)]
   } else {
     vec![index.into()]
   };
 
-  args_values_cmd(client, RedisCommandKind::FtDropIndex, args).await
+  args_values_cmd(client, CommandKind::FtDropIndex, args).await
 }
 
 pub async fn ft_explain<C: ClientLike>(
@@ -702,18 +680,18 @@ pub async fn ft_explain<C: ClientLike>(
   index: Str,
   query: Str,
   dialect: Option<i64>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let args = if let Some(dialect) = dialect {
     vec![index.into(), query.into(), static_val!(DIALECT), dialect.into()]
   } else {
     vec![index.into(), query.into()]
   };
 
-  args_values_cmd(client, RedisCommandKind::FtExplain, args).await
+  args_values_cmd(client, CommandKind::FtExplain, args).await
 }
 
-pub async fn ft_info<C: ClientLike>(client: &C, index: Str) -> Result<RedisValue, RedisError> {
-  one_arg_values_cmd(client, RedisCommandKind::FtInfo, index.into()).await
+pub async fn ft_info<C: ClientLike>(client: &C, index: Str) -> Result<Value, Error> {
+  one_arg_values_cmd(client, CommandKind::FtInfo, index.into()).await
 }
 
 pub async fn ft_spellcheck<C: ClientLike>(
@@ -723,7 +701,7 @@ pub async fn ft_spellcheck<C: ClientLike>(
   distance: Option<u8>,
   terms: Option<SpellcheckTerms>,
   dialect: Option<i64>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let terms_len = terms.as_ref().map(|t| t.num_args()).unwrap_or(0);
     let mut args = Vec::with_capacity(9 + terms_len);
@@ -732,7 +710,7 @@ pub async fn ft_spellcheck<C: ClientLike>(
 
     if let Some(distance) = distance {
       args.push(static_val!(DISTANCE));
-      args.push(distance.into());
+      args.push((distance as i64).into());
     }
     if let Some(terms) = terms {
       args.push(static_val!(TERMS));
@@ -756,7 +734,7 @@ pub async fn ft_spellcheck<C: ClientLike>(
       args.extend([static_val!(DIALECT), dialect.into()]);
     }
 
-    Ok((RedisCommandKind::FtSpellCheck, args))
+    Ok((CommandKind::FtSpellCheck, args))
   })
   .await?;
 
@@ -765,12 +743,12 @@ pub async fn ft_spellcheck<C: ClientLike>(
 
 pub async fn ft_sugadd<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   string: Str,
   score: f64,
   incr: bool,
   payload: Option<Bytes>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(6);
     args.extend([key.into(), string.into(), score.try_into()?]);
@@ -779,29 +757,29 @@ pub async fn ft_sugadd<C: ClientLike>(
       args.push(static_val!(INCR));
     }
     if let Some(payload) = payload {
-      args.extend([static_val!(PAYLOAD), RedisValue::Bytes(payload)]);
+      args.extend([static_val!(PAYLOAD), Value::Bytes(payload)]);
     }
 
-    Ok((RedisCommandKind::FtSugAdd, args))
+    Ok((CommandKind::FtSugAdd, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_sugdel<C: ClientLike>(client: &C, key: RedisKey, string: Str) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtSugDel, vec![key.into(), string.into()]).await
+pub async fn ft_sugdel<C: ClientLike>(client: &C, key: Key, string: Str) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtSugDel, vec![key.into(), string.into()]).await
 }
 
 pub async fn ft_sugget<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   prefix: Str,
   fuzzy: bool,
   withscores: bool,
   withpayloads: bool,
   max: Option<u64>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(7);
     args.push(key.into());
@@ -819,19 +797,19 @@ pub async fn ft_sugget<C: ClientLike>(
       args.extend([static_val!(MAX), max.try_into()?]);
     }
 
-    Ok((RedisCommandKind::FtSugGet, args))
+    Ok((CommandKind::FtSugGet, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_suglen<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_values_cmd(client, RedisCommandKind::FtSugLen, key.into()).await
+pub async fn ft_suglen<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error> {
+  one_arg_values_cmd(client, CommandKind::FtSugLen, key.into()).await
 }
 
-pub async fn ft_syndump<C: ClientLike>(client: &C, index: Str) -> Result<RedisValue, RedisError> {
-  one_arg_values_cmd(client, RedisCommandKind::FtSynDump, index.into()).await
+pub async fn ft_syndump<C: ClientLike>(client: &C, index: Str) -> Result<Value, Error> {
+  one_arg_values_cmd(client, CommandKind::FtSynDump, index.into()).await
 }
 
 pub async fn ft_synupdate<C: ClientLike>(
@@ -840,7 +818,7 @@ pub async fn ft_synupdate<C: ClientLike>(
   synonym_group_id: Str,
   skipinitialscan: bool,
   terms: MultipleStrings,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(3 + terms.len());
     args.push(index.into());
@@ -852,17 +830,13 @@ pub async fn ft_synupdate<C: ClientLike>(
       args.push(term.into());
     }
 
-    Ok((RedisCommandKind::FtSynUpdate, args))
+    Ok((CommandKind::FtSynUpdate, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn ft_tagvals<C: ClientLike>(client: &C, index: Str, field_name: Str) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::FtTagVals, vec![
-    index.into(),
-    field_name.into(),
-  ])
-  .await
+pub async fn ft_tagvals<C: ClientLike>(client: &C, index: Str, field_name: Str) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::FtTagVals, vec![index.into(), field_name.into()]).await
 }

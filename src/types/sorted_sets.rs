@@ -1,6 +1,6 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::RedisValue,
+  error::{Error, ErrorKind},
+  types::Value,
   utils,
 };
 use bytes_utils::Str;
@@ -84,7 +84,7 @@ impl From<VecDeque<f64>> for MultipleWeights {
 
 /// Convenience struct for the `ZADD` command to accept 1 or more `(score, value)` arguments.
 pub struct MultipleZaddValues {
-  values: Vec<(f64, RedisValue)>,
+  values: Vec<(f64, Value)>,
 }
 
 impl MultipleZaddValues {
@@ -92,7 +92,7 @@ impl MultipleZaddValues {
     MultipleZaddValues { values: Vec::new() }
   }
 
-  pub fn inner(self) -> Vec<(f64, RedisValue)> {
+  pub fn inner(self) -> Vec<(f64, Value)> {
     self.values
   }
 
@@ -103,10 +103,10 @@ impl MultipleZaddValues {
 
 impl<T> TryFrom<(f64, T)> for MultipleZaddValues
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from((f, d): (f64, T)) -> Result<Self, Self::Error> {
     Ok(MultipleZaddValues {
@@ -117,7 +117,7 @@ where
 
 impl<T> FromIterator<(f64, T)> for MultipleZaddValues
 where
-  T: Into<RedisValue>,
+  T: Into<Value>,
 {
   fn from_iter<I: IntoIterator<Item = (f64, T)>>(iter: I) -> Self {
     MultipleZaddValues {
@@ -128,10 +128,10 @@ where
 
 impl<T> TryFrom<Vec<(f64, T)>> for MultipleZaddValues
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(d: Vec<(f64, T)>) -> Result<Self, Self::Error> {
     let mut values = Vec::with_capacity(d.len());
@@ -145,10 +145,10 @@ where
 
 impl<T> TryFrom<VecDeque<(f64, T)>> for MultipleZaddValues
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(d: VecDeque<(f64, T)>) -> Result<Self, Self::Error> {
     let mut values = Vec::with_capacity(d.len());
@@ -248,7 +248,7 @@ impl<'a> From<&'a String> for ZRangeBound {
 }
 
 impl TryFrom<f64> for ZRangeBound {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(f: f64) -> Result<Self, Self::Error> {
     let value = if f.is_infinite() && f.is_sign_negative() {
@@ -256,10 +256,7 @@ impl TryFrom<f64> for ZRangeBound {
     } else if f.is_infinite() {
       ZRangeBound::InfiniteScore
     } else if f.is_nan() {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Cannot use NaN as zrange field.",
-      ));
+      return Err(Error::new(ErrorKind::Unknown, "Cannot use NaN as zrange field."));
     } else {
       ZRangeBound::Score(f)
     };
@@ -289,26 +286,26 @@ pub struct ZRange {
 }
 
 impl ZRange {
-  pub(crate) fn into_value(self) -> Result<RedisValue, RedisError> {
+  pub(crate) fn into_value(self) -> Result<Value, Error> {
     let value = if self.kind == ZRangeKind::Exclusive {
       match self.range {
         ZRangeBound::Index(i) => format!("({}", i).into(),
         ZRangeBound::Score(f) => utils::f64_to_zrange_bound(f, &self.kind)?.into(),
         ZRangeBound::Lex(s) => utils::check_lex_str(s, &self.kind).into(),
-        ZRangeBound::InfiniteLex => RedisValue::from_static_str("+"),
-        ZRangeBound::NegInfinityLex => RedisValue::from_static_str("-"),
-        ZRangeBound::InfiniteScore => RedisValue::from_static_str("+inf"),
-        ZRangeBound::NegInfiniteScore => RedisValue::from_static_str("-inf"),
+        ZRangeBound::InfiniteLex => Value::from_static_str("+"),
+        ZRangeBound::NegInfinityLex => Value::from_static_str("-"),
+        ZRangeBound::InfiniteScore => Value::from_static_str("+inf"),
+        ZRangeBound::NegInfiniteScore => Value::from_static_str("-inf"),
       }
     } else {
       match self.range {
         ZRangeBound::Index(i) => i.into(),
         ZRangeBound::Score(f) => f.try_into()?,
         ZRangeBound::Lex(s) => utils::check_lex_str(s, &self.kind).into(),
-        ZRangeBound::InfiniteLex => RedisValue::from_static_str("+"),
-        ZRangeBound::NegInfinityLex => RedisValue::from_static_str("-"),
-        ZRangeBound::InfiniteScore => RedisValue::from_static_str("+inf"),
-        ZRangeBound::NegInfiniteScore => RedisValue::from_static_str("-inf"),
+        ZRangeBound::InfiniteLex => Value::from_static_str("+"),
+        ZRangeBound::NegInfinityLex => Value::from_static_str("-"),
+        ZRangeBound::InfiniteScore => Value::from_static_str("+inf"),
+        ZRangeBound::NegInfiniteScore => Value::from_static_str("-inf"),
       }
     };
 
@@ -353,7 +350,7 @@ impl<'a> From<&'a String> for ZRange {
 }
 
 impl TryFrom<f64> for ZRange {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(f: f64) -> Result<Self, Self::Error> {
     Ok(ZRange {
@@ -366,5 +363,23 @@ impl TryFrom<f64> for ZRange {
 impl<'a> From<&'a ZRange> for ZRange {
   fn from(range: &'a ZRange) -> Self {
     range.clone()
+  }
+}
+
+/// Aggregate options for the [zinterstore](https://redis.io/commands/zinterstore) (and related) commands.
+pub enum AggregateOptions {
+  Sum,
+  Min,
+  Max,
+}
+
+impl AggregateOptions {
+  #[cfg(feature = "i-sorted-sets")]
+  pub(crate) fn to_str(&self) -> Str {
+    utils::static_str(match *self {
+      AggregateOptions::Sum => "SUM",
+      AggregateOptions::Min => "MIN",
+      AggregateOptions::Max => "MAX",
+    })
   }
 }

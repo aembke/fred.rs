@@ -1,7 +1,7 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, connection, connection::ExclusiveConnection, types::Server},
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  protocol::{command::Command, connection, connection::ExclusiveConnection, types::Server},
   router::connections::Connections,
   runtime::{AsyncRwLock, RefCount},
   utils,
@@ -18,9 +18,9 @@ use std::{
 /// Returns whether a new connection was created.
 async fn check_and_create_transport(
   backchannel: &Backchannel,
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
-) -> Result<bool, RedisError> {
+) -> Result<bool, Error> {
   let mut transport = backchannel.transport.write().await;
 
   if let Some(ref mut transport) = transport.deref_mut() {
@@ -61,7 +61,7 @@ impl Default for Backchannel {
 impl Backchannel {
   /// Check if the current server matches the provided server, and disconnect.
   // TODO does this need to disconnect whenever the caller manually changes the RESP protocol mode?
-  pub async fn check_and_disconnect(&self, inner: &RefCount<RedisClientInner>, server: Option<&Server>) {
+  pub async fn check_and_disconnect(&self, inner: &RefCount<ClientInner>, server: Option<&Server>) {
     let should_close = self
       .current_server()
       .await
@@ -90,7 +90,7 @@ impl Backchannel {
   }
 
   /// Clear all local state that depends on the associated `Router` instance.
-  pub async fn clear_router_state(&self, inner: &RefCount<RedisClientInner>) {
+  pub async fn clear_router_state(&self, inner: &RefCount<ClientInner>) {
     self.connection_ids.lock().clear();
     self.blocked.lock().take();
 
@@ -187,10 +187,10 @@ impl Backchannel {
   /// If a new connection is created this function also sets it on `self` before returning.
   pub async fn request_response(
     &self,
-    inner: &RefCount<RedisClientInner>,
+    inner: &RefCount<ClientInner>,
     server: &Server,
-    command: RedisCommand,
-  ) -> Result<Resp3Frame, RedisError> {
+    command: Command,
+  ) -> Result<Resp3Frame, Error> {
     let _ = check_and_create_transport(self, inner, server).await?;
 
     if let Some(ref mut transport) = self.transport.write().await.deref_mut() {
@@ -208,8 +208,8 @@ impl Backchannel {
       )
       .await
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Unknown,
+      Err(Error::new(
+        ErrorKind::Unknown,
         "Failed to create backchannel connection.",
       ))
     }
@@ -226,45 +226,40 @@ impl Backchannel {
   /// * Failing all of the above a random server will be used.
   pub async fn find_server(
     &self,
-    inner: &RefCount<RedisClientInner>,
-    command: &RedisCommand,
+    inner: &RefCount<ClientInner>,
+    command: &Command,
     use_blocked: bool,
-  ) -> Result<Server, RedisError> {
+  ) -> Result<Server, Error> {
     if use_blocked {
       if let Some(server) = self.blocked.lock().deref() {
         Ok(server.clone())
       } else {
         // should this be more relaxed?
-        Err(RedisError::new(RedisErrorKind::Unknown, "No connections are blocked."))
+        Err(Error::new(ErrorKind::Unknown, "No connections are blocked."))
       }
     } else if inner.config.server.is_clustered() {
       if command.kind.use_random_cluster_node() {
         self
           .any_server()
           .await
-          .ok_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Failed to find backchannel server."))
+          .ok_or_else(|| Error::new(ErrorKind::Unknown, "Failed to find backchannel server."))
       } else {
         inner.with_cluster_state(|state| {
           let slot = match command.cluster_hash() {
             Some(slot) => slot,
-            None => {
-              return Err(RedisError::new(
-                RedisErrorKind::Cluster,
-                "Failed to find cluster hash slot.",
-              ))
-            },
+            None => return Err(Error::new(ErrorKind::Cluster, "Failed to find cluster hash slot.")),
           };
           state
             .get_server(slot)
             .cloned()
-            .ok_or_else(|| RedisError::new(RedisErrorKind::Cluster, "Failed to find cluster owner."))
+            .ok_or_else(|| Error::new(ErrorKind::Cluster, "Failed to find cluster owner."))
         })
       }
     } else {
       self
         .any_server()
         .await
-        .ok_or_else(|| RedisError::new(RedisErrorKind::Unknown, "Failed to find backchannel server."))
+        .ok_or_else(|| Error::new(ErrorKind::Unknown, "Failed to find backchannel server."))
     }
   }
 }

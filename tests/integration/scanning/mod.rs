@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use fred::{
   prelude::*,
-  types::{ScanResult, Scanner},
+  types::scan::{ScanResult, Scanner},
 };
 use futures::{Stream, TryStreamExt};
 // tokio_stream has a more flexible version of `collect`
@@ -11,7 +11,7 @@ use tokio_stream::StreamExt;
 const SCAN_KEYS: i64 = 100;
 
 #[cfg(feature = "i-keys")]
-pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_scan_keyspace(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. SCAN_KEYS {
     let _: () = client
       .set(format!("foo-{}-{}", idx, "{1}"), idx, None, None, false)
@@ -43,7 +43,7 @@ pub async fn should_scan_keyspace(client: RedisClient, _: RedisConfig) -> Result
 }
 
 #[cfg(feature = "i-hashes")]
-pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_hscan_hash(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. SCAN_KEYS {
     let value = (format!("bar-{}", idx), idx);
     let _: () = client.hset("foo", value).await?;
@@ -74,7 +74,7 @@ pub async fn should_hscan_hash(client: RedisClient, _: RedisConfig) -> Result<()
 }
 
 #[cfg(feature = "i-sets")]
-pub async fn should_sscan_set(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_sscan_set(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. SCAN_KEYS {
     let _: () = client.sadd("foo", idx).await?;
   }
@@ -102,7 +102,7 @@ pub async fn should_sscan_set(client: RedisClient, _: RedisConfig) -> Result<(),
 }
 
 #[cfg(feature = "i-sorted-sets")]
-pub async fn should_zscan_sorted_set(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_zscan_sorted_set(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. SCAN_KEYS {
     let (score, value) = (idx as f64, format!("foo-{}", idx));
     let _: () = client.zadd("foo", None, None, false, false, (score, value)).await?;
@@ -135,7 +135,7 @@ pub async fn should_zscan_sorted_set(client: RedisClient, _: RedisConfig) -> Res
 }
 
 #[cfg(feature = "i-keys")]
-pub async fn should_scan_cluster(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_scan_cluster(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. 2000 {
     let _: () = client.set(idx, idx, None, None, false).await?;
   }
@@ -153,19 +153,19 @@ pub async fn should_scan_cluster(client: RedisClient, _: RedisConfig) -> Result<
 }
 
 #[cfg(feature = "i-keys")]
-pub async fn should_scan_buffered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_scan_buffered(client: Client, _: Config) -> Result<(), Error> {
   let mut expected = Vec::with_capacity(100);
   for idx in 0 .. 100 {
     // write everything to the same cluster node
-    let key: RedisKey = format!("foo-{{1}}-{}", idx).into();
+    let key: Key = format!("foo-{{1}}-{}", idx).into();
     expected.push(key.clone());
     let _: () = client.set(key, idx, None, None, false).await?;
   }
   expected.sort();
 
-  let mut keys: Vec<RedisKey> = client
+  let mut keys: Vec<Key> = client
     .scan_buffered("foo-{1}*", Some(20), None)
-    .collect::<Result<Vec<RedisKey>, RedisError>>()
+    .collect::<Result<Vec<Key>, Error>>()
     .await?;
   keys.sort();
 
@@ -174,18 +174,18 @@ pub async fn should_scan_buffered(client: RedisClient, _: RedisConfig) -> Result
 }
 
 #[cfg(feature = "i-keys")]
-pub async fn should_scan_cluster_buffered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_scan_cluster_buffered(client: Client, _: Config) -> Result<(), Error> {
   let mut expected = Vec::with_capacity(100);
   for idx in 0 .. 100 {
-    let key: RedisKey = format!("foo-{}", idx).into();
+    let key: Key = format!("foo-{}", idx).into();
     expected.push(key.clone());
     let _: () = client.set(key, idx, None, None, false).await?;
   }
   expected.sort();
 
-  let mut keys: Vec<RedisKey> = client
+  let mut keys: Vec<Key> = client
     .scan_cluster_buffered("foo*", Some(20), None)
-    .collect::<Result<Vec<RedisKey>, RedisError>>()
+    .collect::<Result<Vec<Key>, Error>>()
     .await?;
   keys.sort();
 
@@ -194,7 +194,7 @@ pub async fn should_scan_cluster_buffered(client: RedisClient, _: RedisConfig) -
 }
 
 #[cfg(feature = "i-keys")]
-fn scan_all(client: &RedisClient, page_size: Option<u32>) -> impl Stream<Item = Result<ScanResult, RedisError>> {
+fn scan_all(client: &Client, page_size: Option<u32>) -> impl Stream<Item = Result<ScanResult, Error>> {
   use futures::StreamExt;
 
   if client.is_clustered() {
@@ -205,9 +205,9 @@ fn scan_all(client: &RedisClient, page_size: Option<u32>) -> impl Stream<Item = 
 }
 
 #[cfg(feature = "i-keys")]
-pub async fn should_continue_scanning_on_page_drop(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_continue_scanning_on_page_drop(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. 100 {
-    let key: RedisKey = format!("foo-{}", idx).into();
+    let key: Key = format!("foo-{}", idx).into();
     let _: () = client.set(key, idx, None, None, false).await?;
   }
 
@@ -223,16 +223,16 @@ pub async fn should_continue_scanning_on_page_drop(client: RedisClient, _: Redis
 }
 
 #[cfg(feature = "i-keys")]
-pub async fn should_scan_by_page_centralized(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_scan_by_page_centralized(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. 100 {
-    let key: RedisKey = format!("foo-{}", idx).into();
+    let key: Key = format!("foo-{}", idx).into();
     let _: () = client.set(key, idx, None, None, false).await?;
   }
   let mut cursor: Str = "0".into();
   let mut count = 0;
 
   loop {
-    let (new_cursor, keys): (Str, Vec<RedisKey>) = client.scan_page(cursor, "*", None, None).await?;
+    let (new_cursor, keys): (Str, Vec<Key>) = client.scan_page(cursor, "*", None, None).await?;
     count += keys.len();
 
     if new_cursor == "0" {
@@ -246,10 +246,10 @@ pub async fn should_scan_by_page_centralized(client: RedisClient, _: RedisConfig
   Ok(())
 }
 
-#[cfg(feature = "i-keys")]
-pub async fn should_scan_by_page_clustered(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+#[cfg(all(feature = "i-keys", feature = "i-cluster"))]
+pub async fn should_scan_by_page_clustered(client: Client, _: Config) -> Result<(), Error> {
   for idx in 0 .. 100 {
-    let key: RedisKey = format!("foo-{{1}}-{idx}").into();
+    let key: Key = format!("foo-{{1}}-{idx}").into();
     let _: () = client.set(key, idx, None, None, false).await?;
   }
   let mut cursor: Str = "0".into();
@@ -264,7 +264,7 @@ pub async fn should_scan_by_page_clustered(client: RedisClient, _: RedisConfig) 
     .unwrap();
 
   loop {
-    let (new_cursor, keys): (Str, Vec<RedisKey>) = client
+    let (new_cursor, keys): (Str, Vec<Key>) = client
       .with_cluster_node(&server)
       .scan_page(cursor, "*", None, None)
       .await?;

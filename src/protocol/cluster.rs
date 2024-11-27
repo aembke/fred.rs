@@ -1,9 +1,9 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
   protocol::types::{Server, SlotRange},
   runtime::RefCount,
-  types::RedisValue,
+  types::Value,
   utils,
 };
 use bytes_utils::Str;
@@ -16,20 +16,17 @@ use std::{collections::HashMap, net::IpAddr, str::FromStr};
 ))]
 use crate::protocol::tls::TlsHostMapping;
 
-fn parse_as_u16(value: RedisValue) -> Result<u16, RedisError> {
+fn parse_as_u16(value: Value) -> Result<u16, Error> {
   match value {
-    RedisValue::Integer(i) => {
+    Value::Integer(i) => {
       if i < 0 || i > u16::MAX as i64 {
-        Err(RedisError::new(RedisErrorKind::Parse, "Invalid cluster slot integer."))
+        Err(Error::new(ErrorKind::Parse, "Invalid cluster slot integer."))
       } else {
         Ok(i as u16)
       }
     },
-    RedisValue::String(s) => s.parse::<u16>().map_err(|e| e.into()),
-    _ => Err(RedisError::new(
-      RedisErrorKind::Parse,
-      "Could not parse value as cluster slot.",
-    )),
+    Value::String(s) => s.parse::<u16>().map_err(|e| e.into()),
+    _ => Err(Error::new(ErrorKind::Parse, "Could not parse value as cluster slot.")),
   }
 }
 
@@ -58,12 +55,9 @@ fn check_metadata_hostname(data: &HashMap<Str, Str>) -> Option<&Str> {
 /// The `default_host` is the host that returned the `CLUSTER SLOTS` response.
 ///
 /// <https://redis.io/commands/cluster-slots/#nested-result-array>
-fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Result<Str, RedisError> {
+fn parse_cluster_slot_hostname(server: &[Value], default_host: &Str) -> Result<Str, Error> {
   if server.is_empty() {
-    return Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid CLUSTER SLOTS server block.",
-    ));
+    return Err(Error::new(ErrorKind::Protocol, "Invalid CLUSTER SLOTS server block."));
   }
   let should_parse_metadata = server.len() >= 4 && !server[3].is_null() && server[3].array_len().unwrap_or(0) > 0;
 
@@ -80,8 +74,8 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Res
     let preferred_host = match server[0].clone().convert::<Str>() {
       Ok(host) => host,
       Err(_) => {
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
+        return Err(Error::new(
+          ErrorKind::Protocol,
           "Invalid CLUSTER SLOTS server block hostname.",
         ))
       },
@@ -98,7 +92,7 @@ fn parse_cluster_slot_hostname(server: &[RedisValue], default_host: &Str) -> Res
 }
 
 /// Read the node block with format `<hostname>|null, <port>, <id>, [metadata]`
-fn parse_node_block(data: &[RedisValue], default_host: &Str) -> Option<(Str, u16, Str, Str)> {
+fn parse_node_block(data: &[Value], default_host: &Str) -> Option<(Str, u16, Str, Str)> {
   if data.len() < 3 {
     return None;
   }
@@ -119,11 +113,11 @@ fn parse_node_block(data: &[RedisValue], default_host: &Str) -> Option<(Str, u16
 
 /// Parse the optional trailing replica nodes in each `CLUSTER SLOTS` slot range block.
 #[cfg(feature = "replicas")]
-fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &Str) -> Vec<Server> {
+fn parse_cluster_slot_replica_nodes(slot_range: Vec<Value>, default_host: &Str) -> Vec<Server> {
   slot_range
     .into_iter()
     .filter_map(|value| {
-      let server_block: Vec<RedisValue> = match value.convert() {
+      let server_block: Vec<Value> = match value.convert() {
         Ok(v) => v,
         Err(_) => {
           warn!("Skip replica CLUSTER SLOTS block from {}", default_host);
@@ -154,12 +148,9 @@ fn parse_cluster_slot_replica_nodes(slot_range: Vec<RedisValue>, default_host: &
 }
 
 /// Parse the cluster slot range and associated server blocks.
-fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &Str) -> Result<SlotRange, RedisError> {
+fn parse_cluster_slot_nodes(mut slot_range: Vec<Value>, default_host: &Str) -> Result<SlotRange, Error> {
   if slot_range.len() < 3 {
-    return Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Invalid CLUSTER SLOTS response.",
-    ));
+    return Err(Error::new(ErrorKind::Protocol, "Invalid CLUSTER SLOTS response."));
   }
   slot_range.reverse();
   // length checked above
@@ -168,15 +159,12 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &Str)
 
   // the third value is the primary node, following values are optional replica nodes
   // length checked above. format is `<hostname>|null, <port>, <id>, [metadata]`
-  let server_block: Vec<RedisValue> = slot_range.pop().unwrap().convert()?;
+  let server_block: Vec<Value> = slot_range.pop().unwrap().convert()?;
   let (host, port, id) = match parse_node_block(&server_block, default_host) {
     Some((h, p, _, i)) => (h, p, i),
     None => {
       trace!("Failed to parse CLUSTER SLOTS response: {:?}", server_block);
-      return Err(RedisError::new(
-        RedisErrorKind::Cluster,
-        "Invalid CLUSTER SLOTS response.",
-      ));
+      return Err(Error::new(ErrorKind::Cluster, "Invalid CLUSTER SLOTS response."));
     },
   };
 
@@ -201,8 +189,8 @@ fn parse_cluster_slot_nodes(mut slot_range: Vec<RedisValue>, default_host: &Str)
 
 /// Parse the entire CLUSTER SLOTS response with the provided `default_host` of the connection used to send the
 /// command.
-pub fn parse_cluster_slots(frame: RedisValue, default_host: &Str) -> Result<Vec<SlotRange>, RedisError> {
-  let slot_ranges: Vec<Vec<RedisValue>> = frame.convert()?;
+pub fn parse_cluster_slots(frame: Value, default_host: &Str) -> Result<Vec<SlotRange>, Error> {
+  let slot_ranges: Vec<Vec<Value>> = frame.convert()?;
   let mut out: Vec<SlotRange> = Vec::with_capacity(slot_ranges.len());
 
   for slot_range in slot_ranges.into_iter() {
@@ -235,11 +223,7 @@ fn replace_tls_server_names(policy: &TlsHostMapping, ranges: &mut [SlotRange], d
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 ))]
-pub fn modify_cluster_slot_hostnames(
-  inner: &RefCount<RedisClientInner>,
-  ranges: &mut [SlotRange],
-  default_host: &Str,
-) {
+pub fn modify_cluster_slot_hostnames(inner: &RefCount<ClientInner>, ranges: &mut [SlotRange], default_host: &Str) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {
@@ -260,7 +244,7 @@ pub fn modify_cluster_slot_hostnames(
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 )))]
-pub fn modify_cluster_slot_hostnames(inner: &RefCount<RedisClientInner>, _: &mut Vec<SlotRange>, _: &Str) {
+pub fn modify_cluster_slot_hostnames(inner: &RefCount<ClientInner>, _: &mut Vec<SlotRange>, _: &Str) {
   _trace!(inner, "Skip modifying TLS hostnames.")
 }
 
@@ -294,104 +278,104 @@ mod tests {
     }
   }
 
-  fn fake_cluster_slots_without_metadata() -> RedisValue {
-    let first_slot_range = RedisValue::Array(vec![
+  fn fake_cluster_slots_without_metadata() -> Value {
+    let first_slot_range = Value::Array(vec![
       0.into(),
       5460.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30001.into(),
         "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30004.into(),
         "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
       ]),
     ]);
-    let second_slot_range = RedisValue::Array(vec![
+    let second_slot_range = Value::Array(vec![
       5461.into(),
       10922.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30002.into(),
         "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30005.into(),
         "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
       ]),
     ]);
-    let third_slot_range = RedisValue::Array(vec![
+    let third_slot_range = Value::Array(vec![
       10923.into(),
       16383.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30003.into(),
         "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30006.into(),
         "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
       ]),
     ]);
 
-    RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range])
+    Value::Array(vec![first_slot_range, second_slot_range, third_slot_range])
   }
 
-  fn fake_cluster_slots_with_metadata() -> RedisValue {
-    let first_slot_range = RedisValue::Array(vec![
+  fn fake_cluster_slots_with_metadata() -> Value {
+    let first_slot_range = Value::Array(vec![
       0.into(),
       5460.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30001.into(),
         "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
-        RedisValue::Array(vec!["hostname".into(), "host-1.redis.example.com".into()]),
+        Value::Array(vec!["hostname".into(), "host-1.redis.example.com".into()]),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30004.into(),
         "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
-        RedisValue::Array(vec!["hostname".into(), "host-2.redis.example.com".into()]),
+        Value::Array(vec!["hostname".into(), "host-2.redis.example.com".into()]),
       ]),
     ]);
-    let second_slot_range = RedisValue::Array(vec![
+    let second_slot_range = Value::Array(vec![
       5461.into(),
       10922.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30002.into(),
         "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
-        RedisValue::Array(vec!["hostname".into(), "host-3.redis.example.com".into()]),
+        Value::Array(vec!["hostname".into(), "host-3.redis.example.com".into()]),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30005.into(),
         "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
-        RedisValue::Array(vec!["hostname".into(), "host-4.redis.example.com".into()]),
+        Value::Array(vec!["hostname".into(), "host-4.redis.example.com".into()]),
       ]),
     ]);
-    let third_slot_range = RedisValue::Array(vec![
+    let third_slot_range = Value::Array(vec![
       10923.into(),
       16383.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30003.into(),
         "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
-        RedisValue::Array(vec!["hostname".into(), "host-5.redis.example.com".into()]),
+        Value::Array(vec!["hostname".into(), "host-5.redis.example.com".into()]),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30006.into(),
         "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
-        RedisValue::Array(vec!["hostname".into(), "host-6.redis.example.com".into()]),
+        Value::Array(vec!["hostname".into(), "host-6.redis.example.com".into()]),
       ]),
     ]);
 
-    RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range])
+    Value::Array(vec![first_slot_range, second_slot_range, third_slot_range])
   }
 
   #[test]
@@ -645,55 +629,55 @@ mod tests {
 
   #[test]
   fn should_parse_cluster_slots_example_empty_metadata() {
-    let first_slot_range = RedisValue::Array(vec![
+    let first_slot_range = Value::Array(vec![
       0.into(),
       5460.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30001.into(),
         "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30004.into(),
         "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
     ]);
-    let second_slot_range = RedisValue::Array(vec![
+    let second_slot_range = Value::Array(vec![
       5461.into(),
       10922.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30002.into(),
         "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30005.into(),
         "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
     ]);
-    let third_slot_range = RedisValue::Array(vec![
+    let third_slot_range = Value::Array(vec![
       10923.into(),
       16383.into(),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30003.into(),
         "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
-      RedisValue::Array(vec![
+      Value::Array(vec![
         "127.0.0.1".into(),
         30006.into(),
         "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
     ]);
-    let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
+    let input = Value::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
 
     let actual = parse_cluster_slots(input, &Str::from("bad-host")).expect("Failed to parse input");
     let expected = vec![
@@ -781,55 +765,55 @@ mod tests {
 
   #[test]
   fn should_parse_cluster_slots_example_null_hostname() {
-    let first_slot_range = RedisValue::Array(vec![
+    let first_slot_range = Value::Array(vec![
       0.into(),
       5460.into(),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30001.into(),
         "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30004.into(),
         "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
     ]);
-    let second_slot_range = RedisValue::Array(vec![
+    let second_slot_range = Value::Array(vec![
       5461.into(),
       10922.into(),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30002.into(),
         "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30005.into(),
         "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
     ]);
-    let third_slot_range = RedisValue::Array(vec![
+    let third_slot_range = Value::Array(vec![
       10923.into(),
       16383.into(),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30003.into(),
         "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30006.into(),
         "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
-        RedisValue::Array(vec![]),
+        Value::Array(vec![]),
       ]),
     ]);
-    let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
+    let input = Value::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
 
     let actual = parse_cluster_slots(input, &Str::from("fake-host")).expect("Failed to parse input");
     let expected = vec![
@@ -917,55 +901,55 @@ mod tests {
 
   #[test]
   fn should_parse_cluster_slots_example_empty_hostname() {
-    let first_slot_range = RedisValue::Array(vec![
+    let first_slot_range = Value::Array(vec![
       0.into(),
       5460.into(),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30001.into(),
         "09dbe9720cda62f7865eabc5fd8857c5d2678366".into(),
-        RedisValue::Array(vec!["hostname".into(), "".into()]),
+        Value::Array(vec!["hostname".into(), "".into()]),
       ]),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30004.into(),
         "821d8ca00d7ccf931ed3ffc7e3db0599d2271abf".into(),
-        RedisValue::Array(vec!["hostname".into(), "".into()]),
+        Value::Array(vec!["hostname".into(), "".into()]),
       ]),
     ]);
-    let second_slot_range = RedisValue::Array(vec![
+    let second_slot_range = Value::Array(vec![
       5461.into(),
       10922.into(),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30002.into(),
         "c9d93d9f2c0c524ff34cc11838c2003d8c29e013".into(),
-        RedisValue::Array(vec!["hostname".into(), "".into()]),
+        Value::Array(vec!["hostname".into(), "".into()]),
       ]),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30005.into(),
         "faadb3eb99009de4ab72ad6b6ed87634c7ee410f".into(),
-        RedisValue::Array(vec!["hostname".into(), "".into()]),
+        Value::Array(vec!["hostname".into(), "".into()]),
       ]),
     ]);
-    let third_slot_range = RedisValue::Array(vec![
+    let third_slot_range = Value::Array(vec![
       10923.into(),
       16383.into(),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30003.into(),
         "044ec91f325b7595e76dbcb18cc688b6a5b434a1".into(),
-        RedisValue::Array(vec!["hostname".into(), "".into()]),
+        Value::Array(vec!["hostname".into(), "".into()]),
       ]),
-      RedisValue::Array(vec![
-        RedisValue::Null,
+      Value::Array(vec![
+        Value::Null,
         30006.into(),
         "58e6e48d41228013e5d9c1c37c5060693925e97e".into(),
-        RedisValue::Array(vec!["hostname".into(), "".into()]),
+        Value::Array(vec!["hostname".into(), "".into()]),
       ]),
     ]);
-    let input = RedisValue::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
+    let input = Value::Array(vec![first_slot_range, second_slot_range, third_slot_range]);
 
     let actual = parse_cluster_slots(input, &Str::from("fake-host")).expect("Failed to parse input");
     let expected = vec![

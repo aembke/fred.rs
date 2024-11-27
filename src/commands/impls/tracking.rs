@@ -1,13 +1,13 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces::ClientLike,
   protocol::{
-    command::{RedisCommand, RedisCommandKind},
+    command::{Command, CommandKind},
     responders::ResponseKind,
     utils as protocol_utils,
   },
   runtime::oneshot_channel,
-  types::{ClusterHash, MultipleStrings, RedisValue, Toggle},
+  types::{client::Toggle, ClusterHash, MultipleStrings, Value},
   utils,
 };
 use redis_protocol::redis_keyslot;
@@ -29,7 +29,7 @@ fn tracking_args(
   optin: bool,
   optout: bool,
   noloop: bool,
-) -> Vec<RedisValue> {
+) -> Vec<Value> {
   let mut args = Vec::with_capacity(prefixes.len() * 2 + 7);
   args.push(static_val!(toggle.to_str()));
   if let Some(redirect) = redirect {
@@ -63,12 +63,9 @@ pub async fn start_tracking<C: ClientLike>(
   optin: bool,
   optout: bool,
   noloop: bool,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   if !client.inner().is_resp3() {
-    return Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Client tracking requires RESP3.",
-    ));
+    return Err(Error::new(ErrorKind::Config, "Client tracking requires RESP3."));
   }
 
   let args = tracking_args(Toggle::On, None, prefixes, bcast, optin, optout, noloop);
@@ -76,7 +73,7 @@ pub async fn start_tracking<C: ClientLike>(
     if bcast {
       // only send the tracking command on one connection when in bcast mode
       let frame = utils::request_response(client, move || {
-        let mut command = RedisCommand::new(RedisCommandKind::ClientTracking, args);
+        let mut command = Command::new(CommandKind::ClientTracking, args);
         command.hasher = ClusterHash::Custom(redis_keyslot(client.id().as_bytes()));
         Ok(command)
       })
@@ -87,7 +84,7 @@ pub async fn start_tracking<C: ClientLike>(
       // send the tracking command to all nodes when not in bcast mode
       let (tx, rx) = oneshot_channel();
       let response = ResponseKind::Respond(Some(tx));
-      let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
+      let command: Command = (CommandKind::_ClientTrackingCluster, args, response).into();
       client.send_command(command)?;
 
       let frame = utils::timeout(rx, client.inner().internal_command_timeout()).await??;
@@ -95,19 +92,16 @@ pub async fn start_tracking<C: ClientLike>(
       Ok(())
     }
   } else {
-    utils::request_response(client, move || Ok((RedisCommandKind::ClientTracking, args)))
+    utils::request_response(client, move || Ok((CommandKind::ClientTracking, args)))
       .await
       .and_then(protocol_utils::frame_to_results)
       .and_then(|v| v.convert())
   }
 }
 
-pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> {
+pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), Error> {
   if !client.inner().is_resp3() {
-    return Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Client tracking requires RESP3.",
-    ));
+    return Err(Error::new(ErrorKind::Config, "Client tracking requires RESP3."));
   }
 
   let args = vec![static_val!(Toggle::Off.to_str())];
@@ -115,14 +109,14 @@ pub async fn stop_tracking<C: ClientLike>(client: &C) -> Result<(), RedisError> 
     // turn off tracking on all connections
     let (tx, rx) = oneshot_channel();
     let response = ResponseKind::Respond(Some(tx));
-    let command: RedisCommand = (RedisCommandKind::_ClientTrackingCluster, args, response).into();
+    let command: Command = (CommandKind::_ClientTrackingCluster, args, response).into();
     client.send_command(command)?;
 
     let frame = utils::timeout(rx, client.inner().internal_command_timeout()).await??;
     let _ = protocol_utils::frame_to_results(frame)?;
     Ok(())
   } else {
-    utils::request_response(client, move || Ok((RedisCommandKind::ClientTracking, args)))
+    utils::request_response(client, move || Ok((CommandKind::ClientTracking, args)))
       .await
       .and_then(protocol_utils::frame_to_results)
       .and_then(|v| v.convert())
@@ -138,34 +132,34 @@ pub async fn client_tracking<C: ClientLike>(
   optin: bool,
   optout: bool,
   noloop: bool,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let args = tracking_args(toggle, redirect, prefixes, bcast, optin, optout, noloop);
 
-  utils::request_response(client, move || Ok((RedisCommandKind::ClientTracking, args)))
+  utils::request_response(client, move || Ok((CommandKind::ClientTracking, args)))
     .await
     .and_then(protocol_utils::frame_to_results)
 }
 
-pub async fn client_trackinginfo<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
-  utils::request_response(client, move || Ok((RedisCommandKind::ClientTrackingInfo, vec![])))
+pub async fn client_trackinginfo<C: ClientLike>(client: &C) -> Result<Value, Error> {
+  utils::request_response(client, move || Ok((CommandKind::ClientTrackingInfo, vec![])))
     .await
     .and_then(protocol_utils::frame_to_results)
 }
 
-pub async fn client_getredir<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
-  utils::request_response(client, move || Ok((RedisCommandKind::ClientGetRedir, vec![])))
+pub async fn client_getredir<C: ClientLike>(client: &C) -> Result<Value, Error> {
+  utils::request_response(client, move || Ok((CommandKind::ClientGetRedir, vec![])))
     .await
     .and_then(protocol_utils::frame_to_results)
 }
 
-pub async fn client_caching<C: ClientLike>(client: &C, enabled: bool) -> Result<RedisValue, RedisError> {
+pub async fn client_caching<C: ClientLike>(client: &C, enabled: bool) -> Result<Value, Error> {
   let args = if enabled {
     vec![static_val!(YES)]
   } else {
     vec![static_val!(NO)]
   };
 
-  utils::request_response(client, move || Ok((RedisCommandKind::ClientCaching, args)))
+  utils::request_response(client, move || Ok((CommandKind::ClientCaching, args)))
     .await
     .and_then(protocol_utils::frame_to_results)
 }

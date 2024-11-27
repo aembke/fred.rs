@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, RedisMap, RedisValue, SentinelFailureKind},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{FromValue, Map, SentinelFailureKind, Value},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -14,9 +14,9 @@ use std::{convert::TryInto, net::IpAddr};
 pub trait SentinelInterface: ClientLike + Sized {
   /// Check if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the
   /// majority needed to authorize the failover.
-  fn ckquorum<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn ckquorum<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -26,17 +26,17 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Force Sentinel to rewrite its configuration on disk, including the current Sentinel state.
-  fn flushconfig<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn flushconfig<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::sentinel::flushconfig(self).await?.convert() }
   }
 
   /// Force a failover as if the master was not reachable, and without asking for agreement to other Sentinels.
-  fn failover<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn failover<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -46,9 +46,9 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Return the ip and port number of the master with that name.
-  fn get_master_addr_by_name<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn get_master_addr_by_name<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -58,17 +58,17 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Return cached INFO output from masters and replicas.
-  fn info_cache<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn info_cache<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::sentinel::info_cache(self).await?.convert() }
   }
 
   /// Show the state and info of the specified master.
-  fn master<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn master<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -78,9 +78,9 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Show a list of monitored masters and their state.
-  fn masters<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn masters<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::sentinel::masters(self).await?.convert() }
   }
@@ -88,9 +88,9 @@ pub trait SentinelInterface: ClientLike + Sized {
   /// Start Sentinel's monitoring.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
-  fn monitor<R, N>(&self, name: N, ip: IpAddr, port: u16, quorum: u32) -> impl Future<Output = RedisResult<R>> + Send
+  fn monitor<R, N>(&self, name: N, ip: IpAddr, port: u16, quorum: u32) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -102,17 +102,17 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Return the ID of the Sentinel instance.
-  fn myid<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn myid<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::sentinel::myid(self).await?.convert() }
   }
 
   /// This command returns information about pending scripts.
-  fn pending_scripts<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn pending_scripts<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::sentinel::pending_scripts(self).await?.convert() }
   }
@@ -120,9 +120,9 @@ pub trait SentinelInterface: ClientLike + Sized {
   /// Stop Sentinel's monitoring.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
-  fn remove<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn remove<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -132,9 +132,9 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Show a list of replicas for this master, and their state.
-  fn replicas<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn replicas<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -144,9 +144,9 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Show a list of sentinel instances for this master, and their state.
-  fn sentinels<R, N>(&self, name: N) -> impl Future<Output = RedisResult<R>> + Send
+  fn sentinels<R, N>(&self, name: N) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
   {
     async move {
@@ -158,12 +158,12 @@ pub trait SentinelInterface: ClientLike + Sized {
   /// Set Sentinel's monitoring configuration.
   ///
   /// <https://redis.io/topics/sentinel#reconfiguring-sentinel-at-runtime>
-  fn set<R, N, V>(&self, name: N, args: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn set<R, N, V>(&self, name: N, args: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     N: Into<Str> + Send,
-    V: TryInto<RedisMap> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Map> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(name);
@@ -173,17 +173,17 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// This command simulates different Sentinel crash scenarios.
-  fn simulate_failure<R>(&self, kind: SentinelFailureKind) -> impl Future<Output = RedisResult<R>> + Send
+  fn simulate_failure<R>(&self, kind: SentinelFailureKind) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::sentinel::simulate_failure(self, kind).await?.convert() }
   }
 
   /// This command will reset all the masters with matching name.
-  fn reset<R, P>(&self, pattern: P) -> impl Future<Output = RedisResult<R>> + Send
+  fn reset<R, P>(&self, pattern: P) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     P: Into<Str> + Send,
   {
     async move {
@@ -194,9 +194,9 @@ pub trait SentinelInterface: ClientLike + Sized {
 
   /// Get the current value of a global Sentinel configuration parameter. The specified name may be a wildcard,
   /// similar to the Redis CONFIG GET command.
-  fn config_get<R, K>(&self, name: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn config_get<R, K>(&self, name: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<Str> + Send,
   {
     async move {
@@ -206,12 +206,12 @@ pub trait SentinelInterface: ClientLike + Sized {
   }
 
   /// Set the value of a global Sentinel configuration parameter.
-  fn config_set<R, K, V>(&self, name: K, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn config_set<R, K, V>(&self, name: K, value: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<Str> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(name);

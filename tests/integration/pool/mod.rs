@@ -1,17 +1,17 @@
 use fred::{
-  clients::{RedisClient, RedisPool},
-  error::RedisError,
+  clients::{Client, Pool},
+  error::Error,
   interfaces::*,
-  types::RedisConfig,
+  types::config::Config,
 };
 
 #[cfg(feature = "i-keys")]
-use fred::types::{Builder, ReconnectPolicy};
+use fred::types::{config::ReconnectPolicy, Builder};
 #[cfg(feature = "i-keys")]
 use futures::future::try_join_all;
 
-async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), RedisError> {
-  let pool = RedisPool::new(config.clone(), None, None, None, count)?;
+async fn create_and_ping_pool(config: &Config, count: usize) -> Result<(), Error> {
+  let pool = Pool::new(config.clone(), None, None, None, count)?;
   pool.init().await?;
 
   for client in pool.clients().iter() {
@@ -23,22 +23,16 @@ async fn create_and_ping_pool(config: &RedisConfig, count: usize) -> Result<(), 
   Ok(())
 }
 
-pub async fn should_connect_and_ping_static_pool_single_conn(
-  _: RedisClient,
-  config: RedisConfig,
-) -> Result<(), RedisError> {
+pub async fn should_connect_and_ping_static_pool_single_conn(_: Client, config: Config) -> Result<(), Error> {
   create_and_ping_pool(&config, 1).await
 }
 
-pub async fn should_connect_and_ping_static_pool_two_conn(
-  _: RedisClient,
-  config: RedisConfig,
-) -> Result<(), RedisError> {
+pub async fn should_connect_and_ping_static_pool_two_conn(_: Client, config: Config) -> Result<(), Error> {
   create_and_ping_pool(&config, 2).await
 }
 
 #[cfg(feature = "i-keys")]
-pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_incr_exclusive_pool(client: Client, config: Config) -> Result<(), Error> {
   let perf = client.perf_config();
   let policy = client
     .client_reconnect_policy()
@@ -73,7 +67,7 @@ pub async fn should_incr_exclusive_pool(client: RedisClient, config: RedisConfig
 }
 
 #[cfg(all(feature = "i-keys", feature = "transactions"))]
-pub async fn should_watch_and_trx_exclusive_pool(client: RedisClient, config: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_watch_and_trx_exclusive_pool(client: Client, config: Config) -> Result<(), Error> {
   let perf = client.perf_config();
   let policy = client
     .client_reconnect_policy()

@@ -1,11 +1,11 @@
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::types::TlsHostMapping;
+use crate::types::config::TlsHostMapping;
 use crate::{
-  error::RedisError,
-  modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, connection, connection::RedisConnection},
+  error::Error,
+  modules::inner::ClientInner,
+  protocol::{command::Command, connection, connection::Connection},
   runtime::RefCount,
-  types::Server,
+  types::config::Server,
 };
 use futures::future::join_all;
 use std::{
@@ -28,7 +28,7 @@ pub trait ReplicaFilter: Send + Sync + 'static {
 /// Configuration options for replica node connections.
 ///
 /// When connecting to a replica the client will use the parameters specified in the
-/// [ReconnectPolicy](crate::types::ReconnectPolicy).
+/// [ReconnectPolicy](crate::types::config::ReconnectPolicy).
 ///
 /// Currently only clustered replicas are supported.
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
@@ -212,9 +212,9 @@ impl ReplicaSet {
 /// A struct for routing commands to replica nodes.
 #[cfg(feature = "replicas")]
 pub struct Replicas {
-  pub connections: HashMap<Server, RedisConnection>,
+  pub connections: HashMap<Server, Connection>,
   pub routing:     ReplicaSet,
-  pub buffer:      VecDeque<RedisCommand>,
+  pub buffer:      VecDeque<Command>,
 }
 
 #[cfg(feature = "replicas")]
@@ -229,7 +229,7 @@ impl Replicas {
   }
 
   /// Sync the connection map in place based on the cached routing table.
-  pub async fn sync_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn sync_connections(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     for (_, mut writer) in self.connections.drain() {
       let commands = writer.close().await;
       self.buffer.extend(commands);
@@ -243,7 +243,7 @@ impl Replicas {
   }
 
   /// Drop all connections and clear the cached routing table.
-  pub async fn clear_connections(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn clear_connections(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     self.routing.clear();
     self.sync_connections(inner).await
   }
@@ -256,11 +256,11 @@ impl Replicas {
   /// Connect to the replica and add it to the cached routing table.
   pub async fn add_connection(
     &mut self,
-    inner: &RefCount<RedisClientInner>,
+    inner: &RefCount<ClientInner>,
     primary: Server,
     replica: Server,
     force: bool,
-  ) -> Result<(), RedisError> {
+  ) -> Result<(), Error> {
     _debug!(
       inner,
       "Adding replica connection {} (replica) -> {} (primary)",
@@ -297,11 +297,11 @@ impl Replicas {
   /// Close the replica connection and optionally remove the replica from the routing table.
   pub async fn remove_connection(
     &mut self,
-    inner: &RefCount<RedisClientInner>,
+    inner: &RefCount<ClientInner>,
     primary: &Server,
     replica: &Server,
     keep_routable: bool,
-  ) -> Result<(), RedisError> {
+  ) -> Result<(), Error> {
     _debug!(
       inner,
       "Removing replica connection {} (replica) -> {} (primary)",
@@ -317,7 +317,7 @@ impl Replicas {
   }
 
   /// Check and flush all the sockets managed by the replica routing state.
-  pub async fn flush(&mut self) -> Result<(), RedisError> {
+  pub async fn flush(&mut self) -> Result<(), Error> {
     for (_, writer) in self.connections.iter_mut() {
       writer.flush().await?;
     }
@@ -378,23 +378,23 @@ impl Replicas {
   }
 
   /// Take the commands stored for retry later.
-  pub fn take_retry_buffer(&mut self) -> VecDeque<RedisCommand> {
+  pub fn take_retry_buffer(&mut self) -> VecDeque<Command> {
     self.buffer.drain(..).collect()
   }
 
-  pub async fn drain(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn drain(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     // let inner = inner.clone();
     let _ = join_all(self.connections.iter_mut().map(|(_, conn)| conn.drain(inner)))
       .await
       .into_iter()
-      .collect::<Result<Vec<()>, RedisError>>()?;
+      .collect::<Result<Vec<()>, Error>>()?;
 
     Ok(())
   }
 }
 
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Server, replica: &mut Server) {
+pub fn map_replica_tls_names(inner: &RefCount<ClientInner>, primary: &Server, replica: &mut Server) {
   let policy = match inner.config.tls {
     Some(ref config) => &config.hostnames,
     None => {
@@ -411,4 +411,4 @@ pub fn map_replica_tls_names(inner: &RefCount<RedisClientInner>, primary: &Serve
 }
 
 #[cfg(not(any(feature = "enable-native-tls", feature = "enable-rustls")))]
-pub fn map_replica_tls_names(_: &RefCount<RedisClientInner>, _: &Server, _: &mut Server) {}
+pub fn map_replica_tls_names(_: &RefCount<ClientInner>, _: &Server, _: &mut Server) {}

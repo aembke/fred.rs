@@ -6,11 +6,11 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   pretty_env_logger::init();
 
-  let publisher_client = RedisClient::default();
-  let subscriber_client = RedisClient::default();
+  let publisher_client = Client::default();
+  let subscriber_client = Client::default();
   publisher_client.init().await?;
   subscriber_client.init().await?;
 

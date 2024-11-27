@@ -1,9 +1,10 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces::ClientLike,
-  modules::inner::{CommandSender, RedisClientInner},
+  modules::inner::{ClientInner, CommandSender},
+  prelude::{Blocking, Server},
   protocol::{
-    command::{RedisCommand, RedisCommandKind},
+    command::{Command, CommandKind},
     responders::ResponseKind,
     utils as protocol_utils,
   },
@@ -18,7 +19,7 @@ use crate::{
     RefSwap,
     RwLock,
   },
-  types::*,
+  types::{ClientUnblockFlag, *},
 };
 use bytes::Bytes;
 use bytes_utils::Str;
@@ -40,6 +41,10 @@ use crate::protocol::tls::{TlsConfig, TlsConnector};
 use crate::runtime::Mutex;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace;
+#[cfg(feature = "i-scripts")]
+use crate::types::scripts::{Function, FunctionFlag};
+#[cfg(feature = "i-sorted-sets")]
+use crate::types::sorted_sets::ZRangeKind;
 #[cfg(feature = "transactions")]
 use std::mem;
 #[cfg(feature = "unix-sockets")]
@@ -84,7 +89,7 @@ pub fn f64_opt_eq(lhs: &Option<f64>, rhs: &Option<f64>) -> bool {
 }
 
 /// Convert a redis string to an `f64`, supporting "+inf" and "-inf".
-pub fn redis_string_to_f64(s: &str) -> Result<f64, RedisError> {
+pub fn string_to_f64(s: &str) -> Result<f64, Error> {
   // this is changing in newer versions of redis to lose the "+" prefix
   if s == "+inf" || s == "inf" {
     Ok(f64::INFINITY)
@@ -92,8 +97,8 @@ pub fn redis_string_to_f64(s: &str) -> Result<f64, RedisError> {
     Ok(f64::NEG_INFINITY)
   } else {
     s.parse::<f64>().map_err(|_| {
-      RedisError::new(
-        RedisErrorKind::Unknown,
+      Error::new(
+        ErrorKind::Unknown,
         format!("Could not convert {} to floating point value.", s),
       )
     })
@@ -101,14 +106,14 @@ pub fn redis_string_to_f64(s: &str) -> Result<f64, RedisError> {
 }
 
 /// Convert an `f64` to a redis string, supporting "+inf" and "-inf".
-pub fn f64_to_redis_string(d: f64) -> Result<RedisValue, RedisError> {
+pub fn f64_to_string(d: f64) -> Result<Value, Error> {
   if d.is_infinite() && d.is_sign_negative() {
-    Ok(RedisValue::from_static_str("-inf"))
+    Ok(Value::from_static_str("-inf"))
   } else if d.is_infinite() {
-    Ok(RedisValue::from_static_str("+inf"))
+    Ok(Value::from_static_str("+inf"))
   } else if d.is_nan() {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidArgument,
+    Err(Error::new(
+      ErrorKind::InvalidArgument,
       "Cannot convert NaN to redis value.",
     ))
   } else {
@@ -117,14 +122,14 @@ pub fn f64_to_redis_string(d: f64) -> Result<RedisValue, RedisError> {
 }
 
 #[cfg(feature = "i-sorted-sets")]
-pub fn f64_to_zrange_bound(d: f64, kind: &ZRangeKind) -> Result<String, RedisError> {
+pub fn f64_to_zrange_bound(d: f64, kind: &ZRangeKind) -> Result<String, Error> {
   if d.is_infinite() && d.is_sign_negative() {
     Ok("-inf".into())
   } else if d.is_infinite() {
     Ok("+inf".into())
   } else if d.is_nan() {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidArgument,
+    Err(Error::new(
+      ErrorKind::InvalidArgument,
       "Cannot convert NaN to redis value.",
     ))
   } else {
@@ -152,9 +157,9 @@ pub fn random_string(len: usize) -> String {
 }
 
 #[cfg(feature = "i-memory")]
-pub fn convert_or_default<R>(value: RedisValue) -> R
+pub fn convert_or_default<R>(value: Value) -> R
 where
-  R: FromRedis + Default,
+  R: FromValue + Default,
 {
   value.convert().ok().unwrap_or_default()
 }
@@ -242,14 +247,14 @@ pub fn check_lex_str(val: String, kind: &ZRangeKind) -> String {
 
 /// Parse the response from `FUNCTION LIST`.
 #[cfg(feature = "i-scripts")]
-fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
-  if let RedisValue::Array(functions) = value {
+fn parse_functions(value: &Value) -> Result<Vec<Function>, Error> {
+  if let Value::Array(functions) = value {
     let mut out = Vec::with_capacity(functions.len());
     for function_block in functions.iter() {
-      let functions: HashMap<Str, RedisValue> = function_block.clone().convert()?;
+      let functions: HashMap<Str, Value> = function_block.clone().convert()?;
       let name = match functions.get("name").and_then(|n| n.as_bytes_str()) {
         Some(name) => name,
-        None => return Err(RedisError::new_parse("Missing function name.")),
+        None => return Err(Error::new_parse("Missing function name.")),
       };
       let flags: Vec<FunctionFlag> = functions
         .get("flags")
@@ -267,16 +272,16 @@ fn parse_functions(value: &RedisValue) -> Result<Vec<Function>, RedisError> {
 
     Ok(out)
   } else {
-    Err(RedisError::new_parse("Invalid functions block."))
+    Err(Error::new_parse("Invalid functions block."))
   }
 }
 
 /// Check and parse the response to `FUNCTION LIST`.
 #[cfg(feature = "i-scripts")]
-pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function>, RedisError> {
-  if let RedisValue::Array(ref libraries) = value {
+pub fn value_to_functions(value: &Value, name: &str) -> Result<Vec<Function>, Error> {
+  if let Value::Array(ref libraries) = value {
     for library in libraries.iter() {
-      let properties: HashMap<Str, RedisValue> = library.clone().convert()?;
+      let properties: HashMap<Str, Value> = library.clone().convert()?;
       let should_parse = properties
         .get("library_name")
         .and_then(|v| v.as_str())
@@ -290,21 +295,21 @@ pub fn value_to_functions(value: &RedisValue, name: &str) -> Result<Vec<Function
       }
     }
 
-    Err(RedisError::new_parse(format!("Missing library '{}'", name)))
+    Err(Error::new_parse(format!("Missing library '{}'", name)))
   } else {
-    Err(RedisError::new_parse("Expected array."))
+    Err(Error::new_parse("Expected array."))
   }
 }
 
-pub async fn timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, RedisError>
+pub async fn timeout<T, Fut, E>(ft: Fut, timeout: Duration) -> Result<T, Error>
 where
-  E: Into<RedisError>,
+  E: Into<Error>,
   Fut: Future<Output = Result<T, E>>,
 {
   if !timeout.is_zero() {
     tokio::time::timeout(timeout, ft)
       .await
-      .map_err(|_| RedisError::new(RedisErrorKind::Timeout, "Request timed out."))
+      .map_err(|_| Error::new(ErrorKind::Timeout, "Request timed out."))
       .and_then(|r| r.map_err(|e| e.into()))
   } else {
     ft.await.map_err(|e| e.into())
@@ -312,7 +317,7 @@ where
 }
 
 /// Disconnect any state shared with the last router task spawned by the client.
-pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
+pub fn reset_router_task(inner: &RefCount<ClientInner>) {
   let _guard = inner._lock.lock();
 
   if !inner.has_command_rx() {
@@ -330,7 +335,7 @@ pub fn reset_router_task(inner: &RefCount<RedisClientInner>) {
 }
 
 /// Whether the router should check and interrupt the blocked command.
-fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> bool {
+fn should_enforce_blocking_policy(inner: &RefCount<ClientInner>, command: &Command) -> bool {
   if command.kind.closes_connection() {
     return false;
   }
@@ -343,29 +348,24 @@ fn should_enforce_blocking_policy(inner: &RefCount<RedisClientInner>, command: &
 
 /// Interrupt the currently blocked connection (if found) with the provided flag.
 pub async fn interrupt_blocked_connection(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   flag: ClientUnblockFlag,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   let connection_id = {
     let server = match inner.backchannel.blocked_server() {
       Some(server) => server,
-      None => return Err(RedisError::new(RedisErrorKind::Unknown, "Connection is not blocked.")),
+      None => return Err(Error::new(ErrorKind::Unknown, "Connection is not blocked.")),
     };
     let id = match inner.backchannel.connection_id(&server) {
       Some(id) => id,
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Unknown,
-          "Failed to read connection ID.",
-        ))
-      },
+      None => return Err(Error::new(ErrorKind::Unknown, "Failed to read connection ID.")),
     };
 
     _debug!(inner, "Sending CLIENT UNBLOCK to {}, ID: {}", server, id);
     id
   };
 
-  let command = RedisCommand::new(RedisCommandKind::ClientUnblock, vec![
+  let command = Command::new(CommandKind::ClientUnblock, vec![
     connection_id.into(),
     flag.to_str().into(),
   ]);
@@ -375,7 +375,7 @@ pub async fn interrupt_blocked_connection(
 
 /// Check the status of the connection (usually before sending a command) to determine whether the connection should
 /// be unblocked automatically.
-async fn check_blocking_policy(inner: &RefCount<RedisClientInner>, command: &RedisCommand) -> Result<(), RedisError> {
+async fn check_blocking_policy(inner: &RefCount<ClientInner>, command: &Command) -> Result<(), Error> {
   if should_enforce_blocking_policy(inner, command) {
     _debug!(
       inner,
@@ -384,8 +384,8 @@ async fn check_blocking_policy(inner: &RefCount<RedisClientInner>, command: &Red
     );
 
     if inner.config.blocking == Blocking::Error {
-      return Err(RedisError::new(
-        RedisErrorKind::InvalidCommand,
+      return Err(Error::new(
+        ErrorKind::InvalidCommand,
         "Error sending command while connection is blocked.",
       ));
     } else if inner.config.blocking == Blocking::Interrupt {
@@ -399,7 +399,7 @@ async fn check_blocking_policy(inner: &RefCount<RedisClientInner>, command: &Red
 }
 
 /// Prepare the command options, returning the timeout duration to apply.
-pub fn prepare_command<C: ClientLike>(client: &C, command: &mut RedisCommand) -> Duration {
+pub fn prepare_command<C: ClientLike>(client: &C, command: &mut Command) -> Duration {
   client.change_command(command);
   command.inherit_options(client.inner());
   command
@@ -408,14 +408,14 @@ pub fn prepare_command<C: ClientLike>(client: &C, command: &mut RedisCommand) ->
 }
 
 /// Send a command to the server using the default response handler.
-pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, Error>
 where
   C: ClientLike,
-  R: Into<RedisCommand>,
-  F: FnOnce() -> Result<R, RedisError>,
+  R: Into<Command>,
+  F: FnOnce() -> Result<R, Error>,
 {
   let inner = client.inner();
-  let mut command: RedisCommand = func()?.into();
+  let mut command: Command = func()?.into();
   let (tx, rx) = oneshot_channel();
   command.response = ResponseKind::Respond(Some(tx));
 
@@ -427,7 +427,7 @@ where
   if timeout_dur.is_zero() {
     rx.map_err(move |error| {
       set_bool_atomic(&timed_out, true);
-      RedisError::from(error)
+      Error::from(error)
     })
     .await?
   } else {
@@ -445,11 +445,11 @@ where
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 #[allow(clippy::needless_borrows_for_generic_args)]
 // despite what clippy says, this^ actually matters for tracing `record` calls (at least it seems where `V: Copy`)
-pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, Error>
 where
   C: ClientLike,
-  R: Into<RedisCommand>,
-  F: FnOnce() -> Result<R, RedisError>,
+  R: Into<Command>,
+  F: FnOnce() -> Result<R, Error>,
 {
   let inner = client.inner();
   if !inner.should_trace() {
@@ -465,7 +465,7 @@ where
     let _guard = args_span.enter();
     let (tx, rx) = oneshot_channel();
 
-    let mut command: RedisCommand = func()?.into();
+    let mut command: Command = func()?.into();
     command.response = ResponseKind::Respond(Some(tx));
 
     let req_size = protocol_utils::args_size(command.args());
@@ -507,11 +507,11 @@ where
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, RedisError>
+pub async fn request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, Error>
 where
   C: ClientLike,
-  R: Into<RedisCommand>,
-  F: FnOnce() -> Result<R, RedisError>,
+  R: Into<Command>,
+  F: FnOnce() -> Result<R, Error>,
 {
   basic_request_response(client, func).await
 }
@@ -520,10 +520,10 @@ where
 ///
 /// A new connection may be created.
 pub async fn backchannel_request_response(
-  inner: &RefCount<RedisClientInner>,
-  command: RedisCommand,
+  inner: &RefCount<ClientInner>,
+  command: Command,
   use_blocked: bool,
-) -> Result<Resp3Frame, RedisError> {
+) -> Result<Resp3Frame, Error> {
   let server = inner.backchannel.find_server(inner, &command, use_blocked).await?;
   inner.backchannel.request_response(inner, &server, command).await
 }
@@ -531,7 +531,7 @@ pub async fn backchannel_request_response(
 /// Check for a scan pattern without a hash tag, or with a wildcard in the hash tag.
 ///
 /// These patterns will result in scanning a random node if used against a clustered redis.
-pub fn clustered_scan_pattern_has_hash_tag(inner: &RefCount<RedisClientInner>, pattern: &str) -> bool {
+pub fn clustered_scan_pattern_has_hash_tag(inner: &RefCount<ClientInner>, pattern: &str) -> bool {
   let (mut i, mut j, mut has_wildcard) = (None, None, false);
   for (idx, c) in pattern.chars().enumerate() {
     if c == '{' && i.is_none() {
@@ -561,18 +561,18 @@ pub fn clustered_scan_pattern_has_hash_tag(inner: &RefCount<RedisClientInner>, p
 }
 
 /// A generic TryInto wrapper to work with the Infallible error type in the blanket From implementation.
-pub fn try_into<S, D>(val: S) -> Result<D, RedisError>
+pub fn try_into<S, D>(val: S) -> Result<D, Error>
 where
   S: TryInto<D>,
-  S::Error: Into<RedisError>,
+  S::Error: Into<Error>,
 {
   val.try_into().map_err(|e| e.into())
 }
 
-pub fn try_into_vec<S>(values: Vec<S>) -> Result<Vec<RedisValue>, RedisError>
+pub fn try_into_vec<S>(values: Vec<S>) -> Result<Vec<Value>, Error>
 where
-  S: TryInto<RedisValue>,
-  S::Error: Into<RedisError>,
+  S: TryInto<Value>,
+  S::Error: Into<Error>,
 {
   let mut out = Vec::with_capacity(values.len());
   for value in values.into_iter() {
@@ -590,13 +590,13 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   }
 }
 
-pub fn into_redis_map<I, K, V>(mut iter: I) -> Result<HashMap<RedisKey, RedisValue>, RedisError>
+pub fn into_map<I, K, V>(mut iter: I) -> Result<HashMap<Key, Value>, Error>
 where
   I: Iterator<Item = (K, V)>,
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
   let (lower, upper) = iter.size_hint();
   let capacity = if let Some(upper) = upper { upper } else { lower };
@@ -608,19 +608,19 @@ where
   Ok(out)
 }
 
-pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValue {
+pub fn flatten_nested_array_values(value: Value, depth: usize) -> Value {
   if depth == 0 {
     return value;
   }
 
   match value {
-    RedisValue::Array(values) => {
+    Value::Array(values) => {
       let inner_size = values.iter().fold(0, |s, v| s + v.array_len().unwrap_or(1));
       let mut out = Vec::with_capacity(inner_size);
 
       for value in values.into_iter() {
         match value {
-          RedisValue::Array(inner) => {
+          Value::Array(inner) => {
             for value in inner.into_iter() {
               out.push(flatten_nested_array_values(value, depth - 1));
             }
@@ -628,9 +628,9 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
           _ => out.push(value),
         }
       }
-      RedisValue::Array(out)
+      Value::Array(out)
     },
-    RedisValue::Map(values) => {
+    Value::Map(values) => {
       let mut out = HashMap::with_capacity(values.len());
 
       for (key, value) in values.inner().into_iter() {
@@ -642,13 +642,13 @@ pub fn flatten_nested_array_values(value: RedisValue, depth: usize) -> RedisValu
 
         out.insert(key, value);
       }
-      RedisValue::Map(RedisMap { inner: out })
+      Value::Map(Map { inner: out })
     },
     _ => value,
   }
 }
 
-pub fn is_maybe_array_map(arr: &[RedisValue]) -> bool {
+pub fn is_maybe_array_map(arr: &[Value]) -> bool {
   if !arr.is_empty() && arr.len() % 2 == 0 {
     arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
   } else {
@@ -676,7 +676,7 @@ pub fn check_tls_features() {
   feature = "enable-native-tls",
   not(any(feature = "enable-rustls", feature = "enable-rustls-ring"))
 ))]
-pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, Error> {
   if tls {
     TlsConnector::default_native_tls().map(|c| Some(c.into()))
   } else {
@@ -688,7 +688,7 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   any(feature = "enable-rustls", feature = "enable-rustls-ring"),
   not(feature = "enable-native-tls")
 ))]
-pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, Error> {
   if tls {
     TlsConnector::default_rustls().map(|c| Some(c.into()))
   } else {
@@ -700,7 +700,7 @@ pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
   feature = "enable-native-tls",
   any(feature = "enable-rustls", feature = "enable-rustls-ring")
 ))]
-pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, RedisError> {
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, Error> {
   // default to native-tls when both are enabled
   if tls {
     TlsConnector::default_native_tls().map(|c| Some(c.into()))
@@ -726,17 +726,17 @@ pub fn url_is_sentinel(url: &Url) -> bool {
   url.scheme().ends_with(REDIS_SENTINEL_SCHEME_SUFFIX)
 }
 
-pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u16, bool), RedisError> {
+pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u16, bool), Error> {
   let url = Url::parse(url)?;
   let host = if let Some(host) = url.host_str() {
     host.to_owned()
   } else {
-    return Err(RedisError::new(RedisErrorKind::Config, "Invalid or missing host."));
+    return Err(Error::new(ErrorKind::Config, "Invalid or missing host."));
   };
   let port = if let Some(port) = url.port().or(default_port) {
     port
   } else {
-    return Err(RedisError::new(RedisErrorKind::Config, "Invalid or missing port."));
+    return Err(Error::new(ErrorKind::Config, "Invalid or missing port."));
   };
 
   let tls = url_uses_tls(&url);
@@ -752,13 +752,13 @@ pub fn url_is_unix_socket(url: &Url) -> bool {
 }
 
 #[cfg(feature = "unix-sockets")]
-pub fn parse_unix_url(url: &str) -> Result<(Url, PathBuf), RedisError> {
+pub fn parse_unix_url(url: &str) -> Result<(Url, PathBuf), Error> {
   let url = Url::parse(url)?;
   let path: PathBuf = url.path().into();
   Ok((url, path))
 }
 
-pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {
+pub fn parse_url_db(url: &Url) -> Result<Option<u8>, Error> {
   let parts: Vec<&str> = if let Some(parts) = url.path_segments() {
     parts.collect()
   } else {
@@ -766,7 +766,7 @@ pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {
   };
 
   if parts.len() > 1 {
-    return Err(RedisError::new(RedisErrorKind::Config, "Invalid database path."));
+    return Err(Error::new(ErrorKind::Config, "Invalid database path."));
   } else if parts.is_empty() {
     return Ok(None);
   }
@@ -778,7 +778,7 @@ pub fn parse_url_db(url: &Url) -> Result<Option<u8>, RedisError> {
   Ok(Some(parts[0].parse()?))
 }
 
-pub fn parse_url_credentials(url: &Url) -> Result<(Option<String>, Option<String>), RedisError> {
+pub fn parse_url_credentials(url: &Url) -> Result<(Option<String>, Option<String>), Error> {
   let username = if url.username().is_empty() {
     None
   } else {
@@ -795,15 +795,15 @@ pub fn parse_url_credentials(url: &Url) -> Result<(Option<String>, Option<String
   Ok((username, password))
 }
 
-pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, RedisError> {
+pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, Error> {
   let mut out = Vec::new();
 
   for (key, value) in url.query_pairs().into_iter() {
     if key == CLUSTER_NODE_QUERY {
       let parts: Vec<&str> = value.split(':').collect();
       if parts.len() != 2 {
-        return Err(RedisError::new(
-          RedisErrorKind::Config,
+        return Err(Error::new(
+          ErrorKind::Config,
           format!("Invalid host:port for cluster node: {}", value),
         ));
       }
@@ -817,15 +817,15 @@ pub fn parse_url_other_nodes(url: &Url) -> Result<Vec<Server>, RedisError> {
   Ok(out)
 }
 
-pub fn parse_url_sentinel_service_name(url: &Url) -> Result<String, RedisError> {
+pub fn parse_url_sentinel_service_name(url: &Url) -> Result<String, Error> {
   for (key, value) in url.query_pairs().into_iter() {
     if key == SENTINEL_NAME_QUERY {
       return Ok(value.to_string());
     }
   }
 
-  Err(RedisError::new(
-    RedisErrorKind::Config,
+  Err(Error::new(
+    ErrorKind::Config,
     "Invalid or missing sentinel service name query parameter.",
   ))
 }
@@ -853,11 +853,11 @@ pub fn parse_url_sentinel_password(url: &Url) -> Option<String> {
 }
 
 /// Send QUIT to the servers and clean up the old router task's state.
-fn close_router_channel(inner: &RefCount<RedisClientInner>, command_tx: RefCount<CommandSender>) {
+fn close_router_channel(inner: &RefCount<ClientInner>, command_tx: RefCount<CommandSender>) {
   inner.notifications.broadcast_close();
   inner.reset_server_state();
 
-  let command = RedisCommand::new(RedisCommandKind::Quit, vec![]);
+  let command = Command::new(CommandKind::Quit, vec![]);
   inner.counters.incr_cmd_buffer_len();
   if let Err(_) = command_tx.try_send(command.into()) {
     inner.counters.decr_cmd_buffer_len();
@@ -868,19 +868,19 @@ fn close_router_channel(inner: &RefCount<RedisClientInner>, command_tx: RefCount
 #[cfg(test)]
 mod tests {
   use super::*;
-  use crate::{error::RedisError, types::RedisValue};
+  use crate::{error::Error, types::Value};
   use std::{convert::TryInto, fmt::Debug};
 
-  fn m<V>(v: V) -> RedisValue
+  fn m<V>(v: V) -> Value
   where
-    V: TryInto<RedisValue> + Debug,
-    V::Error: Into<RedisError> + Debug,
+    V: TryInto<Value> + Debug,
+    V::Error: Into<Error> + Debug,
   {
     v.try_into().unwrap()
   }
 
-  fn a(v: Vec<RedisValue>) -> RedisValue {
-    RedisValue::Array(v)
+  fn a(v: Vec<Value>) -> Value {
+    Value::Array(v)
   }
 
   #[test]
@@ -902,7 +902,7 @@ mod tests {
     //       2) 1) "1643479925582-0"
     //          2) 1) "count"
     //             2) "6"
-    let actual: RedisValue = vec![
+    let actual: Value = vec![
       a(vec![
         m("foo"),
         a(vec![a(vec![m("1643479650336-0"), a(vec![m("count"), m(3)])])]),
@@ -919,7 +919,7 @@ mod tests {
     .collect();
 
     // flatten the top level nested array into something that can be cast to a map
-    let expected: RedisValue = vec![
+    let expected: Value = vec![
       m("foo"),
       a(vec![a(vec![m("1643479650336-0"), a(vec![m("count"), m(3)])])]),
       m("bar"),

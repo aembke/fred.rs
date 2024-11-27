@@ -72,7 +72,7 @@ mod other {
   #[cfg(all(feature = "i-client", feature = "i-lists"))]
   centralized_test!(other, should_error_when_blocked);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
-  centralized_test!(other, should_smoke_test_from_redis_impl);
+  centralized_test!(other, should_smoke_test_from_value_impl);
   #[cfg(feature = "i-keys")]
   centralized_test!(other, should_pipeline_all);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
@@ -278,6 +278,7 @@ pub mod sorted_sets {
   centralized_test!(sorted_sets, should_zrangebyscore);
   centralized_test!(sorted_sets, should_zrevrangebyscore);
   centralized_test!(sorted_sets, should_zrank_values);
+  centralized_test!(sorted_sets, should_zrank_values_withscore);
   centralized_test!(sorted_sets, should_zrem_values);
   centralized_test!(sorted_sets, should_zremrangebylex);
   centralized_test!(sorted_sets, should_zremrangebyrank);

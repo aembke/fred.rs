@@ -1,22 +1,14 @@
-#[cfg(feature = "i-scripts")]
-use crate::types::Function;
-#[cfg(feature = "i-geo")]
-use crate::types::{GeoPosition, GeoRadiusInfo};
-#[cfg(feature = "i-streams")]
-use crate::types::{XReadResponse, XReadValue};
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces::{ClientLike, Resp3Frame},
   protocol::{connection::OK, utils as protocol_utils},
-  types::{FromRedis, FromRedisKey, Server, QUEUED},
+  types::{config::Server, FromKey, FromValue, QUEUED},
   utils,
 };
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
 use redis_protocol::resp2::types::NULL;
-#[cfg(feature = "serde-json")]
-use serde_json::Value;
 use std::{
   borrow::Cow,
   collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -28,6 +20,13 @@ use std::{
   ops::{Deref, DerefMut},
   str,
 };
+
+#[cfg(feature = "i-geo")]
+use crate::types::geo::{GeoPosition, GeoRadiusInfo};
+#[cfg(feature = "i-scripts")]
+use crate::types::scripts::Function;
+#[cfg(feature = "i-streams")]
+use crate::types::streams::{XReadResponse, XReadValue};
 
 static TRUE_STR: Str = utils::static_str("true");
 static FALSE_STR: Str = utils::static_str("false");
@@ -42,11 +41,11 @@ macro_rules! impl_string_or_number(
     }
 );
 
-macro_rules! impl_from_str_for_redis_key(
+macro_rules! impl_from_str_for_key(
     ($t:ty) => {
-        impl From<$t> for RedisKey {
+        impl From<$t> for Key {
             fn from(val: $t) -> Self {
-                RedisKey { key: val.to_string().into() }
+                Key { key: val.to_string().into() }
             }
         }
     }
@@ -88,25 +87,25 @@ impl StringOrNumber {
   }
 
   #[cfg(feature = "i-streams")]
-  pub(crate) fn into_arg(self) -> RedisValue {
+  pub(crate) fn into_arg(self) -> Value {
     match self {
-      StringOrNumber::String(s) => RedisValue::String(s),
-      StringOrNumber::Number(n) => RedisValue::Integer(n),
-      StringOrNumber::Double(f) => RedisValue::Double(f),
+      StringOrNumber::String(s) => Value::String(s),
+      StringOrNumber::Number(n) => Value::Integer(n),
+      StringOrNumber::Double(f) => Value::Double(f),
     }
   }
 }
 
-impl TryFrom<RedisValue> for StringOrNumber {
-  type Error = RedisError;
+impl TryFrom<Value> for StringOrNumber {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
     let val = match value {
-      RedisValue::String(s) => StringOrNumber::String(s),
-      RedisValue::Integer(i) => StringOrNumber::Number(i),
-      RedisValue::Double(f) => StringOrNumber::Double(f),
-      RedisValue::Bytes(b) => StringOrNumber::String(Str::from_inner(b)?),
-      _ => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "")),
+      Value::String(s) => StringOrNumber::String(s),
+      Value::Integer(i) => StringOrNumber::Number(i),
+      Value::Double(f) => StringOrNumber::Double(f),
+      Value::Bytes(b) => StringOrNumber::String(Str::from_inner(b)?),
+      _ => return Err(Error::new(ErrorKind::InvalidArgument, "")),
     };
 
     Ok(val)
@@ -156,21 +155,21 @@ impl From<f64> for StringOrNumber {
 
 /// A key in Redis.
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct RedisKey {
+pub struct Key {
   key: Bytes,
 }
 
-impl RedisKey {
+impl Key {
   /// Create a new `RedisKey` from static bytes without copying.
   pub const fn from_static(b: &'static [u8]) -> Self {
-    RedisKey {
+    Key {
       key: Bytes::from_static(b),
     }
   }
 
   /// Create a new `RedisKey` from a `&'static str` without copying.
   pub const fn from_static_str(b: &'static str) -> Self {
-    RedisKey {
+    Key {
       key: Bytes::from_static(b.as_bytes()),
     }
   }
@@ -238,146 +237,141 @@ impl RedisKey {
     self.key.split_to(self.key.len())
   }
 
-  /// Attempt to convert the key to any type that implements [FromRedisKey](crate::types::FromRedisKey).
+  /// Attempt to convert the key to any type that implements [FromKey](crate::types::FromKey).
   ///
-  /// See the [RedisValue::convert](crate::types::RedisValue::convert) documentation for more information.
-  pub fn convert<K>(self) -> Result<K, RedisError>
+  /// See the [Value::convert](crate::types::Value::convert) documentation for more information.
+  pub fn convert<K>(self) -> Result<K, Error>
   where
-    K: FromRedisKey,
+    K: FromKey,
   {
     K::from_key(self)
   }
 }
 
-impl TryFrom<RedisValue> for RedisKey {
-  type Error = RedisError;
+impl TryFrom<Value> for Key {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
     let val = match value {
-      RedisValue::String(s) => RedisKey { key: s.into_inner() },
-      RedisValue::Integer(i) => RedisKey {
+      Value::String(s) => Key { key: s.into_inner() },
+      Value::Integer(i) => Key {
         key: i.to_string().into(),
       },
-      RedisValue::Double(f) => RedisKey {
+      Value::Double(f) => Key {
         key: f.to_string().into(),
       },
-      RedisValue::Bytes(b) => RedisKey { key: b },
-      RedisValue::Boolean(b) => match b {
-        true => RedisKey {
+      Value::Bytes(b) => Key { key: b },
+      Value::Boolean(b) => match b {
+        true => Key {
           key: TRUE_STR.clone().into_inner(),
         },
-        false => RedisKey {
+        false => Key {
           key: FALSE_STR.clone().into_inner(),
         },
       },
-      RedisValue::Queued => utils::static_str(QUEUED).into(),
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Cannot convert to key.",
-        ))
-      },
+      Value::Queued => utils::static_str(QUEUED).into(),
+      _ => return Err(Error::new(ErrorKind::InvalidArgument, "Cannot convert to key.")),
     };
 
     Ok(val)
   }
 }
 
-impl From<Bytes> for RedisKey {
+impl From<Bytes> for Key {
   fn from(b: Bytes) -> Self {
-    RedisKey { key: b }
+    Key { key: b }
   }
 }
 
-impl From<Box<[u8]>> for RedisKey {
+impl From<Box<[u8]>> for Key {
   fn from(b: Box<[u8]>) -> Self {
-    RedisKey { key: b.into() }
+    Key { key: b.into() }
   }
 }
 
-impl<'a> From<&'a [u8]> for RedisKey {
+impl<'a> From<&'a [u8]> for Key {
   fn from(b: &'a [u8]) -> Self {
-    RedisKey { key: b.to_vec().into() }
+    Key { key: b.to_vec().into() }
   }
 }
 
-impl From<String> for RedisKey {
+impl From<String> for Key {
   fn from(s: String) -> Self {
-    RedisKey { key: s.into() }
+    Key { key: s.into() }
   }
 }
 
-impl From<&str> for RedisKey {
+impl From<&str> for Key {
   fn from(s: &str) -> Self {
-    RedisKey {
+    Key {
       key: s.as_bytes().to_vec().into(),
     }
   }
 }
 
-impl From<&String> for RedisKey {
+impl From<&String> for Key {
   fn from(s: &String) -> Self {
-    RedisKey { key: s.clone().into() }
+    Key { key: s.clone().into() }
   }
 }
 
-impl From<Str> for RedisKey {
+impl From<Str> for Key {
   fn from(s: Str) -> Self {
-    RedisKey { key: s.into_inner() }
+    Key { key: s.into_inner() }
   }
 }
 
-impl From<&Str> for RedisKey {
+impl From<&Str> for Key {
   fn from(s: &Str) -> Self {
-    RedisKey { key: s.inner().clone() }
+    Key { key: s.inner().clone() }
   }
 }
 
-impl From<&RedisKey> for RedisKey {
-  fn from(k: &RedisKey) -> RedisKey {
+impl From<&Key> for Key {
+  fn from(k: &Key) -> Key {
     k.clone()
   }
 }
 
-impl From<bool> for RedisKey {
+impl From<bool> for Key {
   fn from(b: bool) -> Self {
     match b {
-      true => RedisKey::from_static_str("true"),
-      false => RedisKey::from_static_str("false"),
+      true => Key::from_static_str("true"),
+      false => Key::from_static_str("false"),
     }
   }
 }
 
-impl_from_str_for_redis_key!(u8);
-impl_from_str_for_redis_key!(u16);
-impl_from_str_for_redis_key!(u32);
-impl_from_str_for_redis_key!(u64);
-impl_from_str_for_redis_key!(u128);
-impl_from_str_for_redis_key!(usize);
-impl_from_str_for_redis_key!(i8);
-impl_from_str_for_redis_key!(i16);
-impl_from_str_for_redis_key!(i32);
-impl_from_str_for_redis_key!(i64);
-impl_from_str_for_redis_key!(i128);
-impl_from_str_for_redis_key!(isize);
-impl_from_str_for_redis_key!(f32);
-impl_from_str_for_redis_key!(f64);
+impl_from_str_for_key!(u8);
+impl_from_str_for_key!(u16);
+impl_from_str_for_key!(u32);
+impl_from_str_for_key!(u64);
+impl_from_str_for_key!(u128);
+impl_from_str_for_key!(usize);
+impl_from_str_for_key!(i8);
+impl_from_str_for_key!(i16);
+impl_from_str_for_key!(i32);
+impl_from_str_for_key!(i64);
+impl_from_str_for_key!(i128);
+impl_from_str_for_key!(isize);
+impl_from_str_for_key!(f32);
+impl_from_str_for_key!(f64);
 
-/// A map of `(RedisKey, RedisValue)` pairs.
+/// A map of `(Key, Value)` pairs.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RedisMap {
-  pub(crate) inner: HashMap<RedisKey, RedisValue>,
+pub struct Map {
+  pub(crate) inner: HashMap<Key, Value>,
 }
 
-impl RedisMap {
+impl Map {
   /// Create a new empty map.
   pub fn new() -> Self {
-    RedisMap { inner: HashMap::new() }
+    Map { inner: HashMap::new() }
   }
 
   /// Replace the value an empty map, returning the original value.
   pub fn take(&mut self) -> Self {
-    RedisMap {
+    Map {
       inner: mem::take(&mut self.inner),
     }
   }
@@ -388,111 +382,111 @@ impl RedisMap {
   }
 
   /// Take the inner `HashMap`.
-  pub fn inner(self) -> HashMap<RedisKey, RedisValue> {
+  pub fn inner(self) -> HashMap<Key, Value> {
     self.inner
   }
 }
 
-impl Deref for RedisMap {
-  type Target = HashMap<RedisKey, RedisValue>;
+impl Deref for Map {
+  type Target = HashMap<Key, Value>;
 
   fn deref(&self) -> &Self::Target {
     &self.inner
   }
 }
 
-impl DerefMut for RedisMap {
+impl DerefMut for Map {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.inner
   }
 }
 
-impl<'a> From<&'a RedisMap> for RedisMap {
-  fn from(vals: &'a RedisMap) -> Self {
+impl<'a> From<&'a Map> for Map {
+  fn from(vals: &'a Map) -> Self {
     vals.clone()
   }
 }
 
-impl<K, V> TryFrom<HashMap<K, V>> for RedisMap
+impl<K, V> TryFrom<HashMap<K, V>> for Map
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: HashMap<K, V>) -> Result<Self, Self::Error> {
-    Ok(RedisMap {
-      inner: utils::into_redis_map(value.into_iter())?,
+    Ok(Map {
+      inner: utils::into_map(value.into_iter())?,
     })
   }
 }
 
-impl<K, V> TryFrom<BTreeMap<K, V>> for RedisMap
+impl<K, V> TryFrom<BTreeMap<K, V>> for Map
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: BTreeMap<K, V>) -> Result<Self, Self::Error> {
-    Ok(RedisMap {
-      inner: utils::into_redis_map(value.into_iter())?,
+    Ok(Map {
+      inner: utils::into_map(value.into_iter())?,
     })
   }
 }
 
-impl From<()> for RedisMap {
+impl From<()> for Map {
   fn from(_: ()) -> Self {
-    RedisMap::new()
+    Map::new()
   }
 }
 
-impl<K, V> TryFrom<(K, V)> for RedisMap
+impl<K, V> TryFrom<(K, V)> for Map
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from((key, value): (K, V)) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(1);
     inner.insert(to!(key)?, to!(value)?);
-    Ok(RedisMap { inner })
+    Ok(Map { inner })
   }
 }
 
-impl<K, V> TryFrom<Vec<(K, V)>> for RedisMap
+impl<K, V> TryFrom<Vec<(K, V)>> for Map
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(values: Vec<(K, V)>) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(values.len());
     for (key, value) in values.into_iter() {
       inner.insert(to!(key)?, to!(value)?);
     }
-    Ok(RedisMap { inner })
+    Ok(Map { inner })
   }
 }
 
-impl<K, V, const N: usize> TryFrom<[(K, V); N]> for RedisMap
+impl<K, V, const N: usize> TryFrom<[(K, V); N]> for Map
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: [(K, V); N]) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(value.len());
@@ -500,17 +494,17 @@ where
       inner.insert(to!(key)?, to!(value)?);
     }
 
-    Ok(RedisMap { inner })
+    Ok(Map { inner })
   }
 }
-impl<'a, K, V, const N: usize> TryFrom<&'a [(K, V); N]> for RedisMap
+impl<'a, K, V, const N: usize> TryFrom<&'a [(K, V); N]> for Map
 where
-  K: TryInto<RedisKey> + Clone,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue> + Clone,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key> + Clone,
+  K::Error: Into<Error>,
+  V: TryInto<Value> + Clone,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &'a [(K, V); N]) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(value.len());
@@ -519,32 +513,32 @@ where
       inner.insert(to!(key)?, to!(value)?);
     }
 
-    Ok(RedisMap { inner })
+    Ok(Map { inner })
   }
 }
 
-impl<K, V> TryFrom<VecDeque<(K, V)>> for RedisMap
+impl<K, V> TryFrom<VecDeque<(K, V)>> for Map
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(values: VecDeque<(K, V)>) -> Result<Self, Self::Error> {
     let mut inner = HashMap::with_capacity(values.len());
     for (key, value) in values.into_iter() {
       inner.insert(to!(key)?, to!(value)?);
     }
-    Ok(RedisMap { inner })
+    Ok(Map { inner })
   }
 }
 
-impl<K, V> FromIterator<(K, V)> for RedisMap
+impl<K, V> FromIterator<(K, V)> for Map
 where
-  K: Into<RedisKey>,
-  V: Into<RedisValue>,
+  K: Into<Key>,
+  V: Into<Value>,
 {
   fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
     Self {
@@ -553,9 +547,9 @@ where
   }
 }
 
-/// The kind of value from Redis.
+/// The kind of value from the server.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RedisValueKind {
+pub enum ValueKind {
   Boolean,
   Integer,
   Double,
@@ -567,18 +561,18 @@ pub enum RedisValueKind {
   Array,
 }
 
-impl fmt::Display for RedisValueKind {
+impl fmt::Display for ValueKind {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     let s = match *self {
-      RedisValueKind::Boolean => "Boolean",
-      RedisValueKind::Integer => "Integer",
-      RedisValueKind::Double => "Double",
-      RedisValueKind::String => "String",
-      RedisValueKind::Bytes => "Bytes",
-      RedisValueKind::Null => "nil",
-      RedisValueKind::Queued => "Queued",
-      RedisValueKind::Map => "Map",
-      RedisValueKind::Array => "Array",
+      ValueKind::Boolean => "Boolean",
+      ValueKind::Integer => "Integer",
+      ValueKind::Double => "Double",
+      ValueKind::String => "String",
+      ValueKind::Bytes => "Bytes",
+      ValueKind::Null => "nil",
+      ValueKind::Queued => "Queued",
+      ValueKind::Map => "Map",
+      ValueKind::Array => "Array",
     };
 
     write!(f, "{}", s)
@@ -587,7 +581,7 @@ impl fmt::Display for RedisValueKind {
 
 /// A value used in a Redis command.
 #[derive(Clone, Debug)]
-pub enum RedisValue {
+pub enum Value {
   /// A boolean value.
   Boolean(bool),
   /// An integer value.
@@ -603,17 +597,17 @@ pub enum RedisValue {
   /// A special value used to indicate a MULTI block command was received by the server.
   Queued,
   /// A map of key/value pairs, primarily used in RESP3 mode.
-  Map(RedisMap),
+  Map(Map),
   /// An ordered list of values.
   ///
   /// In RESP2 mode the server usually sends map structures as an array of key/value pairs.
-  Array(Vec<RedisValue>),
+  Array(Vec<Value>),
 }
 
 #[allow(clippy::match_like_matches_macro)]
-impl PartialEq for RedisValue {
+impl PartialEq for Value {
   fn eq(&self, other: &Self) -> bool {
-    use RedisValue::*;
+    use Value::*;
 
     match self {
       Boolean(ref s) => match other {
@@ -656,20 +650,20 @@ impl PartialEq for RedisValue {
   }
 }
 
-impl Eq for RedisValue {}
+impl Eq for Value {}
 
-impl RedisValue {
-  /// Create a new `RedisValue::Bytes` from a static byte slice without copying.
+impl Value {
+  /// Create a new `Value::Bytes` from a static byte slice without copying.
   pub fn from_static(b: &'static [u8]) -> Self {
-    RedisValue::Bytes(Bytes::from_static(b))
+    Value::Bytes(Bytes::from_static(b))
   }
 
-  /// Create a new `RedisValue::String` from a static `str` without copying.
+  /// Create a new `Value::String` from a static `str` without copying.
   pub fn from_static_str(s: &'static str) -> Self {
-    RedisValue::String(utils::static_str(s))
+    Value::String(utils::static_str(s))
   }
 
-  /// Create a new `RedisValue` with the `OK` status.
+  /// Create a new `Value` with the `OK` status.
   pub fn new_ok() -> Self {
     Self::from_static_str(OK)
   }
@@ -677,66 +671,66 @@ impl RedisValue {
   /// Whether the value is a simple string OK value.
   pub fn is_ok(&self) -> bool {
     match *self {
-      RedisValue::String(ref s) => *s == OK,
+      Value::String(ref s) => *s == OK,
       _ => false,
     }
   }
 
   /// Attempt to convert the value into an integer, returning the original string as an error if the parsing fails.
-  pub fn into_integer(self) -> Result<RedisValue, RedisValue> {
+  pub fn into_integer(self) -> Result<Value, Value> {
     match self {
-      RedisValue::String(s) => match s.parse::<i64>() {
-        Ok(i) => Ok(RedisValue::Integer(i)),
-        Err(_) => Err(RedisValue::String(s)),
+      Value::String(s) => match s.parse::<i64>() {
+        Ok(i) => Ok(Value::Integer(i)),
+        Err(_) => Err(Value::String(s)),
       },
-      RedisValue::Integer(i) => Ok(RedisValue::Integer(i)),
+      Value::Integer(i) => Ok(Value::Integer(i)),
       _ => Err(self),
     }
   }
 
   /// Read the type of the value without any associated data.
-  pub fn kind(&self) -> RedisValueKind {
+  pub fn kind(&self) -> ValueKind {
     match *self {
-      RedisValue::Boolean(_) => RedisValueKind::Boolean,
-      RedisValue::Integer(_) => RedisValueKind::Integer,
-      RedisValue::Double(_) => RedisValueKind::Double,
-      RedisValue::String(_) => RedisValueKind::String,
-      RedisValue::Bytes(_) => RedisValueKind::Bytes,
-      RedisValue::Null => RedisValueKind::Null,
-      RedisValue::Queued => RedisValueKind::Queued,
-      RedisValue::Map(_) => RedisValueKind::Map,
-      RedisValue::Array(_) => RedisValueKind::Array,
+      Value::Boolean(_) => ValueKind::Boolean,
+      Value::Integer(_) => ValueKind::Integer,
+      Value::Double(_) => ValueKind::Double,
+      Value::String(_) => ValueKind::String,
+      Value::Bytes(_) => ValueKind::Bytes,
+      Value::Null => ValueKind::Null,
+      Value::Queued => ValueKind::Queued,
+      Value::Map(_) => ValueKind::Map,
+      Value::Array(_) => ValueKind::Array,
     }
   }
 
   /// Check if the value is null.
   pub fn is_null(&self) -> bool {
-    matches!(*self, RedisValue::Null)
+    matches!(*self, Value::Null)
   }
 
   /// Check if the value is an integer.
   pub fn is_integer(&self) -> bool {
-    matches!(self, RedisValue::Integer(_))
+    matches!(self, Value::Integer(_))
   }
 
   /// Check if the value is a string.
   pub fn is_string(&self) -> bool {
-    matches!(*self, RedisValue::String(_))
+    matches!(*self, Value::String(_))
   }
 
   /// Check if the value is an array of bytes.
   pub fn is_bytes(&self) -> bool {
-    matches!(*self, RedisValue::Bytes(_))
+    matches!(*self, Value::Bytes(_))
   }
 
   /// Whether the value is a boolean value or can be parsed as a boolean value.
   #[allow(clippy::match_like_matches_macro)]
   pub fn is_boolean(&self) -> bool {
     match *self {
-      RedisValue::Boolean(_) => true,
-      RedisValue::Integer(0 | 1) => true,
-      RedisValue::Integer(_) => false,
-      RedisValue::String(ref s) => match s.as_bytes() {
+      Value::Boolean(_) => true,
+      Value::Integer(0 | 1) => true,
+      Value::Integer(_) => false,
+      Value::String(ref s) => match s.as_bytes() {
         b"true" | b"false" | b"t" | b"f" | b"TRUE" | b"FALSE" | b"T" | b"F" | b"1" | b"0" => true,
         _ => false,
       },
@@ -747,60 +741,60 @@ impl RedisValue {
   /// Whether the inner value is a double or can be parsed as a double.
   pub fn is_double(&self) -> bool {
     match *self {
-      RedisValue::Double(_) => true,
-      RedisValue::String(ref s) => utils::redis_string_to_f64(s).is_ok(),
+      Value::Double(_) => true,
+      Value::String(ref s) => utils::string_to_f64(s).is_ok(),
       _ => false,
     }
   }
 
   /// Check if the value is a `QUEUED` response.
   pub fn is_queued(&self) -> bool {
-    matches!(*self, RedisValue::Queued)
+    matches!(*self, Value::Queued)
   }
 
   /// Whether the value is an array or map.
   pub fn is_aggregate_type(&self) -> bool {
-    matches!(*self, RedisValue::Array(_) | RedisValue::Map(_))
+    matches!(*self, Value::Array(_) | Value::Map(_))
   }
 
-  /// Whether the value is a `RedisMap`.
+  /// Whether the value is a `Map`.
   ///
   /// See [is_maybe_map](Self::is_maybe_map) for a function that also checks for arrays that likely represent a map in
   /// RESP2 mode.
   pub fn is_map(&self) -> bool {
-    matches!(*self, RedisValue::Map(_))
+    matches!(*self, Value::Map(_))
   }
 
-  /// Whether the value is a `RedisMap` or an array with an even number of elements where each even-numbered
+  /// Whether the value is a `Map` or an array with an even number of elements where each even-numbered
   /// element is not an aggregate type.
   ///
   /// RESP2 and RESP3 encode maps differently, and this function can be used to duck-type maps across protocol
   /// versions.
   pub fn is_maybe_map(&self) -> bool {
     match *self {
-      RedisValue::Map(_) => true,
-      RedisValue::Array(ref arr) => utils::is_maybe_array_map(arr),
+      Value::Map(_) => true,
+      Value::Array(ref arr) => utils::is_maybe_array_map(arr),
       _ => false,
     }
   }
 
   /// Whether the value is an array.
   pub fn is_array(&self) -> bool {
-    matches!(*self, RedisValue::Array(_))
+    matches!(*self, Value::Array(_))
   }
 
   /// Read and return the inner value as a `u64`, if possible.
   pub fn as_u64(&self) -> Option<u64> {
     match self {
-      RedisValue::Integer(ref i) => {
+      Value::Integer(ref i) => {
         if *i >= 0 {
           Some(*i as u64)
         } else {
           None
         }
       },
-      RedisValue::String(ref s) => s.parse::<u64>().ok(),
-      RedisValue::Array(ref inner) => {
+      Value::String(ref s) => s.parse::<u64>().ok(),
+      Value::Array(ref inner) => {
         if inner.len() == 1 {
           inner.first().and_then(|v| v.as_u64())
         } else {
@@ -808,9 +802,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(0),
+      Value::Null => Some(0),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -818,9 +812,9 @@ impl RedisValue {
   ///  Read and return the inner value as a `i64`, if possible.
   pub fn as_i64(&self) -> Option<i64> {
     match self {
-      RedisValue::Integer(ref i) => Some(*i),
-      RedisValue::String(ref s) => s.parse::<i64>().ok(),
-      RedisValue::Array(ref inner) => {
+      Value::Integer(ref i) => Some(*i),
+      Value::String(ref s) => s.parse::<i64>().ok(),
+      Value::Array(ref inner) => {
         if inner.len() == 1 {
           inner.first().and_then(|v| v.as_i64())
         } else {
@@ -828,9 +822,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(0),
+      Value::Null => Some(0),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -838,15 +832,15 @@ impl RedisValue {
   ///  Read and return the inner value as a `usize`, if possible.
   pub fn as_usize(&self) -> Option<usize> {
     match self {
-      RedisValue::Integer(i) => {
+      Value::Integer(i) => {
         if *i >= 0 {
           Some(*i as usize)
         } else {
           None
         }
       },
-      RedisValue::String(ref s) => s.parse::<usize>().ok(),
-      RedisValue::Array(ref inner) => {
+      Value::String(ref s) => s.parse::<usize>().ok(),
+      Value::Array(ref inner) => {
         if inner.len() == 1 {
           inner.first().and_then(|v| v.as_usize())
         } else {
@@ -854,9 +848,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(0),
+      Value::Null => Some(0),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -864,10 +858,10 @@ impl RedisValue {
   ///  Read and return the inner value as a `f64`, if possible.
   pub fn as_f64(&self) -> Option<f64> {
     match self {
-      RedisValue::Double(ref f) => Some(*f),
-      RedisValue::String(ref s) => utils::redis_string_to_f64(s).ok(),
-      RedisValue::Integer(ref i) => Some(*i as f64),
-      RedisValue::Array(ref inner) => {
+      Value::Double(ref f) => Some(*f),
+      Value::String(ref s) => utils::string_to_f64(s).ok(),
+      Value::Integer(ref i) => Some(*i as f64),
+      Value::Array(ref inner) => {
         if inner.len() == 1 {
           inner.first().and_then(|v| v.as_f64())
         } else {
@@ -875,9 +869,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(0.0),
+      Value::Null => Some(0.0),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -885,13 +879,13 @@ impl RedisValue {
   /// Read and return the inner `String` if the value is a string or scalar value.
   pub fn into_string(self) -> Option<String> {
     match self {
-      RedisValue::Boolean(b) => Some(b.to_string()),
-      RedisValue::Double(f) => Some(f.to_string()),
-      RedisValue::String(s) => Some(s.to_string()),
-      RedisValue::Bytes(b) => String::from_utf8(b.to_vec()).ok(),
-      RedisValue::Integer(i) => Some(i.to_string()),
-      RedisValue::Queued => Some(QUEUED.to_owned()),
-      RedisValue::Array(mut inner) => {
+      Value::Boolean(b) => Some(b.to_string()),
+      Value::Double(f) => Some(f.to_string()),
+      Value::String(s) => Some(s.to_string()),
+      Value::Bytes(b) => String::from_utf8(b.to_vec()).ok(),
+      Value::Integer(i) => Some(i.to_string()),
+      Value::Queued => Some(QUEUED.to_owned()),
+      Value::Array(mut inner) => {
         if inner.len() == 1 {
           inner.pop().and_then(|v| v.into_string())
         } else {
@@ -899,9 +893,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(String::new()),
+      Value::Null => Some(String::new()),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -909,16 +903,16 @@ impl RedisValue {
   /// Read and return the inner data as a `Str` from the `bytes` crate.
   pub fn into_bytes_str(self) -> Option<Str> {
     match self {
-      RedisValue::Boolean(b) => match b {
+      Value::Boolean(b) => match b {
         true => Some(TRUE_STR.clone()),
         false => Some(FALSE_STR.clone()),
       },
-      RedisValue::Double(f) => Some(f.to_string().into()),
-      RedisValue::String(s) => Some(s),
-      RedisValue::Bytes(b) => Str::from_inner(b).ok(),
-      RedisValue::Integer(i) => Some(i.to_string().into()),
-      RedisValue::Queued => Some(utils::static_str(QUEUED)),
-      RedisValue::Array(mut inner) => {
+      Value::Double(f) => Some(f.to_string().into()),
+      Value::String(s) => Some(s),
+      Value::Bytes(b) => Str::from_inner(b).ok(),
+      Value::Integer(i) => Some(i.to_string().into()),
+      Value::Queued => Some(utils::static_str(QUEUED)),
+      Value::Array(mut inner) => {
         if inner.len() == 1 {
           inner.pop().and_then(|v| v.into_bytes_str())
         } else {
@@ -926,9 +920,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(Str::new()),
+      Value::Null => Some(Str::new()),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -936,16 +930,16 @@ impl RedisValue {
   /// Read the inner value as a `Str`.
   pub fn as_bytes_str(&self) -> Option<Str> {
     match self {
-      RedisValue::Boolean(ref b) => match *b {
+      Value::Boolean(ref b) => match *b {
         true => Some(TRUE_STR.clone()),
         false => Some(FALSE_STR.clone()),
       },
-      RedisValue::Double(ref f) => Some(f.to_string().into()),
-      RedisValue::String(ref s) => Some(s.clone()),
-      RedisValue::Bytes(ref b) => Str::from_inner(b.clone()).ok(),
-      RedisValue::Integer(ref i) => Some(i.to_string().into()),
-      RedisValue::Queued => Some(utils::static_str(QUEUED)),
-      RedisValue::Array(ref inner) => {
+      Value::Double(ref f) => Some(f.to_string().into()),
+      Value::String(ref s) => Some(s.clone()),
+      Value::Bytes(ref b) => Str::from_inner(b.clone()).ok(),
+      Value::Integer(ref i) => Some(i.to_string().into()),
+      Value::Queued => Some(utils::static_str(QUEUED)),
+      Value::Array(ref inner) => {
         if inner.len() == 1 {
           inner[0].as_bytes_str()
         } else {
@@ -953,9 +947,9 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(Str::new()),
+      Value::Null => Some(Str::new()),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -965,16 +959,16 @@ impl RedisValue {
   /// Note: this will cast integers and doubles to strings.
   pub fn as_string(&self) -> Option<String> {
     match self {
-      RedisValue::Boolean(ref b) => Some(b.to_string()),
-      RedisValue::Double(ref f) => Some(f.to_string()),
-      RedisValue::String(ref s) => Some(s.to_string()),
-      RedisValue::Bytes(ref b) => str::from_utf8(b).ok().map(|s| s.to_owned()),
-      RedisValue::Integer(ref i) => Some(i.to_string()),
-      RedisValue::Queued => Some(QUEUED.to_owned()),
+      Value::Boolean(ref b) => Some(b.to_string()),
+      Value::Double(ref f) => Some(f.to_string()),
+      Value::String(ref s) => Some(s.to_string()),
+      Value::Bytes(ref b) => str::from_utf8(b).ok().map(|s| s.to_owned()),
+      Value::Integer(ref i) => Some(i.to_string()),
+      Value::Queued => Some(QUEUED.to_owned()),
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(String::new()),
+      Value::Null => Some(String::new()),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
@@ -984,16 +978,16 @@ impl RedisValue {
   /// Null is returned as `"nil"` and scalar values are cast to a string.
   pub fn as_str(&self) -> Option<Cow<str>> {
     let s: Cow<str> = match *self {
-      RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
-      RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.deref()),
-      RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
-      RedisValue::Queued => Cow::Borrowed(QUEUED),
-      RedisValue::Bytes(ref b) => return str::from_utf8(b).ok().map(Cow::Borrowed),
+      Value::Double(ref f) => Cow::Owned(f.to_string()),
+      Value::Boolean(ref b) => Cow::Owned(b.to_string()),
+      Value::String(ref s) => Cow::Borrowed(s.deref()),
+      Value::Integer(ref i) => Cow::Owned(i.to_string()),
+      Value::Queued => Cow::Borrowed(QUEUED),
+      Value::Bytes(ref b) => return str::from_utf8(b).ok().map(Cow::Borrowed),
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Cow::Borrowed(""),
+      Value::Null => Cow::Borrowed(""),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => return None,
+      Value::Null => return None,
       _ => return None,
     };
 
@@ -1003,16 +997,16 @@ impl RedisValue {
   /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
   pub fn as_str_lossy(&self) -> Option<Cow<str>> {
     let s: Cow<str> = match *self {
-      RedisValue::Boolean(ref b) => Cow::Owned(b.to_string()),
-      RedisValue::Double(ref f) => Cow::Owned(f.to_string()),
-      RedisValue::String(ref s) => Cow::Borrowed(s.deref()),
-      RedisValue::Integer(ref i) => Cow::Owned(i.to_string()),
-      RedisValue::Queued => Cow::Borrowed(QUEUED),
-      RedisValue::Bytes(ref b) => String::from_utf8_lossy(b),
+      Value::Boolean(ref b) => Cow::Owned(b.to_string()),
+      Value::Double(ref f) => Cow::Owned(f.to_string()),
+      Value::String(ref s) => Cow::Borrowed(s.deref()),
+      Value::Integer(ref i) => Cow::Owned(i.to_string()),
+      Value::Queued => Cow::Borrowed(QUEUED),
+      Value::Bytes(ref b) => String::from_utf8_lossy(b),
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Cow::Borrowed(""),
+      Value::Null => Cow::Borrowed(""),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => return None,
+      Value::Null => return None,
       _ => return None,
     };
 
@@ -1022,9 +1016,9 @@ impl RedisValue {
   /// Read the inner value as an array of bytes, if possible.
   pub fn as_bytes(&self) -> Option<&[u8]> {
     match *self {
-      RedisValue::String(ref s) => Some(s.as_bytes()),
-      RedisValue::Bytes(ref b) => Some(b),
-      RedisValue::Queued => Some(QUEUED.as_bytes()),
+      Value::String(ref s) => Some(s.as_bytes()),
+      Value::Bytes(ref b) => Some(b),
+      Value::Queued => Some(QUEUED.as_bytes()),
       _ => None,
     }
   }
@@ -1032,18 +1026,18 @@ impl RedisValue {
   /// Attempt to convert the value to a `bool`.
   pub fn as_bool(&self) -> Option<bool> {
     match *self {
-      RedisValue::Boolean(b) => Some(b),
-      RedisValue::Integer(ref i) => match *i {
+      Value::Boolean(b) => Some(b),
+      Value::Integer(ref i) => match *i {
         0 => Some(false),
         1 => Some(true),
         _ => None,
       },
-      RedisValue::String(ref s) => match s.as_bytes() {
+      Value::String(ref s) => match s.as_bytes() {
         b"true" | b"TRUE" | b"t" | b"T" | b"1" => Some(true),
         b"false" | b"FALSE" | b"f" | b"F" | b"0" => Some(false),
         _ => None,
       },
-      RedisValue::Array(ref inner) => {
+      Value::Array(ref inner) => {
         if inner.len() == 1 {
           inner.first().and_then(|v| v.as_bool())
         } else {
@@ -1051,75 +1045,72 @@ impl RedisValue {
         }
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Some(false),
+      Value::Null => Some(false),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => None,
+      Value::Null => None,
       _ => None,
     }
   }
 
   /// Attempt to convert this value to a Redis map if it's an array with an even number of elements.
-  pub fn into_map(self) -> Result<RedisMap, RedisError> {
+  pub fn into_map(self) -> Result<Map, Error> {
     match self {
-      RedisValue::Map(map) => Ok(map),
-      RedisValue::Array(mut values) => {
+      Value::Map(map) => Ok(map),
+      Value::Array(mut values) => {
         if values.len() % 2 != 0 {
-          return Err(RedisError::new(
-            RedisErrorKind::Unknown,
-            "Expected an even number of elements.",
-          ));
+          return Err(Error::new(ErrorKind::Unknown, "Expected an even number of elements."));
         }
         let mut inner = HashMap::with_capacity(values.len() / 2);
         while values.len() >= 2 {
           let value = values.pop().unwrap();
-          let key: RedisKey = values.pop().unwrap().try_into()?;
+          let key: Key = values.pop().unwrap().try_into()?;
 
           inner.insert(key, value);
         }
 
-        Ok(RedisMap { inner })
+        Ok(Map { inner })
       },
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Ok(RedisMap::new()),
-      _ => Err(RedisError::new(RedisErrorKind::Unknown, "Could not convert to map.")),
+      Value::Null => Ok(Map::new()),
+      _ => Err(Error::new(ErrorKind::Unknown, "Could not convert to map.")),
     }
   }
 
-  pub(crate) fn into_multiple_values(self) -> Vec<RedisValue> {
+  pub(crate) fn into_multiple_values(self) -> Vec<Value> {
     match self {
-      RedisValue::Array(values) => values,
-      RedisValue::Map(map) => map
+      Value::Array(values) => values,
+      Value::Map(map) => map
         .inner()
         .into_iter()
-        .flat_map(|(k, v)| [RedisValue::Bytes(k.into_bytes()), v])
+        .flat_map(|(k, v)| [Value::Bytes(k.into_bytes()), v])
         .collect(),
-      RedisValue::Null => Vec::new(),
+      Value::Null => Vec::new(),
       _ => vec![self],
     }
   }
 
   /// Convert the array value to a set, if possible.
-  pub fn into_set(self) -> Result<HashSet<RedisValue>, RedisError> {
+  pub fn into_set(self) -> Result<HashSet<Value>, Error> {
     match self {
-      RedisValue::Array(values) => Ok(values.into_iter().collect()),
+      Value::Array(values) => Ok(values.into_iter().collect()),
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Ok(HashSet::new()),
-      _ => Err(RedisError::new_parse("Could not convert to set.")),
+      Value::Null => Ok(HashSet::new()),
+      _ => Err(Error::new_parse("Could not convert to set.")),
     }
   }
 
   /// Convert a `RedisValue` to `Vec<(RedisValue, f64)>`, if possible.
-  pub fn into_zset_result(self) -> Result<Vec<(RedisValue, f64)>, RedisError> {
+  pub fn into_zset_result(self) -> Result<Vec<(Value, f64)>, Error> {
     protocol_utils::value_to_zset_result(self)
   }
 
   /// Convert this value to an array if it's an array or map.
   ///
   /// If the value is not an array or map this returns a single-element array containing the original value.
-  pub fn into_array(self) -> Vec<RedisValue> {
+  pub fn into_array(self) -> Vec<Value> {
     match self {
-      RedisValue::Array(values) => values,
-      RedisValue::Map(map) => {
+      Value::Array(values) => values,
+      Value::Map(map) => {
         let mut out = Vec::with_capacity(map.len() * 2);
         for (key, value) in map.inner().into_iter() {
           out.extend([key.into(), value]);
@@ -1133,21 +1124,21 @@ impl RedisValue {
   /// Convert the value to an array of bytes, if possible.
   pub fn into_owned_bytes(self) -> Option<Vec<u8>> {
     let v = match self {
-      RedisValue::String(s) => s.to_string().into_bytes(),
-      RedisValue::Bytes(b) => b.to_vec(),
-      RedisValue::Queued => QUEUED.as_bytes().to_vec(),
-      RedisValue::Array(mut inner) => {
+      Value::String(s) => s.to_string().into_bytes(),
+      Value::Bytes(b) => b.to_vec(),
+      Value::Queued => QUEUED.as_bytes().to_vec(),
+      Value::Array(mut inner) => {
         if inner.len() == 1 {
           return inner.pop().and_then(|v| v.into_owned_bytes());
         } else {
           return None;
         }
       },
-      RedisValue::Integer(i) => i.to_string().into_bytes(),
+      Value::Integer(i) => i.to_string().into_bytes(),
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Vec::new(),
+      Value::Null => Vec::new(),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => return None,
+      Value::Null => return None,
       _ => return None,
     };
 
@@ -1157,21 +1148,21 @@ impl RedisValue {
   /// Convert the value into a `Bytes` view.
   pub fn into_bytes(self) -> Option<Bytes> {
     let v = match self {
-      RedisValue::String(s) => s.inner().clone(),
-      RedisValue::Bytes(b) => b,
-      RedisValue::Queued => Bytes::from_static(QUEUED.as_bytes()),
-      RedisValue::Array(mut inner) => {
+      Value::String(s) => s.inner().clone(),
+      Value::Bytes(b) => b,
+      Value::Queued => Bytes::from_static(QUEUED.as_bytes()),
+      Value::Array(mut inner) => {
         if inner.len() == 1 {
           return inner.pop().and_then(|v| v.into_bytes());
         } else {
           return None;
         }
       },
-      RedisValue::Integer(i) => i.to_string().into(),
+      Value::Integer(i) => i.to_string().into(),
       #[cfg(feature = "default-nil-types")]
-      RedisValue::Null => Bytes::new(),
+      Value::Null => Bytes::new(),
       #[cfg(not(feature = "default-nil-types"))]
-      RedisValue::Null => return None,
+      Value::Null => return None,
       _ => return None,
     };
 
@@ -1181,14 +1172,14 @@ impl RedisValue {
   /// Return the length of the inner array if the value is an array.
   pub fn array_len(&self) -> Option<usize> {
     match self {
-      RedisValue::Array(ref a) => Some(a.len()),
+      Value::Array(ref a) => Some(a.len()),
       _ => None,
     }
   }
 
   /// Whether the value is an array with one element.
   pub(crate) fn is_single_element_vec(&self) -> bool {
-    if let RedisValue::Array(ref d) = self {
+    if let Value::Array(ref d) = self {
       d.len() == 1
     } else {
       false
@@ -1199,7 +1190,7 @@ impl RedisValue {
   ///
   /// This uses unwrap. Use [is_single_element_vec] first.
   pub(crate) fn pop_or_take(self) -> Self {
-    if let RedisValue::Array(mut values) = self {
+    if let Value::Array(mut values) = self {
       values.pop().unwrap()
     } else {
       self
@@ -1223,12 +1214,12 @@ impl RedisValue {
   /// information.
   #[cfg(feature = "i-streams")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
-  pub fn into_xread_response<K1, I, K2, V>(self) -> Result<XReadResponse<K1, I, K2, V>, RedisError>
+  pub fn into_xread_response<K1, I, K2, V>(self) -> Result<XReadResponse<K1, I, K2, V>, Error>
   where
-    K1: FromRedisKey + Hash + Eq,
-    K2: FromRedisKey + Hash + Eq,
-    I: FromRedis,
-    V: FromRedis,
+    K1: FromKey + Hash + Eq,
+    K2: FromKey + Hash + Eq,
+    I: FromValue,
+    V: FromValue,
   {
     self.flatten_array_values(2).convert()
   }
@@ -1238,11 +1229,11 @@ impl RedisValue {
   /// This function supports responses in both RESP2 and RESP3 formats.
   #[cfg(feature = "i-streams")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
-  pub fn into_xread_value<I, K, V>(self) -> Result<Vec<XReadValue<I, K, V>>, RedisError>
+  pub fn into_xread_value<I, K, V>(self) -> Result<Vec<XReadValue<I, K, V>>, Error>
   where
-    K: FromRedisKey + Hash + Eq,
-    I: FromRedis,
-    V: FromRedis,
+    K: FromKey + Hash + Eq,
+    I: FromValue,
+    V: FromValue,
   {
     self.flatten_array_values(1).convert()
   }
@@ -1255,13 +1246,13 @@ impl RedisValue {
   /// Callers should use `xautoclaim` instead if this data is needed.
   #[cfg(feature = "i-streams")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-streams")))]
-  pub fn into_xautoclaim_values<I, K, V>(self) -> Result<(String, Vec<XReadValue<I, K, V>>), RedisError>
+  pub fn into_xautoclaim_values<I, K, V>(self) -> Result<(String, Vec<XReadValue<I, K, V>>), Error>
   where
-    K: FromRedisKey + Hash + Eq,
-    I: FromRedis,
-    V: FromRedis,
+    K: FromKey + Hash + Eq,
+    I: FromValue,
+    V: FromValue,
   {
-    if let RedisValue::Array(mut values) = self {
+    if let Value::Array(mut values) = self {
       if values.len() == 3 {
         // convert the redis 7.x response format to the v6 format
         trace!("Removing the third message PID elements from XAUTOCLAIM response.");
@@ -1274,14 +1265,14 @@ impl RedisValue {
 
       Ok((cursor, entries.flatten_array_values(1).convert()?))
     } else {
-      Err(RedisError::new_parse("Expected array response."))
+      Err(Error::new_parse("Expected array response."))
     }
   }
 
   /// Parse the value as the response from `FUNCTION LIST`, including only functions with the provided library `name`.
   #[cfg(feature = "i-scripts")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
-  pub fn as_functions(&self, name: &str) -> Result<Vec<Function>, RedisError> {
+  pub fn as_functions(&self, name: &str) -> Result<Vec<Function>, Error> {
     utils::value_to_functions(self, name)
   }
 
@@ -1290,7 +1281,7 @@ impl RedisValue {
   /// Null values are returned as `None` to work more easily with the result of the `GEOPOS` command.
   #[cfg(feature = "i-geo")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
-  pub fn as_geo_position(&self) -> Result<Option<GeoPosition>, RedisError> {
+  pub fn as_geo_position(&self) -> Result<Option<GeoPosition>, Error> {
     if self.is_null() {
       Ok(None)
     } else {
@@ -1299,7 +1290,7 @@ impl RedisValue {
   }
 
   /// Parse the value as the response to any of the relevant GEO commands that return an array of
-  /// [GeoRadiusInfo](crate::types::GeoRadiusInfo) values, such as `GEOSEARCH`, GEORADIUS`, etc.
+  /// [GeoRadiusInfo](crate::types::geo::GeoRadiusInfo) values, such as `GEOSEARCH`, GEORADIUS`, etc.
   #[cfg(feature = "i-geo")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-geo")))]
   pub fn into_geo_radius_result(
@@ -1307,81 +1298,81 @@ impl RedisValue {
     withcoord: bool,
     withdist: bool,
     withhash: bool,
-  ) -> Result<Vec<GeoRadiusInfo>, RedisError> {
+  ) -> Result<Vec<GeoRadiusInfo>, Error> {
     match self {
-      RedisValue::Array(data) => data
+      Value::Array(data) => data
         .into_iter()
-        .map(|value| GeoRadiusInfo::from_redis_value(value, withcoord, withdist, withhash))
+        .map(|value| GeoRadiusInfo::from_value(value, withcoord, withdist, withhash))
         .collect(),
-      RedisValue::Null => Ok(Vec::new()),
-      _ => Err(RedisError::new(RedisErrorKind::Parse, "Expected array.")),
+      Value::Null => Ok(Vec::new()),
+      _ => Err(Error::new(ErrorKind::Parse, "Expected array.")),
     }
   }
 
   /// Replace this value with `RedisValue::Null`, returning the original value.
-  pub fn take(&mut self) -> RedisValue {
-    mem::replace(self, RedisValue::Null)
+  pub fn take(&mut self) -> Value {
+    mem::replace(self, Value::Null)
   }
 
-  /// Attempt to convert this value to any value that implements the [FromRedis](crate::types::FromRedis) trait.
-  pub fn convert<R>(self) -> Result<R, RedisError>
+  /// Attempt to convert this value to any value that implements the [FromValue](crate::types::FromValue) trait.
+  pub fn convert<R>(self) -> Result<R, Error>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     R::from_value(self)
   }
 
   /// Whether the value can be hashed.
   ///
-  /// Some use cases require using `RedisValue` types as keys in a `HashMap`, etc. Trying to do so with an aggregate
+  /// Some use cases require using `Value` types as keys in a `HashMap`, etc. Trying to do so with an aggregate
   /// type can panic, and this function can be used to more gracefully handle this situation.
   pub fn can_hash(&self) -> bool {
     matches!(
       self.kind(),
-      RedisValueKind::String
-        | RedisValueKind::Boolean
-        | RedisValueKind::Double
-        | RedisValueKind::Integer
-        | RedisValueKind::Bytes
-        | RedisValueKind::Null
-        | RedisValueKind::Array
-        | RedisValueKind::Queued
+      ValueKind::String
+        | ValueKind::Boolean
+        | ValueKind::Double
+        | ValueKind::Integer
+        | ValueKind::Bytes
+        | ValueKind::Null
+        | ValueKind::Array
+        | ValueKind::Queued
     )
   }
 
   /// Convert the value to JSON.
   #[cfg(feature = "serde-json")]
   #[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
-  pub fn into_json(self) -> Result<Value, RedisError> {
-    Value::from_value(self)
+  pub fn into_json(self) -> Result<serde_json::Value, Error> {
+    serde_json::Value::from_value(self)
   }
 }
 
-impl Hash for RedisValue {
+impl Hash for Value {
   fn hash<H: Hasher>(&self, state: &mut H) {
     // used to prevent collisions between different types
     let prefix = match self.kind() {
-      RedisValueKind::Boolean => b'B',
-      RedisValueKind::Double => b'd',
-      RedisValueKind::Integer => b'i',
-      RedisValueKind::String => b's',
-      RedisValueKind::Null => b'n',
-      RedisValueKind::Queued => b'q',
-      RedisValueKind::Array => b'a',
-      RedisValueKind::Map => b'm',
-      RedisValueKind::Bytes => b'b',
+      ValueKind::Boolean => b'B',
+      ValueKind::Double => b'd',
+      ValueKind::Integer => b'i',
+      ValueKind::String => b's',
+      ValueKind::Null => b'n',
+      ValueKind::Queued => b'q',
+      ValueKind::Array => b'a',
+      ValueKind::Map => b'm',
+      ValueKind::Bytes => b'b',
     };
     prefix.hash(state);
 
     match *self {
-      RedisValue::Boolean(b) => b.hash(state),
-      RedisValue::Double(f) => f.to_be_bytes().hash(state),
-      RedisValue::Integer(d) => d.hash(state),
-      RedisValue::String(ref s) => s.hash(state),
-      RedisValue::Bytes(ref b) => b.hash(state),
-      RedisValue::Null => NULL.hash(state),
-      RedisValue::Queued => QUEUED.hash(state),
-      RedisValue::Array(ref arr) => {
+      Value::Boolean(b) => b.hash(state),
+      Value::Double(f) => f.to_be_bytes().hash(state),
+      Value::Integer(d) => d.hash(state),
+      Value::String(ref s) => s.hash(state),
+      Value::Bytes(ref b) => b.hash(state),
+      Value::Null => NULL.hash(state),
+      Value::Queued => QUEUED.hash(state),
+      Value::Array(ref arr) => {
         for value in arr.iter() {
           value.hash(state);
         }
@@ -1393,310 +1384,310 @@ impl Hash for RedisValue {
 
 #[cfg(not(feature = "specialize-into-bytes"))]
 #[cfg_attr(docsrs, doc(cfg(not(feature = "specialize-into-bytes"))))]
-impl From<u8> for RedisValue {
+impl From<u8> for Value {
   fn from(d: u8) -> Self {
-    RedisValue::Integer(d as i64)
+    Value::Integer(d as i64)
   }
 }
 
-impl From<u16> for RedisValue {
+impl From<u16> for Value {
   fn from(d: u16) -> Self {
-    RedisValue::Integer(d as i64)
+    Value::Integer(d as i64)
   }
 }
 
-impl From<u32> for RedisValue {
+impl From<u32> for Value {
   fn from(d: u32) -> Self {
-    RedisValue::Integer(d as i64)
+    Value::Integer(d as i64)
   }
 }
 
-impl From<i8> for RedisValue {
+impl From<i8> for Value {
   fn from(d: i8) -> Self {
-    RedisValue::Integer(d as i64)
+    Value::Integer(d as i64)
   }
 }
 
-impl From<i16> for RedisValue {
+impl From<i16> for Value {
   fn from(d: i16) -> Self {
-    RedisValue::Integer(d as i64)
+    Value::Integer(d as i64)
   }
 }
 
-impl From<i32> for RedisValue {
+impl From<i32> for Value {
   fn from(d: i32) -> Self {
-    RedisValue::Integer(d as i64)
+    Value::Integer(d as i64)
   }
 }
 
-impl From<i64> for RedisValue {
+impl From<i64> for Value {
   fn from(d: i64) -> Self {
-    RedisValue::Integer(d)
+    Value::Integer(d)
   }
 }
 
-impl From<f32> for RedisValue {
+impl From<f32> for Value {
   fn from(f: f32) -> Self {
-    RedisValue::Double(f as f64)
+    Value::Double(f as f64)
   }
 }
 
-impl From<f64> for RedisValue {
+impl From<f64> for Value {
   fn from(f: f64) -> Self {
-    RedisValue::Double(f)
+    Value::Double(f)
   }
 }
 
-impl TryFrom<u64> for RedisValue {
-  type Error = RedisError;
+impl TryFrom<u64> for Value {
+  type Error = Error;
 
   fn try_from(d: u64) -> Result<Self, Self::Error> {
     if d >= (i64::MAX as u64) {
-      return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+      return Err(Error::new(ErrorKind::Unknown, "Unsigned integer too large."));
     }
 
     Ok((d as i64).into())
   }
 }
 
-impl TryFrom<u128> for RedisValue {
-  type Error = RedisError;
+impl TryFrom<u128> for Value {
+  type Error = Error;
 
   fn try_from(d: u128) -> Result<Self, Self::Error> {
     if d >= (i64::MAX as u128) {
-      return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+      return Err(Error::new(ErrorKind::Unknown, "Unsigned integer too large."));
     }
 
     Ok((d as i64).into())
   }
 }
 
-impl TryFrom<i128> for RedisValue {
-  type Error = RedisError;
+impl TryFrom<i128> for Value {
+  type Error = Error;
 
   fn try_from(d: i128) -> Result<Self, Self::Error> {
     if d >= (i64::MAX as i128) {
-      return Err(RedisError::new(RedisErrorKind::Unknown, "Signed integer too large."));
+      return Err(Error::new(ErrorKind::Unknown, "Signed integer too large."));
     }
 
     Ok((d as i64).into())
   }
 }
 
-impl TryFrom<usize> for RedisValue {
-  type Error = RedisError;
+impl TryFrom<usize> for Value {
+  type Error = Error;
 
   fn try_from(d: usize) -> Result<Self, Self::Error> {
     if d >= (i64::MAX as usize) {
-      return Err(RedisError::new(RedisErrorKind::Unknown, "Unsigned integer too large."));
+      return Err(Error::new(ErrorKind::Unknown, "Unsigned integer too large."));
     }
 
     Ok((d as i64).into())
   }
 }
 
-impl From<Str> for RedisValue {
+impl From<Str> for Value {
   fn from(s: Str) -> Self {
-    RedisValue::String(s)
+    Value::String(s)
   }
 }
 
-impl From<Bytes> for RedisValue {
+impl From<Bytes> for Value {
   fn from(b: Bytes) -> Self {
-    RedisValue::Bytes(b)
+    Value::Bytes(b)
   }
 }
 
-impl From<Box<[u8]>> for RedisValue {
+impl From<Box<[u8]>> for Value {
   fn from(b: Box<[u8]>) -> Self {
-    RedisValue::Bytes(b.into())
+    Value::Bytes(b.into())
   }
 }
 
-impl From<String> for RedisValue {
+impl From<String> for Value {
   fn from(d: String) -> Self {
-    RedisValue::String(Str::from(d))
+    Value::String(Str::from(d))
   }
 }
 
-impl<'a> From<&'a String> for RedisValue {
+impl<'a> From<&'a String> for Value {
   fn from(d: &'a String) -> Self {
-    RedisValue::String(Str::from(d))
+    Value::String(Str::from(d))
   }
 }
 
-impl<'a> From<&'a str> for RedisValue {
+impl<'a> From<&'a str> for Value {
   fn from(d: &'a str) -> Self {
-    RedisValue::String(Str::from(d))
+    Value::String(Str::from(d))
   }
 }
 
-impl<'a> From<&'a [u8]> for RedisValue {
+impl<'a> From<&'a [u8]> for Value {
   fn from(b: &'a [u8]) -> Self {
-    RedisValue::Bytes(Bytes::from(b.to_vec()))
+    Value::Bytes(Bytes::from(b.to_vec()))
   }
 }
 
-impl From<bool> for RedisValue {
+impl From<bool> for Value {
   fn from(d: bool) -> Self {
-    RedisValue::Boolean(d)
+    Value::Boolean(d)
   }
 }
 
-impl<T> TryFrom<Option<T>> for RedisValue
+impl<T> TryFrom<Option<T>> for Value
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(d: Option<T>) -> Result<Self, Self::Error> {
     match d {
       Some(i) => to!(i),
-      None => Ok(RedisValue::Null),
+      None => Ok(Value::Null),
     }
   }
 }
 
-impl<'a, T, const N: usize> TryFrom<&'a [T; N]> for RedisValue
+impl<'a, T, const N: usize> TryFrom<&'a [T; N]> for Value
 where
-  T: TryInto<RedisValue> + Clone,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value> + Clone,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &'a [T; N]) -> Result<Self, Self::Error> {
     let values = value
       .iter()
       .map(|v| v.clone().try_into().map_err(|e| e.into()))
-      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+      .collect::<Result<Vec<Value>, Error>>()?;
 
-    Ok(RedisValue::Array(values))
+    Ok(Value::Array(values))
   }
 }
 
-impl<T, const N: usize> TryFrom<[T; N]> for RedisValue
+impl<T, const N: usize> TryFrom<[T; N]> for Value
 where
-  T: TryInto<RedisValue> + Clone,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value> + Clone,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: [T; N]) -> Result<Self, Self::Error> {
     let values = value
       .into_iter()
       .map(|v| v.try_into().map_err(|e| e.into()))
-      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+      .collect::<Result<Vec<Value>, Error>>()?;
 
-    Ok(RedisValue::Array(values))
+    Ok(Value::Array(values))
   }
 }
 
 #[cfg(feature = "specialize-into-bytes")]
 #[cfg_attr(docsrs, doc(cfg(feature = "specialize-into-bytes")))]
-impl TryFrom<Vec<u8>> for RedisValue {
-  type Error = RedisError;
+impl TryFrom<Vec<u8>> for Value {
+  type Error = Error;
 
   fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-    Ok(RedisValue::Bytes(value.into()))
+    Ok(Value::Bytes(value.into()))
   }
 }
 
-impl<T> TryFrom<Vec<T>> for RedisValue
+impl<T> TryFrom<Vec<T>> for Value
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
     let values = value
       .into_iter()
       .map(|v| v.try_into().map_err(|e| e.into()))
-      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+      .collect::<Result<Vec<Value>, Error>>()?;
 
-    Ok(RedisValue::Array(values))
+    Ok(Value::Array(values))
   }
 }
 
-impl<T> TryFrom<VecDeque<T>> for RedisValue
+impl<T> TryFrom<VecDeque<T>> for Value
 where
-  T: TryInto<RedisValue>,
-  T::Error: Into<RedisError>,
+  T: TryInto<Value>,
+  T::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: VecDeque<T>) -> Result<Self, Self::Error> {
     let values = value
       .into_iter()
       .map(|v| v.try_into().map_err(|e| e.into()))
-      .collect::<Result<Vec<RedisValue>, RedisError>>()?;
+      .collect::<Result<Vec<Value>, Error>>()?;
 
-    Ok(RedisValue::Array(values))
+    Ok(Value::Array(values))
   }
 }
 
-impl<V> FromIterator<V> for RedisValue
+impl<V> FromIterator<V> for Value
 where
-  V: Into<RedisValue>,
+  V: Into<Value>,
 {
   fn from_iter<I: IntoIterator<Item = V>>(iter: I) -> Self {
-    RedisValue::Array(iter.into_iter().map(|v| v.into()).collect())
+    Value::Array(iter.into_iter().map(|v| v.into()).collect())
   }
 }
 
-impl<K, V> TryFrom<HashMap<K, V>> for RedisValue
+impl<K, V> TryFrom<HashMap<K, V>> for Value
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(d: HashMap<K, V>) -> Result<Self, Self::Error> {
-    Ok(RedisValue::Map(RedisMap {
-      inner: utils::into_redis_map(d.into_iter())?,
+    Ok(Value::Map(Map {
+      inner: utils::into_map(d.into_iter())?,
     }))
   }
 }
 
-impl<K, V> TryFrom<BTreeMap<K, V>> for RedisValue
+impl<K, V> TryFrom<BTreeMap<K, V>> for Value
 where
-  K: TryInto<RedisKey>,
-  K::Error: Into<RedisError>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(d: BTreeMap<K, V>) -> Result<Self, Self::Error> {
-    Ok(RedisValue::Map(RedisMap {
-      inner: utils::into_redis_map(d.into_iter())?,
+    Ok(Value::Map(Map {
+      inner: utils::into_map(d.into_iter())?,
     }))
   }
 }
 
-impl From<RedisKey> for RedisValue {
-  fn from(d: RedisKey) -> Self {
-    RedisValue::Bytes(d.key)
+impl From<Key> for Value {
+  fn from(d: Key) -> Self {
+    Value::Bytes(d.key)
   }
 }
 
-impl From<RedisMap> for RedisValue {
-  fn from(m: RedisMap) -> Self {
-    RedisValue::Map(m)
+impl From<Map> for Value {
+  fn from(m: Map) -> Self {
+    Value::Map(m)
   }
 }
 
-impl From<()> for RedisValue {
+impl From<()> for Value {
   fn from(_: ()) -> Self {
-    RedisValue::Null
+    Value::Null
   }
 }
 
-impl TryFrom<Resp3Frame> for RedisValue {
-  type Error = RedisError;
+impl TryFrom<Resp3Frame> for Value {
+  type Error = Error;
 
   fn try_from(value: Resp3Frame) -> Result<Self, Self::Error> {
     protocol_utils::frame_to_results(value)
@@ -1708,23 +1699,23 @@ mod tests {
   use super::*;
 
   #[test]
-  fn redis_map_from_iter() {
-    let map = [("hello", "world")].into_iter().collect::<RedisMap>();
-    assert_eq!(map.inner[&RedisKey::from("hello")], RedisValue::from("world"));
+  fn map_from_iter() {
+    let map = [("hello", "world")].into_iter().collect::<Map>();
+    assert_eq!(map.inner[&Key::from("hello")], Value::from("world"));
   }
 
   // requires specialization of TryFrom<Vec<u8>> for RedisValue
   #[test]
   #[cfg(feature = "specialize-into-bytes")]
-  fn redis_bytes_from_vec_u8() {
+  fn bytes_from_vec_u8() {
     let input: Vec<u8> = vec![0, 1, 2];
-    let output: RedisValue = input.clone().try_into().unwrap();
-    assert_eq!(output, RedisValue::Bytes(Bytes::from(input)));
+    let output: Value = input.clone().try_into().unwrap();
+    assert_eq!(output, Value::Bytes(Bytes::from(input)));
     let input: Vec<u32> = vec![0, 1, 2, 3];
-    let output: RedisValue = input.clone().try_into().unwrap();
+    let output: Value = input.clone().try_into().unwrap();
     assert_eq!(
       output,
-      RedisValue::Array(input.into_iter().map(|v| RedisValue::Integer(v as i64)).collect())
+      Value::Array(input.into_iter().map(|v| Value::Integer(v as i64)).collect())
     );
   }
 }

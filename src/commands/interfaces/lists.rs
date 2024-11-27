@@ -1,18 +1,17 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
   types::{
-    FromRedis,
-    LMoveDirection,
+    lists::{LMoveDirection, ListLocation},
+    FromValue,
+    Key,
     Limit,
-    ListLocation,
     MultipleKeys,
     MultipleStrings,
     MultipleValues,
-    RedisKey,
-    RedisValue,
     SortOrder,
+    Value,
   },
 };
 use bytes_utils::Str;
@@ -32,9 +31,9 @@ pub trait ListInterface: ClientLike + Sized {
     keys: K,
     direction: LMoveDirection,
     count: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -50,9 +49,9 @@ pub trait ListInterface: ClientLike + Sized {
   /// that is non-empty, with the given keys being checked in the order that they are given.
   ///
   /// <https://redis.io/commands/blpop>
-  fn blpop<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = RedisResult<R>> + Send
+  fn blpop<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -66,9 +65,9 @@ pub trait ListInterface: ClientLike + Sized {
   /// that is non-empty, with the given keys being checked in the order that they are given.
   ///
   /// <https://redis.io/commands/brpop>
-  fn brpop<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = RedisResult<R>> + Send
+  fn brpop<R, K>(&self, keys: K, timeout: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -80,16 +79,11 @@ pub trait ListInterface: ClientLike + Sized {
   /// The blocking equivalent of [Self::rpoplpush].
   ///
   /// <https://redis.io/commands/brpoplpush>
-  fn brpoplpush<R, S, D>(
-    &self,
-    source: S,
-    destination: D,
-    timeout: f64,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  fn brpoplpush<R, S, D>(&self, source: S, destination: D, timeout: f64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source, destination);
@@ -109,11 +103,11 @@ pub trait ListInterface: ClientLike + Sized {
     source_direction: LMoveDirection,
     destination_direction: LMoveDirection,
     timeout: f64,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source, destination);
@@ -138,9 +132,9 @@ pub trait ListInterface: ClientLike + Sized {
     keys: K,
     direction: LMoveDirection,
     count: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -152,10 +146,10 @@ pub trait ListInterface: ClientLike + Sized {
   /// Returns the element at index in the list stored at key.
   ///
   /// <https://redis.io/commands/lindex>
-  fn lindex<R, K>(&self, key: K, index: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn lindex<R, K>(&self, key: K, index: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -172,14 +166,14 @@ pub trait ListInterface: ClientLike + Sized {
     location: ListLocation,
     pivot: P,
     element: V,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    P: TryInto<RedisValue> + Send,
-    P::Error: Into<RedisError> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    P: TryInto<Value> + Send,
+    P::Error: Into<Error> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -193,10 +187,10 @@ pub trait ListInterface: ClientLike + Sized {
   /// Returns the length of the list stored at key.
   ///
   /// <https://redis.io/commands/llen>
-  fn llen<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn llen<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -207,10 +201,10 @@ pub trait ListInterface: ClientLike + Sized {
   /// Removes and returns the first elements of the list stored at key.
   ///
   /// <https://redis.io/commands/lpop>
-  fn lpop<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = RedisResult<R>> + Send
+  fn lpop<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -228,12 +222,12 @@ pub trait ListInterface: ClientLike + Sized {
     rank: Option<i64>,
     count: Option<i64>,
     maxlen: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -247,12 +241,12 @@ pub trait ListInterface: ClientLike + Sized {
   /// Insert all the specified values at the head of the list stored at `key`.
   ///
   /// <https://redis.io/commands/lpush>
-  fn lpush<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn lpush<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -264,12 +258,12 @@ pub trait ListInterface: ClientLike + Sized {
   /// Inserts specified values at the head of the list stored at `key`, only if `key` already exists and holds a list.
   ///
   /// <https://redis.io/commands/lpushx>
-  fn lpushx<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn lpushx<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -281,10 +275,10 @@ pub trait ListInterface: ClientLike + Sized {
   /// Returns the specified elements of the list stored at `key`.
   ///
   /// <https://redis.io/commands/lrange>
-  fn lrange<R, K>(&self, key: K, start: i64, stop: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn lrange<R, K>(&self, key: K, start: i64, stop: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -295,12 +289,12 @@ pub trait ListInterface: ClientLike + Sized {
   /// Removes the first `count` occurrences of elements equal to `element` from the list stored at `key`.
   ///
   /// <https://redis.io/commands/lrem>
-  fn lrem<R, K, V>(&self, key: K, count: i64, element: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn lrem<R, K, V>(&self, key: K, count: i64, element: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -312,12 +306,12 @@ pub trait ListInterface: ClientLike + Sized {
   /// Sets the list element at `index` to `element`.
   ///
   /// <https://redis.io/commands/lset>
-  fn lset<R, K, V>(&self, key: K, index: i64, element: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn lset<R, K, V>(&self, key: K, index: i64, element: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -329,10 +323,10 @@ pub trait ListInterface: ClientLike + Sized {
   /// Trim an existing list so that it will contain only the specified range of elements specified.
   ///
   /// <https://redis.io/commands/ltrim>
-  fn ltrim<R, K>(&self, key: K, start: i64, stop: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn ltrim<R, K>(&self, key: K, start: i64, stop: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -343,10 +337,10 @@ pub trait ListInterface: ClientLike + Sized {
   /// Removes and returns the last elements of the list stored at `key`.
   ///
   /// <https://redis.io/commands/rpop>
-  fn rpop<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = RedisResult<R>> + Send
+  fn rpop<R, K>(&self, key: K, count: Option<usize>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -358,11 +352,11 @@ pub trait ListInterface: ClientLike + Sized {
   /// the first element (head) of the list stored at `destination`.
   ///
   /// <https://redis.io/commands/rpoplpush>
-  fn rpoplpush<R, S, D>(&self, source: S, dest: D) -> impl Future<Output = RedisResult<R>> + Send
+  fn rpoplpush<R, S, D>(&self, source: S, dest: D) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source, dest);
@@ -381,11 +375,11 @@ pub trait ListInterface: ClientLike + Sized {
     dest: D,
     source_direction: LMoveDirection,
     dest_direction: LMoveDirection,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(source, dest);
@@ -398,12 +392,12 @@ pub trait ListInterface: ClientLike + Sized {
   /// Insert all the specified values at the tail of the list stored at `key`.
   ///
   /// <https://redis.io/commands/rpush>
-  fn rpush<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn rpush<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -415,12 +409,12 @@ pub trait ListInterface: ClientLike + Sized {
   /// Inserts specified values at the tail of the list stored at `key`, only if key already exists and holds a list.
   ///
   /// <https://redis.io/commands/rpushx>
-  fn rpushx<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn rpushx<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -440,11 +434,11 @@ pub trait ListInterface: ClientLike + Sized {
     get: S,
     order: Option<SortOrder>,
     alpha: bool,
-    store: Option<RedisKey>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+    store: Option<Key>,
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     S: Into<MultipleStrings> + Send,
   {
     async move {
@@ -467,10 +461,10 @@ pub trait ListInterface: ClientLike + Sized {
     get: S,
     order: Option<SortOrder>,
     alpha: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     S: Into<MultipleStrings> + Send,
   {
     async move {

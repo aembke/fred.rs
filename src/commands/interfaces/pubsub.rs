@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, MultipleStrings, RedisValue},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{FromValue, MultipleStrings, Value},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -15,7 +15,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Subscribe to a channel on the publish-subscribe interface.
   ///
   /// <https://redis.io/commands/subscribe>
-  fn subscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn subscribe<S>(&self, channels: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -28,7 +28,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Unsubscribe from a channel on the PubSub interface.
   ///
   /// <https://redis.io/commands/unsubscribe>
-  fn unsubscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn unsubscribe<S>(&self, channels: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -41,7 +41,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Subscribes the client to the given patterns.
   ///
   /// <https://redis.io/commands/psubscribe>
-  fn psubscribe<S>(&self, patterns: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn psubscribe<S>(&self, patterns: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -56,7 +56,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// If no channels are provided this command returns an empty array.
   ///
   /// <https://redis.io/commands/punsubscribe>
-  fn punsubscribe<S>(&self, patterns: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn punsubscribe<S>(&self, patterns: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -69,12 +69,12 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Publish a message on the PubSub interface, returning the number of clients that received the message.
   ///
   /// <https://redis.io/commands/publish>
-  fn publish<R, S, V>(&self, channel: S, message: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn publish<R, S, V>(&self, channel: S, message: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(channel);
@@ -86,7 +86,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Subscribes the client to the specified shard channels.
   ///
   /// <https://redis.io/commands/ssubscribe/>
-  fn ssubscribe<C>(&self, channels: C) -> impl Future<Output = RedisResult<()>> + Send
+  fn ssubscribe<C>(&self, channels: C) -> impl Future<Output = FredResult<()>> + Send
   where
     C: Into<MultipleStrings> + Send,
   {
@@ -101,7 +101,7 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// If no channels are provided this command returns an empty array.
   ///
   /// <https://redis.io/commands/sunsubscribe/>
-  fn sunsubscribe<C>(&self, channels: C) -> impl Future<Output = RedisResult<()>> + Send
+  fn sunsubscribe<C>(&self, channels: C) -> impl Future<Output = FredResult<()>> + Send
   where
     C: Into<MultipleStrings> + Send,
   {
@@ -114,12 +114,12 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Posts a message to the given shard channel.
   ///
   /// <https://redis.io/commands/spublish/>
-  fn spublish<R, S, V>(&self, channel: S, message: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn spublish<R, S, V>(&self, channel: S, message: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(channel);
@@ -131,9 +131,9 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Lists the currently active channels.
   ///
   /// <https://redis.io/commands/pubsub-channels/>
-  fn pubsub_channels<R, S>(&self, pattern: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn pubsub_channels<R, S>(&self, pattern: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -145,9 +145,9 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Returns the number of unique patterns that are subscribed to by clients.
   ///
   /// <https://redis.io/commands/pubsub-numpat/>
-  fn pubsub_numpat<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn pubsub_numpat<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::pubsub::pubsub_numpat(self).await?.convert() }
   }
@@ -155,9 +155,9 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Returns the number of subscribers (exclusive of clients subscribed to patterns) for the specified channels.
   ///
   /// <https://redis.io/commands/pubsub-numsub/>
-  fn pubsub_numsub<R, S>(&self, channels: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn pubsub_numsub<R, S>(&self, channels: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<MultipleStrings> + Send,
   {
     async move {
@@ -169,9 +169,9 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Lists the currently active shard channels.
   ///
   /// <https://redis.io/commands/pubsub-shardchannels/>
-  fn pubsub_shardchannels<R, S>(&self, pattern: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn pubsub_shardchannels<R, S>(&self, pattern: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -183,9 +183,9 @@ pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Returns the number of subscribers for the specified shard channels.
   ///
   /// <https://redis.io/commands/pubsub-shardnumsub/>
-  fn pubsub_shardnumsub<R, S>(&self, channels: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn pubsub_shardnumsub<R, S>(&self, channels: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<MultipleStrings> + Send,
   {
     async move {

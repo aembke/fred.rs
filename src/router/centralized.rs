@@ -1,16 +1,16 @@
 use crate::{
-  error::RedisErrorKind,
-  modules::inner::RedisClientInner,
-  prelude::RedisError,
+  error::ErrorKind,
+  modules::inner::ClientInner,
+  prelude::Error,
   protocol::{
-    command::RedisCommand,
+    command::Command,
     connection,
-    connection::RedisConnection,
+    connection::Connection,
     responders::{self, ResponseKind},
   },
   router::Connections,
   runtime::RefCount,
-  types::ServerConfig,
+  types::config::ServerConfig,
 };
 use redis_protocol::resp3::types::{BytesFrame as Resp3Frame, Resp3Frame as _Resp3Frame};
 use std::collections::VecDeque;
@@ -20,10 +20,10 @@ use std::collections::VecDeque;
 /// Errors returned here will be logged, but will not close the socket or initiate a reconnect.
 #[inline(always)]
 pub fn process_response_frame(
-  inner: &RefCount<RedisClientInner>,
-  conn: &mut RedisConnection,
+  inner: &RefCount<ClientInner>,
+  conn: &mut Connection,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   _trace!(inner, "Parsing response frame from {}", conn.server);
   let mut command = match conn.buffer.pop_front() {
     Some(command) => command,
@@ -84,10 +84,10 @@ pub fn process_response_frame(
 /// Initialize fresh connections to the server, dropping any old connections and saving in-flight commands on
 /// `buffer`.
 pub async fn initialize_connection(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   connections: &mut Connections,
-  buffer: &mut VecDeque<RedisCommand>,
-) -> Result<(), RedisError> {
+  buffer: &mut VecDeque<Command>,
+) -> Result<(), Error> {
   _debug!(inner, "Initializing centralized connection.");
   buffer.extend(connections.disconnect_all(inner).await);
 
@@ -97,7 +97,7 @@ pub async fn initialize_connection(
         ServerConfig::Centralized { ref server } => server.clone(),
         #[cfg(feature = "unix-sockets")]
         ServerConfig::Unix { ref path } => path.as_path().into(),
-        _ => return Err(RedisError::new(RedisErrorKind::Config, "Expected centralized config.")),
+        _ => return Err(Error::new(ErrorKind::Config, "Expected centralized config.")),
       };
       let mut transport = connection::create(inner, &server, None).await?;
       transport.setup(inner, None).await?;
@@ -107,9 +107,6 @@ pub async fn initialize_connection(
       *writer = Some(connection);
       Ok(())
     },
-    _ => Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected centralized connection.",
-    )),
+    _ => Err(Error::new(ErrorKind::Config, "Expected centralized connection.")),
   }
 }

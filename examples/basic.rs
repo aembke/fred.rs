@@ -4,9 +4,9 @@
 use fred::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   // create a config from a URL
-  let config = RedisConfig::from_url("redis://username:password@foo.com:6379/1")?;
+  let config = Config::from_url("redis://username:password@foo.com:6379/1")?;
   // see the `Builder` interface for more information
   let client = Builder::from_config(config).build()?;
   // callers can manage the tokio task driving the connections

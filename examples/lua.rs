@@ -9,8 +9,8 @@ use fred::{
 static SCRIPT: &str = "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}";
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+async fn main() -> Result<(), Error> {
+  let client = Client::default();
   client.init().await?;
 
   let hash = fred_utils::sha1_hash(SCRIPT);
@@ -18,11 +18,11 @@ async fn main() -> Result<(), RedisError> {
     let _: () = client.script_load(SCRIPT).await?;
   }
 
-  let results: RedisValue = client.evalsha(&hash, vec!["foo", "bar"], vec![1, 2]).await?;
+  let results: Value = client.evalsha(&hash, vec!["foo", "bar"], vec![1, 2]).await?;
   println!("Script result for {hash}: {results:?}");
 
   // or use `EVAL`
-  let results: RedisValue = client.eval(SCRIPT, vec!["foo", "bar"], vec![1, 2]).await?;
+  let results: Value = client.eval(SCRIPT, vec!["foo", "bar"], vec![1, 2]).await?;
   println!("Script result: {results:?}");
 
   client.quit().await?;
@@ -31,13 +31,13 @@ async fn main() -> Result<(), RedisError> {
 
 // or use the `Script` utility types
 #[allow(dead_code)]
-async fn scripts() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+async fn scripts() -> Result<(), Error> {
+  let client = Client::default();
   client.init().await?;
 
   let script = Script::from_lua(SCRIPT);
   script.load(&client).await?;
-  let _result: Vec<RedisValue> = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
+  let _result: Vec<Value> = script.evalsha(&client, vec!["foo", "bar"], vec![1, 2]).await?;
   // retry after calling SCRIPT LOAD, if needed
   let (key1, key2, arg1, arg2): (String, String, i64, i64) = script
     .evalsha_with_reload(&client, vec!["foo", "bar"], vec![1, 2])
@@ -49,8 +49,8 @@ async fn scripts() -> Result<(), RedisError> {
 
 // use the `Function` and `Library` utility types
 #[allow(dead_code)]
-async fn functions() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+async fn functions() -> Result<(), Error> {
+  let client = Client::default();
   client.init().await?;
 
   let echo_lua = include_str!("../tests/scripts/lua/echo.lua");

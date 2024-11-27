@@ -13,9 +13,9 @@
 //! The base `Mocks` trait is directly exposed so callers can implement their own mocking layer as well.
 
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   runtime::Mutex,
-  types::{RedisKey, RedisValue},
+  types::{Key, Value},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -38,14 +38,14 @@ pub struct MockCommand {
   /// * `INCRBY` - `None`
   pub subcommand: Option<Str>,
   /// The ordered list of arguments to the command.
-  pub args:       Vec<RedisValue>,
+  pub args:       Vec<Value>,
 }
 
 /// An interface for intercepting and processing Redis commands in a mocking layer.
 #[allow(unused_variables)]
 #[rm_send_if(feature = "glommio")]
 pub trait Mocks: Debug + Send + Sync + 'static {
-  /// Intercept and process a Redis command, returning any `RedisValue`.
+  /// Intercept and process a Redis command, returning any `Value`.
   ///
   /// # Important
   ///
@@ -53,20 +53,20 @@ pub trait Mocks: Debug + Send + Sync + 'static {
   /// The parsing logic following each command on the public interface will still be applied. __Most__ commands
   /// perform minimal parsing on the response, but some may require specific response formats to function correctly.
   ///
-  /// `RedisValue::Queued` can be used to return a value that will work almost anywhere.
-  fn process_command(&self, command: MockCommand) -> Result<RedisValue, RedisError>;
+  /// `Value::Queued` can be used to return a value that will work almost anywhere.
+  fn process_command(&self, command: MockCommand) -> Result<Value, Error>;
 
-  /// Intercept and process an entire transaction. The provided commands will **not** include `MULTI` or `EXEC`.
+  /// Intercept and process an entire transaction. The provided commands will **not** include `EXEC`.
   ///
   /// Note: The default implementation redirects each command to the [process_command](Self::process_command)
   /// function. The results of each call are buffered and returned as an array.
-  fn process_transaction(&self, commands: Vec<MockCommand>) -> Result<RedisValue, RedisError> {
+  fn process_transaction(&self, commands: Vec<MockCommand>) -> Result<Value, Error> {
     let mut out = Vec::with_capacity(commands.len());
 
     for command in commands.into_iter() {
       out.push(self.process_command(command)?);
     }
-    Ok(RedisValue::Array(out))
+    Ok(Value::Array(out))
   }
 }
 
@@ -76,14 +76,14 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 /// # use fred::prelude::*;
 /// #[tokio::test]
 /// async fn should_use_echo_mock() {
-///   let config = RedisConfig {
+///   let config = Config {
 ///     mocks: Some(Arc::new(Echo)),
 ///     ..Default::default()
 ///   };
 ///   let client = Builder::from_config(config).build().unwrap();
 ///   client.init().await.expect("Failed to connect");
 ///
-///   let actual: Vec<RedisValue> = client
+///   let actual: Vec<Value> = client
 ///     .set(
 ///       "foo",
 ///       "bar",
@@ -94,7 +94,7 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 ///     .await
 ///     .expect("Failed to call SET");
 ///
-///   let expected: Vec<RedisValue> = vec![
+///   let expected: Vec<Value> = vec![
 ///     "foo".into(),
 ///     "bar".into(),
 ///     "EX".into(),
@@ -108,8 +108,8 @@ pub trait Mocks: Debug + Send + Sync + 'static {
 pub struct Echo;
 
 impl Mocks for Echo {
-  fn process_command(&self, command: MockCommand) -> Result<RedisValue, RedisError> {
-    Ok(RedisValue::Array(command.args))
+  fn process_command(&self, command: MockCommand) -> Result<Value, Error> {
+    Ok(Value::Array(command.args))
   }
 }
 
@@ -121,7 +121,7 @@ impl Mocks for Echo {
 /// ```rust no_run
 /// #[tokio::test]
 /// async fn should_use_echo_mock() {
-///   let config = RedisConfig {
+///   let config = Config {
 ///     mocks: Some(Arc::new(SimpleMap::new())),
 ///     ..Default::default()
 ///   };
@@ -140,7 +140,7 @@ impl Mocks for Echo {
 /// ```
 #[derive(Debug)]
 pub struct SimpleMap {
-  values: Mutex<HashMap<RedisKey, RedisValue>>,
+  values: Mutex<HashMap<Key, Value>>,
 }
 
 impl SimpleMap {
@@ -157,48 +157,48 @@ impl SimpleMap {
   }
 
   /// Take the inner map.
-  pub fn take(&self) -> HashMap<RedisKey, RedisValue> {
+  pub fn take(&self) -> HashMap<Key, Value> {
     self.values.lock().drain().collect()
   }
 
   /// Read a copy of the inner map.
-  pub fn inner(&self) -> HashMap<RedisKey, RedisValue> {
+  pub fn inner(&self) -> HashMap<Key, Value> {
     self.values.lock().iter().map(|(k, v)| (k.clone(), v.clone())).collect()
   }
 
   /// Perform a `GET` operation.
-  pub fn get(&self, args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
-    let key: RedisKey = match args.first() {
+  pub fn get(&self, args: Vec<Value>) -> Result<Value, Error> {
+    let key: Key = match args.first() {
       Some(key) => key.clone().try_into()?,
-      None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Missing key.")),
+      None => return Err(Error::new(ErrorKind::InvalidArgument, "Missing key.")),
     };
 
-    Ok(self.values.lock().get(&key).cloned().unwrap_or(RedisValue::Null))
+    Ok(self.values.lock().get(&key).cloned().unwrap_or(Value::Null))
   }
 
   /// Perform a `SET` operation.
-  pub fn set(&self, mut args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
+  pub fn set(&self, mut args: Vec<Value>) -> Result<Value, Error> {
     args.reverse();
-    let key: RedisKey = match args.pop() {
+    let key: Key = match args.pop() {
       Some(key) => key.try_into()?,
-      None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Missing key.")),
+      None => return Err(Error::new(ErrorKind::InvalidArgument, "Missing key.")),
     };
     let value = match args.pop() {
       Some(value) => value,
-      None => return Err(RedisError::new(RedisErrorKind::InvalidArgument, "Missing value.")),
+      None => return Err(Error::new(ErrorKind::InvalidArgument, "Missing value.")),
     };
 
     let _ = self.values.lock().insert(key, value);
-    Ok(RedisValue::new_ok())
+    Ok(Value::new_ok())
   }
 
   /// Perform a `DEL` operation.
-  pub fn del(&self, args: Vec<RedisValue>) -> Result<RedisValue, RedisError> {
+  pub fn del(&self, args: Vec<Value>) -> Result<Value, Error> {
     let mut guard = self.values.lock();
     let mut count = 0;
 
     for arg in args.into_iter() {
-      let key: RedisKey = arg.try_into()?;
+      let key: Key = arg.try_into()?;
       if guard.remove(&key).is_some() {
         count += 1;
       }
@@ -209,12 +209,12 @@ impl SimpleMap {
 }
 
 impl Mocks for SimpleMap {
-  fn process_command(&self, command: MockCommand) -> Result<RedisValue, RedisError> {
+  fn process_command(&self, command: MockCommand) -> Result<Value, Error> {
     match &*command.cmd {
       "GET" => self.get(command.args),
       "SET" => self.set(command.args),
       "DEL" => self.del(command.args),
-      _ => Err(RedisError::new(RedisErrorKind::Unknown, "Unimplemented.")),
+      _ => Err(Error::new(ErrorKind::Unknown, "Unimplemented.")),
     }
   }
 }
@@ -225,7 +225,7 @@ impl Mocks for SimpleMap {
 /// #[tokio::test]
 /// async fn should_use_buffer_mock() {
 ///   let buffer = Arc::new(Buffer::new());
-///   let config = RedisConfig {
+///   let config = Config {
 ///     mocks: Some(buffer.clone()),
 ///     ..Default::default()
 ///   };
@@ -241,7 +241,7 @@ impl Mocks for SimpleMap {
 ///   let actual: String = client.get("foo").await.expect("Failed to call GET");
 ///   assert_eq!(actual, "QUEUED");
 ///
-///   // note: values that act as keys use the `RedisValue::Bytes` variant internally
+///   // note: values that act as keys use the `Value::Bytes` variant internally
 ///   let expected = vec![
 ///     MockCommand {
 ///       cmd:        "SET".into(),
@@ -312,9 +312,9 @@ impl Buffer {
 }
 
 impl Mocks for Buffer {
-  fn process_command(&self, command: MockCommand) -> Result<RedisValue, RedisError> {
+  fn process_command(&self, command: MockCommand) -> Result<Value, Error> {
     self.push_back(command);
-    Ok(RedisValue::Queued)
+    Ok(Value::Queued)
   }
 }
 
@@ -323,22 +323,22 @@ impl Mocks for Buffer {
 mod tests {
   use super::*;
   use crate::{
-    clients::RedisClient,
-    error::RedisError,
+    clients::Client,
+    error::Error,
     interfaces::{ClientLike, KeysInterface},
     mocks::{Buffer, Echo, Mocks, SimpleMap},
     prelude::Expiration,
     runtime::JoinHandle,
-    types::{RedisConfig, RedisValue, SetOptions},
+    types::{config::Config, SetOptions, Value},
   };
   use std::sync::Arc;
 
-  async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (RedisClient, JoinHandle<Result<(), RedisError>>) {
-    let config = RedisConfig {
+  async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (Client, JoinHandle<Result<(), Error>>) {
+    let config = Config {
       mocks: Some(mocks),
       ..Default::default()
     };
-    let client = RedisClient::new(config, None, None, None);
+    let client = Client::new(config, None, None, None);
     let jh = client.connect();
     client.wait_for_connect().await.expect("Failed to connect");
 
@@ -354,12 +354,12 @@ mod tests {
   async fn should_use_echo_mock() {
     let (client, _) = create_mock_client(Arc::new(Echo)).await;
 
-    let actual: Vec<RedisValue> = client
+    let actual: Vec<Value> = client
       .set("foo", "bar", Some(Expiration::EX(100)), Some(SetOptions::NX), false)
       .await
       .expect("Failed to call SET");
 
-    let expected: Vec<RedisValue> = vec!["foo".into(), "bar".into(), "EX".into(), 100.into(), "NX".into()];
+    let expected: Vec<Value> = vec!["foo".into(), "bar".into(), "EX".into(), 100.into(), "NX".into()];
     assert_eq!(actual, expected);
   }
 

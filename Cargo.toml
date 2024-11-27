@@ -172,7 +172,7 @@ arc-swap = "1.7"
 async-trait = { version = "0.1" }
 bytes = "1.6"
 bytes-utils = "0.1.3"
-float-cmp = "0.9"
+float-cmp = "0.10"
 futures = { version = "0.3", features = ["std"] }
 log = "0.4"
 native-tls = { version = "0.2", optional = true }
@@ -181,7 +181,7 @@ parking_lot = "0.12"
 rand = "0.8"
 redis-protocol = { version = "6.0.0", features = ["resp2", "resp3", "bytes"] }
 rustls = { version = "0.23", optional = true, default-features = false }
-rustls-native-certs = { version = "0.7", optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
 semver = "1.0"
 serde_json = { version = "1", optional = true }
 sha-1 = { version = "0.10", optional = true }
@@ -221,11 +221,9 @@ local-sync = { version = "0.1.1", optional = true }
 
 [dev-dependencies]
 axum = { version = "0.7", features = ["macros"] }
-base64 = "0.22.0"
 maplit = "1.0"
 pretty_env_logger = "0.5"
 serde = { version = "1.0", features = ["derive"] }
-subprocess = "0.2"
 tokio-stream = { version = "0.1", features = ["sync"] }
 
 [[example]]

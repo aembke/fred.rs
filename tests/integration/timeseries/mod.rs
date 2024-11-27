@@ -1,25 +1,21 @@
 use bytes_utils::Str;
 use fred::{
-  clients::RedisClient,
-  error::RedisError,
+  clients::Client,
+  error::Error,
   interfaces::*,
-  prelude::RedisResult,
+  prelude::FredResult,
   types::{
-    Aggregator,
-    GetLabels,
-    RedisConfig,
-    RedisKey,
-    RedisValue,
-    Resp2TimeSeriesValues,
-    Resp3TimeSeriesValues,
-    Timestamp,
+    config::Config,
+    timeseries::{Aggregator, GetLabels, Resp2TimeSeriesValues, Resp3TimeSeriesValues, Timestamp},
+    Key,
+    Value,
   },
 };
 use redis_protocol::resp3::types::RespVersion;
 use std::{collections::HashMap, time::Duration};
 use tokio::time::sleep;
 
-pub async fn should_ts_add_get_and_range(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_ts_add_get_and_range(client: Client, _: Config) -> Result<(), Error> {
   let first_timestamp: i64 = client.ts_add("foo", "*", 41.0, None, None, None, None, ()).await?;
   assert!(first_timestamp > 0);
   sleep(Duration::from_millis(5)).await;
@@ -36,14 +32,14 @@ pub async fn should_ts_add_get_and_range(client: RedisClient, _: RedisConfig) ->
   Ok(())
 }
 
-pub async fn should_create_alter_and_del_timeseries(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_create_alter_and_del_timeseries(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
   let _: () = client.ts_alter("foo{1}", None, None, None, ("b", "c")).await?;
 
   Ok(())
 }
 
-pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_madd_and_mget(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
   let _: () = client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
 
@@ -95,7 +91,7 @@ pub async fn should_madd_and_mget(client: RedisClient, _: RedisConfig) -> Result
   Ok(())
 }
 
-pub async fn should_incr_and_decr(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_incr_and_decr(client: Client, _: Config) -> Result<(), Error> {
   // taken from the docs
   let timestamp: i64 = client
     .ts_incrby(
@@ -137,7 +133,7 @@ pub async fn should_incr_and_decr(client: RedisClient, _: RedisConfig) -> Result
   Ok(())
 }
 
-pub async fn should_create_and_delete_rules(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_create_and_delete_rules(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client
     .ts_create("temp:TLV", None, None, None, None, [
       ("type", "temp"),
@@ -158,7 +154,7 @@ pub async fn should_create_and_delete_rules(client: RedisClient, _: RedisConfig)
   Ok(())
 }
 
-pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_madd_and_mrange(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
   let _: () = client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
 
@@ -255,7 +251,7 @@ pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Resu
     //
     // TODO add another TimeSeriesValues type alias for this?
 
-    let samples: HashMap<String, (Vec<(String, String)>, Vec<RedisValue>, Vec<(i64, f64)>)> = client
+    let samples: HashMap<String, (Vec<(String, String)>, Vec<Value>, Vec<(i64, f64)>)> = client
       .ts_mrange(
         "-",
         "+",
@@ -275,7 +271,7 @@ pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Resu
       "foo{1}".to_string(),
       (
         vec![("a".to_string(), "b".to_string())],
-        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec!["aggregators".as_bytes().into(), Value::Array(vec![])],
         vec![(1, 1.1), (2, 2.2), (3, 3.3)],
       ),
     );
@@ -283,7 +279,7 @@ pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Resu
       "bar{1}".to_string(),
       (
         vec![("a".to_string(), "b".to_string())],
-        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec!["aggregators".as_bytes().into(), Value::Array(vec![])],
         vec![(1, 1.2), (2, 2.3)],
       ),
     );
@@ -293,7 +289,7 @@ pub async fn should_madd_and_mrange(client: RedisClient, _: RedisConfig) -> Resu
   Ok(())
 }
 
-pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_madd_and_mrevrange(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.ts_create("foo{1}", None, None, None, None, ("a", "b")).await?;
   let _: () = client.ts_create("bar{1}", None, None, None, None, ("a", "b")).await?;
 
@@ -340,7 +336,7 @@ pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> R
   } else {
     // see the mrange test above for more info on this section
 
-    let samples: HashMap<String, (Vec<(String, String)>, Vec<RedisValue>, Vec<(i64, f64)>)> = client
+    let samples: HashMap<String, (Vec<(String, String)>, Vec<Value>, Vec<(i64, f64)>)> = client
       .ts_mrevrange(
         "-",
         "+",
@@ -360,7 +356,7 @@ pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> R
       "foo{1}".to_string(),
       (
         vec![("a".to_string(), "b".to_string())],
-        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec!["aggregators".as_bytes().into(), Value::Array(vec![])],
         vec![(3, 3.3), (2, 2.2), (1, 1.1)],
       ),
     );
@@ -368,7 +364,7 @@ pub async fn should_madd_and_mrevrange(client: RedisClient, _: RedisConfig) -> R
       "bar{1}".to_string(),
       (
         vec![("a".to_string(), "b".to_string())],
-        vec!["aggregators".as_bytes().into(), RedisValue::Array(vec![])],
+        vec!["aggregators".as_bytes().into(), Value::Array(vec![])],
         vec![(2, 2.3), (1, 1.2)],
       ),
     );

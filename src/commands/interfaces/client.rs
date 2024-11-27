@@ -1,18 +1,15 @@
 #[cfg(feature = "i-tracking")]
-use crate::types::{MultipleStrings, Toggle};
+use crate::types::{client::Toggle, MultipleStrings};
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
   types::{
-    ClientKillFilter,
-    ClientKillType,
-    ClientPauseKind,
-    ClientReplyFlag,
+    client::{ClientKillFilter, ClientKillType, ClientPauseKind, ClientReplyFlag},
+    config::Server,
     ClientUnblockFlag,
-    FromRedis,
-    RedisValue,
-    Server,
+    FromValue,
+    Value,
   },
 };
 use bytes_utils::Str;
@@ -29,9 +26,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// [connection_ids](Self::connection_ids) for  more information.
   ///
   /// <https://redis.io/commands/client-id>
-  fn client_id<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_id<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::client::client_id(self).await?.convert() }
   }
@@ -50,9 +47,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// format.
   ///
   /// <https://redis.io/commands/client-info>
-  fn client_info<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_info<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::client::client_info(self).await?.convert() }
   }
@@ -60,9 +57,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// Close a given connection or set of connections.
   ///
   /// <https://redis.io/commands/client-kill>
-  fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_kill<R>(&self, filters: Vec<ClientKillFilter>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::client::client_kill(self, filters).await?.convert() }
   }
@@ -75,9 +72,9 @@ pub trait ClientInterface: ClientLike + Sized {
     &self,
     r#type: Option<ClientKillType>,
     ids: Option<Vec<String>>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::client::client_list(self, r#type, ids).await?.convert() }
   }
@@ -85,9 +82,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// The CLIENT GETNAME returns the name of the current connection as set by CLIENT SETNAME.
   ///
   /// <https://redis.io/commands/client-getname>
-  fn client_getname<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_getname<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::client::client_getname(self).await?.convert() }
   }
@@ -98,7 +95,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// connections. Use `self.id() to read the automatically generated name.**
   ///
   /// <https://redis.io/commands/client-setname>
-  fn client_setname<S>(&self, name: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn client_setname<S>(&self, name: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<Str> + Send,
   {
@@ -112,18 +109,14 @@ pub trait ClientInterface: ClientLike + Sized {
   /// time (in milliseconds).
   ///
   /// <https://redis.io/commands/client-pause>
-  fn client_pause(
-    &self,
-    timeout: i64,
-    mode: Option<ClientPauseKind>,
-  ) -> impl Future<Output = RedisResult<()>> + Send {
+  fn client_pause(&self, timeout: i64, mode: Option<ClientPauseKind>) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::client::client_pause(self, timeout, mode).await }
   }
 
   /// CLIENT UNPAUSE is used to resume command processing for all clients that were paused by CLIENT PAUSE.
   ///
   /// <https://redis.io/commands/client-unpause>
-  fn client_unpause(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn client_unpause(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::client::client_unpause(self).await }
   }
 
@@ -131,7 +124,7 @@ pub trait ClientInterface: ClientLike + Sized {
   /// available:
   ///
   /// <https://redis.io/commands/client-reply>
-  fn client_reply(&self, flag: ClientReplyFlag) -> impl Future<Output = RedisResult<()>> + Send {
+  fn client_reply(&self, flag: ClientReplyFlag) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::client::client_reply(self, flag).await }
   }
 
@@ -141,14 +134,10 @@ pub trait ClientInterface: ClientLike + Sized {
   /// Note: this command is sent on a backchannel connection and will work even when the main connection is blocked.
   ///
   /// <https://redis.io/commands/client-unblock>
-  fn client_unblock<R, S>(
-    &self,
-    id: S,
-    flag: Option<ClientUnblockFlag>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_unblock<R, S>(&self, id: S, flag: Option<ClientUnblockFlag>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisValue> + Send,
+    R: FromValue,
+    S: Into<Value> + Send,
   {
     async move {
       into!(id);
@@ -157,18 +146,18 @@ pub trait ClientInterface: ClientLike + Sized {
   }
 
   /// A convenience function to unblock any blocked connection on this client.
-  fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> impl Future<Output = RedisResult<()>> + Send {
+  fn unblock_self(&self, flag: Option<ClientUnblockFlag>) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::client::unblock_self(self, flag).await }
   }
 
   /// Returns message.
   ///
   /// <https://redis.io/docs/latest/commands/echo>
-  fn echo<R, M>(&self, message: M) -> impl Future<Output = RedisResult<R>> + Send
+  fn echo<R, M>(&self, message: M) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    M: TryInto<RedisValue> + Send,
-    M::Error: Into<RedisError> + Send,
+    R: FromValue,
+    M: TryInto<Value> + Send,
+    M::Error: Into<Error> + Send,
   {
     async move {
       try_into!(message);
@@ -196,11 +185,11 @@ pub trait ClientInterface: ClientLike + Sized {
     optin: bool,
     optout: bool,
     noloop: bool,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     T: TryInto<Toggle> + Send,
-    T::Error: Into<RedisError> + Send,
+    T::Error: Into<Error> + Send,
     P: Into<MultipleStrings> + Send,
   {
     async move {
@@ -218,9 +207,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-trackinginfo/>
   #[cfg(feature = "i-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
-  fn client_trackinginfo<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_trackinginfo<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::tracking::client_trackinginfo(self).await?.convert() }
   }
@@ -230,9 +219,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// <https://redis.io/commands/client-getredir/>
   #[cfg(feature = "i-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
-  fn client_getredir<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_getredir<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::tracking::client_getredir(self).await?.convert() }
   }
@@ -247,9 +236,9 @@ pub trait ClientInterface: ClientLike + Sized {
   /// types.
   #[cfg(feature = "i-tracking")]
   #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
-  fn client_caching<R>(&self, enabled: bool) -> impl Future<Output = RedisResult<R>> + Send
+  fn client_caching<R>(&self, enabled: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::tracking::client_caching(self, enabled).await?.convert() }
   }

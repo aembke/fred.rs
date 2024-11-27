@@ -1,38 +1,38 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
   protocol::{
-    command::{RedisCommand, RedisCommandKind, ResponseSender},
+    command::{Command, CommandKind, ResponseSender},
     connection,
-    connection::RedisConnection,
+    connection::Connection,
     responders,
     utils as protocol_utils,
   },
   router::{utils, Router},
   runtime::RefCount,
-  types::{ClusterHash, Resp3Frame, Server},
+  types::{config::Server, ClusterHash, Resp3Frame},
 };
 
 /// Send DISCARD to the provided server.
-async fn discard(inner: &RefCount<RedisClientInner>, conn: &mut RedisConnection) -> Result<(), RedisError> {
-  let command = RedisCommand::new(RedisCommandKind::Discard, vec![]);
+async fn discard(inner: &RefCount<ClientInner>, conn: &mut Connection) -> Result<(), Error> {
+  let command = Command::new(CommandKind::Discard, vec![]);
   let frame = connection::request_response(inner, conn, command, Some(inner.internal_command_timeout())).await?;
   let result = protocol_utils::frame_to_results(frame)?;
 
   if result.is_ok() {
     Ok(())
   } else {
-    Err(RedisError::new(RedisErrorKind::Unknown, "Unexpected DISCARD response."))
+    Err(Error::new(ErrorKind::Unknown, "Unexpected DISCARD response."))
   }
 }
 
 /// Send EXEC to the provided server.
 async fn exec(
-  inner: &RefCount<RedisClientInner>,
-  conn: &mut RedisConnection,
+  inner: &RefCount<ClientInner>,
+  conn: &mut Connection,
   expected: usize,
-) -> Result<Vec<Resp3Frame>, RedisError> {
-  let mut command = RedisCommand::new(RedisCommandKind::Exec, vec![]);
+) -> Result<Vec<Resp3Frame>, Error> {
+  let mut command = Command::new(CommandKind::Exec, vec![]);
   let (frame, _) = utils::prepare_command(inner, &conn.counters, &mut command)?;
   conn.write(frame, true, false).await?;
   conn.flush().await?;
@@ -41,12 +41,7 @@ async fn exec(
   for _ in 0 .. (expected + 1) {
     let frame = match conn.read_skip_pubsub(inner).await? {
       Some(frame) => frame,
-      None => {
-        return Err(RedisError::new(
-          RedisErrorKind::Protocol,
-          "Unexpected empty frame received.",
-        ))
-      },
+      None => return Err(Error::new(ErrorKind::Protocol, "Unexpected empty frame received.")),
     };
 
     responses.push(frame);
@@ -55,31 +50,27 @@ async fn exec(
   Ok(responses)
 }
 
-fn update_hash_slot(commands: &mut [RedisCommand], slot: u16) {
+fn update_hash_slot(commands: &mut [Command], slot: u16) {
   for command in commands.iter_mut() {
     command.hasher = ClusterHash::Custom(slot);
   }
 }
 
-fn max_attempts_error(tx: ResponseSender, error: Option<RedisError>) {
-  let _ =
-    tx.send(Err(error.unwrap_or_else(|| {
-      RedisError::new(RedisErrorKind::Unknown, "Max attempts exceeded")
-    })));
+fn max_attempts_error(tx: ResponseSender, error: Option<Error>) {
+  let _ = tx.send(Err(
+    error.unwrap_or_else(|| Error::new(ErrorKind::Unknown, "Max attempts exceeded")),
+  ));
 }
 
 fn max_redirections_error(tx: ResponseSender) {
-  let _ = tx.send(Err(RedisError::new(
-    RedisErrorKind::Unknown,
-    "Max redirections exceeded",
-  )));
+  let _ = tx.send(Err(Error::new(ErrorKind::Unknown, "Max redirections exceeded")));
 }
 
-fn is_execabort(error: &RedisError) -> bool {
+fn is_execabort(error: &Error) -> bool {
   error.details().starts_with("EXECABORT")
 }
 
-fn process_responses(responses: Vec<Resp3Frame>, abort_on_error: bool) -> Result<Resp3Frame, RedisError> {
+fn process_responses(responses: Vec<Resp3Frame>, abort_on_error: bool) -> Result<Resp3Frame, Error> {
   // check for errors in intermediate frames then return the last frame
   let num_responses = responses.len();
   for (idx, frame) in responses.into_iter().enumerate() {
@@ -102,26 +93,20 @@ fn process_responses(responses: Vec<Resp3Frame>, abort_on_error: bool) -> Result
     }
   }
 
-  Err(RedisError::new(
-    RedisErrorKind::Protocol,
-    "Missing transaction response.",
-  ))
+  Err(Error::new(ErrorKind::Protocol, "Missing transaction response."))
 }
 
 /// Send the transaction to the server.
 pub async fn send(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   router: &mut Router,
-  mut commands: Vec<RedisCommand>,
+  mut commands: Vec<Command>,
   id: u64,
   abort_on_error: bool,
   tx: ResponseSender,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   if commands.is_empty() {
-    let _ = tx.send(Err(RedisError::new(
-      RedisErrorKind::InvalidCommand,
-      "Empty transaction.",
-    )));
+    let _ = tx.send(Err(Error::new(ErrorKind::InvalidCommand, "Empty transaction.")));
     return Ok(());
   }
 
@@ -176,7 +161,7 @@ pub async fn send(
     };
     // sending ASKING first if needed
     if let Some((_, slot)) = asking.as_ref() {
-      let mut command = RedisCommand::new_asking(*slot);
+      let mut command = Command::new_asking(*slot);
       let (frame, _) = match utils::prepare_command(inner, &conn.counters, &mut command) {
         Ok(frame) => frame,
         Err(err) => {
@@ -219,10 +204,7 @@ pub async fn send(
               Ok((_, slot, _)) => slot,
               Err(_) => {
                 let _ = discard(inner, conn).await;
-                let _ = tx.send(Err(RedisError::new(
-                  RedisErrorKind::Protocol,
-                  "Invalid cluster redirection.",
-                )));
+                let _ = tx.send(Err(Error::new(ErrorKind::Protocol, "Invalid cluster redirection.")));
                 return Ok(());
               },
             };
@@ -242,19 +224,13 @@ pub async fn send(
                 Some(server) => (slot, server),
                 None => {
                   let _ = discard(inner, conn).await;
-                  let _ = tx.send(Err(RedisError::new(
-                    RedisErrorKind::Protocol,
-                    "Invalid ASK cluster redirection.",
-                  )));
+                  let _ = tx.send(Err(Error::new(ErrorKind::Protocol, "Invalid ASK cluster redirection.")));
                   return Ok(());
                 },
               },
               Err(_) => {
                 let _ = discard(inner, conn).await;
-                let _ = tx.send(Err(RedisError::new(
-                  RedisErrorKind::Protocol,
-                  "Invalid cluster redirection.",
-                )));
+                let _ = tx.send(Err(Error::new(ErrorKind::Protocol, "Invalid cluster redirection.")));
                 return Ok(());
               },
             };

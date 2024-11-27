@@ -10,11 +10,11 @@ pub mod types;
 pub mod utils;
 
 use crate::{
-  error::RedisError,
-  modules::inner::RedisClientInner,
+  error::Error,
+  modules::inner::ClientInner,
   protocol::{
-    command::RedisCommand,
-    connection::{Counters, RedisConnection},
+    command::Command,
+    connection::{Connection, Counters},
     types::Server,
   },
   router::{
@@ -58,7 +58,7 @@ pub struct Router {
   /// The connection map for each deployment type.
   pub connections:          Connections,
   /// Storage for commands that should be deferred or retried later.
-  pub retry_buffer:         VecDeque<RedisCommand>,
+  pub retry_buffer:         VecDeque<Command>,
   /// A set to dedup pending reconnection commands.
   pub pending_reconnection: HashSet<ReconnectServer>,
   /// The replica routing interface.
@@ -68,7 +68,7 @@ pub struct Router {
 
 impl Router {
   /// Create a new `Router` without connecting to the server(s).
-  pub fn new(inner: &RefCount<RedisClientInner>) -> Self {
+  pub fn new(inner: &RefCount<ClientInner>) -> Self {
     let connections = if inner.config.server.is_clustered() {
       Connections::new_clustered()
     } else if inner.config.server.is_sentinel() {
@@ -88,7 +88,7 @@ impl Router {
 
   /// Find the primary node that owns the hash slot used by the command.
   #[cfg(feature = "replicas")]
-  pub fn cluster_owner(&self, command: &RedisCommand) -> Option<&Server> {
+  pub fn cluster_owner(&self, command: &Command) -> Option<&Server> {
     match self.connections {
       Connections::Clustered { ref cache, .. } => command.cluster_hash().and_then(|slot| cache.get_server(slot)),
       _ => None,
@@ -118,7 +118,7 @@ impl Router {
 
   /// Find the connection that should receive the provided command.
   #[cfg(feature = "replicas")]
-  pub fn route(&mut self, command: &RedisCommand) -> Option<&mut RedisConnection> {
+  pub fn route(&mut self, command: &Command) -> Option<&mut Connection> {
     if command.is_all_cluster_nodes() {
       return None;
     }
@@ -173,7 +173,7 @@ impl Router {
 
   /// Find the connection that should receive the provided command.
   #[cfg(not(feature = "replicas"))]
-  pub fn route<'a>(&'a mut self, command: &RedisCommand) -> Option<&'a mut RedisConnection> {
+  pub fn route<'a>(&'a mut self, command: &Command) -> Option<&'a mut Connection> {
     if command.is_all_cluster_nodes() {
       return None;
     }
@@ -207,7 +207,7 @@ impl Router {
   }
 
   #[cfg(feature = "replicas")]
-  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut RedisConnection> {
+  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut Connection> {
     self
       .connections
       .get_connection_mut(server)
@@ -215,12 +215,12 @@ impl Router {
   }
 
   #[cfg(not(feature = "replicas"))]
-  pub fn get_connection_mut<'a>(&mut self, server: &Server) -> Option<&mut RedisConnection> {
+  pub fn get_connection_mut(&mut self, server: &Server) -> Option<&mut Connection> {
     self.connections.get_connection_mut(server)
   }
 
   #[cfg(feature = "replicas")]
-  pub fn take_connection(&mut self, server: &Server) -> Option<RedisConnection> {
+  pub fn take_connection(&mut self, server: &Server) -> Option<Connection> {
     self
       .connections
       .take_connection(Some(server))
@@ -228,13 +228,13 @@ impl Router {
   }
 
   #[cfg(not(feature = "replicas"))]
-  pub fn take_connection(&mut self, server: &Server) -> Option<RedisConnection> {
+  pub fn take_connection(&mut self, server: &Server) -> Option<Connection> {
     self.connections.take_connection(Some(server))
   }
 
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
   /// reconnection, if necessary.
-  pub async fn disconnect_all(&mut self, inner: &RefCount<RedisClientInner>) {
+  pub async fn disconnect_all(&mut self, inner: &RefCount<ClientInner>) {
     let commands = self.connections.disconnect_all(inner).await;
     self.retry_commands(commands);
     self.disconnect_replicas(inner).await;
@@ -243,24 +243,24 @@ impl Router {
   /// Disconnect from all the servers, moving the in-flight messages to the internal command buffer and triggering a
   /// reconnection, if necessary.
   #[cfg(feature = "replicas")]
-  pub async fn disconnect_replicas(&mut self, inner: &RefCount<RedisClientInner>) {
+  pub async fn disconnect_replicas(&mut self, inner: &RefCount<ClientInner>) {
     if let Err(e) = self.replicas.clear_connections(inner).await {
       _warn!(inner, "Error disconnecting replicas: {:?}", e);
     }
   }
 
   #[cfg(not(feature = "replicas"))]
-  pub async fn disconnect_replicas(&mut self, _: &RefCount<RedisClientInner>) {}
+  pub async fn disconnect_replicas(&mut self, _: &RefCount<ClientInner>) {}
 
   /// Add the provided commands to the retry buffer.
-  pub fn retry_commands(&mut self, commands: impl IntoIterator<Item = RedisCommand>) {
+  pub fn retry_commands(&mut self, commands: impl IntoIterator<Item = Command>) {
     for command in commands.into_iter() {
       self.retry_command(command);
     }
   }
 
   /// Add the provided command to the retry buffer.
-  pub fn retry_command(&mut self, command: RedisCommand) {
+  pub fn retry_command(&mut self, command: Command) {
     self.retry_buffer.push_back(command);
   }
 
@@ -270,7 +270,7 @@ impl Router {
   }
 
   /// Connect to the server(s), discarding any previous connection state.
-  pub async fn connect(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn connect(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     self.disconnect_all(inner).await;
     let result = self.connections.initialize(inner, &mut self.retry_buffer).await;
 
@@ -286,7 +286,7 @@ impl Router {
 
   /// Gracefully reset the replica routing table.
   #[cfg(feature = "replicas")]
-  pub async fn refresh_replica_routing(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn refresh_replica_routing(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     self.replicas.clear_routing();
     if let Err(e) = self.sync_replicas(inner).await {
       if !inner.ignore_replica_reconnect_errors() {
@@ -300,7 +300,7 @@ impl Router {
   /// Sync the cached cluster state with the server via `CLUSTER SLOTS`.
   ///
   /// This will also create new connections or drop old connections as needed.
-  pub async fn sync_cluster(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn sync_cluster(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     let result = match self.connections {
       Connections::Clustered {
         connections: ref mut writers,
@@ -326,7 +326,7 @@ impl Router {
 
   /// Rebuild the cached replica routing table based on the primary node connections.
   #[cfg(feature = "replicas")]
-  pub async fn sync_replicas(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn sync_replicas(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     _debug!(inner, "Syncing replicas...");
     self.replicas.drop_broken_connections().await;
     let old_connections = self.replicas.active_connections().await;
@@ -364,7 +364,7 @@ impl Router {
   }
 
   /// Attempt to replay all queued commands on the internal buffer without backpressure.
-  pub async fn retry_buffer(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn retry_buffer(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     #[cfg(feature = "replicas")]
     {
       let commands = self.replicas.take_retry_buffer();
@@ -403,7 +403,7 @@ impl Router {
   }
 
   /// Wait and read frames until there are no in-flight frames on primary connections.
-  pub async fn drain_all(&mut self, inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+  pub async fn drain_all(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     let inner = inner.clone();
     _trace!(inner, "Draining all connections...");
 
@@ -417,7 +417,7 @@ impl Router {
           let _ = join_all(writers.iter_mut().map(|(_, conn)| conn.drain(&inner)))
             .await
             .into_iter()
-            .collect::<Result<Vec<()>, RedisError>>()?;
+            .collect::<Result<Vec<()>, Error>>()?;
 
           Ok(())
         },
@@ -439,7 +439,7 @@ impl Router {
     primary_ft.await
   }
 
-  pub async fn flush(&mut self) -> Result<(), RedisError> {
+  pub async fn flush(&mut self) -> Result<(), Error> {
     self.connections.flush().await?;
     #[cfg(feature = "replicas")]
     self.replicas.flush().await?;
@@ -468,8 +468,8 @@ impl Router {
   #[cfg(feature = "replicas")]
   pub async fn select_read(
     &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Vec<(Server, Option<Result<Resp3Frame, RedisError>>)> {
+    inner: &RefCount<ClientInner>,
+  ) -> Vec<(Server, Option<Result<Resp3Frame, Error>>)> {
     match self.connections {
       Connections::Centralized {
         connection: ref mut writer,
@@ -494,8 +494,8 @@ impl Router {
   #[cfg(not(feature = "replicas"))]
   pub async fn select_read(
     &mut self,
-    inner: &RefCount<RedisClientInner>,
-  ) -> Vec<(Server, Option<Result<Resp3Frame, RedisError>>)> {
+    inner: &RefCount<ClientInner>,
+  ) -> Vec<(Server, Option<Result<Resp3Frame, Error>>)> {
     match self.connections {
       Connections::Centralized {
         connection: ref mut writer,

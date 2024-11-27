@@ -1,7 +1,7 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{connection::RedisConnection, types::Server},
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  protocol::{connection::Connection, types::Server},
   runtime::RefCount,
   types::Resp3Frame,
 };
@@ -31,10 +31,10 @@ impl Default for ClusterChange {
 }
 
 fn poll_connection(
-  inner: &RefCount<RedisClientInner>,
-  conn: &mut RedisConnection,
+  inner: &RefCount<ClientInner>,
+  conn: &mut Connection,
   cx: &mut Context<'_>,
-  buf: &mut Vec<(Server, Option<Result<Resp3Frame, RedisError>>)>,
+  buf: &mut Vec<(Server, Option<Result<Resp3Frame, Error>>)>,
   now: &Instant,
 ) {
   match Pin::new(&mut conn.transport).poll_next(cx) {
@@ -52,7 +52,7 @@ fn poll_connection(
           if now.saturating_duration_since(last_write) > duration {
             buf.push((
               conn.server.clone(),
-              Some(Err(RedisError::new(RedisErrorKind::IO, "Unresponsive connection."))),
+              Some(Err(Error::new(ErrorKind::IO, "Unresponsive connection."))),
             ));
           }
         }
@@ -64,23 +64,23 @@ fn poll_connection(
 /// A future that reads from all connections and performs unresponsive checks.
 // `poll_next` on a Framed<TcpStream> is not cancel-safe
 pub struct ReadAllFuture<'a, 'b> {
-  inner:       &'a RefCount<RedisClientInner>,
-  connections: &'b mut HashMap<Server, RedisConnection>,
+  inner:       &'a RefCount<ClientInner>,
+  connections: &'b mut HashMap<Server, Connection>,
   #[cfg(feature = "replicas")]
-  replicas:    &'b mut HashMap<Server, RedisConnection>,
+  replicas:    &'b mut HashMap<Server, Connection>,
 }
 
 impl<'a, 'b> ReadAllFuture<'a, 'b> {
   #[cfg(not(feature = "replicas"))]
-  pub fn new(inner: &'a RefCount<RedisClientInner>, connections: &'b mut HashMap<Server, RedisConnection>) -> Self {
+  pub fn new(inner: &'a RefCount<ClientInner>, connections: &'b mut HashMap<Server, Connection>) -> Self {
     Self { connections, inner }
   }
 
   #[cfg(feature = "replicas")]
   pub fn new(
-    inner: &'a RefCount<RedisClientInner>,
-    connections: &'b mut HashMap<Server, RedisConnection>,
-    replicas: &'b mut HashMap<Server, RedisConnection>,
+    inner: &'a RefCount<ClientInner>,
+    connections: &'b mut HashMap<Server, Connection>,
+    replicas: &'b mut HashMap<Server, Connection>,
   ) -> Self {
     Self {
       connections,
@@ -91,7 +91,7 @@ impl<'a, 'b> ReadAllFuture<'a, 'b> {
 }
 
 impl Future for ReadAllFuture<'_, '_> {
-  type Output = Vec<(Server, Option<Result<Resp3Frame, RedisError>>)>;
+  type Output = Vec<(Server, Option<Result<Resp3Frame, Error>>)>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     #[cfg(feature = "replicas")]
@@ -124,23 +124,23 @@ impl Future for ReadAllFuture<'_, '_> {
 
 /// A future that reads from the connection and performs unresponsive checks.
 pub struct ReadFuture<'a, 'b> {
-  inner:      &'a RefCount<RedisClientInner>,
-  connection: &'b mut RedisConnection,
+  inner:      &'a RefCount<ClientInner>,
+  connection: &'b mut Connection,
   #[cfg(feature = "replicas")]
-  replicas:   &'b mut HashMap<Server, RedisConnection>,
+  replicas:   &'b mut HashMap<Server, Connection>,
 }
 
 impl<'a, 'b> ReadFuture<'a, 'b> {
   #[cfg(not(feature = "replicas"))]
-  pub fn new(inner: &'a RefCount<RedisClientInner>, connection: &'b mut RedisConnection) -> Self {
+  pub fn new(inner: &'a RefCount<ClientInner>, connection: &'b mut Connection) -> Self {
     Self { connection, inner }
   }
 
   #[cfg(feature = "replicas")]
   pub fn new(
-    inner: &'a RefCount<RedisClientInner>,
-    connection: &'b mut RedisConnection,
-    replicas: &'b mut HashMap<Server, RedisConnection>,
+    inner: &'a RefCount<ClientInner>,
+    connection: &'b mut Connection,
+    replicas: &'b mut HashMap<Server, Connection>,
   ) -> Self {
     Self {
       inner,
@@ -151,7 +151,7 @@ impl<'a, 'b> ReadFuture<'a, 'b> {
 }
 
 impl Future for ReadFuture<'_, '_> {
-  type Output = Vec<(Server, Option<Result<Resp3Frame, RedisError>>)>;
+  type Output = Vec<(Server, Option<Result<Resp3Frame, Error>>)>;
 
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let mut out = Vec::new();
