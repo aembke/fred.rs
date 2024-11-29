@@ -12,7 +12,7 @@ use clap::App;
 use fred::{
   bytes::Bytes,
   prelude::*,
-  types::{ReplicaConfig, UnresponsiveConfig},
+  types::config::{ReplicaConfig, UnresponsiveConfig},
 };
 use opentelemetry::{
   global,
@@ -29,16 +29,16 @@ use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 
 #[derive(Debug)]
 struct Argv {
-  pub cluster: bool,
-  pub replicas: bool,
-  pub host: String,
-  pub port: u16,
-  pub pool: usize,
-  pub interval: u64,
-  pub wait: u64,
-  pub auth: String,
-  pub tracing: bool,
-  pub sentinel: Option<String>,
+  pub cluster:       bool,
+  pub replicas:      bool,
+  pub host:          String,
+  pub port:          u16,
+  pub pool:          usize,
+  pub interval:      u64,
+  pub wait:          u64,
+  pub auth:          String,
+  pub tracing:       bool,
+  pub sentinel:      Option<String>,
   pub sentinel_auth: Option<String>,
 }
 
@@ -146,13 +146,13 @@ pub fn setup_tracing(enable: bool) {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   pretty_env_logger::init_timed();
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
   setup_tracing(argv.tracing);
 
-  let config = RedisConfig {
+  let config = Config {
     #[cfg(any(feature = "partial-tracing", feature = "stdout-tracing", feature = "full-tracing"))]
     tracing: TracingConfig {
       enabled: argv.tracing,
@@ -164,9 +164,9 @@ async fn main() -> Result<(), RedisError> {
       if let Some(sentinel) = argv.sentinel.as_ref() {
         ServerConfig::Sentinel {
           service_name: sentinel.to_string(),
-          hosts: vec![Server::new(&argv.host, argv.port)],
-          password: argv.sentinel_auth.clone(),
-          username: None,
+          hosts:        vec![Server::new(&argv.host, argv.port)],
+          password:     argv.sentinel_auth.clone(),
+          username:     None,
         }
       } else {
         ServerConfig::new_centralized(&argv.host, argv.port)
@@ -183,23 +183,21 @@ async fn main() -> Result<(), RedisError> {
     .with_connection_config(|config| {
       config.max_command_attempts = 3;
       config.unresponsive = UnresponsiveConfig {
-        interval: Duration::from_secs(1),
+        interval:    Duration::from_secs(1),
         max_timeout: Some(Duration::from_secs(5)),
       };
       config.connection_timeout = Duration::from_secs(3);
       config.internal_command_timeout = Duration::from_secs(2);
-      //config.cluster_cache_update_delay = Duration::from_secs(20);
+      // config.cluster_cache_update_delay = Duration::from_secs(20);
       if argv.replicas {
         config.replica = ReplicaConfig {
           lazy_connections: true,
           primary_fallback: true,
-          connection_error_count: 1,
           ..Default::default()
         };
       }
     })
     .with_performance_config(|config| {
-      config.auto_pipeline = true;
       config.default_command_timeout = Duration::from_secs(60 * 5);
     })
     .set_policy(ReconnectPolicy::new_linear(0, 5000, 100))
