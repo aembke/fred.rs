@@ -74,7 +74,6 @@ pub async fn should_invalidate_foo_resp2_centralized(client: Client, _: Config) 
 
   let (_, subscriber_id) = subscriber
     .connection_ids()
-    .await
     .into_iter()
     .next()
     .expect("Failed to read subscriber connection ID");
@@ -83,7 +82,7 @@ pub async fn should_invalidate_foo_resp2_centralized(client: Client, _: Config) 
     .client_tracking("on", Some(subscriber_id), None, false, false, false, false)
     .await?;
 
-  // verify that we get 2 keys in the invalidation message, or at least make sure that doesnt panic
+  // verify that we get 2 keys in the invalidation message, or at least make sure that doesn't panic
   // in resp2 this might take some changes to the pubsub parser if it doesn't work with an array as the message type
 
   // check pubsub messages with one key

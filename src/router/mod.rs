@@ -271,7 +271,6 @@ impl Router {
 
   /// Connect to the server(s), discarding any previous connection state.
   pub async fn connect(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
-    self.disconnect_all(inner).await;
     let result = self.connections.initialize(inner, &mut self.retry_buffer).await;
 
     if result.is_ok() {

@@ -3,7 +3,7 @@ use crate::{
   modules::inner::ClientInner,
   monitor::{parser, MonitorCommand},
   protocol::{
-    codec::RedisCodec,
+    codec::Codec,
     command::{Command, CommandKind},
     connection::{self, ConnectionKind, ExclusiveConnection},
     types::ProtocolFrame,
@@ -85,7 +85,7 @@ async fn send_monitor_command(
 async fn forward_results<T>(
   inner: &RefCount<ClientInner>,
   tx: Sender<MonitorCommand>,
-  mut framed: Peekable<Framed<T, RedisCodec>>,
+  mut framed: Peekable<Framed<T, Codec>>,
 ) where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {

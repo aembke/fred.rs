@@ -116,7 +116,7 @@ pub async fn should_automatically_unblock(_: Client, mut config: Config) -> Resu
 
 #[cfg(all(feature = "i-client", feature = "i-lists"))]
 pub async fn should_manually_unblock(client: Client, _: Config) -> Result<(), Error> {
-  let connections_ids = client.connection_ids().await;
+  let connections_ids = client.connection_ids();
   let unblock_client = client.clone();
 
   tokio::spawn(async move {

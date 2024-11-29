@@ -27,9 +27,6 @@ use crate::{clients::SentinelClient, types::config::SentinelConfig};
 ///   let mut builder = Builder::from_config(config);
 ///   // or modify values in place (creating defaults if needed)
 ///   builder
-///     .with_performance_config(|config| {
-///       config.auto_pipeline = true;
-///     })
 ///     .with_config(|config| {
 ///       config.version = RespVersion::RESP3;
 ///       config.fail_fast = true;

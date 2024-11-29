@@ -185,21 +185,13 @@ pub fn next_reconnection_delay(inner: &RefCount<ClientInner>) -> Result<Duration
 /// Attempt to reconnect and replay queued commands.
 pub async fn reconnect_once(inner: &RefCount<ClientInner>, router: &mut Router) -> Result<(), Error> {
   client_utils::set_client_state(&inner.state, ClientState::Connecting);
+  _trace!(inner, "Reconnecting...");
   if let Err(e) = Box::pin(router.connect(inner)).await {
     _debug!(inner, "Failed reconnecting with error: {:?}", e);
     client_utils::set_client_state(&inner.state, ClientState::Disconnected);
     inner.notifications.broadcast_error(e.clone());
     Err(e)
   } else {
-    #[cfg(feature = "replicas")]
-    if let Err(err) = router.refresh_replica_routing(inner).await {
-      _warn!(inner, "Error syncing replicas: {:?}", err);
-      if !inner.ignore_replica_reconnect_errors() {
-        client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-        inner.notifications.broadcast_error(err.clone());
-        return Err(err);
-      }
-    }
     // try to flush any previously in-flight commands
     if let Err(err) = Box::pin(router.retry_buffer(inner)).await {
       _warn!(inner, "Error flushing retry buffer: {:?}", err);

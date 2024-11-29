@@ -5,8 +5,6 @@ use fred::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-  // the `auto_pipeline` config option determines whether the client will pipeline commands across tasks.
-  // this example shows how to pipeline commands within one task.
   let client = Client::default();
   client.init().await?;
 

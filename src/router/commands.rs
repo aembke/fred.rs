@@ -1,9 +1,13 @@
+#[cfg(feature = "replicas")]
+use crate::interfaces;
+#[cfg(feature = "transactions")]
+use crate::router::transactions;
 use crate::{
   error::{Error, ErrorKind},
   modules::inner::{ClientInner, CommandReceiver},
   protocol::command::{Command, CommandKind, ResponseSender, RouterCommand},
   router::{clustered, utils, Router},
-  runtime::{OneshotSender, RefCount},
+  runtime::{sleep, OneshotSender, RefCount},
   types::{
     config::{Blocking, Server},
     ClientState,
@@ -13,11 +17,7 @@ use crate::{
   utils as client_utils,
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
-
-#[cfg(feature = "replicas")]
-use crate::interfaces;
-#[cfg(feature = "transactions")]
-use crate::router::transactions;
+use tokio::pin;
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -461,17 +461,40 @@ async fn read_or_write(
   // appear to operate on readers and writers concurrently.
   //
   // This function is called in a loop and drives futures that concurrently read and write to sockets.
-  tokio::select! {
-    biased;
-    results = router.select_read(inner) => {
-      for (server, result) in results.into_iter() {
-        utils::process_response(inner, router, &server, result).await?;
+
+  if inner.connection.unresponsive.max_timeout.is_some() {
+    let sleep_ft = sleep(inner.connection.unresponsive.interval);
+    pin!(sleep_ft);
+
+    tokio::select! {
+      biased;
+      results = router.select_read(inner) => {
+        for (server, result) in results.into_iter() {
+          utils::process_response(inner, router, &server, result).await?;
+        }
+      },
+      Some(command) = rx.recv() => {
+        process_command(inner, router, command).await?;
+      },
+      _ = sleep_ft => {
+        // break out and return early, starting another call to poll_next on all the sockets,
+        // which also performs unresponsive checks on each socket
+        return Ok(());
       }
-    },
-    Some(command) = rx.recv() => {
-      process_command(inner, router, command).await?;
-    },
-  };
+    };
+  } else {
+    tokio::select! {
+      biased;
+      results = router.select_read(inner) => {
+        for (server, result) in results.into_iter() {
+          utils::process_response(inner, router, &server, result).await?;
+        }
+      },
+      Some(command) = rx.recv() => {
+        process_command(inner, router, command).await?;
+      },
+    };
+  }
 
   Ok(())
 }

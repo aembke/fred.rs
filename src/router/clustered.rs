@@ -552,7 +552,7 @@ pub async fn sync(
 
   let mut connections_ft = Vec::with_capacity(changes.add.len());
   let new_writers = RefCount::new(Mutex::new(HashMap::with_capacity(changes.add.len())));
-  // connect to each of the new nodes
+  // connect to each of the new nodes concurrently
   for server in changes.add.into_iter() {
     let _inner = inner.clone();
     let _new_writers = new_writers.clone();
@@ -588,8 +588,6 @@ pub async fn initialize_connections(
   connections: &mut Connections,
   buffer: &mut VecDeque<Command>,
 ) -> Result<(), Error> {
-  buffer.extend(connections.disconnect_all(inner).await);
-
   match connections {
     Connections::Clustered {
       connections: ref mut writers,

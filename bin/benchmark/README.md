@@ -22,8 +22,6 @@ concurrency (`-c`) and pool size (`-P`) argv.
 There are several additional features or performance tuning options that can affect these results. For example:
 
 * Tracing. Enabling the FF cut throughput by ~20% in my tests.
-* Pipelining. The `auto_pipeline` feature can dramatically improve throughput in scenarios like this where a client or
-  pool is shared among many Tokio tasks. The original purpose of this tool was to test this particular optimization.
 * Clustering
 * Backpressure settings
 * Network latency

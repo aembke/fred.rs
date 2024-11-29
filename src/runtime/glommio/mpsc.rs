@@ -42,9 +42,6 @@ impl<T> Stream for UnboundedReceiverStream<T> {
 
   fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
     use futures_lite::stream::StreamExt;
-
-    // TODO make sure this is cancellation-safe. it's a bit unclear why the internal impl of ChannelStream does what
-    // it does.
     self.rx.stream().poll_next(cx)
   }
 }

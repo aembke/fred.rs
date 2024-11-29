@@ -2,7 +2,7 @@ use crate::{
   error::{Error, ErrorKind},
   modules::inner::ClientInner,
   protocol::{
-    codec::RedisCodec,
+    codec::Codec,
     command::{ClusterErrorKind, Command, CommandKind},
     connection::OK,
     types::{ProtocolFrame, *},
@@ -251,7 +251,7 @@ pub fn frame_to_pubsub(server: &Server, frame: Resp3Frame) -> Result<Message, Er
   })
 }
 
-pub fn check_resp2_auth_error(codec: &RedisCodec, frame: Resp2Frame) -> Resp2Frame {
+pub fn check_resp2_auth_error(codec: &Codec, frame: Resp2Frame) -> Resp2Frame {
   let is_auth_error = match frame {
     Resp2Frame::Error(ref data) => *data == LEGACY_AUTH_ERROR_BODY || data.starts_with(ACL_AUTH_ERROR_PREFIX),
     _ => false,
@@ -270,7 +270,7 @@ pub fn check_resp2_auth_error(codec: &RedisCodec, frame: Resp2Frame) -> Resp2Fra
   }
 }
 
-pub fn check_resp3_auth_error(codec: &RedisCodec, frame: Resp3Frame) -> Resp3Frame {
+pub fn check_resp3_auth_error(codec: &Codec, frame: Resp3Frame) -> Resp3Frame {
   let is_auth_error = match frame {
     Resp3Frame::SimpleError { ref data, .. } => {
       *data == LEGACY_AUTH_ERROR_BODY || data.starts_with(ACL_AUTH_ERROR_PREFIX)

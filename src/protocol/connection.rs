@@ -2,7 +2,7 @@ use crate::{
   error::{Error, ErrorKind},
   modules::inner::ClientInner,
   protocol::{
-    codec::RedisCodec,
+    codec::Codec,
     command::{Command, CommandKind},
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
@@ -126,13 +126,13 @@ async fn tcp_connect_any(
 }
 
 pub enum ConnectionKind {
-  Tcp(Peekable<Framed<TcpStream, RedisCodec>>),
+  Tcp(Peekable<Framed<TcpStream, Codec>>),
   #[cfg(feature = "unix-sockets")]
-  Unix(Peekable<Framed<UnixStream, RedisCodec>>),
+  Unix(Peekable<Framed<UnixStream, Codec>>),
   #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
-  Rustls(Peekable<Framed<RustlsStream<TcpStream>, RedisCodec>>),
+  Rustls(Peekable<Framed<RustlsStream<TcpStream>, Codec>>),
   #[cfg(feature = "enable-native-tls")]
-  NativeTls(Peekable<Framed<NativeTlsStream<TcpStream>, RedisCodec>>),
+  NativeTls(Peekable<Framed<NativeTlsStream<TcpStream>, Codec>>),
 }
 
 impl Stream for ConnectionKind {
@@ -268,7 +268,7 @@ impl ExclusiveConnection {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let default_host = server.host.clone();
-    let codec = RedisCodec::new(inner, server);
+    let codec = Codec::new(inner, server);
     let addrs = inner
       .get_resolver()
       .await
@@ -295,7 +295,7 @@ impl ExclusiveConnection {
     let counters = Counters::new(&inner.counters.cmd_buffer_len);
     let (id, version) = (None, None);
     let default_host = server.host.clone();
-    let codec = RedisCodec::new(inner, &server);
+    let codec = Codec::new(inner, &server);
     let socket = UnixStream::connect(path).await?;
     let transport = ConnectionKind::Unix(Framed::new(socket, codec).peekable());
 
@@ -326,7 +326,7 @@ impl ExclusiveConnection {
     let tls_server_name = server.tls_server_name.as_ref().cloned().unwrap_or(server.host.clone());
 
     let default_host = server.host.clone();
-    let codec = RedisCodec::new(inner, server);
+    let codec = Codec::new(inner, server);
     let addrs = inner
       .get_resolver()
       .await
@@ -372,7 +372,7 @@ impl ExclusiveConnection {
     let tls_server_name = server.tls_server_name.as_ref().cloned().unwrap_or(server.host.clone());
 
     let default_host = server.host.clone();
-    let codec = RedisCodec::new(inner, server);
+    let codec = Codec::new(inner, server);
     let addrs = inner
       .get_resolver()
       .await
@@ -751,6 +751,7 @@ impl fmt::Debug for Connection {
 impl Connection {
   /// Check if the reader half is healthy, returning any errors.
   pub async fn peek_reader_errors(&mut self) -> Option<Error> {
+    // TODO does this need to return an error if poll_peek returns Poll::Ready(None)?
     let result = std::future::poll_fn(|cx| match self.transport {
       ConnectionKind::Tcp(ref mut t) => match Pin::new(t).poll_peek(cx) {
         Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e.clone()))),

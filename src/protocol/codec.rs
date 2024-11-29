@@ -37,7 +37,7 @@ fn log_resp3_frame(_: &str, _: &Resp3Frame, _: bool) {}
 pub use crate::protocol::debug::*;
 
 #[cfg(feature = "metrics")]
-fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
+fn sample_stats(codec: &Codec, decode: bool, value: i64) {
   if decode {
     codec.res_size_stats.write().sample(value);
   } else {
@@ -46,9 +46,9 @@ fn sample_stats(codec: &RedisCodec, decode: bool, value: i64) {
 }
 
 #[cfg(not(feature = "metrics"))]
-fn sample_stats(_: &RedisCodec, _: bool, _: i64) {}
+fn sample_stats(_: &Codec, _: bool, _: i64) {}
 
-fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Error> {
+fn resp2_encode_frame(codec: &Codec, item: Resp2Frame, dst: &mut BytesMut) -> Result<(), Error> {
   let offset = dst.len();
   let res = resp2_encode(dst, &item, true)?;
   let len = res.saturating_sub(offset);
@@ -66,7 +66,7 @@ fn resp2_encode_frame(codec: &RedisCodec, item: Resp2Frame, dst: &mut BytesMut) 
   Ok(())
 }
 
-fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<Resp2Frame>, Error> {
+fn resp2_decode_frame(codec: &Codec, src: &mut BytesMut) -> Result<Option<Resp2Frame>, Error> {
   trace!(
     "{}: Recv {} bytes from {} (RESP2).",
     codec.name,
@@ -88,7 +88,7 @@ fn resp2_decode_frame(codec: &RedisCodec, src: &mut BytesMut) -> Result<Option<R
   }
 }
 
-fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), Error> {
+fn resp3_encode_frame(codec: &Codec, item: Resp3Frame, dst: &mut BytesMut) -> Result<(), Error> {
   let offset = dst.len();
   let res = resp3_encode(dst, &item, true)?;
   let len = res.saturating_sub(offset);
@@ -106,7 +106,7 @@ fn resp3_encode_frame(codec: &RedisCodec, item: Resp3Frame, dst: &mut BytesMut) 
   Ok(())
 }
 
-fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Option<Resp3Frame>, Error> {
+fn resp3_decode_frame(codec: &mut Codec, src: &mut BytesMut) -> Result<Option<Resp3Frame>, Error> {
   trace!(
     "{}: Recv {} bytes from {} (RESP3).",
     codec.name,
@@ -168,7 +168,7 @@ fn resp3_decode_frame(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Opti
 /// Attempt to decode with RESP2, and if that fails try once with RESP3.
 ///
 /// This is useful when handling HELLO commands sent in the middle of a RESP2 command sequence.
-fn resp2_decode_with_fallback(codec: &mut RedisCodec, src: &mut BytesMut) -> Result<Option<ProtocolFrame>, Error> {
+fn resp2_decode_with_fallback(codec: &mut Codec, src: &mut BytesMut) -> Result<Option<ProtocolFrame>, Error> {
   let resp2_result = resp2_decode_frame(codec, src).map(|f| f.map(|f| f.into()));
   if resp2_result.is_err() {
     let resp3_result = resp3_decode_frame(codec, src).map(|f| f.map(|f| f.into()));
@@ -182,7 +182,7 @@ fn resp2_decode_with_fallback(codec: &mut RedisCodec, src: &mut BytesMut) -> Res
   }
 }
 
-pub struct RedisCodec {
+pub struct Codec {
   pub name:            Str,
   pub server:          Server,
   pub resp3:           RefCount<AtomicBool>,
@@ -193,9 +193,9 @@ pub struct RedisCodec {
   pub res_size_stats:  RefCount<RwLock<MovingStats>>,
 }
 
-impl RedisCodec {
+impl Codec {
   pub fn new(inner: &RefCount<ClientInner>, server: &Server) -> Self {
-    RedisCodec {
+    Codec {
       server:                                     server.clone(),
       name:                                       inner.id.clone(),
       resp3:                                      inner.shared_resp3(),
@@ -212,7 +212,7 @@ impl RedisCodec {
   }
 }
 
-impl Encoder<ProtocolFrame> for RedisCodec {
+impl Encoder<ProtocolFrame> for Codec {
   type Error = Error;
 
   fn encode(&mut self, item: ProtocolFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -223,7 +223,7 @@ impl Encoder<ProtocolFrame> for RedisCodec {
   }
 }
 
-impl Decoder for RedisCodec {
+impl Decoder for Codec {
   type Error = Error;
   type Item = ProtocolFrame;
 
