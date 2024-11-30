@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let publisher_client = Builder::default_centralized()
     .with_performance_config(|config| {
       // change the buffer size of the broadcast channels used by the EventInterface
@@ -20,9 +20,9 @@ async fn main() -> Result<(), RedisError> {
   subscriber_client.init().await?;
 
   // or use `message_rx()` to use the underlying `BroadcastReceiver` directly without spawning a new task
-  let _message_task = subscriber_client.on_message(|message| {
+  let _message_task = subscriber_client.on_message(|message| async move {
     println!("{}: {}", message.channel, message.value.convert::<i64>()?);
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   for idx in 0 .. 50 {
@@ -37,7 +37,7 @@ async fn main() -> Result<(), RedisError> {
 
 #[cfg(feature = "subscriber-client")]
 #[allow(dead_code)]
-async fn subscriber_example() -> Result<(), RedisError> {
+async fn subscriber_example() -> Result<(), Error> {
   let subscriber = Builder::default_centralized()
     .with_performance_config(|config| {
       // tune the size of the buffer behind the pubsub broadcast channels
@@ -53,7 +53,7 @@ async fn subscriber_example() -> Result<(), RedisError> {
       println!("Recv {:?} on channel {}", message.value, message.channel);
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   // spawn a task to sync subscriptions whenever the client reconnects

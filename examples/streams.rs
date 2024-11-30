@@ -1,7 +1,7 @@
 #![allow(clippy::mutable_key_type)]
 
 use bytes_utils::Str;
-use fred::{prelude::*, types::XReadResponse};
+use fred::{prelude::*, types::streams::XReadResponse};
 use futures::future::try_join_all;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -43,7 +43,7 @@ async fn main() {
     }
 
     client.quit().await?;
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   let writer_task = tokio::spawn(async move {
@@ -72,7 +72,7 @@ async fn main() {
     }
 
     client.quit().await?;
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   try_join_all([writer_task, reader_task]).await.unwrap();

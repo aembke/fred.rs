@@ -1,7 +1,7 @@
 use crate::{
   commands::{MAXLEN, MINID},
-  error::{RedisError, RedisErrorKind},
-  types::{LimitCount, RedisKey, RedisValue, StringOrNumber},
+  error::{Error, ErrorKind},
+  types::{Key, LimitCount, StringOrNumber, Value},
   utils,
 };
 use bytes_utils::Str;
@@ -27,18 +27,13 @@ impl XCapTrim {
 }
 
 impl<'a> TryFrom<&'a str> for XCapTrim {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(s: &'a str) -> Result<Self, Self::Error> {
     Ok(match s {
       "=" => XCapTrim::Exact,
       "~" => XCapTrim::AlmostExact,
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid XADD trim value.",
-        ))
-      },
+      _ => return Err(Error::new(ErrorKind::InvalidArgument, "Invalid XADD trim value.")),
     })
   }
 }
@@ -46,7 +41,7 @@ impl<'a> TryFrom<&'a str> for XCapTrim {
 /// One or more ordered key-value pairs, typically used as an argument for `XADD`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MultipleOrderedPairs {
-  values: Vec<(RedisKey, RedisValue)>,
+  values: Vec<(Key, Value)>,
 }
 
 impl MultipleOrderedPairs {
@@ -54,7 +49,7 @@ impl MultipleOrderedPairs {
     self.values.len()
   }
 
-  pub fn inner(self) -> Vec<(RedisKey, RedisValue)> {
+  pub fn inner(self) -> Vec<(Key, Value)> {
     self.values
   }
 }
@@ -67,11 +62,11 @@ impl From<()> for MultipleOrderedPairs {
 
 impl<K, V> TryFrom<(K, V)> for MultipleOrderedPairs
 where
-  K: Into<RedisKey>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: Into<Key>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from((key, value): (K, V)) -> Result<Self, Self::Error> {
     Ok(MultipleOrderedPairs {
@@ -82,54 +77,54 @@ where
 
 impl<K, V> TryFrom<Vec<(K, V)>> for MultipleOrderedPairs
 where
-  K: Into<RedisKey>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: Into<Key>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(values: Vec<(K, V)>) -> Result<Self, Self::Error> {
     Ok(MultipleOrderedPairs {
       values: values
         .into_iter()
         .map(|(key, value)| Ok((key.into(), to!(value)?)))
-        .collect::<Result<Vec<(RedisKey, RedisValue)>, RedisError>>()?,
+        .collect::<Result<Vec<(Key, Value)>, Error>>()?,
     })
   }
 }
 
 impl<K, V> TryFrom<VecDeque<(K, V)>> for MultipleOrderedPairs
 where
-  K: Into<RedisKey>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: Into<Key>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(values: VecDeque<(K, V)>) -> Result<Self, Self::Error> {
     Ok(MultipleOrderedPairs {
       values: values
         .into_iter()
         .map(|(key, value)| Ok((key.into(), to!(value)?)))
-        .collect::<Result<Vec<(RedisKey, RedisValue)>, RedisError>>()?,
+        .collect::<Result<Vec<(Key, Value)>, Error>>()?,
     })
   }
 }
 
 impl<K, V> TryFrom<HashMap<K, V>> for MultipleOrderedPairs
 where
-  K: Into<RedisKey>,
-  V: TryInto<RedisValue>,
-  V::Error: Into<RedisError>,
+  K: Into<Key>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(values: HashMap<K, V>) -> Result<Self, Self::Error> {
     Ok(MultipleOrderedPairs {
       values: values
         .into_iter()
         .map(|(key, value)| Ok((key.into(), to!(value)?)))
-        .collect::<Result<Vec<(RedisKey, RedisValue)>, RedisError>>()?,
+        .collect::<Result<Vec<(Key, Value)>, Error>>()?,
     })
   }
 }
@@ -200,18 +195,13 @@ impl XCapKind {
 }
 
 impl<'a> TryFrom<&'a str> for XCapKind {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &'a str) -> Result<Self, Self::Error> {
     Ok(match value {
       "MAXLEN" => XCapKind::MaxLen,
       "MINID" => XCapKind::MinID,
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Expected MAXLEN or MINID,",
-        ))
-      },
+      _ => return Err(Error::new(ErrorKind::InvalidArgument, "Expected MAXLEN or MINID,")),
     })
   }
 }
@@ -239,12 +229,12 @@ impl From<Option<()>> for XCap {
 impl<K, T, S> TryFrom<(K, T, S, Option<i64>)> for XCap
 where
   K: TryInto<XCapKind>,
-  K::Error: Into<RedisError>,
+  K::Error: Into<Error>,
   T: TryInto<XCapTrim>,
-  T::Error: Into<RedisError>,
+  T::Error: Into<Error>,
   S: Into<StringOrNumber>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from((kind, trim, threshold, limit): (K, T, S, Option<i64>)) -> Result<Self, Self::Error> {
     let (kind, trim) = (to!(kind)?, to!(trim)?);
@@ -257,12 +247,12 @@ where
 impl<K, T, S> TryFrom<(K, T, S)> for XCap
 where
   K: TryInto<XCapKind>,
-  K::Error: Into<RedisError>,
+  K::Error: Into<Error>,
   T: TryInto<XCapTrim>,
-  T::Error: Into<RedisError>,
+  T::Error: Into<Error>,
   S: Into<StringOrNumber>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from((kind, trim, threshold): (K, T, S)) -> Result<Self, Self::Error> {
     let (kind, trim) = (to!(kind)?, to!(trim)?);
@@ -275,10 +265,10 @@ where
 impl<K, S> TryFrom<(K, S)> for XCap
 where
   K: TryInto<XCapKind>,
-  K::Error: Into<RedisError>,
+  K::Error: Into<Error>,
   S: Into<StringOrNumber>,
 {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from((kind, threshold): (K, S)) -> Result<Self, Self::Error> {
     let kind = to!(kind)?;
@@ -370,7 +360,7 @@ pub struct XPendingArgs {
 }
 
 impl XPendingArgs {
-  pub(crate) fn into_parts(self) -> Result<Option<(Option<u64>, XID, XID, u64, Option<Str>)>, RedisError> {
+  pub(crate) fn into_parts(self) -> Result<Option<(Option<u64>, XID, XID, u64, Option<Str>)>, Error> {
     let is_empty = self.idle.is_none()
       && self.start.is_none()
       && self.end.is_none()
@@ -383,8 +373,8 @@ impl XPendingArgs {
       let start = match self.start {
         Some(s) => s,
         None => {
-          return Err(RedisError::new(
-            RedisErrorKind::InvalidArgument,
+          return Err(Error::new(
+            ErrorKind::InvalidArgument,
             "The `start` argument is required in this context.",
           ))
         },
@@ -392,8 +382,8 @@ impl XPendingArgs {
       let end = match self.end {
         Some(s) => s,
         None => {
-          return Err(RedisError::new(
-            RedisErrorKind::InvalidArgument,
+          return Err(Error::new(
+            ErrorKind::InvalidArgument,
             "The `end` argument is required in this context.",
           ))
         },
@@ -401,8 +391,8 @@ impl XPendingArgs {
       let count = match self.count {
         Some(s) => s,
         None => {
-          return Err(RedisError::new(
-            RedisErrorKind::InvalidArgument,
+          return Err(Error::new(
+            ErrorKind::InvalidArgument,
             "The `count` argument is required in this context.",
           ))
         },
@@ -493,18 +483,18 @@ where
 
 /// A generic helper type describing the ID and associated map for each record in a stream.
 ///
-/// See the [XReadResponse](crate::types::XReadResponse) type for more information.
+/// See the [XReadResponse](crate::types::streams::XReadResponse) type for more information.
 pub type XReadValue<I, K, V> = (I, HashMap<K, V>);
 /// A generic helper type describing the top level response from `XREAD` or `XREADGROUP`.
 ///
 /// See the [xread](crate::interfaces::StreamsInterface::xread) documentation for more information.
 ///
 /// The inner type declarations refer to the following:
-/// * K1 - The type of the outer Redis key for the stream. Usually a `String` or `RedisKey`.
+/// * K1 - The type of the outer key for the stream. Usually a `String` or `Key`.
 /// * I - The type of the ID for a stream record ("abc-123"). This is usually a `String`.
 /// * K2 - The type of key in the map associated with each stream record.
 /// * V - The type of value in the map associated with each stream record.
 ///
 /// To support heterogeneous values in the map describing each stream element it is recommended to declare the last
-/// type as `RedisValue` and [convert](crate::types::RedisValue::convert) as needed.
+/// type as `Value` and [convert](crate::types::Value::convert) as needed.
 pub type XReadResponse<K1, I, K2, V> = HashMap<K1, Vec<XReadValue<I, K2, V>>>;

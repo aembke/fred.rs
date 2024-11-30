@@ -1,10 +1,12 @@
+#[cfg(feature = "i-tracking")]
+use crate::types::client::Invalidation;
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  protocol::{command::RedisCommand, types::Server, utils as protocol_utils, utils::pretty_error},
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  protocol::{types::Server, utils as protocol_utils, utils::pretty_error},
   runtime::RefCount,
   trace,
-  types::{ClientState, KeyspaceEvent, Message, RedisKey, RedisValue},
+  types::{ClientState, Key, KeyspaceEvent, Message, Value},
   utils,
 };
 use redis_protocol::{
@@ -13,15 +15,12 @@ use redis_protocol::{
 };
 use std::str;
 
-#[cfg(feature = "i-tracking")]
-use crate::types::Invalidation;
-
 const KEYSPACE_PREFIX: &str = "__keyspace@";
 const KEYEVENT_PREFIX: &str = "__keyevent@";
 #[cfg(feature = "i-tracking")]
 const INVALIDATION_CHANNEL: &str = "__redis__:invalidate";
 
-fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<KeyspaceEvent> {
+fn parse_keyspace_notification(channel: &str, message: &Value) -> Option<KeyspaceEvent> {
   if channel.starts_with(KEYEVENT_PREFIX) {
     let parts: Vec<&str> = channel.splitn(2, '@').collect();
     if parts.len() < 2 {
@@ -35,7 +34,7 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
 
     let db = suffix[0].replace("__", "").parse::<u8>().ok()?;
     let operation = suffix[1].to_owned();
-    let key: RedisKey = message.clone().try_into().ok()?;
+    let key: Key = message.clone().try_into().ok()?;
 
     Some(KeyspaceEvent { db, key, operation })
   } else if channel.starts_with(KEYSPACE_PREFIX) {
@@ -50,7 +49,7 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
     }
 
     let db = suffix[0].replace("__", "").parse::<u8>().ok()?;
-    let key: RedisKey = suffix[1].to_owned().into();
+    let key: Key = suffix[1].to_owned().into();
     let operation = message.as_string()?;
 
     Some(KeyspaceEvent { db, key, operation })
@@ -60,7 +59,7 @@ fn parse_keyspace_notification(channel: &str, message: &RedisValue) -> Option<Ke
 }
 
 #[cfg(feature = "i-tracking")]
-fn broadcast_pubsub_invalidation(inner: &RefCount<RedisClientInner>, message: Message, server: &Server) {
+fn broadcast_pubsub_invalidation(inner: &RefCount<ClientInner>, message: Message, server: &Server) {
   if let Some(invalidation) = Invalidation::from_message(message, server) {
     inner.notifications.broadcast_invalidation(invalidation);
   } else {
@@ -72,7 +71,7 @@ fn broadcast_pubsub_invalidation(inner: &RefCount<RedisClientInner>, message: Me
 }
 
 #[cfg(not(feature = "i-tracking"))]
-fn broadcast_pubsub_invalidation(_: &RefCount<RedisClientInner>, _: Message, _: &Server) {}
+fn broadcast_pubsub_invalidation(_: &RefCount<ClientInner>, _: Message, _: &Server) {}
 
 #[cfg(feature = "i-tracking")]
 fn is_pubsub_invalidation(message: &Message) -> bool {
@@ -85,7 +84,7 @@ fn is_pubsub_invalidation(_: &Message) -> bool {
 }
 
 #[cfg(feature = "i-tracking")]
-fn broadcast_resp3_invalidation(inner: &RefCount<RedisClientInner>, server: &Server, frame: Resp3Frame) {
+fn broadcast_resp3_invalidation(inner: &RefCount<ClientInner>, server: &Server, frame: Resp3Frame) {
   if let Resp3Frame::Push { mut data, .. } = frame {
     if data.len() != 2 {
       return;
@@ -106,7 +105,7 @@ fn broadcast_resp3_invalidation(inner: &RefCount<RedisClientInner>, server: &Ser
 }
 
 #[cfg(not(feature = "i-tracking"))]
-fn broadcast_resp3_invalidation(_: &RefCount<RedisClientInner>, _: &Server, _: Resp3Frame) {}
+fn broadcast_resp3_invalidation(_: &RefCount<ClientInner>, _: &Server, _: Resp3Frame) {}
 
 #[cfg(feature = "i-tracking")]
 fn is_resp3_invalidation(frame: &Resp3Frame) -> bool {
@@ -164,11 +163,7 @@ fn is_resp3_invalidation(_: &Resp3Frame) -> bool {
 /// Check if the frame is part of a pubsub message, and if so route it to any listeners.
 ///
 /// If not then return it to the caller for further processing.
-pub fn check_pubsub_message(
-  inner: &RefCount<RedisClientInner>,
-  server: &Server,
-  frame: Resp3Frame,
-) -> Option<Resp3Frame> {
+pub fn check_pubsub_message(inner: &RefCount<ClientInner>, server: &Server, frame: Resp3Frame) -> Option<Resp3Frame> {
   if is_subscription_response(&frame) {
     _debug!(inner, "Dropping unused subscription response.");
     return None;
@@ -216,21 +211,13 @@ pub fn check_pubsub_message(
   None
 }
 
-// TODO cleanup and rename
-// this is called by the reader task after a blocking command finishes in order to mark the connection as unblocked
-pub async fn check_and_set_unblocked_flag(inner: &RefCount<RedisClientInner>, command: &RedisCommand) {
-  if command.blocks_connection() {
-    inner.backchannel.write().await.set_unblocked();
-  }
-}
-
 /// Parse the response frame to see if it's an auth error.
-fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
+fn parse_auth_error(frame: &Resp3Frame) -> Option<Error> {
   if matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
     match protocol_utils::frame_to_results(frame.clone()) {
       Ok(_) => None,
       Err(e) => match e.kind() {
-        RedisErrorKind::Auth => Some(e),
+        ErrorKind::Auth => Some(e),
         _ => None,
       },
     }
@@ -240,13 +227,17 @@ fn parse_redis_auth_error(frame: &Resp3Frame) -> Option<RedisError> {
 }
 
 #[cfg(feature = "custom-reconnect-errors")]
-fn check_global_reconnect_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
+fn check_global_reconnect_errors(
+  inner: &RefCount<ClientInner>,
+  server: &Server,
+  frame: &Resp3Frame,
+) -> Option<Error> {
   if let Resp3Frame::SimpleError { ref data, .. } = frame {
     for prefix in inner.connection.reconnect_errors.iter() {
       if data.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", data);
         let error = protocol_utils::pretty_error(data);
-        inner.notifications.broadcast_error(error.clone());
+        inner.notifications.broadcast_error(error.clone(), Some(server.clone()));
         return Some(error);
       }
     }
@@ -258,7 +249,7 @@ fn check_global_reconnect_errors(inner: &RefCount<RedisClientInner>, frame: &Res
 }
 
 #[cfg(not(feature = "custom-reconnect-errors"))]
-fn check_global_reconnect_errors(_: &RefCount<RedisClientInner>, _: &Resp3Frame) -> Option<RedisError> {
+fn check_global_reconnect_errors(_: &RefCount<ClientInner>, _: &Server, _: &Resp3Frame) -> Option<Error> {
   None
 }
 
@@ -287,10 +278,10 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
   }
 }
 
-/// Check for special errors configured by the caller to initiate a reconnection process.
-pub fn check_special_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Frame) -> Option<RedisError> {
+/// Check for fatal errors configured by the caller to initiate a reconnection process.
+pub fn check_fatal_errors(inner: &RefCount<ClientInner>, server: &Server, frame: &Resp3Frame) -> Option<Error> {
   if inner.connection.reconnect_on_auth_error {
-    if let Some(auth_error) = parse_redis_auth_error(frame) {
+    if let Some(auth_error) = parse_auth_error(frame) {
       return Some(auth_error);
     }
   }
@@ -298,38 +289,42 @@ pub fn check_special_errors(inner: &RefCount<RedisClientInner>, frame: &Resp3Fra
     return Some(pretty_error(error));
   }
 
-  check_global_reconnect_errors(inner, frame)
+  check_global_reconnect_errors(inner, server, frame)
+}
+
+/// Check for special errors, pubsub messages, or other special response frames.
+///
+/// The frame is returned to the caller for further processing if necessary.
+pub fn preprocess_frame(
+  inner: &RefCount<ClientInner>,
+  server: &Server,
+  frame: Resp3Frame,
+) -> Result<Option<Resp3Frame>, Error> {
+  if let Some(error) = check_fatal_errors(inner, server, &frame) {
+    Err(error)
+  } else {
+    Ok(check_pubsub_message(inner, server, frame))
+  }
 }
 
 /// Handle an error in the reader task that should end the connection.
-pub fn broadcast_reader_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+pub fn broadcast_reader_error(inner: &RefCount<ClientInner>, server: &Server, error: Option<Error>) {
   _warn!(inner, "Ending reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
-    inner.send_reconnect(Some(server.clone()), false, None);
-  }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications
-      .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
+      .broadcast_error(error.unwrap_or(Error::new_canceled()), Some(server.clone()));
   }
-}
-
-#[cfg(not(feature = "replicas"))]
-pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
-  broadcast_reader_error(inner, server, error);
 }
 
 #[cfg(feature = "replicas")]
-pub fn broadcast_replica_error(inner: &RefCount<RedisClientInner>, server: &Server, error: Option<RedisError>) {
+pub fn broadcast_replica_error(inner: &RefCount<ClientInner>, server: &Server, error: Option<Error>) {
   _warn!(inner, "Ending replica reader task from {} due to {:?}", server, error);
 
-  if inner.should_reconnect() {
-    inner.send_replica_reconnect(server);
-  }
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications
-      .broadcast_error(error.unwrap_or(RedisError::new_canceled()));
+      .broadcast_error(error.unwrap_or(Error::new_canceled()), Some(server.clone()));
   }
 }

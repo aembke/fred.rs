@@ -14,8 +14,8 @@ struct Person {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+async fn main() -> Result<(), Error> {
+  let client = Client::default();
   client.init().await?;
 
   let value = json!({

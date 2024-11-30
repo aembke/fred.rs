@@ -1,20 +1,24 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces,
   interfaces::Resp3Frame,
-  modules::inner::RedisClientInner,
+  modules::inner::ClientInner,
   protocol::{
-    command::{RedisCommand, RedisCommandKind, ResponseSender, RouterResponse},
+    command::{Command, CommandKind, ResponseSender},
     types::{KeyScanBufferedInner, KeyScanInner, Server, ValueScanInner, ValueScanResult},
     utils as protocol_utils,
   },
   runtime::{AtomicUsize, Mutex, RefCount},
-  types::{HScanResult, RedisKey, RedisValue, SScanResult, ScanResult, ZScanResult},
+  types::{
+    scan::{HScanResult, SScanResult, ScanResult, ZScanResult},
+    Key,
+    Value,
+  },
   utils as client_utils,
 };
 use bytes_utils::Str;
 use redis_protocol::resp3::types::{FrameKind, Resp3Frame as _Resp3Frame};
-use std::{fmt, fmt::Formatter, iter::repeat, mem, ops::DerefMut};
+use std::{fmt, fmt::Formatter, mem, ops::DerefMut};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
@@ -27,8 +31,6 @@ const LAST_CURSOR: &str = "0";
 
 pub enum ResponseKind {
   /// Throw away the response frame and last command in the command buffer.
-  ///
-  /// Note: The reader task will still unblock the router, if specified.
   ///
   /// Equivalent to `Respond(None)`.
   Skip,
@@ -129,9 +131,8 @@ impl ResponseKind {
   }
 
   pub fn new_buffer_with_size(expected: usize, tx: ResponseSender) -> Self {
-    let frames = repeat(Resp3Frame::Null).take(expected).collect();
     ResponseKind::Buffer {
-      frames: RefCount::new(Mutex::new(frames)),
+      frames: RefCount::new(Mutex::new(vec![Resp3Frame::Null; expected])),
       tx: RefCount::new(Mutex::new(Some(tx))),
       received: RefCount::new(AtomicUsize::new(0)),
       index: 0,
@@ -158,7 +159,7 @@ impl ResponseKind {
   }
 
   /// Respond with an error to the caller.
-  pub fn respond_with_error(&mut self, error: RedisError) {
+  pub fn respond_with_error(&mut self, error: Error) {
     if let Some(tx) = self.take_response_tx() {
       let _ = tx.send(Err(error));
     }
@@ -188,7 +189,7 @@ fn sample_latency(latency_stats: &RwLock<MovingStats>, sent: Instant) {
 
 /// Sample overall and network latency values for a command.
 #[cfg(feature = "metrics")]
-fn sample_command_latencies(inner: &RefCount<RedisClientInner>, command: &mut RedisCommand) {
+pub fn sample_command_latencies(inner: &RefCount<ClientInner>, command: &mut Command) {
   if let Some(sent) = command.network_start.take() {
     sample_latency(&inner.network_latency_stats, sent);
   }
@@ -196,27 +197,27 @@ fn sample_command_latencies(inner: &RefCount<RedisClientInner>, command: &mut Re
 }
 
 #[cfg(not(feature = "metrics"))]
-fn sample_command_latencies(_: &RefCount<RedisClientInner>, _: &mut RedisCommand) {}
+pub fn sample_command_latencies(_: &RefCount<ClientInner>, _: &mut Command) {}
 
 /// Update the client's protocol version codec version after receiving a non-error response to HELLO.
-fn update_protocol_version(inner: &RefCount<RedisClientInner>, command: &RedisCommand, frame: &Resp3Frame) {
+fn update_protocol_version(inner: &RefCount<ClientInner>, command: &Command, frame: &Resp3Frame) {
   if !matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
     let version = match command.kind {
-      RedisCommandKind::_Hello(ref version) => version,
-      RedisCommandKind::_HelloAllCluster(ref version) => version,
+      CommandKind::_Hello(ref version) => version,
+      CommandKind::_HelloAllCluster(ref version) => version,
       _ => return,
     };
 
     _debug!(inner, "Changing RESP version to {:?}", version);
-    // HELLO cannot be pipelined so this is safe
+    // HELLO is not pipelined so this is safe
     inner.switch_protocol_versions(version.clone());
   }
 }
 
 fn respond_locked(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   tx: &RefCount<Mutex<Option<ResponseSender>>>,
-  result: Result<Resp3Frame, RedisError>,
+  result: Result<Resp3Frame, Error>,
 ) {
   if let Some(tx) = tx.lock().take() {
     if let Err(_) = tx.send(result) {
@@ -225,26 +226,18 @@ fn respond_locked(
   }
 }
 
-fn add_buffered_frame(
+/// Add the provided frame to the response buffer.
+fn buffer_frame(
   server: &Server,
   buffer: &RefCount<Mutex<Vec<Resp3Frame>>>,
   index: usize,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   let mut guard = buffer.lock();
   let buffer_ref = guard.deref_mut();
 
   if index >= buffer_ref.len() {
-    debug!(
-      "({}) Unexpected buffer response array index: {}, len: {}",
-      server,
-      index,
-      buffer_ref.len()
-    );
-    return Err(RedisError::new(
-      RedisErrorKind::Unknown,
-      "Invalid buffer response index.",
-    ));
+    return Err(Error::new(ErrorKind::Unknown, "Invalid buffer response index."));
   }
 
   trace!(
@@ -275,14 +268,14 @@ fn merge_multiple_frames(frames: &mut Vec<Resp3Frame>, error_early: bool) -> Res
 }
 
 /// Parse the output of a command that scans keys.
-fn parse_key_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), RedisError> {
+fn parse_key_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<Key>), Error> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match protocol_utils::frame_to_str(&data[0]) {
+      let cursor = match protocol_utils::frame_to_str(data[0].clone()) {
         Some(s) => s,
         None => {
-          return Err(RedisError::new(
-            RedisErrorKind::Protocol,
+          return Err(Error::new(
+            ErrorKind::Protocol,
             "Expected first SCAN result element to be a bulk string.",
           ))
         },
@@ -292,11 +285,11 @@ fn parse_key_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), Redis
         let mut keys = Vec::with_capacity(data.len());
 
         for frame in data.into_iter() {
-          let key = match protocol_utils::frame_to_bytes(&frame) {
+          let key = match protocol_utils::frame_to_bytes(frame) {
             Some(s) => s,
             None => {
-              return Err(RedisError::new(
-                RedisErrorKind::Protocol,
+              return Err(Error::new(
+                ErrorKind::Protocol,
                 "Expected an array of strings from second SCAN result.",
               ))
             },
@@ -307,34 +300,31 @@ fn parse_key_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisKey>), Redis
 
         Ok((cursor, keys))
       } else {
-        Err(RedisError::new(
-          RedisErrorKind::Protocol,
+        Err(Error::new(
+          ErrorKind::Protocol,
           "Expected second SCAN result element to be an array.",
         ))
       }
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Protocol,
+      Err(Error::new(
+        ErrorKind::Protocol,
         "Expected two-element bulk string array from SCAN.",
       ))
     }
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::Protocol,
-      "Expected bulk string array from SCAN.",
-    ))
+    Err(Error::new(ErrorKind::Protocol, "Expected bulk string array from SCAN."))
   }
 }
 
 /// Parse the output of a command that scans values.
-fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), RedisError> {
+fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<Value>), Error> {
   if let Resp3Frame::Array { mut data, .. } = frame {
     if data.len() == 2 {
-      let cursor = match protocol_utils::frame_to_str(&data[0]) {
+      let cursor = match protocol_utils::frame_to_str(data[0].clone()) {
         Some(s) => s,
         None => {
-          return Err(RedisError::new(
-            RedisErrorKind::Protocol,
+          return Err(Error::new(
+            ErrorKind::Protocol,
             "Expected first result element to be a bulk string.",
           ))
         },
@@ -349,32 +339,32 @@ fn parse_value_scan_frame(frame: Resp3Frame) -> Result<(Str, Vec<RedisValue>), R
 
         Ok((cursor, values))
       } else {
-        Err(RedisError::new(
-          RedisErrorKind::Protocol,
+        Err(Error::new(
+          ErrorKind::Protocol,
           "Expected second result element to be an array.",
         ))
       }
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Protocol,
+      Err(Error::new(
+        ErrorKind::Protocol,
         "Expected two-element bulk string array.",
       ))
     }
   } else {
-    Err(RedisError::new(RedisErrorKind::Protocol, "Expected bulk string array."))
+    Err(Error::new(ErrorKind::Protocol, "Expected bulk string array."))
   }
 }
 
 /// Send the output to the caller of a command that scans values.
 fn send_value_scan_result(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   scanner: ValueScanInner,
-  command: &RedisCommand,
-  result: Vec<RedisValue>,
+  command: &Command,
+  result: Vec<Value>,
   can_continue: bool,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   match command.kind {
-    RedisCommandKind::Zscan => {
+    CommandKind::Zscan => {
       let tx = scanner.tx.clone();
       let results = ValueScanInner::transform_zscan_result(result)?;
 
@@ -385,11 +375,11 @@ fn send_value_scan_result(
         results: Some(results),
       });
 
-      if let Err(_) = tx.send(Ok(state)) {
+      if let Err(_) = tx.try_send(Ok(state)) {
         _warn!(inner, "Failed to send ZSCAN result to caller");
       }
     },
-    RedisCommandKind::Sscan => {
+    CommandKind::Sscan => {
       let tx = scanner.tx.clone();
 
       let state = ValueScanResult::SScan(SScanResult {
@@ -399,11 +389,11 @@ fn send_value_scan_result(
         results: Some(result),
       });
 
-      if let Err(_) = tx.send(Ok(state)) {
+      if let Err(_) = tx.try_send(Ok(state)) {
         _warn!(inner, "Failed to send SSCAN result to caller");
       }
     },
-    RedisCommandKind::Hscan => {
+    CommandKind::Hscan => {
       let tx = scanner.tx.clone();
       let results = ValueScanInner::transform_hscan_result(result)?;
 
@@ -414,13 +404,13 @@ fn send_value_scan_result(
         results: Some(results),
       });
 
-      if let Err(_) = tx.send(Ok(state)) {
+      if let Err(_) = tx.try_send(Ok(state)) {
         _warn!(inner, "Failed to send HSCAN result to caller");
       }
     },
     _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
+      return Err(Error::new(
+        ErrorKind::Unknown,
         "Invalid redis command. Expected HSCAN, SSCAN, or ZSCAN.",
       ))
     },
@@ -431,12 +421,12 @@ fn send_value_scan_result(
 
 /// Respond to the caller with the default response policy.
 pub fn respond_to_caller(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
-  mut command: RedisCommand,
+  mut command: Command,
   tx: ResponseSender,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   sample_command_latencies(inner, &mut command);
   _trace!(
     inner,
@@ -450,16 +440,15 @@ pub fn respond_to_caller(
   }
 
   let _ = tx.send(Ok(frame));
-  command.respond_to_router(inner, RouterResponse::Continue);
   Ok(())
 }
 
 /// Respond to the caller, assuming multiple response frames from the last command, storing intermediate responses in
 /// the shared buffer.
 pub fn respond_buffer(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
-  command: RedisCommand,
+  command: Command,
   received: RefCount<AtomicUsize>,
   expected: usize,
   error_early: bool,
@@ -467,7 +456,7 @@ pub fn respond_buffer(
   index: usize,
   tx: RefCount<Mutex<Option<ResponseSender>>>,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   _trace!(
     inner,
     "Handling `buffer` response from {} for {}. kind {:?}, Index: {}, ID: {}",
@@ -480,15 +469,13 @@ pub fn respond_buffer(
   let closes_connection = command.kind.closes_connection();
 
   // errors are buffered like normal frames and are not returned early
-  if let Err(e) = add_buffered_frame(server, &frames, index, frame) {
+  if let Err(e) = buffer_frame(server, &frames, index, frame) {
     if closes_connection {
       _debug!(inner, "Ignoring unexpected buffer response index from QUIT or SHUTDOWN");
-      respond_locked(inner, &tx, Err(RedisError::new_canceled()));
-      command.respond_to_router(inner, RouterResponse::Continue);
-      return Err(RedisError::new_canceled());
+      respond_locked(inner, &tx, Err(Error::new_canceled()));
+      return Err(Error::new_canceled());
     } else {
       respond_locked(inner, &tx, Err(e));
-      command.respond_to_router(inner, RouterResponse::Continue);
       _error!(
         inner,
         "Exiting early after unexpected buffer response index from {} with command {}, ID {}",
@@ -496,16 +483,10 @@ pub fn respond_buffer(
         command.kind.to_str_debug(),
         command.debug_id()
       );
-      return Err(RedisError::new(
-        RedisErrorKind::Unknown,
-        "Invalid buffer response index.",
-      ));
+      return Err(Error::new(ErrorKind::Unknown, "Invalid buffer response index."));
     }
   }
 
-  // this must come after adding the buffered frame. there's a potential race condition if this task is interrupted
-  // due to contention on the frame lock and another parallel task moves past the `received==expected` check before
-  // this task can add the frame to the buffer.
   let received = client_utils::incr_atomic(&received);
   if received == expected {
     _trace!(
@@ -519,24 +500,19 @@ pub fn respond_buffer(
     if matches!(frame.kind(), FrameKind::SimpleError | FrameKind::BlobError) {
       let err = match frame.as_str() {
         Some(s) => protocol_utils::pretty_error(s),
-        None => RedisError::new(
-          RedisErrorKind::Unknown,
-          "Unknown or invalid error from buffered frames.",
-        ),
+        None => Error::new(ErrorKind::Unknown, "Unknown or invalid error from buffered frames."),
       };
 
       respond_locked(inner, &tx, Err(err));
     } else {
       respond_locked(inner, &tx, Ok(frame));
     }
-    command.respond_to_router(inner, RouterResponse::Continue);
   } else {
-    // more responses are expected
     _trace!(
       inner,
-      "Waiting on {} more responses to all nodes command, ID: {}",
+      "({}) Waiting on {} more responses",
+      command.debug_id(),
       expected - received,
-      command.debug_id()
     );
     // this response type is shared across connections so we do not return the command to be re-queued
   }
@@ -546,12 +522,12 @@ pub fn respond_buffer(
 
 /// Respond to the caller of a key scanning operation.
 pub fn respond_key_scan(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
-  command: RedisCommand,
+  command: Command,
   mut scanner: KeyScanInner,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   _trace!(
     inner,
     "Handling `KeyScan` response from {} for {}",
@@ -562,14 +538,12 @@ pub fn respond_key_scan(
     Ok(result) => result,
     Err(e) => {
       scanner.send_error(e);
-      command.respond_to_router(inner, RouterResponse::Continue);
       return Ok(());
     },
   };
   let scan_stream = scanner.tx.clone();
   let can_continue = next_cursor != LAST_CURSOR;
   scanner.update_cursor(next_cursor);
-  command.respond_to_router(inner, RouterResponse::Continue);
 
   let scan_result = ScanResult {
     scan_state: Some(scanner),
@@ -577,7 +551,7 @@ pub fn respond_key_scan(
     results: Some(keys),
     can_continue,
   };
-  if let Err(_) = scan_stream.send(Ok(scan_result)) {
+  if let Err(_) = scan_stream.try_send(Ok(scan_result)) {
     _debug!(inner, "Error sending SCAN page.");
   }
 
@@ -585,12 +559,12 @@ pub fn respond_key_scan(
 }
 
 pub fn respond_key_scan_buffered(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
-  command: RedisCommand,
+  command: Command,
   mut scanner: KeyScanBufferedInner,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   _trace!(
     inner,
     "Handling `KeyScanBuffered` response from {} for {}",
@@ -602,40 +576,38 @@ pub fn respond_key_scan_buffered(
     Ok(result) => result,
     Err(e) => {
       scanner.send_error(e);
-      command.respond_to_router(inner, RouterResponse::Continue);
       return Ok(());
     },
   };
   let scan_stream = scanner.tx.clone();
   let can_continue = next_cursor != LAST_CURSOR;
   scanner.update_cursor(next_cursor);
-  command.respond_to_router(inner, RouterResponse::Continue);
 
   for key in keys.into_iter() {
-    if let Err(_) = scan_stream.send(Ok(key)) {
+    if let Err(_) = scan_stream.try_send(Ok(key)) {
       _debug!(inner, "Error sending SCAN key.");
       break;
     }
   }
-
   if can_continue {
-    let mut command = RedisCommand::new(RedisCommandKind::Scan, Vec::new());
+    let mut command = Command::new(CommandKind::Scan, Vec::new());
     command.response = ResponseKind::KeyScanBuffered(scanner);
     if let Err(e) = interfaces::default_send_command(inner, command) {
-      let _ = scan_stream.send(Err(e));
+      let _ = scan_stream.try_send(Err(e));
     };
   }
+
   Ok(())
 }
 
 /// Respond to the caller of a value scanning operation.
 pub fn respond_value_scan(
-  inner: &RefCount<RedisClientInner>,
+  inner: &RefCount<ClientInner>,
   server: &Server,
-  command: RedisCommand,
+  command: Command,
   mut scanner: ValueScanInner,
   frame: Resp3Frame,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   _trace!(
     inner,
     "Handling `ValueScan` response from {} for {}",
@@ -647,18 +619,16 @@ pub fn respond_value_scan(
     Ok(result) => result,
     Err(e) => {
       scanner.send_error(e);
-      command.respond_to_router(inner, RouterResponse::Continue);
       return Ok(());
     },
   };
   let scan_stream = scanner.tx.clone();
   let can_continue = next_cursor != LAST_CURSOR;
   scanner.update_cursor(next_cursor);
-  command.respond_to_router(inner, RouterResponse::Continue);
 
   _trace!(inner, "Sending value scan result with {} values", values.len());
   if let Err(e) = send_value_scan_result(inner, scanner, &command, values, can_continue) {
-    if let Err(_) = scan_stream.send(Err(e)) {
+    if let Err(_) = scan_stream.try_send(Err(e)) {
       _warn!(inner, "Error sending scan result.");
     }
   }

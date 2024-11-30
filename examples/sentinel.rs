@@ -1,11 +1,11 @@
 #![allow(clippy::disallowed_names)]
 #![allow(clippy::let_underscore_future)]
 
-use fred::{prelude::*, types::Server};
+use fred::{prelude::*, types::config::Server};
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  let config = RedisConfig {
+async fn main() -> Result<(), Error> {
+  let config = Config {
     server: ServerConfig::Sentinel {
       // the name of the service, as configured in the sentinel configuration
       service_name:                               "my-service-name".into(),

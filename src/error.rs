@@ -5,7 +5,6 @@ use semver::Error as SemverError;
 use std::{
   borrow::{Borrow, Cow},
   convert::Infallible,
-  error::Error,
   fmt,
   io::Error as IoError,
   num::{ParseFloatError, ParseIntError},
@@ -15,14 +14,16 @@ use std::{
 };
 use url::ParseError;
 
-/// An enum representing the type of error from Redis.
+/// An enum representing the type of error.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum RedisErrorKind {
-  /// A fatal client configuration error. These errors will shutdown a client and break out of any reconnection
+pub enum ErrorKind {
+  /// A fatal client configuration error. These errors will shut down a client and break out of any reconnection
   /// attempts.
   Config,
   /// An authentication error.
   Auth,
+  /// An error finding a server that should receive a command.
+  Routing,
   /// An IO error with the underlying connection.
   IO,
   /// An invalid command, such as trying to perform a `set` command on a client after calling `subscribe`.
@@ -72,223 +73,219 @@ pub enum RedisErrorKind {
   Replica,
 }
 
-impl RedisErrorKind {
+impl ErrorKind {
   pub fn to_str(&self) -> &'static str {
     match *self {
-      RedisErrorKind::Auth => "Authentication Error",
-      RedisErrorKind::IO => "IO Error",
-      RedisErrorKind::InvalidArgument => "Invalid Argument",
-      RedisErrorKind::InvalidCommand => "Invalid Command",
-      RedisErrorKind::Url => "Url Error",
-      RedisErrorKind::Protocol => "Protocol Error",
-      RedisErrorKind::Unknown => "Unknown Error",
-      RedisErrorKind::Canceled => "Canceled",
-      RedisErrorKind::Cluster => "Cluster Error",
-      RedisErrorKind::Timeout => "Timeout Error",
+      ErrorKind::Auth => "Authentication Error",
+      ErrorKind::IO => "IO Error",
+      ErrorKind::Routing => "Routing Error",
+      ErrorKind::InvalidArgument => "Invalid Argument",
+      ErrorKind::InvalidCommand => "Invalid Command",
+      ErrorKind::Url => "Url Error",
+      ErrorKind::Protocol => "Protocol Error",
+      ErrorKind::Unknown => "Unknown Error",
+      ErrorKind::Canceled => "Canceled",
+      ErrorKind::Cluster => "Cluster Error",
+      ErrorKind::Timeout => "Timeout Error",
       #[cfg(any(
         feature = "enable-native-tls",
         feature = "enable-rustls",
         feature = "enable-rustls-ring"
       ))]
-      RedisErrorKind::Tls => "TLS Error",
-      RedisErrorKind::Config => "Config Error",
-      RedisErrorKind::Parse => "Parse Error",
-      RedisErrorKind::Sentinel => "Sentinel Error",
-      RedisErrorKind::NotFound => "Not Found",
-      RedisErrorKind::Backpressure => "Backpressure",
+      ErrorKind::Tls => "TLS Error",
+      ErrorKind::Config => "Config Error",
+      ErrorKind::Parse => "Parse Error",
+      ErrorKind::Sentinel => "Sentinel Error",
+      ErrorKind::NotFound => "Not Found",
+      ErrorKind::Backpressure => "Backpressure",
       #[cfg(feature = "replicas")]
-      RedisErrorKind::Replica => "Replica",
+      ErrorKind::Replica => "Replica",
     }
   }
 }
 
-/// An error from Redis.
-pub struct RedisError {
+/// An error from the server or client.
+#[derive(Debug)]
+pub struct Error {
   /// Details about the specific error condition.
   details: Cow<'static, str>,
   /// The kind of error.
-  kind:    RedisErrorKind,
+  kind:    ErrorKind,
 }
 
-impl Clone for RedisError {
+impl Clone for Error {
   fn clone(&self) -> Self {
-    RedisError::new(self.kind.clone(), self.details.clone())
+    Error::new(self.kind.clone(), self.details.clone())
   }
 }
 
-impl PartialEq for RedisError {
+impl PartialEq for Error {
   fn eq(&self, other: &Self) -> bool {
     self.kind == other.kind && self.details == other.details
   }
 }
 
-impl Eq for RedisError {}
+impl Eq for Error {}
 
-impl fmt::Debug for RedisError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "Redis Error - kind: {:?}, details: {}", self.kind, self.details)
-  }
-}
-
-impl fmt::Display for RedisError {
+impl fmt::Display for Error {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "{}: {}", self.kind.to_str(), self.details)
   }
 }
 
 #[doc(hidden)]
-impl From<RedisProtocolError> for RedisError {
+impl From<RedisProtocolError> for Error {
   fn from(e: RedisProtocolError) -> Self {
-    RedisError::new(RedisErrorKind::Protocol, format!("{}", e))
+    Error::new(ErrorKind::Protocol, format!("{}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<()> for RedisError {
+impl From<()> for Error {
   fn from(_: ()) -> Self {
-    RedisError::new(RedisErrorKind::Canceled, "Empty error.")
+    Error::new(ErrorKind::Canceled, "Empty error.")
   }
 }
 
 #[doc(hidden)]
-impl From<futures::channel::mpsc::SendError> for RedisError {
+impl From<futures::channel::mpsc::SendError> for Error {
   fn from(e: futures::channel::mpsc::SendError) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
+    Error::new(ErrorKind::Unknown, format!("{}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<tokio::sync::oneshot::error::RecvError> for RedisError {
+impl From<tokio::sync::oneshot::error::RecvError> for Error {
   fn from(e: tokio::sync::oneshot::error::RecvError) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
+    Error::new(ErrorKind::Unknown, format!("{}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<tokio::sync::broadcast::error::RecvError> for RedisError {
+impl From<tokio::sync::broadcast::error::RecvError> for Error {
   fn from(e: tokio::sync::broadcast::error::RecvError) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
+    Error::new(ErrorKind::Unknown, format!("{}", e))
   }
 }
 
 #[doc(hidden)]
-impl<T: fmt::Display> From<tokio::sync::broadcast::error::SendError<T>> for RedisError {
+impl<T: fmt::Display> From<tokio::sync::broadcast::error::SendError<T>> for Error {
   fn from(e: tokio::sync::broadcast::error::SendError<T>) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("{}", e))
+    Error::new(ErrorKind::Unknown, format!("{}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<IoError> for RedisError {
+impl From<IoError> for Error {
   fn from(e: IoError) -> Self {
-    RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
+    Error::new(ErrorKind::IO, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<ParseError> for RedisError {
+impl From<ParseError> for Error {
   fn from(e: ParseError) -> Self {
-    RedisError::new(RedisErrorKind::Url, format!("{:?}", e))
+    Error::new(ErrorKind::Url, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<ParseFloatError> for RedisError {
+impl From<ParseFloatError> for Error {
   fn from(_: ParseFloatError) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid floating point number.")
+    Error::new(ErrorKind::Parse, "Invalid floating point number.")
   }
 }
 
 #[doc(hidden)]
-impl From<ParseIntError> for RedisError {
+impl From<ParseIntError> for Error {
   fn from(_: ParseIntError) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid integer string.")
+    Error::new(ErrorKind::Parse, "Invalid integer string.")
   }
 }
 
 #[doc(hidden)]
-impl From<FromUtf8Error> for RedisError {
+impl From<FromUtf8Error> for Error {
   fn from(_: FromUtf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
+    Error::new(ErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }
 
 #[doc(hidden)]
-impl From<Utf8Error> for RedisError {
+impl From<Utf8Error> for Error {
   fn from(_: Utf8Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, "Invalid UTF-8 string.")
+    Error::new(ErrorKind::Parse, "Invalid UTF-8 string.")
   }
 }
 
 #[doc(hidden)]
-impl<S> From<BytesUtf8Error<S>> for RedisError {
+impl<S> From<BytesUtf8Error<S>> for Error {
   fn from(e: BytesUtf8Error<S>) -> Self {
     e.utf8_error().into()
   }
 }
 
 #[doc(hidden)]
-impl From<fmt::Error> for RedisError {
+impl From<fmt::Error> for Error {
   fn from(e: fmt::Error) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("{:?}", e))
+    Error::new(ErrorKind::Unknown, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<Canceled> for RedisError {
+impl From<Canceled> for Error {
   fn from(e: Canceled) -> Self {
-    RedisError::new(RedisErrorKind::Canceled, format!("{}", e))
+    Error::new(ErrorKind::Canceled, format!("{}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(not(feature = "glommio"))]
-impl From<tokio::task::JoinError> for RedisError {
+impl From<tokio::task::JoinError> for Error {
   fn from(e: tokio::task::JoinError) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("Spawn Error: {:?}", e))
+    Error::new(ErrorKind::Unknown, format!("Spawn Error: {:?}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(feature = "glommio")]
-impl<T: fmt::Debug> From<glommio::GlommioError<T>> for RedisError {
+impl<T: fmt::Debug> From<glommio::GlommioError<T>> for Error {
   fn from(e: glommio::GlommioError<T>) -> Self {
-    RedisError::new(RedisErrorKind::Unknown, format!("{:?}", e))
+    Error::new(ErrorKind::Unknown, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(feature = "glommio")]
-impl From<oneshot::RecvError> for RedisError {
+impl From<oneshot::RecvError> for Error {
   fn from(_: oneshot::RecvError) -> Self {
-    RedisError::new_canceled()
+    Error::new_canceled()
   }
 }
 
 #[doc(hidden)]
-impl From<SemverError> for RedisError {
+impl From<SemverError> for Error {
   fn from(e: SemverError) -> Self {
-    RedisError::new(RedisErrorKind::Protocol, format!("Invalid Redis version: {:?}", e))
+    Error::new(ErrorKind::Protocol, format!("Invalid server version: {:?}", e))
   }
 }
 
 #[doc(hidden)]
-impl From<Infallible> for RedisError {
+impl From<Infallible> for Error {
   fn from(e: Infallible) -> Self {
     warn!("Infallible error: {:?}", e);
-    RedisError::new(RedisErrorKind::Unknown, "Unknown error.")
+    Error::new(ErrorKind::Unknown, "Unknown error.")
   }
 }
 
 #[doc(hidden)]
-impl From<Resp2Frame> for RedisError {
+impl From<Resp2Frame> for Error {
   fn from(e: Resp2Frame) -> Self {
     match e {
       Resp2Frame::SimpleString(s) => match str::from_utf8(&s).ok() {
-        Some("Canceled") => RedisError::new_canceled(),
-        _ => RedisError::new(RedisErrorKind::Unknown, "Unknown frame error."),
+        Some("Canceled") => Error::new_canceled(),
+        _ => Error::new(ErrorKind::Unknown, "Unknown frame error."),
       },
-      _ => RedisError::new(RedisErrorKind::Unknown, "Unknown frame error."),
+      _ => Error::new(ErrorKind::Unknown, "Unknown frame error."),
     }
   }
 }
@@ -296,75 +293,75 @@ impl From<Resp2Frame> for RedisError {
 #[doc(hidden)]
 #[cfg(feature = "enable-native-tls")]
 #[cfg_attr(docsrs, doc(cfg(feature = "enable-native-tls")))]
-impl From<native_tls::Error> for RedisError {
+impl From<native_tls::Error> for Error {
   fn from(e: native_tls::Error) -> Self {
-    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+    Error::new(ErrorKind::Tls, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
-impl From<rustls::pki_types::InvalidDnsNameError> for RedisError {
+impl From<rustls::pki_types::InvalidDnsNameError> for Error {
   fn from(e: rustls::pki_types::InvalidDnsNameError) -> Self {
-    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+    Error::new(ErrorKind::Tls, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))))]
-impl From<rustls::Error> for RedisError {
+impl From<rustls::Error> for Error {
   fn from(e: rustls::Error) -> Self {
-    RedisError::new(RedisErrorKind::Tls, format!("{:?}", e))
+    Error::new(ErrorKind::Tls, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(feature = "trust-dns-resolver")]
 #[cfg_attr(docsrs, doc(cfg(feature = "trust-dns-resolver")))]
-impl From<trust_dns_resolver::error::ResolveError> for RedisError {
+impl From<trust_dns_resolver::error::ResolveError> for Error {
   fn from(e: trust_dns_resolver::error::ResolveError) -> Self {
-    RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
+    Error::new(ErrorKind::IO, format!("{:?}", e))
   }
 }
 
 #[doc(hidden)]
 #[cfg(feature = "dns")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-impl From<hickory_resolver::error::ResolveError> for RedisError {
+impl From<hickory_resolver::error::ResolveError> for Error {
   fn from(e: hickory_resolver::error::ResolveError) -> Self {
-    RedisError::new(RedisErrorKind::IO, format!("{:?}", e))
+    Error::new(ErrorKind::IO, format!("{:?}", e))
   }
 }
 
 #[cfg(feature = "serde-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde-json")))]
-impl From<serde_json::Error> for RedisError {
+impl From<serde_json::Error> for Error {
   fn from(e: serde_json::Error) -> Self {
-    RedisError::new(RedisErrorKind::Parse, format!("{:?}", e))
+    Error::new(ErrorKind::Parse, format!("{:?}", e))
   }
 }
 
-impl RedisError {
-  /// Create a new Redis error with the provided details.
-  pub fn new<T>(kind: RedisErrorKind, details: T) -> RedisError
+impl Error {
+  /// Create a new error with the provided details.
+  pub fn new<T>(kind: ErrorKind, details: T) -> Error
   where
     T: Into<Cow<'static, str>>,
   {
-    RedisError {
+    Error {
       kind,
       details: details.into(),
     }
   }
 
   /// Read the type of error without any associated data.
-  pub fn kind(&self) -> &RedisErrorKind {
+  pub fn kind(&self) -> &ErrorKind {
     &self.kind
   }
 
   /// Change the kind of the error.
-  pub fn change_kind(&mut self, kind: RedisErrorKind) {
+  pub fn change_kind(&mut self, kind: ErrorKind) {
     self.kind = kind;
   }
 
@@ -375,7 +372,7 @@ impl RedisError {
 
   /// Create a new empty Canceled error.
   pub fn new_canceled() -> Self {
-    RedisError::new(RedisErrorKind::Canceled, "Canceled.")
+    Error::new(ErrorKind::Canceled, "Canceled.")
   }
 
   /// Create a new parse error with the provided details.
@@ -383,44 +380,54 @@ impl RedisError {
   where
     T: Into<Cow<'static, str>>,
   {
-    RedisError::new(RedisErrorKind::Parse, details)
+    Error::new(ErrorKind::Parse, details)
   }
 
   /// Create a new default backpressure error.
   pub(crate) fn new_backpressure() -> Self {
-    RedisError::new(RedisErrorKind::Backpressure, "Max in-flight commands reached.")
+    Error::new(ErrorKind::Backpressure, "Max in-flight commands reached.")
   }
 
   /// Whether reconnection logic should be skipped in all cases.
   pub(crate) fn should_not_reconnect(&self) -> bool {
-    matches!(self.kind, RedisErrorKind::Config | RedisErrorKind::Url)
+    matches!(self.kind, ErrorKind::Config | ErrorKind::Url)
   }
 
   /// Whether the error is a `Cluster` error.
   pub fn is_cluster(&self) -> bool {
-    matches!(self.kind, RedisErrorKind::Cluster)
+    matches!(self.kind, ErrorKind::Cluster)
   }
 
   /// Whether the error is a `Canceled` error.
   pub fn is_canceled(&self) -> bool {
-    matches!(self.kind, RedisErrorKind::Canceled)
+    matches!(self.kind, ErrorKind::Canceled)
   }
 
   /// Whether the error is a `Replica` error.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn is_replica(&self) -> bool {
-    matches!(self.kind, RedisErrorKind::Replica)
+    matches!(self.kind, ErrorKind::Replica)
   }
 
   /// Whether the error is a `NotFound` error.
   pub fn is_not_found(&self) -> bool {
-    matches!(self.kind, RedisErrorKind::NotFound)
+    matches!(self.kind, ErrorKind::NotFound)
+  }
+
+  /// Whether the error is a MOVED redirection.
+  pub fn is_moved(&self) -> bool {
+    self.is_cluster() && self.details.starts_with("MOVED")
+  }
+
+  /// Whether the error is an ASK redirection.
+  pub fn is_ask(&self) -> bool {
+    self.is_cluster() && self.details.starts_with("ASK")
   }
 }
 
-impl Error for RedisError {
-  fn source(&self) -> Option<&(dyn Error + 'static)> {
+impl std::error::Error for Error {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
     None
   }
 }

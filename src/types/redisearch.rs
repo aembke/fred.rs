@@ -1,5 +1,12 @@
 use crate::{
-  types::{GeoPosition, GeoUnit, Limit, RedisKey, RedisValue, SortOrder, ZRange},
+  types::{
+    geo::{GeoPosition, GeoUnit},
+    sorted_sets::ZRange,
+    Key,
+    Limit,
+    SortOrder,
+    Value,
+  },
   utils,
 };
 use bytes::Bytes;
@@ -191,7 +198,7 @@ impl FtAggregateOptions {
 
 /// Arguments for `FILTER` in `FT.SEARCH`.
 ///
-/// Callers should use the `*Score*` variants on any provided [ZRange](crate::types::ZRange) values.
+/// Callers should use the `*Score*` variants on any provided [ZRange](crate::types::sorted_sets::ZRange) values.
 #[derive(Clone, Debug)]
 pub struct SearchFilter {
   pub attribute: Str,
@@ -204,7 +211,7 @@ pub struct SearchFilter {
 pub struct SearchGeoFilter {
   pub attribute: Str,
   pub position:  GeoPosition,
-  pub radius:    RedisValue,
+  pub radius:    Value,
   pub units:     GeoUnit,
 }
 
@@ -247,7 +254,7 @@ pub struct FtSearchOptions {
   pub withsortkeys: bool,
   pub filters:      Vec<SearchFilter>,
   pub geofilters:   Vec<SearchGeoFilter>,
-  pub inkeys:       Vec<RedisKey>,
+  pub inkeys:       Vec<Key>,
   pub infields:     Vec<Str>,
   pub r#return:     Vec<SearchField>,
   pub summarize:    Option<SearchSummarize>,
@@ -432,7 +439,7 @@ pub enum SearchSchemaKind {
   },
   Custom {
     name:      Str,
-    arguments: Vec<RedisValue>,
+    arguments: Vec<Value>,
   },
 }
 

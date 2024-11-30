@@ -72,7 +72,7 @@ mod other {
   #[cfg(all(feature = "i-client", feature = "i-lists"))]
   centralized_test!(other, should_error_when_blocked);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
-  centralized_test!(other, should_smoke_test_from_redis_impl);
+  centralized_test!(other, should_smoke_test_from_value_impl);
   #[cfg(feature = "i-keys")]
   centralized_test!(other, should_pipeline_all);
   #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
@@ -133,7 +133,9 @@ mod hashes {
   centralized_test!(hashes, should_get_random_field);
   centralized_test!(hashes, should_get_strlen);
   centralized_test!(hashes, should_get_values);
+  #[cfg(feature = "i-hexpire")]
   centralized_test!(hashes, should_do_hash_expirations);
+  #[cfg(feature = "i-hexpire")]
   centralized_test!(hashes, should_do_hash_pexpirations);
 }
 
@@ -170,6 +172,8 @@ mod scanning {
   centralized_test!(scanning, should_scan_buffered);
   #[cfg(feature = "i-keys")]
   centralized_test!(scanning, should_continue_scanning_on_page_drop);
+  #[cfg(feature = "i-keys")]
+  centralized_test!(scanning, should_scan_by_page_centralized);
 }
 
 #[cfg(feature = "i-slowlog")]
@@ -183,12 +187,12 @@ mod slowlog {
 mod server {
   centralized_test!(server, should_flushall);
   centralized_test!(server, should_read_server_info);
-  centralized_test!(server, should_ping_server);
-  centralized_test!(server, should_run_custom_command);
+  centralized_test!(server, should_ping_pong_command);
   centralized_test!(server, should_read_last_save);
   centralized_test!(server, should_read_db_size);
   centralized_test!(server, should_start_bgsave);
   centralized_test!(server, should_do_bgrewriteaof);
+  centralized_test!(server, should_select_index_command);
 }
 
 #[cfg(feature = "i-sets")]
@@ -274,6 +278,7 @@ pub mod sorted_sets {
   centralized_test!(sorted_sets, should_zrangebyscore);
   centralized_test!(sorted_sets, should_zrevrangebyscore);
   centralized_test!(sorted_sets, should_zrank_values);
+  centralized_test!(sorted_sets, should_zrank_values_withscore);
   centralized_test!(sorted_sets, should_zrem_values);
   centralized_test!(sorted_sets, should_zremrangebylex);
   centralized_test!(sorted_sets, should_zremrangebyrank);

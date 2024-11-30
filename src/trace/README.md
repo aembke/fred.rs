@@ -42,7 +42,6 @@ Tracing levels for the two tracing features can be configured separately through
 | cmd.req       | The size (in bytes) of the command's arguments.                    |
 | cmd.res       | The size (in bytes) of the command's response.                     |
 | cmd.args      | The number of arguments being sent to the server.                  |
-| cmd.pipelined | Whether the command was pipelined.                                 |
 | cmd.flush     | Whether the socket was flushed while sending the command.          |
 | msg.channel   | The channel on which a pubsub message was received.                |
 | duration      | The duration of a pause, in milliseconds, of a backpressure event. |

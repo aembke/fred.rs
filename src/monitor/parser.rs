@@ -1,4 +1,4 @@
-use crate::{modules::inner::RedisClientInner, monitor::Command, runtime::RefCount, types::RedisValue};
+use crate::{modules::inner::ClientInner, monitor::MonitorCommand, runtime::RefCount, types::Value};
 use nom::{
   bytes::complete::{escaped as nom_escaped, tag as nom_tag, take as nom_take, take_until as nom_take_until},
   character::complete::none_of as nom_none_of,
@@ -27,12 +27,12 @@ fn to_u8(s: &str) -> Result<u8, RedisParseError<&[u8]>> {
     .map_err(|e| RedisParseError::new_custom("to_u8", format!("{:?}", e)))
 }
 
-fn to_redis_value(s: &[u8]) -> Result<RedisValue, RedisParseError<&[u8]>> {
+fn to_redis_value(s: &[u8]) -> Result<Value, RedisParseError<&[u8]>> {
   // TODO make this smarter in the future
   if let Ok(value) = str::from_utf8(s) {
-    Ok(RedisValue::String(value.into()))
+    Ok(Value::String(value.into()))
   } else {
-    Ok(RedisValue::Bytes(s.to_vec().into()))
+    Ok(Value::Bytes(s.to_vec().into()))
   }
 }
 
@@ -78,7 +78,7 @@ fn d_parse_command(input: &[u8]) -> IResult<&[u8], String, RedisParseError<&[u8]
   Ok((input, command.to_owned()))
 }
 
-fn d_parse_arg(input: &[u8]) -> IResult<&[u8], RedisValue, RedisParseError<&[u8]>> {
+fn d_parse_arg(input: &[u8]) -> IResult<&[u8], Value, RedisParseError<&[u8]>> {
   let escaped_parser = nom_escaped(nom_none_of("\\\""), '\\', nom_tag(QUOTE));
   nom_map_res(
     nom_terminated(
@@ -89,18 +89,18 @@ fn d_parse_arg(input: &[u8]) -> IResult<&[u8], RedisValue, RedisParseError<&[u8]
   )(input)
 }
 
-fn d_parse_args(input: &[u8]) -> IResult<&[u8], Vec<RedisValue>, RedisParseError<&[u8]>> {
+fn d_parse_args(input: &[u8]) -> IResult<&[u8], Vec<Value>, RedisParseError<&[u8]>> {
   nom_many0(d_parse_arg)(input)
 }
 
-fn d_parse_frame(input: &[u8]) -> Result<Command, RedisParseError<&[u8]>> {
+fn d_parse_frame(input: &[u8]) -> Result<MonitorCommand, RedisParseError<&[u8]>> {
   let (input, timestamp) = d_parse_timestamp(input)?;
   let (input, db) = d_parse_db(input)?;
   let (input, client) = d_parse_client(input)?;
   let (input, command) = d_parse_command(input)?;
   let (_, args) = d_parse_args(input)?;
 
-  Ok(Command {
+  Ok(MonitorCommand {
     timestamp,
     db,
     client,
@@ -110,7 +110,7 @@ fn d_parse_frame(input: &[u8]) -> Result<Command, RedisParseError<&[u8]>> {
 }
 
 #[cfg(feature = "network-logs")]
-fn log_frame(inner: &RefCount<RedisClientInner>, frame: &[u8]) {
+fn log_frame(inner: &RefCount<ClientInner>, frame: &[u8]) {
   if let Ok(s) = str::from_utf8(frame) {
     _trace!(inner, "Monitor frame: {}", s);
   } else {
@@ -119,9 +119,9 @@ fn log_frame(inner: &RefCount<RedisClientInner>, frame: &[u8]) {
 }
 
 #[cfg(not(feature = "network-logs"))]
-fn log_frame(_: &RefCount<RedisClientInner>, _: &[u8]) {}
+fn log_frame(_: &RefCount<ClientInner>, _: &[u8]) {}
 
-pub fn parse(inner: &RefCount<RedisClientInner>, frame: Resp3Frame) -> Option<Command> {
+pub fn parse(inner: &RefCount<ClientInner>, frame: Resp3Frame) -> Option<MonitorCommand> {
   let frame_bytes = match frame {
     Resp3Frame::SimpleString { ref data, .. } => data,
     Resp3Frame::BlobString { ref data, .. } => data,
@@ -138,12 +138,12 @@ pub fn parse(inner: &RefCount<RedisClientInner>, frame: Resp3Frame) -> Option<Co
 
 #[cfg(test)]
 mod tests {
-  use crate::monitor::{parser::d_parse_frame, Command};
+  use crate::monitor::{parser::d_parse_frame, MonitorCommand};
 
   #[test]
   fn should_parse_frame_without_spaces_or_quotes() {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"SET\" \"foo\" \"2\"";
-    let expected = Command {
+    let expected = MonitorCommand {
       timestamp: 1631469940.785623,
       db:        0,
       client:    "127.0.0.1:46998".into(),
@@ -158,7 +158,7 @@ mod tests {
   #[test]
   fn should_parse_frame_with_inner_spaces() {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"SET\" \"foo bar\" \"2\"";
-    let expected = Command {
+    let expected = MonitorCommand {
       timestamp: 1631469940.785623,
       db:        0,
       client:    "127.0.0.1:46998".into(),
@@ -174,7 +174,7 @@ mod tests {
   fn should_parse_frame_with_inner_quotes() {
     let input = "1631475365.563304 [0 127.0.0.1:47438] \"SET\" \"foo\" \"0 - \\\"abc\\\"\" \"1 - \\\"def\\\"\" \"2 \
                  - \\\"ghi\\\" \\\"jkl\\\"\"";
-    let expected = Command {
+    let expected = MonitorCommand {
       timestamp: 1631475365.563304,
       db:        0,
       client:    "127.0.0.1:47438".into(),
@@ -194,7 +194,7 @@ mod tests {
   #[test]
   fn should_parse_frame_without_args() {
     let input = "1631469940.785623 [0 127.0.0.1:46998] \"KEYS\"";
-    let expected = Command {
+    let expected = MonitorCommand {
       timestamp: 1631469940.785623,
       db:        0,
       client:    "127.0.0.1:46998".into(),

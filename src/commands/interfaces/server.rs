@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, Server},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{config::Server, FromValue, Value},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -13,9 +13,9 @@ pub trait ServerInterface: ClientLike {
   /// Instruct Redis to start an Append Only File rewrite process.
   ///
   /// <https://redis.io/commands/bgrewriteaof>
-  fn bgrewriteaof<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn bgrewriteaof<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::bgrewriteaof(self).await?.convert() }
   }
@@ -23,9 +23,9 @@ pub trait ServerInterface: ClientLike {
   /// Save the DB in background.
   ///
   /// <https://redis.io/commands/bgsave>
-  fn bgsave<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn bgsave<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::bgsave(self).await?.convert() }
   }
@@ -33,9 +33,9 @@ pub trait ServerInterface: ClientLike {
   /// Return the number of keys in the selected database.
   ///
   /// <https://redis.io/commands/dbsize>
-  fn dbsize<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn dbsize<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::dbsize(self).await?.convert() }
   }
@@ -43,8 +43,15 @@ pub trait ServerInterface: ClientLike {
   /// Select the database this client should use.
   ///
   /// <https://redis.io/commands/select>
-  fn select(&self, db: u8) -> impl Future<Output = RedisResult<()>> + Send {
-    async move { commands::server::select(self, db).await?.convert() }
+  fn select<I>(&self, index: I) -> impl Future<Output = FredResult<()>> + Send
+  where
+    I: TryInto<Value> + Send,
+    I::Error: Into<Error> + Send,
+  {
+    async move {
+      try_into!(index);
+      commands::server::select(self, index).await?.convert()
+    }
   }
 
   /// This command will start a coordinated failover between the currently-connected-to master and one of its
@@ -57,16 +64,16 @@ pub trait ServerInterface: ClientLike {
     force: bool,
     abort: bool,
     timeout: Option<u32>,
-  ) -> impl Future<Output = RedisResult<()>> + Send {
+  ) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::server::failover(self, to, force, abort, timeout).await }
   }
 
   /// Return the UNIX TIME of the last DB save executed with success.
   ///
   /// <https://redis.io/commands/lastsave>
-  fn lastsave<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn lastsave<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::lastsave(self).await?.convert() }
   }
@@ -76,9 +83,9 @@ pub trait ServerInterface: ClientLike {
   /// reached, the command returns even if the specified number of replicas were not yet reached.
   ///
   /// <https://redis.io/commands/wait/>
-  fn wait<R>(&self, numreplicas: i64, timeout: i64) -> impl Future<Output = Result<R, RedisError>> + Send
+  fn wait<R>(&self, numreplicas: i64, timeout: i64) -> impl Future<Output = Result<R, Error>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::server::wait(self, numreplicas, timeout).await?.convert() }
   }

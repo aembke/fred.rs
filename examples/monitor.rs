@@ -7,9 +7,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let monitor_jh = tokio::spawn(async move {
-    let config = RedisConfig::default();
+    let config = Config::default();
     let mut monitor_stream = monitor::run(config).await?;
 
     while let Some(command) = monitor_stream.next().await {
@@ -17,10 +17,10 @@ async fn main() -> Result<(), RedisError> {
       println!("{}", command);
     }
 
-    Ok::<(), RedisError>(())
+    Ok::<(), Error>(())
   });
 
-  let client = RedisClient::default();
+  let client = Client::default();
   client.init().await?;
 
   for idx in 0 .. 50 {

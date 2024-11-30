@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
-  clients::RedisClient,
+  clients::Client,
   error::*,
   interfaces,
-  modules::inner::RedisClientInner,
-  prelude::Resp3Frame,
+  modules::inner::ClientInner,
+  prelude::{Resp3Frame, ServerConfig},
   protocol::{
-    command::{RedisCommand, RedisCommandKind, RouterCommand},
+    command::{Command, CommandKind, RouterCommand},
     responders::ResponseKind,
     utils as protocol_utils,
   },
@@ -16,41 +16,28 @@ use crate::{
 };
 use bytes_utils::Str;
 
-pub async fn active_connections<C: ClientLike>(client: &C) -> Result<Vec<Server>, RedisError> {
-  let (tx, rx) = oneshot_channel();
-  let command = RouterCommand::Connections { tx };
-  interfaces::send_to_router(client.inner(), command)?;
-
-  rx.await.map_err(|e| e.into())
-}
-
-pub async fn quit<C: ClientLike>(client: &C) -> Result<(), RedisError> {
+pub async fn quit<C: ClientLike>(client: &C) -> Result<(), Error> {
   let inner = client.inner().clone();
   _debug!(inner, "Closing Redis connection with Quit command.");
 
   let (tx, rx) = oneshot_channel();
-  let mut command: RedisCommand = if inner.config.server.is_clustered() {
-    let response = ResponseKind::new_buffer(tx);
-    (RedisCommandKind::Quit, vec![], response).into()
-  } else {
-    let response = ResponseKind::Respond(Some(tx));
-    (RedisCommandKind::Quit, vec![], response).into()
-  };
-  utils::set_client_state(&inner.state, ClientState::Disconnecting);
-  inner.notifications.broadcast_close();
+  let response = ResponseKind::Respond(Some(tx));
+  let mut command: Command = (CommandKind::Quit, vec![], response).into();
 
+  inner.set_client_state(ClientState::Disconnecting);
+  inner.notifications.broadcast_close();
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
   let _ = utils::timeout(rx, timeout_dur).await??;
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
-  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
+  inner.backchannel.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }
 
-pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -> Result<(), RedisError> {
+pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -> Result<(), Error> {
   let inner = client.inner().clone();
   _debug!(inner, "Shutting down server.");
 
@@ -60,14 +47,14 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
     Vec::new()
   };
   let (tx, rx) = oneshot_channel();
-  let mut command: RedisCommand = if inner.config.server.is_clustered() {
+  let mut command: Command = if inner.config.server.is_clustered() {
     let response = ResponseKind::new_buffer(tx);
-    (RedisCommandKind::Shutdown, args, response).into()
+    (CommandKind::Shutdown, args, response).into()
   } else {
     let response = ResponseKind::Respond(Some(tx));
-    (RedisCommandKind::Shutdown, args, response).into()
+    (CommandKind::Shutdown, args, response).into()
   };
-  utils::set_client_state(&inner.state, ClientState::Disconnecting);
+  inner.set_client_state(ClientState::Disconnecting);
   inner.notifications.broadcast_close();
 
   let timeout_dur = utils::prepare_command(client, &mut command);
@@ -76,18 +63,15 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
   inner
     .notifications
     .close_public_receivers(inner.with_perf_config(|c| c.broadcast_channel_capacity));
-  inner.backchannel.write().await.check_and_disconnect(&inner, None).await;
+  inner.backchannel.check_and_disconnect(&inner, None).await;
 
   Ok(())
 }
 
 /// Create a new client struct for each unique primary cluster node based on the cached cluster state.
-pub fn split(inner: &RefCount<RedisClientInner>) -> Result<Vec<RedisClient>, RedisError> {
+pub fn split(inner: &RefCount<ClientInner>) -> Result<Vec<Client>, Error> {
   if !inner.config.server.is_clustered() {
-    return Err(RedisError::new(
-      RedisErrorKind::Config,
-      "Expected clustered redis deployment.",
-    ));
+    return Err(Error::new(ErrorKind::Config, "Expected clustered redis deployment."));
   }
   let servers = inner.with_cluster_state(|state| Ok(state.unique_primary_nodes()))?;
   _debug!(inner, "Unique primary nodes in split: {:?}", servers);
@@ -102,13 +86,13 @@ pub fn split(inner: &RefCount<RedisClientInner>) -> Result<Vec<RedisClient>, Red
         let policy = inner.reconnect_policy();
         let connection = inner.connection_config();
 
-        RedisClient::new(config, Some(perf), Some(connection), policy)
+        Client::new(config, Some(perf), Some(connection), policy)
       })
       .collect(),
   )
 }
 
-pub async fn force_reconnection(inner: &RefCount<RedisClientInner>) -> Result<(), RedisError> {
+pub async fn force_reconnection(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   let (tx, rx) = oneshot_channel();
   let command = RouterCommand::Reconnect {
     server:                               None,
@@ -122,21 +106,21 @@ pub async fn force_reconnection(inner: &RefCount<RedisClientInner>) -> Result<()
   rx.await?.map(|_| ())
 }
 
-pub async fn flushall<C: ClientLike>(client: &C, r#async: bool) -> Result<RedisValue, RedisError> {
+pub async fn flushall<C: ClientLike>(client: &C, r#async: bool) -> Result<Value, Error> {
   let args = if r#async { vec![static_val!(ASYNC)] } else { Vec::new() };
-  let frame = utils::request_response(client, move || Ok((RedisCommandKind::FlushAll, args))).await?;
+  let frame = utils::request_response(client, move || Ok((CommandKind::FlushAll, args))).await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisError> {
+pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), Error> {
   if !client.inner().config.server.is_clustered() {
     return flushall(client, false).await.map(|_| ());
   }
 
   let (tx, rx) = oneshot_channel();
-  let response = ResponseKind::new_buffer(tx);
-  let mut command: RedisCommand = (RedisCommandKind::_FlushAllCluster, vec![], response).into();
+  let response = ResponseKind::Respond(Some(tx));
+  let mut command: Command = (CommandKind::_FlushAllCluster, vec![], response).into();
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
 
@@ -144,24 +128,29 @@ pub async fn flushall_cluster<C: ClientLike>(client: &C) -> Result<(), RedisErro
   Ok(())
 }
 
-pub async fn ping<C: ClientLike>(client: &C) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(client, || Ok((RedisCommandKind::Ping, vec![]))).await?;
+pub async fn ping<C: ClientLike>(client: &C, message: Option<String>) -> Result<Value, Error> {
+  let mut args = Vec::with_capacity(1);
+  if let Some(message) = message {
+    args.push(message.into());
+  }
+
+  let frame = utils::request_response(client, || Ok((CommandKind::Ping, args))).await?;
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn select<C: ClientLike>(client: &C, db: u8) -> Result<RedisValue, RedisError> {
-  let frame = utils::request_response(client, || Ok((RedisCommandKind::Select, vec![(db as i64).into()]))).await?;
+pub async fn select<C: ClientLike>(client: &C, index: Value) -> Result<Value, Error> {
+  let frame = utils::request_response(client, || Ok((CommandKind::Select, vec![index]))).await?;
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn info<C: ClientLike>(client: &C, section: Option<InfoKind>) -> Result<RedisValue, RedisError> {
+pub async fn info<C: ClientLike>(client: &C, section: Option<InfoKind>) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1);
     if let Some(section) = section {
       args.push(section.to_str().into());
     }
 
-    Ok((RedisCommandKind::Info, args))
+    Ok((CommandKind::Info, args))
   })
   .await?;
 
@@ -173,7 +162,7 @@ pub async fn hello<C: ClientLike>(
   version: RespVersion,
   auth: Option<(Str, Str)>,
   setname: Option<Str>,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   let mut args = if let Some((username, password)) = auth {
     vec![username.into(), password.into()]
   } else {
@@ -185,21 +174,21 @@ pub async fn hello<C: ClientLike>(
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let mut command: RedisCommand = RedisCommandKind::_HelloAllCluster(version).into();
-    command.response = ResponseKind::new_buffer(tx);
+    let mut command: Command = CommandKind::_HelloAllCluster(version).into();
+    command.response = ResponseKind::Respond(Some(tx));
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
     let _ = utils::timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
-    let frame = utils::request_response(client, move || Ok((RedisCommandKind::_Hello(version), args))).await?;
+    let frame = utils::request_response(client, move || Ok((CommandKind::_Hello(version), args))).await?;
     let _ = protocol_utils::frame_to_results(frame)?;
     Ok(())
   }
 }
 
-pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password: Str) -> Result<(), RedisError> {
+pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password: Str) -> Result<(), Error> {
   let mut args = Vec::with_capacity(2);
   if let Some(username) = username {
     args.push(username.into());
@@ -208,35 +197,31 @@ pub async fn auth<C: ClientLike>(client: &C, username: Option<String>, password:
 
   if client.inner().config.server.is_clustered() {
     let (tx, rx) = oneshot_channel();
-    let response = ResponseKind::new_buffer(tx);
-    let mut command: RedisCommand = (RedisCommandKind::_AuthAllCluster, args, response).into();
+    let response = ResponseKind::Respond(Some(tx));
+    let mut command: Command = (CommandKind::_AuthAllCluster, args, response).into();
 
     let timeout_dur = utils::prepare_command(client, &mut command);
     client.send_command(command)?;
     let _ = utils::timeout(rx, timeout_dur).await??;
     Ok(())
   } else {
-    let frame = utils::request_response(client, move || Ok((RedisCommandKind::Auth, args))).await?;
+    let frame = utils::request_response(client, move || Ok((CommandKind::Auth, args))).await?;
 
     let response = protocol_utils::frame_to_results(frame)?;
     protocol_utils::expect_ok(&response)
   }
 }
 
-pub async fn custom<C: ClientLike>(
-  client: &C,
-  cmd: CustomCommand,
-  args: Vec<RedisValue>,
-) -> Result<RedisValue, RedisError> {
-  args_values_cmd(client, RedisCommandKind::_Custom(cmd), args).await
+pub async fn custom<C: ClientLike>(client: &C, cmd: CustomCommand, args: Vec<Value>) -> Result<Value, Error> {
+  args_values_cmd(client, CommandKind::_Custom(cmd), args).await
 }
 
 pub async fn custom_raw<C: ClientLike>(
   client: &C,
   cmd: CustomCommand,
-  args: Vec<RedisValue>,
-) -> Result<Resp3Frame, RedisError> {
-  utils::request_response(client, move || Ok((RedisCommandKind::_Custom(cmd), args))).await
+  args: Vec<Value>,
+) -> Result<Resp3Frame, Error> {
+  utils::request_response(client, move || Ok((CommandKind::_Custom(cmd), args))).await
 }
 
 #[cfg(feature = "i-server")]
@@ -253,7 +238,7 @@ pub async fn failover<C: ClientLike>(
   force: bool,
   abort: bool,
   timeout: Option<u32>,
-) -> Result<(), RedisError> {
+) -> Result<(), Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(7);
     if let Some((host, port)) = to {
@@ -272,7 +257,7 @@ pub async fn failover<C: ClientLike>(
       args.push(timeout.into());
     }
 
-    Ok((RedisCommandKind::Failover, args))
+    Ok((CommandKind::Failover, args))
   })
   .await?;
 
@@ -284,9 +269,9 @@ pub async fn failover<C: ClientLike>(
 value_cmd!(lastsave, LastSave);
 
 #[cfg(feature = "i-server")]
-pub async fn wait<C: ClientLike>(client: &C, numreplicas: i64, timeout: i64) -> Result<RedisValue, RedisError> {
+pub async fn wait<C: ClientLike>(client: &C, numreplicas: i64, timeout: i64) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
-    Ok((RedisCommandKind::Wait, vec![numreplicas.into(), timeout.into()]))
+    Ok((CommandKind::Wait, vec![numreplicas.into(), timeout.into()]))
   })
   .await?;
 

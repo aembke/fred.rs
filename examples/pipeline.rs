@@ -4,17 +4,15 @@
 use fred::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  // the `auto_pipeline` config option determines whether the client will pipeline commands across tasks.
-  // this example shows how to pipeline commands within one task.
-  let client = RedisClient::default();
+async fn main() -> Result<(), Error> {
+  let client = Client::default();
   client.init().await?;
 
   let pipeline = client.pipeline();
   // commands are queued in memory
-  let result: RedisValue = pipeline.incr("foo").await?;
+  let result: Value = pipeline.incr("foo").await?;
   assert!(result.is_queued());
-  let result: RedisValue = pipeline.incr("foo").await?;
+  let result: Value = pipeline.incr("foo").await?;
   assert!(result.is_queued());
 
   // send the pipeline and return all the results in order

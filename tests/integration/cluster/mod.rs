@@ -1,9 +1,9 @@
 #![allow(unused_imports)]
-use fred::{error::RedisError, interfaces::*, prelude::RedisClient, types::RedisConfig};
+use fred::{error::Error, interfaces::*, prelude::Client, types::config::Config};
 
 #[cfg(all(feature = "i-cluster", feature = "i-client"))]
-pub async fn should_use_each_cluster_node(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
-  let connections = client.active_connections().await?;
+pub async fn should_use_each_cluster_node(client: Client, _: Config) -> Result<(), Error> {
+  let connections = client.active_connections();
 
   let mut servers = Vec::new();
   for server in connections.iter() {

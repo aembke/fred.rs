@@ -20,15 +20,15 @@ use tokio_stream::wrappers::BroadcastStream;
 /// how one might combine multiple receiver streams in a `RedisPool` to minimize the overhead of new tokio tasks for
 /// each underlying client.
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let client = Builder::default_centralized().build()?;
 
   // use the on_* functions
-  let _reconnect_task = client.on_reconnect(|server| {
+  let _reconnect_task = client.on_reconnect(|server| async move {
     println!("Reconnected to {}", server);
     Ok(())
   });
-  let _error_task = client.on_error(|error| {
+  let _error_task = client.on_error(|error| async move {
     println!("Connection error: {:?}", error);
     Ok(())
   });
@@ -59,7 +59,7 @@ async fn main() -> Result<(), RedisError> {
 
 /// Shows how to combine multiple event streams from multiple clients into one tokio task.
 #[allow(dead_code)]
-async fn setup_pool() -> Result<(), RedisError> {
+async fn setup_pool() -> Result<(), Error> {
   let pool = Builder::default_centralized().build_pool(5)?;
 
   // `select_all` does most of the work here but requires that the channel receivers implement `Stream`. the

@@ -1,31 +1,29 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  monitor::{parser, Command},
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  monitor::{parser, MonitorCommand},
   protocol::{
-    codec::RedisCodec,
-    command::{RedisCommand, RedisCommandKind},
-    connection::{self, ConnectionKind, RedisTransport},
+    codec::Codec,
+    command::{Command, CommandKind},
+    connection::{self, ConnectionKind, ExclusiveConnection},
     types::ProtocolFrame,
     utils as protocol_utils,
   },
-  runtime::{spawn, unbounded_channel, RefCount, UnboundedSender},
-  types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
+  runtime::{channel, spawn, RefCount, Sender},
+  types::config::{Config, ConnectionConfig, PerformanceConfig, ServerConfig},
 };
-use futures::stream::{Stream, StreamExt};
+use futures::stream::{Peekable, Stream, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
 use redis_protocol::resp3::types::Resp3Frame;
-#[cfg(not(feature = "glommio"))]
-use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[cfg(all(feature = "blocking-encoding", not(feature = "glommio")))]
 async fn handle_monitor_frame(
-  inner: &RefCount<RedisClientInner>,
-  frame: Result<ProtocolFrame, RedisError>,
-) -> Option<Command> {
+  inner: &RefCount<ClientInner>,
+  frame: Result<ProtocolFrame, Error>,
+) -> Option<MonitorCommand> {
   let frame = match frame {
     Ok(frame) => frame.into_resp3(),
     Err(e) => {
@@ -33,7 +31,7 @@ async fn handle_monitor_frame(
       return None;
     },
   };
-  let frame_size = frame.encode_len();
+  let frame_size = frame.encode_len(true);
 
   if frame_size >= inner.with_perf_config(|c| c.blocking_encode_threshold) {
     // since this isn't called from the Encoder/Decoder trait we can use spawn_blocking here
@@ -55,9 +53,9 @@ async fn handle_monitor_frame(
 
 #[cfg(any(not(feature = "blocking-encoding"), feature = "glommio"))]
 async fn handle_monitor_frame(
-  inner: &RefCount<RedisClientInner>,
-  frame: Result<ProtocolFrame, RedisError>,
-) -> Option<Command> {
+  inner: &RefCount<ClientInner>,
+  frame: Result<ProtocolFrame, Error>,
+) -> Option<MonitorCommand> {
   let frame = match frame {
     Ok(frame) => frame.into_resp3(),
     Err(e) => {
@@ -70,12 +68,12 @@ async fn handle_monitor_frame(
 }
 
 async fn send_monitor_command(
-  inner: &RefCount<RedisClientInner>,
-  mut connection: RedisTransport,
-) -> Result<RedisTransport, RedisError> {
+  inner: &RefCount<ClientInner>,
+  mut connection: ExclusiveConnection,
+) -> Result<ExclusiveConnection, Error> {
   _debug!(inner, "Sending MONITOR command.");
 
-  let command = RedisCommand::new(RedisCommandKind::Monitor, vec![]);
+  let command = Command::new(CommandKind::Monitor, vec![]);
   let frame = connection.request_response(command, inner.is_resp3()).await?;
 
   _trace!(inner, "Recv MONITOR response: {:?}", frame);
@@ -85,15 +83,15 @@ async fn send_monitor_command(
 }
 
 async fn forward_results<T>(
-  inner: &RefCount<RedisClientInner>,
-  tx: UnboundedSender<Command>,
-  mut framed: Framed<T, RedisCodec>,
+  inner: &RefCount<ClientInner>,
+  tx: Sender<MonitorCommand>,
+  mut framed: Peekable<Framed<T, Codec>>,
 ) where
   T: AsyncRead + AsyncWrite + Unpin + 'static,
 {
   while let Some(frame) = framed.next().await {
     if let Some(command) = handle_monitor_frame(inner, frame).await {
-      if let Err(_) = tx.send(command) {
+      if let Err(_) = tx.try_send(command) {
         _warn!(inner, "Stopping monitor stream.");
         return;
       }
@@ -103,16 +101,12 @@ async fn forward_results<T>(
   }
 }
 
-async fn process_stream(
-  inner: &RefCount<RedisClientInner>,
-  tx: UnboundedSender<Command>,
-  connection: RedisTransport,
-) {
+async fn process_stream(inner: &RefCount<ClientInner>, tx: Sender<MonitorCommand>, connection: ExclusiveConnection) {
   _debug!(inner, "Starting monitor stream processing...");
 
   match connection.transport {
     ConnectionKind::Tcp(framed) => forward_results(inner, tx, framed).await,
-    #[cfg(feature = "enable-rustls")]
+    #[cfg(any(feature = "enable-rustls", feature = "enable-rustls-ring"))]
     ConnectionKind::Rustls(framed) => forward_results(inner, tx, framed).await,
     #[cfg(feature = "enable-native-tls")]
     ConnectionKind::NativeTls(framed) => forward_results(inner, tx, framed).await,
@@ -123,23 +117,14 @@ async fn process_stream(
   _warn!(inner, "Stopping monitor stream.");
 }
 
-pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, RedisError> {
-  let perf = PerformanceConfig {
-    auto_pipeline: false,
-    ..Default::default()
-  };
+pub async fn start(config: Config) -> Result<impl Stream<Item = MonitorCommand>, Error> {
   let connection = ConnectionConfig::default();
   let server = match config.server {
     ServerConfig::Centralized { ref server } => server.clone(),
-    _ => {
-      return Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Expected centralized server config.",
-      ))
-    },
+    _ => return Err(Error::new(ErrorKind::Config, "Expected centralized server config.")),
   };
 
-  let inner = RedisClientInner::new(config, perf, connection, None);
+  let inner = ClientInner::new(config, PerformanceConfig::default(), connection, None);
   let mut connection = connection::create(&inner, &server, None).await?;
   connection.setup(&inner, None).await?;
   let connection = send_monitor_command(&inner, connection).await?;
@@ -147,15 +132,10 @@ pub async fn start(config: RedisConfig) -> Result<impl Stream<Item = Command>, R
   // there isn't really a mechanism to surface backpressure to the server for the MONITOR stream, so we use a
   // background task with a channel to process the frames so that the server can keep sending data even if the
   // stream consumer slows down processing the frames.
-  let (tx, rx) = unbounded_channel();
-  #[cfg(feature = "glommio")]
-  let tx = tx.into();
+  let (tx, rx) = channel(0);
   spawn(async move {
     process_stream(&inner, tx, connection).await;
   });
 
-  #[cfg(feature = "glommio")]
-  return Ok(crate::runtime::rx_stream(rx));
-  #[cfg(not(feature = "glommio"))]
-  return Ok(UnboundedReceiverStream::new(rx));
+  Ok(rx.into_stream())
 }

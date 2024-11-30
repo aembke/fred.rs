@@ -17,7 +17,7 @@ async fn wait_a_sec() {
   tokio::time::sleep(Duration::from_millis(20)).await;
 }
 
-pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_publish_and_recv_messages(client: Client, _: Config) -> Result<(), Error> {
   let subscriber_client = client.clone_new();
   subscriber_client.connect();
   subscriber_client.wait_for_connect().await?;
@@ -35,13 +35,13 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
       }
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   sleep(Duration::from_secs(1)).await;
   for idx in 0 .. NUM_MESSAGES {
     // https://redis.io/commands/publish#return-value
-    client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+    let _: () = client.publish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -51,7 +51,7 @@ pub async fn should_publish_and_recv_messages(client: RedisClient, _: RedisConfi
   Ok(())
 }
 
-pub async fn should_ssubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_ssubscribe_and_recv_messages(client: Client, _: Config) -> Result<(), Error> {
   let subscriber_client = client.clone_new();
   subscriber_client.connect();
   subscriber_client.wait_for_connect().await?;
@@ -69,13 +69,13 @@ pub async fn should_ssubscribe_and_recv_messages(client: RedisClient, _: RedisCo
       }
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   sleep(Duration::from_secs(1)).await;
   for idx in 0 .. NUM_MESSAGES {
     // https://redis.io/commands/publish#return-value
-    client.spublish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+    let _: () = client.spublish(CHANNEL1, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -85,7 +85,7 @@ pub async fn should_ssubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   Ok(())
 }
 
-pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_psubscribe_and_recv_messages(client: Client, _: Config) -> Result<(), Error> {
   let channels = vec![CHANNEL1, CHANNEL2, CHANNEL3];
   let subscriber_channels = channels.clone();
 
@@ -106,7 +106,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
       }
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   sleep(Duration::from_secs(1)).await;
@@ -114,7 +114,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
     let channel = channels[idx as usize % channels.len()];
 
     // https://redis.io/commands/publish#return-value
-    client.publish(channel, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
+    let _: () = client.publish(channel, format!("{}-{}", FAKE_MESSAGE, idx)).await?;
 
     // pubsub messages may arrive out of order due to cross-cluster broadcasting
     sleep(Duration::from_millis(50)).await;
@@ -124,7 +124,7 @@ pub async fn should_psubscribe_and_recv_messages(client: RedisClient, _: RedisCo
   Ok(())
 }
 
-pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_unsubscribe_from_all(publisher: Client, _: Config) -> Result<(), Error> {
   let subscriber = publisher.clone_new();
   let connection = subscriber.connect();
   subscriber.wait_for_connect().await?;
@@ -137,23 +137,23 @@ pub async fn should_unsubscribe_from_all(publisher: RedisClient, _: RedisConfig)
       panic!("Recv unexpected pubsub message: {:?}", message);
     }
 
-    Ok::<_, RedisError>(())
+    Ok::<_, Error>(())
   });
 
   subscriber.unsubscribe(()).await?;
   sleep(Duration::from_secs(1)).await;
 
   // make sure the response buffer is flushed correctly by this point
-  assert_eq!(subscriber.ping::<String>().await?, "PONG");
-  assert_eq!(subscriber.ping::<String>().await?, "PONG");
-  assert_eq!(subscriber.ping::<String>().await?, "PONG");
+  assert_eq!(subscriber.ping::<String>(None).await?, "PONG");
+  assert_eq!(subscriber.ping::<String>(None).await?, "PONG");
+  assert_eq!(subscriber.ping::<String>(None).await?, "PONG");
 
   subscriber.quit().await?;
   let _ = connection.await?;
   Ok(())
 }
 
-pub async fn should_get_pubsub_channels(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_get_pubsub_channels(client: Client, _: Config) -> Result<(), Error> {
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;
@@ -182,7 +182,7 @@ pub async fn should_get_pubsub_channels(client: RedisClient, _: RedisConfig) -> 
   Ok(())
 }
 
-pub async fn should_get_pubsub_numpat(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_get_pubsub_numpat(client: Client, _: Config) -> Result<(), Error> {
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;
@@ -196,7 +196,7 @@ pub async fn should_get_pubsub_numpat(client: RedisClient, _: RedisConfig) -> Re
   Ok(())
 }
 
-pub async fn should_get_pubsub_nunmsub(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_get_pubsub_nunmsub(client: Client, _: Config) -> Result<(), Error> {
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;
@@ -220,7 +220,7 @@ pub async fn should_get_pubsub_nunmsub(client: RedisClient, _: RedisConfig) -> R
   Ok(())
 }
 
-pub async fn should_get_pubsub_shard_channels(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_get_pubsub_shard_channels(client: Client, _: Config) -> Result<(), Error> {
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;
@@ -239,7 +239,7 @@ pub async fn should_get_pubsub_shard_channels(client: RedisClient, _: RedisConfi
   Ok(())
 }
 
-pub async fn should_get_pubsub_shard_numsub(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_get_pubsub_shard_numsub(client: Client, _: Config) -> Result<(), Error> {
   let subscriber = client.clone_new();
   subscriber.connect();
   subscriber.wait_for_connect().await?;

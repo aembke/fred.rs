@@ -1,6 +1,6 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::RedisValue,
+  error::{Error, ErrorKind},
+  types::Value,
   utils,
 };
 use bytes_utils::Str;
@@ -65,14 +65,14 @@ impl Default for Timestamp {
 }
 
 impl Timestamp {
-  pub(crate) fn to_value(&self) -> RedisValue {
+  pub(crate) fn to_value(&self) -> Value {
     match *self {
-      Timestamp::Now => RedisValue::String(utils::static_str("*")),
-      Timestamp::Custom(v) => RedisValue::Integer(v),
+      Timestamp::Now => Value::String(utils::static_str("*")),
+      Timestamp::Custom(v) => Value::Integer(v),
     }
   }
 
-  pub(crate) fn from_str(value: &str) -> Result<Self, RedisError> {
+  pub(crate) fn from_str(value: &str) -> Result<Self, Error> {
     match value {
       "*" => Ok(Timestamp::Now),
       _ => Ok(Timestamp::Custom(value.parse::<i64>()?)),
@@ -87,7 +87,7 @@ impl From<i64> for Timestamp {
 }
 
 impl TryFrom<&str> for Timestamp {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
     Self::from_str(value)
@@ -95,7 +95,7 @@ impl TryFrom<&str> for Timestamp {
 }
 
 impl TryFrom<Str> for Timestamp {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: Str) -> Result<Self, Self::Error> {
     Self::from_str(&value)
@@ -103,7 +103,7 @@ impl TryFrom<Str> for Timestamp {
 }
 
 impl TryFrom<String> for Timestamp {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: String) -> Result<Self, Self::Error> {
     Self::from_str(&value)
@@ -205,7 +205,7 @@ pub enum GetTimestamp {
 }
 
 impl GetTimestamp {
-  pub(crate) fn to_value(&self) -> RedisValue {
+  pub(crate) fn to_value(&self) -> Value {
     match *self {
       GetTimestamp::Earliest => static_val!("-"),
       GetTimestamp::Latest => static_val!("+"),
@@ -215,7 +215,7 @@ impl GetTimestamp {
 }
 
 impl TryFrom<&str> for GetTimestamp {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
     Ok(match value {
@@ -316,19 +316,14 @@ pub enum BucketTimestamp {
 }
 
 impl TryFrom<&str> for BucketTimestamp {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
     Ok(match value {
       "-" | "start" => BucketTimestamp::Start,
       "+" | "end" => BucketTimestamp::End,
       "~" | "mid" => BucketTimestamp::Mid,
-      _ => {
-        return Err(RedisError::new(
-          RedisErrorKind::InvalidArgument,
-          "Invalid bucket timestamp.",
-        ))
-      },
+      _ => return Err(Error::new(ErrorKind::InvalidArgument, "Invalid bucket timestamp.")),
     })
   }
 }
@@ -345,19 +340,19 @@ impl BucketTimestamp {
 
 /// Shorthand for the result of commands such as `MGET`, `MRANGE`, etc.
 ///
-/// * **K** - The key type, usually a `RedisKey`, `Str`, or `String`.
+/// * **K** - The key type, usually a `Key`, `Str`, or `String`.
 /// * **Lk** - The label key type, usually a `Str` or `String`.
 /// * **Lv** - The label value type, often some kind of string type.
 ///
-/// The fastest/cheapest option is usually `TimeseriesValues<RedisKey, Str, Str>`.
+/// The fastest/cheapest option is usually `TimeseriesValues<Key, Str, Str>`.
 ///
 /// ```rust
 /// # use fred::prelude::*;
 /// # use tokio::time::sleep;
 /// # use std::time::Duration;
 /// # use bytes_utils::Str;
-/// # use fred::types::{RespVersion, GetLabels, Resp2TimeSeriesValues};
-/// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+/// # use fred::types::{RespVersion, timeseries::{GetLabels, Resp2TimeSeriesValues}};
+/// async fn example(client: &Client) -> Result<(), Error> {
 ///   assert_eq!(client.protocol_version(), RespVersion::RESP2);
 ///
 ///   client
@@ -376,7 +371,7 @@ impl BucketTimestamp {
 ///     .ts_add("bar", "*", 4.4, None, None, None, None, ("a", "b"))
 ///     .await?;
 ///
-///   let ranges: Resp2TimeSeriesValues<RedisKey, Str, Str> = client
+///   let ranges: Resp2TimeSeriesValues<Key, Str, Str> = client
 ///     .ts_mrange(
 ///       "-",
 ///       "+",
@@ -400,11 +395,11 @@ impl BucketTimestamp {
 /// }
 /// ```
 ///
-/// See [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for the RESP3 equivalent.
+/// See [Resp3TimeSeriesValues](crate::types::timeseries::Resp3TimeSeriesValues) for the RESP3 equivalent.
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
 pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64)>)>;
 
-/// The RESP3 equivalent of [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues).
+/// The RESP3 equivalent of [Resp2TimeSeriesValues](crate::types::timeseries::Resp2TimeSeriesValues).
 ///
 /// The timeseries interface uses slightly different type signatures in RESP3 mode.
 ///
@@ -413,8 +408,8 @@ pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64
 /// # use tokio::time::sleep;
 /// # use std::time::Duration;
 /// # use bytes_utils::Str;
-/// # use fred::types::{RespVersion, GetLabels, Resp3TimeSeriesValues};
-/// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+/// # use fred::types::{RespVersion, timeseries::{GetLabels, Resp3TimeSeriesValues}};
+/// async fn example(client: &Client) -> Result<(), Error> {
 ///   assert_eq!(client.protocol_version(), RespVersion::RESP3);
 ///
 ///   client
@@ -433,7 +428,7 @@ pub type Resp2TimeSeriesValues<K, Lk, Lv> = Vec<(K, Vec<(Lk, Lv)>, Vec<(i64, f64
 ///     .ts_add("bar", "*", 4.4, None, None, None, None, ("a", "b"))
 ///     .await?;
 ///
-///   let ranges: Resp3TimeSeriesValues<RedisKey, Str, Str> = client
+///   let ranges: Resp3TimeSeriesValues<Key, Str, Str> = client
 ///     .ts_mget(false, Some(GetLabels::WithLabels), ["a=b"])
 ///     .await?;
 ///

@@ -9,7 +9,7 @@ use fred::{
 use std::convert::TryInto;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let client = Builder::default_centralized().build()?;
   client.init().await?;
   let _: () = client.lpush("foo", vec![1, 2, 3]).await?;
@@ -29,6 +29,6 @@ async fn main() -> Result<(), RedisError> {
     .custom_raw(command, vec!["foo", "0", "3"])
     .await
     .and_then(|frame| frame.try_into())
-    .and_then(|value: RedisValue| value.convert())?;
+    .and_then(|value: Value| value.convert())?;
   Ok(())
 }

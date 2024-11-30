@@ -22,7 +22,7 @@ impl Default for HickoryDnsResolver {
 
 #[async_trait]
 impl Resolve for HickoryDnsResolver {
-  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, RedisError> {
+  async fn resolve(&self, host: Str, port: u16) -> Result<Vec<SocketAddr>, Error> {
     Ok(
       self
         .0
@@ -36,7 +36,7 @@ impl Resolve for HickoryDnsResolver {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   let client = Builder::default_centralized().build()?;
   client.set_resolver(Arc::new(HickoryDnsResolver::default())).await;
   client.init().await?;

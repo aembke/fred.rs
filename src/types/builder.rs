@@ -1,8 +1,8 @@
 use crate::{
-  clients::{RedisClient, RedisPool},
-  error::{RedisError, RedisErrorKind},
+  clients::{Client, Pool},
+  error::{Error, ErrorKind},
   prelude::ReconnectPolicy,
-  types::{ConnectionConfig, PerformanceConfig, RedisConfig, ServerConfig},
+  types::config::{Config, ConnectionConfig, PerformanceConfig, ServerConfig},
 };
 
 #[cfg(not(feature = "glommio"))]
@@ -10,7 +10,7 @@ use crate::clients::ExclusivePool;
 #[cfg(feature = "subscriber-client")]
 use crate::clients::SubscriberClient;
 #[cfg(feature = "sentinel-client")]
-use crate::{clients::SentinelClient, types::SentinelConfig};
+use crate::{clients::SentinelClient, types::config::SentinelConfig};
 
 /// A client and pool builder interface.
 ///
@@ -18,18 +18,15 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 /// # use std::time::Duration;
 /// # use redis_protocol::resp3::types::RespVersion;
 /// # use fred::prelude::*;
-/// fn example() -> Result<(), RedisError> {
+/// fn example() -> Result<(), Error> {
 ///   // use default values
 ///   let client = Builder::default_centralized().build()?;
 ///
 ///   // or initialize from a URL or config
-///   let config = RedisConfig::from_url("redis://localhost:6379/1")?;
+///   let config = Config::from_url("redis://localhost:6379/1")?;
 ///   let mut builder = Builder::from_config(config);
 ///   // or modify values in place (creating defaults if needed)
 ///   builder
-///     .with_performance_config(|config| {
-///       config.auto_pipeline = true;
-///     })
 ///     .with_config(|config| {
 ///       config.version = RespVersion::RESP3;
 ///       config.fail_fast = true;
@@ -57,7 +54,7 @@ use crate::{clients::SentinelClient, types::SentinelConfig};
 /// ```
 #[derive(Clone, Debug)]
 pub struct Builder {
-  config:      Option<RedisConfig>,
+  config:      Option<Config>,
   performance: PerformanceConfig,
   connection:  ConnectionConfig,
   policy:      Option<ReconnectPolicy>,
@@ -82,7 +79,7 @@ impl Builder {
   /// Create a new builder instance with default config values for a centralized deployment.
   pub fn default_centralized() -> Self {
     Builder {
-      config: Some(RedisConfig {
+      config: Some(Config {
         server: ServerConfig::default_centralized(),
         ..Default::default()
       }),
@@ -93,7 +90,7 @@ impl Builder {
   /// Create a new builder instance with default config values for a clustered deployment.
   pub fn default_clustered() -> Self {
     Builder {
-      config: Some(RedisConfig {
+      config: Some(Config {
         server: ServerConfig::default_clustered(),
         ..Default::default()
       }),
@@ -102,7 +99,7 @@ impl Builder {
   }
 
   /// Create a new builder instance from the provided client config.
-  pub fn from_config(config: RedisConfig) -> Self {
+  pub fn from_config(config: Config) -> Self {
     Builder {
       config: Some(config),
       ..Default::default()
@@ -110,7 +107,7 @@ impl Builder {
   }
 
   /// Read the client config.
-  pub fn get_config(&self) -> Option<&RedisConfig> {
+  pub fn get_config(&self) -> Option<&Config> {
     self.config.as_ref()
   }
 
@@ -132,12 +129,12 @@ impl Builder {
   /// Read the sentinel client config.
   #[cfg(feature = "sentinel-client")]
   #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-  pub fn get_sentinel_config(&self) -> Option<&RedisConfig> {
+  pub fn get_sentinel_config(&self) -> Option<&Config> {
     self.config.as_ref()
   }
 
   /// Overwrite the client config on the builder.
-  pub fn set_config(&mut self, config: RedisConfig) -> &mut Self {
+  pub fn set_config(&mut self, config: Config) -> &mut Self {
     self.config = Some(config);
     self
   }
@@ -171,12 +168,12 @@ impl Builder {
   /// Modify the client config in place, creating a new one with default centralized values first if needed.
   pub fn with_config<F>(&mut self, func: F) -> &mut Self
   where
-    F: FnOnce(&mut RedisConfig),
+    F: FnOnce(&mut Config),
   {
     if let Some(config) = self.config.as_mut() {
       func(config);
     } else {
-      let mut config = RedisConfig::default();
+      let mut config = Config::default();
       func(&mut config);
       self.config = Some(config);
     }
@@ -221,23 +218,23 @@ impl Builder {
   }
 
   /// Create a new client.
-  pub fn build(&self) -> Result<RedisClient, RedisError> {
+  pub fn build(&self) -> Result<Client, Error> {
     if let Some(config) = self.config.as_ref() {
-      Ok(RedisClient::new(
+      Ok(Client::new(
         config.clone(),
         Some(self.performance.clone()),
         Some(self.connection.clone()),
         self.policy.clone(),
       ))
     } else {
-      Err(RedisError::new(RedisErrorKind::Config, "Missing client configuration."))
+      Err(Error::new(ErrorKind::Config, "Missing client configuration."))
     }
   }
 
   /// Create a new client pool.
-  pub fn build_pool(&self, size: usize) -> Result<RedisPool, RedisError> {
+  pub fn build_pool(&self, size: usize) -> Result<Pool, Error> {
     if let Some(config) = self.config.as_ref() {
-      RedisPool::new(
+      Pool::new(
         config.clone(),
         Some(self.performance.clone()),
         Some(self.connection.clone()),
@@ -245,13 +242,13 @@ impl Builder {
         size,
       )
     } else {
-      Err(RedisError::new(RedisErrorKind::Config, "Missing client configuration."))
+      Err(Error::new(ErrorKind::Config, "Missing client configuration."))
     }
   }
 
   /// Create a new exclusive client pool.
   #[cfg(not(feature = "glommio"))]
-  pub fn build_exclusive_pool(&self, size: usize) -> Result<ExclusivePool, RedisError> {
+  pub fn build_exclusive_pool(&self, size: usize) -> Result<ExclusivePool, Error> {
     if let Some(config) = self.config.as_ref() {
       ExclusivePool::new(
         config.clone(),
@@ -261,14 +258,14 @@ impl Builder {
         size,
       )
     } else {
-      Err(RedisError::new(RedisErrorKind::Config, "Missing client configuration."))
+      Err(Error::new(ErrorKind::Config, "Missing client configuration."))
     }
   }
 
   /// Create a new subscriber client.
   #[cfg(feature = "subscriber-client")]
   #[cfg_attr(docsrs, doc(cfg(feature = "subscriber-client")))]
-  pub fn build_subscriber_client(&self) -> Result<SubscriberClient, RedisError> {
+  pub fn build_subscriber_client(&self) -> Result<SubscriberClient, Error> {
     if let Some(config) = self.config.as_ref() {
       Ok(SubscriberClient::new(
         config.clone(),
@@ -277,7 +274,7 @@ impl Builder {
         self.policy.clone(),
       ))
     } else {
-      Err(RedisError::new(RedisErrorKind::Config, "Missing client configuration."))
+      Err(Error::new(ErrorKind::Config, "Missing client configuration."))
     }
   }
 
@@ -287,7 +284,7 @@ impl Builder {
   /// `ServerConfig::Sentinel` to interact with Redis servers behind a sentinel layer.
   #[cfg(feature = "sentinel-client")]
   #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
-  pub fn build_sentinel_client(&self) -> Result<SentinelClient, RedisError> {
+  pub fn build_sentinel_client(&self) -> Result<SentinelClient, Error> {
     if let Some(config) = self.sentinel.as_ref() {
       Ok(SentinelClient::new(
         config.clone(),
@@ -296,10 +293,7 @@ impl Builder {
         self.policy.clone(),
       ))
     } else {
-      Err(RedisError::new(
-        RedisErrorKind::Config,
-        "Missing sentinel client configuration.",
-      ))
+      Err(Error::new(ErrorKind::Config, "Missing sentinel client configuration."))
     }
   }
 }

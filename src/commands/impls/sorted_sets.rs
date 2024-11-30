@@ -1,32 +1,42 @@
 use super::*;
 use crate::{
   error::*,
-  protocol::{command::RedisCommandKind, utils as protocol_utils},
-  types::*,
+  protocol::{command::CommandKind, utils as protocol_utils},
+  types::{
+    sorted_sets::{
+      AggregateOptions,
+      MultipleWeights,
+      MultipleZaddValues,
+      Ordering,
+      ZCmp,
+      ZRange,
+      ZRangeBound,
+      ZSort,
+    },
+    *,
+  },
   utils,
 };
 use std::convert::TryInto;
 
 static INCR: &str = "INCR";
 static WITH_SCORES: &str = "WITHSCORES";
+static WITH_SCORE: &str = "WITHSCORE";
 static AGGREGATE: &str = "AGGREGATE";
 static WEIGHTS: &str = "WEIGHTS";
 
-fn new_range_error(kind: &Option<ZSort>) -> Result<(), RedisError> {
+fn new_range_error(kind: &Option<ZSort>) -> Result<(), Error> {
   if let Some(ref sort) = *kind {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidArgument,
+    Err(Error::new(
+      ErrorKind::InvalidArgument,
       format!("Invalid range bound with {} sort", sort.to_str()),
     ))
   } else {
-    Err(RedisError::new(
-      RedisErrorKind::InvalidArgument,
-      "Invalid index range bound.",
-    ))
+    Err(Error::new(ErrorKind::InvalidArgument, "Invalid index range bound."))
   }
 }
 
-fn check_range_type(range: &ZRange, kind: &Option<ZSort>) -> Result<(), RedisError> {
+fn check_range_type(range: &ZRange, kind: &Option<ZSort>) -> Result<(), Error> {
   match kind {
     Some(_kind) => match _kind {
       ZSort::ByLex => match range.range {
@@ -45,7 +55,7 @@ fn check_range_type(range: &ZRange, kind: &Option<ZSort>) -> Result<(), RedisErr
   }
 }
 
-fn check_range_types(min: &ZRange, max: &ZRange, kind: &Option<ZSort>) -> Result<(), RedisError> {
+fn check_range_types(min: &ZRange, max: &ZRange, kind: &Option<ZSort>) -> Result<(), Error> {
   check_range_type(min, kind)?;
   check_range_type(max, kind)?;
   Ok(())
@@ -57,8 +67,8 @@ pub async fn bzmpop<C: ClientLike>(
   keys: MultipleKeys,
   sort: ZCmp,
   count: Option<i64>,
-) -> Result<RedisValue, RedisError> {
-  let timeout: RedisValue = timeout.try_into()?;
+) -> Result<Value, Error> {
+  let timeout: Value = timeout.try_into()?;
 
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len() + 4);
@@ -73,7 +83,7 @@ pub async fn bzmpop<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::BzmPop, args))
+    Ok((CommandKind::BzmPop, args))
   })
   .await?;
 
@@ -81,7 +91,7 @@ pub async fn bzmpop<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
+pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + keys.len());
 
@@ -90,7 +100,7 @@ pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
     }
     args.push(timeout.try_into()?);
 
-    Ok((RedisCommandKind::BzPopMin, args))
+    Ok((CommandKind::BzPopMin, args))
   })
   .await?;
 
@@ -98,7 +108,7 @@ pub async fn bzpopmin<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn bzpopmax<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<RedisValue, RedisError> {
+pub async fn bzpopmax<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f64) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(1 + keys.len());
 
@@ -107,7 +117,7 @@ pub async fn bzpopmax<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
     }
     args.push(timeout.try_into()?);
 
-    Ok((RedisCommandKind::BzPopMax, args))
+    Ok((CommandKind::BzPopMax, args))
   })
   .await?;
 
@@ -117,13 +127,13 @@ pub async fn bzpopmax<C: ClientLike>(client: &C, keys: MultipleKeys, timeout: f6
 
 pub async fn zadd<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   options: Option<SetOptions>,
   ordering: Option<Ordering>,
   changed: bool,
   incr: bool,
   values: MultipleZaddValues,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(5 + (values.len() * 2));
     args.push(key.into());
@@ -146,27 +156,23 @@ pub async fn zadd<C: ClientLike>(
       args.push(value);
     }
 
-    Ok((RedisCommandKind::Zadd, args))
+    Ok((CommandKind::Zadd, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zcard<C: ClientLike>(client: &C, key: RedisKey) -> Result<RedisValue, RedisError> {
-  one_arg_value_cmd(client, RedisCommandKind::Zcard, key.into()).await
+pub async fn zcard<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error> {
+  one_arg_value_cmd(client, CommandKind::Zcard, key.into()).await
 }
 
-pub async fn zcount<C: ClientLike>(client: &C, key: RedisKey, min: f64, max: f64) -> Result<RedisValue, RedisError> {
+pub async fn zcount<C: ClientLike>(client: &C, key: Key, min: f64, max: f64) -> Result<Value, Error> {
   let (min, max) = (min.try_into()?, max.try_into()?);
-  args_value_cmd(client, RedisCommandKind::Zcount, vec![key.into(), min, max]).await
+  args_value_cmd(client, CommandKind::Zcount, vec![key.into(), min, max]).await
 }
 
-pub async fn zdiff<C: ClientLike>(
-  client: &C,
-  keys: MultipleKeys,
-  withscores: bool,
-) -> Result<RedisValue, RedisError> {
+pub async fn zdiff<C: ClientLike>(client: &C, keys: MultipleKeys, withscores: bool) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + keys.len());
     args.push(keys.len().try_into()?);
@@ -178,18 +184,14 @@ pub async fn zdiff<C: ClientLike>(
       args.push(static_val!(WITH_SCORES));
     }
 
-    Ok((RedisCommandKind::Zdiff, args))
+    Ok((CommandKind::Zdiff, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zdiffstore<C: ClientLike>(
-  client: &C,
-  dest: RedisKey,
-  keys: MultipleKeys,
-) -> Result<RedisValue, RedisError> {
+pub async fn zdiffstore<C: ClientLike>(client: &C, dest: Key, keys: MultipleKeys) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(2 + keys.len());
     args.push(dest.into());
@@ -198,22 +200,17 @@ pub async fn zdiffstore<C: ClientLike>(
     for key in keys.inner().into_iter() {
       args.push(key.into());
     }
-    Ok((RedisCommandKind::Zdiffstore, args))
+    Ok((CommandKind::Zdiffstore, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zincrby<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  increment: f64,
-  member: RedisValue,
-) -> Result<RedisValue, RedisError> {
+pub async fn zincrby<C: ClientLike>(client: &C, key: Key, increment: f64, member: Value) -> Result<Value, Error> {
   let increment = increment.try_into()?;
   let args = vec![key.into(), increment, member];
-  args_value_cmd(client, RedisCommandKind::Zincrby, args).await
+  args_value_cmd(client, CommandKind::Zincrby, args).await
 }
 
 pub async fn zinter<C: ClientLike>(
@@ -222,7 +219,7 @@ pub async fn zinter<C: ClientLike>(
   weights: MultipleWeights,
   aggregate: Option<AggregateOptions>,
   withscores: bool,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let args_len = 6 + keys.len() + weights.len();
     let mut args = Vec::with_capacity(args_len);
@@ -245,7 +242,7 @@ pub async fn zinter<C: ClientLike>(
       args.push(static_val!(WITH_SCORES));
     }
 
-    Ok((RedisCommandKind::Zinter, args))
+    Ok((CommandKind::Zinter, args))
   })
   .await?;
 
@@ -254,11 +251,11 @@ pub async fn zinter<C: ClientLike>(
 
 pub async fn zinterstore<C: ClientLike>(
   client: &C,
-  dest: RedisKey,
+  dest: Key,
   keys: MultipleKeys,
   weights: MultipleWeights,
   aggregate: Option<AggregateOptions>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let args_len = 5 + keys.len() + weights.len();
     let mut args = Vec::with_capacity(args_len);
@@ -279,51 +276,38 @@ pub async fn zinterstore<C: ClientLike>(
       args.push(options.to_str().into());
     }
 
-    Ok((RedisCommandKind::Zinterstore, args))
+    Ok((CommandKind::Zinterstore, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zlexcount<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  min: ZRange,
-  max: ZRange,
-) -> Result<RedisValue, RedisError> {
+pub async fn zlexcount<C: ClientLike>(client: &C, key: Key, min: ZRange, max: ZRange) -> Result<Value, Error> {
   check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
   let args = vec![key.into(), min.into_value()?, max.into_value()?];
-  args_value_cmd(client, RedisCommandKind::Zlexcount, args).await
+  args_value_cmd(client, CommandKind::Zlexcount, args).await
 }
 
-pub async fn zpopmax<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  count: Option<usize>,
-) -> Result<RedisValue, RedisError> {
+pub async fn zpopmax<C: ClientLike>(client: &C, key: Key, count: Option<usize>) -> Result<Value, Error> {
   let args = if let Some(count) = count {
     vec![key.into(), count.try_into()?]
   } else {
     vec![key.into()]
   };
 
-  args_values_cmd(client, RedisCommandKind::Zpopmax, args).await
+  args_values_cmd(client, CommandKind::Zpopmax, args).await
 }
 
-pub async fn zpopmin<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  count: Option<usize>,
-) -> Result<RedisValue, RedisError> {
+pub async fn zpopmin<C: ClientLike>(client: &C, key: Key, count: Option<usize>) -> Result<Value, Error> {
   let args = if let Some(count) = count {
     vec![key.into(), count.try_into()?]
   } else {
     vec![key.into()]
   };
 
-  args_values_cmd(client, RedisCommandKind::Zpopmin, args).await
+  args_values_cmd(client, CommandKind::Zpopmin, args).await
 }
 
 pub async fn zmpop<C: ClientLike>(
@@ -331,7 +315,7 @@ pub async fn zmpop<C: ClientLike>(
   keys: MultipleKeys,
   sort: ZCmp,
   count: Option<i64>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(keys.len() + 3);
     args.push(keys.len().try_into()?);
@@ -344,18 +328,14 @@ pub async fn zmpop<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::Zmpop, args))
+    Ok((CommandKind::Zmpop, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zrandmember<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  count: Option<(i64, bool)>,
-) -> Result<RedisValue, RedisError> {
+pub async fn zrandmember<C: ClientLike>(client: &C, key: Key, count: Option<(i64, bool)>) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(3);
     args.push(key.into());
@@ -367,7 +347,7 @@ pub async fn zrandmember<C: ClientLike>(
       }
     }
 
-    Ok((RedisCommandKind::Zrandmember, args))
+    Ok((CommandKind::Zrandmember, args))
   })
   .await?;
 
@@ -376,14 +356,14 @@ pub async fn zrandmember<C: ClientLike>(
 
 pub async fn zrangestore<C: ClientLike>(
   client: &C,
-  dest: RedisKey,
-  source: RedisKey,
+  dest: Key,
+  source: Key,
   min: ZRange,
   max: ZRange,
   sort: Option<ZSort>,
   rev: bool,
   limit: Option<Limit>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   check_range_types(&min, &max, &sort)?;
 
   let frame = utils::request_response(client, move || {
@@ -405,7 +385,7 @@ pub async fn zrangestore<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::Zrangestore, args))
+    Ok((CommandKind::Zrangestore, args))
   })
   .await?;
 
@@ -414,14 +394,14 @@ pub async fn zrangestore<C: ClientLike>(
 
 pub async fn zrange<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   min: ZRange,
   max: ZRange,
   sort: Option<ZSort>,
   rev: bool,
   limit: Option<Limit>,
   withscores: bool,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   check_range_types(&min, &max, &sort)?;
 
   let frame = utils::request_response(client, move || {
@@ -445,7 +425,7 @@ pub async fn zrange<C: ClientLike>(
       args.push(static_val!(WITH_SCORES));
     }
 
-    Ok((RedisCommandKind::Zrange, args))
+    Ok((CommandKind::Zrange, args))
   })
   .await?;
 
@@ -454,11 +434,11 @@ pub async fn zrange<C: ClientLike>(
 
 pub async fn zrangebylex<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   min: ZRange,
   max: ZRange,
   limit: Option<Limit>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
   let frame = utils::request_response(client, move || {
@@ -473,7 +453,7 @@ pub async fn zrangebylex<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::Zrangebylex, args))
+    Ok((CommandKind::Zrangebylex, args))
   })
   .await?;
 
@@ -482,11 +462,11 @@ pub async fn zrangebylex<C: ClientLike>(
 
 pub async fn zrevrangebylex<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   max: ZRange,
   min: ZRange,
   limit: Option<Limit>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
   let frame = utils::request_response(client, move || {
@@ -501,7 +481,7 @@ pub async fn zrevrangebylex<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::Zrevrangebylex, args))
+    Ok((CommandKind::Zrevrangebylex, args))
   })
   .await?;
 
@@ -510,12 +490,12 @@ pub async fn zrevrangebylex<C: ClientLike>(
 
 pub async fn zrangebyscore<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   min: ZRange,
   max: ZRange,
   withscores: bool,
   limit: Option<Limit>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(7);
     args.push(key.into());
@@ -531,7 +511,7 @@ pub async fn zrangebyscore<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::Zrangebyscore, args))
+    Ok((CommandKind::Zrangebyscore, args))
   })
   .await?;
 
@@ -540,12 +520,12 @@ pub async fn zrangebyscore<C: ClientLike>(
 
 pub async fn zrevrangebyscore<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   max: ZRange,
   min: ZRange,
   withscores: bool,
   limit: Option<Limit>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(7);
     args.push(key.into());
@@ -561,22 +541,23 @@ pub async fn zrevrangebyscore<C: ClientLike>(
       args.push(count.into());
     }
 
-    Ok((RedisCommandKind::Zrevrangebyscore, args))
+    Ok((CommandKind::Zrevrangebyscore, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zrank<C: ClientLike>(client: &C, key: RedisKey, member: RedisValue) -> Result<RedisValue, RedisError> {
-  args_value_cmd(client, RedisCommandKind::Zrank, vec![key.into(), member]).await
+pub async fn zrank<C: ClientLike>(client: &C, key: Key, member: Value, withscore: bool) -> Result<Value, Error> {
+  let mut args = vec![key.into(), member];
+  if withscore {
+    args.push(static_val!(WITH_SCORE));
+  }
+
+  args_value_cmd(client, CommandKind::Zrank, args).await
 }
 
-pub async fn zrem<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  members: MultipleValues,
-) -> Result<RedisValue, RedisError> {
+pub async fn zrem<C: ClientLike>(client: &C, key: Key, members: MultipleValues) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
@@ -585,23 +566,18 @@ pub async fn zrem<C: ClientLike>(
     for member in members.into_iter() {
       args.push(member);
     }
-    Ok((RedisCommandKind::Zrem, args))
+    Ok((CommandKind::Zrem, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zremrangebylex<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  min: ZRange,
-  max: ZRange,
-) -> Result<RedisValue, RedisError> {
+pub async fn zremrangebylex<C: ClientLike>(client: &C, key: Key, min: ZRange, max: ZRange) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     check_range_types(&min, &max, &Some(ZSort::ByLex))?;
 
-    Ok((RedisCommandKind::Zremrangebylex, vec![
+    Ok((CommandKind::Zremrangebylex, vec![
       key.into(),
       min.into_value()?,
       max.into_value()?,
@@ -612,26 +588,16 @@ pub async fn zremrangebylex<C: ClientLike>(
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zremrangebyrank<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  start: i64,
-  stop: i64,
-) -> Result<RedisValue, RedisError> {
+pub async fn zremrangebyrank<C: ClientLike>(client: &C, key: Key, start: i64, stop: i64) -> Result<Value, Error> {
   let (start, stop) = (start.into(), stop.into());
-  args_value_cmd(client, RedisCommandKind::Zremrangebyrank, vec![key.into(), start, stop]).await
+  args_value_cmd(client, CommandKind::Zremrangebyrank, vec![key.into(), start, stop]).await
 }
 
-pub async fn zremrangebyscore<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  min: ZRange,
-  max: ZRange,
-) -> Result<RedisValue, RedisError> {
+pub async fn zremrangebyscore<C: ClientLike>(client: &C, key: Key, min: ZRange, max: ZRange) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     check_range_types(&min, &max, &Some(ZSort::ByScore))?;
 
-    Ok((RedisCommandKind::Zremrangebyscore, vec![
+    Ok((CommandKind::Zremrangebyscore, vec![
       key.into(),
       min.into_value()?,
       max.into_value()?,
@@ -644,11 +610,11 @@ pub async fn zremrangebyscore<C: ClientLike>(
 
 pub async fn zrevrange<C: ClientLike>(
   client: &C,
-  key: RedisKey,
+  key: Key,
   start: i64,
   stop: i64,
   withscores: bool,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let (start, stop) = (start.into(), stop.into());
   let frame = utils::request_response(client, move || {
     let mut args = Vec::with_capacity(4);
@@ -660,23 +626,24 @@ pub async fn zrevrange<C: ClientLike>(
       args.push(static_val!(WITH_SCORES));
     }
 
-    Ok((RedisCommandKind::Zrevrange, args))
+    Ok((CommandKind::Zrevrange, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zrevrank<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  member: RedisValue,
-) -> Result<RedisValue, RedisError> {
-  args_value_cmd(client, RedisCommandKind::Zrevrank, vec![key.into(), member]).await
+pub async fn zrevrank<C: ClientLike>(client: &C, key: Key, member: Value, withscore: bool) -> Result<Value, Error> {
+  let mut args = vec![key.into(), member];
+  if withscore {
+    args.push(static_val!(WITH_SCORE));
+  }
+
+  args_value_cmd(client, CommandKind::Zrevrank, args).await
 }
 
-pub async fn zscore<C: ClientLike>(client: &C, key: RedisKey, member: RedisValue) -> Result<RedisValue, RedisError> {
-  args_value_cmd(client, RedisCommandKind::Zscore, vec![key.into(), member]).await
+pub async fn zscore<C: ClientLike>(client: &C, key: Key, member: Value) -> Result<Value, Error> {
+  args_value_cmd(client, CommandKind::Zscore, vec![key.into(), member]).await
 }
 
 pub async fn zunion<C: ClientLike>(
@@ -685,7 +652,7 @@ pub async fn zunion<C: ClientLike>(
   weights: MultipleWeights,
   aggregate: Option<AggregateOptions>,
   withscores: bool,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let args_len = keys.len() + weights.len();
     let mut args = Vec::with_capacity(5 + args_len);
@@ -709,7 +676,7 @@ pub async fn zunion<C: ClientLike>(
       args.push(static_val!(WITH_SCORES));
     }
 
-    Ok((RedisCommandKind::Zunion, args))
+    Ok((CommandKind::Zunion, args))
   })
   .await?;
 
@@ -718,11 +685,11 @@ pub async fn zunion<C: ClientLike>(
 
 pub async fn zunionstore<C: ClientLike>(
   client: &C,
-  dest: RedisKey,
+  dest: Key,
   keys: MultipleKeys,
   weights: MultipleWeights,
   aggregate: Option<AggregateOptions>,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let args_len = keys.len() + weights.len();
     let mut args = Vec::with_capacity(5 + args_len);
@@ -744,18 +711,14 @@ pub async fn zunionstore<C: ClientLike>(
       args.push(aggregate.to_str().into());
     }
 
-    Ok((RedisCommandKind::Zunionstore, args))
+    Ok((CommandKind::Zunionstore, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn zmscore<C: ClientLike>(
-  client: &C,
-  key: RedisKey,
-  members: MultipleValues,
-) -> Result<RedisValue, RedisError> {
+pub async fn zmscore<C: ClientLike>(client: &C, key: Key, members: MultipleValues) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
     let members = members.into_multiple_values();
     let mut args = Vec::with_capacity(1 + members.len());
@@ -764,7 +727,7 @@ pub async fn zmscore<C: ClientLike>(
     for member in members.into_iter() {
       args.push(member);
     }
-    Ok((RedisCommandKind::Zmscore, args))
+    Ok((CommandKind::Zmscore, args))
   })
   .await?;
 

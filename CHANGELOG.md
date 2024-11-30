@@ -1,3 +1,51 @@
+## 10.0.0
+
+* Reduced memory footprint and significant write throughput improvements
+* Rename common interfaces to remove `Redis` prefixes
+* Add `WITHSCORES` to `ZRANK` and `ZREVRANK`
+* Add `GT|LT|NX|XX` options to `EXPIRE` and `EXPIREAT`
+* Add `scan_page` interface
+* Add optional message to `PING`
+* Remove deprecated or redundant config options
+* Refactor public types into submodules
+* Add `i-hexpire` feature flag
+* Support async blocks in `on_*` event handler functions
+* Add an interface to cancel scanning functions
+* Update `rustls-native-certs` to 0.8
+* Support `valkey://` scheme in `Config::from_url`.
+* Support combining `Options` and `Replicas` clients
+
+### Upgrading from 9.x
+
+This update contains some significant performance improvements in the form of reduced Tokio scheduling overhead and
+reduced memory usage during the frame encoding process. It also contains several cosmetic changes designed to support
+future scenarios where Valkey and Redis start to diverge from one another.
+
+### Notable Breaking Changes
+
+The compiler should guide callers through most of these changes.
+
+* The `auto_pipeline` config option was removed. All clients now automatically pipeline commands across Tokio tasks.
+* The `BackpressureConfig` struct was removed. Callers should use `max_command_buffer_len` instead.
+* The `HEXPIRE`, `HTTL`, etc, commands are now gated by an `i-hexpire` feature flag. Note that this requires Redis >
+  =7.2.5.
+* Some potentially redundant `ReplicaConfig` fields were removed. The client now uses the associated `ReconnectPolicy`
+  fields instead, where applicable.
+* The `types` module was becoming too large and needed refactoring. Many types were moved to submodules, which likely
+  requires changes to certain import statements.
+* Many of the common public types were renamed to remove the `Redis` prefix, such as `RedisConfig`, `RedisClient`,
+  `RedisPool`, etc.
+* `rustls-native-certs` was upgraded to 8.x.
+* The `specialize-into-bytes` feature flag was removed. This is now the default behavior.
+* The `on_error` and `error_rx` event handler interface now contains an optional server identifier.
+
+### Behavior Changes
+
+* In the past `fred` spawned a separate task per connection in order to read from all sockets concurrently. In 10.0.0
+  each client reads and writes to all connections in a single task.
+* Write throughput is improved by a factor of 3-5x depending on the use case.
+* All transactions are now pipelined automatically.
+
 ## 9.4.0
 
 * Change scanning functions to automatically continue when the current page is dropped

@@ -12,7 +12,7 @@ use clap::App;
 use fred::{
   bytes::Bytes,
   prelude::*,
-  types::{BackpressureConfig, ReconnectError, ReplicaConfig, UnresponsiveConfig},
+  types::{ReconnectError, ReplicaConfig, UnresponsiveConfig},
 };
 use rand::{self, distributions::Alphanumeric, Rng};
 use std::{
@@ -112,11 +112,6 @@ async fn main() -> Result<(), RedisError> {
       ];
     })
     .with_performance_config(|config| {
-      config.auto_pipeline = true;
-      config.backpressure = BackpressureConfig {
-        max_in_flight_commands: 50_000_000,
-        ..Default::default()
-      };
       config.default_command_timeout = Duration::from_secs(60);
     })
     .set_policy(ReconnectPolicy::new_constant(0, 50))

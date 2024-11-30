@@ -10,7 +10,7 @@ do
   fi
 done
 
-FEATURES="network-logs serde-json debug-ids i-redis-stack i-all"
+FEATURES="network-logs serde-json debug-ids i-redis-stack i-all i-hexpire"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

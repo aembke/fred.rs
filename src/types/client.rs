@@ -3,8 +3,8 @@ use bytes_utils::Str;
 
 #[cfg(feature = "i-tracking")]
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::{Message, RedisKey, RedisValue, Server},
+  error::{Error, ErrorKind},
+  types::{config::Server, Key, Message, Value},
 };
 
 /// The type of clients to close.
@@ -128,30 +128,30 @@ impl Toggle {
 #[cfg(feature = "i-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TryFrom<&str> for Toggle {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
-    Toggle::from_str(value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+    Toggle::from_str(value).ok_or(Error::new(ErrorKind::Parse, "Invalid toggle value."))
   }
 }
 
 #[cfg(feature = "i-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TryFrom<String> for Toggle {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: String) -> Result<Self, Self::Error> {
-    Toggle::from_str(&value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+    Toggle::from_str(&value).ok_or(Error::new(ErrorKind::Parse, "Invalid toggle value."))
   }
 }
 
 #[cfg(feature = "i-tracking")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 impl TryFrom<&String> for Toggle {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &String) -> Result<Self, Self::Error> {
-    Toggle::from_str(value).ok_or(RedisError::new(RedisErrorKind::Parse, "Invalid toggle value."))
+    Toggle::from_str(value).ok_or(Error::new(ErrorKind::Parse, "Invalid toggle value."))
   }
 }
 
@@ -172,7 +172,7 @@ impl From<bool> for Toggle {
 #[cfg_attr(docsrs, doc(cfg(feature = "i-tracking")))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Invalidation {
-  pub keys:   Vec<RedisKey>,
+  pub keys:   Vec<Key>,
   pub server: Server,
 }
 
@@ -182,13 +182,13 @@ impl Invalidation {
   pub(crate) fn from_message(message: Message, server: &Server) -> Option<Invalidation> {
     Some(Invalidation {
       keys:   match message.value {
-        RedisValue::Array(values) => values.into_iter().filter_map(|v| v.try_into().ok()).collect(),
-        RedisValue::String(s) => vec![s.into()],
-        RedisValue::Bytes(b) => vec![b.into()],
-        RedisValue::Double(f) => vec![f.into()],
-        RedisValue::Integer(i) => vec![i.into()],
-        RedisValue::Boolean(b) => vec![b.into()],
-        RedisValue::Null => vec![],
+        Value::Array(values) => values.into_iter().filter_map(|v| v.try_into().ok()).collect(),
+        Value::String(s) => vec![s.into()],
+        Value::Bytes(b) => vec![b.into()],
+        Value::Double(f) => vec![f.into()],
+        Value::Integer(i) => vec![i.into()],
+        Value::Boolean(b) => vec![b.into()],
+        Value::Null => vec![],
         _ => {
           trace!("Dropping invalid invalidation message.");
           return None;

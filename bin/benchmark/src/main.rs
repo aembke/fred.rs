@@ -1,16 +1,11 @@
-// shh
 #![allow(warnings)]
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[macro_use]
 extern crate clap;
-extern crate fred;
-extern crate futures;
-extern crate opentelemetry;
-extern crate opentelemetry_jaeger;
-extern crate tokio;
-extern crate tracing;
-extern crate tracing_opentelemetry;
-extern crate tracing_subscriber;
 
 #[macro_use]
 extern crate log;
@@ -21,6 +16,7 @@ use fred::types::TracingConfig;
 
 use clap::App;
 use indicatif::ProgressBar;
+#[cfg(feature = "tracing-deps")]
 use opentelemetry::{
   global,
   sdk::{
@@ -29,6 +25,7 @@ use opentelemetry::{
     trace::{self, RandomIdGenerator, Sampler, TraceRuntime},
   },
 };
+#[cfg(feature = "tracing-deps")]
 use opentelemetry_jaeger::JaegerTraceRuntime;
 use std::{
   default::Default,
@@ -38,6 +35,7 @@ use std::{
   time::{Duration, SystemTime},
 };
 use tokio::{runtime::Builder, task::JoinHandle, time::Instant};
+#[cfg(feature = "tracing-deps")]
 use tracing_subscriber::{layer::SubscriberExt, Layer, Registry};
 
 static DEFAULT_COMMAND_COUNT: usize = 10_000;
@@ -66,18 +64,18 @@ use _redis::run as run_benchmark;
 // TODO update clap
 #[derive(Debug)]
 struct Argv {
-  pub cluster: bool,
+  pub cluster:  bool,
   pub replicas: bool,
-  pub tracing: bool,
-  pub count: usize,
-  pub tasks: usize,
-  pub unix: Option<String>,
-  pub host: String,
-  pub port: u16,
-  pub pipeline: bool,
-  pub pool: usize,
-  pub quiet: bool,
-  pub auth: Option<String>,
+  pub bounded:  usize,
+  pub tracing:  bool,
+  pub count:    usize,
+  pub tasks:    usize,
+  pub unix:     Option<String>,
+  pub host:     String,
+  pub port:     u16,
+  pub pool:     usize,
+  pub quiet:    bool,
+  pub auth:     Option<String>,
 }
 
 fn parse_argv() -> Arc<Argv> {
@@ -121,8 +119,11 @@ fn parse_argv() -> Arc<Argv> {
     .value_of("pool")
     .map(|v| v.parse::<usize>().expect("Invalid pool"))
     .unwrap_or(1);
+  let bounded = matches
+    .value_of("bounded")
+    .map(|v| v.parse::<usize>().expect("Invalid bounded value"))
+    .unwrap_or(0);
   let auth = matches.value_of("auth").map(|v| v.to_owned());
-  let pipeline = matches.subcommand_matches("pipeline").is_some();
 
   Arc::new(Argv {
     cluster,
@@ -133,7 +134,7 @@ fn parse_argv() -> Arc<Argv> {
     tasks,
     host,
     port,
-    pipeline,
+    bounded,
     pool,
     replicas,
     auth,
@@ -197,39 +198,63 @@ pub fn setup_tracing(enable: bool) {
 }
 
 fn main() {
+  #[cfg(feature = "dhat-heap")]
+  let _profiler = dhat::Profiler::new_heap();
+
   pretty_env_logger::init();
+  #[cfg(feature = "console")]
+  console_subscriber::init();
+
   let argv = parse_argv();
   info!("Running with configuration: {:?}", argv);
+  thread::spawn(move || {
+    let sch = Builder::new_multi_thread().enable_all().build().unwrap();
+    sch.block_on(async move {
+      tokio::spawn(async move {
+        #[cfg(feature = "metrics")]
+        let monitor = tokio_metrics::RuntimeMonitor::new(&tokio::runtime::Handle::current());
 
-  let sch = Builder::new_multi_thread().enable_all().build().unwrap();
-  sch.block_on(async move {
-    tokio::spawn(async move {
-      setup_tracing(argv.tracing);
-      let counter = Arc::new(AtomicUsize::new(0));
-      let bar = if argv.quiet {
-        None
-      } else {
-        Some(ProgressBar::new(argv.count as u64))
-      };
+        setup_tracing(argv.tracing);
+        let counter = Arc::new(AtomicUsize::new(0));
+        let bar = if argv.quiet {
+          None
+        } else {
+          Some(ProgressBar::new(argv.count as u64))
+        };
 
-      let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
-      let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
-      if let Some(bar) = bar {
-        bar.finish();
-      }
+        #[cfg(feature = "metrics")]
+        let monitor_jh = tokio::spawn(async move {
+          for interval in monitor.intervals() {
+            println!("{:?}", interval);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+          }
+        });
 
-      if argv.quiet {
-        println!("{}", (argv.count as f64 / duration_sec) as u64);
-      } else {
-        println!(
-          "Performed {} operations in: {:?}. Throughput: {} req/sec",
-          argv.count,
-          duration,
-          (argv.count as f64 / duration_sec) as u64
-        );
-      }
-      global::shutdown_tracer_provider();
-    })
-    .await;
-  });
+        let duration = run_benchmark(argv.clone(), counter, bar.clone()).await;
+        let duration_sec = duration.as_secs() as f64 + (duration.subsec_millis() as f64 / 1000.0);
+        if let Some(bar) = bar {
+          bar.finish();
+        }
+
+        #[cfg(feature = "metrics")]
+        monitor_jh.abort();
+
+        if argv.quiet {
+          println!("{}", (argv.count as f64 / duration_sec) as u64);
+        } else {
+          println!(
+            "Performed {} operations in: {:?}. Throughput: {} req/sec",
+            argv.count,
+            duration,
+            (argv.count as f64 / duration_sec) as u64
+          );
+        }
+        #[cfg(feature = "tracing-deps")]
+        global::shutdown_tracer_provider();
+      })
+      .await;
+    });
+  })
+  .join()
+  .unwrap();
 }

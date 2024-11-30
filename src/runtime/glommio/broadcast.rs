@@ -1,4 +1,4 @@
-use crate::error::RedisError;
+use crate::error::Error;
 use glommio::{
   channels::local_channel::{new_unbounded, LocalReceiver, LocalSender},
   GlommioError,
@@ -24,10 +24,10 @@ impl<T: Clone> BroadcastReceiver<T> {
   /// Receives data from this channel.
   ///
   /// See [recv](glommio::channels::local_channel::LocalReceiver::recv) for more information.
-  pub async fn recv(&self) -> Result<T, RedisError> {
+  pub async fn recv(&self) -> Result<T, Error> {
     match self.rx.recv().await {
       Some(v) => Ok(v),
-      None => Err(RedisError::new_canceled()),
+      None => Err(Error::new_canceled()),
     }
   }
 }

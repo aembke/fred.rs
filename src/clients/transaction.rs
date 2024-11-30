@@ -1,34 +1,37 @@
 use crate::{
-  error::{RedisError, RedisErrorKind},
+  error::{Error, ErrorKind},
   interfaces,
   interfaces::*,
-  modules::inner::RedisClientInner,
-  prelude::RedisValue,
+  modules::inner::ClientInner,
+  prelude::Value,
   protocol::{
-    command::{RedisCommand, RedisCommandKind, RouterCommand},
+    command::{Command, CommandKind, RouterCommand},
     hashers::ClusterHash,
     responders::ResponseKind,
     utils as protocol_utils,
   },
-  runtime::{oneshot_channel, AtomicBool, Mutex, RefCount},
-  types::{FromRedis, MultipleKeys, Options, RedisKey, Server},
+  runtime::{oneshot_channel, Mutex, RefCount},
+  types::{
+    config::{Options, Server},
+    FromValue,
+    Key,
+  },
   utils,
 };
 use std::{collections::VecDeque, fmt};
 
 struct State {
   id:        u64,
-  commands:  Mutex<VecDeque<RedisCommand>>,
-  watched:   Mutex<VecDeque<RedisKey>>,
+  commands:  Mutex<VecDeque<Command>>,
+  watched:   Mutex<VecDeque<Key>>,
   hash_slot: Mutex<Option<u16>>,
-  pipelined: AtomicBool,
 }
 
 /// A cheaply cloneable transaction block.
 #[derive(Clone)]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub struct Transaction {
-  inner: RefCount<RedisClientInner>,
+  inner: RefCount<ClientInner>,
   state: RefCount<State>,
 }
 
@@ -39,7 +42,6 @@ impl fmt::Debug for Transaction {
       .field("id", &self.state.id)
       .field("length", &self.state.commands.lock().len())
       .field("hash_slot", &self.state.hash_slot.lock())
-      .field("pipelined", &utils::read_bool_atomic(&self.state.pipelined))
       .finish()
   }
 }
@@ -54,16 +56,17 @@ impl Eq for Transaction {}
 
 impl ClientLike for Transaction {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     &self.inner
   }
 
   #[doc(hidden)]
-  fn send_command<C>(&self, command: C) -> Result<(), RedisError>
+  fn send_command<C>(&self, command: C) -> Result<(), Error>
   where
-    C: Into<RedisCommand>,
+    C: Into<Command>,
   {
-    let mut command: RedisCommand = command.into();
+    let mut command: Command = command.into();
+
     self.disallow_all_cluster_commands(&command)?;
     // check cluster slot mappings as commands are added
     self.update_hash_slot(&command)?;
@@ -141,21 +144,20 @@ impl RediSearchInterface for Transaction {}
 
 impl Transaction {
   /// Create a new transaction.
-  pub(crate) fn from_inner(inner: &RefCount<RedisClientInner>) -> Self {
+  pub(crate) fn from_inner(inner: &RefCount<ClientInner>) -> Self {
     Transaction {
       inner: inner.clone(),
       state: RefCount::new(State {
         commands:  Mutex::new(VecDeque::new()),
         watched:   Mutex::new(VecDeque::new()),
         hash_slot: Mutex::new(None),
-        pipelined: AtomicBool::new(false),
         id:        utils::random_u64(u64::MAX),
       }),
     }
   }
 
   /// Check and update the hash slot for the transaction.
-  pub(crate) fn update_hash_slot(&self, command: &RedisCommand) -> Result<(), RedisError> {
+  pub(crate) fn update_hash_slot(&self, command: &Command) -> Result<(), Error> {
     if !self.inner.config.server.is_clustered() {
       return Ok(());
     }
@@ -172,8 +174,8 @@ impl Transaction {
         })?;
 
         if old_server != server {
-          return Err(RedisError::new(
-            RedisErrorKind::Cluster,
+          return Err(Error::new(
+            ErrorKind::Cluster,
             "All transaction commands must use the same cluster node.",
           ));
         }
@@ -185,10 +187,10 @@ impl Transaction {
     Ok(())
   }
 
-  pub(crate) fn disallow_all_cluster_commands(&self, command: &RedisCommand) -> Result<(), RedisError> {
+  pub(crate) fn disallow_all_cluster_commands(&self, command: &Command) -> Result<(), Error> {
     if command.is_all_cluster_nodes() {
-      Err(RedisError::new(
-        RedisErrorKind::Cluster,
+      Err(Error::new(
+        ErrorKind::Cluster,
         "Cannot use concurrent cluster commands inside a transaction.",
       ))
     } else {
@@ -213,22 +215,6 @@ impl Transaction {
     self.state.commands.lock().len()
   }
 
-  /// Whether to pipeline commands in the transaction.
-  ///
-  /// Note: pipelined transactions should only be used with Redis version >=2.6.5.
-  pub fn pipeline(&self, val: bool) {
-    utils::set_bool_atomic(&self.state.pipelined, val);
-  }
-
-  /// Read the number of keys to `WATCH` before the starting the transaction.
-  #[deprecated(
-    since = "9.2.0",
-    note = "Please use `WATCH` with clients from an `ExclusivePool` instead."
-  )]
-  pub fn watched_len(&self) -> usize {
-    self.state.watched.lock().len()
-  }
-
   /// Executes all previously queued commands in a transaction.
   ///
   /// If `abort_on_error` is `true` the client will automatically send `DISCARD` if an error is received from
@@ -240,7 +226,7 @@ impl Transaction {
   /// ```rust no_run
   /// # use fred::prelude::*;
   ///
-  /// async fn example(client: &RedisClient) -> Result<(), RedisError> {
+  /// async fn example(client: &Client) -> Result<(), Error> {
   ///   let _ = client.mset(vec![("foo", 1), ("bar", 2)]).await?;
   ///
   ///   let trx = client.multi();
@@ -252,9 +238,9 @@ impl Transaction {
   ///   Ok(())
   /// }
   /// ```
-  pub async fn exec<R>(&self, abort_on_error: bool) -> Result<R, RedisError>
+  pub async fn exec<R>(&self, abort_on_error: bool) -> Result<R, Error>
   where
-    R: FromRedis,
+    R: FromValue,
   {
     let commands = {
       self
@@ -265,34 +251,14 @@ impl Transaction {
         .map(|cmd| cmd.duplicate(ResponseKind::Skip))
         .collect()
     };
-    let pipelined = utils::read_bool_atomic(&self.state.pipelined);
     let hash_slot = utils::read_mutex(&self.state.hash_slot);
 
-    exec(
-      &self.inner,
-      commands,
-      hash_slot,
-      abort_on_error,
-      pipelined,
-      self.state.id,
-    )
-    .await?
-    .convert()
+    exec(&self.inner, commands, hash_slot, abort_on_error, self.state.id)
+      .await?
+      .convert()
   }
 
-  /// Send the `WATCH` command with the provided keys before starting the transaction.
-  #[deprecated(
-    since = "9.2.0",
-    note = "Please use `WATCH` with clients from an `ExclusivePool` instead."
-  )]
-  pub fn watch_before<K>(&self, keys: K)
-  where
-    K: Into<MultipleKeys>,
-  {
-    self.state.watched.lock().extend(keys.into().inner());
-  }
-
-  /// Read the hash slot against which this transaction will run, if known.  
+  /// Read the hash slot against which this transaction will run, if known.
   pub fn hash_slot(&self) -> Option<u16> {
     utils::read_mutex(&self.state.hash_slot)
   }
@@ -310,30 +276,28 @@ impl Transaction {
 }
 
 async fn exec(
-  inner: &RefCount<RedisClientInner>,
-  commands: VecDeque<RedisCommand>,
+  inner: &RefCount<ClientInner>,
+  commands: VecDeque<Command>,
   hash_slot: Option<u16>,
   abort_on_error: bool,
-  pipelined: bool,
   id: u64,
-) -> Result<RedisValue, RedisError> {
+) -> Result<Value, Error> {
   if commands.is_empty() {
-    return Ok(RedisValue::Null);
+    return Ok(Value::Null);
   }
   let (tx, rx) = oneshot_channel();
   let trx_options = Options::from_command(&commands[0]);
 
-  let mut multi = RedisCommand::new(RedisCommandKind::Multi, vec![]);
+  let mut multi = Command::new(CommandKind::Multi, vec![]);
   trx_options.apply(&mut multi);
 
-  let commands: Vec<RedisCommand> = [multi]
+  let commands: Vec<Command> = [multi]
     .into_iter()
     .chain(commands.into_iter())
     .map(|mut command| {
       command.inherit_options(inner);
       command.response = ResponseKind::Skip;
-      command.can_pipeline = false;
-      command.skip_backpressure = true;
+      command.can_pipeline = true;
       command.transaction_id = Some(id);
       command.use_replica = false;
       if let Some(hash_slot) = hash_slot.as_ref() {
@@ -353,7 +317,6 @@ async fn exec(
     id,
     tx,
     commands,
-    pipelined,
     abort_on_error,
   };
   let timeout_dur = trx_options.timeout.unwrap_or_else(|| inner.default_command_timeout());

@@ -1,7 +1,7 @@
 pub use crate::protocol::types::{ClusterRouting, SlotRange};
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  types::RedisValue,
+  error::{Error, ErrorKind},
+  types::Value,
   utils,
 };
 use bytes_utils::Str;
@@ -12,10 +12,10 @@ macro_rules! parse_or_zero(
   }
 );
 
-fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), RedisError> {
+fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), Error> {
   let parts: Vec<&str> = line.split(':').collect();
   if parts.len() != 2 {
-    return Err(RedisError::new(RedisErrorKind::Protocol, "Expected key:value pair."));
+    return Err(Error::new(ErrorKind::Protocol, "Expected key:value pair."));
   }
   let (field, val) = (parts[0], parts[1]);
 
@@ -23,7 +23,7 @@ fn parse_cluster_info_line(info: &mut ClusterInfo, line: &str) -> Result<(), Red
     "cluster_state" => match val {
       "ok" => info.cluster_state = ClusterState::Ok,
       "fail" => info.cluster_state = ClusterState::Fail,
-      _ => return Err(RedisError::new(RedisErrorKind::Protocol, "Invalid cluster state.")),
+      _ => return Err(Error::new(ErrorKind::Protocol, "Invalid cluster state.")),
     },
     "cluster_slots_assigned" => info.cluster_slots_assigned = parse_or_zero!(val, u16),
     "cluster_slots_ok" => info.cluster_slots_ok = parse_or_zero!(val, u16),
@@ -74,10 +74,10 @@ pub struct ClusterInfo {
   pub cluster_stats_messages_received: u64,
 }
 
-impl TryFrom<RedisValue> for ClusterInfo {
-  type Error = RedisError;
+impl TryFrom<Value> for ClusterInfo {
+  type Error = Error;
 
-  fn try_from(value: RedisValue) -> Result<Self, Self::Error> {
+  fn try_from(value: Value) -> Result<Self, Self::Error> {
     if let Some(data) = value.as_bytes_str() {
       let mut out = ClusterInfo::default();
 
@@ -89,7 +89,7 @@ impl TryFrom<RedisValue> for ClusterInfo {
       }
       Ok(out)
     } else {
-      Err(RedisError::new(RedisErrorKind::Protocol, "Expected string response."))
+      Err(Error::new(ErrorKind::Protocol, "Expected string response."))
     }
   }
 }

@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, MultipleKeys, MultipleValues, RedisKey},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{FromValue, Key, MultipleKeys, MultipleValues},
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -15,12 +15,12 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   /// argument.
   ///
   /// <https://redis.io/commands/pfadd>
-  fn pfadd<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn pfadd<R, K, V>(&self, key: K, elements: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     V: TryInto<MultipleValues> + Send,
-    V::Error: Into<RedisError> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -36,9 +36,9 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   /// internally merging the HyperLogLogs stored at the provided keys into a temporary HyperLogLog.
   ///
   /// <https://redis.io/commands/pfcount>
-  fn pfcount<R, K>(&self, keys: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn pfcount<R, K>(&self, keys: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     K: Into<MultipleKeys> + Send,
   {
     async move {
@@ -51,10 +51,10 @@ pub trait HyperloglogInterface: ClientLike + Sized {
   /// observed sets of the source HyperLogLog structures.
   ///
   /// <https://redis.io/commands/pfmerge>
-  fn pfmerge<R, D, S>(&self, dest: D, sources: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn pfmerge<R, D, S>(&self, dest: D, sources: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    D: Into<Key> + Send,
     S: Into<MultipleKeys> + Send,
   {
     async move {

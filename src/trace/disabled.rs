@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-use crate::modules::inner::RedisClientInner;
+use crate::modules::inner::ClientInner;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-use crate::protocol::command::RedisCommand;
+use crate::protocol::command::Command;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
 use crate::runtime::RefCount;
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
@@ -23,12 +23,12 @@ impl Span {
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn set_network_span(_inner: &RefCount<RedisClientInner>, _command: &mut RedisCommand, _flush: bool) {}
+pub fn set_network_span(_inner: &RefCount<ClientInner>, _command: &mut Command, _flush: bool) {}
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn create_pubsub_span(_inner: &RefCount<RedisClientInner>, _frame: &Frame) -> Option<Span> {
+pub fn create_pubsub_span(_inner: &RefCount<ClientInner>, _frame: &Frame) -> Option<Span> {
   Some(Span {})
 }
 
 #[cfg(not(any(feature = "full-tracing", feature = "partial-tracing")))]
-pub fn backpressure_event(_cmd: &RedisCommand, _: Option<u128>) {}
+pub fn backpressure_event(_cmd: &Command, _: Option<u128>) {}

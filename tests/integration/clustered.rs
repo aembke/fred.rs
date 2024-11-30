@@ -104,10 +104,14 @@ mod other {
   cluster_test!(other, should_replica_set_and_get);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_replica_set_and_get_not_lazy);
+  #[cfg(feature = "replicas")]
+  cluster_test!(other, should_create_non_lazy_replica_connections);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_use_cluster_replica_without_redirection);
-  //#[cfg(all(feature = "replicas", feature = "i-keys"))]
-  // cluster_test!(other, should_combine_options_and_replicas);
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
+  cluster_test!(other, should_combine_options_and_replicas_non_lazy);
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
+  cluster_test!(other, should_combine_options_and_replicas);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_pipeline_with_replicas);
 }
@@ -136,7 +140,9 @@ mod hashes {
   cluster_test!(hashes, should_get_random_field);
   cluster_test!(hashes, should_get_strlen);
   cluster_test!(hashes, should_get_values);
+  #[cfg(feature = "i-hexpire")]
   cluster_test!(hashes, should_do_hash_expirations);
+  #[cfg(feature = "i-hexpire")]
   cluster_test!(hashes, should_do_hash_pexpirations);
 }
 
@@ -179,6 +185,8 @@ mod scanning {
   cluster_test!(scanning, should_scan_cluster_buffered);
   #[cfg(feature = "i-keys")]
   cluster_test!(scanning, should_continue_scanning_on_page_drop);
+  #[cfg(all(feature = "i-keys", feature = "i-cluster"))]
+  cluster_test!(scanning, should_scan_by_page_clustered);
 }
 
 #[cfg(feature = "i-slowlog")]
@@ -192,8 +200,7 @@ mod slowlog {
 mod server {
   cluster_test!(server, should_flushall);
   cluster_test!(server, should_read_server_info);
-  cluster_test!(server, should_ping_server);
-  cluster_test!(server, should_run_custom_command);
+  cluster_test!(server, should_ping_pong_command);
   cluster_test!(server, should_read_last_save);
   cluster_test!(server, should_read_db_size);
   cluster_test!(server, should_start_bgsave);
@@ -285,6 +292,7 @@ pub mod sorted_sets {
   cluster_test!(sorted_sets, should_zrangebyscore);
   cluster_test!(sorted_sets, should_zrevrangebyscore);
   cluster_test!(sorted_sets, should_zrank_values);
+  cluster_test!(sorted_sets, should_zrank_values_withscore);
   cluster_test!(sorted_sets, should_zrem_values);
   cluster_test!(sorted_sets, should_zremrangebylex);
   cluster_test!(sorted_sets, should_zremrangebyrank);

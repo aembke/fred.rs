@@ -126,7 +126,7 @@ macro_rules! cmd(
 
 macro_rules! static_val(
   ($val:expr) => {
-    RedisValue::from_static_str($val)
+    Value::from_static_str($val)
   }
 );
 

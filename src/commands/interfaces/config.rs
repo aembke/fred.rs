@@ -1,8 +1,8 @@
 use crate::{
   commands,
-  error::RedisError,
-  interfaces::{ClientLike, RedisResult},
-  types::{FromRedis, RedisValue},
+  error::Error,
+  interfaces::{ClientLike, FredResult},
+  types::{FromValue, Value},
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
@@ -15,7 +15,7 @@ pub trait ConfigInterface: ClientLike + Sized {
   /// Resets the statistics reported by Redis using the INFO command.
   ///
   /// <https://redis.io/commands/config-resetstat>
-  fn config_resetstat(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn config_resetstat(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::config::config_resetstat(self).await }
   }
 
@@ -24,16 +24,16 @@ pub trait ConfigInterface: ClientLike + Sized {
   /// compared to the original one because of the use of the CONFIG SET command.
   ///
   /// <https://redis.io/commands/config-rewrite>
-  fn config_rewrite(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn config_rewrite(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::config::config_rewrite(self).await }
   }
 
   /// The CONFIG GET command is used to read the configuration parameters of a running Redis server.
   ///
   /// <https://redis.io/commands/config-get>
-  fn config_get<R, S>(&self, parameter: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn config_get<R, S>(&self, parameter: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -45,11 +45,11 @@ pub trait ConfigInterface: ClientLike + Sized {
   /// The CONFIG SET command is used in order to reconfigure the server at run time without the need to restart Redis.
   ///
   /// <https://redis.io/commands/config-set>
-  fn config_set<P, V>(&self, parameter: P, value: V) -> impl Future<Output = RedisResult<()>> + Send
+  fn config_set<P, V>(&self, parameter: P, value: V) -> impl Future<Output = FredResult<()>> + Send
   where
     P: Into<Str> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(parameter);

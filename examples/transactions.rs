@@ -4,17 +4,17 @@
 use fred::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+async fn main() -> Result<(), Error> {
+  let client = Client::default();
   client.init().await?;
 
   // transactions are buffered in memory before calling `exec`
   let trx = client.multi();
-  let result: RedisValue = trx.get("foo").await?;
+  let result: Value = trx.get("foo").await?;
   assert!(result.is_queued());
-  let result: RedisValue = trx.set("foo", "bar", None, None, false).await?;
+  let result: Value = trx.set("foo", "bar", None, None, false).await?;
   assert!(result.is_queued());
-  let result: RedisValue = trx.get("foo").await?;
+  let result: Value = trx.get("foo").await?;
   assert!(result.is_queued());
 
   let values: (Option<String>, (), String) = trx.exec(true).await?;

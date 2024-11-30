@@ -1,18 +1,20 @@
 use crate::{
   commands,
-  interfaces::{ClientLike, RedisResult},
-  prelude::RedisError,
+  interfaces::{ClientLike, FredResult},
+  prelude::Error,
   types::{
-    FromRedis,
-    FtAggregateOptions,
-    FtAlterOptions,
-    FtCreateOptions,
-    FtSearchOptions,
+    redisearch::{
+      FtAggregateOptions,
+      FtAlterOptions,
+      FtCreateOptions,
+      FtSearchOptions,
+      SearchSchema,
+      SpellcheckTerms,
+    },
+    FromValue,
+    Key,
     MultipleStrings,
-    RedisKey,
-    RedisValue,
-    SearchSchema,
-    SpellcheckTerms,
+    Value,
   },
 };
 use bytes::Bytes;
@@ -27,9 +29,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Returns a list of all existing indexes.
   ///
   /// <https://redis.io/docs/latest/commands/ft._list/>
-  fn ft_list<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_list<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::redisearch::ft_list(self).await?.convert() }
   }
@@ -42,9 +44,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
     index: I,
     query: Q,
     options: FtAggregateOptions,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
     Q: Into<Str> + Send,
   {
@@ -66,9 +68,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
     index: I,
     query: Q,
     options: FtSearchOptions,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
     Q: Into<Str> + Send,
   {
@@ -88,9 +90,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
     index: I,
     options: FtCreateOptions,
     schema: Vec<SearchSchema>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
   {
     async move {
@@ -104,9 +106,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Add a new attribute to the index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.alter/>
-  fn ft_alter<R, I>(&self, index: I, options: FtAlterOptions) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_alter<R, I>(&self, index: I, options: FtAlterOptions) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
   {
     async move {
@@ -118,9 +120,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Add an alias to an index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.aliasadd/>
-  fn ft_aliasadd<R, A, I>(&self, alias: A, index: I) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_aliasadd<R, A, I>(&self, alias: A, index: I) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     A: Into<Str> + Send,
     I: Into<Str> + Send,
   {
@@ -133,9 +135,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Remove an alias from an index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.aliasdel/>
-  fn ft_aliasdel<R, A>(&self, alias: A) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_aliasdel<R, A>(&self, alias: A) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     A: Into<Str> + Send,
   {
     async move {
@@ -148,9 +150,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// alias association with the previous index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.aliasupdate/>
-  fn ft_aliasupdate<R, A, I>(&self, alias: A, index: I) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_aliasupdate<R, A, I>(&self, alias: A, index: I) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     A: Into<Str> + Send,
     I: Into<Str> + Send,
   {
@@ -165,9 +167,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Retrieve configuration options.
   ///
   /// <https://redis.io/docs/latest/commands/ft.config-get/>
-  fn ft_config_get<R, S>(&self, option: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_config_get<R, S>(&self, option: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
   {
     async move {
@@ -179,12 +181,12 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Set the value of a RediSearch configuration parameter.
   ///
   /// <https://redis.io/docs/latest/commands/ft.config-set/>
-  fn ft_config_set<R, S, V>(&self, option: S, value: V) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_config_set<R, S, V>(&self, option: S, value: V) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
-    V: TryInto<RedisValue> + Send,
-    V::Error: Into<RedisError> + Send,
+    V: TryInto<Value> + Send,
+    V::Error: Into<Error> + Send,
   {
     async move {
       into!(option);
@@ -198,12 +200,12 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Delete a cursor.
   ///
   /// <https://redis.io/docs/latest/commands/ft.cursor-del/>
-  fn ft_cursor_del<R, I, C>(&self, index: I, cursor: C) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_cursor_del<R, I, C>(&self, index: I, cursor: C) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
-    C: TryInto<RedisValue> + Send,
-    C::Error: Into<RedisError> + Send,
+    C: TryInto<Value> + Send,
+    C::Error: Into<Error> + Send,
   {
     async move {
       into!(index);
@@ -222,12 +224,12 @@ pub trait RediSearchInterface: ClientLike + Sized {
     index: I,
     cursor: C,
     count: Option<u64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
-    C: TryInto<RedisValue> + Send,
-    C::Error: Into<RedisError> + Send,
+    C: TryInto<Value> + Send,
+    C::Error: Into<Error> + Send,
   {
     async move {
       into!(index);
@@ -241,9 +243,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Add terms to a dictionary.
   ///
   /// <https://redis.io/docs/latest/commands/ft.dictadd/>
-  fn ft_dictadd<R, D, S>(&self, dict: D, terms: S) -> impl Future<Output = RedisResult<R>>
+  fn ft_dictadd<R, D, S>(&self, dict: D, terms: S) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
     D: Into<Str> + Send,
     S: Into<MultipleStrings> + Send,
   {
@@ -256,9 +258,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Remove terms from a dictionary.
   ///
   /// <https://redis.io/docs/latest/commands/ft.dictdel/>
-  fn ft_dictdel<R, D, S>(&self, dict: D, terms: S) -> impl Future<Output = RedisResult<R>>
+  fn ft_dictdel<R, D, S>(&self, dict: D, terms: S) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
     D: Into<Str> + Send,
     S: Into<MultipleStrings> + Send,
   {
@@ -271,9 +273,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Dump all terms in the given dictionary.
   ///
   /// <https://redis.io/docs/latest/commands/ft.dictdump/>
-  fn ft_dictdump<R, D>(&self, dict: D) -> impl Future<Output = RedisResult<R>>
+  fn ft_dictdump<R, D>(&self, dict: D) -> impl Future<Output = FredResult<R>>
   where
-    R: FromRedis,
+    R: FromValue,
     D: Into<Str> + Send,
   {
     async move {
@@ -285,9 +287,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Delete an index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.dropindex/>
-  fn ft_dropindex<R, I>(&self, index: I, dd: bool) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_dropindex<R, I>(&self, index: I, dd: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
   {
     async move {
@@ -304,9 +306,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
     index: I,
     query: Q,
     dialect: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
     Q: Into<Str> + Send,
   {
@@ -321,9 +323,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Return information and statistics on the index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.info/>
-  fn ft_info<R, I>(&self, index: I) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_info<R, I>(&self, index: I) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
   {
     async move {
@@ -342,9 +344,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
     distance: Option<u8>,
     terms: Option<SpellcheckTerms>,
     dialect: Option<i64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
     Q: Into<Str> + Send,
   {
@@ -366,10 +368,10 @@ pub trait RediSearchInterface: ClientLike + Sized {
     score: f64,
     incr: bool,
     payload: Option<Bytes>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     S: Into<Str> + Send,
   {
     async move {
@@ -383,10 +385,10 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Delete a string from a suggestion index.
   ///
   /// <https://redis.io/docs/latest/commands/ft.sugdel/>
-  fn ft_sugdel<R, K, S>(&self, key: K, string: S) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_sugdel<R, K, S>(&self, key: K, string: S) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     S: Into<Str> + Send,
   {
     async move {
@@ -406,10 +408,10 @@ pub trait RediSearchInterface: ClientLike + Sized {
     withscores: bool,
     withpayloads: bool,
     max: Option<u64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     P: Into<Str> + Send,
   {
     async move {
@@ -423,10 +425,10 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Get the size of an auto-complete suggestion dictionary.
   ///
   /// <https://redis.io/docs/latest/commands/ft.suglen/>
-  fn ft_suglen<R, K>(&self, key: K) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_suglen<R, K>(&self, key: K) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -437,9 +439,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Dump the contents of a synonym group.
   ///
   /// <https://redis.io/docs/latest/commands/ft.syndump/>
-  fn ft_syndump<R, I>(&self, index: I) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_syndump<R, I>(&self, index: I) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
   {
     async move {
@@ -457,9 +459,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
     synonym_group_id: S,
     skipinitialscan: bool,
     terms: T,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
     S: Into<Str> + Send,
     T: Into<MultipleStrings> + Send,
@@ -475,9 +477,9 @@ pub trait RediSearchInterface: ClientLike + Sized {
   /// Return a distinct set of values indexed in a Tag field.
   ///
   /// <https://redis.io/docs/latest/commands/ft.tagvals/>
-  fn ft_tagvals<R, I, F>(&self, index: I, field_name: F) -> impl Future<Output = RedisResult<R>> + Send
+  fn ft_tagvals<R, I, F>(&self, index: I, field_name: F) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     I: Into<Str> + Send,
     F: Into<Str> + Send,
   {

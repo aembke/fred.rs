@@ -15,7 +15,7 @@ const COUNT: usize = 100_000_000;
 
 fn main() {
   pretty_env_logger::init();
-  let config = RedisConfig::from_url("redis-cluster://foo:bar@redis-cluster-1:30001").unwrap();
+  let config = Config::from_url("redis-cluster://foo:bar@redis-cluster-1:30001").unwrap();
   let builder = Builder::from_config(config);
   let started = SystemTime::now();
 
@@ -43,7 +43,7 @@ fn main() {
         incr_foo(&pool).await?;
 
         pool.quit().await?;
-        Ok::<_, RedisError>(thread_id)
+        Ok::<_, Error>(thread_id)
       }
     })
     .unwrap()
@@ -65,7 +65,7 @@ fn main() {
   );
 }
 
-async fn incr_foo(pool: &RedisPool) -> Result<(), RedisError> {
+async fn incr_foo(pool: &Pool) -> Result<(), Error> {
   let counter = Rc::new(RefCell::new(0));
   let mut tasks = Vec::with_capacity(CONCURRENCY);
   for _ in 0 .. CONCURRENCY {
@@ -77,7 +77,7 @@ async fn incr_foo(pool: &RedisPool) -> Result<(), RedisError> {
         *counter.borrow_mut() += 1;
       }
 
-      Ok::<_, RedisError>(())
+      Ok::<_, Error>(())
     }));
   }
   try_join_all(tasks).await?;

@@ -6,7 +6,7 @@ use fred::{interfaces::TrackingInterface, prelude::*, types::RespVersion};
 // that requires RESP3 and works with all deployment types, and a lower level interface that directly exposes the
 // `CLIENT TRACKING` commands but often requires a centralized server config.
 
-async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
+async fn resp3_tracking_interface_example() -> Result<(), Error> {
   let client = Builder::default_centralized()
     .with_config(|config| {
       config.version = RespVersion::RESP3;
@@ -46,8 +46,8 @@ async fn resp3_tracking_interface_example() -> Result<(), RedisError> {
   Ok(())
 }
 
-async fn resp2_basic_interface_example() -> Result<(), RedisError> {
-  let subscriber = RedisClient::default();
+async fn resp2_basic_interface_example() -> Result<(), Error> {
+  let subscriber = Client::default();
   let client = subscriber.clone_new();
 
   // RESP2 requires two connections
@@ -69,7 +69,6 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
   // enable client tracking, sending invalidation messages to the subscriber client
   let (_, connection_id) = subscriber
     .connection_ids()
-    .await
     .into_iter()
     .next()
     .expect("Failed to read subscriber connection ID");
@@ -77,7 +76,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
     .client_tracking("on", Some(connection_id), None, false, false, false, false)
     .await?;
 
-  println!("Tracking info: {:?}", client.client_trackinginfo::<RedisValue>().await?);
+  println!("Tracking info: {:?}", client.client_trackinginfo::<Value>().await?);
   println!("Redirection: {}", client.client_getredir::<i64>().await?);
 
   let pipeline = client.pipeline();
@@ -91,7 +90,7 @@ async fn resp2_basic_interface_example() -> Result<(), RedisError> {
 
 #[tokio::main]
 // see https://redis.io/docs/manual/client-side-caching/
-async fn main() -> Result<(), RedisError> {
+async fn main() -> Result<(), Error> {
   resp3_tracking_interface_example().await?;
   resp2_basic_interface_example().await?;
 

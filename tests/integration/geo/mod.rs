@@ -1,6 +1,9 @@
 use fred::{
   prelude::*,
-  types::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue, SortOrder},
+  types::{
+    geo::{GeoPosition, GeoRadiusInfo, GeoUnit, GeoValue},
+    SortOrder,
+  },
 };
 use std::convert::TryInto;
 
@@ -14,7 +17,7 @@ fn loose_eq_pos(lhs: &GeoPosition, rhs: &GeoPosition) -> bool {
   loose_eq(lhs.longitude, rhs.longitude, 5) && loose_eq(lhs.latitude, rhs.latitude, 5)
 }
 
-async fn create_fake_data(client: &RedisClient, key: &str) -> Result<Vec<GeoPosition>, RedisError> {
+async fn create_fake_data(client: &Client, key: &str) -> Result<Vec<GeoPosition>, Error> {
   // GEOADD key 13.361389 38.115556 "Palermo" 15.087269 37.502669 "Catania"
 
   let values = vec![
@@ -22,11 +25,11 @@ async fn create_fake_data(client: &RedisClient, key: &str) -> Result<Vec<GeoPosi
     (15.087269, 37.502669, "Catania").try_into()?,
   ];
 
-  client.geoadd(key, None, false, values.clone()).await?;
+  let _: () = client.geoadd(key, None, false, values.clone()).await?;
   Ok(values.into_iter().map(|p| p.coordinates).collect())
 }
 
-pub async fn should_geoadd_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_geoadd_values(client: Client, _: Config) -> Result<(), Error> {
   let values: Vec<GeoValue> = vec![
     (13.361389, 38.115556, "Palermo").try_into()?,
     (15.087269, 37.502669, "Catania").try_into()?,
@@ -42,7 +45,7 @@ pub async fn should_geoadd_values(client: RedisClient, _: RedisConfig) -> Result
   Ok(())
 }
 
-pub async fn should_geohash_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_geohash_values(client: Client, _: Config) -> Result<(), Error> {
   let _ = create_fake_data(&client, "foo").await?;
 
   let result: String = client.geohash("foo", "Palermo").await?;
@@ -56,10 +59,10 @@ pub async fn should_geohash_values(client: RedisClient, _: RedisConfig) -> Resul
   Ok(())
 }
 
-pub async fn should_geopos_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_geopos_values(client: Client, _: Config) -> Result<(), Error> {
   let expected = create_fake_data(&client, "foo").await?;
 
-  let result: RedisValue = client.geopos("foo", vec!["Palermo", "Catania"]).await?;
+  let result: Value = client.geopos("foo", vec!["Palermo", "Catania"]).await?;
   let result: Vec<GeoPosition> = result
     .into_array()
     .into_iter()
@@ -71,18 +74,18 @@ pub async fn should_geopos_values(client: RedisClient, _: RedisConfig) -> Result
     }
   }
 
-  let result: Vec<RedisValue> = client.geopos("foo", "Palermo").await?;
+  let result: Vec<Value> = client.geopos("foo", "Palermo").await?;
   let result = result[0].as_geo_position().unwrap().unwrap();
   assert!(loose_eq_pos(&result, &expected[0]));
 
-  let result: Vec<RedisValue> = client.geopos("foo", "Catania").await?;
+  let result: Vec<Value> = client.geopos("foo", "Catania").await?;
   let result = result[0].as_geo_position().unwrap().unwrap();
   assert!(loose_eq_pos(&result, &expected[1]));
 
   Ok(())
 }
 
-pub async fn should_geodist_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_geodist_values(client: Client, _: Config) -> Result<(), Error> {
   let _ = create_fake_data(&client, "foo").await?;
 
   let result: f64 = client.geodist("foo", "Palermo", "Catania", None).await?;
@@ -99,11 +102,11 @@ pub async fn should_geodist_values(client: RedisClient, _: RedisConfig) -> Resul
   Ok(())
 }
 
-pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_georadius_values(client: Client, _: Config) -> Result<(), Error> {
   let _ = create_fake_data(&client, "foo").await?;
 
   let result = client
-    .georadius::<RedisValue, _, _>(
+    .georadius::<Value, _, _>(
       "foo",
       (15.0, 37.0),
       200.0,
@@ -135,7 +138,7 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
   assert_eq!(result, expected);
 
   let result = client
-    .georadius::<RedisValue, _, _>(
+    .georadius::<Value, _, _>(
       "foo",
       (15.0, 37.0),
       200.0,
@@ -167,7 +170,7 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
   assert_eq!(result, expected);
 
   let result = client
-    .georadius::<RedisValue, _, _>(
+    .georadius::<Value, _, _>(
       "foo",
       (15.0, 37.0),
       200.0,
@@ -201,13 +204,13 @@ pub async fn should_georadius_values(client: RedisClient, _: RedisConfig) -> Res
   Ok(())
 }
 
-pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_georadiusbymember_values(client: Client, _: Config) -> Result<(), Error> {
   let _ = create_fake_data(&client, "foo").await?;
   let agrigento: GeoValue = (13.583333, 37.316667, "Agrigento").try_into()?;
-  client.geoadd("foo", None, false, agrigento).await?;
+  let _: () = client.geoadd("foo", None, false, agrigento).await?;
 
   let result = client
-    .georadiusbymember::<RedisValue, _, _>(
+    .georadiusbymember::<Value, _, _>(
       "foo",
       "Agrigento",
       100.0,
@@ -241,17 +244,17 @@ pub async fn should_georadiusbymember_values(client: RedisClient, _: RedisConfig
   Ok(())
 }
 
-pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Result<(), RedisError> {
+pub async fn should_geosearch_values(client: Client, _: Config) -> Result<(), Error> {
   let _ = create_fake_data(&client, "foo").await?;
   let values = vec![
     (12.758489, 38.788135, "edge1").try_into()?,
     (17.241510, 38.788135, "edge2").try_into()?,
   ];
-  client.geoadd("foo", None, false, values).await?;
+  let _: () = client.geoadd("foo", None, false, values).await?;
 
   let lonlat: GeoPosition = (15.0, 37.0).into();
   let result = client
-    .geosearch::<RedisValue, _>(
+    .geosearch::<Value, _>(
       "foo",
       None,
       Some(lonlat.clone()),
@@ -282,7 +285,7 @@ pub async fn should_geosearch_values(client: RedisClient, _: RedisConfig) -> Res
   assert_eq!(result, expected);
 
   let result = client
-    .geosearch::<RedisValue, _>(
+    .geosearch::<Value, _>(
       "foo",
       None,
       Some(lonlat),

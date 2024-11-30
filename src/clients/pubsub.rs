@@ -1,11 +1,15 @@
 use crate::{
   commands,
-  error::RedisError,
+  error::Error,
   interfaces::*,
-  modules::inner::RedisClientInner,
-  prelude::RedisClient,
+  modules::inner::ClientInner,
+  prelude::Client,
   runtime::{spawn, JoinHandle, RefCount, RwLock},
-  types::{ConnectionConfig, MultipleStrings, PerformanceConfig, ReconnectPolicy, RedisConfig, RedisKey},
+  types::{
+    config::{Config, ConnectionConfig, PerformanceConfig, ReconnectPolicy},
+    Key,
+    MultipleStrings,
+  },
   util::group_by_hash_slot,
 };
 use bytes_utils::Str;
@@ -25,7 +29,7 @@ type ChannelSet = RefCount<RwLock<BTreeSet<Str>>>;
 /// use fred::clients::SubscriberClient;
 /// use fred::prelude::*;
 ///
-/// async fn example() -> Result<(), RedisError> {
+/// async fn example() -> Result<(), Error> {
 ///   let subscriber = Builder::default_centralized().build_subscriber_client()?;
 ///   subscriber.init().await?;
 ///
@@ -58,7 +62,7 @@ pub struct SubscriberClient {
   channels:       ChannelSet,
   patterns:       ChannelSet,
   shard_channels: ChannelSet,
-  inner:          RefCount<RedisClientInner>,
+  inner:          RefCount<ClientInner>,
 }
 
 impl fmt::Debug for SubscriberClient {
@@ -74,7 +78,7 @@ impl fmt::Debug for SubscriberClient {
 
 impl ClientLike for SubscriberClient {
   #[doc(hidden)]
-  fn inner(&self) -> &RefCount<RedisClientInner> {
+  fn inner(&self) -> &RefCount<ClientInner> {
     &self.inner
   }
 }
@@ -156,7 +160,7 @@ impl RediSearchInterface for SubscriberClient {}
 #[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
 #[rm_send_if(feature = "glommio")]
 impl PubsubInterface for SubscriberClient {
-  fn subscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn subscribe<S>(&self, channels: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -178,7 +182,7 @@ impl PubsubInterface for SubscriberClient {
     }
   }
 
-  fn unsubscribe<S>(&self, channels: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn unsubscribe<S>(&self, channels: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -203,7 +207,7 @@ impl PubsubInterface for SubscriberClient {
     }
   }
 
-  fn psubscribe<S>(&self, patterns: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn psubscribe<S>(&self, patterns: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -224,7 +228,7 @@ impl PubsubInterface for SubscriberClient {
     }
   }
 
-  fn punsubscribe<S>(&self, patterns: S) -> impl Future<Output = RedisResult<()>> + Send
+  fn punsubscribe<S>(&self, patterns: S) -> impl Future<Output = FredResult<()>> + Send
   where
     S: Into<MultipleStrings> + Send,
   {
@@ -249,7 +253,7 @@ impl PubsubInterface for SubscriberClient {
     }
   }
 
-  fn ssubscribe<C>(&self, channels: C) -> impl Future<Output = RedisResult<()>> + Send
+  fn ssubscribe<C>(&self, channels: C) -> impl Future<Output = FredResult<()>> + Send
   where
     C: Into<MultipleStrings> + Send,
   {
@@ -270,7 +274,7 @@ impl PubsubInterface for SubscriberClient {
     }
   }
 
-  fn sunsubscribe<C>(&self, channels: C) -> impl Future<Output = RedisResult<()>> + Send
+  fn sunsubscribe<C>(&self, channels: C) -> impl Future<Output = FredResult<()>> + Send
   where
     C: Into<MultipleStrings> + Send,
   {
@@ -301,7 +305,7 @@ impl SubscriberClient {
   ///
   /// See the [builder](crate::types::Builder) interface for more information.
   pub fn new(
-    config: RedisConfig,
+    config: Config,
     perf: Option<PerformanceConfig>,
     connection: Option<ConnectionConfig>,
     policy: Option<ReconnectPolicy>,
@@ -310,7 +314,7 @@ impl SubscriberClient {
       channels:       RefCount::new(RwLock::new(BTreeSet::new())),
       patterns:       RefCount::new(RwLock::new(BTreeSet::new())),
       shard_channels: RefCount::new(RwLock::new(BTreeSet::new())),
-      inner:          RedisClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
+      inner:          ClientInner::new(config, perf.unwrap_or_default(), connection.unwrap_or_default(), policy),
     }
   }
 
@@ -319,7 +323,7 @@ impl SubscriberClient {
   /// The returned client will not be connected to the server, and it will use new connections after connecting.
   /// However, it will manage the same channel subscriptions as the original client.
   pub fn clone_new(&self) -> Self {
-    let inner = RedisClientInner::new(
+    let inner = ClientInner::new(
       self.inner.config.as_ref().clone(),
       self.inner.performance_config(),
       self.inner.connection.as_ref().clone(),
@@ -371,10 +375,10 @@ impl SubscriberClient {
   /// Re-subscribe to any tracked channels and patterns.
   ///
   /// This can be used to sync the client's subscriptions with the server after calling `QUIT`, then `connect`, etc.
-  pub async fn resubscribe_all(&self) -> Result<(), RedisError> {
-    let channels: Vec<RedisKey> = self.tracked_channels().into_iter().map(|s| s.into()).collect();
-    let patterns: Vec<RedisKey> = self.tracked_patterns().into_iter().map(|s| s.into()).collect();
-    let shard_channels: Vec<RedisKey> = self.tracked_shard_channels().into_iter().map(|s| s.into()).collect();
+  pub async fn resubscribe_all(&self) -> Result<(), Error> {
+    let channels: Vec<Key> = self.tracked_channels().into_iter().map(|s| s.into()).collect();
+    let patterns: Vec<Key> = self.tracked_patterns().into_iter().map(|s| s.into()).collect();
+    let shard_channels: Vec<Key> = self.tracked_shard_channels().into_iter().map(|s| s.into()).collect();
 
     self.subscribe(channels).await?;
     self.psubscribe(patterns).await?;
@@ -389,16 +393,16 @@ impl SubscriberClient {
   }
 
   /// Unsubscribe from all tracked channels and patterns, and remove them from the client cache.
-  pub async fn unsubscribe_all(&self) -> Result<(), RedisError> {
-    let channels: Vec<RedisKey> = mem::take(&mut *self.channels.write())
+  pub async fn unsubscribe_all(&self) -> Result<(), Error> {
+    let channels: Vec<Key> = mem::take(&mut *self.channels.write())
       .into_iter()
       .map(|s| s.into())
       .collect();
-    let patterns: Vec<RedisKey> = mem::take(&mut *self.patterns.write())
+    let patterns: Vec<Key> = mem::take(&mut *self.patterns.write())
       .into_iter()
       .map(|s| s.into())
       .collect();
-    let shard_channels: Vec<RedisKey> = mem::take(&mut *self.shard_channels.write())
+    let shard_channels: Vec<Key> = mem::take(&mut *self.shard_channels.write())
       .into_iter()
       .map(|s| s.into())
       .collect();
@@ -419,7 +423,7 @@ impl SubscriberClient {
   /// Create a new `RedisClient`, reusing the existing connection(s).
   ///
   /// Note: most non-pubsub commands are only supported when using RESP3.
-  pub fn to_client(&self) -> RedisClient {
-    RedisClient::from(&self.inner)
+  pub fn to_client(&self) -> Client {
+    Client::from(&self.inner)
   }
 }

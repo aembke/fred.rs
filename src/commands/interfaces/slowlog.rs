@@ -1,7 +1,7 @@
 use crate::{
   commands,
-  interfaces::{ClientLike, RedisResult},
-  types::FromRedis,
+  interfaces::{ClientLike, FredResult},
+  types::FromValue,
 };
 use fred_macros::rm_send_if;
 use futures::Future;
@@ -12,9 +12,9 @@ pub trait SlowlogInterface: ClientLike + Sized {
   /// This command is used to read the slow queries log.
   ///
   /// <https://redis.io/commands/slowlog#reading-the-slow-log>
-  fn slowlog_get<R>(&self, count: Option<i64>) -> impl Future<Output = RedisResult<R>> + Send
+  fn slowlog_get<R>(&self, count: Option<i64>) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::slowlog::slowlog_get(self, count).await?.convert() }
   }
@@ -22,9 +22,9 @@ pub trait SlowlogInterface: ClientLike + Sized {
   /// This command is used to read length of the slow queries log.
   ///
   /// <https://redis.io/commands/slowlog#obtaining-the-current-length-of-the-slow-log>
-  fn slowlog_length<R>(&self) -> impl Future<Output = RedisResult<R>> + Send
+  fn slowlog_length<R>(&self) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
   {
     async move { commands::slowlog::slowlog_length(self).await?.convert() }
   }
@@ -32,7 +32,7 @@ pub trait SlowlogInterface: ClientLike + Sized {
   /// This command is used to reset the slow queries log.
   ///
   /// <https://redis.io/commands/slowlog#resetting-the-slow-log>
-  fn slowlog_reset(&self) -> impl Future<Output = RedisResult<()>> + Send {
+  fn slowlog_reset(&self) -> impl Future<Output = FredResult<()>> + Send {
     async move { commands::slowlog::slowlog_reset(self).await }
   }
 }

@@ -1,18 +1,20 @@
 use crate::{
   commands,
   interfaces::ClientLike,
-  prelude::{RedisError, RedisKey, RedisResult},
+  prelude::{Error, FredResult, Key},
   types::{
-    Aggregator,
-    DuplicatePolicy,
-    Encoding,
-    FromRedis,
-    GetLabels,
-    GetTimestamp,
-    GroupBy,
-    RangeAggregation,
-    RedisMap,
-    Timestamp,
+    timeseries::{
+      Aggregator,
+      DuplicatePolicy,
+      Encoding,
+      GetLabels,
+      GetTimestamp,
+      GroupBy,
+      RangeAggregation,
+      Timestamp,
+    },
+    FromValue,
+    Map,
   },
 };
 use bytes_utils::Str;
@@ -36,14 +38,14 @@ pub trait TimeSeriesInterface: ClientLike {
     chunk_size: Option<u64>,
     on_duplicate: Option<DuplicatePolicy>,
     labels: L,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     T: TryInto<Timestamp> + Send,
-    T::Error: Into<RedisError> + Send,
-    L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError>,
+    T::Error: Into<Error> + Send,
+    L: TryInto<Map> + Send,
+    L::Error: Into<Error>,
   {
     async move {
       into!(key);
@@ -74,12 +76,12 @@ pub trait TimeSeriesInterface: ClientLike {
     chunk_size: Option<u64>,
     duplicate_policy: Option<DuplicatePolicy>,
     labels: L,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError>,
+    R: FromValue,
+    K: Into<Key> + Send,
+    L: TryInto<Map> + Send,
+    L::Error: Into<Error>,
   {
     async move {
       into!(key);
@@ -101,12 +103,12 @@ pub trait TimeSeriesInterface: ClientLike {
     chunk_size: Option<u64>,
     duplicate_policy: Option<DuplicatePolicy>,
     labels: L,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError>,
+    R: FromValue,
+    K: Into<Key> + Send,
+    L: TryInto<Map> + Send,
+    L::Error: Into<Error>,
   {
     async move {
       into!(key);
@@ -126,11 +128,11 @@ pub trait TimeSeriesInterface: ClientLike {
     dest: D,
     aggregation: (Aggregator, u64),
     align_timestamp: Option<u64>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(src, dest);
@@ -153,12 +155,12 @@ pub trait TimeSeriesInterface: ClientLike {
     uncompressed: bool,
     chunk_size: Option<u64>,
     labels: L,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    L: TryInto<Map> + Send,
+    L::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -181,10 +183,10 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Delete all samples between two timestamps for a given time series.
   ///
   /// <https://redis.io/commands/ts.del/>
-  fn ts_del<R, K>(&self, key: K, from: i64, to: i64) -> impl Future<Output = RedisResult<R>> + Send
+  fn ts_del<R, K>(&self, key: K, from: i64, to: i64) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -195,11 +197,11 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Delete a compaction rule.
   ///
   /// <https://redis.io/commands/ts.deleterule/>
-  fn ts_deleterule<R, S, D>(&self, src: S, dest: D) -> impl Future<Output = RedisResult<R>> + Send
+  fn ts_deleterule<R, S, D>(&self, src: S, dest: D) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    S: Into<RedisKey> + Send,
-    D: Into<RedisKey> + Send,
+    R: FromValue,
+    S: Into<Key> + Send,
+    D: Into<Key> + Send,
   {
     async move {
       into!(src, dest);
@@ -210,10 +212,10 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Get the sample with the highest timestamp from a given time series.
   ///
   /// <https://redis.io/commands/ts.get/>
-  fn ts_get<R, K>(&self, key: K, latest: bool) -> impl Future<Output = RedisResult<R>> + Send
+  fn ts_get<R, K>(&self, key: K, latest: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -234,12 +236,12 @@ pub trait TimeSeriesInterface: ClientLike {
     uncompressed: bool,
     chunk_size: Option<u64>,
     labels: L,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
-    L: TryInto<RedisMap> + Send,
-    L::Error: Into<RedisError> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
+    L: TryInto<Map> + Send,
+    L::Error: Into<Error> + Send,
   {
     async move {
       into!(key);
@@ -262,10 +264,10 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Return information and statistics for a time series.
   ///
   /// <https://redis.io/commands/ts.info/>
-  fn ts_info<R, K>(&self, key: K, debug: bool) -> impl Future<Output = RedisResult<R>> + Send
+  fn ts_info<R, K>(&self, key: K, debug: bool) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
   {
     async move {
       into!(key);
@@ -276,10 +278,10 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Append new samples to one or more time series.
   ///
   /// <https://redis.io/commands/ts.madd/>
-  fn ts_madd<R, K, I>(&self, samples: I) -> impl Future<Output = RedisResult<R>> + Send
+  fn ts_madd<R, K, I>(&self, samples: I) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     I: IntoIterator<Item = (K, Timestamp, f64)> + Send,
   {
     async move {
@@ -294,8 +296,8 @@ pub trait TimeSeriesInterface: ClientLike {
 
   /// Get the sample with the highest timestamp from each time series matching a specific filter.
   ///
-  /// See [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues) and
-  /// [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for more information.
+  /// See [Resp2TimeSeriesValues](crate::types::timeseries::Resp2TimeSeriesValues) and
+  /// [Resp3TimeSeriesValues](crate::types::timeseries::Resp3TimeSeriesValues) for more information.
   ///
   /// <https://redis.io/commands/ts.mget/>
   fn ts_mget<R, L, S, I>(
@@ -303,9 +305,9 @@ pub trait TimeSeriesInterface: ClientLike {
     latest: bool,
     labels: Option<L>,
     filters: I,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     L: Into<GetLabels> + Send,
     S: Into<Str> + Send,
     I: IntoIterator<Item = S> + Send,
@@ -322,8 +324,8 @@ pub trait TimeSeriesInterface: ClientLike {
 
   /// Query a range across multiple time series by filters in the forward direction.
   ///
-  /// See [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues) and
-  /// [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for more information.
+  /// See [Resp2TimeSeriesValues](crate::types::timeseries::Resp2TimeSeriesValues) and
+  /// [Resp3TimeSeriesValues](crate::types::timeseries::Resp3TimeSeriesValues) for more information.
   ///
   /// <https://redis.io/commands/ts.mrange/>
   fn ts_mrange<R, F, T, I, S, J>(
@@ -338,13 +340,13 @@ pub trait TimeSeriesInterface: ClientLike {
     aggregation: Option<RangeAggregation>,
     filters: J,
     group_by: Option<GroupBy>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     F: TryInto<GetTimestamp> + Send,
-    F::Error: Into<RedisError> + Send,
+    F::Error: Into<Error> + Send,
     T: TryInto<GetTimestamp> + Send,
-    T::Error: Into<RedisError> + Send,
+    T::Error: Into<Error> + Send,
     S: Into<Str> + Send,
     I: IntoIterator<Item = i64> + Send,
     J: IntoIterator<Item = S> + Send,
@@ -374,8 +376,8 @@ pub trait TimeSeriesInterface: ClientLike {
 
   /// Query a range across multiple time series by filters in the reverse direction.
   ///
-  /// See [Resp2TimeSeriesValues](crate::types::Resp2TimeSeriesValues) and
-  /// [Resp3TimeSeriesValues](crate::types::Resp3TimeSeriesValues) for more information.
+  /// See [Resp2TimeSeriesValues](crate::types::timeseries::Resp2TimeSeriesValues) and
+  /// [Resp3TimeSeriesValues](crate::types::timeseries::Resp3TimeSeriesValues) for more information.
   ///
   /// <https://redis.io/commands/ts.mrevrange/>
   fn ts_mrevrange<R, F, T, I, S, J>(
@@ -390,13 +392,13 @@ pub trait TimeSeriesInterface: ClientLike {
     aggregation: Option<RangeAggregation>,
     filters: J,
     group_by: Option<GroupBy>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     F: TryInto<GetTimestamp> + Send,
-    F::Error: Into<RedisError> + Send,
+    F::Error: Into<Error> + Send,
     T: TryInto<GetTimestamp> + Send,
-    T::Error: Into<RedisError> + Send,
+    T::Error: Into<Error> + Send,
     S: Into<Str> + Send,
     I: IntoIterator<Item = i64> + Send,
     J: IntoIterator<Item = S> + Send,
@@ -427,9 +429,9 @@ pub trait TimeSeriesInterface: ClientLike {
   /// Get all time series keys matching a filter list.
   ///
   /// <https://redis.io/commands/ts.queryindex/>
-  fn ts_queryindex<R, S, I>(&self, filters: I) -> impl Future<Output = RedisResult<R>> + Send
+  fn ts_queryindex<R, S, I>(&self, filters: I) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
+    R: FromValue,
     S: Into<Str> + Send,
     I: IntoIterator<Item = S> + Send,
   {
@@ -452,14 +454,14 @@ pub trait TimeSeriesInterface: ClientLike {
     filter_by_value: Option<(i64, i64)>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     F: TryInto<GetTimestamp> + Send,
-    F::Error: Into<RedisError> + Send,
+    F::Error: Into<Error> + Send,
     T: TryInto<GetTimestamp> + Send,
-    T::Error: Into<RedisError> + Send,
+    T::Error: Into<Error> + Send,
     I: IntoIterator<Item = i64> + Send,
   {
     async move {
@@ -496,14 +498,14 @@ pub trait TimeSeriesInterface: ClientLike {
     filter_by_value: Option<(i64, i64)>,
     count: Option<u64>,
     aggregation: Option<RangeAggregation>,
-  ) -> impl Future<Output = RedisResult<R>> + Send
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
-    R: FromRedis,
-    K: Into<RedisKey> + Send,
+    R: FromValue,
+    K: Into<Key> + Send,
     F: TryInto<GetTimestamp> + Send,
-    F::Error: Into<RedisError> + Send,
+    F::Error: Into<Error> + Send,
     T: TryInto<GetTimestamp> + Send,
-    T::Error: Into<RedisError> + Send,
+    T::Error: Into<Error> + Send,
     I: IntoIterator<Item = i64> + Send,
   {
     async move {

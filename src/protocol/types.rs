@@ -1,11 +1,16 @@
 use super::utils as protocol_utils;
 use crate::{
-  error::{RedisError, RedisErrorKind},
-  modules::inner::RedisClientInner,
-  prelude::RedisResult,
+  error::{Error, ErrorKind},
+  modules::inner::ClientInner,
+  prelude::FredResult,
   protocol::{cluster, utils::server_to_parts},
-  runtime::{RefCount, UnboundedSender},
-  types::*,
+  runtime::{RefCount, Sender},
+  types::{
+    scan::{HScanResult, SScanResult, ScanResult, ZScanResult},
+    Key,
+    Map,
+    Value,
+  },
   utils,
 };
 use async_trait::async_trait;
@@ -26,10 +31,16 @@ use std::{
   feature = "enable-native-tls",
   feature = "enable-rustls-ring"
 ))]
+use crate::types::config::TlsHostMapping;
+#[cfg(any(
+  feature = "enable-rustls",
+  feature = "enable-native-tls",
+  feature = "enable-rustls-ring"
+))]
 use std::{net::IpAddr, str::FromStr};
 
-/// Any kind of RESP frame.
-#[derive(Debug)]
+/// Any kind of owned RESP frame.
+#[derive(Debug, Clone)]
 pub enum ProtocolFrame {
   Resp2(Resp2Frame),
   Resp3(Resp3Frame),
@@ -38,7 +49,7 @@ pub enum ProtocolFrame {
 impl ProtocolFrame {
   /// Convert the frame to RESP3.
   pub fn into_resp3(self) -> Resp3Frame {
-    // the `RedisValue::convert` logic already accounts for different encodings of maps and sets, so
+    // the `Value::convert` logic already accounts for different encodings of maps and sets, so
     // we can just change everything to RESP3 above the protocol layer
     match self {
       ProtocolFrame::Resp2(frame) => frame.into_resp3(),
@@ -208,18 +219,18 @@ impl From<&std::path::Path> for Server {
 }
 
 impl TryFrom<String> for Server {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: String) -> Result<Self, Self::Error> {
-    Server::from_str(&value).ok_or(RedisError::new(RedisErrorKind::Config, "Invalid `host:port` server."))
+    Server::from_str(&value).ok_or(Error::new(ErrorKind::Config, "Invalid `host:port` server."))
   }
 }
 
 impl TryFrom<&str> for Server {
-  type Error = RedisError;
+  type Error = Error;
 
   fn try_from(value: &str) -> Result<Self, Self::Error> {
-    Server::from_str(value).ok_or(RedisError::new(RedisErrorKind::Config, "Invalid `host:port` server."))
+    Server::from_str(value).ok_or(Error::new(ErrorKind::Config, "Invalid `host:port` server."))
   }
 }
 
@@ -325,7 +336,7 @@ pub struct Message {
   /// The channel on which the message was sent.
   pub channel: Str,
   /// The message contents.
-  pub value:   RedisValue,
+  pub value:   Value,
   /// The type of message subscription.
   pub kind:    MessageKind,
   /// The server that sent the message.
@@ -340,9 +351,9 @@ pub struct KeyScanInner {
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args:       Vec<RedisValue>,
+  pub args:       Vec<Value>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<ScanResult, RedisError>>,
+  pub tx:         Sender<Result<ScanResult, Error>>,
 }
 
 pub struct KeyScanBufferedInner {
@@ -353,9 +364,9 @@ pub struct KeyScanBufferedInner {
   /// The index of the cursor in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args:       Vec<RedisValue>,
+  pub args:       Vec<Value>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<RedisKey, RedisError>>,
+  pub tx:         Sender<Result<Key, Error>>,
 }
 
 impl KeyScanInner {
@@ -365,8 +376,8 @@ impl KeyScanInner {
   }
 
   /// Send an error on the response stream.
-  pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+  pub fn send_error(&self, error: Error) {
+    let _ = self.tx.try_send(Err(error));
   }
 }
 
@@ -377,8 +388,8 @@ impl KeyScanBufferedInner {
   }
 
   /// Send an error on the response stream.
-  pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+  pub fn send_error(&self, error: Error) {
+    let _ = self.tx.try_send(Err(error));
   }
 }
 
@@ -392,9 +403,9 @@ pub struct ValueScanInner {
   /// The index of the cursor argument in `args`.
   pub cursor_idx: usize,
   /// The arguments sent in each scan command.
-  pub args:       Vec<RedisValue>,
+  pub args:       Vec<Value>,
   /// The sender half of the results channel.
-  pub tx:         UnboundedSender<Result<ValueScanResult, RedisError>>,
+  pub tx:         Sender<Result<ValueScanResult, Error>>,
 }
 
 impl ValueScanInner {
@@ -404,17 +415,17 @@ impl ValueScanInner {
   }
 
   /// Send an error on the response stream.
-  pub fn send_error(&self, error: RedisError) {
-    let _ = self.tx.send(Err(error));
+  pub fn send_error(&self, error: Error) {
+    let _ = self.tx.try_send(Err(error));
   }
 
-  pub fn transform_hscan_result(mut data: Vec<RedisValue>) -> Result<RedisMap, RedisError> {
+  pub fn transform_hscan_result(mut data: Vec<Value>) -> Result<Map, Error> {
     if data.is_empty() {
-      return Ok(RedisMap::new());
+      return Ok(Map::new());
     }
     if data.len() % 2 != 0 {
-      return Err(RedisError::new(
-        RedisErrorKind::Protocol,
+      return Err(Error::new(
+        ErrorKind::Protocol,
         "Invalid HSCAN result. Expected array with an even number of elements.",
       ));
     }
@@ -422,12 +433,12 @@ impl ValueScanInner {
     let mut out = HashMap::with_capacity(data.len() / 2);
     while data.len() >= 2 {
       let value = data.pop().unwrap();
-      let key: RedisKey = match data.pop().unwrap() {
-        RedisValue::String(s) => s.into(),
-        RedisValue::Bytes(b) => b.into(),
+      let key: Key = match data.pop().unwrap() {
+        Value::String(s) => s.into(),
+        Value::Bytes(b) => b.into(),
         _ => {
-          return Err(RedisError::new(
-            RedisErrorKind::Protocol,
+          return Err(Error::new(
+            ErrorKind::Protocol,
             "Invalid HSCAN result. Expected string.",
           ))
         },
@@ -439,13 +450,13 @@ impl ValueScanInner {
     out.try_into()
   }
 
-  pub fn transform_zscan_result(mut data: Vec<RedisValue>) -> Result<Vec<(RedisValue, f64)>, RedisError> {
+  pub fn transform_zscan_result(mut data: Vec<Value>) -> Result<Vec<(Value, f64)>, Error> {
     if data.is_empty() {
       return Ok(Vec::new());
     }
     if data.len() % 2 != 0 {
-      return Err(RedisError::new(
-        RedisErrorKind::Protocol,
+      return Err(Error::new(
+        ErrorKind::Protocol,
         "Invalid ZSCAN result. Expected array with an even number of elements.",
       ));
     }
@@ -455,12 +466,12 @@ impl ValueScanInner {
     for chunk in data.chunks_exact_mut(2) {
       let value = chunk[0].take();
       let score = match chunk[1].take() {
-        RedisValue::String(s) => utils::redis_string_to_f64(&s)?,
-        RedisValue::Integer(i) => i as f64,
-        RedisValue::Double(f) => f,
+        Value::String(s) => utils::string_to_f64(&s)?,
+        Value::Integer(i) => i as f64,
+        Value::Double(f) => f,
         _ => {
-          return Err(RedisError::new(
-            RedisErrorKind::Protocol,
+          return Err(Error::new(
+            ErrorKind::Protocol,
             "Invalid HSCAN result. Expected a string or number score.",
           ))
         },
@@ -505,7 +516,7 @@ impl ClusterRouting {
   /// Create a new routing table from the result of the `CLUSTER SLOTS` command.
   ///
   /// The `default_host` value refers to the server that provided the response.
-  pub fn from_cluster_slots<S: Into<Str>>(value: RedisValue, default_host: S) -> Result<Self, RedisError> {
+  pub fn from_cluster_slots<S: Into<Str>>(value: Value, default_host: S) -> Result<Self, Error> {
     let default_host = default_host.into();
     let mut data = cluster::parse_cluster_slots(value, &default_host)?;
     data.sort_by(|a, b| a.start.cmp(&b.start));
@@ -538,10 +549,10 @@ impl ClusterRouting {
   /// Rebuild the cache in place with the output of a `CLUSTER SLOTS` command.
   pub(crate) fn rebuild(
     &mut self,
-    inner: &RefCount<RedisClientInner>,
-    cluster_slots: RedisValue,
+    inner: &RefCount<ClientInner>,
+    cluster_slots: Value,
     default_host: &Str,
-  ) -> Result<(), RedisError> {
+  ) -> Result<(), Error> {
     self.data = cluster::parse_cluster_slots(cluster_slots, default_host)?;
     self.data.sort_by(|a, b| a.start.cmp(&b.start));
 
@@ -643,13 +654,13 @@ impl DefaultResolver {
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: 'static {
   /// Resolve a hostname.
-  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
+  async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>>;
 }
 
 #[cfg(feature = "glommio")]
 #[async_trait(?Send)]
 impl Resolve for DefaultResolver {
-  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>> {
+  async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>> {
     let client_id = self.id.clone();
 
     // glommio users should probably use a non-blocking impl such as hickory-dns
@@ -658,8 +669,8 @@ impl Resolve for DefaultResolver {
       let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
       if ips.is_empty() {
-        Err(RedisError::new(
-          RedisErrorKind::IO,
+        Err(Error::new(
+          ErrorKind::IO,
           format!("Failed to resolve {}:{}", host, port),
         ))
       } else {
@@ -679,13 +690,13 @@ impl Resolve for DefaultResolver {
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: Send + Sync + 'static {
   /// Resolve a hostname.
-  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>>;
+  async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>>;
 }
 
 #[cfg(not(feature = "glommio"))]
 #[async_trait]
 impl Resolve for DefaultResolver {
-  async fn resolve(&self, host: Str, port: u16) -> RedisResult<Vec<SocketAddr>> {
+  async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>> {
     let client_id = self.id.clone();
 
     tokio::task::spawn_blocking(move || {
@@ -693,8 +704,8 @@ impl Resolve for DefaultResolver {
       let ips: Vec<SocketAddr> = addr.to_socket_addrs()?.collect();
 
       if ips.is_empty() {
-        Err(RedisError::new(
-          RedisErrorKind::IO,
+        Err(Error::new(
+          ErrorKind::IO,
           format!("Failed to resolve {}:{}", host, port),
         ))
       } else {

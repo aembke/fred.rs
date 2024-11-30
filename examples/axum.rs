@@ -6,7 +6,7 @@ use axum::{
   Router,
 };
 use bytes::Bytes;
-use fred::{clients::RedisPool, prelude::*};
+use fred::{clients::Pool, prelude::*};
 use log::{debug, info};
 use std::{env, str, time::Duration};
 use tokio::net::TcpListener;
@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 #[derive(Clone)]
 struct AppState {
   // all client types are cheaply cloneable
-  pub pool: RedisPool,
+  pub pool: Pool,
 }
 
 #[tokio::main]
@@ -25,8 +25,7 @@ async fn main() {
     .ok()
     .and_then(|v| v.parse::<usize>().ok())
     .unwrap_or(8);
-  let config =
-    RedisConfig::from_url("redis://foo:bar@127.0.0.1:6379").expect("Failed to create redis config from url");
+  let config = Config::from_url("redis://foo:bar@127.0.0.1:6379").expect("Failed to create redis config from url");
   let pool = Builder::from_config(config)
     .with_connection_config(|config| {
       config.connection_timeout = Duration::from_secs(10);
@@ -51,9 +50,9 @@ async fn main() {
   axum::serve(listener, app).await.unwrap();
 }
 
-fn map_error(err: RedisError) -> (u16, Body) {
+fn map_error(err: Error) -> (u16, Body) {
   let details: Body = err.details().to_string().into();
-  let code = if *err.kind() == RedisErrorKind::NotFound {
+  let code = if *err.kind() == ErrorKind::NotFound {
     404
   } else if err.details().starts_with("WRONGTYPE") {
     400
