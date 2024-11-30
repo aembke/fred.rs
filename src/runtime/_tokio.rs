@@ -225,12 +225,6 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     self.inner().policy.read().is_some()
   }
 
-  /// Whether the client will automatically pipeline commands.
-  #[deprecated(since = "9.5.0", note = "All clients are automatically pipelined across tasks.")]
-  fn is_pipelined(&self) -> bool {
-    true
-  }
-
   /// Whether the client is connected to a cluster.
   fn is_clustered(&self) -> bool {
     self.inner().config.server.is_clustered()
