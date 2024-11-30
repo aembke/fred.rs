@@ -295,7 +295,7 @@ impl Replicas {
   pub async fn drop_writer(&mut self, inner: &RefCount<ClientInner>, replica: &Server) {
     if let Some(mut writer) = self.connections.remove(replica) {
       self.buffer.extend(writer.close().await);
-      inner.backchannel.connection_ids.lock().remove(&replica);
+      inner.backchannel.connection_ids.lock().remove(replica);
     }
   }
 
