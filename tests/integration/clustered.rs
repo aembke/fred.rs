@@ -104,10 +104,12 @@ mod other {
   cluster_test!(other, should_replica_set_and_get);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_replica_set_and_get_not_lazy);
+  #[cfg(feature = "replicas")]
+  cluster_test!(other, should_create_non_lazy_replica_connections);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_use_cluster_replica_without_redirection);
-  //#[cfg(all(feature = "replicas", feature = "i-keys"))]
-  // cluster_test!(other, should_combine_options_and_replicas);
+  #[cfg(all(feature = "replicas", feature = "i-keys"))]
+  cluster_test!(other, should_combine_options_and_replicas);
   #[cfg(all(feature = "replicas", feature = "i-keys"))]
   cluster_test!(other, should_pipeline_with_replicas);
 }

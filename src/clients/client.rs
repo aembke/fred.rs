@@ -378,7 +378,7 @@ impl Client {
   /// Create a client that interacts with replica nodes.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub fn replicas(&self) -> Replicas {
+  pub fn replicas(&self) -> Replicas<Client> {
     Replicas::from(&self.inner)
   }
 }

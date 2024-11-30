@@ -64,7 +64,7 @@ async fn scan_with_cursor(client: &Client) -> Result<(), Error> {
       println!("Scanned {} -> {:?}", key.as_str_lossy(), val);
     }
 
-    if count >= max_keys {
+    if count >= max_keys || new_cursor == "0" {
       break;
     } else {
       cursor = new_cursor;

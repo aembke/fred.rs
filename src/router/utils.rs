@@ -184,23 +184,23 @@ pub fn next_reconnection_delay(inner: &RefCount<ClientInner>) -> Result<Duration
 
 /// Attempt to reconnect and replay queued commands.
 pub async fn reconnect_once(inner: &RefCount<ClientInner>, router: &mut Router) -> Result<(), Error> {
-  client_utils::set_client_state(&inner.state, ClientState::Connecting);
+  inner.set_client_state(ClientState::Connecting);
   _trace!(inner, "Reconnecting...");
   if let Err(e) = Box::pin(router.connect(inner)).await {
     _debug!(inner, "Failed reconnecting with error: {:?}", e);
-    client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-    inner.notifications.broadcast_error(e.clone());
+    inner.set_client_state(ClientState::Disconnected);
+    inner.notifications.broadcast_error(e.clone(), None);
     Err(e)
   } else {
     // try to flush any previously in-flight commands
     if let Err(err) = Box::pin(router.retry_buffer(inner)).await {
       _warn!(inner, "Error flushing retry buffer: {:?}", err);
-      client_utils::set_client_state(&inner.state, ClientState::Disconnected);
-      inner.notifications.broadcast_error(err.clone());
+      inner.set_client_state(ClientState::Disconnected);
+      inner.notifications.broadcast_error(err.clone(), None);
       return Err(err);
     }
 
-    client_utils::set_client_state(&inner.state, ClientState::Connected);
+    inner.set_client_state(ClientState::Connected);
     inner.notifications.broadcast_connect(Ok(()));
     inner.reset_reconnection_attempts();
     Ok(())
@@ -223,7 +223,6 @@ pub async fn disconnect(inner: &RefCount<ClientInner>, conn: &mut Connection, er
 
   inner.backchannel.remove_connection_id(&conn.server);
   inner.backchannel.check_and_unblock(&conn.server);
-  inner.remove_connection(&conn.server);
   commands
 }
 

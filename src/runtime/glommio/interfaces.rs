@@ -165,7 +165,7 @@ pub trait ClientLike: Clone + Sized {
         }
       }
 
-      utils::check_and_set_client_state(&inner.state, ClientState::Disconnecting, ClientState::Disconnected);
+      inner.cas_client_state(ClientState::Disconnecting, ClientState::Disconnected);
       result
     };
 

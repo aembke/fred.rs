@@ -227,13 +227,17 @@ fn parse_auth_error(frame: &Resp3Frame) -> Option<Error> {
 }
 
 #[cfg(feature = "custom-reconnect-errors")]
-fn check_global_reconnect_errors(inner: &RefCount<ClientInner>, frame: &Resp3Frame) -> Option<Error> {
+fn check_global_reconnect_errors(
+  inner: &RefCount<ClientInner>,
+  server: &Server,
+  frame: &Resp3Frame,
+) -> Option<Error> {
   if let Resp3Frame::SimpleError { ref data, .. } = frame {
     for prefix in inner.connection.reconnect_errors.iter() {
       if data.starts_with(prefix.to_str()) {
         _warn!(inner, "Found reconnection error: {}", data);
         let error = protocol_utils::pretty_error(data);
-        inner.notifications.broadcast_error(error.clone());
+        inner.notifications.broadcast_error(error.clone(), Some(server.clone()));
         return Some(error);
       }
     }
@@ -245,7 +249,7 @@ fn check_global_reconnect_errors(inner: &RefCount<ClientInner>, frame: &Resp3Fra
 }
 
 #[cfg(not(feature = "custom-reconnect-errors"))]
-fn check_global_reconnect_errors(_: &RefCount<ClientInner>, _: &Resp3Frame) -> Option<Error> {
+fn check_global_reconnect_errors(_: &RefCount<ClientInner>, _: &Server, _: &Resp3Frame) -> Option<Error> {
   None
 }
 
@@ -274,8 +278,8 @@ fn is_clusterdown_error(frame: &Resp3Frame) -> Option<&str> {
   }
 }
 
-/// Check for special errors configured by the caller to initiate a reconnection process.
-pub fn check_special_errors(inner: &RefCount<ClientInner>, frame: &Resp3Frame) -> Option<Error> {
+/// Check for fatal errors configured by the caller to initiate a reconnection process.
+pub fn check_fatal_errors(inner: &RefCount<ClientInner>, server: &Server, frame: &Resp3Frame) -> Option<Error> {
   if inner.connection.reconnect_on_auth_error {
     if let Some(auth_error) = parse_auth_error(frame) {
       return Some(auth_error);
@@ -285,7 +289,7 @@ pub fn check_special_errors(inner: &RefCount<ClientInner>, frame: &Resp3Frame) -
     return Some(pretty_error(error));
   }
 
-  check_global_reconnect_errors(inner, frame)
+  check_global_reconnect_errors(inner, server, frame)
 }
 
 /// Check for special errors, pubsub messages, or other special response frames.
@@ -296,7 +300,7 @@ pub fn preprocess_frame(
   server: &Server,
   frame: Resp3Frame,
 ) -> Result<Option<Resp3Frame>, Error> {
-  if let Some(error) = check_special_errors(inner, &frame) {
+  if let Some(error) = check_fatal_errors(inner, server, &frame) {
     Err(error)
   } else {
     Ok(check_pubsub_message(inner, server, frame))
@@ -310,7 +314,7 @@ pub fn broadcast_reader_error(inner: &RefCount<ClientInner>, server: &Server, er
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications
-      .broadcast_error(error.unwrap_or(Error::new_canceled()));
+      .broadcast_error(error.unwrap_or(Error::new_canceled()), Some(server.clone()));
   }
 }
 
@@ -321,6 +325,6 @@ pub fn broadcast_replica_error(inner: &RefCount<ClientInner>, server: &Server, e
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
       .notifications
-      .broadcast_error(error.unwrap_or(Error::new_canceled()));
+      .broadcast_error(error.unwrap_or(Error::new_canceled()), Some(server.clone()));
   }
 }

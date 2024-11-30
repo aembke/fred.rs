@@ -275,6 +275,14 @@ impl Replicas {
       if inner.config.server.is_clustered() {
         transport.readonly(inner, None).await?;
       };
+
+      if let Some(id) = transport.id {
+        inner
+          .backchannel
+          .connection_ids
+          .lock()
+          .insert(transport.server.clone(), id);
+      }
       self.connections.insert(replica.clone(), transport.into_pipelined(true));
     }
 
@@ -283,9 +291,10 @@ impl Replicas {
   }
 
   /// Drop the socket associated with the provided server.
-  pub async fn drop_writer(&mut self, replica: &Server) {
+  pub async fn drop_writer(&mut self, inner: &RefCount<ClientInner>, replica: &Server) {
     if let Some(mut writer) = self.connections.remove(replica) {
       self.buffer.extend(writer.close().await);
+      inner.backchannel.connection_ids.lock().remove(&replica);
     }
   }
 
@@ -308,7 +317,7 @@ impl Replicas {
       replica,
       primary
     );
-    self.drop_writer(replica).await;
+    self.drop_writer(inner, replica).await;
 
     if !keep_routable {
       self.routing.remove(primary, replica);

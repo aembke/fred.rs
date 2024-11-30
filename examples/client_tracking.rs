@@ -69,7 +69,6 @@ async fn resp2_basic_interface_example() -> Result<(), Error> {
   // enable client tracking, sending invalidation messages to the subscriber client
   let (_, connection_id) = subscriber
     .connection_ids()
-    .await
     .into_iter()
     .next()
     .expect("Failed to read subscriber connection ID");

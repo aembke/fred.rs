@@ -120,18 +120,40 @@ pub async fn persist<C: ClientLike>(client: &C, key: Key) -> Result<Value, Error
   one_arg_value_cmd(client, CommandKind::Persist, key.into()).await
 }
 
-pub async fn expire<C: ClientLike>(client: &C, key: Key, seconds: i64) -> Result<Value, Error> {
+pub async fn expire<C: ClientLike>(
+  client: &C,
+  key: Key,
+  seconds: i64,
+  options: Option<ExpireOptions>,
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
-    Ok((CommandKind::Expire, vec![key.into(), seconds.into()]))
+    let args = if let Some(options) = options {
+      vec![key.into(), seconds.into(), options.to_str().into()]
+    } else {
+      vec![key.into(), seconds.into()]
+    };
+
+    Ok((CommandKind::Expire, args))
   })
   .await?;
 
   protocol_utils::frame_to_results(frame)
 }
 
-pub async fn expire_at<C: ClientLike>(client: &C, key: Key, timestamp: i64) -> Result<Value, Error> {
+pub async fn expire_at<C: ClientLike>(
+  client: &C,
+  key: Key,
+  timestamp: i64,
+  options: Option<ExpireOptions>,
+) -> Result<Value, Error> {
   let frame = utils::request_response(client, move || {
-    Ok((CommandKind::ExpireAt, vec![key.into(), timestamp.into()]))
+    let args = if let Some(options) = options {
+      vec![key.into(), timestamp.into(), options.to_str().into()]
+    } else {
+      vec![key.into(), timestamp.into()]
+    };
+
+    Ok((CommandKind::ExpireAt, args))
   })
   .await?;
 

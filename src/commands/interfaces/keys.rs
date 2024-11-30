@@ -528,28 +528,40 @@ pub trait KeysInterface: ClientLike + Sized {
   /// Set a timeout on key. After the timeout has expired, the key will be automatically deleted.
   ///
   /// <https://redis.io/commands/expire>
-  fn expire<R, K>(&self, key: K, seconds: i64) -> impl Future<Output = FredResult<R>> + Send
+  fn expire<R, K>(
+    &self,
+    key: K,
+    seconds: i64,
+    options: Option<ExpireOptions>,
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
     R: FromValue,
     K: Into<Key> + Send,
   {
     async move {
       into!(key);
-      commands::keys::expire(self, key, seconds).await?.convert()
+      commands::keys::expire(self, key, seconds, options).await?.convert()
     }
   }
 
   /// Set a timeout on a key based on a UNIX timestamp.
   ///
   /// <https://redis.io/commands/expireat>
-  fn expire_at<R, K>(&self, key: K, timestamp: i64) -> impl Future<Output = FredResult<R>> + Send
+  fn expire_at<R, K>(
+    &self,
+    key: K,
+    timestamp: i64,
+    options: Option<ExpireOptions>,
+  ) -> impl Future<Output = FredResult<R>> + Send
   where
     R: FromValue,
     K: Into<Key> + Send,
   {
     async move {
       into!(key);
-      commands::keys::expire_at(self, key, timestamp).await?.convert()
+      commands::keys::expire_at(self, key, timestamp, options)
+        .await?
+        .convert()
     }
   }
 

@@ -36,7 +36,7 @@ use crate::{
 use bytes_utils::Str;
 use futures::future::{select, Either};
 use semver::Version;
-use std::{collections::HashSet, ops::DerefMut, time::Duration};
+use std::{ops::DerefMut, time::Duration};
 
 #[cfg(feature = "metrics")]
 use crate::modules::metrics::MovingStats;
@@ -60,7 +60,7 @@ pub struct Notifications {
   /// The client ID.
   pub id:             Str,
   /// A broadcast channel for the `on_error` interface.
-  pub errors:         RefSwap<RefCount<BroadcastSender<Error>>>,
+  pub errors:         RefSwap<RefCount<BroadcastSender<(Error, Option<Server>)>>>,
   /// A broadcast channel for the `on_message` interface.
   pub pubsub:         RefSwap<RefCount<BroadcastSender<Message>>>,
   /// A broadcast channel for the `on_keyspace_event` interface.
@@ -112,8 +112,8 @@ impl Notifications {
     utils::swap_new_broadcast_channel(&self.unresponsive, capacity);
   }
 
-  pub fn broadcast_error(&self, error: Error) {
-    broadcast_send(self.errors.load().as_ref(), &error, |err| {
+  pub fn broadcast_error(&self, error: Error, server: Option<Server>) {
+    broadcast_send(self.errors.load().as_ref(), &(error, server), |(err, _)| {
       debug!("{}: No `on_error` listener. The error was: {err:?}", self.id);
     });
   }
@@ -222,17 +222,15 @@ impl ClientCounters {
 
 /// Cached state related to the server(s).
 pub struct ServerState {
-  pub kind:        ServerKind,
-  pub connections: HashSet<Server>,
+  pub kind:     ServerKind,
   #[cfg(feature = "replicas")]
-  pub replicas:    HashMap<Server, Server>,
+  pub replicas: HashMap<Server, Server>,
 }
 
 impl ServerState {
   pub fn new(config: &Config) -> Self {
     ServerState {
       kind:                                  ServerKind::new(config),
-      connections:                           HashSet::new(),
       #[cfg(feature = "replicas")]
       replicas:                              HashMap::new(),
     }
@@ -539,16 +537,8 @@ impl ClientInner {
     })
   }
 
-  pub fn add_connection(&self, server: &Server) {
-    self.server_state.write().connections.insert(server.clone());
-  }
-
-  pub fn remove_connection(&self, server: &Server) {
-    self.server_state.write().connections.remove(server);
-  }
-
   pub fn active_connections(&self) -> Vec<Server> {
-    self.server_state.read().connections.iter().cloned().collect()
+    self.backchannel.connection_ids.lock().keys().cloned().collect()
   }
 
   #[cfg(feature = "replicas")]
@@ -752,6 +742,25 @@ impl ClientInner {
 
   pub async fn update_backchannel(&self, transport: ExclusiveConnection) {
     self.backchannel.transport.write().await.replace(transport);
+  }
+
+  pub fn client_state(&self) -> ClientState {
+    self.state.read().clone()
+  }
+
+  pub fn set_client_state(&self, client_state: ClientState) {
+    *self.state.write() = client_state;
+  }
+
+  pub fn cas_client_state(&self, expected: ClientState, new_state: ClientState) -> bool {
+    let mut state_guard = self.state.write();
+
+    if *state_guard != expected {
+      false
+    } else {
+      *state_guard = new_state;
+      true
+    }
   }
 
   pub async fn wait_with_interrupt(&self, duration: Duration) -> Result<(), Error> {

@@ -53,8 +53,10 @@ use std::path::{Path, PathBuf};
 use tracing_futures::Instrument;
 
 const REDIS_TLS_SCHEME: &str = "rediss";
-const REDIS_CLUSTER_SCHEME_SUFFIX: &str = "-cluster";
-const REDIS_SENTINEL_SCHEME_SUFFIX: &str = "-sentinel";
+const VALKEY_TLS_SCHEME: &str = "valkeys";
+const CLUSTER_SCHEME_SUFFIX: &str = "-cluster";
+const SENTINEL_SCHEME_SUFFIX: &str = "-sentinel";
+const UNIX_SCHEME_SUFFIX: &str = "+unix";
 const SENTINEL_NAME_QUERY: &str = "sentinelServiceName";
 const CLUSTER_NODE_QUERY: &str = "node";
 #[cfg(feature = "sentinel-auth")]
@@ -167,26 +169,6 @@ where
 #[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
-}
-
-pub fn set_client_state(state: &RwLock<ClientState>, new_state: ClientState) {
-  let mut state_guard = state.write();
-  *state_guard = new_state;
-}
-
-pub fn check_and_set_client_state(
-  state: &RwLock<ClientState>,
-  expected: ClientState,
-  new_state: ClientState,
-) -> bool {
-  let mut state_guard = state.write();
-
-  if *state_guard != expected {
-    false
-  } else {
-    *state_guard = new_state;
-    true
-  }
 }
 
 pub fn read_bool_atomic(val: &AtomicBool) -> bool {
@@ -713,15 +695,20 @@ pub fn swap_new_broadcast_channel<T: Clone>(old: &RefSwap<RefCount<BroadcastSend
 }
 
 pub fn url_uses_tls(url: &Url) -> bool {
-  url.scheme().starts_with(REDIS_TLS_SCHEME)
+  let scheme = url.scheme();
+  scheme.starts_with(REDIS_TLS_SCHEME) || scheme.starts_with(VALKEY_TLS_SCHEME)
 }
 
 pub fn url_is_clustered(url: &Url) -> bool {
-  url.scheme().ends_with(REDIS_CLUSTER_SCHEME_SUFFIX)
+  url.scheme().ends_with(CLUSTER_SCHEME_SUFFIX)
 }
 
 pub fn url_is_sentinel(url: &Url) -> bool {
-  url.scheme().ends_with(REDIS_SENTINEL_SCHEME_SUFFIX)
+  url.scheme().ends_with(SENTINEL_SCHEME_SUFFIX)
+}
+
+pub fn url_is_unix_socket(url: &Url) -> bool {
+  url.scheme().ends_with(UNIX_SCHEME_SUFFIX)
 }
 
 pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u16, bool), Error> {
@@ -743,10 +730,6 @@ pub fn parse_url(url: &str, default_port: Option<u16>) -> Result<(Url, String, u
   }
 
   Ok((url, host, port, tls))
-}
-
-pub fn url_is_unix_socket(url: &Url) -> bool {
-  url.scheme() == "redis+unix"
 }
 
 #[cfg(feature = "unix-sockets")]

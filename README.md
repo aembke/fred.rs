@@ -7,7 +7,7 @@ Fred
 [![Crates.io](https://img.shields.io/crates/v/fred.svg)](https://crates.io/crates/fred)
 [![API docs](https://docs.rs/fred/badge.svg)](https://docs.rs/fred)
 
-An async client for Redis and Valkey
+An async client for Valkey and Redis
 
 ## Example
 
@@ -15,9 +15,23 @@ An async client for Redis and Valkey
 use fred::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), RedisError> {
-  let client = RedisClient::default();
+async fn main() -> Result<(), Error> {
+  let config = Config::from_url("redis://localhost:6379/1")?;
+  let client = Builder::from_config(config)
+    .with_connection_config(|config| {
+      config.connection_timeout = Duration::from_secs(5);
+      config.tcp = TcpConfig {
+        nodelay: Some(true),
+        ..Default::default()
+      };
+    })
+    .build()?;
   client.init().await?;
+
+  client.on_error(|(error, server)| async move {
+    println!("{:?}: Connection error: {:?}", server, error);
+    Ok(())
+  });
 
   // convert responses to many common Rust types
   let foo: Option<String> = client.get("foo").await?;

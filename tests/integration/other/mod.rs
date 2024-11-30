@@ -717,10 +717,6 @@ pub async fn should_fail_with_bad_host_via_wait_interface(_: Client, mut config:
   Ok(())
 }
 
-// TODO this will require a breaking change to support. The `Replicas` struct assumes that it's operating on a
-// `RedisClient` and is not generic for other client or decorator types. `Replicas` must become `Replicas<C:
-// ClientLike>` first.
-#[allow(dead_code)]
 #[cfg(all(feature = "replicas", feature = "i-keys"))]
 pub async fn should_combine_options_and_replicas(client: Client, config: Config) -> Result<(), Error> {
   let mut connection = client.connection_config().clone();
@@ -831,5 +827,28 @@ pub async fn should_exit_event_task_with_error(client: Client, _: Config) -> Res
 
   let result = task.await.unwrap();
   assert_eq!(result, Err(Error::new_canceled()));
+  Ok(())
+}
+
+#[cfg(feature = "replicas")]
+pub async fn should_create_non_lazy_replica_connections(client: Client, config: Config) -> Result<(), Error> {
+  if !config.server.is_clustered() {
+    return Ok(());
+  }
+
+  let mut connection_config = client.connection_config().clone();
+  connection_config.replica = ReplicaConfig {
+    lazy_connections: false,
+    primary_fallback: true,
+    ..Default::default()
+  };
+
+  let client = Builder::from_config(config)
+    .set_performance_config(client.perf_config())
+    .set_connection_config(connection_config)
+    .build()?;
+  client.init().await?;
+
+  assert_eq!(client.active_connections().len(), 6);
   Ok(())
 }

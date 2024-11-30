@@ -3,6 +3,7 @@
 * Reduced memory footprint and significant write throughput improvements
 * Rename common interfaces to remove `Redis` prefixes
 * Add `WITHSCORES` to `ZRANK` and `ZREVRANK`
+* Add `GT|LT|NX|XX` options to `EXPIRE` and `EXPIREAT`
 * Add `scan_page` interface
 * Add optional message to `PING`
 * Remove deprecated or redundant config options
@@ -11,6 +12,8 @@
 * Support async blocks in `on_*` event handler functions
 * Add an interface to cancel scanning functions
 * Update `rustls-native-certs` to 0.8
+* Support `valkey://` scheme in `Config::from_url`.
+* Support combining `Options` and `Replicas` clients
 
 ### Upgrading from 9.x
 
@@ -34,6 +37,7 @@ The compiler should guide callers through most of these changes.
   `RedisPool`, etc.
 * `rustls-native-certs` was upgraded to 8.x.
 * The `specialize-into-bytes` feature flag was removed. This is now the default behavior.
+* The `on_error` and `error_rx` event handler interface now contains an optional server identifier.
 
 ### Behavior Changes
 

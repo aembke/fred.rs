@@ -6,6 +6,7 @@ use fred::{
   types::{
     config::{Config, ReconnectPolicy},
     Expiration,
+    ExpireOptions,
     Map,
     Value,
   },
@@ -148,8 +149,10 @@ pub async fn should_error_mset_empty_map(client: Client, _config: Config) -> Res
 pub async fn should_expire_key(client: Client, _config: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
 
-  let _: () = client.expire("foo", 1).await?;
-  sleep(Duration::from_millis(1500)).await;
+  let _: () = client.expire("foo", 2, None).await?;
+  let res: i64 = client.expire("foo", 1, Some(ExpireOptions::GT)).await?;
+  assert_eq!(res, 0);
+  sleep(Duration::from_millis(2500)).await;
   let foo: Option<String> = client.get("foo").await?;
   assert!(foo.is_none());
 
@@ -340,9 +343,10 @@ pub async fn should_get_keys_from_pool_in_a_stream(client: Client, config: Confi
 
 pub async fn should_pexpire_key(client: Client, _: Config) -> Result<(), Error> {
   let _: () = client.set("foo", "bar", None, None, false).await?;
-  assert_eq!(client.pexpire::<i64, _>("foo", 100, None).await?, 1);
+  assert_eq!(client.pexpire::<i64, _>("foo", 300, None).await?, 1);
+  assert_eq!(client.pexpire::<i64, _>("foo", 100, Some(ExpireOptions::GT)).await?, 0);
 
-  sleep(Duration::from_millis(150)).await;
+  sleep(Duration::from_millis(350)).await;
   assert_eq!(client.get::<Option<String>, _>("foo").await?, None);
   Ok(())
 }

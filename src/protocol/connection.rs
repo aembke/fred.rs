@@ -836,7 +836,7 @@ impl Connection {
         None => return Ok(None),
       };
 
-      if let Some(err) = responses::check_special_errors(inner, &frame) {
+      if let Some(err) = responses::check_fatal_errors(inner, &self.server, &frame) {
         return Err(err);
       } else if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
         return Ok(Some(frame));
@@ -855,7 +855,7 @@ impl Connection {
         None => return Ok(()),
       };
 
-      if let Some(err) = responses::check_special_errors(inner, &frame) {
+      if let Some(err) = responses::check_fatal_errors(inner, &self.server, &frame) {
         return Err(err);
       } else if let Some(frame) = responses::check_pubsub_message(inner, &self.server, frame) {
         if is_clustered {

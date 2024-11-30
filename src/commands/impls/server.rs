@@ -24,7 +24,7 @@ pub async fn quit<C: ClientLike>(client: &C) -> Result<(), Error> {
   let response = ResponseKind::Respond(Some(tx));
   let mut command: Command = (CommandKind::Quit, vec![], response).into();
 
-  utils::set_client_state(&inner.state, ClientState::Disconnecting);
+  inner.set_client_state(ClientState::Disconnecting);
   inner.notifications.broadcast_close();
   let timeout_dur = utils::prepare_command(client, &mut command);
   client.send_command(command)?;
@@ -54,7 +54,7 @@ pub async fn shutdown<C: ClientLike>(client: &C, flags: Option<ShutdownFlags>) -
     let response = ResponseKind::Respond(Some(tx));
     (CommandKind::Shutdown, args, response).into()
   };
-  utils::set_client_state(&inner.state, ClientState::Disconnecting);
+  inner.set_client_state(ClientState::Disconnecting);
   inner.notifications.broadcast_close();
 
   let timeout_dur = utils::prepare_command(client, &mut command);

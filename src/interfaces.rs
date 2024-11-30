@@ -195,7 +195,7 @@ pub trait EventInterface: ClientLike {
   fn on_error<F, Fut>(&self, func: F) -> JoinHandle<FredResult<()>>
   where
     Fut: Future<Output = FredResult<()>> + Send + 'static,
-    F: Fn(Error) -> Fut + Send + 'static,
+    F: Fn((Error, Option<Server>)) -> Fut + Send + 'static,
   {
     let rx = self.error_rx();
     spawn_event_listener(rx, func)
@@ -224,7 +224,7 @@ pub trait EventInterface: ClientLike {
     Fut1: Future<Output = FredResult<()>> + Send + 'static,
     Fut2: Future<Output = FredResult<()>> + Send + 'static,
     Fut3: Future<Output = FredResult<()>> + Send + 'static,
-    Fe: Fn(Error) -> Fut1 + Send + 'static,
+    Fe: Fn((Error, Option<Server>)) -> Fut1 + Send + 'static,
     Fr: Fn(Server) -> Fut2 + Send + 'static,
     Fc: Fn(Vec<ClusterStateChange>) -> Fut3 + Send + 'static,
   {
@@ -238,8 +238,8 @@ pub trait EventInterface: ClientLike {
 
       loop {
         tokio::select! {
-          Ok(error) = error_rx.recv() => {
-            if let Err(err) = error_fn(error).await {
+          Ok((error, server)) = error_rx.recv() => {
+            if let Err(err) = error_fn((error, server)).await {
               result = Err(err);
               break;
             }
@@ -304,7 +304,7 @@ pub trait EventInterface: ClientLike {
 
   /// Listen for protocol and connection errors. This stream can be used to more intelligently handle errors that may
   /// not appear in the request-response cycle, and so cannot be handled by response futures.
-  fn error_rx(&self) -> BroadcastReceiver<Error> {
+  fn error_rx(&self) -> BroadcastReceiver<(Error, Option<Server>)> {
     self.inner().notifications.errors.load().subscribe()
   }
 

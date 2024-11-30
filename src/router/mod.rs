@@ -337,7 +337,7 @@ impl Router {
 
     for server in remove.into_iter() {
       _debug!(inner, "Dropping replica connection to {}", server);
-      self.replicas.drop_writer(server).await;
+      self.replicas.drop_writer(inner, server).await;
       self.replicas.remove_replica(server);
     }
 

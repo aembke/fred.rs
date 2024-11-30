@@ -1751,26 +1751,6 @@ impl Command {
     }
   }
 
-  /// Whether to pipeline the command.
-  #[allow(dead_code)]
-  pub fn should_auto_pipeline(&self, inner: &RefCount<ClientInner>, force: bool) -> bool {
-    let should_pipeline = force
-      || (self.can_pipeline
-      && self.kind.can_pipeline()
-      && !self.blocks_connection()
-      && !self.is_all_cluster_nodes()
-      // disable pipelining for transactions to handle ASK errors or support the `abort_on_error` logic
-      && self.transaction_id.is_none());
-
-    _trace!(
-      inner,
-      "Pipeline check {}: {}",
-      self.kind.to_str_debug(),
-      should_pipeline
-    );
-    should_pipeline
-  }
-
   /// Whether the command should be sent to all cluster nodes concurrently.
   pub fn is_all_cluster_nodes(&self) -> bool {
     self.kind.force_all_cluster_nodes()

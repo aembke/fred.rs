@@ -50,6 +50,9 @@ async fn create_replica_connection(
           "Failed to connect to replica, ignoring and trying with primary node: {}",
           err
         );
+        todo!()
+        // TODO issue here when cluster_node is specified, or when it's still not routable after creating the
+        // connection. need to check that the command is routable before or after creating the replica connection.
         command.attempts_remaining += 1;
         command.use_replica = false;
         interfaces::send_to_router(inner, command.into())
@@ -524,10 +527,10 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   let result = if inner.config.fail_fast {
     if let Err(e) = Box::pin(router.connect(inner)).await {
       inner.notifications.broadcast_connect(Err(e.clone()));
-      inner.notifications.broadcast_error(e.clone());
+      inner.notifications.broadcast_error(e.clone(), None);
       Err(e)
     } else {
-      client_utils::set_client_state(&inner.state, ClientState::Connected);
+      inner.set_client_state(ClientState::Connected);
       inner.notifications.broadcast_connect(Ok(()));
       Ok(())
     }

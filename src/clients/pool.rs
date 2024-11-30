@@ -159,7 +159,7 @@ impl Pool {
   /// Create a client that interacts with the replica nodes associated with the [next](Self::next) client.
   #[cfg(feature = "replicas")]
   #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-  pub fn replicas(&self) -> Replicas {
+  pub fn replicas(&self) -> Replicas<Client> {
     Replicas::from(self.inner())
   }
 }

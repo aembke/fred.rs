@@ -1,4 +1,5 @@
 use crate::{
+  clients::Replicas,
   error::Error,
   interfaces::*,
   modules::inner::ClientInner,
@@ -52,6 +53,11 @@ impl<C: ClientLike> WithOptions<C> {
   /// Read the options that will be applied to commands.
   pub fn options(&self) -> &Options {
     &self.options
+  }
+
+  /// Create a client that interacts with replica nodes.
+  pub fn replicas(&self) -> Replicas<WithOptions<C>> {
+    Replicas { client: self.clone() }
   }
 }
 
