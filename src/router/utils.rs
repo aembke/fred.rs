@@ -329,17 +329,52 @@ pub fn route_replica(router: &mut Router, command: &Command) -> Result<(Server, 
       ));
     },
   };
-  let replica = match router.replicas.routing.next_replica(&primary) {
-    Some(replica) => replica.clone(),
-    None => {
-      return Err(Error::new(
-        ErrorKind::Cluster,
-        "Failed to find cluster hash slot owner.",
-      ));
-    },
-  };
 
-  Ok((primary, replica))
+  // there's a special case where the caller specifies a specific cluster node that should receive the command. in
+  // that case the caller can specify either the primary node owner or any of the replicas. this function needs to
+  // check both cases and return an error if the specified cluster node doesn't match either the primary node or any
+  // of the replica nodes.
+  if let Some(node) = command.cluster_node.as_ref() {
+    if &primary == node {
+      // the caller specified the primary, so use any of the available replica nodes
+      let replica = match router.replicas.routing.next_replica(&primary) {
+        Some(replica) => replica.clone(),
+        None => {
+          return Err(Error::new(
+            ErrorKind::Cluster,
+            "Failed to find cluster hash slot owner.",
+          ));
+        },
+      };
+
+      Ok((primary, replica))
+    } else {
+      let replica = router
+        .replicas
+        .routing
+        .replicas(&primary)
+        .find(|replica| *replica == node)
+        .cloned();
+
+      if let Some(replica) = replica {
+        Ok((primary, replica))
+      } else {
+        Err(Error::new(ErrorKind::Routing, "Failed to find replica node."))
+      }
+    }
+  } else {
+    let replica = match router.replicas.routing.next_replica(&primary) {
+      Some(replica) => replica.clone(),
+      None => {
+        return Err(Error::new(
+          ErrorKind::Cluster,
+          "Failed to find cluster hash slot owner.",
+        ));
+      },
+    };
+
+    Ok((primary, replica))
+  }
 }
 
 /// Reconnect to the server(s) until the max reconnect policy attempts are reached.

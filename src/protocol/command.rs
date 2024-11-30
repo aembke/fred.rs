@@ -1782,7 +1782,7 @@ impl Command {
 
   pub fn decr_check_redirections(&mut self) -> Result<(), Error> {
     if self.redirections_remaining == 0 {
-      Err(Error::new(ErrorKind::Unknown, "Too many redirections."))
+      Err(Error::new(ErrorKind::Routing, "Too many redirections."))
     } else {
       self.redirections_remaining -= 1;
       Ok(())

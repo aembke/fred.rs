@@ -1,5 +1,3 @@
-#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
-use crate::types::config::TlsHostMapping;
 use crate::{
   error::Error,
   modules::inner::ClientInner,
@@ -13,6 +11,9 @@ use std::{
   fmt,
   fmt::Formatter,
 };
+
+#[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
+use crate::types::config::TlsHostMapping;
 
 /// An interface used to filter the list of available replica nodes.
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]

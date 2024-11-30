@@ -743,6 +743,9 @@ pub async fn should_combine_options_and_replicas(client: Client, config: Config)
       )
     })
     .unwrap();
+  // in this case the caller has specified the wrong cluster owner node, and none of the replica connections have been
+  // created since lazy_connections is true. the client should check whether the provided node matches the primary or
+  // any of the replicas, and if not it should return an error early that the command is not routable.
   let wrong_owner = servers.iter().find(|s| foo_owner != **s).unwrap().clone();
 
   let options = Options {
@@ -760,8 +763,57 @@ pub async fn should_combine_options_and_replicas(client: Client, config: Config)
     .err()
     .unwrap();
 
-  // not ideal
-  assert_eq!(error.details(), "Too many redirections.");
+  assert_eq!(*error.kind(), ErrorKind::Routing);
+  Ok(())
+}
+
+#[cfg(all(feature = "replicas", feature = "i-keys"))]
+pub async fn should_combine_options_and_replicas_non_lazy(client: Client, config: Config) -> Result<(), Error> {
+  let mut connection = client.connection_config().clone();
+  connection.replica = ReplicaConfig {
+    lazy_connections: false,
+    primary_fallback: false,
+    ignore_reconnection_errors: false,
+    ..ReplicaConfig::default()
+  };
+  connection.max_redirections = 0;
+  let policy = client.client_reconnect_policy();
+  let client = Client::new(config, None, Some(connection), policy);
+  client.init().await?;
+
+  // change the cluster hash policy such that we get a routing error if both replicas and options are correctly
+  // applied
+  let key = Key::from_static_str("foo");
+  let (servers, foo_owner) = client
+    .cached_cluster_state()
+    .map(|s| {
+      (
+        s.unique_primary_nodes(),
+        s.get_server(key.cluster_hash()).unwrap().clone(),
+      )
+    })
+    .unwrap();
+  // in this case since all the connections are created the client will route to a replica of the wrong primary node,
+  // receiving a MOVED redirection in response. since the max redirections is zero the client should return a "too
+  // many redirections" error.
+  let wrong_owner = servers.iter().find(|s| foo_owner != **s).unwrap().clone();
+
+  let options = Options {
+    max_redirections: Some(0),
+    max_attempts: Some(1),
+    cluster_node: Some(wrong_owner),
+    ..Default::default()
+  };
+
+  let error = client
+    .with_options(&options)
+    .replicas()
+    .get::<Option<String>, _>(key)
+    .await
+    .err()
+    .unwrap();
+
+  assert_eq!(*error.kind(), ErrorKind::Routing);
   Ok(())
 }
 

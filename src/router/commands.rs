@@ -1,7 +1,3 @@
-#[cfg(feature = "replicas")]
-use crate::interfaces;
-#[cfg(feature = "transactions")]
-use crate::router::transactions;
 use crate::{
   error::{Error, ErrorKind},
   modules::inner::{ClientInner, CommandReceiver},
@@ -18,6 +14,11 @@ use crate::{
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use tokio::pin;
+
+#[cfg(feature = "replicas")]
+use crate::interfaces;
+#[cfg(feature = "transactions")]
+use crate::router::transactions;
 #[cfg(feature = "full-tracing")]
 use tracing_futures::Instrument;
 
@@ -50,9 +51,7 @@ async fn create_replica_connection(
           "Failed to connect to replica, ignoring and trying with primary node: {}",
           err
         );
-        todo!()
-        // TODO issue here when cluster_node is specified, or when it's still not routable after creating the
-        // connection. need to check that the command is routable before or after creating the replica connection.
+
         command.attempts_remaining += 1;
         command.use_replica = false;
         interfaces::send_to_router(inner, command.into())
