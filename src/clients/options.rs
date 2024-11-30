@@ -1,5 +1,4 @@
 use crate::{
-  clients::Replicas,
   error::Error,
   interfaces::*,
   modules::inner::ClientInner,
@@ -8,6 +7,9 @@ use crate::{
   types::config::Options,
 };
 use std::{fmt, ops::Deref};
+
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
 
 /// A client interface used to customize command configuration options.
 ///
@@ -56,6 +58,8 @@ impl<C: ClientLike> WithOptions<C> {
   }
 
   /// Create a client that interacts with replica nodes.
+  #[cfg(feature = "replicas")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
   pub fn replicas(&self) -> Replicas<WithOptions<C>> {
     Replicas { client: self.clone() }
   }
