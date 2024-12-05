@@ -130,13 +130,13 @@ pub fn defer_reconnection(
     _debug!(inner, "Skip defer reconnection.");
     Ok(())
   } else {
-    _debug!(inner, "Defer reconnection to {:?} after {:?}", server, error);
     // keep track of pending reconnection commands to dedup them before they're sent
     if let Some(server) = server {
       router.pending_reconnection.insert(ReconnectServer::One(server.clone()));
     } else {
       router.pending_reconnection.insert(ReconnectServer::All);
     };
+    _debug!(inner, "Defer reconnection to {:?} after {:?}", server, error);
 
     interfaces::send_to_router(inner, RouterCommand::Reconnect {
       server:                               server.cloned(),

@@ -182,10 +182,10 @@ async fn main() -> Result<(), Error> {
   let pool = Builder::from_config(config)
     .with_connection_config(|config| {
       config.max_command_attempts = 3;
-      config.unresponsive = UnresponsiveConfig {
-        interval:    Duration::from_secs(1),
-        max_timeout: Some(Duration::from_secs(5)),
-      };
+      // config.unresponsive = UnresponsiveConfig {
+      //  interval:    Duration::from_secs(1),
+      //  max_timeout: Some(Duration::from_secs(5)),
+      //};
       config.connection_timeout = Duration::from_secs(3);
       config.internal_command_timeout = Duration::from_secs(2);
       // config.cluster_cache_update_delay = Duration::from_secs(20);

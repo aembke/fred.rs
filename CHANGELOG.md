@@ -1,3 +1,7 @@
+## 10.0.1
+
+* Fix reconnection errors when no connections exist
+
 ## 10.0.0
 
 * Reduced memory footprint and significant write throughput improvements
