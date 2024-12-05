@@ -30,6 +30,9 @@ impl Default for ClusterChange {
   }
 }
 
+// The following future types are used in the context of a select! loop, so they return Pending when there are no
+// available connections to poll.
+
 fn poll_connection(
   inner: &RefCount<ClientInner>,
   conn: &mut Connection,
@@ -96,11 +99,11 @@ impl Future for ReadAllFuture<'_, '_> {
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     #[cfg(feature = "replicas")]
     if self.connections.is_empty() && self.replicas.is_empty() {
-      return Poll::Ready(Vec::new());
+      return Poll::Pending;
     }
     #[cfg(not(feature = "replicas"))]
     if self.connections.is_empty() {
-      return Poll::Ready(Vec::new());
+      return Poll::Pending;
     }
 
     let _self = self.get_mut();

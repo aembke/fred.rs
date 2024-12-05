@@ -783,6 +783,8 @@ impl ClientInner {
     use tokio::sync::mpsc::error::TrySendError;
 
     if let Err(v) = self.command_tx.load().try_send(command) {
+      trace!("{}: Failed sending command to router.", self.id);
+
       match v {
         TrySendError::Closed(c) => Err(c),
         TrySendError::Full(c) => match c {

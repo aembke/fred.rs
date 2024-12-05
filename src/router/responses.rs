@@ -309,7 +309,7 @@ pub fn preprocess_frame(
 
 /// Handle an error in the reader task that should end the connection.
 pub fn broadcast_reader_error(inner: &RefCount<ClientInner>, server: &Server, error: Option<Error>) {
-  _warn!(inner, "Ending reader task from {} due to {:?}", server, error);
+  _warn!(inner, "Broadcasting error {:?} from {}", error, server);
 
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner
@@ -320,7 +320,7 @@ pub fn broadcast_reader_error(inner: &RefCount<ClientInner>, server: &Server, er
 
 #[cfg(feature = "replicas")]
 pub fn broadcast_replica_error(inner: &RefCount<ClientInner>, server: &Server, error: Option<Error>) {
-  _warn!(inner, "Ending replica reader task from {} due to {:?}", server, error);
+  _warn!(inner, "Broadcasting replica error {:?} from {}", error, server);
 
   if utils::read_locked(&inner.state) != ClientState::Disconnecting {
     inner

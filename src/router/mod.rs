@@ -26,13 +26,13 @@ use crate::{
   utils as client_utils,
 };
 use futures::future::join_all;
-use std::{
-  collections::{HashSet, VecDeque},
-  hash::{Hash, Hasher},
-};
-
 #[cfg(feature = "replicas")]
 use futures::future::try_join;
+use std::{
+  collections::{HashSet, VecDeque},
+  future::pending,
+  hash::{Hash, Hasher},
+};
 #[cfg(feature = "transactions")]
 pub mod transactions;
 #[cfg(feature = "replicas")]
@@ -459,7 +459,7 @@ impl Router {
     }
   }
 
-  /// Try to read from all sockets concurrently.
+  /// Try to read from all sockets concurrently in a select loop.
   #[cfg(feature = "replicas")]
   pub async fn select_read(
     &mut self,
@@ -475,7 +475,7 @@ impl Router {
         if let Some(writer) = writer {
           ReadFuture::new(inner, writer, &mut self.replicas.connections).await
         } else {
-          Vec::new()
+          pending().await
         }
       },
       Connections::Clustered {
@@ -485,7 +485,7 @@ impl Router {
     }
   }
 
-  /// Try to read from all sockets concurrently.
+  /// Try to read from all sockets concurrently in a select loop.
   #[cfg(not(feature = "replicas"))]
   pub async fn select_read(
     &mut self,
@@ -501,7 +501,7 @@ impl Router {
         if let Some(writer) = writer {
           ReadFuture::new(inner, writer).await
         } else {
-          Vec::new()
+          pending().await
         }
       },
       Connections::Clustered {
