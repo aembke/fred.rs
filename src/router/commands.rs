@@ -476,7 +476,6 @@ async fn read_or_write(
         }
       },
       Some(command) = rx.recv() => {
-        _trace!(inner, "Recv router command");
         process_command(inner, router, command).await?;
       },
       _ = sleep_ft => {
