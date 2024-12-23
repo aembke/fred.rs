@@ -102,7 +102,12 @@ pub async fn write_command(
   router: &mut Router,
   mut command: Command,
 ) -> Result<(), Error> {
-  _trace!(inner, "Writing command: {:?} ({})", command, command.debug_id());
+  _trace!(
+    inner,
+    "Writing command: {:?} ({})",
+    command.kind.to_str_debug(),
+    command.debug_id()
+  );
   if let Err(err) = command.decr_check_attempted() {
     command.respond_to_caller(Err(err));
     return Ok(());

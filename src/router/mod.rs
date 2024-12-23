@@ -401,6 +401,7 @@ impl Router {
   pub async fn drain_all(&mut self, inner: &RefCount<ClientInner>) -> Result<(), Error> {
     let inner = inner.clone();
     _trace!(inner, "Draining all connections...");
+    self.flush().await?;
 
     let primary_ft = async {
       match self.connections {
