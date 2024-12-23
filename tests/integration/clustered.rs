@@ -91,6 +91,8 @@ mod other {
   #[cfg(all(feature = "i-keys", feature = "i-lists"))]
   cluster_test!(other, should_manually_connect_twice);
   #[cfg(all(feature = "transactions", feature = "i-keys"))]
+  cluster_test!(other, should_mix_trx_and_get);
+  #[cfg(all(feature = "transactions", feature = "i-keys"))]
   cluster_test!(other, should_support_options_with_trx);
 
   //#[cfg(feature = "dns")]

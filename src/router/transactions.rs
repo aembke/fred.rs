@@ -111,6 +111,7 @@ pub async fn send(
   }
 
   _debug!(inner, "Starting transaction {}", id);
+  // command buffer length checked above
   let max_attempts = commands.last().unwrap().attempts_remaining;
   let max_redirections = commands.last().unwrap().redirections_remaining;
   let mut attempted = 0;

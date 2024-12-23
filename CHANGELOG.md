@@ -1,3 +1,7 @@
+## 10.0.2
+
+* Fix intermittent transaction timeouts
+
 ## 10.0.1
 
 * Fix reconnection errors when no connections exist
