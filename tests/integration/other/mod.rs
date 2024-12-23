@@ -45,6 +45,7 @@ use fred::types::Resolve;
 use hickory_resolver::{config::*, TokioAsyncResolver};
 #[cfg(feature = "dns")]
 use std::net::{IpAddr, SocketAddr};
+use tokio::task::JoinSet;
 
 #[cfg(all(feature = "i-keys", feature = "i-hashes"))]
 fn hash_to_btree(vals: &Map) -> BTreeMap<Key, u16> {
@@ -902,5 +903,22 @@ pub async fn should_create_non_lazy_replica_connections(client: Client, config: 
   client.init().await?;
 
   assert_eq!(client.active_connections().len(), 6);
+  Ok(())
+}
+
+#[cfg(all(feature = "transactions", feature = "i-keys"))]
+pub async fn should_mix_trx_and_get(client: Client, _: Config) -> Result<(), Error> {
+  let mut set = JoinSet::new();
+  for _ in 0 .. 200 {
+    let client = client.clone();
+    set.spawn(async move {
+      let tx = client.multi();
+      let _: () = tx.incr("foo").await.unwrap();
+      let _: () = tx.exec(true).await.unwrap();
+      let _: () = client.get("bar").await.unwrap();
+    });
+  }
+
+  set.join_all().await;
   Ok(())
 }
