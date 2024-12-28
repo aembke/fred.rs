@@ -585,7 +585,7 @@ mod mocking {
   use redis_protocol::resp3::types::BytesFrame;
   use std::sync::Arc;
 
-  fn mock_host(inner: &Arc<ClientInner>) -> Server {
+  fn mock_host(inner: &RefCount<ClientInner>) -> Server {
     inner
       .config
       .server
@@ -625,7 +625,7 @@ mod mocking {
 
   /// Process any kind of router command.
   pub fn process_command(
-    inner: &Arc<ClientInner>,
+    inner: &RefCount<ClientInner>,
     mocks: &Arc<dyn Mocks>,
     command: RouterCommand,
   ) -> Result<(), Error> {
