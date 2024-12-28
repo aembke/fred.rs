@@ -2,7 +2,7 @@
 
 use fred::{
   prelude::*,
-  types::{Library, Script},
+  types::scripts::{Library, Script},
   util as fred_utils,
 };
 
