@@ -25,10 +25,16 @@ use std::{
   time::{Duration, Instant},
 };
 
-#[cfg(feature = "mocks")]
-use crate::modules::mocks::MockCommand;
 #[cfg(any(feature = "full-tracing", feature = "partial-tracing"))]
 use crate::trace::CommandTraces;
+#[cfg(feature = "mocks")]
+use crate::{
+  modules::mocks::MockCommand,
+  protocol::types::ValueScanResult,
+  runtime::Sender,
+  types::scan::ScanResult,
+  types::Key,
+};
 
 #[cfg(feature = "debug-ids")]
 static COMMAND_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -1907,6 +1913,30 @@ impl Command {
     match self.response {
       ResponseKind::Respond(ref mut tx) => tx.take(),
       ResponseKind::Buffer { ref mut tx, .. } => tx.lock().take(),
+      _ => None,
+    }
+  }
+
+  #[cfg(feature = "mocks")]
+  pub fn take_key_scan_tx(&mut self) -> Option<Sender<Result<ScanResult, Error>>> {
+    match mem::replace(&mut self.response, ResponseKind::Skip) {
+      ResponseKind::KeyScan(inner) => Some(inner.tx),
+      _ => None,
+    }
+  }
+
+  #[cfg(feature = "mocks")]
+  pub fn take_key_scan_buffered_tx(&mut self) -> Option<Sender<Result<Key, Error>>> {
+    match mem::replace(&mut self.response, ResponseKind::Skip) {
+      ResponseKind::KeyScanBuffered(inner) => Some(inner.tx),
+      _ => None,
+    }
+  }
+
+  #[cfg(feature = "mocks")]
+  pub fn take_value_scan_tx(&mut self) -> Option<Sender<Result<ValueScanResult, Error>>> {
+    match mem::replace(&mut self.response, ResponseKind::Skip) {
+      ResponseKind::ValueScan(inner) => Some(inner.tx),
       _ => None,
     }
   }

@@ -19,6 +19,7 @@ use crate::{
 };
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
+use glob_match::glob_match;
 use std::{
   collections::{HashMap, VecDeque},
   fmt::Debug,
@@ -206,6 +207,40 @@ impl SimpleMap {
 
     Ok(count.into())
   }
+
+  /// Perform a `SCAN` operation, returning all matching keys in one page.
+  pub fn scan(&self, args: Vec<Value>) -> Result<Value, Error> {
+    let match_idx = args.iter().enumerate().find_map(|(i, a)| {
+      if let Some("MATCH") = a.as_str().as_ref().map(|s| s.as_ref()) {
+        Some(i + 1)
+      } else {
+        None
+      }
+    });
+    let pattern = match_idx.and_then(|i| args[i].as_string());
+
+    let keys = self
+      .values
+      .lock()
+      .keys()
+      .filter_map(|k| {
+        if let Some(pattern) = pattern.as_ref() {
+          if let Some(_k) = k.as_str() {
+            if glob_match(pattern, _k) {
+              k.as_bytes_str().map(Value::String)
+            } else {
+              None
+            }
+          } else {
+            None
+          }
+        } else {
+          k.as_bytes_str().map(Value::String)
+        }
+      })
+      .collect();
+    Ok(Value::Array(vec![Value::from_static_str("0"), Value::Array(keys)]))
+  }
 }
 
 impl Mocks for SimpleMap {
@@ -214,6 +249,7 @@ impl Mocks for SimpleMap {
       "GET" => self.get(command.args),
       "SET" => self.set(command.args),
       "DEL" => self.del(command.args),
+      "SCAN" => self.scan(command.args),
       _ => Err(Error::new(ErrorKind::Unknown, "Unimplemented.")),
     }
   }
@@ -329,9 +365,10 @@ mod tests {
     mocks::{Buffer, Echo, Mocks, SimpleMap},
     prelude::Expiration,
     runtime::JoinHandle,
-    types::{config::Config, SetOptions, Value},
+    types::{config::Config, scan::Scanner, SetOptions, Value},
   };
   use std::sync::Arc;
+  use tokio_stream::StreamExt;
 
   async fn create_mock_client(mocks: Arc<dyn Mocks>) -> (Client, JoinHandle<Result<(), Error>>) {
     let config = Config {
@@ -420,5 +457,56 @@ mod tests {
     assert_eq!(try_all, vec![Ok(vec!["foo".to_string()]), Ok(vec!["bar".to_string()])]);
     let last: Vec<String> = pipeline.last().await.unwrap();
     assert_eq!(last, vec!["bar"]);
+  }
+
+  #[tokio::test]
+  async fn should_mock_scans() {
+    let (client, _) = create_mock_client(Arc::new(SimpleMap::new())).await;
+    client
+      .set::<(), _, _>("foo1", "bar1", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    client
+      .set::<(), _, _>("foo2", "bar2", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    let mut all: Vec<String> = Vec::new();
+    let mut scan_stream = client.scan("foo*", Some(10), None);
+    while let Some(mut page) = scan_stream.try_next().await.expect("failed to call try_next") {
+      if let Some(keys) = page.take_results() {
+        all.append(
+          &mut keys
+            .into_iter()
+            .filter_map(|v| v.as_str().map(|v| v.to_string()))
+            .collect(),
+        );
+      }
+      page.next();
+    }
+    all.sort();
+    assert_eq!(all, vec!["foo1".to_string(), "foo2".to_string()]);
+  }
+
+  #[tokio::test]
+  async fn should_mock_scans_buffered() {
+    let (client, _) = create_mock_client(Arc::new(SimpleMap::new())).await;
+    client
+      .set::<(), _, _>("foo1", "bar1", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    client
+      .set::<(), _, _>("foo2", "bar2", None, None, false)
+      .await
+      .expect("Failed to call SET");
+
+    let mut keys: Vec<String> = client
+      .scan_buffered("foo*", Some(10), None)
+      .map(|k| k.map(|k| k.into_string().unwrap()))
+      .collect::<Result<Vec<String>, Error>>()
+      .await
+      .unwrap();
+    keys.sort();
+
+    assert_eq!(keys, vec!["foo1".to_string(), "foo2".to_string()]);
   }
 }

@@ -575,13 +575,60 @@ mod mocking {
   use super::*;
   use crate::{
     modules::mocks::Mocks,
-    protocol::{responders::ResponseKind, utils as protocol_utils},
+    protocol::{
+      responders,
+      responders::ResponseKind,
+      types::{KeyScanBufferedInner, KeyScanInner, ValueScanInner},
+      utils as protocol_utils,
+    },
   };
   use redis_protocol::resp3::types::BytesFrame;
   use std::sync::Arc;
 
+  fn mock_host(inner: &RefCount<ClientInner>) -> Server {
+    inner
+      .config
+      .server
+      .hosts()
+      .first()
+      .cloned()
+      .unwrap_or(Server::from(("localhost", 6379)))
+  }
+
+  fn key_scanner(command: &mut Command) -> KeyScanInner {
+    KeyScanInner {
+      args:       command.args().to_vec(),
+      hash_slot:  None,
+      server:     None,
+      cursor_idx: 0,
+      tx:         command.take_key_scan_tx().unwrap(),
+    }
+  }
+
+  fn buffered_key_scanner(command: &mut Command) -> KeyScanBufferedInner {
+    KeyScanBufferedInner {
+      args:       command.args().to_vec(),
+      hash_slot:  None,
+      server:     None,
+      cursor_idx: 0,
+      tx:         command.take_key_scan_buffered_tx().unwrap(),
+    }
+  }
+
+  fn value_scanner(command: &mut Command) -> ValueScanInner {
+    ValueScanInner {
+      args:       command.args().to_vec(),
+      cursor_idx: 0,
+      tx:         command.take_value_scan_tx().unwrap(),
+    }
+  }
+
   /// Process any kind of router command.
-  pub fn process_command(mocks: &Arc<dyn Mocks>, command: RouterCommand) -> Result<(), Error> {
+  pub fn process_command(
+    inner: &RefCount<ClientInner>,
+    mocks: &Arc<dyn Mocks>,
+    command: RouterCommand,
+  ) -> Result<(), Error> {
     match command {
       #[cfg(feature = "transactions")]
       RouterCommand::Transaction { commands, mut tx, .. } => {
@@ -642,7 +689,34 @@ mod mocking {
         let result = mocks
           .process_command(command.to_mocked())
           .map(protocol_utils::mocked_value_to_frame);
-        command.respond_to_caller(result);
+
+        match result {
+          Ok(frame) => match command.kind {
+            CommandKind::Scan => {
+              let is_buffered = matches!(command.response, ResponseKind::KeyScanBuffered(_));
+              let server = mock_host(inner);
+
+              if is_buffered {
+                let scanner = buffered_key_scanner(&mut command);
+                responders::respond_key_scan_buffered(inner, &server, command, scanner, frame)
+                  .expect("Failed to respond key scan buffered");
+              } else {
+                let scanner = key_scanner(&mut command);
+                responders::respond_key_scan(inner, &server, command, scanner, frame)
+                  .expect("Failed to respond key scan");
+              }
+            },
+            CommandKind::Sscan | CommandKind::Hscan | CommandKind::Zscan => {
+              let server = mock_host(inner);
+              let scanner = value_scanner(&mut command);
+
+              responders::respond_value_scan(inner, &server, command, scanner, frame)
+                .expect("Failed to respond value scan");
+            },
+            _ => command.respond_to_caller(Ok(frame)),
+          },
+          Err(err) => command.respond_to_caller(Err(err)),
+        };
 
         Ok(())
       },
@@ -659,7 +733,7 @@ mod mocking {
       inner.counters.decr_cmd_buffer_len();
 
       _trace!(inner, "Recv mock command: {:?}", command);
-      if let Err(e) = process_command(mocks, command) {
+      if let Err(e) = process_command(inner, mocks, command) {
         // errors on this interface end the client connection task
         _error!(inner, "Ending early after error processing mock command: {:?}", e);
         if e.is_canceled() {

@@ -1,3 +1,7 @@
+## 10.0.3
+
+* Support SCAN functions in mocks
+
 ## 10.0.2
 
 * Fix intermittent transaction timeouts
