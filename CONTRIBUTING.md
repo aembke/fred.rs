@@ -1,6 +1,7 @@
 # Contributing
 
-This document gives some background on how the library is structured and how to contribute.
+This document gives some background on how the library is structured and how to contribute. Contributors that want a
+more detailed overview should see the [design doc](doc/design.md).
 
 ## General
 
@@ -36,6 +37,8 @@ The code has the following structure:
 * The [modules](src/modules) folder contains smaller helper interfaces such as a
   lazy [Backchannel](src/modules/backchannel.rs) connection interface and
   the [response type conversion logic](src/modules/response.rs).
+
+See the [design doc](doc/design.md) for more info.
 
 ## Examples
 
