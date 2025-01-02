@@ -1,4 +1,5 @@
 use futures::Stream;
+use futures_lite::{future::poll_fn, FutureExt};
 use glommio::{
   channels::local_channel::{new_bounded, new_unbounded, LocalReceiver, LocalSender},
   GlommioError,
@@ -64,6 +65,18 @@ impl<T: 'static> Receiver<T> {
   pub fn into_stream(self) -> impl Stream<Item = T> + 'static {
     // what happens if we `join` the futures from `recv()` and `rx.stream().next()`?
     UnboundedReceiverStream::from(self.rx)
+  }
+
+  // despite being async this works similar to Tokio's try_recv in that it won't actually await on anything. the async
+  // wrapper is used so it works with `poll_fn`
+  pub async fn try_recv(&mut self) -> Option<T> {
+    let mut ft = Box::pin(self.rx.recv());
+
+    poll_fn(|cx| match ft.poll(cx) {
+      Poll::Pending | Poll::Ready(None) => Poll::Ready(None),
+      Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
+    })
+    .await
   }
 }
 

@@ -922,3 +922,13 @@ pub async fn should_mix_trx_and_get(client: Client, _: Config) -> Result<(), Err
   set.join_all().await;
   Ok(())
 }
+
+pub async fn should_not_hang_on_concurrent_quit(client: Client, _: Config) -> Result<(), Error> {
+  let client2 = client.clone();
+
+  let task1 = tokio::spawn(async move { client.quit().await });
+  let task2 = tokio::spawn(async move { client2.quit().await });
+  task1.await.unwrap()?;
+  task2.await.unwrap()?;
+  Ok(())
+}

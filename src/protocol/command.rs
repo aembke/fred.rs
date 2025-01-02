@@ -2154,6 +2154,31 @@ impl RouterCommand {
       _ => None,
     }
   }
+
+  /// Cancel the underlying command and respond to the caller, if possible.
+  pub fn cancel(self) {
+    match self {
+      RouterCommand::Command(mut command) => {
+        let result = if command.kind == CommandKind::Quit {
+          Ok(Resp3Frame::Null)
+        } else {
+          Err(Error::new_canceled())
+        };
+
+        command.respond_to_caller(result);
+      },
+      RouterCommand::Pipeline { mut commands } => {
+        if let Some(mut command) = commands.pop() {
+          command.respond_to_caller(Err(Error::new_canceled()));
+        }
+      },
+      #[cfg(feature = "transactions")]
+      RouterCommand::Transaction { tx, .. } => {
+        let _ = tx.send(Err(Error::new_canceled()));
+      },
+      _ => {},
+    }
+  }
 }
 
 impl fmt::Debug for RouterCommand {

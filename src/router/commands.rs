@@ -456,19 +456,6 @@ async fn read_or_write(
   router: &mut Router,
   rx: &mut CommandReceiver,
 ) -> Result<(), Error> {
-  // The most complicated part of the main client command loop is implemented in this function.
-  //
-  // In the past `fred` worked by spawning a separate task for each connection such that the Tokio scheduler could
-  // read from all sockets concurrently. Unfortunately this introduced significant overhead in the scheduling
-  // layer (via a huge number of calls to `next_expiration` within Tokio) and indirectly via the added message passing
-  // communication mechanisms required between reader tasks and the writer task.
-  //
-  // In 9.5.0 the routing layer was reworked to operate on both readers and writers within a single task. This
-  // increased throughput by 2-3x on the happy path, but requires some `select` shenanigans so that the client can
-  // appear to operate on readers and writers concurrently.
-  //
-  // This function is called in a loop and drives futures that concurrently read and write to sockets.
-
   if inner.connection.unresponsive.max_timeout.is_some() {
     let sleep_ft = sleep(inner.connection.unresponsive.interval);
     pin!(sleep_ft);
@@ -506,7 +493,23 @@ async fn read_or_write(
   Ok(())
 }
 
-/// Start the command processing stream, initiating new connections in the process.
+#[cfg(feature = "glommio")]
+async fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  while let Some(command) = rx.try_recv().await {
+    _warn!(inner, "Skip command with canceled error after calling quit.");
+    command.cancel();
+  }
+}
+
+#[cfg(not(feature = "glommio"))]
+fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  while let Ok(command) = rx.try_recv() {
+    _warn!(inner, "Skip command with canceled error after calling quit.");
+    command.cancel();
+  }
+}
+
+/// Initialize connections and start the routing task.
 pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   #[cfg(feature = "mocks")]
   if let Some(ref mocks) = inner.config.mocks {
@@ -562,9 +565,14 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
         break;
       }
     }
-    inner.store_command_rx(rx, false);
+    #[cfg(feature = "glommio")]
+    drain_command_rx(inner, &mut rx).await;
+    #[cfg(not(feature = "glommio"))]
+    drain_command_rx(inner, &mut rx);
     #[cfg(feature = "credential-provider")]
     inner.abort_credential_refresh_task();
+
+    inner.store_command_rx(rx, false);
     result
   }
 }
@@ -762,6 +770,7 @@ mod mocking {
 
     inner.notifications.broadcast_connect(Ok(()));
     let result = process_commands(inner, mocks, &mut rx).await;
+
     inner.store_command_rx(rx, false);
     result
   }
