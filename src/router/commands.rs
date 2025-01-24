@@ -524,6 +524,7 @@ fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
           command.respond_to_caller(Err(Error::new_canceled()));
         }
       },
+      #[cfg(feature = "transactions")]
       RouterCommand::Transaction { tx, .. } => {
         let _ = tx.send(Err(Error::new_canceled()));
       },
