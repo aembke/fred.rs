@@ -1,7 +1,6 @@
 # Contributing
 
-This document gives some background on how the library is structured and how to contribute. Contributors that want a
-more detailed overview should see the [design doc](doc/design.md).
+This document gives some background on how the library is structured and how to contribute.
 
 ## General
 

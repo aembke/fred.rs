@@ -135,32 +135,8 @@ next command. Commands always finish in order (and TCP ensures packets always ar
 operates on one command at a time. In other words - a server never operates on multiple commands in parallel, even with
 pipelined commands. Pipelining is strictly concerned with minimizing the impact of network latency. As a result clients
 can generally rely on responses arriving in order corresponding to the order in which the requests were sent (with
-some exceptions such as pubsub).
-
-This is not to be confused with multiplexing, which is a broader term that typically describes how multiple
-contexts can share a single connection. Multiplexing can also be used to minimize the impact of network latency, often
-with a form of pipelining, but typically requires a more sophisticated protocol implementation to identify commands on
-the wire. In many cases, such as [AMQP](https://docs.oasis-open.org/amqp/core/v1.0/amqp-core-messaging-v1.0.html), this
-extra identifying information can be used by the server to operate on multiple commands in parallel, and even to return
-responses in a different order than they were received by the server. For some systems this can be especially useful
-when certain commands take much longer to run than others.
-
-It's important to note that RESP2 and RESP3 are not "multiplexed" protocols in this sense, and as a result there is no
-mechanism for commands to run in a different order than they were sent, and therefore the server cannot operate on
-multiple commands in parallel. Or to be more specific - there would be little benefit in doing so because in many cases
-commands would have to wait on each other to finish in order to always respond to commands in the order they were sent
-by the client. The invariant that the server returns responses in the same order that requests are sent is what
-underpins most sophisticated pipelining optimizations in this and other client libraries.
-
-However, in practice with Valkey/Redis the terms "pipelining" and "multiplexing" are sometimes used interchangeably.
-Ultimately what really matters is that callers do not need to wait on a full round trip when sending multiple
-independent commands that do not otherwise need to wait on one another.
-
-Connection pooling can also be used to "multiplex" a client interface such that commands do not need to wait on one
-other (in some cases), but pooling and pipelining also serve other purposes and are not direct replacements for one
-another. For example, there are multiple reasons why callers may want to use both - such as providing a more robust
-failover story when connections close or to spread the network load across multiple TCP connections in order to allow
-the operating system to operate on multiple TCP sockets and buffers in parallel.
+some exceptions such as pubsub). The invariant that the server returns responses in the same order that requests are
+sent is what underpins most pipelining optimizations in this and other client libraries.
 
 ## Pipeline Interfaces
 
@@ -934,8 +910,7 @@ Valgrind/Callgrind again:
 
 A few new things to note:
 
-* The timer wheel overhead was gone. It seems moving all the routing logic into one task removed the need to advance the
-  timer wheel as often.
+* The timer wheel overhead is no longer present.
 * The overall portion of time spent in `memcpy` was dramatically reduced, but it still represents a relatively large
   portion of the CPU cycles. The borrowed frame logic has not been fully integrated yet at the time of writing, so
   hopefully finishing that helps reduce this as well. However, most of the memcpy calls come from the Tokio runtime, so
@@ -943,11 +918,6 @@ A few new things to note:
   futures.
 
 These changes lead to the max throughput increasing by 3-5x in the benchmarks.
-
-Going forward this library will continue to the single task approach, but it remains to be seen how this scales with
-thousands of servers. At work we use clusters with several hundred nodes and a few thousand app servers sending ~100k
-req/sec, but unfortunately testing with thousands of nodes is expensive at this scale and I haven't had a chance to do
-that yet.
 
 # Glommio
 

@@ -506,6 +506,32 @@ async fn read_or_write(
   Ok(())
 }
 
+fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  while let Ok(command) = rx.try_recv() {
+    _warn!(inner, "Skip command with canceled error after calling quit.");
+    match command {
+      RouterCommand::Command(mut command) => {
+        let result = if command.kind == CommandKind::Quit {
+          Ok(Resp3Frame::Null)
+        } else {
+          Err(Error::new_canceled())
+        };
+
+        command.respond_to_caller(result);
+      },
+      RouterCommand::Pipeline { mut commands } => {
+        if let Some(mut command) = commands.pop() {
+          command.respond_to_caller(Err(Error::new_canceled()));
+        }
+      },
+      RouterCommand::Transaction { tx, .. } => {
+        let _ = tx.send(Err(Error::new_canceled()));
+      },
+      _ => {},
+    }
+  }
+}
+
 /// Start the command processing stream, initiating new connections in the process.
 pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   #[cfg(feature = "mocks")]
@@ -562,6 +588,7 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
         break;
       }
     }
+    drain_command_rx(inner, &mut rx);
     inner.store_command_rx(rx, false);
     #[cfg(feature = "credential-provider")]
     inner.abort_credential_refresh_task();
@@ -762,6 +789,7 @@ mod mocking {
 
     inner.notifications.broadcast_connect(Ok(()));
     let result = process_commands(inner, mocks, &mut rx).await;
+
     inner.store_command_rx(rx, false);
     result
   }

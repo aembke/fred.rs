@@ -99,95 +99,105 @@ fn parse_all_responses(results: &[Result<Option<(Server, Resp3Frame)>, Error>]) 
   })
 }
 
+async fn all_cluster_request_response(
+  inner: &RefCount<ClientInner>,
+  writers: &mut HashMap<Server, Connection>,
+  mut command: Command,
+) -> Result<(), Error> {
+  let mut out = Ok(());
+  let mut disconnect = Vec::new();
+  // write to all the cluster nodes, keeping track of which ones failed, then try to read from the ones that
+  // succeeded. at the end disconnect from all the nodes that failed writes or reads and return the last error.
+  let frame = protocol_utils::encode_frame(inner, &command)?;
+  let all_nodes: HashSet<_> = writers.keys().cloned().collect();
+
+  let results = write_all_nodes(inner, writers, &frame).await;
+  let write_success: HashSet<_> = results
+    .into_iter()
+    .filter_map(|r| match r {
+      Ok(server) => Some(server),
+      Err(e) => {
+        out = Err(e);
+        None
+      },
+    })
+    .collect();
+  let write_failed: Vec<_> = {
+    all_nodes
+      .difference(&write_success)
+      .inspect(|server| {
+        disconnect.push((*server).clone());
+      })
+      .collect()
+  };
+  if !write_failed.is_empty() {
+    _debug!(inner, "Failed sending command to {:?}", write_failed);
+  }
+
+  // try to read from all nodes concurrently, keeping track of which ones failed
+  let results = read_all_nodes(inner, writers, &write_success).await;
+  command.respond_to_caller(parse_all_responses(&results));
+
+  let read_success: HashSet<_> = results
+    .into_iter()
+    .filter_map(|result| match result {
+      Ok(Some((server, _))) => Some(server),
+      Ok(None) => None,
+      Err(e) => {
+        out = Err(e);
+        None
+      },
+    })
+    .collect();
+  let read_failed: Vec<_> = {
+    all_nodes
+      .difference(&read_success)
+      .inspect(|server| {
+        disconnect.push((*server).clone());
+      })
+      .collect()
+  };
+  if !read_failed.is_empty() {
+    _debug!(inner, "Failed reading responses from {:?}", read_failed);
+  }
+
+  // disconnect from all the connections that failed writing or reading
+  for server in disconnect.into_iter() {
+    let mut conn = match writers.remove(&server) {
+      Some(conn) => conn,
+      None => continue,
+    };
+
+    // the retry buffer is empty since the caller must drain the connection beforehand in this context
+    let result = client_utils::timeout(
+      async move {
+        let _ = conn.close().await;
+        Ok::<(), Error>(())
+      },
+      inner.connection.internal_command_timeout,
+    )
+    .await;
+    if let Err(err) = result {
+      _warn!(inner, "Error disconnecting {:?}", err);
+    }
+  }
+
+  out
+}
+
 /// Send a command to all cluster nodes.
 ///
 /// The caller must drain the in-flight buffers before calling this.
 pub async fn send_all_cluster_command(
   inner: &RefCount<ClientInner>,
   router: &mut Router,
-  mut command: Command,
+  command: Command,
 ) -> Result<(), Error> {
   match router.connections {
     Connections::Clustered {
       connections: ref mut writers,
       ..
-    } => {
-      let mut out = Ok(());
-      let mut disconnect = Vec::new();
-      // write to all the cluster nodes, keeping track of which ones failed, then try to read from the ones that
-      // succeeded. at the end disconnect from all the nodes that failed writes or reads and return the last error.
-      let frame = protocol_utils::encode_frame(inner, &command)?;
-      let all_nodes: HashSet<_> = writers.keys().cloned().collect();
-
-      let results = write_all_nodes(inner, writers, &frame).await;
-      let write_success: HashSet<_> = results
-        .into_iter()
-        .filter_map(|r| match r {
-          Ok(server) => Some(server),
-          Err(e) => {
-            out = Err(e);
-            None
-          },
-        })
-        .collect();
-      let write_failed: Vec<_> = {
-        all_nodes
-          .difference(&write_success)
-          .inspect(|server| {
-            disconnect.push((*server).clone());
-          })
-          .collect()
-      };
-      _debug!(inner, "Failed sending command to {:?}", write_failed);
-
-      // try to read from all nodes concurrently, keeping track of which ones failed
-      let results = read_all_nodes(inner, writers, &write_success).await;
-      command.respond_to_caller(parse_all_responses(&results));
-
-      let read_success: HashSet<_> = results
-        .into_iter()
-        .filter_map(|result| match result {
-          Ok(Some((server, _))) => Some(server),
-          Ok(None) => None,
-          Err(e) => {
-            out = Err(e);
-            None
-          },
-        })
-        .collect();
-      let read_failed: Vec<_> = {
-        all_nodes
-          .difference(&read_success)
-          .inspect(|server| {
-            disconnect.push((*server).clone());
-          })
-          .collect()
-      };
-      _debug!(inner, "Failed reading responses from {:?}", read_failed);
-
-      // disconnect from all the connections that failed writing or reading
-      for server in disconnect.into_iter() {
-        let mut conn = match writers.remove(&server) {
-          Some(conn) => conn,
-          None => continue,
-        };
-
-        // the retry buffer is empty since the caller must drain the connection beforehand in this context
-        let result = client_utils::timeout(
-          async move {
-            let _ = conn.close().await;
-            Ok::<(), Error>(())
-          },
-          inner.connection.internal_command_timeout,
-        )
-        .await;
-        if let Err(err) = result {
-          _warn!(inner, "Error disconnecting {:?}", err);
-        }
-      }
-
-      out
-    },
+    } => all_cluster_request_response(inner, writers, command).await,
     _ => Err(Error::new(ErrorKind::Config, "Expected clustered config.")),
   }
 }
