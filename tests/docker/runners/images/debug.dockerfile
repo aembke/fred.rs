@@ -19,7 +19,7 @@ ARG FRED_REDIS_SENTINEL_HOST
 ARG FRED_REDIS_SENTINEL_PORT
 ARG CIRCLECI_TESTS
 
-RUN USER=root apt-get update && apt-get install -y build-essential libssl-dev dnsutils curl pkg-config cmake git vim linux-perf
+RUN USER=root apt-get update && apt-get install -y build-essential libssl-dev dnsutils curl pkg-config cmake git vim linux-perf jq
 RUN echo "REDIS_VERSION=$REDIS_VERSION"
 
 # For debugging

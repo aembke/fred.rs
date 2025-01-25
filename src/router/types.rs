@@ -52,7 +52,7 @@ fn poll_connection(
     Poll::Pending => {
       if let Some(duration) = inner.connection.unresponsive.max_timeout {
         if let Some(last_write) = conn.last_write {
-          if now.saturating_duration_since(last_write) > duration {
+          if now.saturating_duration_since(last_write) > duration && !conn.blocked {
             buf.push((
               conn.server.clone(),
               Some(Err(Error::new(ErrorKind::IO, "Unresponsive connection."))),

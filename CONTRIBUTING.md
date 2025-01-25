@@ -37,6 +37,8 @@ The code has the following structure:
   lazy [Backchannel](src/modules/backchannel.rs) connection interface and
   the [response type conversion logic](src/modules/response.rs).
 
+See the [design doc](doc/design.md) for more info.
+
 ## Examples
 
 ### Add A New Command

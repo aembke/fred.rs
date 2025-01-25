@@ -55,6 +55,7 @@ mod other {
   cluster_test!(other, should_split_clustered_connection);
   cluster_test!(other, should_safely_change_protocols_repeatedly);
   cluster_test!(other, should_gracefully_quit);
+  cluster_test!(other, should_not_hang_on_concurrent_quit);
 
   #[cfg(feature = "i-pubsub")]
   cluster_test!(other, should_exit_event_task_with_error);

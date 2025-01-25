@@ -1,3 +1,8 @@
+## 10.0.4
+
+* Fix unresponsive checks with blocked connections
+* Fix potential hanging calls to `quit` when called concurrently by multiple tasks
+
 ## 10.0.3
 
 * Support SCAN functions in mocks

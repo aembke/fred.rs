@@ -18,8 +18,16 @@ use bytes_utils::Str;
 
 pub async fn quit<C: ClientLike>(client: &C) -> Result<(), Error> {
   let inner = client.inner().clone();
-  _debug!(inner, "Closing Redis connection with Quit command.");
+  {
+    // break out early if the client is already closed from a prior call to quit
+    if inner.command_rx.read().is_some() {
+      // command_rx should be None if the client is running since it's owned by the routing task
+      _warn!(inner, "Attempted to quit client that was already stopped.");
+      return Ok(());
+    }
+  }
 
+  _debug!(inner, "Closing Redis connection with Quit command.");
   let (tx, rx) = oneshot_channel();
   let response = ResponseKind::Respond(Some(tx));
   let mut command: Command = (CommandKind::Quit, vec![], response).into();
