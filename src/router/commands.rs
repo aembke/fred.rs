@@ -456,19 +456,6 @@ async fn read_or_write(
   router: &mut Router,
   rx: &mut CommandReceiver,
 ) -> Result<(), Error> {
-  // The most complicated part of the main client command loop is implemented in this function.
-  //
-  // In the past `fred` worked by spawning a separate task for each connection such that the Tokio scheduler could
-  // read from all sockets concurrently. Unfortunately this introduced significant overhead in the scheduling
-  // layer (via a huge number of calls to `next_expiration` within Tokio) and indirectly via the added message passing
-  // communication mechanisms required between reader tasks and the writer task.
-  //
-  // In 9.5.0 the routing layer was reworked to operate on both readers and writers within a single task. This
-  // increased throughput by 2-3x on the happy path, but requires some `select` shenanigans so that the client can
-  // appear to operate on readers and writers concurrently.
-  //
-  // This function is called in a loop and drives futures that concurrently read and write to sockets.
-
   if inner.connection.unresponsive.max_timeout.is_some() {
     let sleep_ft = sleep(inner.connection.unresponsive.interval);
     pin!(sleep_ft);
@@ -506,34 +493,23 @@ async fn read_or_write(
   Ok(())
 }
 
-fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
-  while let Ok(command) = rx.try_recv() {
+#[cfg(feature = "glommio")]
+async fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  while let Some(command) = rx.try_recv().await {
     _warn!(inner, "Skip command with canceled error after calling quit.");
-    match command {
-      RouterCommand::Command(mut command) => {
-        let result = if command.kind == CommandKind::Quit {
-          Ok(Resp3Frame::Null)
-        } else {
-          Err(Error::new_canceled())
-        };
-
-        command.respond_to_caller(result);
-      },
-      RouterCommand::Pipeline { mut commands } => {
-        if let Some(mut command) = commands.pop() {
-          command.respond_to_caller(Err(Error::new_canceled()));
-        }
-      },
-      #[cfg(feature = "transactions")]
-      RouterCommand::Transaction { tx, .. } => {
-        let _ = tx.send(Err(Error::new_canceled()));
-      },
-      _ => {},
-    }
+    command.cancel();
   }
 }
 
-/// Start the command processing stream, initiating new connections in the process.
+#[cfg(not(feature = "glommio"))]
+fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
+  while let Ok(command) = rx.try_recv() {
+    _warn!(inner, "Skip command with canceled error after calling quit.");
+    command.cancel();
+  }
+}
+
+/// Initialize connections and start the routing task.
 pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   #[cfg(feature = "mocks")]
   if let Some(ref mocks) = inner.config.mocks {
@@ -589,10 +565,14 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
         break;
       }
     }
+    #[cfg(feature = "glommio")]
+    drain_command_rx(inner, &mut rx).await;
+    #[cfg(not(feature = "glommio"))]
     drain_command_rx(inner, &mut rx);
-    inner.store_command_rx(rx, false);
     #[cfg(feature = "credential-provider")]
     inner.abort_credential_refresh_task();
+
+    inner.store_command_rx(rx, false);
     result
   }
 }
