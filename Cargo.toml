@@ -11,7 +11,7 @@ name = "fred"
 readme = "README.md"
 repository = "https://github.com/aembke/fred.rs"
 rust-version = "1.75"
-version = "10.0.4"
+version = "10.1.0"
 
 [package.metadata.docs.rs]
 # do not show the glommio version of the docs
@@ -35,6 +35,7 @@ features = [
     "enable-native-tls",
     "full-tracing",
     "credential-provider",
+    "dynamic-pool"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -62,6 +63,7 @@ transactions = []
 trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = []
 credential-provider = []
+dynamic-pool = ["metrics"]
 
 # Enable experimental support for the Glommio runtime.
 glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]
@@ -256,6 +258,10 @@ required-features = ["serde-json"]
 [[example]]
 name = "redis_json"
 required-features = ["i-redis-json"]
+
+[[example]]
+name = "dynamic_pool"
+required-features = ["dynamic-pool"]
 
 [[example]]
 name = "replicas"

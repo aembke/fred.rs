@@ -30,6 +30,9 @@ impl<T> RefSwap<T> {
   }
 }
 
+/// A !Send flavor of `ArcSwapOption` with an interface similar to std::sync::atomic types.
+pub type RefSwapOption<T> = RefSwap<Option<T>>;
+
 /// A !Send flavor of `AtomicUsize`, with the same interface.
 #[derive(Debug)]
 pub struct AtomicUsize {

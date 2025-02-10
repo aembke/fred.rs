@@ -34,3 +34,9 @@ mod transaction;
 #[cfg(feature = "transactions")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transactions")))]
 pub use transaction::Transaction;
+
+#[cfg(feature = "dynamic-pool")]
+mod dynamic_pool;
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+pub use dynamic_pool::DynamicPool;

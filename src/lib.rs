@@ -138,6 +138,9 @@ pub mod util {
 /// Convenience module to import a `RedisClient`, all possible interfaces, error types, and common argument types or
 /// return value types.
 pub mod prelude {
+  #[cfg(feature = "dynamic-pool")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+  pub use crate::clients::DynamicPool;
   #[cfg(feature = "partial-tracing")]
   #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]
   pub use crate::types::config::TracingConfig;

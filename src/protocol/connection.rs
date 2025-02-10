@@ -485,7 +485,7 @@ impl ExclusiveConnection {
       };
       let command = Command::new(CommandKind::Auth, args);
 
-      debug!("{}: Authenticating Redis client...", name);
+      debug!("{}: Authenticating client...", name);
       let frame = self.request_response(command, is_resp3).await?;
 
       if !protocol_utils::is_ok(&frame) {

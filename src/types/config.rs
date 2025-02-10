@@ -2,22 +2,17 @@ pub use crate::protocol::types::Server;
 use crate::{
   error::{Error, ErrorKind},
   protocol::command::Command,
+  runtime::RefCount,
   types::{ClusterHash, RespVersion},
   utils,
 };
+use fred_macros::rm_send_if;
 use socket2::TcpKeepalive;
 use std::{cmp, fmt::Debug, time::Duration};
 use url::Url;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
-#[cfg(feature = "credential-provider")]
-use async_trait::async_trait;
-#[cfg(feature = "unix-sockets")]
-use std::path::PathBuf;
-#[cfg(any(feature = "mocks", feature = "credential-provider"))]
-use std::sync::Arc;
-
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
@@ -32,10 +27,18 @@ use std::sync::Arc;
   )))
 )]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
+#[cfg(any(feature = "credential-provider", feature = "dynamic-pool"))]
+use async_trait::async_trait;
+#[cfg(feature = "unix-sockets")]
+use std::path::PathBuf;
+#[cfg(any(feature = "mocks", feature = "credential-provider"))]
+use std::sync::Arc;
 
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
+#[cfg(feature = "dynamic-pool")]
+use crate::{clients::Client, interfaces::ClientLike, types::stats::PoolStats};
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -1442,6 +1445,83 @@ impl Options {
     }
     if let Some(ref cluster_hash) = self.cluster_hash {
       command.hasher = cluster_hash.clone();
+    }
+  }
+}
+
+/// An interface used to periodically scale the number of clients in a [DynamicPool](crate::clients::DynamicPool).
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[async_trait]
+#[rm_send_if(feature = "glommio")]
+pub trait PoolScale: Debug + Send + Sync {
+  /// Return the amount of clients that should be added or removed from the pool.
+  ///
+  /// The provided [PoolStats](crate::types::stats::PoolStats) refer to samples taken since the last call to this
+  /// function.
+  fn scale(&self, usage: PoolStats) -> i64;
+
+  /// A function that will be called with the new clients after they're connected and added to the pool.
+  ///
+  /// This is typically used to set up event handler callbacks, logging, etc.
+  async fn on_added(&self, clients: Vec<Client>) {
+    debug!("Added {} clients to pool.", clients.len());
+  }
+
+  /// A function that will be called with any clients that are removed from the pool.
+  ///
+  /// By default, this function calls [quit](crate::interfaces::ClientLike::quit) on each client.
+  async fn on_removed(&self, clients: Vec<Client>) {
+    let tasks: Vec<_> = clients.iter().map(|c| c.quit()).collect();
+    futures::future::join_all(tasks).await;
+  }
+}
+
+/// A dynamic pool scaling interface that only removes idle connections.
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[derive(Clone, Debug)]
+pub struct RemoveIdle;
+
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[async_trait]
+impl PoolScale for RemoveIdle {
+  fn scale(&self, _: PoolStats) -> i64 {
+    0
+  }
+}
+
+/// Configuration options for a [DynamicPool](crate::clients::DynamicPool).
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[derive(Clone, Debug)]
+pub struct DynamicPoolConfig {
+  /// The minimum number of clients in the pool.
+  ///
+  /// Default: 1
+  pub min_clients:   usize,
+  /// The maximum number of clients in the pool.
+  ///
+  /// Default: 10
+  pub max_clients:   usize,
+  /// The max time a client can be idle before being disconnected and removed from the pool.
+  ///
+  /// Default: 10 min
+  pub max_idle_time: Duration,
+  /// An interface used to periodically scale the size of the pool.
+  ///
+  /// Default: [RemoveIdle](crate::types::config::RemoveIdle).
+  pub scale:         RefCount<dyn PoolScale>,
+}
+
+impl Default for DynamicPoolConfig {
+  fn default() -> Self {
+    DynamicPoolConfig {
+      min_clients:   1,
+      max_clients:   10,
+      max_idle_time: Duration::from_secs(10 * 60),
+      scale:         RefCount::new(RemoveIdle),
     }
   }
 }

@@ -13,6 +13,7 @@ Examples
 * [Lua](./lua.rs) - Use the Lua scripting interface on a client.
 * [Scan](./scan.rs) - Use the SCAN interface to scan and read keys.
 * [Pool](./pool.rs) - Use a round-robin client pool.
+* [Dynamic Pool](./dynamic_pool.rs) - Use a client pool that scales dynamically.
 * [Monitor](./monitor.rs) - Process a `MONITOR` stream.
 * [Sentinel](./sentinel.rs) - Connect using a sentinel deployment.
 * [Serde JSON](./serde_json.rs) - Use the `serde-json` feature to convert between Redis types and JSON.
