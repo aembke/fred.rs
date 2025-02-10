@@ -22,6 +22,7 @@
 
 #[cfg(any(feature = "dns", feature = "replicas"))]
 #[macro_use]
+#[allow(unused_imports)]
 extern crate async_trait;
 
 #[macro_use]

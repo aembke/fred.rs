@@ -9,11 +9,6 @@ use socket2::TcpKeepalive;
 use std::{cmp, fmt::Debug, time::Duration};
 use url::Url;
 
-#[cfg(feature = "dynamic-pool")]
-use crate::runtime::RefCount;
-#[cfg(feature = "dynamic-pool")]
-use fred_macros::rm_send_if;
-
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
 #[cfg(any(
@@ -30,18 +25,21 @@ use crate::mocks::Mocks;
   )))
 )]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
-#[cfg(any(feature = "credential-provider", feature = "dynamic-pool"))]
-use async_trait::async_trait;
-#[cfg(feature = "unix-sockets")]
-use std::path::PathBuf;
-#[cfg(any(feature = "mocks", feature = "credential-provider"))]
-use std::sync::Arc;
-
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
+#[cfg(feature = "dns")]
+use crate::types::Resolve;
 #[cfg(feature = "dynamic-pool")]
 use crate::{clients::Client, interfaces::ClientLike, types::stats::PoolStats};
+#[cfg(any(feature = "credential-provider", feature = "dynamic-pool"))]
+use async_trait::async_trait;
+#[cfg(feature = "dynamic-pool")]
+use fred_macros::rm_send_if;
+#[cfg(feature = "unix-sockets")]
+use std::path::PathBuf;
+#[cfg(any(feature = "mocks", feature = "credential-provider", feature = "dynamic-pool"))]
+use std::sync::Arc;
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -1502,7 +1500,7 @@ impl PoolScale for RemoveIdle {
 /// Configuration options for a [DynamicPool](crate::clients::DynamicPool).
 #[cfg(feature = "dynamic-pool")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DynamicPoolConfig {
   /// The minimum number of clients in the pool.
   ///
@@ -1519,17 +1517,34 @@ pub struct DynamicPoolConfig {
   /// An interface used to periodically scale the size of the pool.
   ///
   /// Default: [RemoveIdle](crate::types::config::RemoveIdle).
-  pub scale:         RefCount<dyn PoolScale>,
+  pub scale:         Arc<dyn PoolScale>,
+  /// A DNS resolver interface that will be applied to new clients when they're added to the pool.
+  #[cfg(feature = "dns")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  pub resolver:      Option<Arc<dyn Resolve>>,
+}
+
+#[cfg(feature = "dynamic-pool")]
+impl Debug for DynamicPoolConfig {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("DynamicPoolConfig")
+      .field("min_clients", &self.min_clients)
+      .field("max_clients", &self.max_clients)
+      .field("max_idle_time", &self.max_idle_time)
+      .finish()
+  }
 }
 
 #[cfg(feature = "dynamic-pool")]
 impl Default for DynamicPoolConfig {
   fn default() -> Self {
     DynamicPoolConfig {
-      min_clients:   1,
-      max_clients:   10,
-      max_idle_time: Duration::from_secs(10 * 60),
-      scale:         RefCount::new(RemoveIdle),
+      min_clients:                      1,
+      max_clients:                      10,
+      max_idle_time:                    Duration::from_secs(10 * 60),
+      scale:                            Arc::new(RemoveIdle),
+      #[cfg(feature = "dns")]
+      resolver:                         None,
     }
   }
 }

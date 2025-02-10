@@ -18,8 +18,6 @@ use std::{cmp, collections::HashMap, iter::repeat_with, ops::DerefMut, time::Dur
 
 #[cfg(feature = "replicas")]
 use crate::clients::Replicas;
-#[cfg(feature = "dns")]
-use crate::types::Resolve;
 
 /// An iterator that iterates over a dynamic pool, starting with the fixed minimum set of clients.
 #[cfg(feature = "dynamic-pool")]
@@ -345,6 +343,10 @@ impl DynamicPool {
     } else {
       return Err(Error::new(ErrorKind::Config, "Pool cannot be empty."));
     };
+    #[cfg(feature = "dns")]
+    if let Some(resolver) = self.inner.config.resolver.as_ref() {
+      client.set_resolver(resolver.clone()).await;
+    }
     client.init().await?;
 
     let client_ref = RefCount::new(client.clone());
@@ -485,29 +487,6 @@ impl DynamicPool {
     out
   }
 
-  /// Override the DNS resolution logic for all clients in the pool.
-  ///
-  /// It's recommended that callers use the [on_added](crate::types::config::PoolScale::on_added) callback to set this
-  /// on new clients as they're created.
-  #[cfg(feature = "dns")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-  #[allow(refining_impl_trait)]
-  pub async fn set_resolver(&self, resolver: RefCount<dyn Resolve>) -> FredResult<()> {
-    for client in self.inner.fixed.iter() {
-      client.set_resolver(resolver.clone()).await?;
-    }
-    for client_opt in self.inner.dynamic.iter() {
-      // avoid holding the guard across an await point
-      let client = { client_opt.load().as_ref().cloned() };
-      if let Some(client) = client {
-        client.set_resolver(resolver.clone()).await?;
-      } else {
-        break;
-      }
-    }
-    Ok(())
-  }
-
   /// Read the state of the least healthy connection.
   pub fn state(&self) -> ClientState {
     for client in self.inner.fixed.iter() {
@@ -563,6 +542,13 @@ impl DynamicPool {
   /// ```
   pub async fn init(&self) -> FredResult<ConnectHandle> {
     self.inner.reset(true).await;
+    #[cfg(feature = "dns")]
+    if let Some(resolver) = self.inner.config.resolver.as_ref() {
+      for client in self.inner.fixed.iter() {
+        client.set_resolver(resolver.clone()).await;
+      }
+    }
+
     let mut rxs: Vec<_> = self
       .inner
       .fixed

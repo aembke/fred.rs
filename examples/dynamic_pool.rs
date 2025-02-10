@@ -100,11 +100,13 @@ async fn main() -> Result<(), Error> {
   pretty_env_logger::init();
   let config = Config::from_url("redis://foo:bar@redis-main:6379")?;
   let pool_config = DynamicPoolConfig {
-    min_clients:   2,
-    max_clients:   20,
+    min_clients:                      2,
+    max_clients:                      20,
     // remove connections idle for more than 5 min
-    max_idle_time: Duration::from_secs(5 * 60),
-    scale:         Arc::new(ScalePolicy::default()),
+    max_idle_time:                    Duration::from_secs(5 * 60),
+    scale:                            Arc::new(ScalePolicy::default()),
+    #[cfg(feature = "dns")]
+    resolver:                         None,
   };
   let pool = Builder::from_config(config)
     .set_pool_config(pool_config)
