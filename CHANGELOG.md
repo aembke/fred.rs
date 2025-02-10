@@ -1,3 +1,8 @@
+## 10.1.0
+
+* Add `DynamicPool` interface
+* Add `actix-web` example
+
 ## 10.0.4
 
 * Fix unresponsive checks with blocked connections

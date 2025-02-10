@@ -3,6 +3,7 @@ Examples
 
 * [Basic](./basic.rs) - Basic client usage.
 * [Axum](./axum.rs) - Use a client pool with [Axum](https://crates.io/crates/axum).
+* [Actix](./actix.rs) - Use a client pool with [Actix](https://github.com/actix/actix-web).
 * [TLS](./tls.rs) - Setting up a client that uses TLS.
 * [Publish-Subscribe](./pubsub.rs) - Use multiple clients together with the pubsub interface in a way that survives
   network interruptions.

@@ -20,7 +20,7 @@ use crate::{
   },
   utils,
 };
-use arc_swap::{ArcSwapAny, ArcSwapOption};
+use arc_swap::ArcSwapAny;
 use futures::{Stream, StreamExt};
 use std::{future::Future, sync::Arc};
 use tokio::sync::mpsc::{
@@ -48,6 +48,9 @@ pub use tokio::{
   time::sleep,
 };
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
+
+#[cfg(feature = "dynamic-pool")]
+use arc_swap::ArcSwapOption;
 
 enum SenderKind<T: Send + 'static> {
   Bounded(BoundedSender<T>),
@@ -160,6 +163,8 @@ pub type AtomicUsize = std::sync::atomic::AtomicUsize;
 pub type Mutex<T> = parking_lot::Mutex<T>;
 pub type RwLock<T> = parking_lot::RwLock<T>;
 pub type RefSwap<T> = ArcSwapAny<T>;
+
+#[cfg(feature = "dynamic-pool")]
 pub type RefSwapOption<T> = ArcSwapOption<T>;
 
 pub fn broadcast_send<T: Clone, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, func: F) {

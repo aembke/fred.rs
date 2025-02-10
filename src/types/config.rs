@@ -2,14 +2,17 @@ pub use crate::protocol::types::Server;
 use crate::{
   error::{Error, ErrorKind},
   protocol::command::Command,
-  runtime::RefCount,
   types::{ClusterHash, RespVersion},
   utils,
 };
-use fred_macros::rm_send_if;
 use socket2::TcpKeepalive;
 use std::{cmp, fmt::Debug, time::Duration};
 use url::Url;
+
+#[cfg(feature = "dynamic-pool")]
+use crate::runtime::RefCount;
+#[cfg(feature = "dynamic-pool")]
+use fred_macros::rm_send_if;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
@@ -1515,6 +1518,7 @@ pub struct DynamicPoolConfig {
   pub scale:         RefCount<dyn PoolScale>,
 }
 
+#[cfg(feature = "dynamic-pool")]
 impl Default for DynamicPoolConfig {
   fn default() -> Self {
     DynamicPoolConfig {
