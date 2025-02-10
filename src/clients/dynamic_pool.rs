@@ -361,17 +361,21 @@ impl DynamicPool {
   /// Add clients to the pool without length checks.
   pub(crate) async fn add_clients_unchecked(&self, amount: usize) -> usize {
     let tasks: Vec<_> = (0 .. amount).map(|_| self.add_client()).collect();
-    let clients: Vec<_> = join_all(tasks)
-      .await
-      .into_iter()
-      .filter_map(|result| match result {
-        Ok(client) => Some(client),
-        Err(err) => {
-          warn!("Error adding client to pool: {:?}", err);
-          None
-        },
-      })
-      .collect();
+    let results: Vec<_> = join_all(tasks).await;
+    let mut clients = Vec::with_capacity(results.len());
+    let mut errors = Vec::new();
+
+    for result in results.into_iter() {
+      match result {
+        Ok(client) => clients.push(client),
+        Err(error) => errors.push(error),
+      };
+    }
+    join_all(errors.into_iter().map(|error| async move {
+      self.inner.config.scale.on_failure(error).await;
+    }))
+    .await;
+
     let amount = clients.len();
     self.inner.config.scale.on_added(clients).await;
     amount

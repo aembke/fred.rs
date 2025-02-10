@@ -1475,8 +1475,12 @@ pub trait PoolScale: Debug + Send + Sync {
   ///
   /// By default, this function calls [quit](crate::interfaces::ClientLike::quit) on each client.
   async fn on_removed(&self, clients: Vec<Client>) {
-    let tasks: Vec<_> = clients.iter().map(|c| c.quit()).collect();
-    futures::future::join_all(tasks).await;
+    futures::future::join_all(clients.iter().map(|c| c.quit())).await;
+  }
+
+  /// A function that will be called when a client cannot be added to the pool due to an error.
+  async fn on_failure(&self, error: Error) {
+    warn!("Failed to add client to pool due to error: {:?}", error);
   }
 }
 

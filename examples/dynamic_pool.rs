@@ -8,6 +8,7 @@ use fred::{
     stats::PoolStats,
   },
 };
+use log::{debug, warn};
 use parking_lot::Mutex;
 use std::{ops::Add, sync::Arc, time::Duration};
 use tokio::time::sleep;
@@ -79,6 +80,7 @@ impl PoolScale for ScalePolicy {
   }
 
   async fn on_added(&self, clients: Vec<Client>) {
+    debug!("Added {} client(s)", clients.len());
     for client in clients.into_iter() {
       // set up event listeners for any clients added to the pool
       client.on_error(|(error, server)| async move {
@@ -86,6 +88,10 @@ impl PoolScale for ScalePolicy {
         Ok(())
       });
     }
+  }
+
+  async fn on_failure(&self, error: Error) {
+    warn!("Failed to add client to pool: {:?}", error);
   }
 }
 
