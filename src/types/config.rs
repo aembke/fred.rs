@@ -28,7 +28,7 @@ pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapp
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
-#[cfg(feature = "dns")]
+#[cfg(all(feature = "dns", feature = "dynamic-pool"))]
 use crate::types::Resolve;
 #[cfg(feature = "dynamic-pool")]
 use crate::{clients::Client, interfaces::ClientLike, types::stats::PoolStats};

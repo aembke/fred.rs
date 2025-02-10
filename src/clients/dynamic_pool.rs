@@ -16,9 +16,6 @@ use crate::{
 use futures::future::join_all;
 use std::{cmp, collections::HashMap, iter::repeat_with, ops::DerefMut, time::Duration};
 
-#[cfg(feature = "replicas")]
-use crate::clients::Replicas;
-
 /// An iterator that iterates over a dynamic pool, starting with the fixed minimum set of clients.
 #[cfg(feature = "dynamic-pool")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
@@ -406,17 +403,21 @@ impl DynamicPool {
   ///
   /// This function waits for all clients to connect before returning. If a client cannot connect on the first attempt
   /// it will not be added to the pool.
+  #[allow(clippy::comparison_chain)]
   pub async fn scale(&self, amount: i64) -> i64 {
     if amount < 0 {
       if self.size() == self.inner.fixed.len() {
         return 0;
       }
 
-      let amount = cmp::min(utils::read_atomic(&self.inner.dynamic_len), amount.abs() as usize);
+      let amount = cmp::min(
+        utils::read_atomic(&self.inner.dynamic_len),
+        amount.unsigned_abs() as usize,
+      );
       if amount == 0 {
         return 0;
       }
-      self.remove_clients_unchecked(amount).await as i64 * -1
+      -(self.remove_clients_unchecked(amount).await as i64)
     } else if amount > 0 {
       if self.size() >= self.inner.config.max_clients {
         return 0;

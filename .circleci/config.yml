@@ -282,14 +282,14 @@ jobs:
           name: Clippy Tokio features
           command: |
             cargo clippy --features "i-all i-redis-stack transactions blocking-encoding dns metrics mocks monitor \
-              replicas sentinel-auth sentinel-client serde-json subscriber-client unix-sockets credential-provider \
-              enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
+            replicas sentinel-auth sentinel-client serde-json subscriber-client unix-sockets credential-provider \
+            enable-rustls enable-native-tls full-tracing dynamic-pool" --lib -p fred -- -Dwarnings
       - run:
           name: Clippy Glommio features
           command: |
             cargo clippy --features "i-all i-redis-stack transactions blocking-encoding dns metrics mocks monitor \
               replicas sentinel-auth sentinel-client serde-json subscriber-client glommio credential-provider \
-              enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
+              enable-rustls enable-native-tls full-tracing dynamic-pool" --lib -p fred -- -Dwarnings
   cargo-fmt:
     docker:
       - image: cimg/rust:1.80
