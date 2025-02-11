@@ -16,6 +16,9 @@ use crate::{
 use futures::future::join_all;
 use std::{cmp, collections::HashMap, iter::repeat_with, ops::DerefMut, time::Duration};
 
+#[cfg(all(feature = "dynamic-pool", feature = "glommio"))]
+compile_error!("The `DynamicPool` interface is not currently supported with the Glommio runtime.");
+
 /// An iterator that iterates over a dynamic pool, starting with the fixed minimum set of clients.
 #[cfg(feature = "dynamic-pool")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
