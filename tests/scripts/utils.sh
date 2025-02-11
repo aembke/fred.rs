@@ -181,8 +181,9 @@ function generate_cluster_credentials {
   rm -rf ./*
 
   echo "Generating CA key pair..."
-  openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=redis-cluster'
-  openssl x509 -signkey ca.key -days 90 -req -in ca.csr -out ca.pem
+  openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=redis-cluster' \
+    -addext "keyUsage=digitalSignature,keyEncipherment" -addext "extendedKeyUsage=serverAuth,clientAuth"
+  openssl x509 -signkey ca.key -days 90 -req -in ca.csr -out ca.pem -copy_extensions=copyall -set_serial 01
   # need the CA cert in DER format for rustls
   openssl x509 -outform der -in ca.pem -out ca.crt
 
@@ -193,8 +194,9 @@ function generate_cluster_credentials {
   # rustls needs it in DER format
   openssl rsa -in client.key -inform pem -out client_key.der -outform der
 
-  openssl req -new -key client.key -out client.csr -subj '/CN=client.redis-cluster'
-  openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem
+  openssl req -new -key client.key -out client.csr -subj '/CN=client.redis-cluster' \
+    -addext "keyUsage=digitalSignature,keyEncipherment" -addext "extendedKeyUsage=serverAuth,clientAuth"
+  openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem -copy_extensions=copyall
   # need the client cert in DER format for rustls
   openssl x509 -outform der -in client.pem -out client.crt
 
