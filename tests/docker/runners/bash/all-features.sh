@@ -13,9 +13,9 @@ done
 # can't use --all-features here since that enables the TLS features and redis-json tests, which each require a
 # different server configuration. the `cluster-tls.sh` and `cluster-rustls.sh` scripts can be used to test
 # those features individually.
-FEATURES="network-logs custom-reconnect-errors serde-json blocking-encoding
+FEATURES="network-logs custom-reconnect-errors serde-json blocking-encoding dynamic-pool
           full-tracing monitor metrics sentinel-client subscriber-client dns debug-ids
-          replicas sha-1 transactions i-all credential-provider"
+          replicas sha-1 transactions i-all credential-provider tcp-user-timeouts"
 
 if [ -z "$FRED_CI_NEXTEST" ]; then
   cargo test --release --lib --tests --features "$FEATURES" -- --test-threads=1 "$@"

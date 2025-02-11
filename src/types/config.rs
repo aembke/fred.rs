@@ -312,13 +312,28 @@ impl Default for Blocking {
 #[derive(Clone, Debug, Default)]
 pub struct TcpConfig {
   /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
-  pub nodelay:   Option<bool>,
+  pub nodelay:      Option<bool>,
   /// Set the [SO_LINGER](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_linger) value.
-  pub linger:    Option<Duration>,
+  pub linger:       Option<Duration>,
   /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
-  pub ttl:       Option<u32>,
+  pub ttl:          Option<u32>,
   /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
-  pub keepalive: Option<TcpKeepalive>,
+  pub keepalive:    Option<TcpKeepalive>,
+  /// Set the [TCP_USER_TIMEOUT](https://docs.rs/socket2/latest/x86_64-unknown-linux-gnu/socket2/struct.Socket.html#method.set_tcp_user_timeout) value.
+  #[cfg(all(
+    feature = "tcp-user-timeouts",
+    not(feature = "glommio"),
+    any(target_os = "android", target_os = "fuchsia", target_os = "linux")
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(all(
+      feature = "tcp-user-timeouts",
+      not(feature = "glommio"),
+      any(target_os = "android", target_os = "fuchsia", target_os = "linux")
+    )))
+  )]
+  pub user_timeout: Option<Duration>,
 }
 
 impl PartialEq for TcpConfig {

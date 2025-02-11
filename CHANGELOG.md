@@ -2,6 +2,7 @@
 
 * Add `DynamicPool` interface
 * Add `actix-web` example
+* Add `tcp-user-timeouts` feature flag
 
 ## 10.0.4
 

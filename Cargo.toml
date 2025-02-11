@@ -35,7 +35,8 @@ features = [
     "enable-native-tls",
     "full-tracing",
     "credential-provider",
-    "dynamic-pool"
+    "dynamic-pool",
+    "tcp-user-timeouts"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -64,6 +65,7 @@ trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = []
 credential-provider = []
 dynamic-pool = ["metrics"]
+tcp-user-timeouts = []
 
 # Enable experimental support for the Glommio runtime.
 glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]
