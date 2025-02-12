@@ -6,6 +6,7 @@ COPY --chown=1001:1001 . /project
 COPY --chown=1001:1001 ~/.cargo/registry /usr/local/cargo/registry
 
 ARG RUST_LOG
+ARG RUST_BACKTRACE
 ARG REDIS_VERSION
 ARG REDIS_USERNAME
 ARG REDIS_PASSWORD

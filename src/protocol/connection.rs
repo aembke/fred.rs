@@ -115,6 +115,14 @@ async fn tcp_connect_any(
       #[cfg(feature = "glommio")]
       _warn!(inner, "TCP keepalive is not yet supported with Glommio features.");
     }
+    #[cfg(all(
+      feature = "tcp-user-timeouts",
+      not(feature = "glommio"),
+      any(target_os = "android", target_os = "fuchsia", target_os = "linux")
+    ))]
+    if let Some(timeout) = inner.connection.tcp.user_timeout {
+      SockRef::from(&socket).set_tcp_user_timeout(Some(timeout))?;
+    }
 
     #[cfg(feature = "glommio")]
     let socket = crate::runtime::glommio::io_compat::TokioIO(socket);
@@ -485,7 +493,7 @@ impl ExclusiveConnection {
       };
       let command = Command::new(CommandKind::Auth, args);
 
-      debug!("{}: Authenticating Redis client...", name);
+      debug!("{}: Authenticating client...", name);
       let frame = self.request_response(command, is_resp3).await?;
 
       if !protocol_utils::is_ok(&frame) {

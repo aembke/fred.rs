@@ -1,3 +1,7 @@
+#[cfg(feature = "replicas")]
+use crate::clients::Replicas;
+#[cfg(feature = "dns")]
+use crate::protocol::types::Resolve;
 use crate::{
   clients::Client,
   error::{Error, ErrorKind},
@@ -14,10 +18,6 @@ use fred_macros::rm_send_if;
 use futures::future::{join_all, try_join_all};
 use std::{fmt, future::Future, time::Duration};
 
-#[cfg(feature = "replicas")]
-use crate::clients::Replicas;
-#[cfg(feature = "dns")]
-use crate::protocol::types::Resolve;
 #[cfg(not(feature = "glommio"))]
 pub use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 

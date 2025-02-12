@@ -62,6 +62,11 @@ pub use semver::Version;
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub use crate::protocol::types::Resolve;
 
+/// Usage statistics used to scale a [DynamicPool](crate::clients::DynamicPool).
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+pub mod stats;
+
 pub(crate) static QUEUED: &str = "QUEUED";
 
 /// The ANY flag used on certain GEO commands.
