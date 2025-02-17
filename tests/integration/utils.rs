@@ -260,7 +260,6 @@ fn create_rustls_config() -> TlsConnector {
   root_store
     .add(creds.root_cert_der.clone().into())
     .expect("Failed adding to rustls root cert store");
-
   let cert_chain = vec![creds.client_cert_der.into(), creds.root_cert_der.into()];
 
   ClientConfig::builder()

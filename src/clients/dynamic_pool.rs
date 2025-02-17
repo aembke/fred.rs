@@ -149,6 +149,9 @@ impl DynamicPoolInner {
 
 /// A round-robin client pool that can dynamically scale.
 ///
+/// Unlike the [Pool](crate::clients::Pool) interface, callers must call [next](DynamicPool::next) on the pool before
+/// using any of the command interfaces.
+///
 /// ```rust
 /// use fred::{
 ///   clients::DynamicPool,
@@ -165,6 +168,8 @@ impl DynamicPoolInner {
 ///     max_idle_time: Duration::from_secs(60 * 5),
 ///     // use a scale policy that only removes idle connections
 ///     scale:         Arc::new(RemoveIdle),
+///     #[cfg(feature = "dns")]
+///     resolver:      None
 ///   };
 ///   let pool = Builder::from_config(config)
 ///     .set_pool_config(pool_config)
