@@ -1,6 +1,6 @@
 use crate::{
   error::*,
-  modules::backchannel::Backchannel,
+  net::backchannel::Backchannel,
   protocol::{
     command::RouterCommand,
     connection::ExclusiveConnection,
@@ -25,11 +25,10 @@ use crate::{
   trace,
   types::{
     config::{ClusterDiscoveryPolicy, Config, ConnectionConfig, PerformanceConfig, ReconnectPolicy, ServerConfig},
+    events::{ClusterStateChange, KeyspaceEvent, Message},
     ClientState,
-    ClusterStateChange,
-    KeyspaceEvent,
-    Message,
     RespVersion,
+    Server,
   },
   utils,
 };
@@ -39,12 +38,11 @@ use semver::Version;
 use std::{ops::DerefMut, time::Duration};
 
 #[cfg(feature = "metrics")]
-use crate::modules::metrics::MovingStats;
+use crate::types::metrics::MovingStats;
 #[cfg(feature = "credential-provider")]
 use crate::{
-  clients::Client,
+  interfaces::ClientLike,
   interfaces::FredResult,
-  interfaces::{AuthInterface, ClientLike},
   runtime::{spawn, JoinHandle},
 };
 #[cfg(feature = "replicas")]
@@ -56,7 +54,7 @@ pub type CommandSender = Sender<RouterCommand>;
 pub type CommandReceiver = Receiver<RouterCommand>;
 
 #[cfg(feature = "i-tracking")]
-use crate::types::client::Invalidation;
+use crate::types::events::Invalidation;
 
 pub struct Notifications {
   /// The client ID.

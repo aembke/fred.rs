@@ -59,6 +59,7 @@ impl fmt::Display for ClientState {
     write!(f, "{}", self.to_str())
   }
 }
+
 /// An enum describing the possible ways in which a Redis cluster can change state.
 ///
 /// See [on_cluster_change](crate::interfaces::EventInterface::on_cluster_change) for more information.

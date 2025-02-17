@@ -64,17 +64,20 @@ const SENTINEL_USERNAME_QUERY: &str = "sentinelUsername";
 #[cfg(feature = "sentinel-auth")]
 const SENTINEL_PASSWORD_QUERY: &str = "sentinelPassword";
 
+// TODO remove
 /// Create a `Str` from a static str slice without copying.
 pub const fn static_str(s: &'static str) -> Str {
   // it's already parsed as a string
   unsafe { Str::from_inner_unchecked(Bytes::from_static(s.as_bytes())) }
 }
 
+// TODO remove
 /// Create a `Bytes` from static bytes without copying.
 pub fn static_bytes(b: &'static [u8]) -> Bytes {
   Bytes::from_static(b)
 }
 
+// TODO remove
 pub fn f64_eq(lhs: f64, rhs: f64) -> bool {
   approx_eq!(f64, lhs, rhs, ulps = 2)
 }
@@ -90,6 +93,7 @@ pub fn f64_opt_eq(lhs: &Option<f64>, rhs: &Option<f64>) -> bool {
   }
 }
 
+// TODO remove
 /// Convert a string to an `f64`, supporting "+inf" and "-inf".
 pub fn string_to_f64(s: &str) -> Result<f64, Error> {
   // this is changing in newer versions of redis to lose the "+" prefix
@@ -107,6 +111,7 @@ pub fn string_to_f64(s: &str) -> Result<f64, Error> {
   }
 }
 
+// TODO remove
 /// Convert an `f64` to a string, supporting "+inf" and "-inf".
 pub fn f64_to_string(d: f64) -> Result<Value, Error> {
   if d.is_infinite() && d.is_sign_negative() {
@@ -150,6 +155,7 @@ pub fn incr_with_max(curr: u32, max: u32) -> Option<u32> {
   }
 }
 
+// TODO remove
 pub fn random_string(len: usize) -> String {
   rand::thread_rng()
     .sample_iter(&Alphanumeric)
@@ -171,6 +177,7 @@ pub fn random_u64(max: u64) -> u64 {
   rand::thread_rng().gen_range(0 .. max)
 }
 
+// TODO remove all this
 pub fn read_bool_atomic(val: &AtomicBool) -> bool {
   val.load(Ordering::Acquire)
 }

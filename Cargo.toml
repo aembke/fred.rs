@@ -7,19 +7,16 @@ arc-swap = "1.7"
 async-trait = "0.1"
 bytes = "1.6"
 bytes-utils = "0.1.3"
-# TODO is this shared?
 float-cmp = "0.10"
 futures = { version = "0.3", features = ["std"] }
 log = "0.4"
 parking_lot = "0.12"
 semver = "1.0"
-serde_json = { version = "1" }
-tracing = { version = "0.1" }
-tracing-futures = { version = "0.2" }
+socket2 = "0.5"
 url = "2.5"
 urlencoding = "2.1"
+fred-macros = "0.1"
 redis-protocol = { version = "6.0.0", features = ["resp2", "resp3", "bytes"] }
-# Tokio  Dependencies
 tokio = { version = "1.34", features = [
     "net",
     "sync",
