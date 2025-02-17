@@ -18,7 +18,7 @@
 #![cfg_attr(docsrs, deny(rustdoc::broken_intra_doc_links))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(docsrs, allow(unused_attributes))]
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../../../README.md")]
 
 #[cfg(any(feature = "dns", feature = "replicas"))]
 #[macro_use]
@@ -57,7 +57,7 @@ mod router;
 mod trace;
 mod utils;
 
-/// Redis client implementations.
+/// Valkey & Redis client implementations.
 pub mod clients;
 /// Error structs returned by Redis commands.
 pub mod error;

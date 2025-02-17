@@ -1,0 +1,19 @@
+[package]
+authors = ["Alec Embke <aembke@gmail.com>"]
+description = "The ACL interface for the `fred` Valkey & Redis client."
+edition = "2021"
+exclude = ["tests", ".circleci", "bin", ".github", "doc"]
+homepage = "https://github.com/aembke/fred.rs"
+license = "MIT"
+name = "fred-i-acl"
+readme = "README.md"
+repository = "https://github.com/aembke/fred.rs"
+rust-version = "1.75"
+version = "1.0.0"
+
+[lib]
+doc = true
+name = "fred_i_acl"
+test = true
+
+[dependencies]

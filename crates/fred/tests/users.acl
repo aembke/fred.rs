@@ -1,0 +1,2 @@
+user foo on allkeys allcommands allchannels >bar
+user default on allkeys allcommands allchannels >bar

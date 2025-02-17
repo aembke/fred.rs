@@ -1,0 +1,297 @@
+[package]
+authors = ["Alec Embke <aembke@gmail.com>"]
+categories = ["asynchronous", "database", "web-programming"]
+description = "An async client for Redis and Valkey."
+edition = "2021"
+exclude = ["tests", ".circleci", "bin", ".github", "doc"]
+homepage = "https://github.com/aembke/fred.rs"
+keywords = ["redis", "valkey", "cluster", "sentinel"]
+license = "MIT"
+name = "fred"
+readme = "README.md"
+repository = "https://github.com/aembke/fred.rs"
+rust-version = "1.75"
+version = "10.1.0"
+
+[package.metadata.docs.rs]
+# do not show the glommio version of the docs
+features = [
+    "i-all",
+    "i-redis-stack",
+    "i-hexpire",
+    "transactions",
+    "blocking-encoding",
+    "dns",
+    "metrics",
+    "mocks",
+    "monitor",
+    "replicas",
+    "sentinel-auth",
+    "sentinel-client",
+    "serde-json",
+    "subscriber-client",
+    "unix-sockets",
+    "enable-rustls",
+    "enable-native-tls",
+    "full-tracing",
+    "credential-provider",
+    "dynamic-pool",
+    "tcp-user-timeouts"
+]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[lib]
+doc = true
+name = "fred"
+test = true
+
+[features]
+default = ["transactions", "i-std"]
+
+blocking-encoding = ["tokio/rt-multi-thread"]
+custom-reconnect-errors = ["fred-common/custom-reconnect-errors"]
+default-nil-types = ["fred-common/default-nil-types"]
+dns = ["hickory-resolver", "fred-common/dns"]
+metrics = ["fred-common/metrics"]
+mocks = ["glob-match"]
+monitor = ["nom"]
+replicas = ["fred-common/replicas"]
+sentinel-auth = ["fred-common/sentinel-auth"]
+sentinel-client = []
+serde-json = ["serde_json", "fred-common/serde-json"]
+subscriber-client = ["i-pubsub"]
+transactions = []
+trust-dns-resolver = ["dep:trust-dns-resolver"]
+unix-sockets = ["fred-common/unix-sockets"]
+credential-provider = ["fred-common/credential-provider"]
+dynamic-pool = ["metrics"]
+tcp-user-timeouts = ["fred-common/tcp-user-timeouts"]
+
+# Enable experimental support for the Glommio runtime.
+glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite", "fred-common/glommio"]
+# Enable experimental support for the Monoio runtime.
+monoio = ["dep:monoio", "monoio-codec", "fred-macros/enabled", "oneshot", "futures-lite", "local-sync", "fred-common/monoio"]
+monoio-native-tls = ["dep:monoio-native-tls"]
+monoio-rustls = ["dep:monoio-rustls"]
+# [WIP] Enable experimental support for the Smol runtime.
+smol = []
+
+# Enables rustls with the rustls/aws_lc_rs crypto backend
+enable-rustls = [
+    "rustls",
+    "tokio-rustls",
+    "rustls-native-certs",
+    "rustls/std",
+    "tokio-rustls/logging",
+    "tokio-rustls/tls12",
+    "tokio-rustls/aws_lc_rs",
+    "fred-common/enable-rustls"
+]
+
+# Enables rustls with the rustls/ring backend
+enable-rustls-ring = [
+    "rustls",
+    "tokio-rustls",
+    "rustls-native-certs",
+    "rustls/std",
+    "tokio-rustls/logging",
+    "tokio-rustls/tls12",
+    "tokio-rustls/ring",
+    "fred-common/enable-rustls-ring"
+]
+
+# Enables native tls
+enable-native-tls = ["native-tls", "tokio-native-tls", "fred-common/enable-native-tls"]
+
+# Enables native tls with vendored openssl
+vendored-openssl = ["enable-native-tls", "native-tls/vendored"]
+
+# Standard Redis Interfaces
+i-acl = []
+i-all = [
+    "i-acl",
+    "i-client",
+    "i-cluster",
+    "i-config",
+    "i-geo",
+    "i-hashes",
+    "i-hyperloglog",
+    "i-keys",
+    "i-lists",
+    "i-scripts",
+    "i-memory",
+    "i-pubsub",
+    "i-server",
+    "i-streams",
+    "i-tracking",
+    "i-sorted-sets",
+    "i-slowlog",
+    "i-sets",
+]
+i-client = []
+i-cluster = []
+i-config = []
+i-geo = ["i-sorted-sets"]
+i-hashes = []
+i-hyperloglog = []
+i-keys = []
+i-lists = []
+i-memory = []
+i-pubsub = []
+i-scripts = []
+i-server = []
+i-sets = []
+i-slowlog = []
+i-sorted-sets = []
+i-std = [
+    "i-hashes",
+    "i-keys",
+    "i-lists",
+    "i-sets",
+    "i-streams",
+    "i-pubsub",
+    "i-sorted-sets",
+    "i-server",
+]
+i-streams = []
+i-tracking = ["i-client", "i-pubsub"]
+
+# Redis Stack Interfaces
+i-redis-json = ["serde-json"]
+i-redis-stack = ["i-redis-json", "i-time-series", "i-redisearch"]
+i-redisearch = ["i-sorted-sets", "i-geo", "i-hashes"]
+i-time-series = []
+i-hexpire = []
+
+# Full and partial tracing
+full-tracing = ["partial-tracing"]
+partial-tracing = ["tracing", "tracing-futures"]
+
+# Debugging Features
+debug-ids = []
+network-logs = []
+
+[dependencies]
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+bytes-utils = { workspace = true }
+float-cmp = { workspace = true }
+futures = { workspace = true, features = ["std"] }
+log = { workspace = true }
+# TODO remove when ClusteRouting is moved
+rand = { version = "0.8" }
+nom = { version = "7.0", optional = true }
+parking_lot = { workspace = true }
+redis-protocol = { workspace = true }
+semver = { workspace = true }
+serde_json = { workspace = true, optional = true }
+sha-1 = { version = "0.10", optional = true }
+socket2 = { version = "0.5" }
+tracing = { workspace = true, optional = true }
+tracing-futures = { workspace = true, optional = true }
+glob-match = { version = "0.2", optional = true }
+url = { workspace = true }
+urlencoding = { workspace = true }
+# DNS Features
+trust-dns-resolver = { version = "0.23", optional = true, features = ["tokio"] }
+hickory-resolver = { version = "0.24", optional = true, features = ["tokio"] }
+fred-macros = { version = "0.1" }
+# Tokio  Dependencies
+tokio = { workspace = true, features = [
+    "net",
+    "sync",
+    "rt",
+    "rt-multi-thread",
+    "macros",
+] }
+tokio-stream = { workspace = true }
+tokio-util = { version = "0.7", features = ["codec"] }
+# Glommio Dependencies
+glommio = { version = "0.9.0", optional = true }
+futures-io = { version = "0.3", optional = true }
+pin-project = { version = "1.1.5", optional = true }
+oneshot = { version = "0.1.8", optional = true, features = ["async"] }
+futures-lite = { version = "2.3", optional = true }
+# Monoio Dependencies
+monoio = { version = "0.2.4", optional = true, features = ["bytes"] }
+monoio-codec = { version = "0.3.4", optional = true }
+monoio-native-tls = { version = "0.4.0", optional = true }
+monoio-rustls = { version = "0.4.0", optional = true }
+local-sync = { version = "0.1.1", optional = true }
+# TLS Dependencies
+native-tls = { version = "0.2", optional = true }
+tokio-native-tls = { version = "0.3", optional = true }
+rustls = { version = "0.23", default-features = false, optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+tokio-rustls = { version = "0.26", optional = true, default-features = false }
+# Workspace Dependencies
+fred-common = { path = "../common", version = "1.0.0" }
+
+[dev-dependencies]
+axum = { version = "0.7", features = ["macros"] }
+actix-web = "4.9.0"
+maplit = "1.0"
+pretty_env_logger = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+[[example]]
+name = "glommio"
+required-features = ["glommio", "i-std"]
+
+[[example]]
+name = "misc"
+required-features = ["i-all"]
+
+[[example]]
+name = "scan"
+required-features = ["i-all"]
+
+[[example]]
+name = "monitor"
+required-features = ["monitor"]
+
+[[example]]
+name = "pubsub"
+required-features = ["subscriber-client"]
+
+[[example]]
+name = "axum"
+required-features = ["subscriber-client"]
+
+[[example]]
+name = "serde_json"
+required-features = ["serde-json"]
+
+[[example]]
+name = "redis_json"
+required-features = ["i-redis-json"]
+
+[[example]]
+name = "dynamic_pool"
+required-features = ["dynamic-pool"]
+
+[[example]]
+name = "replicas"
+required-features = ["i-std", "i-cluster", "replicas"]
+
+[[example]]
+name = "dns"
+required-features = ["dns"]
+
+[[example]]
+name = "client_tracking"
+required-features = ["i-tracking", "i-std"]
+
+[[example]]
+name = "lua"
+required-features = ["sha-1", "i-scripts"]
+
+[[example]]
+name = "events"
+required-features = ["tokio-stream/sync", "i-std"]
+
+[[example]]
+name = "transactions"
+required-features = ["transactions", "i-std"]
