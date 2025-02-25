@@ -48,6 +48,7 @@ pub fn command_counter() -> usize {
 /// A channel for communication between connection reader tasks and futures returned to the caller.
 pub type ResponseSender = OneshotSender<Result<Resp3Frame, Error>>;
 
+/// A redirection error from a cluster.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClusterErrorKind {
   Moved,

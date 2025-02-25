@@ -1,18 +1,29 @@
 use crate::{
   error::{Error, ErrorKind},
   runtime::{broadcast_channel, AtomicBool, AtomicUsize, BroadcastSender, Mutex, RefCount, RefSwap, RwLock},
-  types::Server,
+  types::{
+    values::{Key, Map, Value},
+    Server,
+  },
 };
 use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
 use rand::{distributions::Alphanumeric, Rng};
 use std::{
+  collections::HashMap,
   path::{Path, PathBuf},
   sync::atomic::Ordering,
 };
 use url::Url;
 use urlencoding::decode as percent_decode;
+
+#[cfg(any(
+  feature = "enable-native-tls",
+  feature = "enable-rustls",
+  feature = "enable-rustls-ring"
+))]
+use crate::types::config::{TlsConfig, TlsConnector};
 
 const REDIS_TLS_SCHEME: &str = "rediss";
 const VALKEY_TLS_SCHEME: &str = "valkeys";
@@ -301,5 +312,190 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
     delay
   } else {
     delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
+  }
+}
+
+/// A generic TryInto wrapper to work with the Infallible error type in the blanket From implementation.
+pub fn try_into<S, D>(val: S) -> Result<D, Error>
+where
+  S: TryInto<D>,
+  S::Error: Into<Error>,
+{
+  val.try_into().map_err(|e| e.into())
+}
+
+/// Attempt to convert an iterator of values into an array.
+pub fn try_into_vec<S>(values: Vec<S>) -> Result<Vec<Value>, Error>
+where
+  S: TryInto<Value>,
+  S::Error: Into<Error>,
+{
+  let mut out = Vec::with_capacity(values.len());
+  for value in values.into_iter() {
+    out.push(try_into(value)?);
+  }
+
+  Ok(out)
+}
+
+/// Attempt to convert an iterator of key/value pairs to a map.
+pub fn into_map<I, K, V>(mut iter: I) -> Result<HashMap<Key, Value>, Error>
+where
+  I: Iterator<Item = (K, V)>,
+  K: TryInto<Key>,
+  K::Error: Into<Error>,
+  V: TryInto<Value>,
+  V::Error: Into<Error>,
+{
+  let (lower, upper) = iter.size_hint();
+  let capacity = if let Some(upper) = upper { upper } else { lower };
+  let mut out = HashMap::with_capacity(capacity);
+
+  while let Some((key, value)) = iter.next() {
+    out.insert(to!(key)?, to!(value)?);
+  }
+  Ok(out)
+}
+
+/// Whether the values may be a map encoded as key/value pairs.
+pub fn is_maybe_array_map(arr: &[Value]) -> bool {
+  if !arr.is_empty() && arr.len() % 2 == 0 {
+    arr.chunks(2).all(|chunk| !chunk[0].is_aggregate_type())
+  } else {
+    false
+  }
+}
+
+/// Flatten a nested array of values into one array.
+pub fn flatten_value(value: Value) -> Value {
+  if let Value::Array(values) = value {
+    let mut out = Vec::with_capacity(values.len());
+    for value in values.into_iter() {
+      let flattened = flatten_value(value);
+      if let Value::Array(flattened) = flattened {
+        out.extend(flattened);
+      } else {
+        out.push(flattened);
+      }
+    }
+
+    Value::Array(out)
+  } else {
+    value
+  }
+}
+
+/// Attempt to flatten nested arrays to the provided depth.
+pub fn flatten_nested_array_values(value: Value, depth: usize) -> Value {
+  if depth == 0 {
+    return value;
+  }
+
+  match value {
+    Value::Array(values) => {
+      let inner_size = values.iter().fold(0, |s, v| s + v.array_len().unwrap_or(1));
+      let mut out = Vec::with_capacity(inner_size);
+
+      for value in values.into_iter() {
+        match value {
+          Value::Array(inner) => {
+            for value in inner.into_iter() {
+              out.push(flatten_nested_array_values(value, depth - 1));
+            }
+          },
+          _ => out.push(value),
+        }
+      }
+      Value::Array(out)
+    },
+    Value::Map(values) => {
+      let mut out = HashMap::with_capacity(values.len());
+
+      for (key, value) in values.inner().into_iter() {
+        let value = if value.is_array() {
+          flatten_nested_array_values(value, depth - 1)
+        } else {
+          value
+        };
+
+        out.insert(key, value);
+      }
+      Value::Map(Map { inner: out })
+    },
+    _ => value,
+  }
+}
+
+/// Convert a redis value to an array of (value, score) tuples.
+pub fn value_to_zset_result(value: Value) -> Result<Vec<(Value, f64)>, Error> {
+  let value = flatten_value(value);
+
+  if let Value::Array(mut values) = value {
+    if values.is_empty() {
+      return Ok(Vec::new());
+    }
+    if values.len() % 2 != 0 {
+      return Err(Error::new(
+        ErrorKind::Unknown,
+        "Expected an even number of redis values.",
+      ));
+    }
+
+    let mut out = Vec::with_capacity(values.len() / 2);
+    while values.len() >= 2 {
+      let score = match values.pop().unwrap().as_f64() {
+        Some(f) => f,
+        None => {
+          return Err(Error::new(
+            ErrorKind::Protocol,
+            "Could not convert value to floating point number.",
+          ))
+        },
+      };
+      let value = values.pop().unwrap();
+
+      out.push((value, score));
+    }
+
+    Ok(out)
+  } else {
+    Err(Error::new(ErrorKind::Unknown, "Expected array of redis values."))
+  }
+}
+
+#[cfg(all(
+  feature = "enable-native-tls",
+  not(any(feature = "enable-rustls", feature = "enable-rustls-ring"))
+))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, Error> {
+  if tls {
+    TlsConnector::default_native_tls().map(|c| Some(c.into()))
+  } else {
+    Ok(None)
+  }
+}
+
+#[cfg(all(
+  any(feature = "enable-rustls", feature = "enable-rustls-ring"),
+  not(feature = "enable-native-tls")
+))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, Error> {
+  if tls {
+    TlsConnector::default_rustls().map(|c| Some(c.into()))
+  } else {
+    Ok(None)
+  }
+}
+
+#[cfg(all(
+  feature = "enable-native-tls",
+  any(feature = "enable-rustls", feature = "enable-rustls-ring")
+))]
+pub fn tls_config_from_url(tls: bool) -> Result<Option<TlsConfig>, Error> {
+  // default to native-tls when both are enabled
+  if tls {
+    TlsConnector::default_native_tls().map(|c| Some(c.into()))
+  } else {
+    Ok(None)
   }
 }

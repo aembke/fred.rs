@@ -104,12 +104,14 @@ impl ResponseKind {
     })
   }
 
+  /// Set the expected index of the next frame received on the socket.
   pub fn set_expected_index(&mut self, idx: usize) {
     if let ResponseKind::Buffer { ref mut index, .. } = self {
       *index = idx;
     }
   }
 
+  /// Set the error early flag.
   pub fn set_error_early(&mut self, _error_early: bool) {
     if let ResponseKind::Buffer {
       ref mut error_early, ..
@@ -119,6 +121,7 @@ impl ResponseKind {
     }
   }
 
+  /// Create a new empty response buffer.
   pub fn new_buffer(tx: ResponseSender) -> Self {
     ResponseKind::Buffer {
       frames:      RefCount::new(Mutex::new(vec![])),
@@ -130,6 +133,7 @@ impl ResponseKind {
     }
   }
 
+  /// Create a new response buffer with the provided size.
   pub fn new_buffer_with_size(expected: usize, tx: ResponseSender) -> Self {
     ResponseKind::Buffer {
       frames: RefCount::new(Mutex::new(vec![Resp3Frame::Null; expected])),

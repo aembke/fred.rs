@@ -1,9 +1,6 @@
 //! An interface for mocking commands.
 
-use crate::{
-  error::Error,
-  types::{Key, Value},
-};
+use crate::{error::Error, types::values::Value};
 use bytes_utils::Str;
 use fred_macros::rm_send_if;
 use std::fmt::Debug;

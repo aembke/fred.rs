@@ -20,6 +20,8 @@ test = true
 # do not show the glommio version of the docs
 features = [
     "dns",
+    "transactions",
+    "mocks",
     "metrics",
     "replicas",
     "sentinel-auth",
@@ -30,12 +32,19 @@ features = [
     "credential-provider",
     "dynamic-pool",
     "tcp-user-timeouts",
-    "i-tracking"
+    "i-tracking",
+    "i-cluster",
+    "i-streams",
+    "i-scripts",
+    "i-geo"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
+transactions = []
+debug-ids = []
+network-logs = []
 custom-reconnect-errors = []
 default-nil-types = []
 metrics = []
@@ -47,8 +56,14 @@ unix-sockets = []
 credential-provider = []
 dynamic-pool = ["metrics"]
 tcp-user-timeouts = []
+mocks = ["fred-macros"]
+
 i-tracking = []
-mocks = ["glob-match", "fred-macros"]
+i-geo = []
+i-scripts = []
+i-streams = []
+i-sorted-sets = []
+i-cluster = []
 
 glommio = ["dep:glommio", "futures-io", "pin-project", "oneshot", "futures-lite"]
 

@@ -1,19 +1,22 @@
 pub use crate::types::Server;
 use crate::{
+  commands::command::Command,
   error::{Error, ErrorKind},
-  protocol::command::Command,
   types::{hashers::ClusterHash, RespVersion},
   utils,
 };
 use socket2::TcpKeepalive;
-use std::{cmp, fmt::Debug, time::Duration};
+use std::{
+  cmp,
+  fmt,
+  fmt::{Debug, Formatter},
+  time::Duration,
+};
 use url::Url;
 
 #[cfg(all(feature = "dns", feature = "dynamic-pool"))]
 use crate::net::dns::Resolve;
-#[cfg(feature = "replicas")]
-#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
-pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
+use crate::runtime::RefCount;
 #[cfg(feature = "mocks")]
 use crate::types::mocks::Mocks;
 #[cfg(any(
@@ -30,12 +33,8 @@ use crate::types::mocks::Mocks;
   )))
 )]
 pub use crate::types::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
-#[cfg(feature = "dynamic-pool")]
-use crate::{clients::Client, runtime::ClientLike, types::metrics::PoolStats};
 #[cfg(any(feature = "credential-provider", feature = "dynamic-pool"))]
 use async_trait::async_trait;
-#[cfg(feature = "dynamic-pool")]
-use fred_macros::rm_send_if;
 #[cfg(feature = "unix-sockets")]
 use std::path::PathBuf;
 #[cfg(any(feature = "mocks", feature = "credential-provider", feature = "dynamic-pool"))]
@@ -396,6 +395,87 @@ pub enum ClusterDiscoveryPolicy {
 impl Default for ClusterDiscoveryPolicy {
   fn default() -> Self {
     ClusterDiscoveryPolicy::ConfigEndpoint
+  }
+}
+
+/// An interface used to filter the list of available replica nodes.
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+#[async_trait]
+pub trait ReplicaFilter: Send + Sync + 'static {
+  /// Returns whether the replica node mapping can be used when routing commands to replicas.
+  #[allow(unused_variables)]
+  async fn filter(&self, primary: &Server, replica: &Server) -> bool {
+    true
+  }
+}
+
+/// Configuration options for replica node connections.
+///
+/// When connecting to a replica the client will use the parameters specified in the
+/// [ReconnectPolicy](crate::types::config::ReconnectPolicy).
+///
+/// Currently only clustered replicas are supported.
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+#[derive(Clone)]
+pub struct ReplicaConfig {
+  /// Whether the client should lazily connect to replica nodes.
+  ///
+  /// Default: `true`
+  pub lazy_connections:           bool,
+  /// An optional interface for filtering available replica nodes.
+  ///
+  /// Default: `None`
+  pub filter:                     Option<RefCount<dyn ReplicaFilter>>,
+  /// Whether the client should ignore errors from replicas that occur when the max reconnection count is reached.
+  ///
+  /// This implies `primary_fallback: true`.
+  ///
+  /// Default: `true`
+  pub ignore_reconnection_errors: bool,
+  /// Whether the client should use the associated primary node if no replica exists that can serve a command.
+  ///
+  /// Default: `true`
+  pub primary_fallback:           bool,
+}
+
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+impl fmt::Debug for ReplicaConfig {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    f.debug_struct("ReplicaConfig")
+      .field("lazy_connections", &self.lazy_connections)
+      .field("ignore_reconnection_errors", &self.ignore_reconnection_errors)
+      .field("primary_fallback", &self.primary_fallback)
+      .finish()
+  }
+}
+
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+impl PartialEq for ReplicaConfig {
+  fn eq(&self, other: &Self) -> bool {
+    self.lazy_connections == other.lazy_connections
+      && self.ignore_reconnection_errors == other.ignore_reconnection_errors
+      && self.primary_fallback == other.primary_fallback
+  }
+}
+
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+impl Eq for ReplicaConfig {}
+
+#[cfg(feature = "replicas")]
+#[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
+impl Default for ReplicaConfig {
+  fn default() -> Self {
+    ReplicaConfig {
+      lazy_connections:           true,
+      filter:                     None,
+      ignore_reconnection_errors: true,
+      primary_fallback:           true,
+    }
   }
 }
 
@@ -1342,25 +1422,6 @@ impl From<SentinelConfig> for Config {
 /// Options to configure or overwrite for individual commands.
 ///
 /// Fields left as `None` will use the value from the corresponding client or global config option.
-///
-/// ```rust
-/// # use fred::prelude::*;
-/// async fn example() -> Result<(), Error> {
-///   let options = Options {
-///     max_attempts: Some(10),
-///     max_redirections: Some(2),
-///     ..Default::default()
-///   };
-///
-///   let client = Client::default();
-///   client.init().await?;
-///   let _: () = client.with_options(&options).get("foo").await?;
-///
-///   Ok(())
-/// }
-/// ```
-///
-/// See [WithOptions](crate::clients::WithOptions) for more information.
 #[derive(Clone, Debug, Eq, PartialEq, Default)]
 pub struct Options {
   /// Set the max number of write attempts for a command.
@@ -1465,111 +1526,12 @@ impl Options {
   }
 }
 
-/// An interface used to periodically scale the number of clients in a [DynamicPool](crate::clients::DynamicPool).
-#[cfg(feature = "dynamic-pool")]
-#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
-#[async_trait]
-#[rm_send_if(feature = "glommio")]
-pub trait PoolScale: Debug + Send + Sync {
-  /// Return the amount of clients that should be added or removed from the pool.
-  ///
-  /// The provided [PoolStats](crate::types::stats::PoolStats) refer to samples taken since the last call to this
-  /// function.
-  fn scale(&self, usage: PoolStats) -> i64;
-
-  /// A function that will be called with the new clients after they're connected and added to the pool.
-  ///
-  /// This is typically used to set up event handler callbacks, logging, etc.
-  async fn on_added(&self, clients: Vec<Client>) {
-    debug!("Added {} clients to pool.", clients.len());
-  }
-
-  /// A function that will be called with any clients that are removed from the pool.
-  ///
-  /// By default, this function calls [quit](crate::interfaces::ClientLike::quit) on each client.
-  async fn on_removed(&self, clients: Vec<Client>) {
-    futures::future::join_all(clients.iter().map(|c| c.quit())).await;
-  }
-
-  /// A function that will be called when a client cannot be added to the pool due to an error.
-  async fn on_failure(&self, error: Error) {
-    warn!("Failed to add client to pool due to error: {:?}", error);
-  }
-}
-
-/// A dynamic pool scaling interface that only removes idle connections.
-#[cfg(feature = "dynamic-pool")]
-#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
-#[derive(Clone, Debug)]
-pub struct RemoveIdle;
-
-#[cfg(feature = "dynamic-pool")]
-#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
-#[async_trait]
-impl PoolScale for RemoveIdle {
-  fn scale(&self, _: PoolStats) -> i64 {
-    0
-  }
-}
-
-/// Configuration options for a [DynamicPool](crate::clients::DynamicPool).
-#[cfg(feature = "dynamic-pool")]
-#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
-#[derive(Clone)]
-pub struct DynamicPoolConfig {
-  /// The minimum number of clients in the pool.
-  ///
-  /// Default: 1
-  pub min_clients:   usize,
-  /// The maximum number of clients in the pool.
-  ///
-  /// Default: 10
-  pub max_clients:   usize,
-  /// The max time a client can be idle before being disconnected and removed from the pool.
-  ///
-  /// Default: 10 min
-  pub max_idle_time: Duration,
-  /// An interface used to periodically scale the size of the pool.
-  ///
-  /// Default: [RemoveIdle](crate::types::config::RemoveIdle).
-  pub scale:         Arc<dyn PoolScale>,
-  /// A DNS resolver interface that will be applied to new clients when they're added to the pool.
-  #[cfg(feature = "dns")]
-  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
-  pub resolver:      Option<Arc<dyn Resolve>>,
-}
-
-#[cfg(feature = "dynamic-pool")]
-impl Debug for DynamicPoolConfig {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    f.debug_struct("DynamicPoolConfig")
-      .field("min_clients", &self.min_clients)
-      .field("max_clients", &self.max_clients)
-      .field("max_idle_time", &self.max_idle_time)
-      .finish()
-  }
-}
-
-#[cfg(feature = "dynamic-pool")]
-impl Default for DynamicPoolConfig {
-  fn default() -> Self {
-    DynamicPoolConfig {
-      min_clients:                      1,
-      max_clients:                      10,
-      max_idle_time:                    Duration::from_secs(10 * 60),
-      scale:                            Arc::new(RemoveIdle),
-      #[cfg(feature = "dns")]
-      resolver:                         None,
-    }
-  }
-}
-
 #[cfg(test)]
 mod tests {
   #[cfg(feature = "sentinel-auth")]
   use crate::types::config::Server;
   #[allow(unused_imports)]
-  use crate::{prelude::ServerConfig, types::config::Config, utils};
+  use crate::{types::config::Config, types::config::ServerConfig, utils};
 
   #[test]
   fn should_parse_centralized_url() {

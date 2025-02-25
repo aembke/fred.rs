@@ -60,7 +60,7 @@ sentinel-auth = ["fred-common/sentinel-auth"]
 sentinel-client = []
 serde-json = ["serde_json", "fred-common/serde-json"]
 subscriber-client = ["i-pubsub"]
-transactions = []
+transactions = ["fred-common/transactions"]
 trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = ["fred-common/unix-sockets"]
 credential-provider = ["fred-common/credential-provider"]
@@ -129,20 +129,20 @@ i-all = [
     "i-sets",
 ]
 i-client = []
-i-cluster = []
+i-cluster = ["fred-common/i-cluster"]
 i-config = []
-i-geo = ["i-sorted-sets"]
+i-geo = ["i-sorted-sets", "fred-common/i-geo"]
 i-hashes = []
 i-hyperloglog = []
 i-keys = []
 i-lists = []
 i-memory = []
 i-pubsub = []
-i-scripts = []
+i-scripts = ["fred-common/i-scripts"]
 i-server = []
 i-sets = []
 i-slowlog = []
-i-sorted-sets = []
+i-sorted-sets = ["fred-common/i-sorted-sets"]
 i-std = [
     "i-hashes",
     "i-keys",
@@ -153,7 +153,7 @@ i-std = [
     "i-sorted-sets",
     "i-server",
 ]
-i-streams = []
+i-streams = ["fred-common/i-streams"]
 i-tracking = ["i-client", "i-pubsub", "fred-common/i-tracking"]
 
 # Redis Stack Interfaces
@@ -168,8 +168,8 @@ full-tracing = ["partial-tracing", "fred-common/full-tracing"]
 partial-tracing = ["tracing", "tracing-futures", "fred-common/partial-tracing"]
 
 # Debugging Features
-debug-ids = []
-network-logs = []
+debug-ids = ["fred-common/debug-ids"]
+network-logs = ["fred-common/network-logs"]
 
 [dependencies]
 arc-swap = { workspace = true }

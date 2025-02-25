@@ -24,9 +24,14 @@ pub type LimitCount = Option<i64>;
 pub mod config;
 pub mod events;
 pub(crate) mod from_tuple;
+pub mod geo;
 pub mod hashers;
 pub mod metrics;
+#[cfg(feature = "mocks")]
+#[cfg_attr(docsrs, doc(cfg(feature = "mocks")))]
 pub mod mocks;
+pub mod responses;
+pub mod scan;
 #[cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))]
 #[cfg_attr(docsrs, doc(cfg(any(feature = "enable-native-tls", feature = "enable-rustls"))))]
 pub mod tls;
