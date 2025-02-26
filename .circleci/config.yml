@@ -234,7 +234,7 @@ jobs:
       - test_valkey
   test-misc:
     docker:
-      - image: cimg/rust:1.80
+      - image: cimg/rust:1.85
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -267,7 +267,7 @@ jobs:
           command: tests/scripts/check_glommio_features.sh
   clippy-lint:
     docker:
-      - image: rust:1.80-slim-bullseye
+      - image: rust:1.85-slim-bullseye
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -292,7 +292,7 @@ jobs:
               enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
   cargo-fmt:
     docker:
-      - image: cimg/rust:1.80
+      - image: cimg/rust:1.85
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
