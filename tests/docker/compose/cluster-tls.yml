@@ -15,9 +15,9 @@ services:
       - 'REDIS_NODES=redis-cluster-tls-1 redis-cluster-tls-2 redis-cluster-tls-3 redis-cluster-tls-4 redis-cluster-tls-5 redis-cluster-tls-6'
       - 'REDIS_TLS_ENABLED=yes'
       - 'REDIS_TLS_PORT_NUMBER=${FRED_REDIS_CLUSTER_TLS_PORT}'
-      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-1.pem'
+      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-1.crt'
       - 'REDIS_TLS_KEY_FILE=/opt/bitnami/redis/mounted-etc/creds/node-1.key'
-      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.pem'
+      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.crt'
       - 'REDIS_TLS_AUTH_CLIENTS=optional'
     ports:
       - "40001:${FRED_REDIS_CLUSTER_TLS_PORT}"
@@ -37,9 +37,9 @@ services:
       - 'REDIS_NODES=redis-cluster-tls-1 redis-cluster-tls-2 redis-cluster-tls-3 redis-cluster-tls-4 redis-cluster-tls-5 redis-cluster-tls-6'
       - 'REDIS_TLS_ENABLED=yes'
       - 'REDIS_TLS_PORT_NUMBER=${FRED_REDIS_CLUSTER_TLS_PORT}'
-      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-2.pem'
+      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-2.crt'
       - 'REDIS_TLS_KEY_FILE=/opt/bitnami/redis/mounted-etc/creds/node-2.key'
-      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.pem'
+      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.crt'
       - 'REDIS_TLS_AUTH_CLIENTS=optional'
     ports:
       - "40002:${FRED_REDIS_CLUSTER_TLS_PORT}"
@@ -59,9 +59,9 @@ services:
       - 'REDIS_NODES=redis-cluster-tls-1 redis-cluster-tls-2 redis-cluster-tls-3 redis-cluster-tls-4 redis-cluster-tls-5 redis-cluster-tls-6'
       - 'REDIS_TLS_ENABLED=yes'
       - 'REDIS_TLS_PORT_NUMBER=${FRED_REDIS_CLUSTER_TLS_PORT}'
-      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-3.pem'
+      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-3.crt'
       - 'REDIS_TLS_KEY_FILE=/opt/bitnami/redis/mounted-etc/creds/node-3.key'
-      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.pem'
+      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.crt'
       - 'REDIS_TLS_AUTH_CLIENTS=optional'
     ports:
       - "40003:${FRED_REDIS_CLUSTER_TLS_PORT}"
@@ -81,9 +81,9 @@ services:
       - 'REDIS_NODES=redis-cluster-tls-1 redis-cluster-tls-2 redis-cluster-tls-3 redis-cluster-tls-4 redis-cluster-tls-5 redis-cluster-tls-6'
       - 'REDIS_TLS_ENABLED=yes'
       - 'REDIS_TLS_PORT_NUMBER=${FRED_REDIS_CLUSTER_TLS_PORT}'
-      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-4.pem'
+      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-4.crt'
       - 'REDIS_TLS_KEY_FILE=/opt/bitnami/redis/mounted-etc/creds/node-4.key'
-      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.pem'
+      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.crt'
       - 'REDIS_TLS_AUTH_CLIENTS=optional'
     ports:
       - "40004:${FRED_REDIS_CLUSTER_TLS_PORT}"
@@ -103,9 +103,9 @@ services:
       - 'REDIS_NODES=redis-cluster-tls-1 redis-cluster-tls-2 redis-cluster-tls-3 redis-cluster-tls-4 redis-cluster-tls-5 redis-cluster-tls-6'
       - 'REDIS_TLS_ENABLED=yes'
       - 'REDIS_TLS_PORT_NUMBER=${FRED_REDIS_CLUSTER_TLS_PORT}'
-      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-5.pem'
+      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-5.crt'
       - 'REDIS_TLS_KEY_FILE=/opt/bitnami/redis/mounted-etc/creds/node-5.key'
-      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.pem'
+      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.crt'
       - 'REDIS_TLS_AUTH_CLIENTS=optional'
     ports:
       - "40005:${FRED_REDIS_CLUSTER_TLS_PORT}"
@@ -133,9 +133,9 @@ services:
       - 'REDIS_CLUSTER_CREATOR=yes'
       - 'REDIS_TLS_ENABLED=yes'
       - 'REDIS_TLS_PORT_NUMBER=${FRED_REDIS_CLUSTER_TLS_PORT}'
-      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-6.pem'
+      - 'REDIS_TLS_CERT_FILE=/opt/bitnami/redis/mounted-etc/creds/node-6.crt'
       - 'REDIS_TLS_KEY_FILE=/opt/bitnami/redis/mounted-etc/creds/node-6.key'
-      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.pem'
+      - 'REDIS_TLS_CA_FILE=/opt/bitnami/redis/mounted-etc/creds/ca.crt'
       - 'REDIS_TLS_AUTH_CLIENTS=optional'
     ports:
       - "40006:${FRED_REDIS_CLUSTER_TLS_PORT}"

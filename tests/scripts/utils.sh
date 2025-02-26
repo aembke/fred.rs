@@ -22,7 +22,7 @@ done
 ROOT=$PWD
 [[ -z "${JOBS}" ]] && PARALLEL_JOBS='2' || PARALLEL_JOBS="${JOBS}"
 
-# Returns 0 if not installed, 1 otherwise.
+# Returns 0 if not downloaded, 1 otherwise.
 function check_redis {
   if [ -d "$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION" ]; then
     echo "Skipping redis install."
@@ -33,34 +33,106 @@ function check_redis {
   fi
 }
 
-function install_redis {
-  echo "Installing..."
+# Returns 0 if not built, 1 otherwise.
+function check_redis_build {
+  if [ -d "$ROOT/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/redis-server" ]; then
+    echo "Skipping redis build."
+    return 1
+  else
+    echo "Redis build not found."
+    return 0
+  fi
+}
+
+function download_redis {
+  check_redis
+  if [[ "$?" -eq 0 ]]; then
+    pushd $ROOT > /dev/null
+    rm -rf tests/tmp/redis_cluster_$REDIS_VERSION
+    cd tests/tmp
+
+    if [ -z "$USE_VALKEY" ]; then
+      echo "Installing Redis from redis.io"
+      curl -O "http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz"
+    else
+      echo "Installing valkey from github"
+      curl -O -L "https://github.com/valkey-io/valkey/archive/refs/tags/redis-$REDIS_VERSION.tar.gz" --output redis-$REDIS_VERSION.tar.gz
+    fi
+
+    mkdir redis_$REDIS_VERSION
+    tar xf redis-$REDIS_VERSION.tar.gz -C redis_$REDIS_VERSION
+    rm redis-$REDIS_VERSION.tar.gz
+    popd > /dev/null
+  fi
+}
+
+function generate_redis_tls {
+  echo "Generating Redis TLS credentials..."
+  if [ ! -d "$ROOT/tests/tmp/creds" ]; then
+    mkdir -p $ROOT/tests/tmp/creds
+  fi
   pushd $ROOT > /dev/null
-  rm -rf tests/tmp/redis_cluster_$REDIS_VERSION
-  cd tests/tmp
+  cd $ROOT/tests/tmp/creds
+  rm -rf ./*
 
-  if [ -z "$USE_VALKEY" ]; then
-    echo "Installing Redis from redis.io"
-    curl -O "http://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz"
-  else
-    echo "Installing valkey from github"
-    curl -O -L "https://github.com/valkey-io/valkey/archive/refs/tags/redis-$REDIS_VERSION.tar.gz" --output redis-$REDIS_VERSION.tar.gz
-  fi
+  # generate CA key (PKCS#1) and cert
+  openssl genrsa -out ca.key 2048
+  openssl req -x509 -new -nodes -sha256 -key ca.key -days 90 \
+    -subj '/O=Fred Tests/CN=redis-cluster' \
+    -out ca.crt
+  # need the client cert in DER format for rustls
+  openssl x509 -outform der -in ca.crt -out ca.der
 
-  mkdir redis_$REDIS_VERSION
-  tar xf redis-$REDIS_VERSION.tar.gz -C redis_$REDIS_VERSION
-  rm redis-$REDIS_VERSION.tar.gz
+  # generate client key (PKCS#1)
+  openssl genrsa -out client.key1 2048
+  # native-tls wants a PKCS#8 key and redis-cli wants a PKCS#1 key
+  openssl pkey -in client.key1 -out client.key8
+  # rustls needs it in DER format
+  openssl rsa -in client.key1 -inform pem -out client.key8_der -outform der
+  # generate client cert (PEM)
+  openssl req -new -sha256 -subj "/O=Fred Tests/CN=client.redis-cluster" -key client.key1 | \
+  openssl x509 -req -sha256 -CA ca.crt -CAkey ca.key -CAserial ca.txt -CAcreateserial -days 90 \
+    -extfile "$ROOT/tests/scripts/tls/client.cnf" -extensions req_ext -out client.crt
+  # need the client cert in DER format for rustls
+  openssl x509 -outform der -in client.crt -out client.der
 
-  if [ -z "$USE_VALKEY" ]; then
-    cd redis_$REDIS_VERSION/redis-$REDIS_VERSION
-  else
-    mv redis_$REDIS_VERSION/valkey-redis-$REDIS_VERSION redis_$REDIS_VERSION/redis-$REDIS_VERSION
-    cd redis_$REDIS_VERSION/redis-$REDIS_VERSION
-  fi
+  echo "Generating key pairs for each cluster node..."
+  for i in `seq 1 6`; do
+    # redis-server wants a PKCS#1 key
+    openssl genrsa -out "node-$i.key" 2048
+    # create SAN entries for all the other nodes
+    openssl req -new -key "node-$i.key" -out "node-$i.csr" -config "$ROOT/tests/scripts/tls/node-$i.cnf"
+    # might not work on os x with native-tls (https://github.com/sfackler/rust-native-tls/issues/143)
+    openssl x509 -req -days 90 -sha256 -in "node-$i.csr" -CA ca.crt -CAkey ca.key -CAserial ca.txt -CAcreateserial \
+      -out "node-$i.crt" -extensions req_ext -extfile "$ROOT/tests/scripts/tls/node-$i.cnf"
+  done
 
-  make BUILD_TLS=yes -j"${PARALLEL_JOBS}"
-  mv redis.conf redis.conf.bk
+  chmod +r ./*
+  TLS_CREDS_PATH=$PWD
   popd > /dev/null
+}
+
+function install_redis {
+  echo "Installing $REDIS_VERSION..."
+  download_redis
+
+  check_redis_build
+  if [[ "$?" -eq 0 ]]; then
+    pushd $ROOT > /dev/null
+    rm -rf tests/tmp/redis_cluster_$REDIS_VERSION
+    cd tests/tmp
+
+    if [ -z "$USE_VALKEY" ]; then
+      cd redis_$REDIS_VERSION/redis-$REDIS_VERSION
+    else
+      mv redis_$REDIS_VERSION/valkey-redis-$REDIS_VERSION redis_$REDIS_VERSION/redis-$REDIS_VERSION
+      cd redis_$REDIS_VERSION/redis-$REDIS_VERSION
+    fi
+
+    make BUILD_TLS=yes -j"${PARALLEL_JOBS}"
+    mv redis.conf redis.conf.bk
+    popd > /dev/null
+  fi
 }
 
 function configure_centralized_acl {
@@ -166,54 +238,6 @@ function check_cluster_credentials {
     echo "TLS credentials not found."
     return 0
   fi
-}
-
-# Generate creds for a CA, a cert/key for the client, a cert/key for each node in the cluster, and sign the certs with the CA creds.
-#
-# Note: it's also necessary to modify DNS mappings so the CN in each cert can be used as a hostname. See `modify_etc_hosts`.
-function generate_cluster_credentials {
-  echo "Generating keys..."
-  if [ ! -d "$ROOT/tests/tmp/creds" ]; then
-    mkdir -p $ROOT/tests/tmp/creds
-  fi
-  pushd $ROOT > /dev/null
-  cd $ROOT/tests/tmp/creds
-  rm -rf ./*
-
-  echo "Generating CA key pair..."
-  openssl req -new -newkey rsa:2048 -nodes -out ca.csr -keyout ca.key -subj '/CN=redis-cluster' \
-    -addext "keyUsage=digitalSignature,keyEncipherment" -addext "extendedKeyUsage=serverAuth,clientAuth"
-  openssl x509 -signkey ca.key -days 90 -req -in ca.csr -out ca.pem -copy_extensions=copyall -set_serial 01
-  # need the CA cert in DER format for rustls
-  openssl x509 -outform der -in ca.pem -out ca.crt
-
-  echo "Generating client key pair..."
-  # native-tls wants a PKCS#8 key and redis-cli wants a PKCS#1 key
-  openssl genrsa -out client.key 2048
-  openssl pkey -in client.key -out client.key8
-  # rustls needs it in DER format
-  openssl rsa -in client.key -inform pem -out client_key.der -outform der
-
-  openssl req -new -key client.key -out client.csr -subj '/CN=client.redis-cluster' \
-    -addext "keyUsage=digitalSignature,keyEncipherment" -addext "extendedKeyUsage=serverAuth,clientAuth"
-  openssl x509 -req -days 90 -sha256 -in client.csr -CA ca.pem -CAkey ca.key -set_serial 01 -out client.pem -copy_extensions=copyall
-  # need the client cert in DER format for rustls
-  openssl x509 -outform der -in client.pem -out client.crt
-
-  echo "Generating key pairs for each cluster node..."
-  for i in `seq 1 6`; do
-    # redis-server wants a PKCS#1 key
-    openssl genrsa -out "node-$i.key" 2048
-    # create SAN entries for all the other nodes
-    openssl req -new -key "node-$i.key" -out "node-$i.csr" -config "$ROOT/tests/scripts/tls/node-$i.cnf"
-    # might not work on os x with native-tls (https://github.com/sfackler/rust-native-tls/issues/143)
-    openssl x509 -req -days 90 -sha256 -in "node-$i.csr" -CA ca.pem -CAkey ca.key -set_serial 01 -out "node-$i.pem" \
-     -extensions req_ext -extfile "$ROOT/tests/scripts/tls/node-$i.cnf"
-  done
-
-  chmod +r ./*
-  TLS_CREDS_PATH=$PWD
-  popd > /dev/null
 }
 
 function create_tls_cluster_config {

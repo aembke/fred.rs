@@ -246,10 +246,7 @@ impl ReconnectPolicy {
         max_attempts,
         jitter,
       } => {
-        *attempts = match utils::incr_with_max(*attempts, max_attempts) {
-          Some(a) => a,
-          None => return None,
-        };
+        *attempts = utils::incr_with_max(*attempts, max_attempts)?;
 
         Some(utils::add_jitter(delay as u64, jitter))
       },
@@ -260,10 +257,7 @@ impl ReconnectPolicy {
         delay,
         jitter,
       } => {
-        *attempts = match utils::incr_with_max(*attempts, max_attempts) {
-          Some(a) => a,
-          None => return None,
-        };
+        *attempts = utils::incr_with_max(*attempts, max_attempts)?;
         let delay = (delay as u64).saturating_mul(*attempts as u64);
 
         Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
@@ -276,10 +270,7 @@ impl ReconnectPolicy {
         base,
         jitter,
       } => {
-        *attempts = match utils::incr_with_max(*attempts, max_attempts) {
-          Some(a) => a,
-          None => return None,
-        };
+        *attempts = utils::incr_with_max(*attempts, max_attempts)?;
         let delay = (base as u64)
           .saturating_pow(*attempts - 1)
           .saturating_mul(min_delay as u64);
