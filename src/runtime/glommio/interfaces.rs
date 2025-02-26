@@ -220,7 +220,7 @@ pub trait ClientLike: Clone + Sized {
     async move {
       let rx = { self.inner().notifications.connect.load().subscribe() };
       let task = self.connect();
-      let error = rx.recv().await.map_err(Error::from).and_then(|r| r).err();
+      let error = rx.recv().await.and_then(|r| r).err();
 
       if let Some(error) = error {
         // the initial connection failed, so we should gracefully close the routing task
