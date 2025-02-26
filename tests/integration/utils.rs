@@ -211,8 +211,7 @@ fn check_file_contents(value: &[u8], msg: &str) {
   }
 }
 
-/// Read the (root cert.pem, root cert.der, client cert.pem, client cert.der, client key.pem, client key.der) tuple
-/// from the test/tmp/creds directory.
+/// Read the CA cert, client cert, and client key from the Redis tests TLS directory.
 #[cfg(any(
   feature = "enable-native-tls",
   feature = "enable-rustls",
@@ -220,12 +219,12 @@ fn check_file_contents(value: &[u8], msg: &str) {
 ))]
 fn read_tls_creds() -> TlsCreds {
   let creds_path = read_env_var("FRED_TEST_TLS_CREDS").expect("Failed to read TLS path from env");
-  let root_cert_pem_path = format!("{}/ca.pem", creds_path);
-  let root_cert_der_path = format!("{}/ca.crt", creds_path);
-  let client_cert_pem_path = format!("{}/client.pem", creds_path);
-  let client_cert_der_path = format!("{}/client.crt", creds_path);
-  let client_key_der_path = format!("{}/client_key.der", creds_path);
+  let root_cert_pem_path = format!("{}/ca.crt", creds_path);
+  let root_cert_der_path = format!("{}/ca.der", creds_path);
+  let client_cert_pem_path = format!("{}/client.crt", creds_path);
+  let client_cert_der_path = format!("{}/client.der", creds_path);
   let client_key_pem_path = format!("{}/client.key8", creds_path);
+  let client_key_der_path = format!("{}/client.key8_der", creds_path);
 
   let root_cert_pem = fs::read(&root_cert_pem_path).expect("Failed to read root cert pem");
   let root_cert_der = fs::read(&root_cert_der_path).expect("Failed to read root cert der");

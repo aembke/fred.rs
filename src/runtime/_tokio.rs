@@ -49,6 +49,9 @@ pub use tokio::{
 };
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
+#[cfg(feature = "dynamic-pool")]
+use arc_swap::ArcSwapOption;
+
 enum SenderKind<T: Send + 'static> {
   Bounded(BoundedSender<T>),
   Unbounded(UnboundedSender<T>),
@@ -160,6 +163,9 @@ pub type AtomicUsize = std::sync::atomic::AtomicUsize;
 pub type Mutex<T> = parking_lot::Mutex<T>;
 pub type RwLock<T> = parking_lot::RwLock<T>;
 pub type RefSwap<T> = ArcSwapAny<T>;
+
+#[cfg(feature = "dynamic-pool")]
+pub type RefSwapOption<T> = ArcSwapOption<T>;
 
 pub fn broadcast_send<T: Clone, F: Fn(&T)>(tx: &BroadcastSender<T>, msg: &T, func: F) {
   if let Err(BroadcastSendError(val)) = tx.send(msg.clone()) {

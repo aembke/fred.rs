@@ -42,10 +42,14 @@ REDIS_CLI_PATH="$PWD/tests/tmp/redis_$REDIS_VERSION/redis-$REDIS_VERSION/src/red
 if [ -z "${CIRCLECI_TESTS}" ]; then
   read -p "Build redis-cli for Redis $REDIS_VERSION? [y/n]: " INSTALL_CLI
   if [ "$INSTALL_CLI" = "y" ]; then
-    check_redis
-    if [[ "$?" -eq 0 ]]; then
-      install_redis
-    fi
+    install_redis
+  fi
+fi
+
+if [ -z "${CIRCLECI_TESTS}" ]; then
+  read -p "Generate TLS credentials? [y/n]: " GEN_TLS
+  if [ "$GEN_TLS" = "y" ]; then
+    generate_redis_tls
   fi
 fi
 
@@ -84,13 +88,6 @@ echo "loglevel verbose" | tee -a $PWD/tests/docker/overrides/default.conf > /dev
 cp $PWD/tests/docker/overrides/default.conf $PWD/tests/docker/overrides/unix-socket.conf
 echo "unixsocket $REDIS_UNIX_SOCK_CONTAINER_DIR/$REDIS_UNIX_SOCK" | tee -a $PWD/tests/docker/overrides/unix-socket.conf > /dev/null
 echo "unixsocketperm 770" | tee -a $PWD/tests/docker/overrides/unix-socket.conf > /dev/null
-
-if [ -z "${CIRCLECI_TESTS}" ]; then
-  check_cluster_credentials
-  if [[ "$?" -eq 0 ]]; then
-    generate_cluster_credentials
-  fi
-fi
 
 if [ -z "${CIRCLECI_TESTS}" ]; then
   echo "Skip checking registry cache."

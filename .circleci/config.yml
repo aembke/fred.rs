@@ -234,7 +234,7 @@ jobs:
       - test_valkey
   test-misc:
     docker:
-      - image: cimg/rust:1.80
+      - image: cimg/rust:1.85
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -246,7 +246,7 @@ jobs:
           command: cargo check --features partial-tracing
   check-all-interface-features:
     docker:
-      - image: rust:1.80-slim-bullseye
+      - image: rust:1.85-slim-bullseye
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
       YQ_VERSION: v4.44.3
@@ -267,7 +267,7 @@ jobs:
           command: tests/scripts/check_glommio_features.sh
   clippy-lint:
     docker:
-      - image: rust:1.80-slim-bullseye
+      - image: rust:1.85-slim-bullseye
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:
@@ -283,7 +283,7 @@ jobs:
           command: |
             cargo clippy --features "i-all i-redis-stack transactions blocking-encoding dns metrics mocks monitor \
               replicas sentinel-auth sentinel-client serde-json subscriber-client unix-sockets credential-provider \
-              enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
+              enable-rustls enable-native-tls full-tracing dynamic-pool tcp-user-timeouts" --lib -p fred -- -Dwarnings
       - run:
           name: Clippy Glommio features
           command: |
@@ -292,7 +292,7 @@ jobs:
               enable-rustls enable-native-tls full-tracing" --lib -p fred -- -Dwarnings
   cargo-fmt:
     docker:
-      - image: cimg/rust:1.80
+      - image: cimg/rust:1.85
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
     steps:

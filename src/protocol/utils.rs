@@ -156,10 +156,7 @@ pub fn parse_shard_pubsub_frame(server: &Server, frame: &Resp3Frame) -> Option<M
           || (data[0].as_str().map(|s| s == "smessage").unwrap_or(false));
 
         if has_either_prefix {
-          let channel = match frame_to_str(data[data.len() - 2].clone()) {
-            Some(channel) => channel,
-            None => return None,
-          };
+          let channel = frame_to_str(data[data.len() - 2].clone())?;
           let message = match frame_to_results(data[data.len() - 1].clone()) {
             Ok(message) => message,
             Err(_) => return None,

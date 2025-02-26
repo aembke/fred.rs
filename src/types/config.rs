@@ -11,13 +11,6 @@ use url::Url;
 
 #[cfg(feature = "mocks")]
 use crate::mocks::Mocks;
-#[cfg(feature = "credential-provider")]
-use async_trait::async_trait;
-#[cfg(feature = "unix-sockets")]
-use std::path::PathBuf;
-#[cfg(any(feature = "mocks", feature = "credential-provider"))]
-use std::sync::Arc;
-
 #[cfg(any(
   feature = "enable-rustls",
   feature = "enable-native-tls",
@@ -32,10 +25,21 @@ use std::sync::Arc;
   )))
 )]
 pub use crate::protocol::tls::{HostMapping, TlsConfig, TlsConnector, TlsHostMapping};
-
 #[cfg(feature = "replicas")]
 #[cfg_attr(docsrs, doc(cfg(feature = "replicas")))]
 pub use crate::router::replicas::{ReplicaConfig, ReplicaFilter};
+#[cfg(all(feature = "dns", feature = "dynamic-pool"))]
+use crate::types::Resolve;
+#[cfg(feature = "dynamic-pool")]
+use crate::{clients::Client, interfaces::ClientLike, types::stats::PoolStats};
+#[cfg(any(feature = "credential-provider", feature = "dynamic-pool"))]
+use async_trait::async_trait;
+#[cfg(feature = "dynamic-pool")]
+use fred_macros::rm_send_if;
+#[cfg(feature = "unix-sockets")]
+use std::path::PathBuf;
+#[cfg(any(feature = "mocks", feature = "credential-provider", feature = "dynamic-pool"))]
+use std::sync::Arc;
 
 /// The default amount of jitter when waiting to reconnect.
 pub const DEFAULT_JITTER_MS: u32 = 100;
@@ -242,10 +246,7 @@ impl ReconnectPolicy {
         max_attempts,
         jitter,
       } => {
-        *attempts = match utils::incr_with_max(*attempts, max_attempts) {
-          Some(a) => a,
-          None => return None,
-        };
+        *attempts = utils::incr_with_max(*attempts, max_attempts)?;
 
         Some(utils::add_jitter(delay as u64, jitter))
       },
@@ -256,10 +257,7 @@ impl ReconnectPolicy {
         delay,
         jitter,
       } => {
-        *attempts = match utils::incr_with_max(*attempts, max_attempts) {
-          Some(a) => a,
-          None => return None,
-        };
+        *attempts = utils::incr_with_max(*attempts, max_attempts)?;
         let delay = (delay as u64).saturating_mul(*attempts as u64);
 
         Some(cmp::min(max_delay as u64, utils::add_jitter(delay, jitter)))
@@ -272,10 +270,7 @@ impl ReconnectPolicy {
         base,
         jitter,
       } => {
-        *attempts = match utils::incr_with_max(*attempts, max_attempts) {
-          Some(a) => a,
-          None => return None,
-        };
+        *attempts = utils::incr_with_max(*attempts, max_attempts)?;
         let delay = (base as u64)
           .saturating_pow(*attempts - 1)
           .saturating_mul(min_delay as u64);
@@ -308,13 +303,28 @@ impl Default for Blocking {
 #[derive(Clone, Debug, Default)]
 pub struct TcpConfig {
   /// Set the [TCP_NODELAY](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_nodelay) value.
-  pub nodelay:   Option<bool>,
+  pub nodelay:      Option<bool>,
   /// Set the [SO_LINGER](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_linger) value.
-  pub linger:    Option<Duration>,
+  pub linger:       Option<Duration>,
   /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
-  pub ttl:       Option<u32>,
+  pub ttl:          Option<u32>,
   /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
-  pub keepalive: Option<TcpKeepalive>,
+  pub keepalive:    Option<TcpKeepalive>,
+  /// Set the [TCP_USER_TIMEOUT](https://docs.rs/socket2/latest/x86_64-unknown-linux-gnu/socket2/struct.Socket.html#method.set_tcp_user_timeout) value.
+  #[cfg(all(
+    feature = "tcp-user-timeouts",
+    not(feature = "glommio"),
+    any(target_os = "android", target_os = "fuchsia", target_os = "linux")
+  ))]
+  #[cfg_attr(
+    docsrs,
+    doc(cfg(all(
+      feature = "tcp-user-timeouts",
+      not(feature = "glommio"),
+      any(target_os = "android", target_os = "fuchsia", target_os = "linux")
+    )))
+  )]
+  pub user_timeout: Option<Duration>,
 }
 
 impl PartialEq for TcpConfig {
@@ -1442,6 +1452,105 @@ impl Options {
     }
     if let Some(ref cluster_hash) = self.cluster_hash {
       command.hasher = cluster_hash.clone();
+    }
+  }
+}
+
+/// An interface used to periodically scale the number of clients in a [DynamicPool](crate::clients::DynamicPool).
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[async_trait]
+#[rm_send_if(feature = "glommio")]
+pub trait PoolScale: Debug + Send + Sync {
+  /// Return the amount of clients that should be added or removed from the pool.
+  ///
+  /// The provided [PoolStats](crate::types::stats::PoolStats) refer to samples taken since the last call to this
+  /// function.
+  fn scale(&self, usage: PoolStats) -> i64;
+
+  /// A function that will be called with the new clients after they're connected and added to the pool.
+  ///
+  /// This is typically used to set up event handler callbacks, logging, etc.
+  async fn on_added(&self, clients: Vec<Client>) {
+    debug!("Added {} clients to pool.", clients.len());
+  }
+
+  /// A function that will be called with any clients that are removed from the pool.
+  ///
+  /// By default, this function calls [quit](crate::interfaces::ClientLike::quit) on each client.
+  async fn on_removed(&self, clients: Vec<Client>) {
+    futures::future::join_all(clients.iter().map(|c| c.quit())).await;
+  }
+
+  /// A function that will be called when a client cannot be added to the pool due to an error.
+  async fn on_failure(&self, error: Error) {
+    warn!("Failed to add client to pool due to error: {:?}", error);
+  }
+}
+
+/// A dynamic pool scaling interface that only removes idle connections.
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[derive(Clone, Debug)]
+pub struct RemoveIdle;
+
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[async_trait]
+impl PoolScale for RemoveIdle {
+  fn scale(&self, _: PoolStats) -> i64 {
+    0
+  }
+}
+
+/// Configuration options for a [DynamicPool](crate::clients::DynamicPool).
+#[cfg(feature = "dynamic-pool")]
+#[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+#[derive(Clone)]
+pub struct DynamicPoolConfig {
+  /// The minimum number of clients in the pool.
+  ///
+  /// Default: 1
+  pub min_clients:   usize,
+  /// The maximum number of clients in the pool.
+  ///
+  /// Default: 10
+  pub max_clients:   usize,
+  /// The max time a client can be idle before being disconnected and removed from the pool.
+  ///
+  /// Default: 10 min
+  pub max_idle_time: Duration,
+  /// An interface used to periodically scale the size of the pool.
+  ///
+  /// Default: [RemoveIdle](crate::types::config::RemoveIdle).
+  pub scale:         Arc<dyn PoolScale>,
+  /// A DNS resolver interface that will be applied to new clients when they're added to the pool.
+  #[cfg(feature = "dns")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+  pub resolver:      Option<Arc<dyn Resolve>>,
+}
+
+#[cfg(feature = "dynamic-pool")]
+impl Debug for DynamicPoolConfig {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("DynamicPoolConfig")
+      .field("min_clients", &self.min_clients)
+      .field("max_clients", &self.max_clients)
+      .field("max_idle_time", &self.max_idle_time)
+      .finish()
+  }
+}
+
+#[cfg(feature = "dynamic-pool")]
+impl Default for DynamicPoolConfig {
+  fn default() -> Self {
+    DynamicPoolConfig {
+      min_clients:                      1,
+      max_clients:                      10,
+      max_idle_time:                    Duration::from_secs(10 * 60),
+      scale:                            Arc::new(RemoveIdle),
+      #[cfg(feature = "dns")]
+      resolver:                         None,
     }
   }
 }
