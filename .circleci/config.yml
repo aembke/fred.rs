@@ -246,7 +246,7 @@ jobs:
           command: cargo check --features partial-tracing
   check-all-interface-features:
     docker:
-      - image: rust:1.80-slim-bullseye
+      - image: rust:1.85-slim-bullseye
     environment:
       CARGO_NET_GIT_FETCH_WITH_CLI: true
       YQ_VERSION: v4.44.3
