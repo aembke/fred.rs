@@ -1,4 +1,4 @@
-FROM rust:1.80-slim-buster
+FROM rust:1.85-slim-buster
 
 WORKDIR /project
 # circleci doesn't mount volumes with a remote docker engine so we have to copy everything
@@ -6,6 +6,7 @@ COPY --chown=1001:1001 . /project
 COPY --chown=1001:1001 ~/.cargo/registry /usr/local/cargo/registry
 
 ARG RUST_LOG
+ARG RUST_BACKTRACE
 ARG REDIS_VERSION
 ARG REDIS_USERNAME
 ARG REDIS_PASSWORD

@@ -9,6 +9,8 @@ use crate::{
 use crate::clients::ExclusivePool;
 #[cfg(feature = "subscriber-client")]
 use crate::clients::SubscriberClient;
+#[cfg(feature = "dynamic-pool")]
+use crate::{clients::DynamicPool, types::config::DynamicPoolConfig};
 #[cfg(feature = "sentinel-client")]
 use crate::{clients::SentinelClient, types::config::SentinelConfig};
 
@@ -60,6 +62,8 @@ pub struct Builder {
   policy:      Option<ReconnectPolicy>,
   #[cfg(feature = "sentinel-client")]
   sentinel:    Option<SentinelConfig>,
+  #[cfg(feature = "dynamic-pool")]
+  pool_config: Option<DynamicPoolConfig>,
 }
 
 impl Default for Builder {
@@ -71,6 +75,8 @@ impl Default for Builder {
       policy:                                       None,
       #[cfg(feature = "sentinel-client")]
       sentinel:                                     None,
+      #[cfg(feature = "dynamic-pool")]
+      pool_config:                                  None,
     }
   }
 }
@@ -133,6 +139,13 @@ impl Builder {
     self.config.as_ref()
   }
 
+  /// Read the dynamic pool config.
+  #[cfg(feature = "dynamic-pool")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+  pub fn get_pool_config(&self) -> Option<&DynamicPoolConfig> {
+    self.pool_config.as_ref()
+  }
+
   /// Overwrite the client config on the builder.
   pub fn set_config(&mut self, config: Config) -> &mut Self {
     self.config = Some(config);
@@ -162,6 +175,14 @@ impl Builder {
   #[cfg_attr(docsrs, doc(cfg(feature = "sentinel-client")))]
   pub fn set_sentinel_config(&mut self, config: SentinelConfig) -> &mut Self {
     self.sentinel = Some(config);
+    self
+  }
+
+  /// Overwrite the pool config on the builder.
+  #[cfg(feature = "dynamic-pool")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+  pub fn set_pool_config(&mut self, config: DynamicPoolConfig) -> &mut Self {
+    self.pool_config = Some(config);
     self
   }
 
@@ -217,6 +238,24 @@ impl Builder {
     self
   }
 
+  /// Modify the pool config in place, creating a new one with default values first if needed.
+  #[cfg(feature = "dynamic-pool")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+  pub fn with_pool_config<F>(&mut self, func: F) -> &mut Self
+  where
+    F: FnOnce(&mut DynamicPoolConfig),
+  {
+    if let Some(config) = self.pool_config.as_mut() {
+      func(config);
+    } else {
+      let mut config = DynamicPoolConfig::default();
+      func(&mut config);
+      self.pool_config = Some(config);
+    }
+
+    self
+  }
+
   /// Create a new client.
   pub fn build(&self) -> Result<Client, Error> {
     if let Some(config) = self.config.as_ref() {
@@ -260,6 +299,25 @@ impl Builder {
     } else {
       Err(Error::new(ErrorKind::Config, "Missing client configuration."))
     }
+  }
+
+  /// Crete a new dynamic client pool.
+  #[cfg(feature = "dynamic-pool")]
+  #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
+  pub fn build_dynamic_pool(&self) -> Result<DynamicPool, Error> {
+    let config = match self.config.as_ref() {
+      Some(config) => config.clone(),
+      None => return Err(Error::new(ErrorKind::Config, "Missing client configuration.")),
+    };
+    let pool_config = self.pool_config.as_ref().cloned().unwrap_or_default();
+
+    DynamicPool::new(
+      config,
+      Some(self.performance.clone()),
+      Some(self.connection.clone()),
+      self.policy.clone(),
+      pool_config,
+    )
   }
 
   /// Create a new subscriber client.

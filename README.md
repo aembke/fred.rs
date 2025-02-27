@@ -96,6 +96,8 @@ See the build features for more information.
 | `sha-1`                   |         | Enable an interface for hashing Lua scripts.                                                                                                                        |
 | `unix-sockets`            |         | Enable Unix socket support.                                                                                                                                         |
 | `credential-provider`     |         | Enable an interface that can dynamically load auth credentials at runtime.                                                                                          |
+| `dynamic-pool`            |         | Enable an client pooling interface that can scale based on usage metrics.                                                                                           |
+| `tcp-user-timeouts`       |         | Enable an interface that allows callers to set `TCP_USER_TIMEOUT` on TCP sockets.                                                                                   |
 | `glommio`                 |         | Enable experimental [Glommio](https://github.com/DataDog/glommio) support.                                                                                          |
 
 ## Interface Features

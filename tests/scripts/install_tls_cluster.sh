@@ -8,7 +8,7 @@ if [[ "$?" -eq 0 ]]; then
 fi
 
 modify_etc_hosts
-generate_cluster_credentials
+generate_redis_tls
 create_tls_cluster_config
 start_cluster_tls
 echo "Finished installing clustered redis server."

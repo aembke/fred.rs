@@ -6,6 +6,7 @@ use std::cmp;
 /// Stats describing a distribution of samples.
 ///
 /// Time units are in milliseconds, data size units are in bytes.
+#[derive(Clone, Debug)]
 pub struct Stats {
   pub min:     i64,
   pub max:     i64,

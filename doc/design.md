@@ -113,11 +113,6 @@ nodes and to build their in-memory hash map routing layers. Some client librarie
 and refresh their routing maps on an interval, or when handling certain events such as connections closing or `MOVED`
 error redirections.
 
-This model creates an interesting problem statement for client library authors in that callers typically don't want to
-deal with this complexity and expect an interface that operates as if it used a single connection. This is particularly
-problematic when considering certain failure modes, such as connections closing or becoming unresponsive, or when
-dealing with multiple concurrent commands operating across different connections.
-
 # Pipelining Overview
 
 In practice most client libraries are shared among multiple concurrent Tokio tasks. Supporting high-throughput use cases

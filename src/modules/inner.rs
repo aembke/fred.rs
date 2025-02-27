@@ -49,6 +49,8 @@ use crate::{
 };
 #[cfg(feature = "replicas")]
 use std::collections::HashMap;
+#[cfg(feature = "dynamic-pool")]
+use std::time::Instant;
 
 pub type CommandSender = Sender<RouterCommand>;
 pub type CommandReceiver = Receiver<RouterCommand>;
@@ -473,12 +475,16 @@ pub struct ClientInner {
   /// Payload size metrics tracking for responses
   #[cfg(feature = "metrics")]
   pub res_size_stats:        RefCount<RwLock<MovingStats>>,
+  /// The timestamp of the last command sent to the router.
+  #[cfg(feature = "dynamic-pool")]
+  pub last_command:          RefSwap<RefCount<Instant>>,
 }
 
 #[cfg(feature = "credential-provider")]
 impl Drop for ClientInner {
   fn drop(&mut self) {
     self.abort_credential_refresh_task();
+    // TODO sent quit to the router task if the receiver is held by the routing task
   }
 }
 
@@ -519,6 +525,8 @@ impl ClientInner {
       res_size_stats: RefCount::new(RwLock::new(MovingStats::default())),
       #[cfg(feature = "credential-provider")]
       credentials_task: RwLock::new(None),
+      #[cfg(feature = "dynamic-pool")]
+      last_command: RefSwap::new(RefCount::new(Instant::now())),
 
       backchannel,
       command_rx,
@@ -781,6 +789,8 @@ impl ClientInner {
   #[cfg(not(feature = "glommio"))]
   pub fn send_command(self: &RefCount<Self>, command: RouterCommand) -> Result<(), RouterCommand> {
     use tokio::sync::mpsc::error::TrySendError;
+    #[cfg(feature = "dynamic-pool")]
+    self.last_command.swap(RefCount::new(Instant::now()));
 
     if let Err(v) = self.command_tx.load().try_send(command) {
       trace!("{}: Failed sending command to router.", self.id);
