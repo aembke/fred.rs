@@ -25,7 +25,7 @@ use bytes::Bytes;
 use bytes_utils::Str;
 use float_cmp::approx_eq;
 use futures::{Future, TryFutureExt};
-use rand::{self, distributions::Alphanumeric, Rng};
+use rand::{self, distr::Alphanumeric, Rng};
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
 use std::{collections::HashMap, convert::TryInto, f64, sync::atomic::Ordering, time::Duration};
 use url::Url;
@@ -151,7 +151,7 @@ pub fn incr_with_max(curr: u32, max: u32) -> Option<u32> {
 }
 
 pub fn random_string(len: usize) -> String {
-  rand::thread_rng()
+  rand::rng()
     .sample_iter(&Alphanumeric)
     .take(len)
     .map(char::from)
@@ -168,7 +168,7 @@ where
 
 #[cfg(feature = "transactions")]
 pub fn random_u64(max: u64) -> u64 {
-  rand::thread_rng().gen_range(0 .. max)
+  rand::rng().random_range(0 .. max)
 }
 
 pub fn read_bool_atomic(val: &AtomicBool) -> bool {
@@ -566,7 +566,7 @@ pub fn add_jitter(delay: u64, jitter: u32) -> u64 {
   if jitter == 0 {
     delay
   } else {
-    delay.saturating_add(rand::thread_rng().gen_range(0 .. jitter as u64))
+    delay.saturating_add(rand::rng().random_range(0 .. jitter as u64))
   }
 }
 

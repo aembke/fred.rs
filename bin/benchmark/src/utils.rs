@@ -1,4 +1,4 @@
-use rand::{self, distributions::Alphanumeric, Rng};
+use rand::{self, distr::Alphanumeric, Rng};
 use std::{
   env,
   error::Error,
@@ -32,7 +32,7 @@ pub fn read_auth_env() -> (Option<String>, Option<String>) {
 }
 
 pub fn random_string(len: usize) -> String {
-  rand::thread_rng()
+  rand::rng()
     .sample_iter(&Alphanumeric)
     .take(len)
     .map(char::from)

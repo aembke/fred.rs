@@ -605,7 +605,7 @@ impl ClusterRouting {
   /// Read a random primary node hash slot range from the cluster cache.
   pub fn random_slot(&self) -> Option<&SlotRange> {
     if !self.data.is_empty() {
-      let idx = rand::thread_rng().gen_range(0 .. self.data.len());
+      let idx = rand::rng().random_range(0 .. self.data.len());
       Some(&self.data[idx])
     } else {
       None

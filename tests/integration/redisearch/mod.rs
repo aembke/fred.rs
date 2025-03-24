@@ -17,7 +17,7 @@ use fred::{
   util::NONE,
 };
 use maplit::hashmap;
-use rand::{thread_rng, Rng};
+use rand::{rng, Rng};
 use redis_protocol::resp3::types::RespVersion;
 use std::{collections::HashMap, time::Duration};
 
@@ -206,7 +206,7 @@ pub async fn should_index_and_aggregate_timestamps(client: Client, _: Config) ->
     .await?;
 
   for idx in 0 .. 100 {
-    let rand: u64 = thread_rng().gen_range(0 .. 10000);
+    let rand: u64 = rng().random_range(0 .. 10000);
     let _: () = client
       .hset(format!("record:{}", idx), [
         ("timestamp", idx),
