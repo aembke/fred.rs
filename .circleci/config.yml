@@ -39,6 +39,11 @@ commands:
       - run:
           name: Run mock tests
           command: cargo test --lib --features "mocks i-keys" --no-default-features
+  test_doctets:
+    steps:
+      - run:
+          name: Run doctests
+          command: cargo test --doc --features subscriber-client,i-cluster,i-client
   test_default_features:
     steps:
       - checkout
@@ -240,6 +245,7 @@ jobs:
     steps:
       - checkout
       - build_docs
+      - test_doctests
       - test_mocks
       - run:
           name: Check partial tracing

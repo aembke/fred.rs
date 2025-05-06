@@ -326,10 +326,10 @@ impl Client {
   /// # use fred::prelude::*;
   /// async fn example(client: &Client) -> Result<(), Error> {
   ///   // discover servers via the `Config` or active connections
-  ///   let connections = client.active_connections().await?;
+  ///   let connections = client.active_connections();
   ///
   ///   // ping each node in the cluster individually
-  ///   for server in connections.into_iter() {
+  ///   for server in connections {
   ///     let _: () = client.with_cluster_node(server).ping(None).await?;
   ///   }
   ///
@@ -339,7 +339,7 @@ impl Client {
   ///     .expect("Failed to read cached cluster state")
   ///     .unique_primary_nodes();
   ///
-  ///   for server in servers.into_iter() {
+  ///   for server in servers {
   ///     // verify the server address with `CLIENT INFO`
   ///     let server_addr = client
   ///       .with_cluster_node(&server)

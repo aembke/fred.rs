@@ -405,7 +405,7 @@ struct ExclusivePoolInner {
 ///
 /// This interface can be used when callers require exclusive ownership over the connection. For example,
 ///
-/// ```no_run no_compile
+/// ```text
 /// WATCH foo
 /// foo = GET foo
 /// if foo > 1:

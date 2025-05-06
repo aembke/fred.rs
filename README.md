@@ -11,7 +11,7 @@ An async client for Valkey and Redis
 
 ## Example
 
-```rust
+```rust,no_run
 use fred::prelude::*;
 
 #[tokio::main]
@@ -19,7 +19,7 @@ async fn main() -> Result<(), Error> {
   let config = Config::from_url("redis://localhost:6379/1")?;
   let client = Builder::from_config(config)
     .with_connection_config(|config| {
-      config.connection_timeout = Duration::from_secs(5);
+      config.connection_timeout = std::time::Duration::from_secs(5);
       config.tcp = TcpConfig {
         nodelay: Some(true),
         ..Default::default()
@@ -36,8 +36,8 @@ async fn main() -> Result<(), Error> {
   // convert responses to many common Rust types
   let foo: Option<String> = client.get("foo").await?;
   assert!(foo.is_none());
+  let _: () = client.set("foo", "bar", None, None, false).await?;
 
-  client.set("foo", "bar", None, None, false).await?;
   // or use turbofish to declare response types
   println!("Foo: {:?}", client.get::<String, _>("foo").await?);
 
