@@ -138,6 +138,7 @@ macro_rules! impl_unsigned_number (
 /// ```rust
 /// # use fred::types::Value;
 /// # use std::collections::HashMap;
+/// # fn test() -> Result<(), Box<dyn std::error::Error>> {
 /// let foo: usize = Value::String("123".into()).convert()?;
 /// let foo: i64 = Value::String("123".into()).convert()?;
 /// let foo: String = Value::String("123".into()).convert()?;
@@ -150,6 +151,7 @@ macro_rules! impl_unsigned_number (
 /// let foo: Vec<(String, i64)> =
 ///   Value::Array(vec!["a".into(), 1.into(), "b".into(), 2.into()]).convert()?;
 /// // ...
+/// # Ok(()) }
 /// ```
 ///
 /// ## Bulk Values
@@ -162,12 +164,14 @@ macro_rules! impl_unsigned_number (
 ///
 /// ```rust
 /// # use fred::types::Value;
+/// # fn test() -> Result<(), Box<dyn std::error::Error>> {
 /// let _: String = Value::Array(vec![]).convert()?; // error
 /// let _: String = Value::Array(vec!["a".into()]).convert()?; // "a"
 /// let _: String = Value::Array(vec!["a".into(), "b".into()]).convert()?; // error
 /// let _: Option<String> = Value::Array(vec![]).convert()?; // None
 /// let _: Option<String> = Value::Array(vec!["a".into()]).convert()?; // Some("a")
 /// let _: Option<String> = Value::Array(vec!["a".into(), "b".into()]).convert()?; // error
+/// # Ok(()) }
 /// ```
 ///
 /// ## The `default-nil-types` Feature Flag
