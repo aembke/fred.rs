@@ -166,6 +166,7 @@ macro_rules! impl_unsigned_number (
 /// let _: String = Value::Array(vec!["a".into()]).convert()?; // "a"
 /// let _: String = Value::Array(vec!["a".into(), "b".into()]).convert()?; // error
 /// let _: Option<String> = Value::Array(vec![]).convert()?; // None
+/// let _: Option<String> = Value::Array(vec![Value::Null]).convert()?; // None
 /// let _: Option<String> = Value::Array(vec!["a".into()]).convert()?; // Some("a")
 /// let _: Option<String> = Value::Array(vec!["a".into(), "b".into()]).convert()?; // error
 /// ```
@@ -308,6 +309,7 @@ where
 {
   fn from_value(value: Value) -> Result<Option<T>, Error> {
     debug_type!("FromValue(Option<{}>): {:?}", type_name::<T>(), value);
+    check_single_bulk_reply!(value);
 
     if let Some(0) = value.array_len() {
       Ok(None)
@@ -950,6 +952,7 @@ mod tests {
       .is_err());
 
     assert_eq!(Value::Array(vec![]).convert::<Option<String>>(), Ok(None));
+    assert_eq!(Value::Array(vec![Value::Null]).convert::<Option<String>>(), Ok(None));
     assert_eq!(
       Value::Array(vec!["foo".into()]).convert::<Option<String>>(),
       Ok(Some("foo".into()))
