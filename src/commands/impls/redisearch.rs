@@ -319,6 +319,7 @@ fn gen_search_options(args: &mut Vec<Value>, options: FtSearchOptions) -> Result
   }
   if !options.params.is_empty() {
     args.push(static_val!(PARAMS));
+    // TODO: times 2 for the number of arguments, no the number of pairs
     args.push(options.params.len().try_into()?);
     for param in options.params.into_iter() {
       args.extend([param.name.into(), param.value.into()]);

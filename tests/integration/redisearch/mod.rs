@@ -9,6 +9,7 @@ use fred::{
       FtSearchOptions,
       IndexKind,
       Load,
+      SearchParameter,
       SearchSchema,
       SearchSchemaKind,
     },
@@ -166,8 +167,13 @@ pub async fn should_index_and_search_hash(client: Client, _: Config) -> Result<(
       .await?;
     assert_eq!(results, (3, "record:1".into(), "record:2".into(), "record:3".into()));
     let results: (usize, Key, Key) = client
-      .ft_search("foo_idx", "@bar:(abc)", FtSearchOptions {
+      .ft_search("foo_idx", "@bar:($x)", FtSearchOptions {
         nocontent: true,
+        params: vec![SearchParameter {
+          name:  "x".into(),
+          value: "abc".into(),
+        }],
+        dialect: Some(2),
         ..Default::default()
       })
       .await?;
