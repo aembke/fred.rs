@@ -168,7 +168,7 @@ impl ReconnectPolicy {
 
   /// Set the amount of jitter to add to each reconnect delay.
   ///
-  /// Default: 50 ms
+  /// Defaults to [`DEFAULT_JITTER_MS`].
   pub fn set_jitter(&mut self, jitter_ms: u32) {
     match self {
       ReconnectPolicy::Constant { ref mut jitter, .. } => {
