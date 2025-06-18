@@ -159,6 +159,9 @@ impl<C: StreamsInterface> StreamsInterface for WithOptions<C> {}
 #[cfg(feature = "i-scripts")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
 impl<C: FunctionInterface> FunctionInterface for WithOptions<C> {}
+#[cfg(feature = "i-scripts")]
+#[cfg_attr(docsrs, doc(cfg(feature = "i-scripts")))]
+impl<C: LuaInterface> LuaInterface for WithOptions<C> {}
 #[cfg(feature = "i-redis-json")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redis-json")))]
 impl<C: RedisJsonInterface> RedisJsonInterface for WithOptions<C> {}
