@@ -241,12 +241,27 @@ impl SimpleMap {
       .collect();
     Ok(Value::Array(vec![Value::from_static_str("0"), Value::Array(keys)]))
   }
+
+  /// Perform an `MGET` operation.
+  pub fn mget(&self, args: Vec<Value>) -> Result<Value, Error> {
+    let guard = self.values.lock();
+    let mut results = Vec::with_capacity(args.len());
+
+    for arg in args.into_iter() {
+      let key: Key = arg.try_into()?;
+      let value = guard.get(&key).cloned().unwrap_or(Value::Null);
+      results.push(value);
+    }
+
+    Ok(Value::Array(results))
+  }
 }
 
 impl Mocks for SimpleMap {
   fn process_command(&self, command: MockCommand) -> Result<Value, Error> {
     match &*command.cmd {
       "GET" => self.get(command.args),
+      "MGET" => self.mget(command.args),
       "SET" => self.set(command.args),
       "DEL" => self.del(command.args),
       "SCAN" => self.scan(command.args),
@@ -412,6 +427,39 @@ mod tests {
 
     let actual: String = client.get("foo").await.expect("Failed to call GET");
     assert_eq!(actual, "bar");
+  }
+
+  #[tokio::test]
+  async fn should_use_simple_map_mget_mock() {
+    let (client, _) = create_mock_client(Arc::new(SimpleMap::new())).await;
+
+    // Set multiple values
+    client
+      .set::<(), _, _>("key1", "value1", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    client
+      .set::<(), _, _>("key2", "value2", None, None, false)
+      .await
+      .expect("Failed to call SET");
+    client
+      .set::<(), _, _>("key3", "value3", None, None, false)
+      .await
+      .expect("Failed to call SET");
+
+    // Test MGET with existing and non-existing keys
+    let actual: Vec<Option<String>> = client
+      .mget(vec!["key1", "nonexistent", "key2", "key3"])
+      .await
+      .expect("Failed to call MGET");
+
+    let expected = vec![
+      Some("value1".to_string()),
+      None,
+      Some("value2".to_string()),
+      Some("value3".to_string()),
+    ];
+    assert_eq!(actual, expected);
   }
 
   #[tokio::test]
