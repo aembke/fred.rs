@@ -295,6 +295,12 @@ impl<'a> From<&'a [u8]> for Key {
   }
 }
 
+impl From<&Vec<u8>> for Key {
+  fn from(b: &Vec<u8>) -> Self {
+    Key { key: b.clone().into() }
+  }
+}
+
 impl From<String> for Key {
   fn from(s: String) -> Self {
     Key { key: s.into() }
@@ -1493,6 +1499,12 @@ impl From<Bytes> for Value {
 impl From<Box<[u8]>> for Value {
   fn from(b: Box<[u8]>) -> Self {
     Value::Bytes(b.into())
+  }
+}
+
+impl From<&Vec<u8>> for Value {
+  fn from(d: &Vec<u8>) -> Self {
+    Value::Bytes(d.clone().into())
   }
 }
 
