@@ -11,8 +11,8 @@ pub struct MultipleKeys {
 }
 
 impl MultipleKeys {
-  pub fn new() -> MultipleKeys {
-    MultipleKeys { keys: Vec::new() }
+  pub fn new() -> Self {
+    Self { keys: Vec::new() }
   }
 
   pub fn inner(self) -> Vec<Key> {
@@ -25,6 +25,20 @@ impl MultipleKeys {
 
   pub fn len(&self) -> usize {
     self.keys.len()
+  }
+}
+
+impl From<&[Vec<u8>]> for MultipleKeys {
+  fn from(keys: &[Vec<u8>]) -> Self {
+    Self {
+      keys: keys.into_iter().map(|i| Key::from(i)).collect(),
+    }
+  }
+}
+
+impl From<&[Key]> for MultipleKeys {
+  fn from(keys: &[Key]) -> Self {
+    Self { keys: keys.to_vec() }
   }
 }
 
