@@ -195,7 +195,10 @@ impl Script {
   /// called once before calling [evalsha](Self::evalsha).
   #[cfg(feature = "sha-1")]
   #[cfg_attr(docsrs, doc(cfg(feature = "sha-1")))]
-  pub async fn load(&self, client: &Client) -> FredResult<()> {
+  pub async fn load<C>(&self, client: C) -> FredResult<()>
+  where
+    C: LuaInterface + Copy + Send,
+  {
     if let Some(ref lua) = self.lua {
       client.script_load_cluster::<(), _>(lua.clone()).await
     } else {
@@ -219,9 +222,10 @@ impl Script {
   /// of `NOSCRIPT` error and try `EVALSHA` again.
   #[cfg(feature = "sha-1")]
   #[cfg_attr(docsrs, doc(cfg(feature = "sha-1")))]
-  pub async fn evalsha_with_reload<R, K, V>(&self, client: &Client, keys: K, args: V) -> FredResult<R>
+  pub async fn evalsha_with_reload<R, C, K, V>(&self, client: C, keys: K, args: V) -> FredResult<R>
   where
     R: FromValue,
+    C: LuaInterface + Copy + Send,
     K: Into<MultipleKeys> + Send,
     V: TryInto<MultipleValues> + Send,
     V::Error: Into<Error> + Send,
