@@ -266,7 +266,9 @@ pub async fn should_xread_map_one_key(client: Client, _: Config) -> Result<(), E
   create_fake_group_and_stream(&client, "foo{1}").await?;
   let _ = add_stream_entries(&client, "foo{1}", 3).await?;
 
-  let result: XReadResponse<String, String, String, usize> = client.xread_map(None, None, "foo{1}", "0").await?;
+  let result: XReadResponse<String, String, String, usize> = client.xread_map(None, None, "foo{1}", "0")
+    .await?
+    .expect("Expected Some found None.");
 
   for (idx, (_, record)) in result.get("foo{1}").unwrap().iter().enumerate() {
     let count = record.get("count").expect("Failed to read count");
@@ -415,7 +417,8 @@ pub async fn should_xreadgroup_one_stream(client: Client, _: Config) -> Result<(
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
 
   assert_eq!(result.len(), 1);
   for (idx, (_, record)) in result.get("foo{1}").unwrap().iter().enumerate() {
@@ -444,7 +447,8 @@ pub async fn should_xreadgroup_multiple_stream(client: Client, _: Config) -> Res
       vec!["foo{1}", "bar{1}"],
       vec![">", ">"],
     )
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
 
   assert_eq!(result.len(), 2);
   for (idx, (_, record)) in result.get("foo{1}").unwrap().iter().enumerate() {
@@ -475,7 +479,8 @@ pub async fn should_xreadgroup_block(client: Client, _: Config) -> Result<(), Er
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, Some(10_000), false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
 
   assert_eq!(result.len(), 1);
   let records = result.remove("foo{1}").unwrap();
@@ -493,7 +498,9 @@ pub async fn should_xack_one_id(client: Client, _: Config) -> Result<(), Error> 
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
+
   assert_eq!(result.len(), 1);
   let records = result.get("foo{1}").unwrap();
   let id = records[0].0.clone();
@@ -510,7 +517,9 @@ pub async fn should_xack_multiple_ids(client: Client, _: Config) -> Result<(), E
 
   let result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", None, None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
+
   assert_eq!(result.len(), 1);
   let records = result.get("foo{1}").unwrap();
   let ids: Vec<String> = records.iter().map(|(id, _)| id.clone()).collect();
@@ -528,7 +537,9 @@ pub async fn should_xclaim_one_id(client: Client, _: Config) -> Result<(), Error
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(1), None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
+
   assert_eq!(result.len(), 1);
   assert_eq!(result.get("foo{1}").unwrap().len(), 1);
   let first_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
@@ -574,7 +585,9 @@ pub async fn should_xclaim_multiple_ids(client: Client, _: Config) -> Result<(),
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
+
   assert_eq!(result.len(), 1);
   assert_eq!(result.get("foo{1}").unwrap().len(), 2);
   let second_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
@@ -626,7 +639,9 @@ pub async fn should_xclaim_with_justid(client: Client, _: Config) -> Result<(), 
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
+
   assert_eq!(result.len(), 1);
   assert_eq!(result.get("foo{1}").unwrap().len(), 2);
   let second_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;
@@ -671,7 +686,9 @@ pub async fn should_xautoclaim_default(client: Client, _: Config) -> Result<(), 
 
   let mut result: XReadResponse<String, String, String, usize> = client
     .xreadgroup_map("group1", "consumer1", Some(2), None, false, "foo{1}", ">")
-    .await?;
+    .await?
+    .expect("Expected Some found None.");
+
   assert_eq!(result.len(), 1);
   assert_eq!(result.get("foo{1}").unwrap().len(), 2);
   let second_read_id = result.get_mut("foo{1}").unwrap().pop().unwrap().0;

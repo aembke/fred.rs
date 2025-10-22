@@ -28,7 +28,11 @@ async fn main() {
     let mut count = 0;
     loop {
       // call XREAD for new records in a loop, blocking up to 10 sec each time
-      let entry: XReadResponse<Str, Str, Str, Str> = client.xread_map(Some(1), Some(10_000), "foo", "$").await?;
+      // Note: _map return an Option in the result of an empty stream response.
+      let entry: XReadResponse<Str, Str, Str, Str> = client.xread_map(Some(1), Some(10_000), "foo", "$")
+        .await?
+        .expect("Expected Some found None."); 
+
       count += 1;
 
       for (key, records) in entry.into_iter() {
