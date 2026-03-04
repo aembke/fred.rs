@@ -65,7 +65,7 @@ trust-dns-resolver = ["dep:trust-dns-resolver"]
 unix-sockets = []
 credential-provider = []
 dynamic-pool = ["metrics"]
-tcp-user-timeouts = []
+tcp-user-timeouts = ["socket2/all"]
 
 # Enable experimental support for the Glommio runtime.
 glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]
