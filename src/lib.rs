@@ -75,6 +75,11 @@ pub mod types;
 
 mod runtime;
 
+/// Credential provider implementations for common authentication workflows.
+#[cfg(feature = "elasticache")]
+#[cfg_attr(docsrs, doc(cfg(feature = "elasticache")))]
+pub mod credential_providers;
+
 /// Various client utility functions.
 pub mod util {
   pub use crate::utils::{f64_to_string, static_bytes, static_str, string_to_f64};
