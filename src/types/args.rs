@@ -190,7 +190,7 @@ impl Key {
   }
 
   /// Read the key as a lossy UTF8 string with `String::from_utf8_lossy`.
-  pub fn as_str_lossy(&self) -> Cow<str> {
+  pub fn as_str_lossy(&self) -> Cow<'_, str> {
     String::from_utf8_lossy(&self.key)
   }
 
@@ -976,7 +976,7 @@ impl Value {
   /// Read the inner value as a string slice.
   ///
   /// Null is returned as `"nil"` and scalar values are cast to a string.
-  pub fn as_str(&self) -> Option<Cow<str>> {
+  pub fn as_str(&self) -> Option<Cow<'_, str>> {
     let s: Cow<str> = match *self {
       Value::Double(ref f) => Cow::Owned(f.to_string()),
       Value::Boolean(ref b) => Cow::Owned(b.to_string()),
@@ -995,7 +995,7 @@ impl Value {
   }
 
   /// Read the inner value as a string, using `String::from_utf8_lossy` on byte slices.
-  pub fn as_str_lossy(&self) -> Option<Cow<str>> {
+  pub fn as_str_lossy(&self) -> Option<Cow<'_, str>> {
     let s: Cow<str> = match *self {
       Value::Boolean(ref b) => Cow::Owned(b.to_string()),
       Value::Double(ref f) => Cow::Owned(f.to_string()),

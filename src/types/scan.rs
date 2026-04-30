@@ -44,7 +44,7 @@ pub trait Scanner {
   type Page;
 
   /// Read the cursor returned from the last scan operation.
-  fn cursor(&self) -> Option<Cow<str>>;
+  fn cursor(&self) -> Option<Cow<'_, str>>;
 
   /// Whether the scan call will continue returning results. If `false` this will be the last result set
   /// returned on the stream.
@@ -110,7 +110,7 @@ impl Drop for ScanResult {
 impl Scanner for ScanResult {
   type Page = Vec<Key>;
 
-  fn cursor(&self) -> Option<Cow<str>> {
+  fn cursor(&self) -> Option<Cow<'_, str>> {
     if let Some(ref state) = self.scan_state {
       state.args[state.cursor_idx].as_str()
     } else {
@@ -177,7 +177,7 @@ impl Drop for HScanResult {
 impl Scanner for HScanResult {
   type Page = Map;
 
-  fn cursor(&self) -> Option<Cow<str>> {
+  fn cursor(&self) -> Option<Cow<'_, str>> {
     if let Some(ref state) = self.scan_state {
       state.args[state.cursor_idx].as_str()
     } else {
@@ -244,7 +244,7 @@ impl Drop for SScanResult {
 impl Scanner for SScanResult {
   type Page = Vec<Value>;
 
-  fn cursor(&self) -> Option<Cow<str>> {
+  fn cursor(&self) -> Option<Cow<'_, str>> {
     if let Some(ref state) = self.scan_state {
       state.args[state.cursor_idx].as_str()
     } else {
@@ -311,7 +311,7 @@ impl Drop for ZScanResult {
 impl Scanner for ZScanResult {
   type Page = Vec<(Value, f64)>;
 
-  fn cursor(&self) -> Option<Cow<str>> {
+  fn cursor(&self) -> Option<Cow<'_, str>> {
     if let Some(ref state) = self.scan_state {
       state.args[state.cursor_idx].as_str()
     } else {
