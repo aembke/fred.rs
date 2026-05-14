@@ -40,3 +40,9 @@ mod dynamic_pool;
 #[cfg(feature = "dynamic-pool")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
 pub use dynamic_pool::DynamicPool;
+
+#[cfg(all(feature = "locker", not(feature = "glommio")))]
+mod locker;
+#[cfg(all(feature = "locker", not(feature = "glommio")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "locker")))]
+pub use locker::{LockGuard, Locker, LockerConfig};

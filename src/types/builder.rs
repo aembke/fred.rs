@@ -7,6 +7,8 @@ use crate::{
 
 #[cfg(not(feature = "glommio"))]
 use crate::clients::ExclusivePool;
+#[cfg(all(feature = "locker", not(feature = "glommio")))]
+use crate::clients::{Locker, LockerConfig};
 #[cfg(feature = "subscriber-client")]
 use crate::clients::SubscriberClient;
 #[cfg(feature = "dynamic-pool")]
@@ -283,6 +285,26 @@ impl Builder {
     } else {
       Err(Error::new(ErrorKind::Config, "Missing client configuration."))
     }
+  }
+
+  /// Create a new distributed lock manager. Returns a [`Locker`] wrapping a
+  /// fresh client built from this builder; the caller must connect the
+  /// underlying client and then call [`Locker::init`] before issuing
+  /// acquires.
+  ///
+  /// ```rust,no_run
+  /// # use fred::{clients::LockerConfig, prelude::*};
+  /// # async fn example() -> Result<(), Error> {
+  /// let locker = Builder::default_centralized().build_locker(LockerConfig::new())?;
+  /// locker.client().init().await?;
+  /// locker.init().await?;
+  /// # Ok(()) }
+  /// ```
+  #[cfg(all(feature = "locker", not(feature = "glommio")))]
+  #[cfg_attr(docsrs, doc(cfg(feature = "locker")))]
+  pub fn build_locker(&self, cfg: LockerConfig) -> Result<Locker, Error> {
+    let client = self.build()?;
+    Ok(Locker::from_client(cfg, client))
   }
 
   /// Create a new exclusive client pool.

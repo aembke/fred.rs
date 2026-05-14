@@ -391,6 +391,17 @@ mod tracking {
   centralized_test!(tracking, should_invalidate_foo_resp2_centralized);
 }
 
+#[cfg(all(feature = "locker", not(feature = "glommio")))]
+mod locker {
+  centralized_test!(locker, should_acquire_and_release);
+  centralized_test!(locker, should_try_acquire_returns_not_found_when_held);
+  centralized_test!(locker, should_wait_until_holder_releases);
+  centralized_test!(locker, should_auto_extend_past_validity);
+  centralized_test!(locker, should_signal_cancelled_on_force_takeover);
+  centralized_test!(locker, should_rearm_tracking_after_reconnect);
+  centralized_test!(locker, should_cancel_outstanding_guards_on_close);
+}
+
 // The CI settings for redis-stack only support centralized configs for now.
 #[cfg(feature = "i-redis-json")]
 mod redis_json {

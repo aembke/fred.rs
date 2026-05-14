@@ -1,3 +1,10 @@
+## Unreleased
+
+* Add `clients::Locker` distributed-lock interface behind a new `locker`
+  feature, with automatic lease extension and RESP3 client-tracking
+  invalidation pushes for fast loss detection. Builder integration via
+  `Builder::build_locker`.
+
 ## 10.1.0
 
 * Add `DynamicPool` interface

@@ -406,6 +406,17 @@ mod tracking {
   cluster_test!(tracking, should_invalidate_foo_resp3);
 }
 
+#[cfg(all(feature = "locker", not(feature = "glommio")))]
+mod locker {
+  cluster_test!(locker, should_acquire_and_release);
+  cluster_test!(locker, should_try_acquire_returns_not_found_when_held);
+  cluster_test!(locker, should_wait_until_holder_releases);
+  cluster_test!(locker, should_auto_extend_past_validity);
+  cluster_test!(locker, should_signal_cancelled_on_force_takeover);
+  cluster_test!(locker, should_rearm_tracking_after_reconnect);
+  cluster_test!(locker, should_cancel_outstanding_guards_on_close);
+}
+
 #[cfg(feature = "i-time-series")]
 mod timeseries {
   cluster_test!(timeseries, should_ts_add_get_and_range);

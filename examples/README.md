@@ -23,6 +23,8 @@ Examples
 * [DNS](./dns.rs) - Customize the DNS resolution logic.
 * [Client Tracking](./client_tracking.rs) -
   Implement [client side caching](https://redis.io/docs/manual/client-side-caching/).
+* [Locker](./locker.rs) - Acquire a distributed lock with automatic lease extension and RESP3
+  invalidation-driven loss detection.
 * [Events](./events.rs) - Respond to connection events with the `EventsInterface`.
 * [Keyspace Notifications](./keyspace.rs) - Use
   the [keyspace notifications](https://redis.io/docs/manual/keyspace-notifications/) interface.

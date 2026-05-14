@@ -47,6 +47,8 @@ mod streams;
 mod timeseries;
 #[cfg(feature = "i-tracking")]
 mod tracking;
+#[cfg(all(feature = "locker", not(feature = "glommio")))]
+mod locker;
 
 #[cfg(not(feature = "mocks"))]
 pub mod centralized;

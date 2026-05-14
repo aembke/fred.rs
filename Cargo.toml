@@ -36,7 +36,8 @@ features = [
     "full-tracing",
     "credential-provider",
     "dynamic-pool",
-    "tcp-user-timeouts"
+    "tcp-user-timeouts",
+    "locker"
 ]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -66,6 +67,10 @@ unix-sockets = []
 credential-provider = []
 dynamic-pool = ["metrics"]
 tcp-user-timeouts = []
+
+# `clients::Locker` — distributed locks with auto-extension and RESP3
+# invalidation-driven loss detection (Rust port of Go's `rueidislock`).
+locker = ["i-keys", "i-scripts", "i-tracking", "sha-1"]
 
 # Enable experimental support for the Glommio runtime.
 glommio = ["dep:glommio", "futures-io", "pin-project", "fred-macros/enabled", "oneshot", "futures-lite"]
@@ -289,3 +294,7 @@ required-features = ["tokio-stream/sync", "i-std"]
 [[example]]
 name = "transactions"
 required-features = ["transactions", "i-std"]
+
+[[example]]
+name = "locker"
+required-features = ["locker", "i-std"]
