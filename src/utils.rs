@@ -388,14 +388,11 @@ pub fn prepare_command<C: ClientLike>(client: &C, command: &mut Command) -> Dura
 }
 
 /// Send a command to the server using the default response handler.
-pub async fn basic_request_response<C, F, R>(client: &C, func: F) -> Result<Resp3Frame, Error>
+pub async fn basic_request_response<C>(client: &C, mut command: Command) -> Result<Resp3Frame, Error>
 where
   C: ClientLike,
-  R: Into<Command>,
-  F: FnOnce() -> Result<R, Error>,
 {
   let inner = client.inner();
-  let mut command: Command = func()?.into();
   let (tx, rx) = oneshot_channel();
   command.response = ResponseKind::Respond(Some(tx));
 
@@ -433,7 +430,8 @@ where
 {
   let inner = client.inner();
   if !inner.should_trace() {
-    return basic_request_response(client, func).await;
+    let command = func()?.into();
+    return basic_request_response(client, command).await;
   }
 
   let cmd_span = trace::create_command_span(inner);
@@ -493,7 +491,8 @@ where
   R: Into<Command>,
   F: FnOnce() -> Result<R, Error>,
 {
-  basic_request_response(client, func).await
+  let command = func()?.into();
+  basic_request_response(client, command).await
 }
 
 /// Send a command on the backchannel connection.
