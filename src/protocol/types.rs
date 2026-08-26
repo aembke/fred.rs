@@ -23,8 +23,11 @@ use std::{
   convert::TryInto,
   fmt::{Display, Formatter},
   hash::{Hash, Hasher},
-  net::{SocketAddr, ToSocketAddrs},
+  net::SocketAddr,
 };
+
+#[cfg(not(feature = "cloudflare"))]
+use std::net::ToSocketAddrs;
 
 #[cfg(any(
   feature = "enable-rustls",
@@ -685,7 +688,7 @@ impl Resolve for DefaultResolver {
 /// A trait that can be used to override DNS resolution logic.
 ///
 /// Note: currently this requires [async-trait](https://crates.io/crates/async-trait).
-#[cfg(not(feature = "glommio"))]
+#[cfg(feature = "cloudflare")]
 #[async_trait]
 #[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
 pub trait Resolve: Send + Sync + 'static {
@@ -693,7 +696,26 @@ pub trait Resolve: Send + Sync + 'static {
   async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>>;
 }
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(feature = "cloudflare")]
+#[async_trait]
+impl Resolve for DefaultResolver {
+  async fn resolve(&self, _host: Str, port: u16) -> FredResult<Vec<SocketAddr>> {
+    Ok(vec![SocketAddr::from(([0, 0, 0, 0], port))])
+  }
+}
+
+/// A trait that can be used to override DNS resolution logic.
+///
+/// Note: currently this requires [async-trait](https://crates.io/crates/async-trait).
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
+#[async_trait]
+#[cfg_attr(docsrs, doc(cfg(feature = "dns")))]
+pub trait Resolve: Send + Sync + 'static {
+  /// Resolve a hostname.
+  async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>>;
+}
+
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 #[async_trait]
 impl Resolve for DefaultResolver {
   async fn resolve(&self, host: Str, port: u16) -> FredResult<Vec<SocketAddr>> {

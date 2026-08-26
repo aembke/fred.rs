@@ -18,7 +18,7 @@ use futures::Future;
 use std::collections::HashMap;
 
 /// Functions that implement the [client](https://redis.io/commands#connection) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait ClientInterface: ClientLike + Sized {
   /// Return the ID of the current connection.
   ///

@@ -158,7 +158,7 @@ impl RediSearchInterface for SubscriberClient {}
 
 #[cfg(feature = "i-pubsub")]
 #[cfg_attr(docsrs, doc(cfg(feature = "i-pubsub")))]
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 impl PubsubInterface for SubscriberClient {
   fn subscribe<S>(&self, channels: S) -> impl Future<Output = FredResult<()>> + Send
   where

@@ -8,7 +8,7 @@ pub use options::WithOptions;
 pub use pipeline::Pipeline;
 pub use pool::Pool;
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 pub use pool::ExclusivePool;
 
 #[cfg(feature = "sentinel-client")]

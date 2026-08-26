@@ -10,7 +10,7 @@ use futures::Future;
 use std::{convert::TryInto, net::IpAddr};
 
 /// Functions that implement the [sentinel](https://redis.io/topics/sentinel#sentinel-commands) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait SentinelInterface: ClientLike + Sized {
   /// Check if the current Sentinel configuration is able to reach the quorum needed to failover a master, and the
   /// majority needed to authorize the failover.

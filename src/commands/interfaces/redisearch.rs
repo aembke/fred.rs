@@ -24,7 +24,7 @@ use std::future::Future;
 
 /// A [RediSearch](https://github.com/RediSearch/RediSearch) interface.
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait RediSearchInterface: ClientLike + Sized {
   /// Returns a list of all existing indexes.
   ///

@@ -73,7 +73,7 @@ pub(crate) fn send_to_router(inner: &RefCount<ClientInner>, command: RouterComma
 }
 
 /// Functions that provide a connection heartbeat interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait HeartbeatInterface: ClientLike {
   /// Return a future that will ping the server on an interval.
   #[allow(unreachable_code)]
@@ -101,7 +101,7 @@ pub trait HeartbeatInterface: ClientLike {
 }
 
 /// Functions for authenticating clients.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait AuthInterface: ClientLike {
   /// Request for authentication in a password-protected server. Returns ok if successful.
   ///
@@ -139,7 +139,7 @@ pub trait AuthInterface: ClientLike {
 /// An interface that exposes various client and connection events.
 ///
 /// Calling [quit](crate::interfaces::ClientLike::quit) will close all event streams.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait EventInterface: ClientLike {
   /// Spawn a task that runs the provided function on each publish-subscribe message.
   ///

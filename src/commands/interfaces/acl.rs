@@ -9,7 +9,7 @@ use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [ACL](https://redis.io/commandserver) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait AclInterface: ClientLike + Sized {
   /// Create an ACL user with the specified rules or modify the rules of an existing user.
   ///

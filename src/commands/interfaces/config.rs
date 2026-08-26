@@ -10,7 +10,7 @@ use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [config](https://redis.io/commands#server) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait ConfigInterface: ClientLike + Sized {
   /// Resets the statistics reported by Redis using the INFO command.
   ///

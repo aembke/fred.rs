@@ -10,7 +10,7 @@ use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the generic [keys](https://redis.io/commands#generic) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait KeysInterface: ClientLike + Sized {
   /// Marks the given keys to be watched for conditional execution of a transaction.
   ///

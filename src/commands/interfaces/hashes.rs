@@ -12,7 +12,7 @@ use std::convert::TryInto;
 use crate::types::ExpireOptions;
 
 /// Functions that implement the [hashes](https://redis.io/commands#hashes) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait HashesInterface: ClientLike + Sized {
   /// Returns all fields and values of the hash stored at `key`.
   ///

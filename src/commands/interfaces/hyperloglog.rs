@@ -9,7 +9,7 @@ use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [HyperLogLog](https://redis.io/commands#hyperloglog) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait HyperloglogInterface: ClientLike + Sized {
   /// Adds all the element arguments to the HyperLogLog data structure stored at the variable name specified as first
   /// argument.

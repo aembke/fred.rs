@@ -5,6 +5,7 @@ use crate::{
   types::{ClusterHash, RespVersion},
   utils,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use socket2::TcpKeepalive;
 use std::{cmp, fmt::Debug, time::Duration};
 use url::Url;
@@ -309,7 +310,10 @@ pub struct TcpConfig {
   /// Set the [IP_TTL](https://docs.rs/tokio/latest/tokio/net/struct.TcpStream.html#method.set_ttl) value.
   pub ttl:          Option<u32>,
   /// Set the [TCP keepalive values](https://docs.rs/socket2/latest/socket2/struct.Socket.html#method.set_tcp_keepalive).
+  #[cfg(not(target_arch = "wasm32"))]
   pub keepalive:    Option<TcpKeepalive>,
+  #[cfg(target_arch = "wasm32")]
+  pub keepalive:    Option<()>, 
   /// Set the [TCP_USER_TIMEOUT](https://docs.rs/socket2/latest/x86_64-unknown-linux-gnu/socket2/struct.Socket.html#method.set_tcp_user_timeout) value.
   #[cfg(all(
     feature = "tcp-user-timeouts",
@@ -1460,7 +1464,7 @@ impl Options {
 #[cfg(feature = "dynamic-pool")]
 #[cfg_attr(docsrs, doc(cfg(feature = "dynamic-pool")))]
 #[async_trait]
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait PoolScale: Debug + Send + Sync {
   /// Return the amount of clients that should be added or removed from the pool.
   ///

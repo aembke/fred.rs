@@ -10,7 +10,7 @@ use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [pubsub](https://redis.io/commands#pubsub) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait PubsubInterface: ClientLike + Sized + Send {
   /// Subscribe to a channel on the publish-subscribe interface.
   ///

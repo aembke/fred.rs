@@ -41,6 +41,7 @@ pub extern crate rustls;
 pub extern crate rustls_native_certs;
 #[cfg(feature = "serde-json")]
 pub extern crate serde_json;
+#[cfg(not(target_arch = "wasm32"))]
 pub extern crate socket2;
 #[cfg(feature = "partial-tracing")]
 #[cfg_attr(docsrs, doc(cfg(feature = "partial-tracing")))]

@@ -8,7 +8,7 @@ use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [server](https://redis.io/commands#server) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait ServerInterface: ClientLike {
   /// Instruct Redis to start an Append Only File rewrite process.
   ///

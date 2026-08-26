@@ -18,7 +18,7 @@ use fred_macros::rm_send_if;
 use futures::future::{join_all, try_join_all};
 use std::{fmt, future::Future, time::Duration};
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 pub use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 struct PoolInner {
@@ -164,7 +164,7 @@ impl Pool {
   }
 }
 
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 impl ClientLike for Pool {
   #[doc(hidden)]
   fn inner(&self) -> &RefCount<ClientInner> {
@@ -310,7 +310,7 @@ impl ClientLike for Pool {
   }
 }
 
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 impl HeartbeatInterface for Pool {
   fn enable_heartbeat(
     &self,
@@ -395,7 +395,7 @@ impl TimeSeriesInterface for Pool {}
 #[cfg_attr(docsrs, doc(cfg(feature = "i-redisearch")))]
 impl RediSearchInterface for Pool {}
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 struct ExclusivePoolInner {
   clients: Vec<RefCount<AsyncMutex<Client>>>,
   counter: AtomicUsize,
@@ -458,13 +458,13 @@ struct ExclusivePoolInner {
 /// ```
 ///
 /// Callers should avoid cloning the inner clients, if possible.
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 #[derive(Clone)]
 pub struct ExclusivePool {
   inner: RefCount<ExclusivePoolInner>,
 }
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 impl fmt::Debug for ExclusivePool {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
     f.debug_struct("ExclusivePool")
@@ -473,7 +473,7 @@ impl fmt::Debug for ExclusivePool {
   }
 }
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 impl ExclusivePool {
   /// Create a new pool without connecting to the server.
   ///
@@ -533,7 +533,7 @@ impl ExclusivePool {
   /// See [init](Self::init) for an alternative shorthand.
   pub async fn connect(&self) -> ConnectHandle {
     let tasks = self.connect_pool().await;
-    tokio::spawn(async move {
+    crate::runtime::spawn(async move {
       for result in join_all(tasks).await.into_iter() {
         result??;
       }

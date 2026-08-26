@@ -8,7 +8,7 @@ use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [memory](https://redis.io/commands#server) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait MemoryInterface: ClientLike + Sized {
   /// The MEMORY DOCTOR command reports about different memory-related issues that the Redis server experiences, and
   /// advises about possible remedies.

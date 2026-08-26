@@ -20,7 +20,7 @@ use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [lists](https://redis.io/commands#lists) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait ListInterface: ClientLike + Sized {
   /// The blocking variant of [Self::lmpop].
   ///

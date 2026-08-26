@@ -9,7 +9,7 @@ use futures::Future;
 use std::convert::TryInto;
 
 /// Functions that implement the [sets](https://redis.io/commands#set) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait SetsInterface: ClientLike + Sized {
   /// Add the specified members to the set stored at `key`.
   ///

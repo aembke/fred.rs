@@ -32,21 +32,54 @@ use tokio::sync::mpsc::{
   UnboundedReceiver,
   UnboundedSender,
 };
-pub use tokio::{
-  spawn,
-  sync::{
-    broadcast::{
-      self,
-      error::SendError as BroadcastSendError,
-      Receiver as BroadcastReceiver,
-      Sender as BroadcastSender,
-    },
-    oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender},
-    RwLock as AsyncRwLock,
+pub use tokio::sync::{
+  broadcast::{
+    self,
+    error::SendError as BroadcastSendError,
+    Receiver as BroadcastReceiver,
+    Sender as BroadcastSender,
   },
-  task::JoinHandle,
-  time::sleep,
+  oneshot::{channel as oneshot_channel, Receiver as OneshotReceiver, Sender as OneshotSender},
+  RwLock as AsyncRwLock,
 };
+
+#[cfg(not(feature = "cloudflare"))]
+pub use tokio::{spawn, task::JoinHandle, time::sleep};
+
+#[cfg(feature = "cloudflare")]
+pub async fn sleep(duration: std::time::Duration) {
+  worker::Delay::from(duration).await;
+}
+
+#[cfg(feature = "cloudflare")]
+pub struct JoinHandle<T> {
+  rx: OneshotReceiver<T>,
+}
+
+#[cfg(feature = "cloudflare")]
+impl<T> std::future::Future for JoinHandle<T> {
+  type Output = Result<T, Error>;
+
+  fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    std::pin::Pin::new(&mut self.rx)
+      .poll(cx)
+      .map_err(|e| Error::new(crate::error::ErrorKind::Unknown, format!("Task canceled: {e}")))
+  }
+}
+
+#[cfg(feature = "cloudflare")]
+pub fn spawn<F>(fut: F) -> JoinHandle<F::Output>
+where
+  F: std::future::Future + 'static,
+  F::Output: 'static,
+{
+  let (tx, rx) = oneshot_channel();
+  wasm_bindgen_futures::spawn_local(async move {
+    let res = fut.await;
+    let _ = tx.send(res);
+  });
+  JoinHandle { rx }
+}
 use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 
 #[cfg(feature = "dynamic-pool")]
@@ -296,7 +329,7 @@ pub trait ClientLike: Clone + Send + Sync + Sized {
     let inner = self.inner().clone();
     utils::reset_router_task(&inner);
 
-    tokio::spawn(async move {
+    spawn(async move {
       inner.backchannel.clear_router_state(&inner).await;
       let result = router_commands::start(&inner).await;
       // a canceled error means we intentionally closed the client
@@ -479,7 +512,7 @@ where
   Fut: Future<Output = FredResult<()>> + Send + 'static,
   F: Fn(T) -> Fut + Send + 'static,
 {
-  tokio::spawn(async move {
+  spawn(async move {
     let mut result = Ok(());
 
     while let Ok(val) = rx.recv().await {

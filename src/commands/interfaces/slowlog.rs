@@ -7,7 +7,7 @@ use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [slowlog](https://redis.io/commands#server) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait SlowlogInterface: ClientLike + Sized {
   /// This command is used to read the slow queries log.
   ///

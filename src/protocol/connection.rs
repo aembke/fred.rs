@@ -33,17 +33,22 @@ use std::{
 };
 use tokio_util::codec::Framed;
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(all(not(feature = "glommio"), not(feature = "cloudflare")))]
 use socket2::SockRef;
+
+#[cfg(feature = "cloudflare")]
+use worker::Socket as BaseTcpStream;
+#[cfg(feature = "cloudflare")]
+pub type TcpStream = BaseTcpStream;
 
 #[cfg(feature = "glommio")]
 use glommio::net::TcpStream as BaseTcpStream;
 #[cfg(feature = "glommio")]
 pub type TcpStream = crate::runtime::glommio::io_compat::TokioIO<BaseTcpStream>;
 
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 use tokio::net::TcpStream;
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 use tokio::net::TcpStream as BaseTcpStream;
 
 #[cfg(feature = "unix-sockets")]
@@ -74,6 +79,30 @@ pub const CONNECTION_CLOSE_TIMEOUT_MS: u64 = 5_000;
 pub const INITIAL_BUFFER_SIZE: usize = 64;
 
 /// Connect to each socket addr and return the first successful connection.
+#[cfg(feature = "cloudflare")]
+async fn tcp_connect_any(
+  inner: &RefCount<ClientInner>,
+  server: &Server,
+  _addrs: &Vec<SocketAddr>,
+) -> Result<(TcpStream, SocketAddr), Error> {
+  _debug!(
+    inner,
+    "Creating Cloudflare TCP connection to {}:{}",
+    server.host,
+    server.port
+  );
+  let socket = worker::Socket::builder()
+    .connect(server.host.to_string(), server.port)
+    .map_err(|e| Error::new(ErrorKind::IO, format!("worker connect error: {e}")))?;
+  socket
+    .opened()
+    .await
+    .map_err(|e| Error::new(ErrorKind::IO, format!("worker socket open error: {e}")))?;
+  let addr = SocketAddr::from(([0, 0, 0, 0], server.port));
+  Ok((socket, addr))
+}
+
+#[cfg(not(feature = "cloudflare"))]
 async fn tcp_connect_any(
   inner: &RefCount<ClientInner>,
   server: &Server,

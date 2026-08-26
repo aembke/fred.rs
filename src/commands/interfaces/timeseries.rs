@@ -23,7 +23,7 @@ use futures::Future;
 
 /// A [Redis Timeseries](https://github.com/RedisTimeSeries/RedisTimeSeries/) interface.
 #[cfg_attr(docsrs, doc(cfg(feature = "i-time-series")))]
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait TimeSeriesInterface: ClientLike {
   /// Append a sample to a time series.
   ///

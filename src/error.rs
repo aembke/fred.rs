@@ -239,7 +239,7 @@ impl From<Canceled> for Error {
 }
 
 #[doc(hidden)]
-#[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 impl From<tokio::task::JoinError> for Error {
   fn from(e: tokio::task::JoinError) -> Self {
     Error::new(ErrorKind::Unknown, format!("Spawn Error: {:?}", e))
@@ -255,7 +255,7 @@ impl<T: fmt::Debug> From<glommio::GlommioError<T>> for Error {
 }
 
 #[doc(hidden)]
-#[cfg(feature = "glommio")]
+#[cfg(any(feature = "glommio", feature = "cloudflare"))]
 impl From<oneshot::RecvError> for Error {
   fn from(_: oneshot::RecvError) -> Self {
     Error::new_canceled()

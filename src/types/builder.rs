@@ -6,6 +6,7 @@ use crate::{
 };
 
 #[cfg(not(feature = "glommio"))]
+#[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
 use crate::clients::ExclusivePool;
 #[cfg(feature = "subscriber-client")]
 use crate::clients::SubscriberClient;
@@ -286,7 +287,7 @@ impl Builder {
   }
 
   /// Create a new exclusive client pool.
-  #[cfg(not(feature = "glommio"))]
+  #[cfg(not(any(feature = "glommio", feature = "cloudflare")))]
   pub fn build_exclusive_pool(&self, size: usize) -> Result<ExclusivePool, Error> {
     if let Some(config) = self.config.as_ref() {
       ExclusivePool::new(

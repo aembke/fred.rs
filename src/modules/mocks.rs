@@ -44,7 +44,7 @@ pub struct MockCommand {
 
 /// An interface for intercepting and processing commands in a mocking layer.
 #[allow(unused_variables)]
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait Mocks: Debug + Send + Sync + 'static {
   /// Intercept and process a command, returning any `Value`.
   ///

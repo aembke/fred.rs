@@ -15,7 +15,7 @@ use fred_macros::rm_send_if;
 use futures::Future;
 
 /// Functions that implement the [cluster](https://redis.io/commands#cluster) interface.
-#[rm_send_if(feature = "glommio")]
+#[rm_send_if(any(feature = "glommio", feature = "cloudflare"))]
 pub trait ClusterInterface: ClientLike + Sized {
   /// Read the cached cluster state used for routing commands to the correct cluster nodes.
   fn cached_cluster_state(&self) -> Option<ClusterRouting> {
