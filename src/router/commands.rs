@@ -81,7 +81,17 @@ async fn create_replica_connection(
     // connection does not exist
     _debug!(inner, "Failed to route command to replica. Deferring reconnection...");
     let err = Error::new(ErrorKind::Routing, "Failed to route command.");
-    command.attempts_remaining += 1;
+    // note: unlike the four branches above, this one deliberately does not restore the attempt that
+    // `write_command` consumed via `decr_check_attempted`. Those hand the command back over the
+    // router's mpsc channel, where `poll_proceed` eventually returns `Pending` once the coop budget
+    // is spent, so an unbounded retry there still lets the runtime make progress. This one hands the
+    // command to `finish_or_retry_command`, which pushes it onto `Router::retry_buffer` -- drained by
+    // the `while let .. pop_front()` loop in `Router::retry_buffer`. Restoring the attempt makes
+    // `attempts_remaining` net-zero across a pass, so the `== 0` arm of `finish_or_retry_command`
+    // never runs and that loop pops the same command forever. Nothing on the path polls a tokio
+    // resource, so its `write_command` await never returns `Pending`, and the loop's `timed_out`
+    // check cannot break the cycle either: setting that flag needs a timer, and a worker spinning
+    // here never returns to the scheduler for one to fire.
     finish_or_retry_command(router, command, &err);
     utils::defer_reconnection(inner, router, None, err, false)?;
     Ok(())
