@@ -408,35 +408,6 @@ pub async fn reconnect_with_policy(inner: &RefCount<ClientInner>, router: &mut R
   Ok(())
 }
 
-#[cfg(feature = "replicas")]
-pub async fn add_replica_with_policy(
-  inner: &RefCount<ClientInner>,
-  router: &mut Router,
-  primary: &Server,
-  replica: &Server,
-) -> Result<(), Error> {
-  loop {
-    let result = router
-      .replicas
-      .add_connection(inner, primary.clone(), replica.clone(), true)
-      .await;
-
-    if let Err(err) = result {
-      let delay = match next_reconnection_delay(inner) {
-        Ok(dur) => dur,
-        Err(_) => return Err(err),
-      };
-
-      read_and_sleep(inner, router, delay).await?;
-    } else {
-      break;
-    }
-  }
-
-  inner.reset_reconnection_attempts();
-  Ok(())
-}
-
 /// Send `ASKING` to the provided server, reconnecting as needed.
 pub async fn send_asking_with_policy(
   inner: &RefCount<ClientInner>,
@@ -505,41 +476,34 @@ async fn sync_cluster_replicas(inner: &RefCount<ClientInner>, router: &mut Route
   }
 }
 
-/// Repeatedly try to sync the cluster state, reconnecting as needed until the max reconnection attempts is reached.
+/// Try once to sync the replica state.
+///
+/// Deliberately one attempt, where this used to loop on the reconnection policy. The router task is
+/// the only task that reads the command channel, and it is sitting in this await, so retrying here
+/// stalls every queued command -- including commands routed to a healthy primary. A replica that
+/// accepts TCP but never answers makes each attempt cost `internal_command_timeout`, and with
+/// `ReconnectPolicy`'s documented `max_attempts: 0` (unlimited) the loop had no exit at all.
+///
+/// A transient error is now reported to the caller instead of retried. The next cluster sync tries
+/// again, so a replica that is merely slow to come back is still picked up.
 #[cfg(feature = "replicas")]
-pub async fn sync_replicas_with_policy(
+pub async fn sync_replicas_once(
   inner: &RefCount<ClientInner>,
   router: &mut Router,
   reset: bool,
 ) -> Result<(), Error> {
-  let mut delay = Duration::from_millis(0);
+  if let Err(err) = sync_cluster_replicas(inner, router, reset).await {
+    _warn!(inner, "Error syncing replicas: {:?}", err);
 
-  loop {
-    if !delay.is_zero() {
-      _debug!(inner, "Sleeping for {} ms.", delay.as_millis());
-      read_and_sleep(inner, router, delay).await?;
-    }
-
-    if let Err(e) = sync_cluster_replicas(inner, router, reset).await {
-      _warn!(inner, "Error syncing replicas: {:?}", e);
-
-      if e.should_not_reconnect() {
-        break;
-      } else {
-        // return the underlying error on the last attempt
-        delay = match next_reconnection_delay(inner) {
-          Ok(delay) => delay,
-          Err(_) => return Err(e),
-        };
-
-        continue;
-      }
+    // an error the policy would never have retried was swallowed before, and callers depend on that
+    if err.should_not_reconnect() {
+      Ok(())
     } else {
-      break;
+      Err(err)
     }
+  } else {
+    Ok(())
   }
-
-  Ok(())
 }
 
 /// Wait for `inner.connection.cluster_cache_update_delay`.

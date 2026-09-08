@@ -44,7 +44,27 @@ async fn create_replica_connection(
       },
     };
 
-    if let Err(err) = utils::add_replica_with_policy(inner, router, &primary, &replica).await {
+    // note: a single attempt, deliberately, where this used to loop on the reconnection policy.
+    // The router task is the only task that reads the command channel, and it is sitting in this
+    // await, so every queued command waits here too -- including commands routed to a primary that
+    // is perfectly healthy. A replica that accepts TCP but never answers (a frozen container, a
+    // blackholed route) therefore blocks the entire client inside `Replicas::add_connection`, which
+    // hands `transport.setup` a `None` timeout and so waits `internal_command_timeout`.
+    //
+    // Looping made that unbounded rather than merely slow. `ReconnectPolicy` documents
+    // `max_attempts: 0` as unlimited, so `next_reconnection_delay` never returned `Err`, the loop
+    // never exited, and the fallback immediately below -- `ignore_reconnection_errors`, on by
+    // default, whose whole purpose is to serve the command from the primary instead -- was
+    // unreachable. Returning the error is what makes it reachable.
+    //
+    // Nothing is lost by not retrying here. This is the `lazy_connections` path, so the next
+    // command routed to a replica arrives back here and tries again, and every cluster sync calls
+    // `Router::refresh_replica_routing` to rebuild the routing table the retry needs. The global
+    // reconnection counter is left alone on purpose -- spending it here would drain the budget the
+    // primary connection shares, and resetting it on success would mask earlier primary failures.
+    let attempt = router.replicas.add_connection(inner, primary, replica, true).await;
+
+    if let Err(err) = attempt {
       if inner.connection.replica.ignore_reconnection_errors {
         _warn!(
           inner,
@@ -81,7 +101,17 @@ async fn create_replica_connection(
     // connection does not exist
     _debug!(inner, "Failed to route command to replica. Deferring reconnection...");
     let err = Error::new(ErrorKind::Routing, "Failed to route command.");
-    command.attempts_remaining += 1;
+    // note: unlike the four branches above, this one deliberately does not restore the attempt that
+    // `write_command` consumed via `decr_check_attempted`. Those hand the command back over the
+    // router's mpsc channel, where `poll_proceed` eventually returns `Pending` once the coop budget
+    // is spent, so an unbounded retry there still lets the runtime make progress. This one hands the
+    // command to `finish_or_retry_command`, which pushes it onto `Router::retry_buffer` -- drained by
+    // the `while let .. pop_front()` loop in `Router::retry_buffer`. Restoring the attempt makes
+    // `attempts_remaining` net-zero across a pass, so the `== 0` arm of `finish_or_retry_command`
+    // never runs and that loop pops the same command forever. Nothing on the path polls a tokio
+    // resource, so its `write_command` await never returns `Pending`, and the loop's `timed_out`
+    // check cannot break the cycle either: setting that flag needs a timer, and a worker spinning
+    // here never returns to the scheduler for one to fire.
     finish_or_retry_command(router, command, &err);
     utils::defer_reconnection(inner, router, None, err, false)?;
     Ok(())
@@ -327,7 +357,7 @@ async fn process_replica_reconnect(
 
   #[allow(unused_mut)]
   if replica {
-    let result = utils::sync_replicas_with_policy(inner, router, false).await;
+    let result = utils::sync_replicas_once(inner, router, false).await;
     if let Some(mut tx) = tx {
       let _ = tx.send(result.map(|_| Resp3Frame::Null));
     }
@@ -396,7 +426,7 @@ async fn process_sync_replicas(
   mut tx: OneshotSender<Result<(), Error>>,
   reset: bool,
 ) -> Result<(), Error> {
-  let result = utils::sync_replicas_with_policy(inner, router, reset).await;
+  let result = utils::sync_replicas_once(inner, router, reset).await;
   let _ = tx.send(result);
   Ok(())
 }
