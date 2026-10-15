@@ -5,6 +5,7 @@ pub mod connection;
 #[cfg(feature = "network-logs")]
 pub mod debug;
 pub mod hashers;
+pub mod resp_scan;
 pub mod responders;
 /// TLS configuration types.
 #[cfg(any(

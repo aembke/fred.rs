@@ -2,6 +2,7 @@ use crate::{
   error::{Error, ErrorKind},
   modules::inner::ClientInner,
   protocol::{
+    resp_scan::{RespScan, Scan},
     types::{ProtocolFrame, Server},
     utils as protocol_utils,
   },
@@ -187,6 +188,8 @@ pub struct Codec {
   pub server:          Server,
   pub resp3:           RefCount<AtomicBool>,
   pub streaming_state: Option<StreamedFrame<Resp3Frame>>,
+  /// How far the current partial frame has been scanned.
+  pub resp_scan:       RespScan,
   #[cfg(feature = "metrics")]
   pub req_size_stats:  RefCount<RwLock<MovingStats>>,
   #[cfg(feature = "metrics")]
@@ -200,6 +203,7 @@ impl Codec {
       name:                                       inner.id.clone(),
       resp3:                                      inner.shared_resp3(),
       streaming_state:                            None,
+      resp_scan:                                  RespScan::default(),
       #[cfg(feature = "metrics")]
       req_size_stats:                             inner.req_size_stats.clone(),
       #[cfg(feature = "metrics")]
@@ -228,6 +232,12 @@ impl Decoder for Codec {
   type Item = ProtocolFrame;
 
   fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    // Only run the (stateless, from byte 0) decoders once a whole frame is buffered.
+    if self.resp_scan.advance(src) == Scan::Incomplete {
+      return Ok(None);
+    }
+    self.resp_scan.reset();
+
     if self.is_resp3() {
       resp3_decode_frame(self, src).map(|f| f.map(|f| f.into()))
     } else {
