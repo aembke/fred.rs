@@ -1,13 +1,7 @@
 use crate::{
   error::{Error, ErrorKind},
-  interfaces,
   modules::inner::ClientInner,
-  protocol::{
-    command::{Command, RouterCommand},
-    connection::Connection,
-    types::*,
-    utils as protocol_utils,
-  },
+  protocol::{command::Command, connection::Connection, types::*, utils as protocol_utils},
   router::{centralized, clustered, responses, Counters, ReconnectServer, Router},
   runtime::RefCount,
   types::*,
@@ -115,12 +109,14 @@ pub async fn write_command(
   }
 }
 
+/// Defer a reconnection to the provided server, or to all servers if `None`, until after the current command or
+/// response is processed.
 pub fn defer_reconnection(
   inner: &RefCount<ClientInner>,
   router: &mut Router,
   server: Option<&Server>,
   error: Error,
-  _replica: bool,
+  replica: bool,
 ) -> Result<(), Error> {
   if !inner.should_reconnect() || error.should_not_reconnect() {
     return Err(error);
@@ -128,24 +124,16 @@ pub fn defer_reconnection(
 
   if router.has_pending_reconnection(&server) {
     _debug!(inner, "Skip defer reconnection.");
-    Ok(())
   } else {
-    // keep track of pending reconnection commands to dedup them before they're sent
-    if let Some(server) = server {
-      router.pending_reconnection.insert(ReconnectServer::One(server.clone()));
-    } else {
-      router.pending_reconnection.insert(ReconnectServer::All);
-    };
     _debug!(inner, "Defer reconnection to {:?} after {:?}", server, error);
-
-    interfaces::send_to_router(inner, RouterCommand::Reconnect {
-      server:                               server.cloned(),
-      force:                                false,
-      tx:                                   None,
-      #[cfg(feature = "replicas")]
-      replica:                              _replica,
-    })
+    let server = match server {
+      Some(server) => ReconnectServer::One(server.clone()),
+      None => ReconnectServer::All,
+    };
+    router.pending_reconnection.insert(server, replica);
   }
+
+  Ok(())
 }
 
 /// Filter the shared buffer, removing commands that reached the max number of attempts and responding to each caller

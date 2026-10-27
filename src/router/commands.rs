@@ -2,7 +2,7 @@ use crate::{
   error::{Error, ErrorKind},
   modules::inner::{ClientInner, CommandReceiver},
   protocol::command::{Command, CommandKind, ResponseSender, RouterCommand},
-  router::{clustered, utils, Router},
+  router::{clustered, utils, ReconnectServer, Router},
   runtime::{sleep, OneshotSender, RefCount},
   types::{
     config::{Blocking, Server},
@@ -13,6 +13,10 @@ use crate::{
   utils as client_utils,
 };
 use redis_protocol::resp3::types::BytesFrame as Resp3Frame;
+use std::{
+  mem,
+  ops::{Deref, DerefMut},
+};
 use tokio::pin;
 
 #[cfg(feature = "replicas")]
@@ -450,12 +454,56 @@ async fn process_command(
   }
 }
 
+#[cfg(feature = "replicas")]
+async fn process_deferred_reconnect(
+  inner: &RefCount<ClientInner>,
+  router: &mut Router,
+  server: Option<Server>,
+  replica: bool,
+) -> Result<(), Error> {
+  Box::pin(process_replica_reconnect(inner, router, server, false, None, replica)).await
+}
+
+#[cfg(not(feature = "replicas"))]
+async fn process_deferred_reconnect(
+  inner: &RefCount<ClientInner>,
+  router: &mut Router,
+  server: Option<Server>,
+  _replica: bool,
+) -> Result<(), Error> {
+  Box::pin(process_reconnect(inner, router, server, false, None)).await
+}
+
+/// Reconnect to the servers whose connections failed while processing the previous command or response, or while
+/// replaying commands on a new connection.
+async fn process_pending_reconnections(inner: &RefCount<ClientInner>, router: &mut Router) -> Result<(), Error> {
+  // reconnecting can defer more reconnections, which would otherwise wait for the next command or frame
+  while !router.pending_reconnection.is_empty() {
+    // reconnect to all servers first so that the remaining per-server reconnections can be skipped
+    let mut pending: Vec<_> = mem::take(&mut router.pending_reconnection).into_iter().collect();
+    pending.sort_by_key(|(server, _)| matches!(server, ReconnectServer::One(_)));
+
+    for (server, replica) in pending {
+      let server = match server {
+        ReconnectServer::All => None,
+        ReconnectServer::One(server) => Some(server),
+      };
+      _debug!(inner, "Processing deferred reconnection to {:?}", server);
+      process_deferred_reconnect(inner, router, server, replica).await?;
+    }
+  }
+
+  Ok(())
+}
+
 /// Try to read frames from any socket, otherwise try to write the next command.
 async fn read_or_write(
   inner: &RefCount<ClientInner>,
   router: &mut Router,
   rx: &mut CommandReceiver,
 ) -> Result<(), Error> {
+  process_pending_reconnections(inner, router).await?;
+
   if inner.connection.unresponsive.max_timeout.is_some() {
     let sleep_ft = sleep(inner.connection.unresponsive.interval);
     pin!(sleep_ft);
@@ -497,6 +545,7 @@ async fn read_or_write(
 async fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
   while let Some(command) = rx.try_recv().await {
     _warn!(inner, "Skip command with canceled error after calling quit.");
+    inner.counters.decr_cmd_buffer_len();
     command.cancel();
   }
 }
@@ -505,7 +554,52 @@ async fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceive
 fn drain_command_rx(inner: &RefCount<ClientInner>, rx: &mut CommandReceiver) {
   while let Ok(command) = rx.try_recv() {
     _warn!(inner, "Skip command with canceled error after calling quit.");
+    inner.counters.decr_cmd_buffer_len();
     command.cancel();
+  }
+}
+
+/// Drains the command receiver if the routing task is dropped before it exits normally, for example when the caller
+/// aborts the connection task. Queued commands would otherwise be dropped without updating the command queue length,
+/// which prevents later commands from being flushed.
+struct CommandReceiverGuard<'a> {
+  inner: &'a RefCount<ClientInner>,
+  rx:    Option<CommandReceiver>,
+}
+
+impl<'a> CommandReceiverGuard<'a> {
+  fn new(inner: &'a RefCount<ClientInner>, rx: CommandReceiver) -> Self {
+    CommandReceiverGuard { inner, rx: Some(rx) }
+  }
+
+  /// Store the receiver back on the client without draining it.
+  fn store(mut self) {
+    if let Some(rx) = self.rx.take() {
+      self.inner.store_command_rx(rx, false);
+    }
+  }
+}
+
+impl Deref for CommandReceiverGuard<'_> {
+  type Target = CommandReceiver;
+
+  fn deref(&self) -> &CommandReceiver {
+    self.rx.as_ref().expect("Command receiver was already stored.")
+  }
+}
+
+impl DerefMut for CommandReceiverGuard<'_> {
+  fn deref_mut(&mut self) -> &mut CommandReceiver {
+    self.rx.as_mut().expect("Command receiver was already stored.")
+  }
+}
+
+#[cfg(not(feature = "glommio"))]
+impl Drop for CommandReceiverGuard<'_> {
+  fn drop(&mut self) {
+    if let Some(mut rx) = self.rx.take() {
+      drain_command_rx(self.inner, &mut rx);
+    }
   }
 }
 
@@ -517,7 +611,7 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   }
 
   let mut rx = match inner.take_command_rx() {
-    Some(rx) => rx,
+    Some(rx) => CommandReceiverGuard::new(inner, rx),
     None => {
       // the `_lock` field on inner synchronizes the getters/setters on the command channel halves, so if this field
       // is None then another task must have set and removed the receiver concurrently.
@@ -546,7 +640,7 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
   };
 
   if let Err(error) = result {
-    inner.store_command_rx(rx, false);
+    rx.store();
     Err(error)
   } else {
     #[cfg(feature = "credential-provider")]
@@ -560,6 +654,7 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
         let _ = router.disconnect_all(inner).await;
 
         if !err.is_canceled() {
+          inner.cas_client_state(ClientState::Connected, ClientState::Disconnected);
           result = Err(err);
         }
         break;
@@ -572,7 +667,7 @@ pub async fn start(inner: &RefCount<ClientInner>) -> Result<(), Error> {
     #[cfg(feature = "credential-provider")]
     inner.abort_credential_refresh_task();
 
-    inner.store_command_rx(rx, false);
+    rx.store();
     result
   }
 }
@@ -773,5 +868,343 @@ mod mocking {
 
     inner.store_command_rx(rx, false);
     result
+  }
+}
+
+#[cfg(all(
+  test,
+  feature = "i-keys",
+  not(any(feature = "glommio", feature = "smol", feature = "monoio"))
+))]
+mod tests {
+  use crate::{
+    clients::Client,
+    error::{Error, ErrorKind},
+    interfaces::{ClientLike, KeysInterface, MetricsInterface},
+    types::{
+      config::{Config, ConnectionConfig, PerformanceConfig, ReconnectPolicy, ServerConfig},
+      ClusterHash,
+      CustomCommand,
+    },
+  };
+  use std::{
+    io,
+    sync::{
+      atomic::{AtomicBool, AtomicUsize, Ordering},
+      Arc,
+      Mutex,
+    },
+    time::Duration,
+  };
+  use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{TcpListener, TcpStream},
+    task::JoinHandle,
+  };
+
+  struct Peer {
+    host:              String,
+    port:              u16,
+    accepted:          Arc<AtomicUsize>,
+    connections:       Arc<Mutex<Vec<JoinHandle<io::Result<()>>>>>,
+    close_on_next_set: Arc<AtomicBool>,
+    listener:          JoinHandle<()>,
+  }
+
+  impl Peer {
+    async fn start() -> Self {
+      let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Failed to bind mock server");
+      let addr = listener.local_addr().expect("Failed to read mock server address");
+      let accepted = Arc::new(AtomicUsize::new(0));
+      let connections = Arc::new(Mutex::new(Vec::new()));
+      let close_on_next_set = Arc::new(AtomicBool::new(false));
+      let listener = tokio::spawn({
+        let (accepted, connections, close_on_next_set) =
+          (accepted.clone(), connections.clone(), close_on_next_set.clone());
+        async move {
+          while let Ok((socket, _)) = listener.accept().await {
+            accepted.fetch_add(1, Ordering::SeqCst);
+            let connection = tokio::spawn(serve(socket, close_on_next_set.clone()));
+            connections.lock().unwrap().push(connection);
+          }
+        }
+      });
+
+      Peer {
+        host: addr.ip().to_string(),
+        port: addr.port(),
+        accepted,
+        connections,
+        close_on_next_set,
+        listener,
+      }
+    }
+
+    fn accepted(&self) -> usize {
+      self.accepted.load(Ordering::SeqCst)
+    }
+
+    fn close_on_next_set(&self) {
+      self.close_on_next_set.store(true, Ordering::SeqCst);
+    }
+
+    /// Abort every connection task, which closes its socket.
+    fn disconnect(&self) {
+      for connection in self.connections.lock().unwrap().drain(..) {
+        connection.abort();
+      }
+    }
+  }
+
+  impl Drop for Peer {
+    fn drop(&mut self) {
+      self.disconnect();
+      self.listener.abort();
+    }
+  }
+
+  async fn serve(socket: TcpStream, close_on_next_set: Arc<AtomicBool>) -> io::Result<()> {
+    let mut socket = BufReader::new(socket);
+    let mut line = String::new();
+    loop {
+      line.clear();
+      if socket.read_line(&mut line).await? == 0 {
+        return Ok(());
+      }
+      let mut command = String::new();
+      for idx in 0 .. resp_len(&line, '*')? {
+        line.clear();
+        socket.read_line(&mut line).await?;
+        let mut arg = vec![0; resp_len(&line, '$')? + 2];
+        socket.read_exact(&mut arg).await?;
+        if idx == 0 {
+          arg.truncate(arg.len() - 2);
+          command = String::from_utf8_lossy(&arg).into_owned();
+          if command == "SET" && close_on_next_set.swap(false, Ordering::SeqCst) {
+            return Ok(());
+          }
+        }
+      }
+
+      let reply: &[u8] = match command.as_str() {
+        "PING" => b"+PONG\r\n",
+        "CLIENT" => b":1\r\n",
+        "INFO" => b"$21\r\nredis_version:7.2.0\r\n\r\n",
+        "GET" => b"$2\r\nok\r\n",
+        _ => b"+OK\r\n",
+      };
+      socket.get_mut().write_all(reply).await?;
+      if command == "STALL" {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+      }
+    }
+  }
+
+  fn resp_len(line: &str, prefix: char) -> io::Result<usize> {
+    line
+      .trim()
+      .strip_prefix(prefix)
+      .and_then(|len| len.parse().ok())
+      .ok_or_else(|| io::Error::other("Unexpected RESP frame."))
+  }
+
+  fn new_client(peer: &Peer, max_command_buffer_len: usize) -> Client {
+    let config = Config {
+      server: ServerConfig::new_centralized(peer.host.clone(), peer.port),
+      ..Default::default()
+    };
+    let perf = PerformanceConfig {
+      default_command_timeout: Duration::from_secs(5),
+      ..Default::default()
+    };
+    let connection = ConnectionConfig {
+      max_command_buffer_len,
+      ..Default::default()
+    };
+
+    Client::new(
+      config,
+      Some(perf),
+      Some(connection),
+      Some(ReconnectPolicy::new_constant(0, 10)),
+    )
+  }
+
+  /// Run a regular `GET`, which is only flushed when no other commands are queued, unlike custom commands.
+  async fn get(client: &Client) -> Result<Option<String>, Error> {
+    client.get("key").await
+  }
+
+  fn spawn_get(client: &Client) -> JoinHandle<Result<Option<String>, Error>> {
+    let client = client.clone();
+    tokio::spawn(async move { get(&client).await })
+  }
+
+  async fn block_routing_task(client: &Client) -> JoinHandle<Result<String, Error>> {
+    let _: String = client
+      .custom(
+        CustomCommand::new("STALL", ClusterHash::FirstKey, false),
+        Vec::<String>::new(),
+      )
+      .await
+      .expect("Failed to run STALL");
+    let blocked = tokio::spawn({
+      let client = client.clone();
+      async move {
+        client
+          .custom::<String, _>(CustomCommand::new("SET", ClusterHash::FirstKey, false), vec![
+            "key".to_owned(),
+            "x".repeat(16 << 20),
+          ])
+          .await
+      }
+    });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    blocked
+  }
+
+  /// Wait for the peer to accept `connections` sockets and for the client to report that it is connected.
+  async fn wait_for_reconnect(peer: &Peer, client: &Client, connections: usize) {
+    for _ in 0 .. 500 {
+      if peer.accepted() >= connections && client.is_connected() {
+        return;
+      }
+      tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+  }
+
+  #[tokio::test]
+  async fn should_decrement_queue_len_after_backpressure() {
+    let peer = Peer::start().await;
+    let client = new_client(&peer, 2);
+    // fill the queue before the routing task starts so that the third command is rejected
+    let queued = [spawn_get(&client), spawn_get(&client)];
+    tokio::task::yield_now().await;
+    let rejected = get(&client).await;
+    assert_eq!(rejected.map_err(|e| e.kind().clone()), Err(ErrorKind::Backpressure));
+
+    let _task = client.connect();
+    client.wait_for_connect().await.expect("Failed to connect");
+    for handle in queued {
+      let value = handle.await.expect("Failed to join").expect("Failed to run queued GET");
+      assert_eq!(value.as_deref(), Some("ok"));
+    }
+    assert_eq!(client.command_queue_len(), 0);
+    // a lone command must be flushed without another command queued behind it
+    let value = get(&client).await.expect("Failed to run GET after backpressure");
+    assert_eq!(value.as_deref(), Some("ok"));
+  }
+
+  #[tokio::test]
+  async fn should_reconnect_with_full_command_queue() {
+    let peer = Peer::start().await;
+    let client = new_client(&peer, 2);
+    let task = client.connect();
+    client.wait_for_connect().await.expect("Failed to connect");
+
+    // the write blocks the routing task while two more commands fill the queue
+    let blocked = block_routing_task(&client).await;
+    let queued = [spawn_get(&client), spawn_get(&client)];
+    tokio::task::yield_now().await;
+
+    peer.disconnect();
+    wait_for_reconnect(&peer, &client, 2).await;
+
+    assert!(!task.is_finished(), "The routing task should survive the disconnect.");
+    assert!(peer.accepted() >= 2, "The client should reconnect.");
+    let value = get(&client).await.expect("Failed to run GET after reconnecting");
+    assert_eq!(value.as_deref(), Some("ok"));
+    for handle in queued {
+      assert!(
+        handle.await.expect("Failed to join").is_ok(),
+        "Queued commands should finish after reconnecting."
+      );
+    }
+    assert!(
+      blocked.await.expect("Failed to join").is_ok(),
+      "The interrupted write should be retried after reconnecting."
+    );
+    assert_eq!(client.command_queue_len(), 0);
+  }
+
+  #[tokio::test]
+  async fn should_reconnect_when_replayed_command_fails() {
+    let peer = Peer::start().await;
+    let client = new_client(&peer, 10);
+    let task = client.connect();
+    client.wait_for_connect().await.expect("Failed to connect");
+
+    // the blocked SET is replayed on the next connection, which the peer closes as soon as the command arrives
+    let _replayed = block_routing_task(&client).await;
+    peer.close_on_next_set();
+    peer.disconnect();
+    wait_for_reconnect(&peer, &client, 3).await;
+
+    assert!(
+      !task.is_finished(),
+      "The routing task should survive the failed replay."
+    );
+    assert!(
+      peer.accepted() >= 3,
+      "The client should reconnect again without waiting for another command."
+    );
+    let value = get(&client).await.expect("Failed to run GET after reconnecting");
+    assert_eq!(value.as_deref(), Some("ok"));
+  }
+
+  #[tokio::test]
+  async fn should_decrement_queue_len_when_quitting() {
+    let peer = Peer::start().await;
+    let client = new_client(&peer, 10);
+    let task = client.connect();
+    client.wait_for_connect().await.expect("Failed to connect");
+
+    // the GET is queued behind QUIT, so the routing task cancels it instead of sending it
+    let quit = tokio::spawn({
+      let client = client.clone();
+      async move { client.quit().await }
+    });
+    let canceled = spawn_get(&client);
+    let _ = quit.await.expect("Failed to join");
+
+    assert!(canceled.await.expect("Failed to join").is_err());
+    assert!(task.await.expect("Failed to join").is_ok());
+    assert_eq!(client.command_queue_len(), 0);
+
+    let _task = client.connect();
+    client.wait_for_connect().await.expect("Failed to reconnect");
+    let value = get(&client).await.expect("Failed to run GET after quitting");
+    assert_eq!(value.as_deref(), Some("ok"));
+  }
+
+  #[tokio::test]
+  async fn should_decrement_queue_len_when_aborted() {
+    let peer = Peer::start().await;
+    let client = new_client(&peer, 10);
+    let task = client.connect();
+    client.wait_for_connect().await.expect("Failed to connect");
+
+    // abort the routing task while it is blocked with commands queued behind the blocking write
+    let blocked = block_routing_task(&client).await;
+    let queued = [spawn_get(&client), spawn_get(&client)];
+    tokio::task::yield_now().await;
+    task.abort();
+    assert!(task
+      .await
+      .expect_err("The routing task should be aborted.")
+      .is_cancelled());
+
+    assert!(blocked.await.expect("Failed to join").is_err());
+    for handle in queued {
+      assert!(handle.await.expect("Failed to join").is_err());
+    }
+    assert_eq!(client.command_queue_len(), 0);
+    // a lone command must be flushed after reconnecting
+    let _task = client.connect();
+    client.wait_for_connect().await.expect("Failed to reconnect");
+    let value = get(&client).await.expect("Failed to run GET after aborting");
+    assert_eq!(value.as_deref(), Some("ok"));
   }
 }

@@ -1,3 +1,10 @@
+## 10.1.1
+
+* Fix `command_queue_len` accounting after backpressure errors and when the routing task ends or is aborted, which could prevent commands from being flushed
+* Fix reconnections being dropped when the command queue is full, or delayed after a replayed command fails on the new connection
+* Fix buffered commands being replayed in a loop when the new connection fails while they are replayed
+* Set the client state to `Disconnected` when the routing task ends with an error
+
 ## 10.1.0
 
 * Add `DynamicPool` interface

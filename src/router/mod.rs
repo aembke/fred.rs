@@ -28,8 +28,10 @@ use crate::{
 use futures::future::join_all;
 #[cfg(feature = "replicas")]
 use futures::future::try_join;
+#[cfg(feature = "replicas")]
+use std::collections::HashSet;
 use std::{
-  collections::{HashSet, VecDeque},
+  collections::{HashMap, VecDeque},
   future::pending,
   hash::{Hash, Hasher},
 };
@@ -59,8 +61,9 @@ pub struct Router {
   pub connections:          Connections,
   /// Storage for commands that should be deferred or retried later.
   pub retry_buffer:         VecDeque<Command>,
-  /// A set to dedup pending reconnection commands.
-  pub pending_reconnection: HashSet<ReconnectServer>,
+  /// Reconnections deferred by the routing task, mapped to whether each one only needs to sync replica
+  /// connections.
+  pub pending_reconnection: HashMap<ReconnectServer, bool>,
   /// The replica routing interface.
   #[cfg(feature = "replicas")]
   pub replicas:             Replicas,
@@ -79,7 +82,7 @@ impl Router {
 
     Router {
       retry_buffer: VecDeque::new(),
-      pending_reconnection: HashSet::new(),
+      pending_reconnection: HashMap::new(),
       connections,
       #[cfg(feature = "replicas")]
       replicas: Replicas::new(),
@@ -99,12 +102,12 @@ impl Router {
   pub fn has_pending_reconnection(&self, server: &Option<&Server>) -> bool {
     match server {
       Some(server) => {
-        self.pending_reconnection.contains(&ReconnectServer::All)
+        self.pending_reconnection.contains_key(&ReconnectServer::All)
           || self
             .pending_reconnection
-            .contains(&ReconnectServer::One((*server).clone()))
+            .contains_key(&ReconnectServer::One((*server).clone()))
       },
-      None => self.pending_reconnection.contains(&ReconnectServer::All),
+      None => self.pending_reconnection.contains_key(&ReconnectServer::All),
     }
   }
 
@@ -370,7 +373,11 @@ impl Router {
       self.retry_buffer.extend(commands);
     }
 
-    while let Some(command) = self.retry_buffer.pop_front() {
+    for _ in 0 .. self.retry_buffer.len() {
+      let command = match self.retry_buffer.pop_front() {
+        Some(command) => command,
+        None => break,
+      };
       if client_utils::read_bool_atomic(&command.timed_out) {
         _debug!(
           inner,

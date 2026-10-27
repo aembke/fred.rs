@@ -798,12 +798,15 @@ impl ClientInner {
       match v {
         TrySendError::Closed(c) => Err(c),
         TrySendError::Full(c) => match c {
+          // `send_to_router` counted these commands, but they never reach the queue
           RouterCommand::Command(mut cmd) => {
+            self.counters.decr_cmd_buffer_len();
             trace::backpressure_event(&cmd, None);
             cmd.respond_to_caller(Err(Error::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
+            self.counters.decr_cmd_buffer_len();
             if let Some(mut cmd) = commands.pop() {
               cmd.respond_to_caller(Err(Error::new_backpressure()));
             }
@@ -811,6 +814,7 @@ impl ClientInner {
           },
           #[cfg(feature = "transactions")]
           RouterCommand::Transaction { tx, .. } => {
+            self.counters.decr_cmd_buffer_len();
             let _ = tx.send(Err(Error::new_backpressure()));
             Ok(())
           },
@@ -830,12 +834,15 @@ impl ClientInner {
       match e {
         GlommioError::Closed(ResourceType::Channel(v)) => Err(v),
         GlommioError::WouldBlock(ResourceType::Channel(v)) => match v {
+          // `send_to_router` counted these commands, but they never reach the queue
           RouterCommand::Command(mut cmd) => {
+            self.counters.decr_cmd_buffer_len();
             trace::backpressure_event(&cmd, None);
             cmd.respond_to_caller(Err(Error::new_backpressure()));
             Ok(())
           },
           RouterCommand::Pipeline { mut commands, .. } => {
+            self.counters.decr_cmd_buffer_len();
             if let Some(mut cmd) = commands.pop() {
               cmd.respond_to_caller(Err(Error::new_backpressure()));
             }
@@ -843,6 +850,7 @@ impl ClientInner {
           },
           #[cfg(feature = "transactions")]
           RouterCommand::Transaction { tx, .. } => {
+            self.counters.decr_cmd_buffer_len();
             let _ = tx.send(Err(Error::new_backpressure()));
             Ok(())
           },
